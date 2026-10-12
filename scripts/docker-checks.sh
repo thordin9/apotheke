@@ -13,8 +13,10 @@ hdr() { curl -s -D - -o /dev/null "${@:2}" | tr -d '\r' | awk -v h="$1" 'BEGIN{I
 check "front controller"              200 "$(code "$base/")"
 check "healthz"                       200 "$(code "$base/healthz")"
 check "unknown route -> app 404"      404 "$(code "$base/no/such/page")"
-check "/index.php runs the app"       200 "$(code "$base/index.php")"
-check "other .php never executed"     404 "$(code "$base/assets/../../src/bootstrap.php" --path-as-is)"
+# /index.php is handled by the app's router (which has no such route), exactly as under Apache
+check "/index.php reaches the app"    1 "$(curl -s "$base/index.php" | grep -c 'Back to catalog')"
+r=$(code "$base/assets/../../src/bootstrap.php" --path-as-is)
+check "path traversal never executes" 1 "$([[ $r == 400 || $r == 404 ]] && echo 1 || echo "$r")"
 check "src/ blocked"                  404 "$(code "$base/src/bootstrap.php")"
 check "migrations/ blocked"           404 "$(code "$base/migrations/0001_initial_schema.php")"
 check "config.php blocked"            404 "$(code "$base/config.php")"
