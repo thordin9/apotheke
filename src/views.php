@@ -130,6 +130,7 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<div class="chips">' . $chips . '</div>'
         . ($min !== null ? low_badge_html() : '')
         . lend_badge_html($it)
+        . expiry_badge_html($it)
         . '<div class="qty" data-id="' . $id . '">'
         . '<button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"' . ($q <= 0 ? ' disabled' : '') . '>' . icon('minus') . '</button>'
         . '<output class="qval">' . $q . '</output>'
@@ -141,6 +142,16 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
 function low_badge_html(): string
 {
     return '<span class="lowbadge" role="status">' . icon('alert') . ' Running low</span>';
+}
+
+/** "Expired" / "Expires in 5 days" badge, or ''. */
+function expiry_badge_html(array $it): string
+{
+    $st = expiry_state($it);
+    if ($st === '') return '';
+    $n = expiry_days((string)$it['expires_on']);
+    $txt = $st === 'expired' ? 'Expired' : ($n === 0 ? 'Expires today' : 'Expires in ' . $n . ' day' . ($n === 1 ? '' : 's'));
+    return '<span class="expbadge is-' . $st . '">' . icon($st === 'expired' ? 'alert' : 'clock') . ' ' . $txt . '</span>';
 }
 
 /** "Lent to X" / "Overdue" badge, or ''. */
@@ -321,6 +332,7 @@ function menu_html(): string
     $o .= '</div></form>'
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
+        . '<a class="menu-item" href="/barcode" role="menuitem">' . icon('search') . ' Find by barcode</a>'
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
@@ -334,21 +346,19 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + (($f['stock'] ?? '') !== '' ? 1 : 0) + (($f['lend'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return count(array_filter(filters_norm($f), fn($v) => $v !== '')) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
-
-const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
 
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
-    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
+    $f = filters_norm($f);
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
         foreach ($list as $l) if ((string)$l['id'] === $v) return (string)($l['path'] ?? $l['name']);
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = list_query(is_string($_GET['q'] ?? null) ? $_GET['q'] : '', $f, $sort);
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -361,8 +371,11 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
         foreach ($tags ?? tags_all() as $t) if ((string)$t['id'] === $f['tag']) $tn = (string)$t['name'];
         $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
     }
-    if ($f['stock'] === 'low') $o .= '<a class="achip chip-low" href="' . h($href('stock')) . '" data-clear="stock" aria-label="Remove running-low filter">' . icon('alert') . '<span>Running low</span>' . icon('x') . '</a>';
-    if ($f['lend'] !== '') $o .= '<a class="achip chip-lend" href="' . h($href('lend')) . '" data-clear="lend" aria-label="Remove lending filter">' . icon('handoff') . '<span>' . ($f['lend'] === 'overdue' ? 'Overdue' : 'Lent out') . '</span>' . icon('x') . '</a>';
+    foreach (list_filter_defs() as $k => $d) {
+        if ($f[$k] === '') continue;
+        $o .= '<a class="achip ' . $d['class'] . '" href="' . h($href($k)) . '" data-clear="' . $k . '" aria-label="Remove ' . h($d['what']) . '">'
+            . icon($d['icon']) . '<span>' . h($d['opts'][$f[$k]]) . '</span>' . icon('x') . '</a>';
+    }
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -398,8 +411,9 @@ function svg_bars(array $series, string $label): string
 }
 
 /** Horizontal "top N" bars (HTML rows + tiny SVG bar each); labels filter the list by $param. */
-function hbars(array $rows, string $param, string $empty): string
+function hbars(array $rows, string $param, string $empty, ?callable $fmt = null): string
 {
+    $fmt ??= fn(int $v): string => (string)$v;
     if (!$rows) return '<p class="st-empty">' . h($empty) . '</p>';
     $max = max(1, ...array_map(fn($r) => (int)$r['n'], $rows));
     $o = '<ul class="hbars">';
@@ -411,7 +425,7 @@ function hbars(array $rows, string $param, string $empty): string
             : '<span>' . $name . '</span>';
         $o .= '<li class="' . (!empty($r['other']) || $r['id'] === 'none' ? 'muted' : '') . '"><span class="hb-name">' . $label . '</span>'
             . '<svg class="hb-bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="hb-track" width="100" height="10" rx="5"/><rect class="hb-fill" width="' . max(2, $pct) . '" height="10" rx="5"/></svg>'
-            . '<span class="hb-n">' . (int)$r['n'] . '</span></li>';
+            . '<span class="hb-n">' . h($fmt((int)$r['n'])) . '</span></li>';
     }
     return $o . '</ul>';
 }
@@ -425,7 +439,9 @@ function stats_body_html(): string
     ];
     $o = '<div class="tiles">';
     foreach ($tiles as [$k, $v]) $o .= '<div class="tile"><b>' . number_format($v) . '</b><span>' . h($k) . '</span></div>';
-    $o .= '<a class="tile tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-stock="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
+    $o .= '<a class="tile tile-link tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-fk="stock" data-fv="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
+    $o .= '<a class="tile tile-link tile-exp' . ($t['expiring'] > 0 ? ' has-exp' : '') . '" href="/?exp=soon" data-fk="exp" data-fv="soon" id="tile-expiring"><b>' . number_format($t['expiring']) . '</b><span>Expiring soon</span></a>';
+    $o .= '<a class="tile tile-link tile-expired' . ($t['expired'] > 0 ? ' has-expired' : '') . '" href="/?exp=expired" data-fk="exp" data-fv="expired" id="tile-expired"><b>' . number_format($t['expired']) . '</b><span>Expired</span></a>';
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
@@ -436,10 +452,22 @@ function stats_body_html(): string
         . '<div class="chart-d">' . svg_bars($days, 'Items added per day, last 30 days') . '<p class="st-sub">' . array_sum(array_column($days, 'n')) . ' in the last 30 days · peak ' . max(array_column($days, 'n')) . '/day</p></div>'
         . '<div class="chart-m">' . svg_bars($months, 'Items added per month, last 12 months') . '<p class="st-sub">' . array_sum(array_column($months, 'n')) . ' in the last 12 months · peak ' . max(array_column($months, 'n')) . '/month</p></div>'
         . '</section>';
+    $val = stats_value(5);
+    if ($val['priced'] > 0) {
+        $money = fn(int $c): string => fmt_money($c);
+        $o .= '<section class="st-card st-wide st-value" id="st-value"><div class="st-head"><h3>Value</h3>'
+            . '<a class="st-link" href="/?sort=value">Most valuable</a></div>'
+            . '<p class="st-total"><b id="value-total">' . h(fmt_money($val['total'])) . '</b> <span class="st-sub">total purchase price of '
+            . number_format($val['priced']) . ' item' . ($val['priced'] === 1 ? '' : 's') . ' with a price</span></p>'
+            . '<div class="st-value-grid"><div><h4>By location</h4>' . hbars($val['by_location'], 'loc', 'No prices yet.', $money) . '</div>'
+            . '<div><h4>By category</h4>' . hbars($val['by_category'], 'cat', 'No prices yet.', $money) . '</div></div></section>';
+    }
     foreach (KINDS as $kind) {
         $k = tax($kind);
         $o .= '<section class="st-card st-' . $kind . '"><div class="st-head"><h3>By ' . h($k['one']) . '</h3><a class="st-link" href="' . $k['path'] . '">All</a></div>'
-            . hbars(stats_by($kind, 5), $k['param'], 'No items yet.') . '</section>';
+            . hbars(stats_by($kind, 5), $k['param'], 'No items yet.')
+            . ($kind === 'location' && locations_nested() ? '<p class="st-sub" id="st-rollup">Top-level locations, counting everything inside them</p>' : '')
+            . '</section>';
     }
     return $o;
 }
@@ -478,11 +506,11 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
     page_start('', $select ? 'page-select' : '');
-    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
-    $qs = array_filter(['q' => $q, 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '');
+    $f = filters_norm($f);
+    $qs = list_query($q, $f, $sort);
     $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
     $selHref = '/?' . http_build_query($qs + ['select' => '1']);
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== '';
+    $filtered = $q !== '' || filters_active($f);
     $tags = tags_all();
     ?>
 <header class="top">
@@ -514,17 +542,13 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
             <?php endforeach; ?>
           </select></label>
           <?php endif; ?>
-          <label class="field"><span>Stock</span>
-          <select name="stock" id="stock">
-            <option value="">All items</option>
-            <option value="low"<?= $f['stock'] === 'low' ? ' selected' : '' ?>>Running low</option>
+          <?php foreach (list_filter_defs() as $k => $d): ?>
+          <label class="field"><span><?= h($d['label']) ?></span>
+          <select name="<?= $k ?>" id="<?= $k ?>" data-filter>
+            <option value=""><?= h($d['all']) ?></option>
+            <?php foreach ($d['opts'] as $v => $lbl): ?><option value="<?= h($v) ?>"<?= $f[$k] === $v ? ' selected' : '' ?>><?= h($lbl) ?></option><?php endforeach; ?>
           </select></label>
-          <label class="field"><span>Lending</span>
-          <select name="lend" id="lend">
-            <option value="">All items</option>
-            <option value="out"<?= $f['lend'] === 'out' ? ' selected' : '' ?>>Lent out</option>
-            <option value="overdue"<?= $f['lend'] === 'overdue' ? ' selected' : '' ?>>Overdue</option>
-          </select></label>
+          <?php endforeach; ?>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
             <?php foreach (SORTS as $k => $v): ?>
@@ -541,6 +565,21 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
       <?php if ($select): ?><input type="hidden" name="select" value="1"><?php endif; ?>
       <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats, $tags) ?></div>
     </div>
+    <?php $curQuery = http_build_query($qs); ?>
+    <div class="saved-row" id="saved-row">
+      <div class="saved-chips" id="saved-chips"><?= saved_filters_html(saved_filters(), $curQuery) ?></div>
+      <details class="savefilter" id="savefilter"<?= $curQuery === '' ? ' hidden' : '' ?>>
+        <summary class="btn btn-sm" id="savefilter-open"><?= icon('star') ?> Save filter</summary>
+        <div class="savefilter-form">
+          <input type="text" name="name" id="sf-name" form="sf-form" maxlength="60" required autocomplete="off" enterkeyhint="done" placeholder="Name, e.g. Garage tools" aria-label="Name of the saved filter">
+          <button class="btn btn-primary" form="sf-form" id="sf-save">Save</button>
+        </div>
+      </details>
+    </div>
+  </form>
+  <form method="post" action="/filters" id="sf-form" class="vh-form">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <?php foreach ($qs as $k => $v): ?><input type="hidden" name="<?= h($k) ?>" value="<?= h((string)$v) ?>" data-sf><?php endforeach; ?>
   </form>
 </header>
 <main class="wrap">
@@ -629,10 +668,10 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
   </ul>
   <?php endif; ?>
-  <?php $facts = array_filter(['Value' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php $facts = array_filter(['Price' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? ''), 'Barcode' => (string)($it['barcode'] ?? '')], fn($v) => $v !== ''); ?>
   <?php if ($facts): ?>
   <dl class="facts" id="facts">
-    <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?></dd></div><?php endforeach; ?>
+    <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?><?= $k === 'Expires' ? ' ' . expiry_badge_html($it) : '' ?></dd></div><?php endforeach; ?>
   </dl>
   <?php endif; ?>
   <?php if (trim($it['notes']) !== ''): ?>
@@ -785,11 +824,11 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       <input type="text" name="tags" id="tags" value="<?= h($vals['tags'] ?? '') ?>" maxlength="2000" autocomplete="off" autocapitalize="none" list="tag-list" placeholder="e.g. garage, warranty">
     </label>
     <datalist id="tag-list"><?php foreach (tags_all() as $t): ?><option value="<?= h($t['name']) ?>"></option><?php endforeach; ?></datalist>
-    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
-      <summary>Value, purchase date &amp; serial</summary>
+    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['expires_on'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' || ($vals['barcode'] ?? '') !== '' ? ' open' : '' ?>>
+      <summary>Price, dates, serial &amp; barcode</summary>
       <div class="more-grid">
         <label class="field">
-          <span>Value <em><?= h(cfg()['currency']) ?></em></span>
+          <span>Purchase price <em><?= h(cfg()['currency']) ?></em></span>
           <input type="text" name="value" id="value" value="<?= h($vals['value'] ?? '') ?>" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="0.00">
         </label>
         <label class="field">
@@ -797,9 +836,20 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
           <input type="date" name="purchase_date" id="purchase_date" value="<?= h($vals['purchase_date'] ?? '') ?>" max="<?= date('Y-m-d', app_time()) ?>">
         </label>
         <label class="field">
+          <span>Expires / warranty until</span>
+          <input type="date" name="expires_on" id="expires_on" value="<?= h($vals['expires_on'] ?? '') ?>" min="1900-01-01" max="2999-12-31">
+        </label>
+        <label class="field">
           <span>Serial number</span>
           <input type="text" name="serial" id="serial" value="<?= h($vals['serial'] ?? '') ?>" maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false">
         </label>
+        <div class="field">
+          <label class="field-l" for="barcode">Barcode</label>
+          <div class="scanrow">
+            <input type="text" name="barcode" id="barcode" value="<?= h($vals['barcode'] ?? '') ?>" maxlength="<?= BARCODE_MAX ?>" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
+            <button type="button" class="btn" data-scan="#barcode" hidden><?= icon('qr') ?> Scan</button>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -815,6 +865,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
 </main>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <?php
+    echo scan_dialog_html();
     page_end();
 }
 
@@ -933,6 +984,127 @@ function parent_options(array $list, ?int $self, ?int $cur): string
     return $o;
 }
 
+/** Barcode lookup: type (or scan, where the browser supports it) a code and go to its item or a prefilled new item. */
+function view_barcode(): void
+{
+    page_start('Barcode', 'page-barcode');
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Find by barcode</h1>
+    <?= menu_html() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <form method="get" action="/barcode" class="barcode-form" id="barcode-form">
+    <div class="field">
+      <label class="field-l" for="code">Barcode</label>
+      <div class="scanrow">
+        <input type="text" name="code" id="code" required maxlength="<?= BARCODE_MAX ?>" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" placeholder="e.g. 4006381333931">
+        <button type="button" class="btn" data-scan="#code" data-scan-submit hidden><?= icon('qr') ?> Scan</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-wide" id="code-go"><?= icon('search') ?> Look up</button>
+  </form>
+  <p class="hint" id="scan-hint">Type the digits under the barcode. If one item has this barcode it opens; if none does, a new item is started with the code filled in.</p>
+</main>
+<?= scan_dialog_html() ?>
+<?php
+    page_end();
+}
+
+/** The camera dialog used by the Scan buttons (only shown where BarcodeDetector exists). */
+function scan_dialog_html(): string
+{
+    return '<dialog class="scan" id="scan-dialog" aria-label="Scan a barcode">'
+        . '<video id="scan-video" playsinline muted></video>'
+        . '<p class="scan-msg" id="scan-msg">Point the camera at a barcode</p>'
+        . '<button type="button" class="btn btn-wide" id="scan-cancel">Cancel – type it instead</button></dialog>';
+}
+
+/** Chips for the saved filters on the list page; the one matching the current view is highlighted. */
+function saved_filters_html(array $list, string $current): string
+{
+    if (!$list) return '';
+    $o = '';
+    foreach ($list as $sf) {
+        $on = $sf['query'] === $current;
+        $o .= '<a class="achip sfchip' . ($on ? ' is-on' : '') . '" href="/?' . h($sf['query']) . '" data-query="' . h($sf['query']) . '"'
+            . ($on ? ' aria-current="true"' : '') . '>' . icon('star') . '<span>' . h($sf['name']) . '</span></a>';
+    }
+    return $o . '<a class="achip sfchip-manage" href="/filters" aria-label="Manage saved filters">' . icon('edit') . '<span>Edit</span></a>';
+}
+
+/** Saved filters: open, rename, delete. */
+function view_saved_filters(array $list, ?string $error, ?string $toast): void
+{
+    page_start('Saved filters', 'page-locs');
+    $tok = h(csrf_token());
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Saved filters</h1>
+    <?= menu_html() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <div class="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
+  <p class="hint">Set up a search, filters and sort on the list, then tap <b>Save filter</b>. Saved filters appear as chips above the list.</p>
+  <?php if (!$list): ?>
+  <div class="empty"><?= icon('star') ?><p>No saved filters yet.</p><a class="btn" href="/">Go to the list</a></div>
+  <?php else: ?>
+  <ul class="loclist" id="sflist">
+    <?php foreach ($list as $sf): ?>
+    <li class="loc" id="sf-<?= $sf['id'] ?>">
+      <div class="loc-main sf-main">
+        <a class="loc-name" href="/?<?= h($sf['query']) ?>"><?= h($sf['name']) ?></a>
+        <span class="loc-count sf-desc"><?= h(saved_filter_describe($sf['query'])) ?></span>
+      </div>
+      <details class="loc-more">
+        <summary><?= icon('edit') ?> Edit</summary>
+        <div class="loc-actions">
+          <form method="post" action="/filters/<?= $sf['id'] ?>/rename" class="loc-rename">
+            <input type="hidden" name="csrf" value="<?= $tok ?>">
+            <input type="text" name="name" value="<?= h($sf['name']) ?>" required maxlength="60" autocomplete="off" aria-label="Rename “<?= h($sf['name']) ?>”">
+            <button class="btn">Rename</button>
+          </form>
+          <div class="loc-btns">
+            <form method="post" action="/filters/<?= $sf['id'] ?>/delete" data-confirm="Delete the saved filter “<?= h($sf['name']) ?>”?">
+              <input type="hidden" name="csrf" value="<?= $tok ?>">
+              <button class="btn btn-danger"><?= icon('trash') ?> Delete</button>
+            </form>
+          </div>
+        </div>
+      </details>
+    </li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+</main>
+<?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
+<?php
+    page_end();
+}
+
+/** Short human description of a saved query: "“drill” · Garage · Tools · Running low · sorted by Name". */
+function saved_filter_describe(string $query): string
+{
+    parse_str($query, $p);
+    $f = filters_from($p);
+    $parts = [];
+    if (($p['q'] ?? '') !== '') $parts[] = '“' . $p['q'] . '”';
+    foreach (['loc' => 'location', 'cat' => 'category'] as $k => $kind) {
+        if ($f[$k] === 'none') $parts[] = tax($kind)['none'];
+        elseif ($f[$k] !== '') $parts[] = $kind === 'location' ? (location_path((int)$f[$k]) ?: '?') : (string)(tax_get($kind, (int)$f[$k])['name'] ?? '?');
+    }
+    if ($f['tag'] !== '') foreach (tags_all() as $t) if ((string)$t['id'] === $f['tag']) $parts[] = '#' . $t['name'];
+    foreach (list_filter_defs() as $k => $d) if ($f[$k] !== '') $parts[] = $d['opts'][$f[$k]];
+    if (isset($p['sort']) && is_string($p['sort']) && isset(SORTS[$p['sort']])) $parts[] = 'sorted by ' . SORTS[$p['sort']];
+    return implode(' · ', $parts);
+}
+
 function view_tax_delete(string $kind, array $entry, array $others): void
 {
     $t = tax($kind);
@@ -1016,7 +1188,7 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
-const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Purchase price', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'barcode' => 'Barcode', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
 /** One activity entry as HTML (already escaped). */
 function activity_html(array $e): string

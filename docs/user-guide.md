@@ -45,18 +45,33 @@ category. It ignores case and accents, Greek included ("πριζα" finds "Πρ�
 | Category | any category, or *No category* |
 | Tag | any tag in use (with its count) |
 | Stock | *All items* / *Running low* |
+| Expiry / warranty | *All items* / *Expiring soon* / *Expired* |
 | Lending | *All items* / *Lent out* / *Overdue* |
-| Sort by | Recently added, Name, Location, Category, Quantity |
+| Sort by | Recently added, Name, Location, Category, Quantity, Value (highest first; items without a price last) |
 
 Active filters appear as chips under the search field; tap a chip's × to remove it, or *Clear all*. The badge on the
 *Filter* button counts the active filters. Everything lives in the URL (`/?q=drill&loc=3&tag=5&stock=low&lend=out&sort=name`),
 so you can bookmark a filtered view.
 
+### Saved filters
+
+Once a search, filter or sort is active, a **★ Save filter** button appears above the list. Give the combination a
+name (for example *Garage tools* or *Medicine expiring soon*) and tap *Save*. Saved filters show as chips above the
+list: tap one to apply it again; the chip of the view you are looking at is highlighted. *Edit* (or `/filters`) lists
+them with a short description, where you can **rename** or **delete** them. Names are unique (ignoring case and
+accents) and you can keep up to 50. A saved filter stores the search words, filters and sort, not the results, so it
+always shows the current matches. Saved filters are included in backups.
+
 ## Overview statistics
 
 The collapsible *Overview* panel at the top of the list shows tiles (items, total quantity, locations, categories,
-added this week, added this month, **Running low**), a chart of items added (last 30 days by day or last 12 months by
-month), and the top 5 locations and categories as bars. Tap a bar, or the *Running low* tile, to filter the list. The
+added this week, added this month, **Running low**, **Expiring soon**, **Expired**), a chart of items added (last 30 days by day or last 12 months by
+month), and the top 5 locations and categories as bars. *By location* counts per **top-level** location, including
+everything in its sub-locations, so every item is counted once (under the top of its branch). Tap a bar, or the *Running low*, *Expiring soon* or *Expired* tile, to filter the list. The
+**Value** card (only once at least one item has a purchase price): the total purchase price of all priced items,
+and the totals per top-level location (sub-locations rolled up, like *By location*) and per category, each with a
+*No location* / *No category* bucket. The price is the price of the item entry as entered; it is **not** multiplied
+by the quantity. Items without a price are left out. *Most valuable* opens the list sorted by value. The
 panel remembers whether it was open (cookie) and which range you picked; while it is collapsed the statistics are not
 computed or downloaded at all.
 
@@ -101,8 +116,44 @@ Type tags in the form and press Enter or comma to add them; existing tags are su
 ignoring case and accents, an item can have up to 20, and unused tags disappear automatically. Tag chips on the item
 page link to the list filtered by that tag.
 
-*More fields* holds the **value** (in `CURRENCY`; `79,90` and `79.90` both work), the **purchase date** (not in the
-future) and the **serial number** (searchable). They show up as facts on the item page.
+*Price, dates & serial* holds the **purchase price** (in `CURRENCY`, default EUR; `79,90` and `79.90` both work), the **purchase date** (not in the
+future), the **expiry / warranty date** (see below) and the **serial number** (searchable). They show up as facts on
+the item page.
+
+### Expiry and warranty dates
+
+*Expires / warranty until* is an optional date for anything that runs out: food, medicine, batteries, a warranty.
+
+* **Expiring soon** means the date is today or within the next `EXPIRY_SOON_DAYS` days (default 30, see
+  [Configuration](configuration.md)); the item gets an amber **Expires in N days** (or *Expires today*) badge.
+* **Expired** means the date is before today (in the `TZ` time zone); the badge is red.
+* The overview has *Expiring soon* and *Expired* tiles; tap one to filter. The filter sheet has
+  *Expiry / warranty → Expiring soon / Expired* (`/?exp=soon`, `/?exp=expired`).
+* Changing the date is recorded in the history; the date is included in the CSV export (`expires_on`), backups,
+  duplicates and is kept by bulk actions.
+
+```mermaid
+flowchart LR
+  d{"expires_on"} -- empty --> n["no badge"]
+  d -- "before today" --> e["Expired"]
+  d -- "today … today + N days" --> s["Expires in N days"]
+  d -- later --> n
+```
+
+### Barcodes
+
+Under *Price, dates, serial & barcode* each item can have a **barcode** (the digits under an EAN/UPC barcode, or the
+text of a QR code). Several items may share one, for example two packs of the same batteries.
+
+* **Search** matches barcodes, also partly (`333931` finds `4006381333931`).
+* **☰ → Find by barcode** opens `/barcode`: type the code and tap *Look up*. If one item has it, it opens; if several do,
+  the list shows them; if none does, the *Add item* form opens with the barcode already filled in.
+* **Scan**: where the browser supports the `BarcodeDetector` API (Chrome on Android, Chrome/Edge on macOS) a *Scan* button
+  appears next to the barcode fields and uses the rear camera; the app asks for camera permission the first time. On
+  browsers without it (Safari on iPhone, Firefox) the button is hidden and you type the code instead.
+* Links like `https://your-host/barcode/4006381333931` can be printed or used from another scanner app.
+
+The barcode is part of the CSV export (`barcode` column), backups and the item's history.
 
 ## Locations and categories
 
@@ -133,8 +184,10 @@ A location can sit inside another one: *Garage › Shelf 2 › Box 1024*. Catego
   filtered list.
 * **Deleting** a location only deals with the items *directly* in it (move them or leave them unassigned, as above).
   Its sub-locations, with their items, move up one level into its parent (or to the top level).
-* An item belongs to exactly one location, the innermost one. Search matches the item's own location name, not the
-  names of its parents: to see everything in the garage, filter by *Garage* rather than searching for it.
+* An item belongs to exactly one location, the innermost one.
+* **Search includes parent locations:** a search word matches an item when it appears in the name of the item's
+  location *or of any location above it*, so searching "garage" finds the drill in *Garage › Shelf 2 › Box 1024*.
+* **Overview:** the *By location* bars count per top-level location, including everything below it.
 
 ```mermaid
 flowchart TD
@@ -215,7 +268,7 @@ Entries of deleted items are kept.
 
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,
-serial, min_qty, lent_to, lent_at, lent_due`.
+serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 

@@ -86,6 +86,25 @@ test.describe('visual', () => {
     await shot(page, 'item-nested');
   });
 
+  test('expiry, value, saved filters, barcode', async ({ app, page }) => {
+    app.sql("UPDATE items SET expires_on = '2026-06-25' WHERE id = 2");
+    app.sql("UPDATE items SET expires_on = '2026-05-01' WHERE id = 4");
+    app.sql("UPDATE items SET barcode = '4006381333931' WHERE id = 5");
+    app.sql("INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES ('Expiring soon', 'expiring soon', 'exp=soon', 'expiring soon', '2026-06-15T06:00:00Z'), ('Garage by name', 'garage by name', 'loc=1&sort=name', 'garage by name', '2026-06-15T06:00:00Z')");
+    await app.go('/?exp=soon');
+    await shot(page, 'expiring-saved-filters');
+    await app.go('/');
+    await page.locator('#st-value').scrollIntoViewIfNeeded();
+    await shot(page, 'overview-value');
+    await app.go('/filters');
+    await shot(page, 'saved-filters');
+    await app.go('/barcode');
+    await shot(page, 'barcode');
+    await app.go('/item/5');
+    await page.locator('#facts').scrollIntoViewIfNeeded();
+    await shot(page, 'item-barcode');
+  });
+
   test('error page', async ({ page }) => {
     await page.goto('/nope');
     await shot(page, 'not-found');

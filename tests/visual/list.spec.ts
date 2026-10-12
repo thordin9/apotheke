@@ -36,7 +36,7 @@ test.describe('list, overview and search', () => {
     const stats = page.locator('#stats');
     await expect(stats).toHaveAttribute('open', '');
     const tiles = page.locator('#stats .tile');
-    await expect(tiles).toHaveCount(7);
+    await expect(tiles).toHaveCount(9);
     await expect(tiles.nth(0)).toContainText('8');
     await expect(tiles.nth(1)).toContainText('19');
     await expect(page.locator('.chart-d')).toBeVisible();
@@ -54,7 +54,7 @@ test.describe('list, overview and search', () => {
     await page.reload({ waitUntil: 'networkidle' });
     await expect(stats).not.toHaveAttribute('open', '');
     await page.locator('#stats > summary').click();
-    await expect(page.locator('#stats .tile')).toHaveCount(7);   // lazily loaded again
+    await expect(page.locator("#stats .tile")).toHaveCount(9);   // lazily loaded again
     // tap a bar in "By location" to filter in place
     await page.locator('#stats a[data-loc="3"]').first().click();
     await expect(page.locator('#grid .card')).toHaveCount(2);

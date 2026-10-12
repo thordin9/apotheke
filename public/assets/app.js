@@ -278,12 +278,13 @@
         document.dispatchEvent(new CustomEvent('grid:update', { detail: sp }));
         count.textContent = j.count;
         empty.hidden = j.total > 0;
-        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || ($('#stock') && $('#stock').value) || ($('#lend') && $('#lend').value));
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || [...document.querySelectorAll('#fsheet select[data-filter]')].some(s => s.value));
         $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
         $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
         if (j.chips !== undefined) { achips.innerHTML = j.chips; fcount.textContent = j.nfilters; fcount.hidden = !j.nfilters; }
         more.hidden = !j.more;
+        if (j.query !== undefined) syncSaved(j.query);
         if (!append) { sp.delete('page'); history.replaceState(null, '', '/' + (sp.toString() ? '?' + sp : '')); }
         const nq = new URLSearchParams();
         ['loc', 'cat'].forEach(k => { const v = $('#' + k).value; if (/^\d+$/.test(v)) nq.set(k, v); });
@@ -301,8 +302,7 @@
       if (which === 'all' || which === 'loc') $('#loc').value = '';
       if (which === 'all' || which === 'cat') $('#cat').value = '';
       if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
-      if ((which === 'all' || which === 'stock') && $('#stock')) $('#stock').value = '';
-      if ((which === 'all' || which === 'lend') && $('#lend')) $('#lend').value = '';
+      document.querySelectorAll('#fsheet select[data-filter]').forEach(s => { if (which === 'all' || which === s.name) s.value = ''; });
       if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
       if (which === 'all') q.value = '';
       load(false);
@@ -316,10 +316,44 @@
     });
     more.addEventListener('click', () => load(true));
 
+    // Saved filters: highlight the chip matching the current view; save the current combination.
+    const sfDetails = $('#savefilter'), sfForm = $('#sf-form'), sfChips = $('#saved-chips');
+    function syncSaved(query) {
+      if (sfChips) sfChips.querySelectorAll('a[data-query]').forEach(a => {
+        const on = a.dataset.query === query;
+        a.classList.toggle('is-on', on);
+        if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+      });
+      if (sfDetails) { sfDetails.hidden = query === ''; if (query === '') sfDetails.open = false; }
+    }
+    if (sfForm && sfDetails) {
+      sfDetails.addEventListener('toggle', () => { if (sfDetails.open) $('#sf-name').focus(); });
+      sfForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        sfForm.querySelectorAll('input[data-sf]').forEach(i => i.remove());
+        for (const [k, v] of params(1)) {
+          const i = document.createElement('input');
+          i.type = 'hidden'; i.name = k; i.value = v; i.dataset.sf = '';
+          sfForm.append(i);
+        }
+        const name = $('#sf-name');
+        try {
+          const r = await fetch('/filters', { method: 'POST', body: new FormData(sfForm), headers: { 'X-Requested-With': 'fetch', Accept: 'application/json' }, credentials: 'same-origin' });
+          const j = await r.json();
+          if (!j.ok) { toast(j.error || 'Could not save the filter', true); name.focus(); return; }
+          sfChips.innerHTML = j.html;
+          toast('Saved filter “' + name.value.trim() + '”');
+          name.value = ''; sfDetails.open = false;
+        } catch { toast('Could not save – check your connection', true); }
+      });
+    }
+
     // Tapping a location/category chip (or an Overview bar) filters in place.
     document.addEventListener('click', e => {
-      const lt = e.target.closest('#stats a[data-stock]');
-      if (lt && $('#stock')) { e.preventDefault(); $('#stock').value = 'low'; q.value = ''; load(false); return; }
+      // overview tiles that set one of the choice filters: data-fk="stock" data-fv="low"
+      const lt = e.target.closest('#stats a[data-fk]');
+      const ls = lt && document.querySelector('#fsheet select[data-filter][name="' + lt.dataset.fk + '"]');
+      if (ls) { e.preventDefault(); ls.value = lt.dataset.fv; q.value = ''; load(false); return; }
       const c = e.target.closest('#grid a.chip[data-loc], #stats a[data-loc], #grid a.chip[data-cat], #stats a[data-cat]');
       if (!c) return;
       const k = c.dataset.loc !== undefined ? 'loc' : 'cat';
@@ -527,5 +561,49 @@
     });
     const close = $('#bulk-close'); if (close) close.addEventListener('click', () => { $('#bulksheet').open = false; });
     sync();
+  }
+  /* ---------- barcode scanning (BarcodeDetector where available; otherwise the field is typed) ---------- */
+  const scanBtns = $$('button[data-scan]'), dlg = $('#scan-dialog');
+  if (scanBtns.length && dlg && 'BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof dlg.showModal === 'function') {
+    const video = $('#scan-video'), msg = $('#scan-msg');
+    let stream = null, timer = 0, detector = null;
+    const stop = () => {
+      clearTimeout(timer); timer = 0;
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null; video.srcObject = null;
+      if (dlg.open) dlg.close();
+    };
+    async function scan(btn) {
+      const field = $(btn.dataset.scan);
+      try {
+        if (!detector) detector = new window.BarcodeDetector();
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      } catch {
+        stop(); toast('Camera not available – type the barcode instead', true); field.focus(); return;
+      }
+      msg.textContent = 'Point the camera at a barcode';
+      dlg.showModal();
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      const tick = async () => {
+        if (!stream) return;
+        try {
+          const codes = await detector.detect(video);
+          const code = codes.length ? String(codes[0].rawValue || '').replace(/\s+/g, '') : '';
+          if (code) {
+            stop();
+            field.value = code;
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            if (btn.hasAttribute('data-scan-submit') && field.form) field.form.requestSubmit(); else field.focus();
+            return;
+          }
+        } catch { /* frame not ready yet */ }
+        timer = setTimeout(tick, 200);
+      };
+      tick();
+    }
+    scanBtns.forEach(b => { b.hidden = false; b.addEventListener('click', () => scan(b)); });
+    $('#scan-cancel').addEventListener('click', () => { const f = $(scanBtns[0].dataset.scan); stop(); f.focus(); });
+    dlg.addEventListener('close', stop);
   }
 })();

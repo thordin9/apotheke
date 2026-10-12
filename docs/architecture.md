@@ -71,6 +71,8 @@ Important routes:
 | `POST /item/N/delete` | delete |
 | `/locations…`, `/categories…` | manage lists (add, rename, default, delete with move); `POST /locations/N/parent` moves a location in the tree |
 | `GET /labels`, `GET /item/N/label` | printable QR labels |
+| `GET /barcode`, `GET /barcode/{code}` | barcode lookup page; redirect to the item, the matches (`/?q=`), or `/new?barcode=` |
+| `GET /filters`, `POST /filters`, `POST /filters/N/rename`, `POST /filters/N/delete` | saved filters (manage page, save the current list view, rename, delete) |
 | `GET /activity` | history (all items, or `?item=N`) |
 | `GET /backup`, `GET /backup.zip`, `POST /backup/restore`, `POST /backup/restore/confirm` | backup and restore |
 | `GET /export.csv` | CSV export |
@@ -130,7 +132,9 @@ one query and `location_tree_order()` turns them into tree order (each parent fo
 in natural order), adding `depth`, `path` ("Garage › Shelf 2") and `total` (items including sub-locations). Views use
 that list everywhere: `tax_option_label()` indents dropdown options, `parent_options()` builds the parent picker
 (without the location's own branch), `location_trail_html()` renders the path on the item page. The list filter
-`loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`.
+`loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`. A search word that matches a location name expands the same way
+(`location_ids_matching()`), so items below a matching location are found too. The overview's *By location* bars
+come from `stats_location_rollup()`, which adds every item to the top-level location of its branch. `stats_value()` uses the same rollup for the purchase-price totals of the *Value* card.
 
 ## Docker image
 

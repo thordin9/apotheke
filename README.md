@@ -38,23 +38,25 @@ it works fully offline on your LAN.
 * **Nested locations**: a location can sit inside another one (Garage › Shelf 2 › Box 1024), up to 6 levels below
   a top-level location. Create a location *inside* another on the Locations page, or move it with *Edit → Move*
   (cycles are refused). Lists and pickers show the tree indented, the item page shows the full path with a link
-  per level, and filtering by a location (and its item count) includes everything in its sub-locations. Deleting a
-  location moves its sub-locations up one level. Categories stay flat.
+  per level, and filtering by a location (and its item count) includes everything in its sub-locations. Searching
+  for a location name also finds the items in its sub-locations ("garage" finds the box on the garage shelf).
+  Deleting a location moves its sub-locations up one level. Categories stay flat.
 * **Overview stats** at the top of the list: items, total quantity, locations, categories, added this week/month, a chart of
-  items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars. Tap a bar to filter.
+  items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars (locations are rolled up to the top-level
+  location, counting everything inside it). Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
 * **Instant search** across name, location, category, notes, tags and serial number, ignoring case and accents (Greek
   included).
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
-  and to sort by recent, name, location, category or quantity. Active filters show as removable chips with *Clear all*.
+  and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, reorder, choose the cover,
   delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
   shrunk on the phone before upload (max 1600 px, JPEG ~80 %), then checked and re-encoded with GD on the server (which
   strips EXIF/GPS) with a 480 px thumbnail for the grid.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
-  list), plus value (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
+  list), plus purchase price (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
 * **QR labels** for locations and items: ☰ → *Print QR labels* prints one label per location (or one per item in a location;
   every item page has a *QR label* button). Scanning opens that list or item. Codes are generated on the server in pure PHP
   (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet (3 labels per row on A4/Letter). Set
@@ -76,6 +78,21 @@ it works fully offline on your LAN.
   *Actions* opens a sheet to **move** them to a location, **set the category**, **add tags** or **remove a tag**, or
   **delete** them after a confirmation page. Each action runs in one transaction, writes a history entry per item and is
   CSRF-protected (`POST /bulk`, at most 500 items at once). Works without JavaScript too (`/?select=1`, `&all=1`).
+* **Purchase price and value totals**: an optional purchase price (decimal, `79,90` or `79.90`, in `CURRENCY`,
+  default EUR) and purchase date per item. The overview's *Value* card shows the total purchase price and the
+  totals per location (rolled up to top-level locations) and per category; *Sort by → Value* lists the most valuable
+  items first (items without a price last). Prices are in the CSV export (`value`, `currency`) and backups.
+* **Barcodes**: an optional *Barcode* per item (EAN/UPC or any scanned text; indexed, not strictly unique). Search
+  finds items by (part of) their barcode, and ☰ → *Find by barcode* (`/barcode`) looks a code up: `/barcode/{code}`
+  opens the item with that code, lists the matches if several share it, or starts a new item with the code filled in.
+  Where the browser has the `BarcodeDetector` API (e.g. Chrome on Android) a **Scan** button uses the camera; elsewhere
+  (iPhone Safari, desktop Firefox) you type the code. No external libraries. The barcode is in the CSV, backups and history.
+* **Saved filters**: save the current search + filters + sort under a name (★ *Save filter*); saved filters appear as
+  chips above the list to re-apply in one tap, and `/filters` renames or deletes them. Included in backups.
+* **Expiry and warranty dates**: an optional *Expires / warranty until* date per item (food, medicine, batteries,
+  warranties). Cards and the item page show **Expires in N days** (within `EXPIRY_SOON_DAYS`, default 30) or a red
+  **Expired** badge, the overview has *Expiring soon* and *Expired* tiles, and the filter sheet has *Expiry / warranty →
+  Expiring soon / Expired* (`/?exp=soon`, `/?exp=expired`). The date is in the CSV export, backups and the history.
 * **Lending tracker**: *Lend this item* on the item page records who has it, since when (defaults to today) and an
   optional due date; *Mark as returned* brings it back. Cards show a **Lent · name** or red **Overdue · name** badge
   (overdue = the due date is before today in the `TZ` time zone), the filter sheet has *Lending → Lent out / Overdue*
@@ -85,7 +102,7 @@ it works fully offline on your LAN.
   quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
   photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
   is not copied. The copy's history starts with "Created … copied from “Name”".
-* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`,
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
   Empty means no login, fine on a trusted LAN.
@@ -119,6 +136,10 @@ it works fully offline on your LAN.
 | Duplicate | Nested locations | Location path (dark) |
 |---|---|---|
 | ![Duplicate](docs/screenshots/duplicate-light.png) | ![Location tree](docs/screenshots/locations-tree-light.png) | ![Item in a nested location](docs/screenshots/item-nested-dark.png) |
+
+| Expiring soon + saved filters | Value (dark) | Saved filters | Barcode lookup (dark) | Item barcode |
+|---|---|---|---|---|
+| ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
 
 ## Requirements
 
@@ -227,6 +248,7 @@ compose file never wipes a value from `config.php`.
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
 | `CURRENCY` | `EUR` | Currency shown next to item values (ISO code or symbol). Only a label; no conversion. |
+| `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Set it if you open the app under a different name than your phone will. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
@@ -267,8 +289,9 @@ On first start after an update the database is upgraded automatically (or run `p
     de-duplicated ignoring case and accents) and every item is linked to its location.
   * From the locations-only version, categories are added; existing items start without a category.
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
-* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending) and
-  `0008` (parent location) only add tables/columns.
+* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending),
+  `0008` (parent location) and `0009` (expiry date) only add tables/columns;
+  `0010` only adds an index on the purchase price `0011` adds the `saved_filters` table and `0012` the barcode column.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use

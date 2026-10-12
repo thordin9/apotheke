@@ -41,12 +41,14 @@ erDiagram
     int min_qty "nullable: low-stock level"
     text notes
     text image "cover file = item_photos position 0"
-    bigint value_cents "nullable"
+    bigint value_cents "nullable: purchase price in cents (indexed, 0010)"
     text purchase_date "nullable, Y-m-d"
     text serial
+    text barcode "nullable, indexed (not unique)"
     text lent_to "nullable"
     text lent_at "nullable, Y-m-d"
     text lent_due "nullable, Y-m-d"
+    text expires_on "nullable, Y-m-d (0009)"
     text search "fold(name, notes, serial, tags)"
     text sort_key
     text created_at
@@ -69,6 +71,14 @@ erDiagram
   item_tags {
     int item_id PK
     int tag_id PK
+  }
+  saved_filters {
+    int id PK
+    text name
+    text name_key UK
+    text query "normalised list query string"
+    text sort_key
+    text created_at
   }
   activity {
     int id PK
@@ -98,8 +108,9 @@ Notes:
   its parent before deleting it, so the `ON DELETE SET NULL` only matters for rows changed outside the app. On
   PostgreSQL the foreign key is `DEFERRABLE INITIALLY DEFERRED` so a restore can insert children before their parents
   (SQLite restores use `PRAGMA defer_foreign_keys`). Categories are flat.
-* All timestamps (`created_at`, `updated_at`, `applied_at`) are UTC text `Y-m-d H:i:s`. `purchase_date`, `lent_at`
-  and `lent_due` are calendar dates (`Y-m-d`); "overdue" compares `lent_due` with today's date in `TZ`.
+* All timestamps (`created_at`, `updated_at`, `applied_at`) are UTC text `Y-m-d H:i:s`. `purchase_date`, `lent_at`,
+  `lent_due` and `expires_on` are calendar dates (`Y-m-d`); "overdue" and "expired" compare them with today's date in
+  `TZ`.
 * `name_key`, `items.search` and `sort_key` are computed in PHP (`fold()`, `natkey()`); this keeps uniqueness, search
   and natural sorting identical on both databases without collations or extensions.
 * `items.image` mirrors the cover photo (`item_photos.position = 0`) so the list needs no join.
@@ -108,6 +119,8 @@ Notes:
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
   "due": "…"}` for a loan, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
+* `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
+  e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
 
 ### Migrations so far
 
@@ -121,6 +134,10 @@ Notes:
 | 0006 | `0006_low_stock.php` | `items.min_qty` |
 | 0007 | `0007_lending.php` | `items.lent_to`, `lent_at`, `lent_due` + index on `lent_due` |
 | 0008 | `0008_nested_locations.php` | `locations.parent_id` + index |
+| 0009 | `0009_expiry.php` | `items.expires_on` + index |
+| 0010 | `0010_value_index.php` | index on `items.value_cents` (sort by value, totals) |
+| 0011 | `0011_saved_filters.php` | `saved_filters` (named list views) |
+| 0012 | `0012_barcode.php` | `items.barcode` + index |
 
 ## How migrations run
 

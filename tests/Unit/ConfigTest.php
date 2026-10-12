@@ -34,6 +34,14 @@ final class ConfigTest extends TestCase
         $this->assertTrue($c['seed_defaults']);
         $this->assertSame('', $c['app_password']);
         $this->assertSame('EUR', $c['currency']);
+        $this->assertSame(30, $c['expiry_soon_days']);
+    }
+
+    public function testExpirySoonDaysFromEnvIsClamped(): void
+    {
+        $this->assertSame(7, config_load('/app', null, ['EXPIRY_SOON_DAYS' => '7'])['expiry_soon_days']);
+        $this->assertSame(1, config_load('/app', null, ['EXPIRY_SOON_DAYS' => '-3'])['expiry_soon_days']);
+        $this->assertSame(3650, config_load('/app', null, ['EXPIRY_SOON_DAYS' => '99999'])['expiry_soon_days']);
     }
 
     public function testCurrencyFromEnv(): void

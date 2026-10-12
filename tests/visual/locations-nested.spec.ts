@@ -66,4 +66,27 @@ test.describe('nested locations', () => {
     await expect(page.locator(`#loc-${box}`)).toHaveAttribute('data-depth', '1');
     expect(Number(app.sql(`SELECT COUNT(*) AS n FROM items WHERE location_id = ${box}`)[0].n)).toBe(inShelf);
   });
+
+  test('search finds items in sub-locations; overview rolls counts up', async ({ app, page }) => {
+    app.sql("UPDATE locations SET parent_id = (SELECT id FROM locations WHERE name = 'Attic') WHERE name IN ('box 2', 'box 10')");
+    const attic = id(app, 'Attic');
+    const expected = Number(app.sql(`SELECT COUNT(*) AS n FROM items i JOIN locations l ON l.id = i.location_id
+      WHERE l.name IN ('Attic', 'box 2', 'box 10')`)[0].n);
+    const direct = Number(app.sql(`SELECT COUNT(*) AS n FROM items WHERE location_id = ${attic}`)[0].n);
+    expect(expected).toBeGreaterThan(direct);
+    await app.go('/');
+    await page.locator('#q').fill('attic');
+    await expect(page.locator('#grid .card')).toHaveCount(expected);
+    await page.locator('#q').fill('');
+    await expect(page.locator('#grid .card')).toHaveCount(8);
+    // overview: Attic's bar includes box 2 and box 10, which are not listed on their own
+    await expect(page.locator(`#stats .st-location .hbars a[data-loc="${attic}"]`)).toBeVisible();
+    const bar = page.locator('#stats .st-location .hbars li', { has: page.locator(`a[data-loc="${attic}"]`) });
+    await expect(bar.locator('.hb-n')).toHaveText(String(expected));
+    await expect(page.locator('#stats .st-location .hbars a', { hasText: /^box (2|10)$/ })).toHaveCount(0);
+    await expect(page.locator('#st-rollup')).toBeVisible();
+    await app.noOverflow();
+    await bar.locator('a').click();
+    await expect(page.locator('#grid .card')).toHaveCount(expected);
+  });
 });
