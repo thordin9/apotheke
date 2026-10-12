@@ -57,6 +57,40 @@ final class RepositoryTest extends DatabaseTestCase
         $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM item_photos')->fetchColumn());
     }
 
+    public function testTagsParseSetSearchAndCleanup(): void
+    {
+        $this->assertSame(['Garage', 'Ελλάδα', 'b'], tags_parse(' Garage, #garage ;Ελλάδα,, b '));
+        $a = item_save(null, ['name' => 'drill', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => ['Garage', 'Power tools']], null, false);
+        $b = item_save(null, ['name' => 'saw', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => ['garage'], 'serial' => 'XY-9'], null, false);
+        $this->assertSame(['Garage', 'Power tools'], array_column(item_get($a)['tags'], 'name'));
+        $this->assertSame(['Garage'], array_column(item_get($b)['tags'], 'name'), 'existing tag reused');
+        $garage = item_get($a)['tags'][0]['id'];
+        $this->assertSame([2, 1], array_map('intval', array_column(tags_all(), 'n')));
+        $this->assertSame(['drill', 'saw'], array_column(items_search('', ['loc' => '', 'cat' => '', 'tag' => (string)$garage], 'name', 1)['items'], 'name'));
+        $this->assertSame(['drill'], array_column(items_search('power', ['loc' => '', 'cat' => ''], 'name', 1)['items'], 'name'));
+        $this->assertSame(['saw'], array_column(items_search('xy-9', ['loc' => '', 'cat' => ''], 'name', 1)['items'], 'name'));
+        item_delete(item_get($a));
+        $this->assertSame(['Garage'], array_column(tags_all(), 'name'), 'orphaned tag removed with its last item');
+        $this->assertSame(1, (int)$this->pdo->query('SELECT COUNT(*) FROM tags')->fetchColumn());
+    }
+
+    public function testMoneyAndDateParsing(): void
+    {
+        foreach (['' => null, '12' => 1200, '12.5' => 1250, '12,50' => 1250, '1,234.56' => 123456, '1.234,56' => 123456, '1,234.5' => 123450, '€ 9.99' => 999, '1234.5' => 123450] as $in => $cents) {
+            $this->assertSame($cents, parse_money((string)$in), (string)$in);
+        }
+        foreach (['1.2.3', '12.345', '-4', 'abc', '1,234,56'] as $bad) {
+            try { parse_money($bad); $this->fail($bad); } catch (UserError) { $this->addToAssertionCount(1); }
+        }
+        $this->assertSame('1,234.50 EUR', fmt_money(123450, 'EUR'));
+        $this->assertSame('1234.50', money_input(123450));
+        $this->assertSame('2024-02-29', parse_date_ymd('2024-02-29'));
+        $this->assertNull(parse_date_ymd(''));
+        foreach (['2023-02-29', '24-01-01', '1800-01-01', date('Y-m-d', time() + 5 * 86400)] as $bad) {
+            try { parse_date_ymd($bad); $this->fail($bad); } catch (UserError) { $this->addToAssertionCount(1); }
+        }
+    }
+
     public function testTaxonomyCreateIsCaseAndAccentInsensitive(): void
     {
         $a = tax_create('location', '  Κουτί   5 ');

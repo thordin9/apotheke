@@ -228,7 +228,7 @@ T::section('CSV export & misc');
 $r = $c->get('/export.csv');
 T::ok(str_contains($r['headers']['content-disposition'] ?? '', 'filename="apotheke-'), 'CSV filename apotheke-<date>.csv');
 $lines = array_map('str_getcsv', array_filter(explode("\n", ltrim($r['body'], "\xEF\xBB\xBF"))));
-T::eq(['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at'], $lines[0], 'CSV header');
+T::eq(['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial'], $lines[0], 'CSV header');
 T::eq(7, count($lines), 'CSV has header + one row per item');
 T::eq(404, $c->get('/nope')['status'], 'unknown route → 404');
 T::eq(404, $c->get('/item/' . $nojs . '/delete')['status'], 'GET on delete route does nothing');
@@ -315,6 +315,39 @@ if (($dec = qr_decode_svg($qm[0] ?? '')) !== null) T::eq('https://stuff.example.
 $us->stop();
 $r = $c->get('/', ['Host: evil"><script>']);
 T::ok(!str_contains($c->get('/labels', ['Host: evil"><x>'])['body'], 'evil"><x>'), 'malformed Host header is not echoed into labels');
+
+T::section('Tags & custom fields');
+$r = $c->api('/save', ['csrf' => $tok, 'id' => $hdmi, 'name' => 'HDMI cables', 'tags' => 'Cables, #AV;  cables , Ηλεκτρικά', 'value' => '1.234,50', 'purchase_date' => '2024-03-01', 'serial' => 'SN-42/X']);
+T::eq(200, $r['status'], 'save tags + custom fields', $r['body']);
+$row = $db->query("SELECT value_cents, purchase_date, serial FROM items WHERE id = $hdmi")->fetch();
+T::ok((int)$row['value_cents'] === 123450 && $row['purchase_date'] === '2024-03-01' && $row['serial'] === 'SN-42/X', 'value (1.234,50 → 123450 cents), date, serial stored');
+T::eq(['AV', 'Cables', 'Ηλεκτρικά'], $db->query("SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = $hdmi ORDER BY t.sort_key")->fetchAll(PDO::FETCH_COLUMN), 'tags parsed, # stripped, duplicates folded');
+$c->api('/save', ['csrf' => $tok, 'id' => $nails, 'name' => 'Nails', 'location_id' => $ids['loc']['box 10'], 'tags' => 'CABLES, hardware']);
+$tagId = (int)$db->query("SELECT id FROM tags WHERE name_key = 'cables'")->fetchColumn();
+T::eq(1, (int)$db->query("SELECT COUNT(*) FROM tags WHERE name_key = 'cables'")->fetchColumn(), 'same tag reused case-insensitively');
+$page = $c->get("/item/$hdmi")['body'];
+T::ok(str_contains($page, 'href="/?tag=' . $tagId . '"') && str_contains($page, '#Ηλεκτρικά'), 'item page shows tag chips linking to the tag filter');
+T::ok(str_contains($page, '1,234.50 EUR') && str_contains($page, '2024-03-01') && str_contains($page, 'SN-42/X'), 'item page shows value with currency, date, serial');
+T::ok(!str_contains($c->get("/item/$stove")['body'], 'id="facts"'), 'no empty custom-field block');
+T::eq([$hdmi, $nails], ids_from_html($c->json('/?tag=' . $tagId . '&sort=name')['json']['html'] ?? ''), 'tag filter');
+$j = $c->json('/?tag=' . $tagId)['json'];
+T::ok(str_contains($j['chips'], 'data-clear="tag"') && str_contains($j['chips'], 'Cables') && $j['nfilters'] === 1, 'active tag chip + filter count');
+T::ok(str_contains($c->get('/')['body'], 'id="tag"'), 'tag filter in the filter sheet');
+T::eq([$hdmi], ids_from_html($c->json('/?q=sn-42')['json']['html']), 'search finds serial numbers');
+T::eq([$hdmi], ids_from_html($c->json('/?q=' . rawurlencode('ηλεκτρικα'))['json']['html']), 'search finds tags (accent-insensitive)');
+$edit = $c->get("/item/$hdmi/edit")['body'];
+T::ok(str_contains($edit, 'value="AV, Cables, Ηλεκτρικά"') && str_contains($edit, 'value="1234.50"') && str_contains($edit, 'datalist id="tag-list"'), 'edit form prefilled + tag suggestions');
+foreach ([['value' => '12.345'], ['value' => '-5'], ['value' => 'abc'], ['purchase_date' => '2024-02-30'], ['purchase_date' => '2999-01-01'], ['tags' => implode(',', range(1, 21))]] as $bad) {
+    T::eq(422, $c->api('/save', ['csrf' => $tok, 'id' => $hdmi, 'name' => 'HDMI cables'] + $bad)['status'], 'rejects ' . json_encode($bad, JSON_UNESCAPED_UNICODE));
+}
+$c->api('/save', ['csrf' => $tok, 'id' => $nails, 'name' => 'Nails', 'location_id' => $ids['loc']['box 10'], 'tags' => 'cables']);
+T::eq(0, (int)$db->query("SELECT COUNT(*) FROM tags WHERE name_key = 'hardware'")->fetchColumn(), 'unused tags are removed');
+$csv = array_map('str_getcsv', array_filter(explode("\n", ltrim($c->get('/export.csv')['body'], "\xEF\xBB\xBF"))));
+$hrow = array_values(array_filter($csv, fn($l) => ($l[0] ?? '') === (string)$hdmi))[0] ?? [];
+T::eq(['AV, Cables, Ηλεκτρικά', '1234.50', 'EUR', '2024-03-01', 'SN-42/X'], array_slice($hrow, 9), 'CSV includes tags, value, currency, date, serial');
+$cs = new Server($dir, ['CURRENCY' => 'CHF']);
+T::ok(str_contains($cs->client()->get("/item/$hdmi")['body'], '1,234.50 CHF'), 'CURRENCY config is shown');
+$cs->stop();
 
 T::section('Multiple photos');
 $cover = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();

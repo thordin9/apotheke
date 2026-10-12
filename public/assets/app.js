@@ -113,6 +113,54 @@
     }));
   }
 
+  /* ---------- tag chips with autocomplete (the comma-separated input stays the form value) ---------- */
+  const tagIn = $('#tags');
+  if (tagIn) {
+    const wrap = document.createElement('div'), entry = document.createElement('input');
+    wrap.className = 'tagbox'; wrap.id = 'tagbox';
+    entry.type = 'text'; entry.id = 'tag-entry'; entry.setAttribute('list', 'tag-list'); entry.autocomplete = 'off';
+    entry.setAttribute('autocapitalize', 'none'); entry.setAttribute('enterkeyhint', 'enter'); entry.placeholder = tagIn.placeholder;
+    entry.setAttribute('aria-label', 'Add a tag');
+    const list = () => tagIn.value.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+    const key = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const render = () => {
+      wrap.querySelectorAll('.tagchip').forEach(c => c.remove());
+      list().forEach(t => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'tagchip tagchip-x'; b.textContent = '#' + t; b.dataset.tag = t;
+        b.setAttribute('aria-label', 'Remove tag ' + t);
+        wrap.insertBefore(b, entry);
+      });
+    };
+    const add = raw => {
+      const cur = list();
+      raw.split(/[,;]+/).map(s => s.trim().replace(/^#/, '')).filter(Boolean).forEach(t => { if (!cur.some(c => key(c) === key(t))) cur.push(t); });
+      tagIn.value = cur.join(', '); entry.value = ''; render();
+    };
+    tagIn.type = 'hidden';
+    tagIn.after(wrap); wrap.appendChild(entry);
+    wrap.addEventListener('click', e => {
+      const c = e.target.closest('.tagchip-x');
+      if (c) { tagIn.value = list().filter(t => t !== c.dataset.tag).join(', '); render(); entry.focus(); } else entry.focus();
+    });
+    entry.addEventListener('keydown', e => {
+      if ((e.key === 'Enter' || e.key === ',') && entry.value.trim()) { e.preventDefault(); add(entry.value); }
+      else if (e.key === 'Enter') e.preventDefault();
+      else if (e.key === 'Backspace' && !entry.value && list().length) { tagIn.value = list().slice(0, -1).join(', '); render(); }
+    });
+    // picking a datalist suggestion fires "input" with the full value; commas typed on phones arrive the same way
+    entry.addEventListener('input', e => {
+      if (/[,;]/.test(entry.value)) add(entry.value);
+      else if (e.inputType === 'insertReplacementText' || e.inputType === undefined) {
+        const opts = [...document.querySelectorAll('#tag-list option')].map(o => o.value);
+        if (opts.includes(entry.value)) add(entry.value);
+      }
+    });
+    entry.addEventListener('blur', () => { if (entry.value.trim()) add(entry.value); });
+    const f = tagIn.form; if (f) f.addEventListener('submit', () => { if (entry.value.trim()) add(entry.value); }, true);
+    render();
+  }
+
   /* ---------- print button (labels) ---------- */
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) { e.preventDefault(); window.print(); } });
 
@@ -222,7 +270,7 @@
         if (append) grid.insertAdjacentHTML('beforeend', j.html); else { grid.innerHTML = j.html; window.scrollTo({ top: 0 }); }
         count.textContent = j.count;
         empty.hidden = j.total > 0;
-        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value);
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value));
         $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
         $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
@@ -244,6 +292,7 @@
     const reset = which => {
       if (which === 'all' || which === 'loc') $('#loc').value = '';
       if (which === 'all' || which === 'cat') $('#cat').value = '';
+      if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
       if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
       if (which === 'all') q.value = '';
       load(false);

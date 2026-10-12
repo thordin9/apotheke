@@ -446,3 +446,23 @@ body:has(#empty:not([hidden])) .fab{display:none}
 .pm-add{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}
 .pm-add label.btn{position:relative;overflow:hidden;font-size:15px}
 .pm-status{grid-column:1/-1;margin:0}
+
+/* tags + custom fields */
+.tags{list-style:none;margin:0 0 var(--s3);padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.tagchip{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:999px;background:var(--surface-2);color:var(--text);
+  font-size:14px;font-weight:600;border:1px solid var(--line);text-decoration:none}
+a.tagchip{min-height:36px}
+.tagbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:48px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:text}
+.tagbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.tagbox input{flex:1 1 120px;min-width:100px;min-height:36px;border:0;outline:0;background:none;color:inherit;font:inherit;padding:0 4px}
+.tagchip-x{cursor:pointer;min-height:36px;font:inherit;font-size:14px;font-weight:600}
+.tagchip-x::after{content:"×";margin-left:6px;color:var(--muted);font-weight:700}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0 0 var(--s4)}
+.facts div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px}
+.facts dt{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:650}
+.facts dd{margin:2px 0 0;font-weight:650;font-variant-numeric:tabular-nums;word-break:break-word}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.more-fields{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);margin:0 0 var(--s4)}
+.more-fields>summary{min-height:48px;display:flex;align-items:center;padding:0 14px;font-weight:600;cursor:pointer;color:var(--accent)}
+.more-grid{padding:0 12px 4px;display:grid;gap:0}
+@media (min-width:560px){.more-grid{grid-template-columns:1fr 1fr}.more-grid .field:last-child{grid-column:1/-1}}

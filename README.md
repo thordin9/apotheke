@@ -17,6 +17,7 @@ anything again with instant search.
 * Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
 * **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
 
+* **Tags & custom fields**: any number of tags per item (autocomplete, tag filter), plus value, purchase date and serial number.
 * **Multiple photos per item** (up to 12): add from camera or library, reorder, pick a cover, browse with arrows.
 * **QR labels** for locations and items: print, stick on the box, scan to open the list.
 * An **Overview** panel at the top of the list shows totals (items, total quantity, locations, categories, added this week/month), a chart of items added (30 days by day, or 12 months by month), and the top 5 locations and top 5 categories as bars. Tap a bar to filter the list. It is collapsible, and your choice is remembered. While collapsed, the charts are neither computed nor downloaded; they load the first time you open the panel.
@@ -28,6 +29,16 @@ Each label opens that location's item list when you scan it with the iPhone came
 and every item page has a **QR label** button that links straight to the item. Codes are generated on the server in pure PHP
 (`src/qr.php`, no network, no libraries) as crisp SVG, and the page has a print stylesheet (3 labels per row on A4/Letter).
 Set `PUBLIC_URL` if the address printed on the labels should differ from the one you're using right now.
+
+## Tags & custom fields
+
+Type tags into the **Tags** field on the item form: press Enter or a comma after each one. Existing tags are suggested as you type.
+Tags show as chips on the item page; tap one to list every item with that tag, or pick a tag under **Filter**.
+Search also finds items by tag and serial number. Tags that no item uses any more are removed automatically.
+
+Under **Value, purchase date & serial** you can record what an item is worth (in the currency set by `CURRENCY`, default `EUR`),
+when you bought it and its serial number. The item page shows these values when they are set, and the CSV export includes them
+(`tags`, `value`, `currency`, `purchase_date`, `serial` columns).
 
 ## Photos
 
@@ -109,6 +120,7 @@ so they never wipe a value set in `config.php`.
 | `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. |
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
+| `CURRENCY` | `EUR` | Currency shown next to item values (ISO code or symbol). Only a label; no conversion. |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Set it if you open the app under a different name than your phone will. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |

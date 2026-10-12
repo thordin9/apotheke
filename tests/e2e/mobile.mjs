@@ -87,6 +87,30 @@ try {
       ok(await p.$$eval('.pm', l => l.length) === 2 && await p.$eval('.pm.is-cover .pm-badge', e => !!e), 'photo manager lists photos with the cover badge');
       ok(!(await overflow()), 'no horizontal overflow on the gallery page');
     }
+    // tags: chip entry with suggestions, custom fields, tag filter
+    {
+      await p.goto(base + '/new', { waitUntil: 'networkidle0' });
+      ok(await p.$eval('#tags', i => i.type === 'hidden') && !!(await p.$('#tagbox #tag-entry')), 'tag field is enhanced into a chip box');
+      await p.type('input[name=name]', 'E2E tagged');
+      await p.tap('#tag-entry'); await p.type('#tag-entry', 'Garage'); await p.keyboard.press('Enter');
+      await p.type('#tag-entry', 'warranty,');
+      ok(await p.$$eval('#tagbox .tagchip', l => l.map(c => c.dataset.tag).join('|')) === 'Garage|warranty', 'Enter and comma turn text into chips');
+      await p.type('#tag-entry', 'GARAGE'); await p.keyboard.press('Enter');
+      ok(await p.$$eval('#tagbox .tagchip', l => l.length) === 2, 'duplicate tag ignored');
+      await p.tap('#tagbox .tagchip[data-tag="warranty"]');
+      ok(await p.$eval('#tags', i => i.value) === 'Garage', 'tapping a chip removes it');
+      ok(await p.$eval('.tagchip-x', b => b.getBoundingClientRect().height >= 36), 'tag chips are comfortable tap targets');
+      await p.tap('.more-fields > summary'); await pause(150);
+      await p.type('#value', '19,90'); await p.type('#serial', 'E2E-SN');
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.click('#save')]);
+      const link = await p.evaluate(() => [...document.querySelectorAll('a[href^="/item/"]')].find(a => a.textContent.includes('E2E tagged'))?.getAttribute('href'));
+      await p.goto(base + link, { waitUntil: 'networkidle0' });
+      ok(await p.$eval('.tags', e => e.textContent.includes('#Garage')) && await p.$eval('#facts', e => /19\.90/.test(e.textContent) && e.textContent.includes('E2E-SN')), 'item page shows tag chip and custom fields');
+      ok(!(await overflow()), 'no horizontal overflow on a tagged item');
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.tap('.tags a.tagchip')]);
+      ok(/[?&]tag=\d+/.test(p.url()) && await p.$eval('#achips', e => e.textContent.includes('Garage')), 'tag chip opens the list filtered by that tag');
+      ok(await p.$$eval('#grid .card', l => l.length) >= 1, 'filtered list shows the tagged item');
+    }
     // FEATURE-CHECKS
     ok(errors.length === 0, 'no JS errors' + (errors.length ? ': ' + errors.join('; ') : ''));
     await ctx.close();

@@ -124,4 +124,14 @@ final class MigrationRunnerTest extends DatabaseTestCase
         $rows = $this->pdo->query('SELECT i.name, p.file, p.position FROM item_photos p JOIN items i ON i.id = p.item_id')->fetchAll(PDO::FETCH_ASSOC);
         $this->assertSame([['name' => 'with', 'file' => $img, 'position' => 0]], array_map(fn($r) => ['name' => $r['name'], 'file' => $r['file'], 'position' => (int)$r['position']], $rows));
     }
+
+    public function testTagsMigrationAddsTablesAndFields(): void
+    {
+        $this->migrateFresh();
+        $cols = $this->driver === 'pgsql'
+            ? $this->pdo->query("SELECT column_name FROM information_schema.columns WHERE table_name = 'items' AND table_schema = current_schema()")->fetchAll(PDO::FETCH_COLUMN)
+            : array_column($this->pdo->query('PRAGMA table_info(items)')->fetchAll(), 'name');
+        foreach (['value_cents', 'purchase_date', 'serial'] as $c) $this->assertContains($c, $cols);
+        $this->assertTrue($this->tableExists('tags') && $this->tableExists('item_tags'));
+    }
 }

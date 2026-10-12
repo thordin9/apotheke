@@ -149,20 +149,21 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
 
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
-function active_chips_html(array $f, string $sort, array $locs, array $cats): string
+function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
+    $f += ['tag' => ''];
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
         foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'sort' => $sort === 'recent' ? '' : $sort];
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -170,6 +171,11 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats): st
     $o = '';
     if ($f['loc'] !== '') $o .= '<a class="achip chip-location" href="' . h($href('loc')) . '" data-clear="loc" aria-label="Remove location filter">' . icon('pin') . '<span>' . h($name('location', $locs, $f['loc'])) . '</span>' . icon('x') . '</a>';
     if ($f['cat'] !== '') $o .= '<a class="achip chip-category" href="' . h($href('cat')) . '" data-clear="cat" aria-label="Remove category filter">' . icon('tag') . '<span>' . h($name('category', $cats, $f['cat'])) . '</span>' . icon('x') . '</a>';
+    if ($f['tag'] !== '') {
+        $tn = '?';
+        foreach ($tags ?? tags_all() as $t) if ((string)$t['id'] === $f['tag']) $tn = (string)$t['name'];
+        $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
+    }
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -284,7 +290,9 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true): void
 {
     page_start('');
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '';
+    $f += ['tag' => ''];
+    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '';
+    $tags = tags_all();
     ?>
 <header class="top">
   <div class="bar">
@@ -306,6 +314,15 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           <div class="fpanel-head"><h2 id="fpanel-title">Filter &amp; sort</h2><button type="button" class="btn btn-ghost" id="filter-close">Done</button></div>
           <?= filter_select('location', $locs, $f['loc'], $stats['unassigned']) ?>
           <?= filter_select('category', $cats, $f['cat'], $stats['uncategorized']) ?>
+          <?php if ($tags || $f['tag'] !== ''): ?>
+          <label class="field"><span>Tag</span>
+          <select name="tag" id="tag">
+            <option value="">All tags</option>
+            <?php foreach ($tags as $t): ?>
+            <option value="<?= (int)$t['id'] ?>"<?= (string)$t['id'] === $f['tag'] ? ' selected' : '' ?>><?= h($t['name']) ?> (<?= (int)$t['n'] ?>)</option>
+            <?php endforeach; ?>
+          </select></label>
+          <?php endif; ?>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
             <?php foreach (SORTS as $k => $v): ?>
@@ -318,7 +335,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           </div>
         </div>
       </details>
-      <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats) ?></div>
+      <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats, $tags) ?></div>
     </div>
   </form>
 </header>
@@ -396,6 +413,17 @@ function view_item(array $it, array $photos = [], int $cur = 0): void
     <output class="qval"><?= (int)$it['quantity'] ?></output>
     <button type="button" class="qbtn" data-delta="1" aria-label="Increase"><?= icon('plus') ?></button>
   </div>
+  <?php if (!empty($it['tags'])): ?>
+  <ul class="tags" aria-label="Tags">
+    <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+  <?php $facts = array_filter(['Value' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php if ($facts): ?>
+  <dl class="facts" id="facts">
+    <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?></dd></div><?php endforeach; ?>
+  </dl>
+  <?php endif; ?>
   <?php if (trim($it['notes']) !== ''): ?>
   <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
   <?php endif; ?>
@@ -520,8 +548,30 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </div>
     <label class="field">
       <span>Notes <em>optional</em></span>
-      <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, serial, purchase date…"><?= h($vals['notes']) ?></textarea>
+      <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, where you bought it…"><?= h($vals['notes']) ?></textarea>
     </label>
+    <label class="field">
+      <span>Tags <em>optional, comma-separated</em></span>
+      <input type="text" name="tags" id="tags" value="<?= h($vals['tags'] ?? '') ?>" maxlength="2000" autocomplete="off" autocapitalize="none" list="tag-list" placeholder="e.g. garage, warranty">
+    </label>
+    <datalist id="tag-list"><?php foreach (tags_all() as $t): ?><option value="<?= h($t['name']) ?>"></option><?php endforeach; ?></datalist>
+    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
+      <summary>Value, purchase date &amp; serial</summary>
+      <div class="more-grid">
+        <label class="field">
+          <span>Value <em><?= h(cfg()['currency']) ?></em></span>
+          <input type="text" name="value" id="value" value="<?= h($vals['value'] ?? '') ?>" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="0.00">
+        </label>
+        <label class="field">
+          <span>Purchase date</span>
+          <input type="date" name="purchase_date" id="purchase_date" value="<?= h($vals['purchase_date'] ?? '') ?>" max="<?= date('Y-m-d') ?>">
+        </label>
+        <label class="field">
+          <span>Serial number</span>
+          <input type="text" name="serial" id="serial" value="<?= h($vals['serial'] ?? '') ?>" maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </label>
+      </div>
+    </details>
 
     <div class="actionbar actionbar-form">
       <div class="actionbar-in<?= $isNew ? '' : ' one' ?>">

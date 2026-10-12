@@ -108,7 +108,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.notes, i.image, i.value_cents, i.purchase_date, i.serial, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -119,12 +119,101 @@ function item_get(int $id): ?array
     if (!$row) return null;
     $row['location'] = (string)($row['location'] ?? '');
     $row['category'] = (string)($row['category'] ?? '');
+    $row['value_cents'] = $row['value_cents'] === null ? null : (int)$row['value_cents'];
+    $row['serial'] = (string)($row['serial'] ?? '');
+    $row['tags'] = tags_for((int)$row['id']);
     return $row;
 }
 
-function search_blob(string $name, string $notes): string
+function search_blob(string $name, string $notes, string $serial = '', array $tags = []): string
 {
-    return fold($name . "\n" . $notes);
+    return fold(implode("\n", array_merge([$name, $notes, $serial], $tags)));
+}
+
+/* ---------- tags ---------- */
+
+/** @return array<int,array{id:int,name:string}> */
+function tags_for(int $itemId): array
+{
+    $st = db()->prepare('SELECT t.id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ? ORDER BY t.sort_key, t.id');
+    $st->execute([$itemId]);
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'name' => (string)$r['name']], $st->fetchAll());
+}
+
+/** All tags that are in use, with item counts. */
+function tags_all(): array
+{
+    return db()->query('SELECT t.id, t.name, COUNT(it.item_id) AS n FROM tags t JOIN item_tags it ON it.tag_id = t.id GROUP BY t.id, t.name, t.sort_key ORDER BY t.sort_key, t.id')->fetchAll();
+}
+
+/** Split "a, b; c" (or an array) into clean, de-duplicated tag names (case/accent-insensitive). */
+function tags_parse(string|array $in): array
+{
+    $parts = is_array($in) ? $in : preg_split('/[,;\n]+/u', $in);
+    $out = [];
+    foreach ($parts ?: [] as $p) {
+        $p = ltrim(clean_line((string)$p, 40), '#');
+        if ($p === '') continue;
+        $out[fold($p)] ??= $p;
+    }
+    if (count($out) > 20) throw new UserError('An item can have at most 20 tags.');
+    return array_values($out);
+}
+
+/** Replace an item's tags; creates missing tags, drops tags no item uses any more. */
+function tags_set(int $itemId, array $names): void
+{
+    $pdo = db();
+    $ids = [];
+    $find = $pdo->prepare('SELECT id FROM tags WHERE name_key = ?');
+    foreach ($names as $n) {
+        $find->execute([fold($n)]);
+        $tid = $find->fetchColumn();
+        $ids[] = $tid !== false ? (int)$tid
+            : db_insert($pdo, 'INSERT INTO tags (name, name_key, sort_key, created_at) VALUES (?,?,?,?)', [$n, fold($n), natkey($n), now_utc()]);
+    }
+    $pdo->prepare('DELETE FROM item_tags WHERE item_id = ?')->execute([$itemId]);
+    $ins = $pdo->prepare('INSERT INTO item_tags (item_id, tag_id) VALUES (?,?)');
+    foreach (array_unique($ids) as $tid) $ins->execute([$itemId, $tid]);
+    $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+}
+
+/* ---------- custom fields ---------- */
+
+/** "12.5", "1,234.50", "1.234,50", "€ 12" → cents; '' → null. */
+function parse_money(string $s): ?int
+{
+    $s = preg_replace('/[\p{Sc}\s]+/u', '', $s) ?? '';
+    if ($s === '') return null;
+    if (preg_match('/^(\d{1,3}(?:([.,])\d{3})*|\d+)(?:([.,])(\d{1,2}))?$/D', $s, $m) !== 1 || (($m[2] ?? '') !== '' && ($m[2] ?? '') === ($m[3] ?? ''))) {
+        throw new UserError('Value must be a number like 49.90.');
+    }
+    if (($m[2] ?? '') !== '' && !isset($m[4])) throw new UserError('Value is ambiguous – write it like 1234.50.');
+    $int = (int)preg_replace('/\D/', '', $m[1]);
+    $cents = $int * 100 + (isset($m[4]) ? (int)str_pad($m[4], 2, '0') : 0);
+    if ($cents > 100_000_000_000) throw new UserError('That value is too large.');
+    return $cents;
+}
+
+function fmt_money(?int $cents, ?string $currency = null): string
+{
+    if ($cents === null) return '';
+    return number_format($cents / 100, 2, '.', ',') . ' ' . ($currency ?? cfg()['currency']);
+}
+
+function money_input(?int $cents): string
+{
+    return $cents === null ? '' : number_format($cents / 100, 2, '.', '');
+}
+
+function parse_date_ymd(string $s): ?string
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $s);
+    if (!$d || $d->format('Y-m-d') !== $s || $s < '1900-01-01') throw new UserError('Purchase date must be a valid date (YYYY-MM-DD).');
+    if ($s > date('Y-m-d', time() + 86400)) throw new UserError('Purchase date cannot be in the future.');
+    return $s;
 }
 
 /** Normalise a filter value: '' = all, 'none' = unassigned, digits = id. */
@@ -135,7 +224,7 @@ function filter_value(mixed $v): string
 }
 
 /**
- * @param array{loc:string,cat:string} $f
+ * @param array{loc:string,cat:string,tag?:string} $f
  * @return array{items: array<int,array>, total: int, more: bool}
  */
 function items_search(string $q, array $f, string $sort, int $page, int $pageSize = PAGE_SIZE): array
@@ -156,6 +245,10 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
             $where[] = "$col = ?";
             $args[]  = (int)$v;
         }
+    }
+    if (ctype_digit($f['tag'] ?? '')) {
+        $where[] = 'EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id = i.id AND it.tag_id = ?)';
+        $args[]  = (int)$f['tag'];
     }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $order = match ($sort) {
@@ -216,18 +309,21 @@ function db_tx(callable $fn): mixed
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $blob = search_blob($in['name'], $in['notes']);
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => ''];
+    $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags']);
     $drop = [];
     $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
         if ($existing === null) {
-            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $blob, natkey($in['name']), $now, $now]);
+            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
+            tags_set($id, $in['tags']);
             if ($newImage !== null) photo_insert($id, $newImage, true);
             return $id;
         }
         $id = (int)$existing['id'];
-        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, search=?, sort_key=?, updated_at=? WHERE id=?');
-        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $blob, natkey($in['name']), $now, $id]);
+        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
+        tags_set($id, $in['tags']);
         if ($newImage !== null || $removeImage) {
             $cover = photos_for($id)[0] ?? null;
             if ($cover) { $pdo->prepare('DELETE FROM item_photos WHERE id = ?')->execute([$cover['id']]); $drop[] = $cover['file']; }
@@ -243,7 +339,10 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
 function item_delete(array $item): void
 {
     $files = array_column(photos_for((int)$item['id']), 'file');
-    db_tx(fn(PDO $pdo) => $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]));
+    db_tx(function (PDO $pdo) use ($item): void {
+        $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
+        $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+    });
     foreach (array_unique(array_merge($files, [$item['image']])) as $f) image_delete($f);
 }
 
