@@ -58,7 +58,7 @@ php bin/restore.php /backups/apotheke-2026-10-12.zip             # asks "yes", t
 ```
 
 In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`. The web upload accepts backups up to 512 MB
-(the Apache config raises the limit only for `/backup/restore`). Use the CLI for anything bigger.
+(nginx raises the limit only for `/backup/restore`). Use the CLI for anything bigger.
 Photo files that the restored data doesn't reference are left in `data/images` and are never deleted automatically.
 
 ## Tags & custom fields
@@ -113,6 +113,10 @@ docker compose up -d --build
 ```
 
 Then on your iPhone (same Wi-Fi) open **http://SERVER-IP:8080**. To find the server IP, run `hostname -I` on the server.
+
+The image runs **nginx + php-fpm** in one container (Alpine; `tini` as PID 1, a small entrypoint supervises both
+and stops them gracefully on `docker stop`). It listens on port 80 inside the container (`PORT` changes that,
+e.g. with `--network host`). One-off commands work as before: `docker compose exec apotheke php bin/migrate.php`.
 
 **Add to Home Screen:** in Safari tap Share, then **Add to Home Screen**. It opens full-screen like an app.
 
@@ -259,20 +263,20 @@ Data goes to `./data` (or set `DATA_DIR=/some/path`).
 * All SQL uses prepared statements. All output is HTML-escaped. A strict Content-Security-Policy is set.
 * Every change (save, quantity, delete, login/logout) requires a CSRF token.
 * Uploads: up to 20 MB, validated with `getimagesize` and decoded and re-encoded by GD, then stored under random hex names **outside the web root**. They are served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can ever be executed.
-* Apache only runs `index.php`. `src/` and `data/` are not reachable over HTTP.
+* The web server (nginx in Docker) only runs `public/index.php`; no other PHP file is executed. `src/` and `data/` are not reachable over HTTP.
 * Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set `APP_PASSWORD`.
 
 ## Files
 
 ```
-Dockerfile                 php:8.3-apache + gd, exif, opcache, pdo_pgsql, zip (pdo_sqlite built in)
+Dockerfile                 php:8.3-fpm-alpine + nginx + tini; gd, exif, opcache, pdo_pgsql, zip (pdo_sqlite built in)
 docker-compose.yml         port 8080, ./data volume, optional "postgres" profile
 config.example.php         all settings (copy to config.php; env vars override)
 bin/migrate.php            run / inspect migrations
 bin/seed.php               starter data (+ --demo items)
 bin/backup.php, restore.php  backup zip from the CLI / restore one (--dry-run, --yes)
 migrations/NNNN_*.php      versioned schema steps (SQL per dialect, or a PHP closure)
-docker/                    apache vhost, php.ini, entrypoint
+docker/                    nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint (runs nginx + php-fpm)
 public/index.php           front controller / routes
 public/assets/             app.css, app.js, theme.js, icons
 src/config.php             config loader (defaults < config.php < env)
