@@ -1,0 +1,14 @@
+services:
+  apotheke:
+    build: .
+    image: apotheke:latest
+    container_name: apotheke
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: ${TZ:-Europe/Athens}
+      # Leave empty for no login (LAN only). Set e.g. in a .env file: APP_PASSWORD=secret
+      APP_PASSWORD: ${APP_PASSWORD:-}

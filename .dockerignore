@@ -1,0 +1,8 @@
+data/
+.git/
+.gitignore
+*.zip
+*.md
+docker-compose.yml
+.env
+.DS_Store
