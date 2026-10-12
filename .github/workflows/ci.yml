@@ -241,6 +241,16 @@ jobs:
           docker logs apotheke || true
           docker logs apotheke-pg || true
 
+  size-before:
+    # TEMPORARY (removed again in this PR): size of the Apache image on main, for comparison.
+    name: Image size on main (Apache)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - run: docker build -q -t apotheke:main . && docker image ls apotheke:main --format '{{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+
   commits:
     name: Conventional Commits
     if: github.event_name == 'pull_request'
