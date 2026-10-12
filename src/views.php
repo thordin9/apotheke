@@ -575,7 +575,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
         </label>
         <label class="field">
           <span>Purchase date</span>
-          <input type="date" name="purchase_date" id="purchase_date" value="<?= h($vals['purchase_date'] ?? '') ?>" max="<?= date('Y-m-d') ?>">
+          <input type="date" name="purchase_date" id="purchase_date" value="<?= h($vals['purchase_date'] ?? '') ?>" max="<?= date('Y-m-d', app_time()) ?>">
         </label>
         <label class="field">
           <span>Serial number</span>

@@ -365,7 +365,7 @@ try {
         try {
             backup_create(db(), db_driver(), DATA_DIR, $tmp);
             header('Content-Type: application/zip');
-            header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His') . '.zip"');
+            header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His', app_time()) . '.zip"');
             header('Content-Length: ' . filesize($tmp));
             header('Cache-Control: no-store');
             readfile($tmp);
@@ -430,7 +430,7 @@ try {
     /* ---- CSV export ---- */
     if ($path === '/export.csv' && $method === 'GET') {
         header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d') . '.csv"');
+        header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
         fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial'], ',', '"', '\\');
