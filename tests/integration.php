@@ -44,6 +44,28 @@ foreach (['content-security-policy', 'x-content-type-options', 'x-frame-options'
 $tok = $c->csrf();
 T::ok(strlen($tok) === 64, 'CSRF token present in page');
 
+T::section('Branding: icons and manifest');
+foreach (['/favicon.ico' => ['image/vnd.microsoft.icon', 'image/x-icon'], '/assets/favicon.svg' => ['image/svg+xml'], '/assets/icon.svg' => ['image/svg+xml'],
+          '/assets/apple-touch-icon.png' => ['image/png'], '/assets/icon-192.png' => ['image/png'], '/assets/icon-512.png' => ['image/png'],
+          '/assets/icon-maskable-512.png' => ['image/png'], '/manifest.webmanifest' => ['application/manifest+json']] as $u => $types) {
+    $br = $c->get($u);
+    $ct = strtolower(trim(explode(';', $br['headers']['content-type'] ?? '')[0]));
+    T::ok($br['status'] === 200 && in_array($ct, $types, true) && strlen($br['body']) > 100, "$u served as " . $types[0]);
+}
+$man = json_decode($c->get('/manifest.webmanifest')['body'], true);
+T::eq(['#C8502D', '#FBF1E3'], [$man['theme_color'] ?? '', $man['background_color'] ?? ''], 'manifest uses the brand colours');
+$sizes = [];
+foreach ($man['icons'] as $ic) {
+    $sizes[$ic['sizes'] . ' ' . ($ic['purpose'] ?? 'any')] = true;
+    T::eq(200, $c->get($ic['src'])['status'], 'manifest icon ' . $ic['src'] . ' exists');
+}
+T::ok(isset($sizes['192x192 any'], $sizes['512x512 any'], $sizes['512x512 maskable']), 'manifest has 192, 512 and a maskable icon');
+[$pw, $ph] = getimagesizefromstring($c->get('/assets/apple-touch-icon.png')['body']);
+T::eq([180, 180], [$pw, $ph], 'apple-touch-icon is 180×180');
+$home = $c->get('/')['body'];
+T::ok(str_contains($home, '<link rel="icon" href="/favicon.ico"') && str_contains($home, 'type="image/svg+xml"') && str_contains($home, 'rel="apple-touch-icon"'), 'pages link favicon (ico + svg) and touch icon');
+T::ok(preg_match('#<h1 class="brand"><img class="brand-logo" src="/assets/icon\.svg\?v=\w+"[^>]*alt=""#', $home) === 1, 'header shows the logo');
+
 T::section('HEAD');
 $headHome = $c->req('HEAD', '/');
 T::eq($r['status'], $headHome['status'], 'HEAD / status matches GET /');
