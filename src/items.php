@@ -24,7 +24,7 @@ function tax_list(string $kind): array
     $t = tax($kind);
     return db()->query("SELECT x.id, x.name, x.is_default, COUNT(i.id) AS n
                         FROM {$t['table']} x LEFT JOIN items i ON i.{$t['col']} = x.id
-                        GROUP BY x.id ORDER BY x.name COLLATE NATSORT")->fetchAll();
+                        GROUP BY x.id ORDER BY x.sort_key, x.id")->fetchAll();
 }
 
 function tax_get(string $kind, int $id): ?array
@@ -60,9 +60,8 @@ function tax_create(string $kind, string $name): array
 {
     $name = tax_name_valid($kind, $name);
     if ($ex = tax_find($kind, $name)) return ['id' => (int)$ex['id'], 'name' => $ex['name'], 'created' => false];
-    $st = db()->prepare('INSERT INTO ' . tax($kind)['table'] . ' (name, name_key, created_at) VALUES (?,?,?)');
-    $st->execute([$name, fold($name), now_utc()]);
-    return ['id' => (int)db()->lastInsertId(), 'name' => $name, 'created' => true];
+    $id = db_insert(db(), 'INSERT INTO ' . tax($kind)['table'] . ' (name, name_key, sort_key, created_at) VALUES (?,?,?,?)', [$name, fold($name), natkey($name), now_utc()]);
+    return ['id' => $id, 'name' => $name, 'created' => true];
 }
 
 function tax_rename(string $kind, int $id, string $name): void
@@ -70,7 +69,7 @@ function tax_rename(string $kind, int $id, string $name): void
     $name = tax_name_valid($kind, $name);
     $ex = tax_find($kind, $name);
     if ($ex && (int)$ex['id'] !== $id) throw new UserError('A ' . tax($kind)['one'] . ' called “' . $ex['name'] . '” already exists.', 409);
-    db()->prepare('UPDATE ' . tax($kind)['table'] . ' SET name = ?, name_key = ? WHERE id = ?')->execute([$name, fold($name), $id]);
+    db()->prepare('UPDATE ' . tax($kind)['table'] . ' SET name = ?, name_key = ?, sort_key = ? WHERE id = ?')->execute([$name, fold($name), natkey($name), $id]);
 }
 
 /** Make $id the only default, or clear the default when $on is false. */
@@ -160,10 +159,10 @@ function items_search(string $q, array $f, string $sort, int $page): array
     }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $order = match ($sort) {
-        'name'     => 'i.name COLLATE NATSORT ASC, i.id DESC',
-        'location' => 'l.name IS NULL, l.name COLLATE NATSORT ASC, i.name COLLATE NATSORT ASC',
-        'category' => 'c.name IS NULL, c.name COLLATE NATSORT ASC, i.name COLLATE NATSORT ASC',
-        'qty'      => 'i.quantity DESC, i.name COLLATE NATSORT ASC',
+        'name'     => 'i.sort_key ASC, i.id DESC',
+        'location' => 'CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key ASC, i.sort_key ASC, i.id DESC',
+        'category' => 'CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key ASC, i.sort_key ASC, i.id DESC',
+        'qty'      => 'i.quantity DESC, i.sort_key ASC, i.id DESC',
         default    => 'i.updated_at DESC, i.id DESC',
     };
     $st = db()->prepare('SELECT COUNT(*) ' . ITEM_FROM . " $w");
@@ -182,7 +181,10 @@ function items_search(string $q, array $f, string $sort, int $page): array
 function stats(): array
 {
     $r = db()->query('SELECT COUNT(*) AS items, COALESCE(SUM(quantity),0) AS qty,
-                             COALESCE(SUM(location_id IS NULL),0) AS unassigned, COALESCE(SUM(category_id IS NULL),0) AS uncategorized FROM items')->fetch();
+                             COALESCE(SUM(CASE WHEN location_id IS NULL THEN 1 ELSE 0 END),0) AS unassigned,
+                             COALESCE(SUM(CASE WHEN category_id IS NULL THEN 1 ELSE 0 END),0) AS uncategorized FROM items')->fetch();
+    $r['items'] = (int)$r['items'];
+    $r['qty'] = (int)$r['qty'];
     $r['unassigned'] = (int)$r['unassigned'];
     $r['uncategorized'] = (int)$r['uncategorized'];
     $r['none_location'] = $r['unassigned'];
@@ -196,17 +198,16 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
     $now  = now_utc();
     $blob = search_blob($in['name'], $in['notes']);
     if ($existing === null) {
-        $st = db()->prepare('INSERT INTO items (name, location_id, category_id, quantity, notes, image, search, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)');
-        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $newImage, $blob, $now, $now]);
-        return (int)db()->lastInsertId();
+        return db_insert(db(), 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $newImage, $blob, natkey($in['name']), $now, $now]);
     }
     $image = $existing['image'];
     if ($newImage !== null || $removeImage) {
         image_delete($image);
         $image = $newImage;
     }
-    $st = db()->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, image=?, search=?, updated_at=? WHERE id=?');
-    $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $image, $blob, $now, $existing['id']]);
+    $st = db()->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, image=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+    $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $image, $blob, natkey($in['name']), $now, $existing['id']]);
     return (int)$existing['id'];
 }
 
@@ -218,8 +219,8 @@ function item_delete(array $item): void
 
 function item_adjust_qty(int $id, int $delta): ?int
 {
-    $st = db()->prepare('UPDATE items SET quantity = MAX(0, quantity + ?), updated_at = ? WHERE id = ?');
-    $st->execute([$delta, now_utc(), $id]);
+    $st = db()->prepare('UPDATE items SET quantity = CASE WHEN quantity + ? < 0 THEN 0 ELSE quantity + ? END, updated_at = ? WHERE id = ?');
+    $st->execute([$delta, $delta, now_utc(), $id]);
     if ($st->rowCount() === 0) return null;
     $st = db()->prepare('SELECT quantity FROM items WHERE id = ?');
     $st->execute([$id]);
@@ -370,17 +371,11 @@ function local_boundary_utc(string $expr): string
     return $d->setTime(0, 0)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
 }
 
-/** SQLite modifier that shifts stored UTC to local time (current offset; DST edge days may shift by one hour). */
-function local_modifier(): string
-{
-    $off = (new DateTimeImmutable('now'))->getOffset();
-    return sprintf('%+d seconds', $off);
-}
-
 function stats_totals(): array
 {
     $st = db()->prepare('SELECT COUNT(*) AS items, COALESCE(SUM(quantity), 0) AS qty,
-                                SUM(created_at >= ?) AS week, SUM(created_at >= ?) AS month
+                                COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS week,
+                                COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month
                          FROM items');
     $st->execute([local_boundary_utc('monday this week'), local_boundary_utc('first day of this month')]);
     $r = $st->fetch();
@@ -401,14 +396,13 @@ function stats_totals(): array
 function stats_added_series(string $unit): array
 {
     $tz  = new DateTimeZone(date_default_timezone_get());
-    $mod = local_modifier();
+    [$expr, $mod] = db_local_bucket(db_driver(), 'created_at', $unit === 'day' ? 'day' : 'month', $tz->getName());
+    $sql = "SELECT $expr AS k, COUNT(*) AS n FROM items WHERE created_at >= ? GROUP BY 1";
     if ($unit === 'day') {
         $start = (new DateTimeImmutable('today', $tz))->modify('-29 days');
-        $sql = "SELECT date(created_at, ?) AS k, COUNT(*) AS n FROM items WHERE created_at >= ? GROUP BY k";
         $step = '+1 day'; $fmtKey = 'Y-m-d'; $count = 30;
     } else {
         $start = (new DateTimeImmutable('first day of this month', $tz))->setTime(0, 0)->modify('-11 months');
-        $sql = "SELECT strftime('%Y-%m', created_at, ?) AS k, COUNT(*) AS n FROM items WHERE created_at >= ? GROUP BY k";
         $step = '+1 month'; $fmtKey = 'Y-m'; $count = 12;
     }
     $st = db()->prepare($sql);
@@ -428,7 +422,7 @@ function stats_by(string $kind, int $n = 5): array
     $t = tax($kind);
     $rows = db()->query("SELECT x.id, x.name, COUNT(i.id) AS n
                          FROM items i JOIN {$t['table']} x ON x.id = i.{$t['col']}
-                         GROUP BY x.id ORDER BY n DESC, x.name COLLATE NATSORT")->fetchAll();
+                         GROUP BY x.id ORDER BY n DESC, x.sort_key, x.id")->fetchAll();
     $top = array_slice($rows, 0, $n);
     $rest = array_slice($rows, $n);
     if ($rest) $top[] = ['id' => null, 'name' => 'Other (' . count($rest) . ')', 'n' => array_sum(array_column($rest, 'n')), 'other' => true];

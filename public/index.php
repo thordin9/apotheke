@@ -277,7 +277,7 @@ try {
         fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at'], ',', '"', '\\');
         foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at
                               " . ITEM_FROM . "
-                              ORDER BY l.name IS NULL, l.name COLLATE NATSORT, c.name IS NULL, c.name COLLATE NATSORT, i.name COLLATE NATSORT") as $r) {
+                              ORDER BY CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key, CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key, i.sort_key, i.id") as $r) {
             fputcsv($out, array_values($r), ',', '"', '\\');
         }
         exit;
