@@ -618,3 +618,26 @@ a.tagchip{min-height:36px}
 .st-value-grid h4{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--muted)}
 .st-value .hb-n{min-width:0;white-space:nowrap;font-variant-numeric:tabular-nums}
 @media (min-width:600px){.st-value-grid{grid-template-columns:1fr 1fr}}
+
+/* saved filters */
+.saved-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.saved-chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;min-width:0;flex:1 1 auto}
+.saved-chips:empty{display:none}
+.sfchip{background:var(--surface,transparent);color:var(--text);border:1px solid var(--line)}
+.sfchip .i{color:var(--muted)}
+.sfchip.is-on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.sfchip.is-on .i{color:var(--accent)}
+.sfchip-manage{background:none;color:var(--muted)}
+.savefilter{flex:none}
+.savefilter[hidden]{display:none}
+.savefilter>summary{list-style:none;min-height:44px}
+.savefilter>summary::-webkit-details-marker{display:none}
+.savefilter[open]{flex:1 1 100%}
+.savefilter-form{display:flex;gap:8px;margin-top:8px}
+.savefilter-form input{flex:1;min-width:0;min-height:44px}
+.vh-form{display:none}
+.loc-main.sf-main{display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:6px 14px 0}
+.sf-main .loc-name{padding:8px 0 0}
+.sf-main .sf-desc{white-space:normal;padding:0 0 6px}
+#sflist .loc-more{padding:0 14px 8px}
+

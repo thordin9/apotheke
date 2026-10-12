@@ -98,13 +98,14 @@ try {
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
                       'count' => count_text($res['total'], $q !== '' || filters_active($f)), 'more' => $res['more'], 'page' => $page,
-                      'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
+                      'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort), 'query' => saved_filter_query($_GET)]);
         }
         header('Cache-Control: no-store');
         $toast = null;
         if (isset($_GET['saved']) && ($s = item_get((int)$_GET['saved']))) $toast = 'Saved “' . $s['name'] . '”';
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
         if (isset($_GET['bulk_done'])) $toast = bulk_toast((int)$_GET['bulk_done'], (string)($_GET['bulk_act'] ?? ''));
+        if (isset($_GET['filter_saved']) && ($sf = saved_filter_get((int)$_GET['filter_saved']))) $toast = 'Saved filter “' . $sf['name'] . '”';
         view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? '1') !== '0',
                   ($_GET['select'] ?? '') === '1', ($_GET['all'] ?? '') === '1');
         exit;
@@ -296,6 +297,39 @@ try {
         $it = item_get((int)$m[1]);
         if ($it) item_delete($it);
         redirect('/?deleted=1');
+    }
+
+    /* ---- saved filters ---- */
+    if ($path === '/filters' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        $toast = match ((string)($_GET['done'] ?? '')) { 'renamed' => 'Filter renamed', 'deleted' => 'Filter deleted', default => null };
+        view_saved_filters(saved_filters(), null, $toast);
+        exit;
+    }
+    if ($path === '/filters' && $method === 'POST') {
+        check_csrf();
+        $query = saved_filter_query($_POST);
+        try {
+            $sid = saved_filter_create((string)($_POST['name'] ?? ''), $query);
+        } catch (UserError $e) {
+            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+            throw $e;
+        }
+        if (wants_json()) json_out(['ok' => true, 'id' => $sid, 'html' => saved_filters_html(saved_filters(), $query)]);
+        redirect('/?' . ($query !== '' ? $query . '&' : '') . 'filter_saved=' . $sid);
+    }
+    if (preg_match('#^/filters/(\d+)/(rename|delete)$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $sid = (int)$m[1];
+        try {
+            $m[2] === 'rename' ? saved_filter_rename($sid, (string)($_POST['name'] ?? '')) : saved_filter_delete($sid);
+        } catch (UserError $e) {
+            if ($e->getCode() === 404) throw $e;
+            http_response_code($e->getCode() ?: 422);
+            view_saved_filters(saved_filters(), $e->getMessage(), null);
+            exit;
+        }
+        redirect('/filters?done=' . ($m[2] === 'rename' ? 'renamed' : 'deleted'));
     }
 
     /* ---- locations & categories management ---- */

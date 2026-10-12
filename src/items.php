@@ -433,6 +433,9 @@ function parse_min_qty(string $s): ?int
 const LOW_SQL = 'i.min_qty IS NOT NULL AND i.quantity <= i.min_qty';
 
 /** Normalise a filter value: '' = all, 'none' = unassigned, digits = id. */
+/** List sort orders (key => label); items_search() maps the keys to ORDER BY clauses. */
+const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity', 'value' => 'Value (highest first)'];
+
 /**
  * The list's choice filters besides location/category/tag: URL parameter => definition. Adding one here gives it a
  * select in the filter sheet, a removable chip, URL parsing and a place in the active-filter count; items_search()
@@ -1237,4 +1240,72 @@ function item_duplicate(int $id, bool $photos): int
         foreach ($copies as $f) image_delete($f);
         throw $e;
     }
+}
+
+/* ---------- saved filters ---------- */
+
+const SAVED_FILTERS_MAX = 50;
+
+/**
+ * Normalised query string of a list view: only known parameters with valid values, in a fixed order, so the same
+ * combination always gives the same string ("q=drill&loc=3&sort=name"). '' = the unfiltered list.
+ */
+function saved_filter_query(array $src): string
+{
+    $q = clean_line(is_string($src['q'] ?? null) ? $src['q'] : '', 200);
+    $sort = is_string($src['sort'] ?? null) && isset(SORTS[$src['sort']]) ? $src['sort'] : 'recent';
+    return http_build_query(list_query($q, filters_from($src), $sort));
+}
+
+/** @return array<int,array{id:int,name:string,query:string}> */
+function saved_filters(): array
+{
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'name' => (string)$r['name'], 'query' => (string)$r['query']],
+        db()->query('SELECT id, name, query FROM saved_filters ORDER BY sort_key, id')->fetchAll());
+}
+
+function saved_filter_get(int $id): ?array
+{
+    $st = db()->prepare('SELECT id, name, query FROM saved_filters WHERE id = ?');
+    $st->execute([$id]);
+    $r = $st->fetch();
+    return $r ? ['id' => (int)$r['id'], 'name' => (string)$r['name'], 'query' => (string)$r['query']] : null;
+}
+
+function saved_filter_name(string $name, ?int $except = null): string
+{
+    $name = clean_line($name, 60);
+    if ($name === '') throw new UserError('Give the filter a name.', 422);
+    $st = db()->prepare('SELECT id, name FROM saved_filters WHERE name_key = ?');
+    $st->execute([fold($name)]);
+    $ex = $st->fetch();
+    if ($ex && (int)$ex['id'] !== $except) throw new UserError('A saved filter called “' . $ex['name'] . '” already exists.', 409);
+    return $name;
+}
+
+/** Save the current list view under a name. @return int new id */
+function saved_filter_create(string $name, string $query): int
+{
+    return db_tx(function (PDO $pdo) use ($name, $query): int {
+        $name = saved_filter_name($name);
+        if ($query === '') throw new UserError('Choose a search, filter or sort first – there is nothing to save.', 422);
+        if ((int)$pdo->query('SELECT COUNT(*) FROM saved_filters')->fetchColumn() >= SAVED_FILTERS_MAX) {
+            throw new UserError('You can keep up to ' . SAVED_FILTERS_MAX . ' saved filters. Delete one first.', 422);
+        }
+        return db_insert($pdo, 'INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES (?,?,?,?,?)',
+            [$name, fold($name), $query, natkey($name), now_utc()]);
+    });
+}
+
+function saved_filter_rename(int $id, string $name): void
+{
+    if (!saved_filter_get($id)) throw new UserError('Saved filter not found.', 404);
+    $name = saved_filter_name($name, $id);
+    db()->prepare('UPDATE saved_filters SET name = ?, name_key = ?, sort_key = ? WHERE id = ?')->execute([$name, fold($name), natkey($name), $id]);
+}
+
+function saved_filter_delete(int $id): void
+{
+    if (!saved_filter_get($id)) throw new UserError('Saved filter not found.', 404);
+    db()->prepare('DELETE FROM saved_filters WHERE id = ?')->execute([$id]);
 }

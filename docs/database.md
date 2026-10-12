@@ -71,6 +71,14 @@ erDiagram
     int item_id PK
     int tag_id PK
   }
+  saved_filters {
+    int id PK
+    text name
+    text name_key UK
+    text query "normalised list query string"
+    text sort_key
+    text created_at
+  }
   activity {
     int id PK
     int item_id "nullable"
@@ -110,6 +118,8 @@ Notes:
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
   "due": "…"}` for a loan, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
+* `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
+  e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
 
 ### Migrations so far
 
@@ -125,6 +135,7 @@ Notes:
 | 0008 | `0008_nested_locations.php` | `locations.parent_id` + index |
 | 0009 | `0009_expiry.php` | `items.expires_on` + index |
 | 0010 | `0010_value_index.php` | index on `items.value_cents` (sort by value, totals) |
+| 0011 | `0011_saved_filters.php` | `saved_filters` (named list views) |
 
 ## How migrations run
 

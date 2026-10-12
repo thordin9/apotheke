@@ -348,8 +348,6 @@ function active_filter_count(array $f, string $sort): int
     return count(array_filter(filters_norm($f), fn($v) => $v !== '')) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
-const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity', 'value' => 'Value (highest first)'];
-
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
@@ -566,6 +564,21 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
       <?php if ($select): ?><input type="hidden" name="select" value="1"><?php endif; ?>
       <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats, $tags) ?></div>
     </div>
+    <?php $curQuery = http_build_query($qs); ?>
+    <div class="saved-row" id="saved-row">
+      <div class="saved-chips" id="saved-chips"><?= saved_filters_html(saved_filters(), $curQuery) ?></div>
+      <details class="savefilter" id="savefilter"<?= $curQuery === '' ? ' hidden' : '' ?>>
+        <summary class="btn btn-sm" id="savefilter-open"><?= icon('star') ?> Save filter</summary>
+        <div class="savefilter-form">
+          <input type="text" name="name" id="sf-name" form="sf-form" maxlength="60" required autocomplete="off" enterkeyhint="done" placeholder="Name, e.g. Garage tools" aria-label="Name of the saved filter">
+          <button class="btn btn-primary" form="sf-form" id="sf-save">Save</button>
+        </div>
+      </details>
+    </div>
+  </form>
+  <form method="post" action="/filters" id="sf-form" class="vh-form">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <?php foreach ($qs as $k => $v): ?><input type="hidden" name="<?= h($k) ?>" value="<?= h((string)$v) ?>" data-sf><?php endforeach; ?>
   </form>
 </header>
 <main class="wrap">
@@ -960,6 +973,88 @@ function parent_options(array $list, ?int $self, ?int $cur): string
         $o .= '<option value="' . $l['id'] . '"' . ($cur === $l['id'] ? ' selected' : '') . '>' . h(tax_option_label($l)) . '</option>';
     }
     return $o;
+}
+
+/** Chips for the saved filters on the list page; the one matching the current view is highlighted. */
+function saved_filters_html(array $list, string $current): string
+{
+    if (!$list) return '';
+    $o = '';
+    foreach ($list as $sf) {
+        $on = $sf['query'] === $current;
+        $o .= '<a class="achip sfchip' . ($on ? ' is-on' : '') . '" href="/?' . h($sf['query']) . '" data-query="' . h($sf['query']) . '"'
+            . ($on ? ' aria-current="true"' : '') . '>' . icon('star') . '<span>' . h($sf['name']) . '</span></a>';
+    }
+    return $o . '<a class="achip sfchip-manage" href="/filters" aria-label="Manage saved filters">' . icon('edit') . '<span>Edit</span></a>';
+}
+
+/** Saved filters: open, rename, delete. */
+function view_saved_filters(array $list, ?string $error, ?string $toast): void
+{
+    page_start('Saved filters', 'page-locs');
+    $tok = h(csrf_token());
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Saved filters</h1>
+    <?= menu_html() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <div class="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
+  <p class="hint">Set up a search, filters and sort on the list, then tap <b>Save filter</b>. Saved filters appear as chips above the list.</p>
+  <?php if (!$list): ?>
+  <div class="empty"><?= icon('star') ?><p>No saved filters yet.</p><a class="btn" href="/">Go to the list</a></div>
+  <?php else: ?>
+  <ul class="loclist" id="sflist">
+    <?php foreach ($list as $sf): ?>
+    <li class="loc" id="sf-<?= $sf['id'] ?>">
+      <div class="loc-main sf-main">
+        <a class="loc-name" href="/?<?= h($sf['query']) ?>"><?= h($sf['name']) ?></a>
+        <span class="loc-count sf-desc"><?= h(saved_filter_describe($sf['query'])) ?></span>
+      </div>
+      <details class="loc-more">
+        <summary><?= icon('edit') ?> Edit</summary>
+        <div class="loc-actions">
+          <form method="post" action="/filters/<?= $sf['id'] ?>/rename" class="loc-rename">
+            <input type="hidden" name="csrf" value="<?= $tok ?>">
+            <input type="text" name="name" value="<?= h($sf['name']) ?>" required maxlength="60" autocomplete="off" aria-label="Rename “<?= h($sf['name']) ?>”">
+            <button class="btn">Rename</button>
+          </form>
+          <div class="loc-btns">
+            <form method="post" action="/filters/<?= $sf['id'] ?>/delete" data-confirm="Delete the saved filter “<?= h($sf['name']) ?>”?">
+              <input type="hidden" name="csrf" value="<?= $tok ?>">
+              <button class="btn btn-danger"><?= icon('trash') ?> Delete</button>
+            </form>
+          </div>
+        </div>
+      </details>
+    </li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+</main>
+<?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
+<?php
+    page_end();
+}
+
+/** Short human description of a saved query: "“drill” · Garage · Tools · Running low · sorted by Name". */
+function saved_filter_describe(string $query): string
+{
+    parse_str($query, $p);
+    $f = filters_from($p);
+    $parts = [];
+    if (($p['q'] ?? '') !== '') $parts[] = '“' . $p['q'] . '”';
+    foreach (['loc' => 'location', 'cat' => 'category'] as $k => $kind) {
+        if ($f[$k] === 'none') $parts[] = tax($kind)['none'];
+        elseif ($f[$k] !== '') $parts[] = $kind === 'location' ? (location_path((int)$f[$k]) ?: '?') : (string)(tax_get($kind, (int)$f[$k])['name'] ?? '?');
+    }
+    if ($f['tag'] !== '') foreach (tags_all() as $t) if ((string)$t['id'] === $f['tag']) $parts[] = '#' . $t['name'];
+    foreach (list_filter_defs() as $k => $d) if ($f[$k] !== '') $parts[] = $d['opts'][$f[$k]];
+    if (isset($p['sort']) && is_string($p['sort']) && isset(SORTS[$p['sort']])) $parts[] = 'sorted by ' . SORTS[$p['sort']];
+    return implode(' · ', $parts);
 }
 
 function view_tax_delete(string $kind, array $entry, array $others): void

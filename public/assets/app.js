@@ -284,6 +284,7 @@
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
         if (j.chips !== undefined) { achips.innerHTML = j.chips; fcount.textContent = j.nfilters; fcount.hidden = !j.nfilters; }
         more.hidden = !j.more;
+        if (j.query !== undefined) syncSaved(j.query);
         if (!append) { sp.delete('page'); history.replaceState(null, '', '/' + (sp.toString() ? '?' + sp : '')); }
         const nq = new URLSearchParams();
         ['loc', 'cat'].forEach(k => { const v = $('#' + k).value; if (/^\d+$/.test(v)) nq.set(k, v); });
@@ -314,6 +315,38 @@
       if (sheet && c.id === 'filter-clear') sheet.open = false;
     });
     more.addEventListener('click', () => load(true));
+
+    // Saved filters: highlight the chip matching the current view; save the current combination.
+    const sfDetails = $('#savefilter'), sfForm = $('#sf-form'), sfChips = $('#saved-chips');
+    function syncSaved(query) {
+      if (sfChips) sfChips.querySelectorAll('a[data-query]').forEach(a => {
+        const on = a.dataset.query === query;
+        a.classList.toggle('is-on', on);
+        if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+      });
+      if (sfDetails) { sfDetails.hidden = query === ''; if (query === '') sfDetails.open = false; }
+    }
+    if (sfForm && sfDetails) {
+      sfDetails.addEventListener('toggle', () => { if (sfDetails.open) $('#sf-name').focus(); });
+      sfForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        sfForm.querySelectorAll('input[data-sf]').forEach(i => i.remove());
+        for (const [k, v] of params(1)) {
+          const i = document.createElement('input');
+          i.type = 'hidden'; i.name = k; i.value = v; i.dataset.sf = '';
+          sfForm.append(i);
+        }
+        const name = $('#sf-name');
+        try {
+          const r = await fetch('/filters', { method: 'POST', body: new FormData(sfForm), headers: { 'X-Requested-With': 'fetch', Accept: 'application/json' }, credentials: 'same-origin' });
+          const j = await r.json();
+          if (!j.ok) { toast(j.error || 'Could not save the filter', true); name.focus(); return; }
+          sfChips.innerHTML = j.html;
+          toast('Saved filter “' + name.value.trim() + '”');
+          name.value = ''; sfDetails.open = false;
+        } catch { toast('Could not save – check your connection', true); }
+      });
+    }
 
     // Tapping a location/category chip (or an Overview bar) filters in place.
     document.addEventListener('click', e => {

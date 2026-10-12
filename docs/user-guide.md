@@ -53,6 +53,15 @@ Active filters appear as chips under the search field; tap a chip's × to remove
 *Filter* button counts the active filters. Everything lives in the URL (`/?q=drill&loc=3&tag=5&stock=low&lend=out&sort=name`),
 so you can bookmark a filtered view.
 
+### Saved filters
+
+Once a search, filter or sort is active, a **★ Save filter** button appears above the list. Give the combination a
+name (for example *Garage tools* or *Medicine expiring soon*) and tap *Save*. Saved filters show as chips above the
+list: tap one to apply it again; the chip of the view you are looking at is highlighted. *Edit* (or `/filters`) lists
+them with a short description, where you can **rename** or **delete** them. Names are unique (ignoring case and
+accents) and you can keep up to 50. A saved filter stores the search words, filters and sort, not the results, so it
+always shows the current matches. Saved filters are included in backups.
+
 ## Overview statistics
 
 The collapsible *Overview* panel at the top of the list shows tiles (items, total quantity, locations, categories,

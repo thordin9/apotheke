@@ -21,7 +21,7 @@ const BACKUP_MAX_ENTRIES  = 100_000;
 /** Tables in foreign-key order (parents first). Restore deletes in reverse. */
 function backup_tables(): array
 {
-    return ['locations', 'categories', 'tags', 'items', 'item_photos', 'item_tags', 'app_settings', 'activity'];
+    return ['locations', 'categories', 'tags', 'items', 'item_photos', 'item_tags', 'app_settings', 'activity', 'saved_filters'];
 }
 
 function backup_table_exists(PDO $pdo, string $driver, string $t): bool
