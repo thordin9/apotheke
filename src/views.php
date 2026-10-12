@@ -21,6 +21,13 @@ function icon(string $n): string
         'move'   => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
         'tag'    => '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.6"/>',
+        'sun'    => '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+        'moon'   => '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+        'auto'   => '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17A8.5 8.5 0 0 0 12 3.5z" fill="currentColor"/>',
+        'menu'   => '<path d="M4 7h16M4 12h16M4 17h16"/>',
+        'filter' => '<path d="M4 5h16l-6 7.5V19l-4 2v-8.5z"/>',
+        'download'=> '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+        'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
     return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . ($p[$n] ?? '') . '</svg>';
@@ -31,15 +38,21 @@ function icon(string $n): string
 function page_start(string $title, string $bodyClass = ''): void
 {
     $t = $title === '' ? APP_NAME . ' – ' . APP_TAGLINE : $title . ' · ' . APP_NAME;
+    $theme = theme_pref();
     ?><!doctype html>
-<html lang="en">
+<html lang="en" data-theme="<?= h($theme) ?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title><?= h($t) ?></title>
+<?php if ($theme === 'auto'): ?>
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)">
+<?php else: ?>
+<meta name="color-scheme" content="<?= $theme ?>">
+<meta name="theme-color" content="<?= $theme === 'dark' ? '#111113' : '#f5f5f7' ?>">
+<?php endif; ?>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="<?= h(APP_NAME) ?>">
@@ -51,6 +64,7 @@ function page_start(string $title, string $bodyClass = ''): void
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="stylesheet" href="<?= h(asset('app.css')) ?>">
+<script src="<?= h(asset('theme.js')) ?>"></script>
 <script src="<?= h(asset('app.js')) ?>" defer></script>
 </head>
 <body class="<?= h($bodyClass) ?>">
@@ -105,6 +119,57 @@ function count_text(int $total, bool $filtered): string
 {
     $s = $total . ' item' . ($total === 1 ? '' : 's');
     return $filtered ? $s . ' found' : $s;
+}
+
+/** Header "more" menu: theme switch (Auto/Light/Dark), manage, export, sign out. Works without JS (<details> + forms). */
+function menu_html(): string
+{
+    $tok = h(csrf_token());
+    $cur = theme_pref();
+    $back = h(safe_back((string)($_SERVER['REQUEST_URI'] ?? '/')));
+    $o = '<details class="menu" id="menu"><summary class="btn btn-ghost btn-round" id="menu-btn" aria-label="Menu" title="Menu">' . icon('menu') . '</summary>'
+       . '<div class="menu-panel" role="menu">'
+       . '<form method="post" action="/theme" class="theme-form" id="theme-form"><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="back" value="' . $back . '">'
+       . '<p class="menu-label" id="theme-label">Appearance</p><div class="seg seg-lg" role="radiogroup" aria-labelledby="theme-label">';
+    foreach (['auto' => ['Auto', 'auto'], 'light' => ['Light', 'sun'], 'dark' => ['Dark', 'moon']] as $k => [$label, $ic]) {
+        $o .= '<button name="theme" value="' . $k . '" role="radio" aria-checked="' . ($k === $cur ? 'true' : 'false') . '" class="seg-btn' . ($k === $cur ? ' on' : '') . '">' . icon($ic) . '<span>' . $label . '</span></button>';
+    }
+    $o .= '</div></form>'
+        . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
+        . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
+        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>';
+    if (app_password() !== '') {
+        $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
+    }
+    return $o . '</div></details>';
+}
+
+function active_filter_count(array $f, string $sort): int
+{
+    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+}
+
+const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
+
+/** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
+function active_chips_html(array $f, string $sort, array $locs, array $cats): string
+{
+    $name = function (string $kind, array $list, string $v): string {
+        if ($v === 'none') return tax($kind)['none'];
+        foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
+        return '?';
+    };
+    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $href = function (string $drop) use ($base): string {
+        $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
+        return '/' . ($qs ? '?' . http_build_query($qs) : '');
+    };
+    $o = '';
+    if ($f['loc'] !== '') $o .= '<a class="achip chip-location" href="' . h($href('loc')) . '" data-clear="loc" aria-label="Remove location filter">' . icon('pin') . '<span>' . h($name('location', $locs, $f['loc'])) . '</span>' . icon('x') . '</a>';
+    if ($f['cat'] !== '') $o .= '<a class="achip chip-category" href="' . h($href('cat')) . '" data-clear="cat" aria-label="Remove category filter">' . icon('tag') . '<span>' . h($name('category', $cats, $f['cat'])) . '</span>' . icon('x') . '</a>';
+    if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
+    if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
+    return $o;
 }
 
 /* ---------- statistics ---------- */
@@ -204,13 +269,13 @@ function new_item_href(array $f): string
 function filter_select(string $kind, array $list, string $cur, int $none): string
 {
     $t = tax($kind);
-    $o = '<select name="' . $t['param'] . '" id="' . $t['param'] . '" aria-label="' . h($t['One']) . '">'
+    $o = '<label class="field"><span>' . h($t['One']) . '</span><select name="' . $t['param'] . '" id="' . $t['param'] . '">'
        . '<option value="">All ' . h($t['many']) . '</option>';
     foreach ($list as $l) {
         $o .= '<option value="' . (int)$l['id'] . '"' . ((string)$l['id'] === $cur ? ' selected' : '') . '>' . h($l['name']) . ' (' . (int)$l['n'] . ')</option>';
     }
     if ($none > 0 || $cur === 'none') $o .= '<option value="none"' . ($cur === 'none' ? ' selected' : '') . '>' . h($t['none']) . ' (' . $none . ')</option>';
-    return $o . '</select>';
+    return $o . '</select></label>';
 }
 
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true): void
@@ -222,7 +287,8 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
   <div class="bar">
     <h1 class="brand"><?= icon('box') ?><span><?= h(APP_NAME) ?></span></h1>
     <span class="stats"><?= (int)$stats['items'] ?> items · <?= (int)$stats['qty'] ?> pcs</span>
-    <a class="btn btn-ghost btn-round" href="/locations" aria-label="Manage locations &amp; categories" title="Locations &amp; categories"><?= icon('sliders') ?></a>
+    <a class="btn btn-ghost btn-round hide-sm" href="/locations" aria-label="Manage locations &amp; categories" title="Locations &amp; categories"><?= icon('sliders') ?></a>
+    <?= menu_html() ?>
     <a class="btn btn-primary btn-round" href="<?= h(new_item_href($f)) ?>" aria-label="Add item"><?= icon('plus') ?></a>
   </div>
   <form class="filters" action="/" method="get" role="search" id="filters">
@@ -230,32 +296,45 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
       <?= icon('search') ?>
       <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search names, places, categories, notes" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" id="q">
     </label>
-    <div class="row row3">
-      <?= filter_select('location', $locs, $f['loc'], $stats['unassigned']) ?>
-      <?= filter_select('category', $cats, $f['cat'], $stats['uncategorized']) ?>
-      <select name="sort" id="sort" aria-label="Sort">
-        <?php foreach (['recent' => 'Recent', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'] as $k => $v): ?>
-        <option value="<?= $k ?>"<?= $sort === $k ? ' selected' : '' ?>><?= $v ?></option>
-        <?php endforeach; ?>
-      </select>
+    <div class="frow">
+      <details class="fsheet" id="fsheet">
+        <summary class="btn fbtn" id="filter-open" aria-label="Filter and sort"><?= icon('filter') ?><span>Filter</span><b class="fcount" id="fcount"<?= active_filter_count($f, $sort) ? '' : ' hidden' ?>><?= active_filter_count($f, $sort) ?></b></summary>
+        <div class="fpanel" role="dialog" aria-labelledby="fpanel-title">
+          <div class="fpanel-head"><h2 id="fpanel-title">Filter &amp; sort</h2><button type="button" class="btn btn-ghost" id="filter-close">Done</button></div>
+          <?= filter_select('location', $locs, $f['loc'], $stats['unassigned']) ?>
+          <?= filter_select('category', $cats, $f['cat'], $stats['uncategorized']) ?>
+          <label class="field"><span>Sort by</span>
+          <select name="sort" id="sort">
+            <?php foreach (SORTS as $k => $v): ?>
+            <option value="<?= $k ?>"<?= $sort === $k ? ' selected' : '' ?>><?= $v ?></option>
+            <?php endforeach; ?>
+          </select></label>
+          <div class="fpanel-actions">
+            <a class="btn" href="/" id="filter-clear">Clear all</a>
+            <button class="btn btn-primary" id="filter-apply">Show results</button>
+          </div>
+        </div>
+      </details>
+      <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats) ?></div>
     </div>
-    <noscript><button class="btn">Search</button></noscript>
   </form>
 </header>
 <main class="wrap">
   <?= stats_section($stats, $statsOpen) ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
-  <div class="grid" id="grid"><?= cards_html($res['items']) ?></div>
+  <div class="grid" id="grid" aria-live="polite"><?= cards_html($res['items']) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
     <?= icon('box') ?>
-    <p><?= $filtered ? 'Nothing matches.' : 'Your catalog is empty.' ?></p>
-    <a class="btn btn-primary" href="/new"><?= icon('camera') ?> Add your first item</a>
+    <p class="empty-title" id="empty-title"><?= $filtered ? 'Nothing matches.' : 'Your catalog is empty.' ?></p>
+    <p class="empty-sub" id="empty-sub"><?= $filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.' ?></p>
+    <a class="btn btn-primary" id="empty-add" href="/new"<?= $filtered ? ' hidden' : '' ?>><?= icon('camera') ?> Add your first item</a>
+    <a class="btn" id="empty-clear" href="/"<?= $filtered ? '' : ' hidden' ?>>Clear search &amp; filters</a>
   </div>
   <button class="btn btn-wide" id="more" data-page="1"<?= $res['more'] ? '' : ' hidden' ?>>Show more</button>
   <footer class="foot">
     <a href="/locations">Locations</a>
     <a href="/categories">Categories</a>
-    <a href="/export.csv">Export CSV</a>
+    <a href="/export.csv" download>Export CSV</a>
     <?php if (app_password() !== ''): ?>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><button class="linkbtn">Sign out</button></form>
     <?php endif; ?>
@@ -276,7 +355,7 @@ function view_item(array $it): void
   <div class="bar">
     <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
     <h1 class="title-sm">Item</h1>
-    <a class="btn btn-ghost" href="/item/<?= $id ?>/edit"><?= icon('edit') ?> Edit</a>
+    <a class="btn btn-ghost" href="/item/<?= $id ?>/edit" aria-label="Edit item"><?= icon('edit') ?><span class="hide-xs">Edit</span></a>
   </div>
 </header>
 <main class="wrap narrow">
@@ -301,11 +380,16 @@ function view_item(array $it): void
   <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
   <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
-  <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”? This cannot be undone.">
-    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
-    <button class="btn btn-danger btn-wide"><?= icon('trash') ?> Delete item</button>
-  </form>
 </main>
+<div class="actionbar">
+  <div class="actionbar-in">
+    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”? This cannot be undone.">
+      <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+      <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete</button>
+    </form>
+    <a class="btn btn-primary" href="/item/<?= $id ?>/edit"><?= icon('edit') ?> Edit</a>
+  </div>
+</div>
 <?php
     page_end();
 }
@@ -368,12 +452,12 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       <span class="photo-status" id="pstatus" hidden></span>
     </div>
     <?php if ($hasImg): ?>
-    <label class="check"><input type="checkbox" name="remove_image" value="1" id="rmimg"> Remove photo</label>
+    <label class="check"><input type="checkbox" name="remove_image" value="1" id="rmimg"> <?= icon('trash') ?> Remove photo</label>
     <?php endif; ?>
 
     <label class="field">
       <span>Name</span>
-      <input type="text" name="name" value="<?= h($vals['name']) ?>" required maxlength="200" autocomplete="off" autocapitalize="sentences" enterkeyhint="next" placeholder="e.g. Cordless drill">
+      <input type="text" name="name" id="name" value="<?= h($vals['name']) ?>" required maxlength="200" autocomplete="off" autocapitalize="sentences" enterkeyhint="next" placeholder="e.g. Cordless drill">
     </label>
     <?= picker_html('location', $locs, $vals['location_id'], $vals['new_location']) ?>
     <?= picker_html('category', $cats, $vals['category_id'], $vals['new_category']) ?>
@@ -390,11 +474,13 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, serial, purchase date…"><?= h($vals['notes']) ?></textarea>
     </label>
 
-    <div class="actions">
-      <button class="btn btn-primary btn-wide" name="after" value="view" id="save">Save</button>
+    <div class="actionbar actionbar-form">
+      <div class="actionbar-in<?= $isNew ? '' : ' one' ?>">
       <?php if ($isNew): ?>
-      <button class="btn btn-wide" name="after" value="another">Save &amp; add another here</button>
+      <button class="btn" name="after" value="another" id="save-another">Save &amp; new</button>
       <?php endif; ?>
+      <button class="btn btn-primary" name="after" value="view" id="save">Save</button>
+      </div>
     </div>
   </form>
 </main>
@@ -424,7 +510,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
   <div class="bar">
     <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
     <h1 class="title-sm">Manage</h1>
-    <span class="spacer"></span>
+    <?= menu_html() ?>
   </div>
   <?= manage_tabs($kind) ?>
 </header>
@@ -453,7 +539,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
         <a class="loc-count" href="/?<?= $t['param'] ?>=<?= $id ?>"><?= $n ?> item<?= $n === 1 ? '' : 's' ?></a>
       </div>
       <details class="loc-more">
-        <summary>Edit</summary>
+        <summary><?= icon('edit') ?> Edit</summary>
         <div class="loc-actions">
           <form method="post" action="<?= $base ?>/<?= $id ?>/rename" class="loc-rename">
             <input type="hidden" name="csrf" value="<?= $tok ?>">
@@ -525,8 +611,12 @@ function view_tax_delete(string $kind, array $entry, array $others): void
       <input type="radio" name="action" value="unassign"<?= $others ? '' : ' checked' ?>>
       <span><strong>Leave items without a <?= h($t['one']) ?></strong><small>The items are kept; only the <?= h($t['one']) ?> is removed.</small></span>
     </label>
-    <button class="btn btn-danger btn-wide"><?= icon('trash') ?> Delete “<?= h($entry['name']) ?>”</button>
-    <a class="btn btn-wide" href="<?= $t['path'] ?>">Cancel</a>
+    <div class="actionbar actionbar-form">
+      <div class="actionbar-in">
+        <a class="btn" href="<?= $t['path'] ?>">Cancel</a>
+        <button class="btn btn-danger-solid"><?= icon('trash') ?> Delete</button>
+      </div>
+    </div>
   </form>
 </main>
 <?php
@@ -543,7 +633,7 @@ function view_login(?string $error): void
   <form method="post" action="/login" class="itemform">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if ($error): ?><div class="err" role="alert"><?= h($error) ?></div><?php endif; ?>
-    <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required autofocus></label>
+    <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required autofocus enterkeyhint="go"></label>
     <button class="btn btn-primary btn-wide">Sign in</button>
   </form>
 </main>
