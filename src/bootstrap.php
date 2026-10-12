@@ -305,3 +305,27 @@ function asset(string $file): string
     $v = is_file($path) ? substr(md5((string)filemtime($path) . filesize($path)), 0, 8) : '0';
     return '/assets/' . $file . '?v=' . $v;
 }
+
+/* ---------- theme preference (cookie, so the server renders the right theme before first paint) ---------- */
+
+const THEMES = ['auto', 'light', 'dark'];
+
+function theme_pref(): string
+{
+    $t = (string)($_COOKIE['theme'] ?? 'auto');
+    return in_array($t, THEMES, true) ? $t : 'auto';
+}
+
+function set_theme_cookie(string $theme): string
+{
+    $theme = in_array($theme, THEMES, true) ? $theme : 'auto';
+    setcookie('theme', $theme, ['expires' => time() + 60 * 60 * 24 * 400, 'path' => '/', 'samesite' => 'Lax']);
+    $_COOKIE['theme'] = $theme;
+    return $theme;
+}
+
+/** Only same-site, path-absolute redirect targets ("/…", never "//host" or "/\host"). */
+function safe_back(string $back): string
+{
+    return preg_match('#^/(?![/\\\\])[^\s]*$#D', $back) ? $back : '/';
+}
