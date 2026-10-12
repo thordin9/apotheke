@@ -32,6 +32,8 @@ function icon(string $n): string
         'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
         'qr'     => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
         'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
+        'handoff'=> '<path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M12 15v2"/>',
+        'undo'   => '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
         'check'  => '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
         'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
@@ -112,6 +114,7 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
         . '<div class="chips">' . $chips . '</div>'
         . ($min !== null ? low_badge_html() : '')
+        . lend_badge_html($it)
         . '<div class="qty" data-id="' . $id . '">'
         . '<button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"' . ($q <= 0 ? ' disabled' : '') . '>' . icon('minus') . '</button>'
         . '<output class="qval">' . $q . '</output>'
@@ -123,6 +126,76 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
 function low_badge_html(): string
 {
     return '<span class="lowbadge" role="status">' . icon('alert') . ' Running low</span>';
+}
+
+/** "Lent to X" / "Overdue" badge, or ''. */
+function lend_badge_html(array $it): string
+{
+    if (!is_lent($it)) return '';
+    $late = is_overdue($it);
+    return '<span class="lendbadge' . ($late ? ' is-overdue' : '') . '">' . icon($late ? 'alert' : 'handoff') . ' '
+        . ($late ? 'Overdue' : 'Lent') . ' · ' . h((string)$it['lent_to']) . '</span>';
+}
+
+/** The item page's lending box: status + Return, or a form to lend it. */
+function lend_section_html(array $it): string
+{
+    $id = (int)$it['id'];
+    $tok = h(csrf_token());
+    $today = local_today();
+    $form = fn(string $btn) => '<form method="post" action="/item/' . $id . '/lend" class="lendform" id="lendform">'
+        . '<input type="hidden" name="csrf" value="' . $tok . '">'
+        . '<label class="field"><span>Lent to</span><input type="text" name="lent_to" id="lent_to" required maxlength="100" autocomplete="name" value="' . h((string)($it['lent_to'] ?? '')) . '" placeholder="Name"></label>'
+        . '<div class="lendrow"><label class="field"><span>On</span><input type="date" name="lent_at" id="lent_at" max="' . $today . '" value="' . h((string)($it['lent_at'] ?? $today)) . '"></label>'
+        . '<label class="field"><span>Due back <em>optional</em></span><input type="date" name="lent_due" id="lent_due" value="' . h((string)($it['lent_due'] ?? '')) . '"></label></div>'
+        . '<button class="btn btn-primary btn-wide" id="lend-save">' . icon('handoff') . ' ' . $btn . '</button></form>';
+    if (!is_lent($it)) {
+        return '<details class="lendbox" id="lending"><summary>' . icon('handoff') . ' Lend this item</summary>' . $form('Mark as lent') . '</details>';
+    }
+    $late = is_overdue($it, $today);
+    return '<section class="lendbox is-out' . ($late ? ' is-overdue' : '') . '" id="lending" aria-labelledby="lend-title">'
+        . '<h2 id="lend-title">' . icon($late ? 'alert' : 'handoff') . ' ' . ($late ? 'Overdue' : 'Lent out') . '</h2>'
+        . '<p class="lendinfo">With <b>' . h((string)$it['lent_to']) . '</b> since ' . h((string)$it['lent_at'])
+        . ($it['lent_due'] !== null ? ' · due back <b>' . h((string)$it['lent_due']) . '</b>' : '') . '</p>'
+        . '<form method="post" action="/item/' . $id . '/return"><input type="hidden" name="csrf" value="' . $tok . '">'
+        . '<button class="btn btn-primary btn-wide" id="lend-return">' . icon('undo') . ' Mark as returned</button></form>'
+        . '<details class="lendedit"><summary>Change</summary>' . $form('Save') . '</details></section>';
+}
+
+function view_lent(array $items, string $today): void
+{
+    page_start('Lent out', 'page-lent');
+    $late = count(array_filter($items, fn($it) => is_overdue($it, $today)));
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Lent out</h1>
+    <span class="spacer"></span>
+    <?= menu_html() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <p class="lead" id="lent-summary"><?= count($items) ? count($items) . ' item' . (count($items) === 1 ? '' : 's') . ' out' . ($late ? ' · <b class="late">' . $late . ' overdue</b>' : '') : 'Nothing is lent out right now.' ?></p>
+  <?php if ($items): ?>
+  <ul class="lentlist" id="lentlist">
+    <?php foreach ($items as $it): $o = is_overdue($it, $today); ?>
+    <li class="lent<?= $o ? ' is-overdue' : '' ?>">
+      <a class="lent-main" href="/item/<?= (int)$it['id'] ?>">
+        <span class="lent-img"><?= valid_image_name($it['image'] ?? null) ? '<img src="/media/thumb/' . h($it['image']) . '" alt="" loading="lazy">' : icon('box') ?></span>
+        <span class="lent-text"><b><?= h($it['name']) ?></b>
+          <span><?= h((string)$it['lent_to']) ?> · since <?= h((string)$it['lent_at']) ?></span>
+          <span class="lent-due"><?= $it['lent_due'] !== null ? ($o ? 'Overdue · was due ' : 'Due ') . h((string)$it['lent_due']) : 'No due date' ?></span></span>
+      </a>
+      <form method="post" action="/item/<?= (int)$it['id'] ?>/return"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><input type="hidden" name="back" value="/lent">
+        <button class="btn btn-sm" aria-label="Mark <?= h($it['name']) ?> as returned"><?= icon('undo') ?> Returned</button></form>
+    </li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+</main>
+<?php
+    page_end();
 }
 
 function cards_html(array $items, bool $select = false, bool $checked = false): string
@@ -235,6 +308,7 @@ function menu_html(): string
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
+        . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
         . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>';
     if (app_password() !== '') {
@@ -245,7 +319,7 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + (($f['stock'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + (($f['stock'] ?? '') !== '' ? 1 : 0) + (($f['lend'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
@@ -253,13 +327,13 @@ const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Lo
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
-    $f += ['tag' => '', 'stock' => ''];
+    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
         foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort];
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -273,6 +347,7 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
         $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
     }
     if ($f['stock'] === 'low') $o .= '<a class="achip chip-low" href="' . h($href('stock')) . '" data-clear="stock" aria-label="Remove running-low filter">' . icon('alert') . '<span>Running low</span>' . icon('x') . '</a>';
+    if ($f['lend'] !== '') $o .= '<a class="achip chip-lend" href="' . h($href('lend')) . '" data-clear="lend" aria-label="Remove lending filter">' . icon('handoff') . '<span>' . ($f['lend'] === 'overdue' ? 'Overdue' : 'Lent out') . '</span>' . icon('x') . '</a>';
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -388,11 +463,11 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
     page_start('', $select ? 'page-select' : '');
-    $f += ['tag' => '', 'stock' => ''];
-    $qs = array_filter(['q' => $q, 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '');
+    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
+    $qs = array_filter(['q' => $q, 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '');
     $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
     $selHref = '/?' . http_build_query($qs + ['select' => '1']);
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '';
+    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== '';
     $tags = tags_all();
     ?>
 <header class="top">
@@ -428,6 +503,12 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           <select name="stock" id="stock">
             <option value="">All items</option>
             <option value="low"<?= $f['stock'] === 'low' ? ' selected' : '' ?>>Running low</option>
+          </select></label>
+          <label class="field"><span>Lending</span>
+          <select name="lend" id="lend">
+            <option value="">All items</option>
+            <option value="out"<?= $f['lend'] === 'out' ? ' selected' : '' ?>>Lent out</option>
+            <option value="overdue"<?= $f['lend'] === 'overdue' ? ' selected' : '' ?>>Overdue</option>
           </select></label>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
@@ -570,6 +651,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     </form>
     <?php endif; ?>
   </details>
+  <?= lend_section_html($it) ?>
   <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
   <?php if ($history): ?>
   <section class="history" id="history" aria-labelledby="hist-title">
@@ -919,6 +1001,13 @@ function activity_html(array $e): string
                   'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo'][$d['change'] ?? ''] ?? 'Changed photos';
             if (isset($d['count'])) $t .= ' · ' . (int)$d['count'] . ' total';
             break;
+        case 'lent':
+            $t = (!empty($d['before']) ? 'Lending changed: now with ' : 'Lent to ') . '<b>' . h((string)($d['to'] ?? '')) . '</b>'
+               . (!empty($d['at']) ? ' on ' . h($d['at']) : '') . (!empty($d['due']) ? ' · due ' . h($d['due']) : '');
+            break;
+        case 'returned':
+            $t = 'Returned by <b>' . h((string)($d['from'] ?? '')) . '</b>' . (isset($d['days']) ? ' after ' . (int)$d['days'] . ' day' . ((int)$d['days'] === 1 ? '' : 's') : '');
+            break;
         case 'deleted':
             $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
             break;
@@ -928,7 +1017,7 @@ function activity_html(array $e): string
     return $t;
 }
 
-const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash'];
+const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
 function activity_items_html(array $entries, bool $withItem): string
 {

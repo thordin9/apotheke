@@ -55,7 +55,7 @@ it works fully offline on your LAN.
   one transaction. The format doesn't depend on the database, so SQLite ↔ PostgreSQL works both ways.
 * **Activity history**: every change is logged in the same transaction as the change itself: created, edited (old → new
   for name, category, notes, value, purchase date, serial, tags, low-stock level), moved (including moves caused by deleting a location),
-  quantity, photos added/reordered/deleted/new cover, deleted. The item page shows the latest ten entries with a link to
+  quantity, photos added/reordered/deleted/new cover, lent/returned, deleted. The item page shows the latest ten entries with a link to
   the full history; ☰ → *Recent activity* lists all items, newest first. Entries of deleted items are kept.
 * **Low-stock alerts**: give an item an optional *Running low at* level. When its quantity drops to that level or below,
   the card and the item page show a **Running low** badge (it updates live as you tap −/+), the overview has a *Running
@@ -66,8 +66,13 @@ it works fully offline on your LAN.
   *Actions* opens a sheet to **move** them to a location, **set the category**, **add tags** or **remove a tag**, or
   **delete** them after a confirmation page. Each action runs in one transaction, writes a history entry per item and is
   CSRF-protected (`POST /bulk`, at most 500 items at once). Works without JavaScript too (`/?select=1`, `&all=1`).
-* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial` and `min_qty`
-  columns).
+* **Lending tracker**: *Lend this item* on the item page records who has it, since when (defaults to today) and an
+  optional due date; *Mark as returned* brings it back. Cards show a **Lent · name** or red **Overdue · name** badge
+  (overdue = the due date is before today in the `TZ` time zone), the filter sheet has *Lending → Lent out / Overdue*
+  (`/?lend=out`, `/?lend=overdue`), and ☰ → *Lent out* (`/lent`) lists everything that is out, overdue first, with a
+  one-tap *Returned* button. Lending and returns are logged in the history; CSV and backup/restore include it.
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`,
+  `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
   Empty means no login, fine on a trusted LAN.
 

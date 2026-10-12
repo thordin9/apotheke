@@ -278,7 +278,7 @@
         document.dispatchEvent(new CustomEvent('grid:update', { detail: sp }));
         count.textContent = j.count;
         empty.hidden = j.total > 0;
-        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || ($('#stock') && $('#stock').value));
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || ($('#stock') && $('#stock').value) || ($('#lend') && $('#lend').value));
         $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
         $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
@@ -302,6 +302,7 @@
       if (which === 'all' || which === 'cat') $('#cat').value = '';
       if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
       if ((which === 'all' || which === 'stock') && $('#stock')) $('#stock').value = '';
+      if ((which === 'all' || which === 'lend') && $('#lend')) $('#lend').value = '';
       if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
       if (which === 'all') q.value = '';
       load(false);

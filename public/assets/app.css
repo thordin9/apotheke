@@ -548,3 +548,37 @@ a.tagchip{min-height:36px}
   .bulksheet{position:relative}
   .bulksheet .fpanel{top:auto;bottom:calc(100% + 12px);right:0;left:auto;width:400px}
 }
+
+/* ---------- lending ---------- */
+.lendbadge{align-self:flex-start;display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:3px 9px;border-radius:999px;background:var(--accent-soft,var(--surface-2));color:var(--accent);font-size:12px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lendbadge .i{width:14px;height:14px;flex:none}
+.lendbadge.is-overdue{background:var(--danger-soft);color:var(--danger)}
+.lendbox{margin:var(--s4) 0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:var(--s3) var(--s4)}
+.lendbox>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;min-height:44px;font-weight:650}
+.lendbox>summary::-webkit-details-marker{display:none}
+.lendbox h2{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:17px;color:var(--accent)}
+.lendbox.is-overdue{box-shadow:inset 0 0 0 2px var(--danger),var(--shadow)}
+.lendbox.is-overdue h2{color:var(--danger)}
+.lendinfo{margin:4px 0 var(--s3)}
+.lendform{display:grid;gap:var(--s3);padding-top:var(--s2)}
+.lendform .field{margin:0}
+.lendform input{height:48px;font-size:17px;width:100%}
+.lendrow{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2)}
+.lendedit{margin-top:var(--s2)}
+.lendedit>summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--accent);font-weight:600}
+.lentlist{list-style:none;margin:0;padding:0;display:grid;gap:var(--s2)}
+.lent{display:flex;align-items:center;gap:var(--s2);background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:8px 12px 8px 8px}
+.lent.is-overdue{box-shadow:inset 0 0 0 2px var(--danger),var(--shadow)}
+.lent-main{flex:1;min-width:0;display:flex;align-items:center;gap:12px;color:inherit;text-decoration:none;min-height:56px}
+.lent-img{flex:none;width:56px;height:56px;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface-2);display:grid;place-items:center;color:var(--muted)}
+.lent-img img{width:100%;height:100%;object-fit:cover}
+.lent-text{min-width:0;display:flex;flex-direction:column;gap:2px}
+.lent-text>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lent-text span{font-size:14px;color:var(--muted)}
+.lent.is-overdue .lent-due,.late{color:var(--danger)!important;font-weight:650}
+.lent .btn-sm{min-height:44px}
+.lent>form{flex:none}
+.lent-main{overflow:hidden}
+.lent-text{flex:1;overflow:hidden}
+.lent-text>b{display:block}
+.lentlist{grid-template-columns:minmax(0,1fr)}

@@ -111,7 +111,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.notes, i.image, i.value_cents, i.purchase_date, i.serial, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -273,6 +273,8 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
         $args[]  = (int)$f['tag'];
     }
     if (($f['stock'] ?? '') === 'low') $where[] = '(' . LOW_SQL . ')';
+    if (($f['lend'] ?? '') === 'out') $where[] = 'i.lent_to IS NOT NULL';
+    if (($f['lend'] ?? '') === 'overdue') { $where[] = 'i.lent_to IS NOT NULL AND i.lent_due IS NOT NULL AND i.lent_due < ?'; $args[] = local_today(); }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $order = match ($sort) {
         'name'     => 'i.sort_key ASC, i.id DESC',
@@ -287,7 +289,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
 
     $page   = max(1, $page);
     $offset = ($page - 1) * $pageSize;
-    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image "
+    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
@@ -812,4 +814,78 @@ function items_bulk(array $ids, string $action, array $opt = []): int
     });
     foreach (array_unique(array_filter($files)) as $f) image_delete($f);
     return $n;
+}
+
+/* ---------- lending ---------- */
+
+/** Today's date (YYYY-MM-DD) in the app's time zone; lending dates are local calendar dates. */
+function local_today(): string
+{
+    return app_now()->format('Y-m-d');
+}
+
+function is_lent(array $it): bool
+{
+    return ($it['lent_to'] ?? null) !== null;
+}
+
+function is_overdue(array $it, ?string $today = null): bool
+{
+    return is_lent($it) && ($it['lent_due'] ?? null) !== null && $it['lent_due'] < ($today ?? local_today());
+}
+
+/** Lending date from a form: YYYY-MM-DD, or null when empty. */
+function parse_lend_date(string $s, string $what): ?string
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $s);
+    if (!$d || $d->format('Y-m-d') !== $s || $s < '1900-01-01' || $s > '2999-12-31') throw new UserError("$what must be a valid date (YYYY-MM-DD).");
+    return $s;
+}
+
+/** Mark an item as lent to someone (also used to change who has it / the due date). */
+function item_lend(int $id, string $to, ?string $at, ?string $due): void
+{
+    $to = clean_line($to, 100);
+    if ($to === '') throw new UserError('Enter who you lent it to.');
+    $at ??= local_today();
+    if ($at > local_today()) throw new UserError('The lent date cannot be in the future.');
+    if ($due !== null && $due < $at) throw new UserError('The due date cannot be before the lent date.');
+    db_tx(function (PDO $pdo) use ($id, $to, $at, $due): void {
+        $it = item_get($id);
+        if (!$it) throw new UserError('Item not found.', 404);
+        $pdo->prepare('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?')->execute([$to, $at, $due, now_utc(), $id]);
+        activity_log($id, (string)$it['name'], 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $it['lent_to']], fn($v) => $v !== null));
+    });
+}
+
+/** Mark a lent item as returned. */
+function item_return(int $id): void
+{
+    db_tx(function (PDO $pdo) use ($id): void {
+        $it = item_get($id);
+        if (!$it) throw new UserError('Item not found.', 404);
+        if (!is_lent($it)) return;
+        $pdo->prepare('UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL, updated_at = ? WHERE id = ?')->execute([now_utc(), $id]);
+        $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable(local_today()))->format('%a');
+        activity_log($id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
+    });
+}
+
+/** Items that are out, overdue first, then by due date (no due date last), then by lent date. */
+function items_lent(): array
+{
+    $st = db()->prepare('SELECT ' . ITEM_COLS . ' ' . ITEM_FROM . ' WHERE i.lent_to IS NOT NULL
+        ORDER BY CASE WHEN i.lent_due IS NOT NULL AND i.lent_due < ? THEN 0 ELSE 1 END, CASE WHEN i.lent_due IS NULL THEN 1 ELSE 0 END, i.lent_due, i.lent_at, i.id');
+    $st->execute([local_today()]);
+    return $st->fetchAll();
+}
+
+function lent_counts(): array
+{
+    $st = db()->prepare('SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN lent_due IS NOT NULL AND lent_due < ? THEN 1 ELSE 0 END), 0) AS late FROM items WHERE lent_to IS NOT NULL');
+    $st->execute([local_today()]);
+    $r = $st->fetch();
+    return ['out' => (int)$r['n'], 'overdue' => (int)$r['late']];
 }

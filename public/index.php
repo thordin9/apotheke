@@ -92,13 +92,14 @@ try {
     if ($path === '/' && $method === 'GET') {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
         $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : '',
-                 'stock' => ($_GET['stock'] ?? '') === 'low' ? 'low' : ''];
+                 'stock' => ($_GET['stock'] ?? '') === 'low' ? 'low' : '',
+                 'lend' => in_array($_GET['lend'] ?? '', ['out', 'overdue'], true) ? (string)$_GET['lend'] : ''];
         $sort = (string)($_GET['sort'] ?? 'recent');
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== ''), 'more' => $res['more'], 'page' => $page,
+                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== ''), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
         header('Cache-Control: no-store');
@@ -231,6 +232,29 @@ try {
         $row = item_get((int)$m[1]);
         if (wants_json()) json_out(['ok' => true, 'quantity' => $q, 'low' => $row !== null && is_low($row)]);
         redirect('/item/' . (int)$m[1]);
+    }
+
+    /* ---- lending ---- */
+    if (preg_match('#^/item/(\d+)/(lend|return)$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $iid = (int)$m[1];
+        if (!item_get($iid)) throw new UserError('Item not found.', 404);
+        if ($m[2] === 'lend') {
+            try {
+                item_lend($iid, (string)($_POST['lent_to'] ?? ''), parse_lend_date((string)($_POST['lent_at'] ?? ''), 'Lent date'),
+                          parse_lend_date((string)($_POST['lent_due'] ?? ''), 'Due date'));
+            } catch (UserError $e) {
+                throw new UserError($e->getMessage(), 422);
+            }
+        } else {
+            item_return($iid);
+        }
+        redirect(($_POST['back'] ?? '') === '/lent' ? '/lent' : '/item/' . $iid . '#lending');
+    }
+    if ($path === '/lent' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        view_lent(items_lent(), local_today());
+        exit;
     }
 
     /* ---- bulk actions on selected items ---- */
@@ -465,10 +489,10 @@ try {
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty'], ',', '"', '\\');
+        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty', 'lent_to', 'lent_at', 'lent_due'], ',', '"', '\\');
         $tagMap = [];
         foreach (db()->query('SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id ORDER BY t.sort_key, t.id') as $t) $tagMap[(int)$t['item_id']][] = $t['name'];
-        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial, i.min_qty
+        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial, i.min_qty, i.lent_to, i.lent_at, i.lent_due
                               " . ITEM_FROM . "
                               ORDER BY CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key, CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key, i.sort_key, i.id") as $r) {
             $v = $r['value_cents'];
@@ -476,7 +500,8 @@ try {
             $r = array_slice($r, 0, 9) + ['tags' => implode(', ', $tagMap[(int)$r['id']] ?? []),
                  'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : cfg()['currency'],
                  'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial'],
-                 'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty']];
+                 'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty'],
+                 'lent_to' => (string)$r['lent_to'], 'lent_at' => (string)$r['lent_at'], 'lent_due' => (string)$r['lent_due']];
             fputcsv($out, array_values($r), ',', '"', '\\');
         }
         exit;
