@@ -13,12 +13,17 @@ where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then
 Plain PHP + PDO (SQLite or PostgreSQL) + GD. No framework, no runtime Composer packages, no JS build step, no CDNs:
 it works fully offline on your LAN.
 
+**Documentation:** the full manual lives in [`docs/`](docs/index.md): [getting started](docs/getting-started.md) ·
+[configuration](docs/configuration.md) · [user guide](docs/user-guide.md) · [architecture](docs/architecture.md) ·
+[database](docs/database.md) · [testing](docs/testing.md) · [CI](docs/ci.md) ·
+[deployment and operations](docs/deployment-and-operations.md) · [contributing](docs/contributing.md).
+
 ## Contents
 
 [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install with Docker](#install-with-docker) ·
 [Install without Docker](#install-without-docker) · [Configuration](#configuration) · [Command-line tools](#command-line-tools) ·
 [Upgrading](#upgrading) · [Testing](#testing) · [CI](#ci) · [Security notes](#security-notes) · [Project layout](#project-layout) ·
-[Contributing](#contributing) · [License](#license)
+[Contributing](#contributing) · [License](#license) · [Full documentation](docs/index.md)
 
 ## Features
 
@@ -257,7 +262,8 @@ On first start after an update the database is upgraded automatically (or run `p
     de-duplicated ignoring case and accents) and every item is linked to its location.
   * From the locations-only version, categories are added; existing items start without a category.
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
-* Migrations `0004` (tags, custom fields) and `0005` (activity log) only add tables/columns.
+* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum) and `0007` (lending) only
+  add tables/columns.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use
@@ -366,14 +372,16 @@ tests/Unit/, Integration/     PHPUnit suites
 tests/e2e/                    headless mobile checks (puppeteer-core, dev only)
 tests/visual/                 Playwright visual E2E suite, fixtures, seed and screenshot baselines
 playwright.config.ts          Playwright projects (devices × colour schemes, pgsql-smoke)
-scripts/                      lint.sh, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+scripts/                      lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh,
+                              e2e-container-setup.sh
+docs/                         detailed documentation (Markdown, mermaid diagrams) and README screenshots
 ```
 
 ## Contributing
 
 Pull requests are welcome. Commits must follow [Conventional Commits](https://www.conventionalcommits.org/) (subject ≤ 72
 characters, checked in CI); see [CONTRIBUTING.md](CONTRIBUTING.md) for the details, test commands and how to write a
-migration.
+migration, and [docs/contributing.md](docs/contributing.md) for a step-by-step guide to adding a feature.
 
 ## License
 

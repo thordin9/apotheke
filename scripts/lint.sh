@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lint everything: php -l on all PHP files, node --check on JS, shellcheck on shell scripts.
+# Lint everything: php -l on all PHP files, node --check on JS, Markdown links, shellcheck on shell scripts.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 echo "== PHP lint"
@@ -9,6 +9,8 @@ if command -v node >/dev/null 2>&1; then
   echo "== JS syntax"
   find public src -name '*.js' -print0 | xargs -0 -n1 node --check
   echo "   ok"
+  echo "== Markdown links"
+  node scripts/check-links.mjs
 else
   echo "== JS syntax: skipped (node not found)"
 fi
