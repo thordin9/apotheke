@@ -99,6 +99,8 @@ T::ok(selected_option($form, 'location_id') === 'box 2' && selected_option($form
 $c->post('/categories/' . $ids['cat']['Tools'] . '/default', ['csrf' => $tok, 'on' => '0']);
 T::eq(null, selected_option($c->get('/new')['body'], 'category_id'), 'unset default → no category preselected');
 $c->post('/categories/' . $ids['cat']['Tools'] . '/default', ['csrf' => $tok, 'on' => '1']);
+$c->post('/categories/' . $ids['cat']['Electronics'] . '/default', ['csrf' => $tok, 'on' => '0']);
+T::eq('Tools ★', selected_option($c->get('/new')['body'], 'category_id'), 'clearing a non-default category leaves the real default');
 
 T::section('Create items + uploads');
 $big = img_jpeg(4000, 3000);
@@ -127,6 +129,9 @@ T::ok($r['status'] === 422 && str_contains((string)$r['json']['error'], 'Unsuppo
 $r = $c->api('/save', ['csrf' => $tok, 'name' => 'Huge'], ['photo' => jpg_file(random_bytes(21 * 1024 * 1024), 'huge.jpg')]);
 T::ok($r['status'] === 422 && str_contains((string)$r['json']['error'], 'too large'), 'file over 20 MB rejected', (string)$r['body']);
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => '  '])['status'], 'missing name rejected');
+$r = $c->api('/save', ['csrf' => $tok, 'name' => 'BadQty', 'quantity' => 'abc']);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'Quantity'), 'invalid quantity rejected', (string)$r['body']);
+T::eq(0, (int)$db->query("SELECT COUNT(*) FROM items WHERE name = 'BadQty'")->fetchColumn(), 'invalid quantity wrote nothing');
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => 'X', 'location_id' => '9999'])['status'], 'unknown location id rejected');
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => 'X', 'category_id' => '__new', 'new_category' => ''])['status'], '"＋ New category" without a name rejected');
 T::eq(0, count(glob("$dir/images/*")) - 2, 'rejected uploads left no files behind');
@@ -848,6 +853,7 @@ T::ok(!str_contains($v0->client()->get('/stats')['body'], 'id="st-value"'), 'no 
 $v0->stop();
 
 T::section('Delete item');
+T::eq(404, $c->api('/item/999999/delete', ['csrf' => $tok])['status'], 'delete missing item → 404 (no false toast)');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);
 T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/?deleted=1', 'delete redirects to list');

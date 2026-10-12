@@ -8,8 +8,9 @@ declare(strict_types=1);
 
 $path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));
 
-// Built-in dev server: let it serve real static files directly.
-if (PHP_SAPI === 'cli-server' && $path !== '/' && is_file(__DIR__ . $path) && !str_ends_with($path, '.php')) {
+// Built-in dev server: serve real static files under public/ only (never ../ outside the docroot).
+require_once dirname(__DIR__) . '/src/dev_server.php';
+if (PHP_SAPI === 'cli-server' && dev_server_static_file(__DIR__, $path)) {
     return false;
 }
 
@@ -48,7 +49,7 @@ init_session();
 try {
     /* ---- auth ---- */
     if ($path === '/login') {
-        if (app_password() === '') redirect('/');
+        if (app_password() === '' || is_authed()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
             if (login((string)($_POST['password'] ?? ''))) redirect('/');
@@ -151,7 +152,7 @@ try {
         $qty = filter_var($_POST['quantity'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
         $vals = [
             'name'     => clean_line((string)($_POST['name'] ?? ''), 200),
-            'quantity' => $qty === false ? 1 : $qty,
+            'quantity' => $qty === false ? 1 : $qty, // placeholder for form redisplay if validation fails
             'notes'    => mb_substr(trim(str_replace("\r\n", "\n", (string)($_POST['notes'] ?? ''))), 0, 5000),
             'tags'     => mb_substr((string)($_POST['tags'] ?? ''), 0, 2000),
             'value'    => clean_line((string)($_POST['value'] ?? ''), 32),
@@ -170,6 +171,7 @@ try {
         }
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
+            if ($qty === false) throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
             $fields = ['tags' => tags_parse($vals['tags']), 'value_cents' => parse_money($vals['value']),
                        'purchase_date' => parse_date_ymd($vals['purchase_date']), 'expires_on' => parse_expiry_date($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => parse_min_qty($vals['min_qty'])];
             foreach (KINDS as $kind) {
@@ -299,7 +301,8 @@ try {
     if (preg_match('#^/item/(\d+)/delete$#D', $path, $m) && $method === 'POST') {
         check_csrf();
         $it = item_get((int)$m[1]);
-        if ($it) item_delete($it);
+        if (!$it) throw new UserError('Item not found.', 404);
+        item_delete($it);
         redirect('/?deleted=1');
     }
 

@@ -225,14 +225,18 @@ function tax_rename(string $kind, int $id, string $name): void
     db()->prepare('UPDATE ' . tax($kind)['table'] . ' SET name = ?, name_key = ?, sort_key = ? WHERE id = ?')->execute([$name, fold($name), natkey($name), $id]);
 }
 
-/** Make $id the only default, or clear the default when $on is false. */
+/** Make $id the only default, or clear the default on $id when $on is false (other rows untouched). */
 function tax_set_default(string $kind, int $id, bool $on): void
 {
     $tb = tax($kind)['table'];
     $pdo = db();
     $pdo->beginTransaction();
-    $pdo->exec("UPDATE $tb SET is_default = 0 WHERE is_default = 1");
-    if ($on) $pdo->prepare("UPDATE $tb SET is_default = 1 WHERE id = ?")->execute([$id]);
+    if ($on) {
+        $pdo->exec("UPDATE $tb SET is_default = 0 WHERE is_default = 1");
+        $pdo->prepare("UPDATE $tb SET is_default = 1 WHERE id = ?")->execute([$id]);
+    } else {
+        $pdo->prepare("UPDATE $tb SET is_default = 0 WHERE id = ?")->execute([$id]);
+    }
     $pdo->commit();
 }
 
@@ -851,7 +855,7 @@ function image_store(array $file): string
     $info = @getimagesize($file['tmp_name']);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
     if (!$info || !in_array($info[2], $types, true)) {
-        throw new UserError('Unsupported image. Please use JPEG, PNG or WebP (on iPhone, HEIC photos are converted automatically).');
+        throw new UserError('Unsupported image. Please use JPEG, PNG, WebP or GIF (on iPhone, HEIC photos are converted automatically).');
     }
     if ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) throw new UserError('Image dimensions are too large.');
 

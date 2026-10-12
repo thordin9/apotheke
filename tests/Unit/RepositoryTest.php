@@ -127,6 +127,15 @@ final class RepositoryTest extends DatabaseTestCase
         $this->assertNull(tax_default_id('location'));
     }
 
+    public function testClearDefaultOnlyAffectsThatId(): void
+    {
+        $a = tax_create('location', 'Keep')['id'];
+        $b = tax_create('location', 'Other')['id'];
+        tax_set_default('location', $a, true);
+        tax_set_default('location', $b, false);
+        $this->assertSame($a, tax_default_id('location'), 'clearing a non-default id must not wipe the real default');
+    }
+
     public function testDeleteWithMoveAndUnassign(): void
     {
         $a = tax_create('location', 'A')['id'];
