@@ -772,7 +772,7 @@ foreach (array_reverse(array_merge([$nG, (int)$db->query("SELECT id FROM locatio
 T::eq(0, (int)$db->query("SELECT COUNT(*) FROM locations WHERE name LIKE 'Nest %'")->fetchColumn(), 'cleaned up');
 
 T::section('Expiry / warranty');
-$today = (new DateTimeImmutable('now', new DateTimeZone(date_default_timezone_get())))->format('Y-m-d');
+$today = (new DateTimeImmutable('now', new DateTimeZone('Europe/Athens')))->format('Y-m-d');
 $dayOff = fn(int $n) => (new DateTimeImmutable($today))->modify("$n days")->format('Y-m-d');
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => 'Bad expiry', 'expires_on' => '2024-02-30'])['status'], 'invalid expiry date rejected');
 $eMilk = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Exp milk', 'expires_on' => $dayOff(-2)]));
