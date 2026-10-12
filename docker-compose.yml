@@ -12,3 +12,29 @@ services:
       TZ: ${TZ:-Europe/Athens}
       # Leave empty for no login (LAN only). Set e.g. in a .env file: APP_PASSWORD=secret
       APP_PASSWORD: ${APP_PASSWORD:-}
+      # sqlite (default, stored in ./data/catalog.sqlite) or pgsql (start with: docker compose --profile postgres up -d)
+      DB_DRIVER: ${DB_DRIVER:-sqlite}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-apotheke}
+      DB_USER: ${DB_USER:-apotheke}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+
+  # Optional PostgreSQL. Enable with DB_DRIVER=pgsql and DB_PASSWORD=… in .env, then:
+  #   docker compose --profile postgres up -d
+  postgres:
+    image: postgres:17-alpine
+    container_name: apotheke-postgres
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-apotheke}
+      POSTGRES_USER: ${DB_USER:-apotheke}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env to use the postgres profile}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
