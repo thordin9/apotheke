@@ -42,7 +42,7 @@ test.describe('labels, export, backup', () => {
       csv = fs.readFileSync(await dl.path(), 'utf8').replace(/^\uFEFF/, '');
     }
     const lines = csv.trim().split('\n');
-    expect(lines[0]).toBe('id,name,location,category,quantity,notes,image,created_at,updated_at,tags,value,currency,purchase_date,serial');
+    expect(lines[0]).toBe('id,name,location,category,quantity,notes,image,created_at,updated_at,tags,value,currency,purchase_date,serial,min_qty,lent_to,lent_at,lent_due');
     expect(lines).toHaveLength(9);
     expect(csv).toContain('"Garage, Power tools",189.90,EUR,2024-03-14,MKT-DHP482');
     expect(csv).toContain('Πρίζα πολύπριζο');

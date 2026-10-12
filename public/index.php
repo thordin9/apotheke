@@ -91,20 +91,24 @@ try {
     /* ---- list / search ---- */
     if ($path === '/' && $method === 'GET') {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
-        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : ''];
+        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : '',
+                 'stock' => ($_GET['stock'] ?? '') === 'low' ? 'low' : '',
+                 'lend' => in_array($_GET['lend'] ?? '', ['out', 'overdue'], true) ? (string)$_GET['lend'] : ''];
         $sort = (string)($_GET['sort'] ?? 'recent');
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
-            json_out(['ok' => true, 'html' => cards_html($res['items']), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== ''), 'more' => $res['more'], 'page' => $page,
+            json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
+                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== ''), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
         header('Cache-Control: no-store');
         $toast = null;
         if (isset($_GET['saved']) && ($s = item_get((int)$_GET['saved']))) $toast = 'Saved “' . $s['name'] . '”';
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
-        view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? '1') !== '0');
+        if (isset($_GET['bulk_done'])) $toast = bulk_toast((int)$_GET['bulk_done'], (string)($_GET['bulk_act'] ?? ''));
+        view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? '1') !== '0',
+                  ($_GET['select'] ?? '') === '1', ($_GET['all'] ?? '') === '1');
         exit;
     }
 
@@ -116,7 +120,7 @@ try {
             return ctype_digit($v) && tax_get($kind, (int)$v) ? (int)$v : tax_default_id($kind);
         };
         $vals = ['name' => '', 'location_id' => $pick('location'), 'new_location' => '', 'category_id' => $pick('category'), 'new_category' => '',
-                 'quantity' => 1, 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'serial' => ''];
+                 'quantity' => 1, 'min_qty' => '', 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'serial' => ''];
         $toast = isset($_GET['saved']) && ($s = item_get((int)$_GET['saved'])) ? 'Saved “' . $s['name'] . '”' : null;
         view_form(null, $vals, locations(), categories(), null, $toast);
         exit;
@@ -126,7 +130,9 @@ try {
         if (!$it) { view_error(404, 'Item not found.'); exit; }
         header('Cache-Control: no-store');
         if (!empty($m[2])) view_form($it, ['new_location' => '', 'new_category' => '', 'tags' => implode(', ', array_column($it['tags'], 'name')),
-            'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date']] + $it, locations(), categories(), null);
+            'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date'],
+            'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null,
+            isset($_GET['copied']) ? 'Copy created – edit it here' : null);
         else {
             $hist = activity_list((int)$it['id'], 1, 10);
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
@@ -149,6 +155,7 @@ try {
             'value'    => clean_line((string)($_POST['value'] ?? ''), 32),
             'purchase_date' => clean_line((string)($_POST['purchase_date'] ?? ''), 10),
             'serial'   => clean_line((string)($_POST['serial'] ?? ''), 100),
+            'min_qty'  => clean_line((string)($_POST['min_qty'] ?? ''), 12),
         ];
         $raw = [];
         foreach (KINDS as $kind) {
@@ -160,7 +167,7 @@ try {
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
             $fields = ['tags' => tags_parse($vals['tags']), 'value_cents' => parse_money($vals['value']),
-                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'serial' => $vals['serial']];
+                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'serial' => $vals['serial'], 'min_qty' => parse_min_qty($vals['min_qty'])];
             foreach (KINDS as $kind) {
                 $t = tax($kind);
                 if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') throw new UserError('Type a name for the new ' . $t['one'] . '.');
@@ -223,8 +230,65 @@ try {
         $delta = max(-1000, min(1000, (int)($_POST['delta'] ?? 0)));
         $q = item_adjust_qty((int)$m[1], $delta);
         if ($q === null) throw new UserError('Item not found.', 404);
-        if (wants_json()) json_out(['ok' => true, 'quantity' => $q]);
+        $row = item_get((int)$m[1]);
+        if (wants_json()) json_out(['ok' => true, 'quantity' => $q, 'low' => $row !== null && is_low($row)]);
         redirect('/item/' . (int)$m[1]);
+    }
+
+    /* ---- duplicate ---- */
+    if (preg_match('#^/item/(\d+)/duplicate$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $new = item_duplicate((int)$m[1], ($_POST['photos'] ?? '') === '1');
+        redirect('/item/' . $new . '/edit?copied=1');
+    }
+
+    /* ---- lending ---- */
+    if (preg_match('#^/item/(\d+)/(lend|return)$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $iid = (int)$m[1];
+        if (!item_get($iid)) throw new UserError('Item not found.', 404);
+        if ($m[2] === 'lend') {
+            try {
+                item_lend($iid, (string)($_POST['lent_to'] ?? ''), parse_lend_date((string)($_POST['lent_at'] ?? ''), 'Lent date'),
+                          parse_lend_date((string)($_POST['lent_due'] ?? ''), 'Due date'));
+            } catch (UserError $e) {
+                throw new UserError($e->getMessage(), 422);
+            }
+        } else {
+            item_return($iid);
+        }
+        redirect(($_POST['back'] ?? '') === '/lent' ? '/lent' : '/item/' . $iid . '#lending');
+    }
+    if ($path === '/lent' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        view_lent(items_lent(), local_today());
+        exit;
+    }
+
+    /* ---- bulk actions on selected items ---- */
+    if ($path === '/bulk' && $method === 'POST') {
+        check_csrf();
+        $ids    = array_slice(array_map('intval', (array)($_POST['ids'] ?? [])), 0, BULK_MAX + 1);
+        $action = (string)($_POST['action'] ?? '');
+        $back   = (string)($_POST['back'] ?? '');
+        if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
+        $back   = preg_replace('/&?bulk_(?:done|act)=[^&]*/', '', $back);
+        $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
+        try {
+            if ($action === 'delete' && ($_POST['confirm'] ?? '') !== '1') {
+                $items = array_values(array_filter(array_map('item_get', array_values(array_unique(array_filter($ids, fn($i) => $i > 0))))));
+                if (!$items) throw new UserError('Select at least one item.');
+                if (count($items) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.');
+                header('Cache-Control: no-store');
+                view_bulk_delete($items, $back);
+                exit;
+            }
+            $n = items_bulk($ids, $action, ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
+                'tags' => tags_parse((string)($_POST['tags'] ?? '')), 'tag_id' => (int)($_POST['tag_id'] ?? 0)]);
+        } catch (UserError $e) {
+            throw new UserError($e->getMessage(), 422);
+        }
+        redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action));
     }
 
     /* ---- delete ---- */
@@ -236,7 +300,7 @@ try {
     }
 
     /* ---- locations & categories management ---- */
-    if (preg_match('#^/(locations|categories)(?:/(\d+)(?:/(rename|default|delete))?)?$#D', $path, $m)) {
+    if (preg_match('#^/(locations|categories)(?:/(\d+)(?:/(rename|default|delete|parent))?)?$#D', $path, $m)) {
         $kind = $m[1] === 'locations' ? 'location' : 'category';
         $t = tax($kind);
         $noneCount = stats()[$kind === 'location' ? 'unassigned' : 'uncategorized'];
@@ -246,6 +310,7 @@ try {
                 $toast = match ((string)($_GET['done'] ?? '')) {
                     'added' => $t['One'] . ' added', 'exists' => 'That ' . $t['one'] . ' already exists', 'renamed' => $t['One'] . ' renamed',
                     'default' => 'Default ' . $t['one'] . ' set', 'nodefault' => 'Default cleared', 'deleted' => $t['One'] . ' deleted',
+                    'moved' => $t['One'] . ' moved',
                     default => null,
                 };
                 view_manage($kind, tax_list($kind), $noneCount, null, $toast);
@@ -254,7 +319,14 @@ try {
             if ($method !== 'POST') throw new UserError('Page not found.', 404);
             check_csrf();
             try {
-                $r = tax_create($kind, (string)($_POST['name'] ?? ''));
+                $parent = $kind === 'location' && ctype_digit((string)($_POST['parent'] ?? '')) ? (int)$_POST['parent'] : null;
+                if ($parent !== null && !tax_get('location', $parent)) throw new UserError('That parent location no longer exists.');
+                $r = db_tx(function () use ($kind, $parent): array {
+                    $r = tax_create($kind, (string)($_POST['name'] ?? ''));
+                    // an existing location keeps its place; a new one goes where it was asked for
+                    if ($r['created'] && $parent !== null) location_set_parent($r['id'], $parent);
+                    return $r;
+                });
             } catch (UserError $e) {
                 if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], 422);
                 http_response_code(422);
@@ -270,7 +342,13 @@ try {
         if (!$entry) throw new UserError($t['One'] . ' not found.', 404);
         if ($act === 'delete' && $method === 'GET') {
             header('Cache-Control: no-store');
-            $others = array_values(array_filter(tax_list($kind), fn($l) => (int)$l['id'] !== $eid));
+            $all = tax_list($kind);
+            $others = array_values(array_filter($all, fn($l) => (int)$l['id'] !== $eid));
+            if ($kind === 'location') {
+                $entry['children'] = count(array_filter($all, fn($l) => $l['parent_id'] === $eid));
+                $me = array_values(array_filter($all, fn($l) => $l['id'] === $eid))[0] ?? null;
+                $entry['parent_name'] = $me && $me['parent_id'] !== null ? location_path($me['parent_id']) : '';
+            }
             view_tax_delete($kind, $entry, $others);
             exit;
         }
@@ -286,6 +364,21 @@ try {
                 exit;
             }
             redirect($t['path'] . '?done=renamed#' . $t['param'] . '-' . $eid);
+        }
+        if ($act === 'parent') {
+            if ($kind !== 'location') throw new UserError('Page not found.', 404);
+            $raw = (string)($_POST['parent'] ?? '');
+            if ($raw !== '' && !ctype_digit($raw)) throw new UserError('Pick a location.', 422);
+            try {
+                location_set_parent($eid, $raw === '' ? null : (int)$raw);
+            } catch (UserError $e) {
+                if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], 422);
+                http_response_code(422);
+                view_manage($kind, tax_list($kind), $noneCount, $e->getMessage(), null);
+                exit;
+            }
+            if (wants_json()) json_out(['ok' => true, 'path' => location_path($eid)]);
+            redirect($t['path'] . '?done=moved#' . $t['param'] . '-' . $eid);
         }
         if ($act === 'default') {
             $on = ($_POST['on'] ?? '1') === '1';
@@ -433,17 +526,19 @@ try {
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial'], ',', '"', '\\');
+        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty', 'lent_to', 'lent_at', 'lent_due'], ',', '"', '\\');
         $tagMap = [];
         foreach (db()->query('SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id ORDER BY t.sort_key, t.id') as $t) $tagMap[(int)$t['item_id']][] = $t['name'];
-        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial
+        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial, i.min_qty, i.lent_to, i.lent_at, i.lent_due
                               " . ITEM_FROM . "
                               ORDER BY CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key, CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key, i.sort_key, i.id") as $r) {
             $v = $r['value_cents'];
             unset($r['value_cents']);
             $r = array_slice($r, 0, 9) + ['tags' => implode(', ', $tagMap[(int)$r['id']] ?? []),
                  'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : cfg()['currency'],
-                 'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial']];
+                 'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial'],
+                 'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty'],
+                 'lent_to' => (string)$r['lent_to'], 'lent_at' => (string)$r['lent_at'], 'lent_due' => (string)$r['lent_due']];
             fputcsv($out, array_values($r), ',', '"', '\\');
         }
         exit;

@@ -18,13 +18,135 @@ function tax(string $kind): array
     };
 }
 
-/** All entries, naturally sorted, with item counts. @return array<int,array{id:int,name:string,is_default:int,n:int}> */
+/**
+ * All entries, naturally sorted, with item counts. Locations come in tree order (each parent followed by its
+ * children) and carry parent_id, depth, path ("Garage › Shelf 2") and total (items here and in all sub-locations).
+ * Categories are flat: depth 0, path = name, total = n.
+ * @return array<int,array{id:int,name:string,is_default:int,n:int,parent_id:?int,depth:int,path:string,total:int}>
+ */
 function tax_list(string $kind): array
 {
     $t = tax($kind);
-    return db()->query("SELECT x.id, x.name, x.is_default, COUNT(i.id) AS n
-                        FROM {$t['table']} x LEFT JOIN items i ON i.{$t['col']} = x.id
-                        GROUP BY x.id ORDER BY x.sort_key, x.id")->fetchAll();
+    $isLoc = $kind === 'location';
+    $rows = db()->query('SELECT x.id, x.name, x.is_default, ' . ($isLoc ? 'x.parent_id' : 'NULL') . " AS parent_id, COUNT(i.id) AS n
+                         FROM {$t['table']} x LEFT JOIN items i ON i.{$t['col']} = x.id
+                         GROUP BY x.id, x.name, x.is_default, x.sort_key" . ($isLoc ? ', x.parent_id' : '') . '
+                         ORDER BY x.sort_key, x.id')->fetchAll();
+    return location_tree_order($rows);
+}
+
+const LOCATION_SEP = ' › ';
+const LOCATION_MAX_DEPTH = 6;   // levels below a top-level location
+
+/** Order rows depth-first (siblings keep their order) and add depth/path/total. Rows whose parent is missing become roots. */
+function location_tree_order(array $rows): array
+{
+    $ids = [];
+    foreach ($rows as $r) $ids[(int)$r['id']] = true;
+    $kids = [];
+    foreach ($rows as $r) {
+        $p = $r['parent_id'] !== null && isset($ids[(int)$r['parent_id']]) && (int)$r['parent_id'] !== (int)$r['id'] ? (int)$r['parent_id'] : 0;
+        $kids[$p][] = $r;
+    }
+    $out = [];
+    $seen = [];
+    $walk = function (int $pid, int $depth, string $prefix) use (&$walk, &$kids, &$out, &$seen): int {
+        $sum = 0;
+        foreach ($kids[$pid] ?? [] as $r) {
+            $id = (int)$r['id'];
+            if (isset($seen[$id])) continue;          // defensive: never loop on bad data
+            $seen[$id] = true;
+            $r['id'] = $id;
+            $r['n'] = (int)$r['n'];
+            $r['parent_id'] = $pid > 0 ? $pid : null;
+            $r['depth'] = $depth;
+            $r['path'] = $prefix . $r['name'];
+            $at = count($out);
+            $out[] = $r;
+            $total = $r['n'] + $walk($id, $depth + 1, $r['path'] . LOCATION_SEP);
+            $out[$at]['total'] = $total;
+            $sum += $total;
+        }
+        return $sum;
+    };
+    $walk(0, 0, '');
+    // rows only reachable through a cycle (cannot be created through the app): show them as top-level entries
+    foreach ($rows as $r) {
+        if (isset($seen[(int)$r['id']])) continue;
+        $kids[-(int)$r['id']] = [$r];
+        $walk(-(int)$r['id'], 0, '');
+    }
+    return $out;
+}
+
+/** Ids of $id and every location below it. @return int[] */
+function location_subtree_ids(int $id): array
+{
+    $byParent = [];
+    foreach (db()->query('SELECT id, parent_id FROM locations WHERE parent_id IS NOT NULL')->fetchAll() as $r) $byParent[(int)$r['parent_id']][] = (int)$r['id'];
+    $out = [$id];
+    $seen = [$id => true];
+    for ($i = 0; $i < count($out); $i++) {
+        foreach ($byParent[$out[$i]] ?? [] as $c) if (!isset($seen[$c])) { $seen[$c] = true; $out[] = $c; }
+    }
+    return $out;
+}
+
+/** Locations keyed by id (tree data from tax_list). */
+function locations_by_id(): array
+{
+    $out = [];
+    foreach (tax_list('location') as $l) $out[$l['id']] = $l;
+    return $out;
+}
+
+/** "Garage › Shelf 2 › Box 1024" for a location id, '' when it does not exist. */
+function location_path(?int $id): string
+{
+    return $id === null ? '' : (string)(locations_by_id()[$id]['path'] ?? '');
+}
+
+/** Ancestors of $id from the top down (without $id itself). @return array<int,array{id:int,name:string}> */
+function location_ancestors(int $id, ?array $byId = null): array
+{
+    $byId ??= locations_by_id();
+    $out = [];
+    $p = $byId[$id]['parent_id'] ?? null;
+    while ($p !== null && isset($byId[$p]) && count($out) <= LOCATION_MAX_DEPTH + 1) {
+        array_unshift($out, ['id' => $p, 'name' => (string)$byId[$p]['name']]);
+        $p = $byId[$p]['parent_id'];
+    }
+    return $out;
+}
+
+/** Put location $id inside $parent (null = top level). Rejects cycles and trees deeper than LOCATION_MAX_DEPTH. Returns true when it changed. */
+function location_set_parent(int $id, ?int $parent): bool
+{
+    return db_tx(function (PDO $pdo) use ($id, $parent): bool {
+        $byId = locations_by_id();
+        if (!isset($byId[$id])) throw new UserError('Location not found.', 404);
+        if ($byId[$id]['parent_id'] === $parent) return false;
+        if ($parent !== null) {
+            if (!isset($byId[$parent])) throw new UserError('That parent location no longer exists.', 422);
+            $sub = location_subtree_ids($id);
+            if (in_array($parent, $sub, true)) throw new UserError('A location cannot be put inside itself or one of its own sub-locations.', 422);
+            // depth of the new position + height of the moved subtree must stay within the limit
+            $height = 0;
+            foreach ($sub as $s) if (isset($byId[$s])) $height = max($height, $byId[$s]['depth'] - $byId[$id]['depth']);
+            if ($byId[$parent]['depth'] + 1 + $height > LOCATION_MAX_DEPTH) {
+                throw new UserError('Locations can be nested at most ' . LOCATION_MAX_DEPTH . ' levels deep.', 422);
+            }
+        }
+        $pdo->prepare('UPDATE locations SET parent_id = ? WHERE id = ?')->execute([$parent, $id]);
+        return true;
+    });
+}
+
+/** Option label for a <select>: indented by depth so the tree stays visible. */
+function tax_option_label(array $l): string
+{
+    $d = (int)($l['depth'] ?? 0);
+    return ($d > 0 ? str_repeat("\u{00A0}\u{00A0}\u{00A0}", $d) . '↳ ' : '') . $l['name'];
 }
 
 function tax_get(string $kind, int $id): ?array
@@ -100,6 +222,13 @@ function tax_delete(string $kind, int $id, ?int $moveTo): int
         $st = $pdo->prepare("UPDATE items SET {$t['col']} = ?, updated_at = ? WHERE {$t['col']} = ?");
         $st->execute([$moveTo, now_utc(), $id]);
         $n = $st->rowCount();
+        if ($kind === 'location') {
+            // sub-locations move up one level instead of disappearing from the tree
+            $par = $pdo->prepare('SELECT parent_id FROM locations WHERE id = ?');
+            $par->execute([$id]);
+            $up = $par->fetchColumn();
+            $pdo->prepare('UPDATE locations SET parent_id = ? WHERE parent_id = ?')->execute([$up === false || $up === null ? null : (int)$up, $id]);
+        }
         $pdo->prepare("DELETE FROM {$t['table']} WHERE id = ?")->execute([$id]);
         return $n;
     });
@@ -111,7 +240,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.notes, i.image, i.value_cents, i.purchase_date, i.serial, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -124,6 +253,7 @@ function item_get(int $id): ?array
     $row['category'] = (string)($row['category'] ?? '');
     $row['value_cents'] = $row['value_cents'] === null ? null : (int)$row['value_cents'];
     $row['serial'] = (string)($row['serial'] ?? '');
+    $row['min_qty'] = $row['min_qty'] === null ? null : (int)$row['min_qty'];
     $row['tags'] = tags_for((int)$row['id']);
     return $row;
 }
@@ -219,6 +349,24 @@ function parse_date_ymd(string $s): ?string
     return $s;
 }
 
+/** An item is running low when it has a low-stock level and its quantity is at or below it. */
+function is_low(array $it): bool
+{
+    return ($it['min_qty'] ?? null) !== null && (int)$it['quantity'] <= (int)$it['min_qty'];
+}
+
+/** Low-stock level from a form: '' → null (no alert), else 0…1,000,000. */
+function parse_min_qty(string $s): ?int
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $v = filter_var($s, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
+    if ($v === false) throw new UserError('“Running low at” must be a whole number (0 or more).');
+    return $v;
+}
+
+const LOW_SQL = 'i.min_qty IS NOT NULL AND i.quantity <= i.min_qty';
+
 /** Normalise a filter value: '' = all, 'none' = unassigned, digits = id. */
 function filter_value(mixed $v): string
 {
@@ -245,14 +393,19 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
         if ($v === 'none') {
             $where[] = "$col IS NULL";
         } elseif ($v !== '' && ctype_digit($v)) {
-            $where[] = "$col = ?";
-            $args[]  = (int)$v;
+            // a location filter includes everything stored in its sub-locations
+            $ids = $k === 'loc' ? location_subtree_ids((int)$v) : [(int)$v];
+            $where[] = "$col IN (" . implode(',', array_fill(0, count($ids), '?')) . ')';
+            array_push($args, ...$ids);
         }
     }
     if (ctype_digit($f['tag'] ?? '')) {
         $where[] = 'EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id = i.id AND it.tag_id = ?)';
         $args[]  = (int)$f['tag'];
     }
+    if (($f['stock'] ?? '') === 'low') $where[] = '(' . LOW_SQL . ')';
+    if (($f['lend'] ?? '') === 'out') $where[] = 'i.lent_to IS NOT NULL';
+    if (($f['lend'] ?? '') === 'overdue') { $where[] = 'i.lent_to IS NOT NULL AND i.lent_due IS NOT NULL AND i.lent_due < ?'; $args[] = local_today(); }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $order = match ($sort) {
         'name'     => 'i.sort_key ASC, i.id DESC',
@@ -267,7 +420,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
 
     $page   = max(1, $page);
     $offset = ($page - 1) * $pageSize;
-    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.image "
+    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
@@ -342,19 +495,20 @@ function activity_short(?string $s): string
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => ''];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => '', 'min_qty' => null, 'copied_from' => null];
     $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags']);
     $drop = [];
     $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
         if ($existing === null) {
-            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
+            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, min_qty, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
             tags_set($id, $in['tags']);
             if ($newImage !== null) photo_insert($id, $newImage, true);
             activity_log($id, $in['name'], 'created', array_filter([
                 'location' => $in['location_id'] !== null ? (string)(tax_get('location', $in['location_id'])['name'] ?? '') : null,
                 'category' => $in['category_id'] !== null ? (string)(tax_get('category', $in['category_id'])['name'] ?? '') : null,
-                'quantity' => $in['quantity'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
+                'quantity' => $in['quantity'], 'min_qty' => $in['min_qty'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
+                'copied_from' => $in['copied_from'],
             ], fn($v) => $v !== null));
             return $id;
         }
@@ -370,6 +524,7 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
             'purchase_date' => [(string)($old['purchase_date'] ?? ''), (string)($in['purchase_date'] ?? '')],
             'serial'        => [(string)($old['serial'] ?? ''), $in['serial']],
             'tags'          => [implode(', ', array_column($old['tags'] ?? [], 'name')), implode(', ', $in['tags'])],
+            'min_qty'       => [($old['min_qty'] ?? null) === null ? '' : (string)$old['min_qty'], $in['min_qty'] === null ? '' : (string)$in['min_qty']],
         ];
         foreach ($cmp as $k => [$a, $b]) if ($a !== $b) $changes[$k] = [$a, $b];
         if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes]);
@@ -380,8 +535,8 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
         if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
             activity_log($id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
         }
-        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
-        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
+        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
         tags_set($id, $in['tags']);
         if ($newImage !== null || $removeImage) {
             $cover = photos_for($id)[0] ?? null;
@@ -674,7 +829,8 @@ function stats_totals(): array
 {
     $st = db()->prepare('SELECT COUNT(*) AS items, COALESCE(SUM(quantity), 0) AS qty,
                                 COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS week,
-                                COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month
+                                COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month,
+                                COALESCE(SUM(CASE WHEN min_qty IS NOT NULL AND quantity <= min_qty THEN 1 ELSE 0 END), 0) AS low
                          FROM items');
     $st->execute([local_boundary_utc('monday this week'), local_boundary_utc('first day of this month')]);
     $r = $st->fetch();
@@ -683,6 +839,7 @@ function stats_totals(): array
         'qty'       => (int)$r['qty'],
         'week'      => (int)$r['week'],
         'month'     => (int)$r['month'],
+        'low'       => (int)$r['low'],
         'locations' => (int)db()->query('SELECT COUNT(*) FROM locations')->fetchColumn(),
         'categories' => (int)db()->query('SELECT COUNT(*) FROM categories')->fetchColumn(),
     ];
@@ -728,4 +885,179 @@ function stats_by(string $kind, int $n = 5): array
     $un = (int)db()->query("SELECT COUNT(*) FROM items WHERE {$t['col']} IS NULL")->fetchColumn();
     if ($un > 0) $top[] = ['id' => 'none', 'name' => $t['none'], 'n' => $un];
     return $top;
+}
+
+/* ---------- bulk actions ---------- */
+
+const BULK_MAX = 500;
+const BULK_ACTIONS = ['move', 'category', 'tag_add', 'tag_remove', 'delete'];
+
+/** The editable fields of a stored item, in the shape item_save() takes. */
+function item_input(array $it): array
+{
+    return ['name' => (string)$it['name'], 'location_id' => $it['location_id'] !== null ? (int)$it['location_id'] : null,
+            'category_id' => $it['category_id'] !== null ? (int)$it['category_id'] : null, 'quantity' => (int)$it['quantity'],
+            'min_qty' => $it['min_qty'] ?? null, 'notes' => (string)$it['notes'], 'tags' => array_column($it['tags'] ?? [], 'name'),
+            'value_cents' => $it['value_cents'], 'purchase_date' => $it['purchase_date'] !== null ? (string)$it['purchase_date'] : null,
+            'serial' => (string)$it['serial']];
+}
+
+/**
+ * Apply one action to many items in a single transaction; every item gets its own history entry (via item_save /
+ * the delete log). $opt: location_id / category_id (int|null), tags (string[]), tag_id (int).
+ * @param int[] $ids
+ * @return int number of items changed
+ */
+function items_bulk(array $ids, string $action, array $opt = []): int
+{
+    if (!in_array($action, BULK_ACTIONS, true)) throw new UserError('Unknown bulk action.');
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn($i) => $i > 0)));
+    if (!$ids) throw new UserError('Select at least one item.');
+    if (count($ids) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.');
+    if ($action === 'move' && ($opt['location_id'] ?? null) !== null && !tax_get('location', (int)$opt['location_id'])) throw new UserError('That location no longer exists.');
+    if ($action === 'category' && ($opt['category_id'] ?? null) !== null && !tax_get('category', (int)$opt['category_id'])) throw new UserError('That category no longer exists.');
+    if ($action === 'tag_add' && !($opt['tags'] ?? [])) throw new UserError('Enter at least one tag to add.');
+    $files = [];
+    $n = db_tx(function (PDO $pdo) use ($ids, $action, $opt, &$files): int {
+        $n = 0;
+        foreach ($ids as $id) {
+            $it = item_get($id);
+            if (!$it) continue;
+            $in = item_input($it);
+            switch ($action) {
+                case 'move':     $in['location_id'] = $opt['location_id'] ?? null; break;
+                case 'category': $in['category_id'] = $opt['category_id'] ?? null; break;
+                case 'tag_add':  $in['tags'] = tags_parse(array_merge($in['tags'], $opt['tags'])); break;
+                case 'tag_remove':
+                    $in['tags'] = array_column(array_filter($it['tags'], fn($t) => (int)$t['id'] !== (int)($opt['tag_id'] ?? 0)), 'name');
+                    break;
+                case 'delete':
+                    $files = array_merge($files, array_column(photos_for($id), 'file'), [$it['image']]);
+                    activity_log($id, (string)$it['name'], 'deleted', array_filter(['location' => (string)$it['location'], 'quantity' => (int)$it['quantity'], 'bulk' => true], fn($v) => $v !== ''));
+                    $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$id]);
+                    $n++;
+                    continue 2;
+            }
+            item_save($it, $in, null, false);
+            $n++;
+        }
+        $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+        return $n;
+    });
+    foreach (array_unique(array_filter($files)) as $f) image_delete($f);
+    return $n;
+}
+
+/* ---------- lending ---------- */
+
+/** Today's date (YYYY-MM-DD) in the app's time zone; lending dates are local calendar dates. */
+function local_today(): string
+{
+    return app_now()->format('Y-m-d');
+}
+
+function is_lent(array $it): bool
+{
+    return ($it['lent_to'] ?? null) !== null;
+}
+
+function is_overdue(array $it, ?string $today = null): bool
+{
+    return is_lent($it) && ($it['lent_due'] ?? null) !== null && $it['lent_due'] < ($today ?? local_today());
+}
+
+/** Lending date from a form: YYYY-MM-DD, or null when empty. */
+function parse_lend_date(string $s, string $what): ?string
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $s);
+    if (!$d || $d->format('Y-m-d') !== $s || $s < '1900-01-01' || $s > '2999-12-31') throw new UserError("$what must be a valid date (YYYY-MM-DD).");
+    return $s;
+}
+
+/** Mark an item as lent to someone (also used to change who has it / the due date). */
+function item_lend(int $id, string $to, ?string $at, ?string $due): void
+{
+    $to = clean_line($to, 100);
+    if ($to === '') throw new UserError('Enter who you lent it to.');
+    $at ??= local_today();
+    if ($at > local_today()) throw new UserError('The lent date cannot be in the future.');
+    if ($due !== null && $due < $at) throw new UserError('The due date cannot be before the lent date.');
+    db_tx(function (PDO $pdo) use ($id, $to, $at, $due): void {
+        $it = item_get($id);
+        if (!$it) throw new UserError('Item not found.', 404);
+        $pdo->prepare('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?')->execute([$to, $at, $due, now_utc(), $id]);
+        activity_log($id, (string)$it['name'], 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $it['lent_to']], fn($v) => $v !== null));
+    });
+}
+
+/** Mark a lent item as returned. */
+function item_return(int $id): void
+{
+    db_tx(function (PDO $pdo) use ($id): void {
+        $it = item_get($id);
+        if (!$it) throw new UserError('Item not found.', 404);
+        if (!is_lent($it)) return;
+        $pdo->prepare('UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL, updated_at = ? WHERE id = ?')->execute([now_utc(), $id]);
+        $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable(local_today()))->format('%a');
+        activity_log($id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
+    });
+}
+
+/** Items that are out, overdue first, then by due date (no due date last), then by lent date. */
+function items_lent(): array
+{
+    $st = db()->prepare('SELECT ' . ITEM_COLS . ' ' . ITEM_FROM . ' WHERE i.lent_to IS NOT NULL
+        ORDER BY CASE WHEN i.lent_due IS NOT NULL AND i.lent_due < ? THEN 0 ELSE 1 END, CASE WHEN i.lent_due IS NULL THEN 1 ELSE 0 END, i.lent_due, i.lent_at, i.id');
+    $st->execute([local_today()]);
+    return $st->fetchAll();
+}
+
+function lent_counts(): array
+{
+    $st = db()->prepare('SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN lent_due IS NOT NULL AND lent_due < ? THEN 1 ELSE 0 END), 0) AS late FROM items WHERE lent_to IS NOT NULL');
+    $st->execute([local_today()]);
+    $r = $st->fetch();
+    return ['out' => (int)$r['n'], 'overdue' => (int)$r['late']];
+}
+
+/* ---------- duplicate ---------- */
+
+/** Copy a stored photo (full size + thumbnail) to a new random file name; returns the new name. */
+function image_copy(string $file): string
+{
+    if (!valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) throw new UserError('A photo file is missing.');
+    $new = bin2hex(random_bytes(16)) . '.jpg';
+    if (!@copy(IMG_DIR . '/' . $file, IMG_DIR . '/' . $new)) throw new RuntimeException('could not copy photo');
+    if (is_file(THUMB_DIR . '/' . $file) && !@copy(THUMB_DIR . '/' . $file, THUMB_DIR . '/' . $new)) {
+        @unlink(IMG_DIR . '/' . $new);
+        throw new RuntimeException('could not copy thumbnail');
+    }
+    return $new;
+}
+
+/**
+ * Create a copy of an item: name + " (copy)", location, category, tags, quantity, low-stock level, notes and the custom
+ * fields (value, purchase date, serial). Lending is not copied. With $photos the photo files are duplicated too.
+ */
+function item_duplicate(int $id, bool $photos): int
+{
+    $it = item_get($id);
+    if (!$it) throw new UserError('Item not found.', 404);
+    $in = item_input($it);
+    $in['name'] = mb_substr($in['name'], 0, 193) . ' (copy)';
+    $in['copied_from'] = (string)$it['name'];
+    $copies = [];
+    try {
+        if ($photos) foreach (photos_for($id) as $p) $copies[] = image_copy($p['file']);
+        return db_tx(function () use ($in, $copies): int {
+            $new = item_save(null, $in, null, false);
+            foreach ($copies as $f) photo_insert($new, $f);
+            return $new;
+        });
+    } catch (Throwable $e) {
+        foreach ($copies as $f) image_delete($f);
+        throw $e;
+    }
 }

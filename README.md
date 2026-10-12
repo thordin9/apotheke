@@ -13,12 +13,17 @@ where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then
 Plain PHP + PDO (SQLite or PostgreSQL) + GD. No framework, no runtime Composer packages, no JS build step, no CDNs:
 it works fully offline on your LAN.
 
+**Documentation:** the full manual lives in [`docs/`](docs/index.md): [getting started](docs/getting-started.md) ·
+[configuration](docs/configuration.md) · [user guide](docs/user-guide.md) · [architecture](docs/architecture.md) ·
+[database](docs/database.md) · [testing](docs/testing.md) · [CI](docs/ci.md) ·
+[deployment and operations](docs/deployment-and-operations.md) · [contributing](docs/contributing.md).
+
 ## Contents
 
 [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install with Docker](#install-with-docker) ·
 [Install without Docker](#install-without-docker) · [Configuration](#configuration) · [Command-line tools](#command-line-tools) ·
 [Upgrading](#upgrading) · [Testing](#testing) · [CI](#ci) · [Security notes](#security-notes) · [Project layout](#project-layout) ·
-[Contributing](#contributing) · [License](#license)
+[Contributing](#contributing) · [License](#license) · [Full documentation](docs/index.md)
 
 ## Features
 
@@ -30,6 +35,11 @@ it works fully offline on your LAN.
   category you just used. The *Manage* page (Locations / Categories tabs) shows item counts and lets you add, rename,
   set/clear the default and delete; deleting an entry that still has items asks whether to **move them** elsewhere or
   **leave them unassigned**. Items are never deleted with a location or category.
+* **Nested locations**: a location can sit inside another one (Garage › Shelf 2 › Box 1024), up to 6 levels below
+  a top-level location. Create a location *inside* another on the Locations page, or move it with *Edit → Move*
+  (cycles are refused). Lists and pickers show the tree indented, the item page shows the full path with a link
+  per level, and filtering by a location (and its item count) includes everything in its sub-locations. Deleting a
+  location moves its sub-locations up one level. Categories stay flat.
 * **Overview stats** at the top of the list: items, total quantity, locations, categories, added this week/month, a chart of
   items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars. Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
@@ -54,10 +64,29 @@ it works fully offline on your LAN.
   preview of the file next to your current data; nothing changes until you tick the box and press *Restore*, and it runs in
   one transaction. The format doesn't depend on the database, so SQLite ↔ PostgreSQL works both ways.
 * **Activity history**: every change is logged in the same transaction as the change itself: created, edited (old → new
-  for name, category, notes, value, purchase date, serial, tags), moved (including moves caused by deleting a location),
-  quantity, photos added/reordered/deleted/new cover, deleted. The item page shows the latest ten entries with a link to
+  for name, category, notes, value, purchase date, serial, tags, low-stock level), moved (including moves caused by deleting a location),
+  quantity, photos added/reordered/deleted/new cover, lent/returned, deleted. The item page shows the latest ten entries with a link to
   the full history; ☰ → *Recent activity* lists all items, newest first. Entries of deleted items are kept.
-* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date` and `serial` columns).
+* **Low-stock alerts**: give an item an optional *Running low at* level. When its quantity drops to that level or below,
+  the card and the item page show a **Running low** badge (it updates live as you tap −/+), the overview has a *Running
+  low* tile with the count (tap it to filter), and the filter sheet has a *Stock → Running low* filter (`/?stock=low`).
+  Changes to the level are logged in the history; CSV and backups include it.
+* **Bulk actions**: tap *Select* next to *Filter* to switch the list into selection mode. Tap photos (or the round
+  checkbox) to pick items, *All on page* picks every loaded card, and the selection survives searching and filtering.
+  *Actions* opens a sheet to **move** them to a location, **set the category**, **add tags** or **remove a tag**, or
+  **delete** them after a confirmation page. Each action runs in one transaction, writes a history entry per item and is
+  CSRF-protected (`POST /bulk`, at most 500 items at once). Works without JavaScript too (`/?select=1`, `&all=1`).
+* **Lending tracker**: *Lend this item* on the item page records who has it, since when (defaults to today) and an
+  optional due date; *Mark as returned* brings it back. Cards show a **Lent · name** or red **Overdue · name** badge
+  (overdue = the due date is before today in the `TZ` time zone), the filter sheet has *Lending → Lent out / Overdue*
+  (`/?lend=out`, `/?lend=overdue`), and ☰ → *Lent out* (`/lent`) lists everything that is out, overdue first, with a
+  one-tap *Returned* button. Lending and returns are logged in the history; CSV and backup/restore include it.
+* **Duplicate item**: *Duplicate* on the item page creates "Name (copy)" with the same location, category, tags,
+  quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
+  photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
+  is not copied. The copy's history starts with "Created … copied from “Name”".
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`,
+  `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
   Empty means no login, fine on a trusted LAN.
 
@@ -82,6 +111,14 @@ it works fully offline on your LAN.
 | Photo gallery | Tags & custom fields (dark) | QR labels | Restore preview | History (dark) |
 |---|---|---|---|---|
 | ![Gallery](docs/screenshots/gallery-light.png) | ![Tags](docs/screenshots/tags-dark.png) | ![Labels](docs/screenshots/labels-light.png) | ![Restore](docs/screenshots/restore-light.png) | ![Activity](docs/screenshots/activity-dark.png) |
+
+| Running low | Bulk actions (dark) | Lent out | Lent item (dark) |
+|---|---|---|---|
+| ![Low stock](docs/screenshots/low-stock-light.png) | ![Bulk actions](docs/screenshots/bulk-dark.png) | ![Lent page](docs/screenshots/lent-light.png) | ![Lent item](docs/screenshots/item-lent-dark.png) |
+
+| Duplicate | Nested locations | Location path (dark) |
+|---|---|---|
+| ![Duplicate](docs/screenshots/duplicate-light.png) | ![Location tree](docs/screenshots/locations-tree-light.png) | ![Item in a nested location](docs/screenshots/item-nested-dark.png) |
 
 ## Requirements
 
@@ -230,7 +267,8 @@ On first start after an update the database is upgraded automatically (or run `p
     de-duplicated ignoring case and accents) and every item is linked to its location.
   * From the locations-only version, categories are added; existing items start without a category.
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
-* Migrations `0004` (tags, custom fields) and `0005` (activity log) only add tables/columns.
+* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending) and
+  `0008` (parent location) only add tables/columns.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use
@@ -336,14 +374,16 @@ tests/Unit/, Integration/     PHPUnit suites
 tests/e2e/                    headless mobile checks (puppeteer-core, dev only)
 tests/visual/                 Playwright visual E2E suite, fixtures, seed and screenshot baselines
 playwright.config.ts          Playwright projects (devices × colour schemes, pgsql-smoke)
-scripts/                      lint.sh, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+scripts/                      lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh,
+                              e2e-container-setup.sh
+docs/                         detailed documentation (Markdown, mermaid diagrams) and README screenshots
 ```
 
 ## Contributing
 
 Pull requests are welcome. Commits must follow [Conventional Commits](https://www.conventionalcommits.org/) (subject ≤ 72
 characters, checked in CI); see [CONTRIBUTING.md](CONTRIBUTING.md) for the details, test commands and how to write a
-migration.
+migration, and [docs/contributing.md](docs/contributing.md) for a step-by-step guide to adding a feature.
 
 ## License
 

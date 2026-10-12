@@ -32,6 +32,11 @@ function icon(string $n): string
         'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
         'qr'     => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
         'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
+        'handoff'=> '<path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M12 15v2"/>',
+        'undo'   => '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+        'copy'   => '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
+        'check'  => '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+        'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
     return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . ($p[$n] ?? '') . '</svg>';
@@ -91,7 +96,21 @@ function chip_html(string $kind, ?int $id, string $name, bool $large = false): s
         . ($large ? icon($t['icon']) . ' ' : '') . h($name) . '</a>';
 }
 
-function card_html(array $it): string
+/** Item page: the location chip, preceded by its parent locations (Garage › Shelf 2 › [Box 1024]). */
+function location_trail_html(?int $id, string $name): string
+{
+    $chip = chip_html('location', $id, $name, true);
+    if ($id === null) return $chip;
+    $up = location_ancestors($id);
+    if (!$up) return $chip;
+    $o = '<span class="loctrail" id="loctrail">';
+    foreach ($up as $a) {
+        $o .= '<a class="chip chip-location chip-lg chip-parent" href="/?loc=' . $a['id'] . '">' . h($a['name']) . '</a><span class="trail-sep" aria-hidden="true">›</span>';
+    }
+    return $o . $chip . '</span>';
+}
+
+function card_html(array $it, bool $select = false, bool $checked = false): string
 {
     $id = (int)$it['id'];
     $img = valid_image_name($it['image'] ?? null)
@@ -102,11 +121,15 @@ function card_html(array $it): string
     $chips = chip_html('location', $locId, (string)$it['location']) . chip_html('category', $catId, (string)$it['category']);
     if ($chips === '') $chips = '<span class="chip chip-muted">No location</span>';
     $q = (int)$it['quantity'];
-    return '<article class="card" data-id="' . $id . '">'
+    $min = ($it['min_qty'] ?? null) === null ? null : (int)$it['min_qty'];
+    return '<article class="card' . (is_low($it) ? ' is-low' : '') . ($select ? ' selectable' : '') . '" data-id="' . $id . '"' . ($min !== null ? ' data-min="' . $min . '"' : '') . '>'
+        . ($select ? '<label class="sel"><input type="checkbox" class="selbox" name="ids[]" value="' . $id . '" form="bulkform"' . ($checked ? ' checked' : '') . ' aria-label="Select ' . h($it['name']) . '"><span class="selmark" aria-hidden="true">' . icon('check') . '</span></label>' : '')
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
         . '<div class="card-body">'
         . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
         . '<div class="chips">' . $chips . '</div>'
+        . ($min !== null ? low_badge_html() : '')
+        . lend_badge_html($it)
         . '<div class="qty" data-id="' . $id . '">'
         . '<button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"' . ($q <= 0 ? ' disabled' : '') . '>' . icon('minus') . '</button>'
         . '<output class="qval">' . $q . '</output>'
@@ -114,9 +137,166 @@ function card_html(array $it): string
         . '</div></div></article>';
 }
 
-function cards_html(array $items): string
+/** "Running low" badge; shown by CSS while the surrounding card/page has .is-low (so +/- can toggle it). */
+function low_badge_html(): string
 {
-    return implode('', array_map('card_html', $items));
+    return '<span class="lowbadge" role="status">' . icon('alert') . ' Running low</span>';
+}
+
+/** "Lent to X" / "Overdue" badge, or ''. */
+function lend_badge_html(array $it): string
+{
+    if (!is_lent($it)) return '';
+    $late = is_overdue($it);
+    return '<span class="lendbadge' . ($late ? ' is-overdue' : '') . '">' . icon($late ? 'alert' : 'handoff') . ' '
+        . ($late ? 'Overdue' : 'Lent') . ' · ' . h((string)$it['lent_to']) . '</span>';
+}
+
+/** The item page's lending box: status + Return, or a form to lend it. */
+function lend_section_html(array $it): string
+{
+    $id = (int)$it['id'];
+    $tok = h(csrf_token());
+    $today = local_today();
+    $form = fn(string $btn) => '<form method="post" action="/item/' . $id . '/lend" class="lendform" id="lendform">'
+        . '<input type="hidden" name="csrf" value="' . $tok . '">'
+        . '<label class="field"><span>Lent to</span><input type="text" name="lent_to" id="lent_to" required maxlength="100" autocomplete="name" value="' . h((string)($it['lent_to'] ?? '')) . '" placeholder="Name"></label>'
+        . '<div class="lendrow"><label class="field"><span>On</span><input type="date" name="lent_at" id="lent_at" max="' . $today . '" value="' . h((string)($it['lent_at'] ?? $today)) . '"></label>'
+        . '<label class="field"><span>Due back <em>optional</em></span><input type="date" name="lent_due" id="lent_due" value="' . h((string)($it['lent_due'] ?? '')) . '"></label></div>'
+        . '<button class="btn btn-primary btn-wide" id="lend-save">' . icon('handoff') . ' ' . $btn . '</button></form>';
+    if (!is_lent($it)) {
+        return '<details class="lendbox" id="lending"><summary>' . icon('handoff') . ' Lend this item</summary>' . $form('Mark as lent') . '</details>';
+    }
+    $late = is_overdue($it, $today);
+    return '<section class="lendbox is-out' . ($late ? ' is-overdue' : '') . '" id="lending" aria-labelledby="lend-title">'
+        . '<h2 id="lend-title">' . icon($late ? 'alert' : 'handoff') . ' ' . ($late ? 'Overdue' : 'Lent out') . '</h2>'
+        . '<p class="lendinfo">With <b>' . h((string)$it['lent_to']) . '</b> since ' . h((string)$it['lent_at'])
+        . ($it['lent_due'] !== null ? ' · due back <b>' . h((string)$it['lent_due']) . '</b>' : '') . '</p>'
+        . '<form method="post" action="/item/' . $id . '/return"><input type="hidden" name="csrf" value="' . $tok . '">'
+        . '<button class="btn btn-primary btn-wide" id="lend-return">' . icon('undo') . ' Mark as returned</button></form>'
+        . '<details class="lendedit"><summary>Change</summary>' . $form('Save') . '</details></section>';
+}
+
+function view_lent(array $items, string $today): void
+{
+    page_start('Lent out', 'page-lent');
+    $late = count(array_filter($items, fn($it) => is_overdue($it, $today)));
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Lent out</h1>
+    <span class="spacer"></span>
+    <?= menu_html() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <p class="lead" id="lent-summary"><?= count($items) ? count($items) . ' item' . (count($items) === 1 ? '' : 's') . ' out' . ($late ? ' · <b class="late">' . $late . ' overdue</b>' : '') : 'Nothing is lent out right now.' ?></p>
+  <?php if ($items): ?>
+  <ul class="lentlist" id="lentlist">
+    <?php foreach ($items as $it): $o = is_overdue($it, $today); ?>
+    <li class="lent<?= $o ? ' is-overdue' : '' ?>">
+      <a class="lent-main" href="/item/<?= (int)$it['id'] ?>">
+        <span class="lent-img"><?= valid_image_name($it['image'] ?? null) ? '<img src="/media/thumb/' . h($it['image']) . '" alt="" loading="lazy">' : icon('box') ?></span>
+        <span class="lent-text"><b><?= h($it['name']) ?></b>
+          <span><?= h((string)$it['lent_to']) ?> · since <?= h((string)$it['lent_at']) ?></span>
+          <span class="lent-due"><?= $it['lent_due'] !== null ? ($o ? 'Overdue · was due ' : 'Due ') . h((string)$it['lent_due']) : 'No due date' ?></span></span>
+      </a>
+      <form method="post" action="/item/<?= (int)$it['id'] ?>/return"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><input type="hidden" name="back" value="/lent">
+        <button class="btn btn-sm" aria-label="Mark <?= h($it['name']) ?> as returned"><?= icon('undo') ?> Returned</button></form>
+    </li>
+    <?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
+function cards_html(array $items, bool $select = false, bool $checked = false): string
+{
+    return implode('', array_map(fn($it) => card_html($it, $select, $checked), $items));
+}
+
+/** Toast after a bulk action. */
+function bulk_toast(int $n, string $action): string
+{
+    $s = $n . ' item' . ($n === 1 ? '' : 's');
+    return match ($action) {
+        'move' => "Moved $s", 'category' => "Set the category of $s", 'tag_add' => "Tagged $s",
+        'tag_remove' => "Removed the tag from $s", 'delete' => "Deleted $s", default => "Updated $s",
+    };
+}
+
+/** Fixed bottom bar of the list's selection mode: count, select all on page, actions sheet. */
+function bulk_bar_html(array $locs, array $cats, array $tags, string $back, string $allHref): string
+{
+    $opts = fn(array $rows, string $none) => '<option value="">' . h($none) . '</option>'
+        . implode('', array_map(fn($r) => '<option value="' . (int)$r['id'] . '">' . h(tax_option_label($r)) . '</option>', $rows));
+    ob_start(); ?>
+<form class="bulkbar" id="bulkform" method="post" action="/bulk">
+  <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+  <input type="hidden" name="back" value="<?= h($back) ?>">
+  <div class="bulkbar-in">
+    <span class="selcount" id="selcount" role="status">Select items</span>
+    <a class="btn" href="<?= h($allHref) ?>" id="sel-all">All on page</a>
+    <details class="fsheet bulksheet" id="bulksheet">
+      <summary class="btn btn-primary" id="bulk-open">Actions</summary>
+      <div class="fpanel" role="dialog" aria-labelledby="bulk-title">
+        <div class="fpanel-head"><h2 id="bulk-title">Selected items</h2><button type="button" class="btn btn-ghost" id="bulk-close">Done</button></div>
+        <div class="bulkrow"><label class="field"><span>Move to location</span><select name="location_id" id="bulk-loc"><?= $opts($locs, 'No location') ?></select></label>
+          <button class="btn btn-primary" name="action" value="move" id="bulk-move">Move</button></div>
+        <div class="bulkrow"><label class="field"><span>Set category</span><select name="category_id" id="bulk-cat"><?= $opts($cats, 'No category') ?></select></label>
+          <button class="btn btn-primary" name="action" value="category" id="bulk-category">Set</button></div>
+        <div class="bulkrow"><label class="field"><span>Add tags</span><input type="text" name="tags" id="bulk-tags" placeholder="e.g. Garage, Winter" autocomplete="off" maxlength="400"></label>
+          <button class="btn btn-primary" name="action" value="tag_add" id="bulk-tag-add">Add</button></div>
+        <?php if ($tags): ?>
+        <div class="bulkrow"><label class="field"><span>Remove tag</span><select name="tag_id" id="bulk-tag"><?php foreach ($tags as $t): ?><option value="<?= (int)$t['id'] ?>"><?= h($t['name']) ?></option><?php endforeach; ?></select></label>
+          <button class="btn" name="action" value="tag_remove" id="bulk-tag-remove">Remove</button></div>
+        <?php endif; ?>
+        <button class="btn btn-danger btn-wide" name="action" value="delete" id="bulk-delete"><?= icon('trash') ?> Delete selected…</button>
+      </div>
+    </details>
+  </div>
+</form>
+<?php
+    return (string)ob_get_clean();
+}
+
+function view_bulk_delete(array $items, string $back): void
+{
+    page_start('Delete items');
+    $n = count($items);
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="<?= h($back) ?>" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Delete items</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h2 class="item-name">Delete <?= $n ?> item<?= $n === 1 ? '' : 's' ?>?</h2>
+  <p class="lead">Their photos are deleted too. The history keeps a record. This can’t be undone.</p>
+  <ul class="bulklist" id="bulklist">
+    <?php foreach ($items as $it): ?><li><?= h($it['name']) ?><?= $it['location'] !== '' ? ' <span class="hint">· ' . h($it['location']) . '</span>' : '' ?></li><?php endforeach; ?>
+  </ul>
+  <form method="post" action="/bulk" class="itemform" id="bulkdel">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="confirm" value="1">
+    <input type="hidden" name="back" value="<?= h($back) ?>">
+    <?php foreach ($items as $it): ?><input type="hidden" name="ids[]" value="<?= (int)$it['id'] ?>"><?php endforeach; ?>
+    <div class="actionbar actionbar-form">
+      <div class="actionbar-in">
+        <a class="btn" href="<?= h($back) ?>">Cancel</a>
+        <button class="btn btn-danger-solid" id="bulk-confirm"><?= icon('trash') ?> Delete <?= $n ?></button>
+      </div>
+    </div>
+  </form>
+</main>
+<?php
+    page_end();
 }
 
 function count_text(int $total, bool $filtered): string
@@ -143,6 +323,7 @@ function menu_html(): string
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
+        . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
         . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>';
     if (app_password() !== '') {
@@ -153,7 +334,7 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + (($f['stock'] ?? '') !== '' ? 1 : 0) + (($f['lend'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
@@ -161,13 +342,13 @@ const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Lo
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
-    $f += ['tag' => ''];
+    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
-        foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
+        foreach ($list as $l) if ((string)$l['id'] === $v) return (string)($l['path'] ?? $l['name']);
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort];
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -180,6 +361,8 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
         foreach ($tags ?? tags_all() as $t) if ((string)$t['id'] === $f['tag']) $tn = (string)$t['name'];
         $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
     }
+    if ($f['stock'] === 'low') $o .= '<a class="achip chip-low" href="' . h($href('stock')) . '" data-clear="stock" aria-label="Remove running-low filter">' . icon('alert') . '<span>Running low</span>' . icon('x') . '</a>';
+    if ($f['lend'] !== '') $o .= '<a class="achip chip-lend" href="' . h($href('lend')) . '" data-clear="lend" aria-label="Remove lending filter">' . icon('handoff') . '<span>' . ($f['lend'] === 'overdue' ? 'Overdue' : 'Lent out') . '</span>' . icon('x') . '</a>';
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -242,6 +425,7 @@ function stats_body_html(): string
     ];
     $o = '<div class="tiles">';
     foreach ($tiles as [$k, $v]) $o .= '<div class="tile"><b>' . number_format($v) . '</b><span>' . h($k) . '</span></div>';
+    $o .= '<a class="tile tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-stock="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
@@ -285,17 +469,20 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
     $o = '<label class="field"><span>' . h($t['One']) . '</span><select name="' . $t['param'] . '" id="' . $t['param'] . '">'
        . '<option value="">All ' . h($t['many']) . '</option>';
     foreach ($list as $l) {
-        $o .= '<option value="' . (int)$l['id'] . '"' . ((string)$l['id'] === $cur ? ' selected' : '') . '>' . h($l['name']) . ' (' . (int)$l['n'] . ')</option>';
+        $o .= '<option value="' . (int)$l['id'] . '"' . ((string)$l['id'] === $cur ? ' selected' : '') . '>' . h(tax_option_label($l)) . ' (' . (int)($l['total'] ?? $l['n']) . ')</option>';
     }
     if ($none > 0 || $cur === 'none') $o .= '<option value="none"' . ($cur === 'none' ? ' selected' : '') . '>' . h($t['none']) . ' (' . $none . ')</option>';
     return $o . '</select></label>';
 }
 
-function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true): void
+function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
-    page_start('');
-    $f += ['tag' => ''];
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '';
+    page_start('', $select ? 'page-select' : '');
+    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
+    $qs = array_filter(['q' => $q, 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '');
+    $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
+    $selHref = '/?' . http_build_query($qs + ['select' => '1']);
+    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== '';
     $tags = tags_all();
     ?>
 <header class="top">
@@ -327,6 +514,17 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
             <?php endforeach; ?>
           </select></label>
           <?php endif; ?>
+          <label class="field"><span>Stock</span>
+          <select name="stock" id="stock">
+            <option value="">All items</option>
+            <option value="low"<?= $f['stock'] === 'low' ? ' selected' : '' ?>>Running low</option>
+          </select></label>
+          <label class="field"><span>Lending</span>
+          <select name="lend" id="lend">
+            <option value="">All items</option>
+            <option value="out"<?= $f['lend'] === 'out' ? ' selected' : '' ?>>Lent out</option>
+            <option value="overdue"<?= $f['lend'] === 'overdue' ? ' selected' : '' ?>>Overdue</option>
+          </select></label>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
             <?php foreach (SORTS as $k => $v): ?>
@@ -339,6 +537,8 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           </div>
         </div>
       </details>
+      <a class="btn fbtn<?= $select ? ' is-on' : '' ?>" id="select-toggle" href="<?= h($select ? $listHref : $selHref) ?>"<?= $select ? ' aria-pressed="true"' : '' ?>><?= icon($select ? 'x' : 'check') ?><span><?= $select ? 'Done' : 'Select' ?></span></a>
+      <?php if ($select): ?><input type="hidden" name="select" value="1"><?php endif; ?>
       <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats, $tags) ?></div>
     </div>
   </form>
@@ -346,7 +546,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 <main class="wrap">
   <?= stats_section($stats, $statsOpen) ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
-  <div class="grid" id="grid" aria-live="polite"><?= cards_html($res['items']) ?></div>
+  <div class="grid" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
     <?= icon('box') ?>
     <p class="empty-title" id="empty-title"><?= $filtered ? 'Nothing matches.' : 'Your catalog is empty.' ?></p>
@@ -364,7 +564,11 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     <?php endif; ?>
   </footer>
 </main>
+<?php if ($select): ?>
+<?= bulk_bar_html($locs, $cats, $tags, $selHref, $selHref . '&all=1') ?>
+<?php else: ?>
 <a class="fab" href="<?= h(new_item_href($f)) ?>" id="fab" aria-label="Add item"><?= icon('camera') ?></a>
+<?php endif; ?>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <?php
     page_end();
@@ -409,9 +613,12 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <?php endif; ?>
   <h2 class="item-name"><?= h($it['name']) ?></h2>
   <div class="item-meta">
-    <?= chip_html('location', $it['location_id'] !== null ? (int)$it['location_id'] : null, $it['location'], true) ?>
+    <?= location_trail_html($it['location_id'] !== null ? (int)$it['location_id'] : null, (string)$it['location']) ?>
     <?= chip_html('category', $it['category_id'] !== null ? (int)$it['category_id'] : null, $it['category'], true) ?>
   </div>
+  <?php if (($it['min_qty'] ?? null) !== null): ?>
+  <div class="lowbox<?= is_low($it) ? ' is-low' : '' ?>" id="lowbox" data-min="<?= (int)$it['min_qty'] ?>"><?= low_badge_html() ?><span class="hint">Alert at <?= (int)$it['min_qty'] ?> or fewer</span></div>
+  <?php endif; ?>
   <div class="qty qty-lg" data-id="<?= $id ?>">
     <button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"<?= (int)$it['quantity'] <= 0 ? ' disabled' : '' ?>><?= icon('minus') ?></button>
     <output class="qval"><?= (int)$it['quantity'] ?></output>
@@ -459,7 +666,15 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     </form>
     <?php endif; ?>
   </details>
-  <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
+  <?= lend_section_html($it) ?>
+  <div class="item-links">
+    <a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a>
+    <form method="post" action="/item/<?= $id ?>/duplicate" class="dupform" id="dupform">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <?php if ($n): ?><label class="check"><input type="checkbox" name="photos" value="1" id="dup-photos"> with photos</label><?php endif; ?>
+      <button class="btn btn-sm" id="dup-btn"><?= icon('copy') ?> Duplicate</button>
+    </form>
+  </div>
   <?php if ($history): ?>
   <section class="history" id="history" aria-labelledby="hist-title">
     <h2 id="hist-title"><?= icon('clock') ?> History</h2>
@@ -494,7 +709,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
        . '<div class="locrow"><select name="' . $field . '" id="' . $p . 'sel" class="locsel">'
        . '<option value="">— ' . h($t['none']) . ' —</option>';
     foreach ($list as $l) {
-        $o .= '<option value="' . (int)$l['id'] . '"' . ((int)$l['id'] === $selected ? ' selected' : '') . '>' . h($l['name']) . ($l['is_default'] ? ' ★' : '') . '</option>';
+        $o .= '<option value="' . (int)$l['id'] . '"' . ((int)$l['id'] === $selected ? ' selected' : '') . '>' . h(tax_option_label($l)) . ($l['is_default'] ? ' ★' : '') . '</option>';
     }
     $o .= '<option value="__new"' . ($newVal !== '' ? ' selected' : '') . '>＋ New ' . h($t['one']) . '…</option></select>'
        . '<button type="button" class="btn btn-square" id="' . $p . 'add" aria-label="New ' . h($t['one']) . '" title="New ' . h($t['one']) . '">' . icon('plus') . '</button></div>'
@@ -557,6 +772,10 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
         <button type="button" class="qbtn" data-step="1" aria-label="Increase"><?= icon('plus') ?></button>
       </div>
     </div>
+    <label class="field">
+      <span>Running low at <em>optional – alert when the quantity is this or less</em></span>
+      <input type="number" name="min_qty" id="min_qty" value="<?= h((string)($vals['min_qty'] ?? '')) ?>" min="0" max="1000000" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 2">
+    </label>
     <label class="field">
       <span>Notes <em>optional</em></span>
       <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, where you bought it…"><?= h($vals['notes']) ?></textarea>
@@ -629,6 +848,9 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
     <input type="hidden" name="csrf" value="<?= $tok ?>">
     <input type="text" name="name" required maxlength="120" autocomplete="off" autocorrect="off" enterkeyhint="done" placeholder="New <?= h($t['one']) ?>, e.g. <?= h($t['example']) ?>" aria-label="New <?= h($t['one']) ?> name">
     <button class="btn btn-primary"><?= icon('plus') ?> Add</button>
+    <?php if ($kind === 'location' && $list): ?>
+    <label class="field addloc-parent"><span>Inside</span><select name="parent" id="addloc-parent"><?= parent_options($list, null, null) ?></select></label>
+    <?php endif; ?>
   </form>
   <div class="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
   <?php if ($kind === 'location'): ?><p class="item-links"><a class="btn btn-sm" href="/labels"><?= icon('qr') ?> Print QR labels for all locations</a></p><?php endif; ?>
@@ -639,7 +861,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
   <?php else: ?>
   <ul class="loclist">
     <?php foreach ($list as $l): $id = (int)$l['id']; $n = (int)$l['n']; ?>
-    <li class="loc<?= $l['is_default'] ? ' is-default' : '' ?>" id="<?= $t['param'] ?>-<?= $id ?>">
+    <li class="loc<?= $l['is_default'] ? ' is-default' : '' ?><?= ($d = min((int)($l['depth'] ?? 0), LOCATION_MAX_DEPTH)) > 0 ? ' loc-d' . $d : '' ?>" id="<?= $t['param'] ?>-<?= $id ?>"<?= $kind === 'location' ? ' data-depth="' . (int)$l['depth'] . '"' : '' ?>>
       <div class="loc-main">
         <form method="post" action="<?= $base ?>/<?= $id ?>/default" class="loc-star-form">
           <input type="hidden" name="csrf" value="<?= $tok ?>">
@@ -647,7 +869,8 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
           <button class="loc-star" aria-label="<?= $l['is_default'] ? 'Unset default' : 'Set as default' ?>" title="<?= $l['is_default'] ? 'Default – tap to unset' : 'Set as default' ?>"><?= icon('star') ?></button>
         </form>
         <a class="loc-name" href="/?<?= $t['param'] ?>=<?= $id ?>"><?= h($l['name']) ?><?php if ($l['is_default']): ?> <span class="badge">Default</span><?php endif; ?></a>
-        <a class="loc-count" href="/?<?= $t['param'] ?>=<?= $id ?>"><?= $n ?> item<?= $n === 1 ? '' : 's' ?></a>
+        <?php $tot = (int)($l['total'] ?? $n); ?>
+        <a class="loc-count" href="/?<?= $t['param'] ?>=<?= $id ?>" title="<?= $tot !== $n ? h($n . ' here, ' . ($tot - $n) . ' in sub-locations') : '' ?>"><?= $tot ?> item<?= $tot === 1 ? '' : 's' ?></a>
       </div>
       <details class="loc-more">
         <summary><?= icon('edit') ?> Edit</summary>
@@ -657,6 +880,13 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
             <input type="text" name="name" value="<?= h($l['name']) ?>" required maxlength="120" autocomplete="off" autocorrect="off" aria-label="Rename <?= h($t['one']) ?>">
             <button class="btn">Rename</button>
           </form>
+          <?php if ($kind === 'location' && count($list) > 1): ?>
+          <form method="post" action="<?= $base ?>/<?= $id ?>/parent" class="loc-parent">
+            <input type="hidden" name="csrf" value="<?= $tok ?>">
+            <select name="parent" aria-label="Put “<?= h($l['name']) ?>” inside"><?= parent_options($list, $id, $l['parent_id']) ?></select>
+            <button class="btn">Move</button>
+          </form>
+          <?php endif; ?>
           <div class="loc-btns">
             <form method="post" action="<?= $base ?>/<?= $id ?>/default">
               <input type="hidden" name="csrf" value="<?= $tok ?>">
@@ -689,6 +919,20 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
     page_end();
 }
 
+/** <option>s for a parent picker: "Top level" plus every location except $self and its sub-locations. */
+function parent_options(array $list, ?int $self, ?int $cur): string
+{
+    $o = '<option value="">' . ($self === null ? 'Top level' : '— Top level —') . '</option>';
+    $skip = -1;
+    foreach ($list as $l) {
+        if ($skip >= 0 && $l['depth'] > $skip) continue;   // inside $self: not allowed
+        $skip = -1;
+        if ($self !== null && $l['id'] === $self) { $skip = $l['depth']; continue; }
+        $o .= '<option value="' . $l['id'] . '"' . ($cur === $l['id'] ? ' selected' : '') . '>' . h(tax_option_label($l)) . '</option>';
+    }
+    return $o;
+}
+
 function view_tax_delete(string $kind, array $entry, array $others): void
 {
     $t = tax($kind);
@@ -704,7 +948,8 @@ function view_tax_delete(string $kind, array $entry, array $others): void
 </header>
 <main class="wrap narrow">
   <h2 class="item-name">“<?= h($entry['name']) ?>”</h2>
-  <p class="lead"><a href="/?<?= $t['param'] ?>=<?= (int)$entry['id'] ?>"><?= $n ?> item<?= $n === 1 ? ' is' : 's are' ?></a> in this <?= h($t['one']) ?>. What should happen to <?= $n === 1 ? 'it' : 'them' ?>?</p>
+  <p class="lead"><?= $n ?> item<?= $n === 1 ? ' is' : 's are' ?> directly in this <?= h($t['one']) ?>. What should happen to <?= $n === 1 ? 'it' : 'them' ?>?</p>
+  <?php if (!empty($entry['children'])): ?><p class="hint" id="del-children">Its <?= (int)$entry['children'] ?> sub-location<?= (int)$entry['children'] === 1 ? '' : 's' ?> (and everything in <?= (int)$entry['children'] === 1 ? 'it' : 'them' ?>) move up one level<?= !empty($entry['parent_name']) ? ' into “' . h($entry['parent_name']) . '”' : ' to the top level' ?>.</p><?php endif; ?>
   <form method="post" action="<?= $t['path'] ?>/<?= (int)$entry['id'] ?>/delete" class="itemform" id="locdel">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if ($others): ?>
@@ -713,7 +958,7 @@ function view_tax_delete(string $kind, array $entry, array $others): void
       <span><strong>Move items to</strong>
         <select name="target" aria-label="Move to <?= h($t['one']) ?>">
           <?php foreach ($others as $o): ?>
-          <option value="<?= (int)$o['id'] ?>"<?= $o['is_default'] ? ' selected' : '' ?>><?= h($o['name']) ?> (<?= (int)$o['n'] ?>)</option>
+          <option value="<?= (int)$o['id'] ?>"<?= $o['is_default'] ? ' selected' : '' ?>><?= h(tax_option_label($o)) ?> (<?= (int)$o['n'] ?>)</option>
           <?php endforeach; ?>
         </select>
       </span>
@@ -771,7 +1016,7 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
-const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags'];
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
 /** One activity entry as HTML (already escaped). */
 function activity_html(array $e): string
@@ -781,8 +1026,9 @@ function activity_html(array $e): string
     $none = fn($v) => (string)$v === '' ? '<i>none</i>' : '<b>' . h((string)$v) . '</b>';
     switch ($e['action']) {
         case 'created':
-            $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '')
-               . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '');
+            $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '') . (isset($d['min_qty']) ? ' · running low at ' . (int)$d['min_qty'] : '')
+               . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '')
+               . (!empty($d['copied_from']) ? ' · copied from “' . h((string)$d['copied_from']) . '”' : '');
             break;
         case 'edited':
             $parts = [];
@@ -804,6 +1050,13 @@ function activity_html(array $e): string
                   'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo'][$d['change'] ?? ''] ?? 'Changed photos';
             if (isset($d['count'])) $t .= ' · ' . (int)$d['count'] . ' total';
             break;
+        case 'lent':
+            $t = (!empty($d['before']) ? 'Lending changed: now with ' : 'Lent to ') . '<b>' . h((string)($d['to'] ?? '')) . '</b>'
+               . (!empty($d['at']) ? ' on ' . h($d['at']) : '') . (!empty($d['due']) ? ' · due ' . h($d['due']) : '');
+            break;
+        case 'returned':
+            $t = 'Returned by <b>' . h((string)($d['from'] ?? '')) . '</b>' . (isset($d['days']) ? ' after ' . (int)$d['days'] . ' day' . ((int)$d['days'] === 1 ? '' : 's') : '');
+            break;
         case 'deleted':
             $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
             break;
@@ -813,7 +1066,7 @@ function activity_html(array $e): string
     return $t;
 }
 
-const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash'];
+const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
 function activity_items_html(array $entries, bool $withItem): string
 {

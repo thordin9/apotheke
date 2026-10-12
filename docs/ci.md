@@ -1,0 +1,65 @@
+# CI
+
+Two GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
+
+## `ci.yml`: on every pull request and on pushes to `main`
+
+Runs with `permissions: contents: read`; a newer push to the same ref cancels the running one
+(`concurrency: ci-<ref>`).
+
+```mermaid
+flowchart LR
+  push["PR / push to main"] --> lint["Lint"]
+  push --> test["Tests<br/>SQLite · PostgreSQL"]
+  push --> mobile["Headless mobile checks"]
+  push --> e2e["Visual E2E<br/>3 shards"]
+  push --> docker["Docker build + smoke test"]
+  push --> commits["Conventional Commits<br/>(PRs only)"]
+```
+
+The jobs are independent and run in parallel.
+
+| Job | Steps |
+|---|---|
+| **Lint** | PHP 8.3 and Node 20, installs `shellcheck`, runs `scripts/lint.sh` (`php -l`, `node --check`, Markdown link check, `shellcheck`). |
+| **Tests (PHP 8.3, sqlite / pgsql)** | Matrix over the database with a PostgreSQL 17 service. Installs `zbar-tools` for the QR round-trip tests and the Composer dev dependencies, then: migrations through the CLI on a fresh database (`bin/migrate.php`, an idempotent second run, `bin/seed.php --demo` twice, `--status`), and PHPUnit (unit tests + the HTTP suite) with pcov coverage. The coverage report is uploaded as `coverage-<db>`. |
+| **Headless mobile checks** | Starts `php -S` with demo data and runs `tests/e2e/mobile.mjs` (puppeteer-core + Chrome) at 375×667 and 390×844: filter sheet, theme switch, overflow, sticky bars, photos. |
+| **Visual E2E (shard N/3)** | Runs inside `mcr.microsoft.com/playwright:v1.64.0-noble` with a PostgreSQL service; `scripts/e2e-container-setup.sh` installs PHP 8.3, then `npx playwright test --shard=N/3` (`retries=1` in CI). On failure the HTML report, traces and screenshot diffs are uploaded as `playwright-report-shard-N`. |
+| **Docker build + smoke test** | Builds the image with Buildx (GitHub Actions cache), writes its size to the job summary, then: container on SQLite → `scripts/smoke.sh` and `scripts/docker-checks.sh` (routing, blocked paths, headers, gzip, body limits); a second container on PostgreSQL (`--network host`, `PORT=8081`) → `scripts/smoke.sh`; a graceful-stop check (`docker stop` must exit 0 within 20 s); the Playwright `@smoke` subset against the image (`E2E_DOCKER_IMAGE=apotheke:ci`, project `docker-smoke`). Container logs are always printed. |
+| **Conventional Commits** | Pull requests only: `scripts/check-commits.sh <base sha> <head sha>` checks every commit subject in the PR. |
+
+## `snapshots.yml`: Update visual snapshots
+
+Runs when a pull request gets the label **`update-snapshots`** (or manually via *workflow_dispatch* on `main`). In the
+same Playwright image as the `e2e` job, with a PostgreSQL service, it runs
+`npx playwright test --update-snapshots --retries=0 --workers=3` and uploads `tests/visual/__screenshots__/` as the
+artifact **`snapshots`** (14 days). Fetch it with `scripts/update-snapshots.sh --from-ci <run id>` and commit the
+result; see [Testing](testing.md#screenshot-baselines). The workflow never pushes anything itself.
+
+## Commit rules
+
+Every commit in a pull request must follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>[(scope)][!]: <subject>
+```
+
+* `type`: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci` or `chore`;
+* `scope`: optional, lowercase letters, digits and `._/-`, e.g. `feat(lending): …`;
+* `!` marks a breaking change;
+* the whole subject line is at most **72 characters**;
+* subjects starting with `Merge `, `Revert `, `fixup! ` or `squash! ` are skipped, and merge commits are not checked.
+
+Check locally before pushing:
+
+```bash
+scripts/check-commits.sh origin/main
+scripts/check-commits.sh --message "feat(stock): add low-stock alerts"
+```
+
+## Keeping CI green
+
+* Each commit should pass lint and tests on its own.
+* Fix a red build with a new commit; don't rewrite pushed history.
+* A failing screenshot assertion after an intended UI change means the baselines need updating (label
+  `update-snapshots`), not a looser threshold.

@@ -10,7 +10,7 @@ Requirements: PHP 8.2+ (8.3 is what CI and the Docker image use) with `pdo_sqlit
 `zbar-tools` (QR round-trip tests; skipped when missing). PHPUnit needs `composer install`.
 
 ```bash
-tests/run.sh          # lint (php -l, node --check, shellcheck) + integration tests
+tests/run.sh          # lint (php -l, node --check, Markdown links, shellcheck) + integration tests
 scripts/lint.sh       # lint only
 php tests/integration.php   # integration tests only
 ```
