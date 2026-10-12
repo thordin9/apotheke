@@ -25,12 +25,22 @@ test.describe('labels, export, backup', () => {
     await app.noOverflow();
   });
 
-  test('CSV export downloads the full catalog @smoke', async ({ app, page }) => {
+  test('CSV export downloads the full catalog @smoke', async ({ app, page, browserName }) => {
     await app.go('/');
     await app.menu();
-    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#menu a[href="/export.csv"]').click()]);
-    expect(dl.suggestedFilename()).toBe('apotheke-2026-06-15.csv');
-    const csv = fs.readFileSync(await dl.path(), 'utf8').replace(/^\uFEFF/, '');
+    const link = page.locator('#menu a[href="/export.csv"]');
+    let csv: string;
+    if (browserName === 'webkit') {
+      // Playwright's Linux WebKit doesn't emit "download" for text/* attachments; check the same response directly.
+      await expect(link).toBeVisible();
+      const r = await page.request.get(await link.getAttribute('href') as string);
+      expect(r.headers()['content-disposition']).toBe('attachment; filename="apotheke-2026-06-15.csv"');
+      csv = (await r.text()).replace(/^\uFEFF/, '');
+    } else {
+      const [dl] = await Promise.all([page.waitForEvent('download'), link.click()]);
+      expect(dl.suggestedFilename()).toBe('apotheke-2026-06-15.csv');
+      csv = fs.readFileSync(await dl.path(), 'utf8').replace(/^\uFEFF/, '');
+    }
     const lines = csv.trim().split('\n');
     expect(lines[0]).toBe('id,name,location,category,quantity,notes,image,created_at,updated_at,tags,value,currency,purchase_date,serial');
     expect(lines).toHaveLength(9);

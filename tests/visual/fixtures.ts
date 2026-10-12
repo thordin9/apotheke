@@ -104,12 +104,15 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     await use();
   }, { auto: true }],
   /** Console errors and uncaught page errors fail the test. */
-  errors: [async ({ page }, use) => {
+  errors: [async ({ page, browserName }, use) => {
     const errors: string[] = [];
     page.on('pageerror', e => errors.push('pageerror: ' + e.message));
     page.on('console', m => {
       if (m.type() !== 'error') return;
       if (/status of (401|404|410|419|422)/.test(m.text())) return;   // intentional error pages
+      // WebKit-internal: its UA shadow-root styles for <select>/<details> trip a CSP report under style-src 'self'
+      // (no inline styles exist in the app; Chromium is checked without this exemption).
+      if (browserName === 'webkit' && /^Refused to apply a stylesheet because its hash/.test(m.text())) return;
       errors.push('console: ' + m.text());
     });
     await use(errors);

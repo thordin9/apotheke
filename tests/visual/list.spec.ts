@@ -63,7 +63,11 @@ test.describe('list, overview and search', () => {
     // tap a category chip on a card
     await page.locator('#achips a[data-clear="all"]').click();
     await expect(page.locator('#grid .card')).toHaveCount(8);
-    await page.locator('.card[data-id="3"] .chip-category').click();
+    await expect(page).not.toHaveURL(/loc=/);
+    const chip = page.locator('.card[data-id="3"] .chip-category');
+    // instant scroll: html{scroll-behavior:smooth} makes WebKit tap while still scrolling
+    await chip.evaluate(e => e.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await chip.click();
     await expect(page.locator('#grid .card')).toHaveCount(2);
     await expect(page.locator('#cat')).toHaveValue('3');
   });
