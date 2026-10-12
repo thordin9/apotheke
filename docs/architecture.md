@@ -71,6 +71,7 @@ Important routes:
 | `POST /item/N/delete` | delete |
 | `/locations…`, `/categories…` | manage lists (add, rename, default, delete with move); `POST /locations/N/parent` moves a location in the tree |
 | `GET /labels`, `GET /item/N/label` | printable QR labels |
+| `GET /barcode`, `GET /barcode/{code}` | barcode lookup page; redirect to the item, the matches (`/?q=`), or `/new?barcode=` |
 | `GET /filters`, `POST /filters`, `POST /filters/N/rename`, `POST /filters/N/delete` | saved filters (manage page, save the current list view, rename, delete) |
 | `GET /activity` | history (all items, or `?item=N`) |
 | `GET /backup`, `GET /backup.zip`, `POST /backup/restore`, `POST /backup/restore/confirm` | backup and restore |

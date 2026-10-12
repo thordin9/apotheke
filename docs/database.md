@@ -44,6 +44,7 @@ erDiagram
     bigint value_cents "nullable: purchase price in cents (indexed, 0010)"
     text purchase_date "nullable, Y-m-d"
     text serial
+    text barcode "nullable, indexed (not unique)"
     text lent_to "nullable"
     text lent_at "nullable, Y-m-d"
     text lent_due "nullable, Y-m-d"
@@ -136,6 +137,7 @@ Notes:
 | 0009 | `0009_expiry.php` | `items.expires_on` + index |
 | 0010 | `0010_value_index.php` | index on `items.value_cents` (sort by value, totals) |
 | 0011 | `0011_saved_filters.php` | `saved_filters` (named list views) |
+| 0012 | `0012_barcode.php` | `items.barcode` + index |
 
 ## How migrations run
 

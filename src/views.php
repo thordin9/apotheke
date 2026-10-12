@@ -332,6 +332,7 @@ function menu_html(): string
     $o .= '</div></form>'
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
+        . '<a class="menu-item" href="/barcode" role="menuitem">' . icon('search') . ' Find by barcode</a>'
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
@@ -667,7 +668,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
   </ul>
   <?php endif; ?>
-  <?php $facts = array_filter(['Price' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php $facts = array_filter(['Price' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? ''), 'Barcode' => (string)($it['barcode'] ?? '')], fn($v) => $v !== ''); ?>
   <?php if ($facts): ?>
   <dl class="facts" id="facts">
     <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?><?= $k === 'Expires' ? ' ' . expiry_badge_html($it) : '' ?></dd></div><?php endforeach; ?>
@@ -823,8 +824,8 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       <input type="text" name="tags" id="tags" value="<?= h($vals['tags'] ?? '') ?>" maxlength="2000" autocomplete="off" autocapitalize="none" list="tag-list" placeholder="e.g. garage, warranty">
     </label>
     <datalist id="tag-list"><?php foreach (tags_all() as $t): ?><option value="<?= h($t['name']) ?>"></option><?php endforeach; ?></datalist>
-    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['expires_on'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
-      <summary>Price, dates &amp; serial</summary>
+    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['expires_on'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' || ($vals['barcode'] ?? '') !== '' ? ' open' : '' ?>>
+      <summary>Price, dates, serial &amp; barcode</summary>
       <div class="more-grid">
         <label class="field">
           <span>Purchase price <em><?= h(cfg()['currency']) ?></em></span>
@@ -842,6 +843,13 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
           <span>Serial number</span>
           <input type="text" name="serial" id="serial" value="<?= h($vals['serial'] ?? '') ?>" maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false">
         </label>
+        <div class="field">
+          <label class="field-l" for="barcode">Barcode</label>
+          <div class="scanrow">
+            <input type="text" name="barcode" id="barcode" value="<?= h($vals['barcode'] ?? '') ?>" maxlength="<?= BARCODE_MAX ?>" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done">
+            <button type="button" class="btn" data-scan="#barcode" hidden><?= icon('qr') ?> Scan</button>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -857,6 +865,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
 </main>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <?php
+    echo scan_dialog_html();
     page_end();
 }
 
@@ -973,6 +982,45 @@ function parent_options(array $list, ?int $self, ?int $cur): string
         $o .= '<option value="' . $l['id'] . '"' . ($cur === $l['id'] ? ' selected' : '') . '>' . h(tax_option_label($l)) . '</option>';
     }
     return $o;
+}
+
+/** Barcode lookup: type (or scan, where the browser supports it) a code and go to its item or a prefilled new item. */
+function view_barcode(): void
+{
+    page_start('Barcode', 'page-barcode');
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Find by barcode</h1>
+    <?= menu_html() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <form method="get" action="/barcode" class="barcode-form" id="barcode-form">
+    <div class="field">
+      <label class="field-l" for="code">Barcode</label>
+      <div class="scanrow">
+        <input type="text" name="code" id="code" required maxlength="<?= BARCODE_MAX ?>" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" placeholder="e.g. 4006381333931">
+        <button type="button" class="btn" data-scan="#code" data-scan-submit hidden><?= icon('qr') ?> Scan</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-wide" id="code-go"><?= icon('search') ?> Look up</button>
+  </form>
+  <p class="hint" id="scan-hint">Type the digits under the barcode. If one item has this barcode it opens; if none does, a new item is started with the code filled in.</p>
+</main>
+<?= scan_dialog_html() ?>
+<?php
+    page_end();
+}
+
+/** The camera dialog used by the Scan buttons (only shown where BarcodeDetector exists). */
+function scan_dialog_html(): string
+{
+    return '<dialog class="scan" id="scan-dialog" aria-label="Scan a barcode">'
+        . '<video id="scan-video" playsinline muted></video>'
+        . '<p class="scan-msg" id="scan-msg">Point the camera at a barcode</p>'
+        . '<button type="button" class="btn btn-wide" id="scan-cancel">Cancel – type it instead</button></dialog>';
 }
 
 /** Chips for the saved filters on the list page; the one matching the current view is highlighted. */
@@ -1140,7 +1188,7 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
-const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Purchase price', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Purchase price', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'barcode' => 'Barcode', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
 /** One activity entry as HTML (already escaped). */
 function activity_html(array $e): string

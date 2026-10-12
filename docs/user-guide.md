@@ -140,6 +140,21 @@ flowchart LR
   d -- later --> n
 ```
 
+### Barcodes
+
+Under *Price, dates, serial & barcode* each item can have a **barcode** (the digits under an EAN/UPC barcode, or the
+text of a QR code). Several items may share one, for example two packs of the same batteries.
+
+* **Search** matches barcodes, also partly (`333931` finds `4006381333931`).
+* **☰ → Find by barcode** opens `/barcode`: type the code and tap *Look up*. If one item has it, it opens; if several do,
+  the list shows them; if none does, the *Add item* form opens with the barcode already filled in.
+* **Scan**: where the browser supports the `BarcodeDetector` API (Chrome on Android, Chrome/Edge on macOS) a *Scan* button
+  appears next to the barcode fields and uses the rear camera; the app asks for camera permission the first time. On
+  browsers without it (Safari on iPhone, Firefox) the button is hidden and you type the code instead.
+* Links like `https://your-host/barcode/4006381333931` can be printed or used from another scanner app.
+
+The barcode is part of the CSV export (`barcode` column), backups and the item's history.
+
 ## Locations and categories
 
 Locations ("box 1023", "Garage shelf") and categories ("Tools") are managed lists (☰ → *Locations* / *Categories*,
@@ -253,7 +268,7 @@ Entries of deleted items are kept.
 
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,
-serial, min_qty, lent_to, lent_at, lent_due, expires_on`.
+serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 

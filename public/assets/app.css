@@ -122,7 +122,7 @@ select{appearance:none;-webkit-appearance:none;height:40px;border:0;border-radiu
 .file{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-size:0}
 .photo-status{position:absolute;top:10px;left:10px;background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:4px 10px;border-radius:999px}
 .field{display:grid;gap:6px}
-.field>span{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-left:2px}
+.field>span,.field>.field-l{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding-left:2px}
 .field em{font-style:normal;text-transform:none;letter-spacing:0;font-weight:400;opacity:.8}
 .field input,.field textarea{width:100%;border:1px solid var(--line);background:var(--surface);border-radius:var(--radius-sm);padding:12px 14px;font-size:17px;outline:none;min-height:50px;
   transition:box-shadow .15s,border-color .15s}
@@ -272,7 +272,7 @@ select{font-size:16px;height:48px;color:var(--text)}
 .menu[open]>summary{background:var(--surface-2)}
 .menu[open]>summary::before,.fsheet[open]>summary::before{content:"";position:fixed;inset:0;z-index:30;cursor:default;background:transparent}
 .menu-panel{position:absolute;right:0;top:calc(100% + 8px);z-index:31;width:min(300px,calc(100vw - 24px));background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-lg);
-  border:1px solid var(--line);padding:var(--s2);display:grid;gap:2px;animation:pop .16s ease-out}
+  border:1px solid var(--line);padding:var(--s2);display:grid;gap:2px;max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px);overflow-y:auto;overscroll-behavior:contain;animation:pop .16s ease-out}
 .menu-panel form{margin:0}
 .menu-label{margin:var(--s1) var(--s2) var(--s2);font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .menu-item{display:flex;align-items:center;gap:var(--s3);width:100%;min-height:48px;padding:0 var(--s3);border-radius:var(--radius-sm);border:0;background:none;cursor:pointer;font-size:16px;font-weight:500;color:var(--text);text-align:left}
@@ -363,7 +363,7 @@ body>.actionbar{position:fixed;left:0;right:0;margin:0;padding-left:calc(var(--s
 
 /* forms */
 .itemform{gap:var(--s5)}
-.field>span,.field-head{font-size:12.5px;letter-spacing:.05em}
+.field>span,.field>.field-l,.field-head{font-size:12.5px;letter-spacing:.05em}
 .check{min-height:44px;margin-top:-12px}
 .check .i{width:18px;height:18px}
 .locsel{height:52px}
@@ -641,3 +641,13 @@ a.tagchip{min-height:36px}
 .sf-main .sf-desc{white-space:normal;padding:0 0 6px}
 #sflist .loc-more{padding:0 14px 8px}
 
+/* barcode */
+.scanrow{display:flex;gap:8px}
+.scanrow input{flex:1;min-width:0;font-variant-numeric:tabular-nums}
+.scanrow .btn{flex:none;min-height:50px}
+.scanrow .btn[hidden]{display:none}
+.barcode-form{display:grid;gap:16px;margin-top:8px}
+dialog.scan{border:0;border-radius:var(--radius);padding:12px;background:var(--surface);color:var(--text);width:min(92vw,480px);max-width:92vw}
+dialog.scan::backdrop{background:rgba(0,0,0,.6)}
+dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--radius-sm);background:#000}
+.scan-msg{text-align:center;color:var(--muted);margin:10px 0}

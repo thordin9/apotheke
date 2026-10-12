@@ -82,6 +82,11 @@ it works fully offline on your LAN.
   default EUR) and purchase date per item. The overview's *Value* card shows the total purchase price and the
   totals per location (rolled up to top-level locations) and per category; *Sort by → Value* lists the most valuable
   items first (items without a price last). Prices are in the CSV export (`value`, `currency`) and backups.
+* **Barcodes**: an optional *Barcode* per item (EAN/UPC or any scanned text; indexed, not strictly unique). Search
+  finds items by (part of) their barcode, and ☰ → *Find by barcode* (`/barcode`) looks a code up: `/barcode/{code}`
+  opens the item with that code, lists the matches if several share it, or starts a new item with the code filled in.
+  Where the browser has the `BarcodeDetector` API (e.g. Chrome on Android) a **Scan** button uses the camera; elsewhere
+  (iPhone Safari, desktop Firefox) you type the code. No external libraries. The barcode is in the CSV, backups and history.
 * **Saved filters**: save the current search + filters + sort under a name (★ *Save filter*); saved filters appear as
   chips above the list to re-apply in one tap, and `/filters` renames or deletes them. Included in backups.
 * **Expiry and warranty dates**: an optional *Expires / warranty until* date per item (food, medicine, batteries,
@@ -97,7 +102,7 @@ it works fully offline on your LAN.
   quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
   photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
   is not copied. The copy's history starts with "Created … copied from “Name”".
-* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`,
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
   Empty means no login, fine on a trusted LAN.
@@ -282,7 +287,7 @@ On first start after an update the database is upgraded automatically (or run `p
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
 * Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending),
   `0008` (parent location) and `0009` (expiry date) only add tables/columns;
-  `0010` only adds an index on the purchase price and `0011` adds the `saved_filters` table.
+  `0010` only adds an index on the purchase price `0011` adds the `saved_filters` table and `0012` the barcode column.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use

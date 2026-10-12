@@ -119,7 +119,7 @@ try {
             return ctype_digit($v) && tax_get($kind, (int)$v) ? (int)$v : tax_default_id($kind);
         };
         $vals = ['name' => '', 'location_id' => $pick('location'), 'new_location' => '', 'category_id' => $pick('category'), 'new_category' => '',
-                 'quantity' => 1, 'min_qty' => '', 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'expires_on' => '', 'serial' => ''];
+                 'quantity' => 1, 'min_qty' => '', 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'expires_on' => '', 'serial' => '', 'barcode' => barcode_clean((string)($_GET['barcode'] ?? ''))];
         $toast = isset($_GET['saved']) && ($s = item_get((int)$_GET['saved'])) ? 'Saved “' . $s['name'] . '”' : null;
         view_form(null, $vals, locations(), categories(), null, $toast);
         exit;
@@ -155,6 +155,7 @@ try {
             'purchase_date' => clean_line((string)($_POST['purchase_date'] ?? ''), 10),
             'expires_on' => clean_line((string)($_POST['expires_on'] ?? ''), 10),
             'serial'   => clean_line((string)($_POST['serial'] ?? ''), 100),
+            'barcode'  => barcode_clean((string)($_POST['barcode'] ?? '')),
             'min_qty'  => clean_line((string)($_POST['min_qty'] ?? ''), 12),
         ];
         $raw = [];
@@ -167,7 +168,7 @@ try {
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
             $fields = ['tags' => tags_parse($vals['tags']), 'value_cents' => parse_money($vals['value']),
-                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'expires_on' => parse_expiry_date($vals['expires_on']), 'serial' => $vals['serial'], 'min_qty' => parse_min_qty($vals['min_qty'])];
+                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'expires_on' => parse_expiry_date($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => parse_min_qty($vals['min_qty'])];
             foreach (KINDS as $kind) {
                 $t = tax($kind);
                 if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') throw new UserError('Type a name for the new ' . $t['one'] . '.');
@@ -297,6 +298,20 @@ try {
         $it = item_get((int)$m[1]);
         if ($it) item_delete($it);
         redirect('/?deleted=1');
+    }
+
+    /* ---- barcodes ---- */
+    if ($path === '/barcode' && $method === 'GET') {
+        if (isset($_GET['code']) && is_string($_GET['code']) && barcode_clean($_GET['code']) !== '') {
+            redirect('/barcode/' . rawurlencode(barcode_clean($_GET['code'])));
+        }
+        header('Cache-Control: no-store');
+        view_barcode();
+        exit;
+    }
+    if (str_starts_with($path, '/barcode/') && $method === 'GET') {   // $path is already URL-decoded; codes may contain "/"
+        header('Cache-Control: no-store');
+        redirect(barcode_target(substr($path, strlen('/barcode/'))));
     }
 
     /* ---- saved filters ---- */
@@ -559,10 +574,10 @@ try {
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty', 'lent_to', 'lent_at', 'lent_due', 'expires_on'], ',', '"', '\\');
+        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty', 'lent_to', 'lent_at', 'lent_due', 'expires_on', 'barcode'], ',', '"', '\\');
         $tagMap = [];
         foreach (db()->query('SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id ORDER BY t.sort_key, t.id') as $t) $tagMap[(int)$t['item_id']][] = $t['name'];
-        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial, i.min_qty, i.lent_to, i.lent_at, i.lent_due, i.expires_on
+        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial, i.min_qty, i.lent_to, i.lent_at, i.lent_due, i.expires_on, i.barcode
                               " . ITEM_FROM . "
                               ORDER BY CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key, CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key, i.sort_key, i.id") as $r) {
             $v = $r['value_cents'];
@@ -571,7 +586,7 @@ try {
                  'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : cfg()['currency'],
                  'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial'],
                  'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty'],
-                 'lent_to' => (string)$r['lent_to'], 'lent_at' => (string)$r['lent_at'], 'lent_due' => (string)$r['lent_due'], 'expires_on' => (string)$r['expires_on']];
+                 'lent_to' => (string)$r['lent_to'], 'lent_at' => (string)$r['lent_at'], 'lent_due' => (string)$r['lent_due'], 'expires_on' => (string)$r['expires_on'], 'barcode' => (string)$r['barcode']];
             fputcsv($out, array_values($r), ',', '"', '\\');
         }
         exit;

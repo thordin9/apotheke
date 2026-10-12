@@ -562,4 +562,48 @@
     const close = $('#bulk-close'); if (close) close.addEventListener('click', () => { $('#bulksheet').open = false; });
     sync();
   }
+  /* ---------- barcode scanning (BarcodeDetector where available; otherwise the field is typed) ---------- */
+  const scanBtns = $$('button[data-scan]'), dlg = $('#scan-dialog');
+  if (scanBtns.length && dlg && 'BarcodeDetector' in window && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof dlg.showModal === 'function') {
+    const video = $('#scan-video'), msg = $('#scan-msg');
+    let stream = null, timer = 0, detector = null;
+    const stop = () => {
+      clearTimeout(timer); timer = 0;
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null; video.srcObject = null;
+      if (dlg.open) dlg.close();
+    };
+    async function scan(btn) {
+      const field = $(btn.dataset.scan);
+      try {
+        if (!detector) detector = new window.BarcodeDetector();
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      } catch {
+        stop(); toast('Camera not available – type the barcode instead', true); field.focus(); return;
+      }
+      msg.textContent = 'Point the camera at a barcode';
+      dlg.showModal();
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+      const tick = async () => {
+        if (!stream) return;
+        try {
+          const codes = await detector.detect(video);
+          const code = codes.length ? String(codes[0].rawValue || '').replace(/\s+/g, '') : '';
+          if (code) {
+            stop();
+            field.value = code;
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            if (btn.hasAttribute('data-scan-submit') && field.form) field.form.requestSubmit(); else field.focus();
+            return;
+          }
+        } catch { /* frame not ready yet */ }
+        timer = setTimeout(tick, 200);
+      };
+      tick();
+    }
+    scanBtns.forEach(b => { b.hidden = false; b.addEventListener('click', () => scan(b)); });
+    $('#scan-cancel').addEventListener('click', () => { const f = $(scanBtns[0].dataset.scan); stop(); f.focus(); });
+    dlg.addEventListener('close', stop);
+  }
 })();
