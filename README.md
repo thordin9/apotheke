@@ -11,12 +11,23 @@ iPhone, name the item, pick where it lives ("box 1023") and what it is ("Tools")
 anything again with instant search.
 
 * Plain PHP 8 + SQLite + GD. No framework, no Composer, no build step, no CDNs: works fully offline on your LAN.
-* Mobile-first UI with light/dark mode, big tap targets, safe-area support and "Add to Home Screen".
+* Mobile-first UI: every function works one-handed on a phone. 44 px+ tap targets, a bottom sheet for filters and sorting with removable filter chips, sticky Save/Edit bars within thumb reach, large +/- quantity controls, safe-area support and "Add to Home Screen".
+* **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. Your choice is saved (cookie + localStorage) and rendered by the server, so pages never flash the wrong theme. Auto follows your phone's setting.
 * Photos are resized in the browser before upload (max 1600 px, JPEG ~80%), so a 4 MB iPhone photo becomes about 150–300 KB and uploads instantly. The server checks and re-encodes every image with GD (which also strips EXIF/GPS data) and makes a 480 px thumbnail for the grid.
 * Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
 * **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
 
 * An **Overview** panel at the top of the list shows totals (items, total quantity, locations, categories, added this week/month), a chart of items added (30 days by day, or 12 months by month), and the top 5 locations and top 5 categories as bars. Tap a bar to filter the list. It is collapsible, and your choice is remembered. While collapsed, the charts are neither computed nor downloaded; they load the first time you open the panel.
+
+## Screenshots
+
+| List & overview | Filter sheet | Menu & theme | Dark mode |
+|---|---|---|---|
+| ![List](docs/screenshots/list-light.png) | ![Filter sheet](docs/screenshots/filters-light.png) | ![Menu](docs/screenshots/menu-light.png) | ![Dark list](docs/screenshots/list-dark.png) |
+
+| Add item | Item (dark) | Manage (dark) | Desktop |
+|---|---|---|---|
+| ![New item](docs/screenshots/new-light.png) | ![Item](docs/screenshots/item-dark.png) | ![Manage](docs/screenshots/manage-dark.png) | ![Desktop](docs/screenshots/desktop-light.png) |
 
 ## Locations & categories
 
@@ -24,7 +35,7 @@ Locations and categories behave identically:
 
 
 * **In the item form:** pick a location and a category from the two dropdowns. To add one without leaving the form, tap the **＋** next to it (or choose "＋ New location…" / "＋ New category…"), type the name and tap **Add**. If you type a name and just tap Save, it is created as well. Names are unique regardless of case or accents ("Box 5" = "box 5").
-* **Save & add another here** keeps both the location and the category you chose, which is handy when you're emptying one box.
+* **Save & new** keeps both the location and the category you chose, which is handy when you're emptying one box.
 * **Manage page** (the sliders icon in the header, a "Manage" link in the form, or the footer links): it has two tabs, **Locations** and **Categories**. Each shows every entry with its item count, and you can add, rename (tap *Edit*), and delete. Tap the ★ to make an entry the default, and tap it again to clear it. There is at most one default per tab, and it is preselected on new items.
 * **Deleting an entry that still has items** opens a confirmation page where you choose to **move the items to another location/category** or **leave them unassigned**. Items are never deleted along with a location or category.
 
@@ -91,12 +102,17 @@ Replace the app files (keep `data/`), then `docker compose up -d --build`.
 ## Tests
 
 ```bash
-tests/run.sh            # PHP + JS syntax check, then the integration tests
-php tests/integration.php   # integration tests only
+tests/run.sh   # lint (php -l, node --check, shellcheck) + integration tests (no Composer)
 ```
 
-The tests start the app with PHP's built-in server on a throwaway data directory, so they never touch `data/`.
-Set `KEEP_TEST_DATA=1` to keep the temp directories for inspection.
+Optional headless mobile checks (filter sheet, theme switch, overflow at 375 and 390 px wide) need Node and Chrome:
+
+```bash
+npm ci --prefix tests/e2e
+php -S 127.0.0.1:8080 -t public public/index.php &   # with DATA_DIR pointing at a scratch dir
+php tests/e2e/seed.php http://127.0.0.1:8080
+node tests/e2e/mobile.mjs http://127.0.0.1:8080
+```
 
 ## Run without Docker (development)
 
