@@ -437,7 +437,7 @@ body:has(#empty:not([hidden])) .fab{display:none}
 .pm img{display:block;width:100%;aspect-ratio:1;object-fit:cover}
 .pm.is-cover{outline:2px solid var(--accent);outline-offset:-2px}
 .pm-badge{position:absolute;top:6px;left:6px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em}
-.pm-btns{display:grid;grid-template-columns:repeat(4,1fr)}
+.pm-btns{display:grid;grid-template-columns:repeat(auto-fit,minmax(44px,1fr))}
 .pm-btns form{margin:0;display:grid}
 .pbtn{min-height:44px;border:0;background:none;color:var(--accent);display:grid;place-items:center;cursor:pointer}
 .pbtn[disabled]{opacity:.3;cursor:default}
@@ -454,8 +454,8 @@ body:has(#empty:not([hidden])) .fab{display:none}
 a.tagchip{min-height:36px}
 .tagbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;min-height:48px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:text}
 .tagbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
-.tagbox input{flex:1 1 120px;min-width:100px;min-height:36px;border:0;outline:0;background:none;color:inherit;font:inherit;padding:0 4px}
-.tagchip-x{cursor:pointer;min-height:36px;font:inherit;font-size:14px;font-weight:600}
+.tagbox input{flex:1 1 120px;min-width:100px;min-height:44px;border:0;outline:0;background:none;color:inherit;font:inherit;padding:0 4px}
+.tagchip-x{cursor:pointer;min-height:44px;font:inherit;font-size:14px;font-weight:600}
 .tagchip-x::after{content:"×";margin-left:6px;color:var(--muted);font-weight:700}
 .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:0 0 var(--s4)}
 .facts div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px}

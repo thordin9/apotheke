@@ -215,7 +215,7 @@ function parse_date_ymd(string $s): ?string
     if ($s === '') return null;
     $d = DateTimeImmutable::createFromFormat('!Y-m-d', $s);
     if (!$d || $d->format('Y-m-d') !== $s || $s < '1900-01-01') throw new UserError('Purchase date must be a valid date (YYYY-MM-DD).');
-    if ($s > date('Y-m-d', time() + 86400)) throw new UserError('Purchase date cannot be in the future.');
+    if ($s > date('Y-m-d', app_time() + 86400)) throw new UserError('Purchase date cannot be in the future.');
     return $s;
 }
 
@@ -666,7 +666,7 @@ function serve_image(string $kind, string $name): never
 /** UTC 'Y-m-d H:i:s' for a local-time expression like 'monday this week' / 'first day of this month'. */
 function local_boundary_utc(string $expr): string
 {
-    $d = new DateTimeImmutable($expr, new DateTimeZone(date_default_timezone_get()));
+    $d = app_now()->modify($expr);
     return $d->setTime(0, 0)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
 }
 
@@ -698,10 +698,10 @@ function stats_added_series(string $unit): array
     [$expr, $mod] = db_local_bucket(db_driver(), 'created_at', $unit === 'day' ? 'day' : 'month', $tz->getName());
     $sql = "SELECT $expr AS k, COUNT(*) AS n FROM items WHERE created_at >= ? GROUP BY 1";
     if ($unit === 'day') {
-        $start = (new DateTimeImmutable('today', $tz))->modify('-29 days');
+        $start = app_now($tz)->setTime(0, 0)->modify('-29 days');
         $step = '+1 day'; $fmtKey = 'Y-m-d'; $count = 30;
     } else {
-        $start = (new DateTimeImmutable('first day of this month', $tz))->setTime(0, 0)->modify('-11 months');
+        $start = app_now($tz)->modify('first day of this month')->setTime(0, 0)->modify('-11 months');
         $step = '+1 month'; $fmtKey = 'Y-m'; $count = 12;
     }
     $st = db()->prepare($sql);

@@ -1,0 +1,55 @@
+name: Update visual snapshots
+
+# Renders the Playwright baselines in the same container as the CI "e2e" job and uploads them as the
+# "snapshots" artifact. Trigger it by adding the label "update-snapshots" to a PR (or manually once this
+# file is on main), then fetch the files with:  scripts/update-snapshots.sh --from-ci <run id>
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  update-snapshots:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'update-snapshots'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble
+      options: --ipc=host
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: apotheke
+          POSTGRES_PASSWORD: apotheke
+          POSTGRES_DB: apotheke
+        options: >-
+          --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: '1'
+      HOME: /root
+      TEST_PG_HOST: postgres
+      TEST_PG_PASSWORD: apotheke
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/e2e-container-setup.sh
+      - run: npm ci --no-audit --no-fund
+      - name: Render baselines
+        run: npx playwright test --update-snapshots --retries=0 --workers=3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snapshots
+          path: tests/visual/__screenshots__/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-update
+          path: |
+            tests/visual/report/
+            tests/visual/results/

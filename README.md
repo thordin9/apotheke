@@ -92,8 +92,8 @@ it works fully offline on your LAN.
 * SQLite (built in) or PostgreSQL (tested with 17).
 * No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
 
-**Development only:** Composer + PHPUnit 11 (`composer install`), Node 20+ for the JS syntax check and the headless mobile
-checks, `shellcheck` for the shell lint, optionally `zbar-tools` (QR round-trip tests).
+**Development only:** Composer + PHPUnit 11 (`composer install`), Node 20+ for the JS syntax check, the headless mobile
+checks and Playwright (`npm ci`), `shellcheck` for the shell lint, optionally `zbar-tools` (QR round-trip tests).
 
 ## Install with Docker
 
@@ -260,6 +260,28 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 
 `scripts/smoke.sh http://127.0.0.1:8080` smoke-tests any running instance (e.g. the Docker container).
 
+### Visual end-to-end tests (Playwright)
+
+`tests/visual/` drives the real app with [Playwright](https://playwright.dev) on WebKit (iPhone 13, iPhone SE), Chromium
+(Pixel 7) and desktop Chromium, in light and dark mode: every feature end to end (add/edit/delete, photos, tags and
+custom fields, stats, search, filter sheet, manage lists, QR labels, CSV, backup/restore, history, login, error pages),
+plus checks for console errors, horizontal overflow and 44 px tap targets, and `toHaveScreenshot` baselines of the key
+screens. Each test gets a fresh, deterministic catalogue (`tests/visual/seed.php`) on `php -S` with the server clock
+frozen via `APOTHEKE_CLOCK`; a `@smoke` subset also runs against PostgreSQL. Needs Node 20+ and PHP:
+
+```bash
+npm ci
+npx playwright install --with-deps chromium webkit
+npm run test:e2e                      # whole suite
+TEST_PG_HOST=127.0.0.1 npm run test:e2e:smoke-pg
+npm run test:e2e:report               # open the HTML report
+```
+
+Screenshot baselines (`tests/visual/__screenshots__/`) are only rendered in the official
+`mcr.microsoft.com/playwright:v<version>-noble` image, the same one CI uses, so screenshot assertions fail on other
+machines by design. To update them run `npm run test:e2e:update` (Docker), or add the `update-snapshots` label to a PR
+and fetch the result with `scripts/update-snapshots.sh --from-ci <run id>`. Details in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## CI
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every pull request and on pushes to `main`:
@@ -269,8 +291,11 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Lint | `scripts/lint.sh` (PHP, JS, shell) |
 | Tests | PHP 8.3 × SQLite / PostgreSQL 17 service: migrations + seeding via the CLI, PHPUnit with a coverage artifact |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
+| Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
 | Docker build + smoke test | builds the image, runs `scripts/smoke.sh` against it on SQLite and on PostgreSQL |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
+
+A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
 
 ## Security notes
 
@@ -305,7 +330,9 @@ src/views.php                 HTML templates
 tests/run.sh, integration.php lint + HTTP integration suite (no Composer)
 tests/Unit/, Integration/     PHPUnit suites
 tests/e2e/                    headless mobile checks (puppeteer-core, dev only)
-scripts/                      lint.sh, smoke.sh, check-commits.sh
+tests/visual/                 Playwright visual E2E suite, fixtures, seed and screenshot baselines
+playwright.config.ts          Playwright projects (devices × colour schemes, pgsql-smoke)
+scripts/                      lint.sh, smoke.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
 ```
 
 ## Contributing

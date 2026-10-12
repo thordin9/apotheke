@@ -21,7 +21,7 @@ require dirname(__DIR__) . '/src/backup.php';
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 header('Referrer-Policy: same-origin');
-header("Content-Security-Policy: default-src 'self'; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'");
+header("Content-Security-Policy: default-src 'self'; connect-src 'self' blob:; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'");
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -365,7 +365,7 @@ try {
         try {
             backup_create(db(), db_driver(), DATA_DIR, $tmp);
             header('Content-Type: application/zip');
-            header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His') . '.zip"');
+            header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His', app_time()) . '.zip"');
             header('Content-Length: ' . filesize($tmp));
             header('Cache-Control: no-store');
             readfile($tmp);
@@ -430,7 +430,7 @@ try {
     /* ---- CSV export ---- */
     if ($path === '/export.csv' && $method === 'GET') {
         header('Content-Type: text/csv; charset=utf-8');
-        header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d') . '.csv"');
+        header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
         fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial'], ',', '"', '\\');

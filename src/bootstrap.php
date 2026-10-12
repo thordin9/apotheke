@@ -114,9 +114,28 @@ function h(?string $s): string
     return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/**
+ * Current time. APOTHEKE_CLOCK (e.g. "2026-06-15 10:00:00", UTC) freezes the clock – used by the
+ * visual E2E tests for deterministic screenshots; never set it in production.
+ */
+function app_time(): int
+{
+    static $fixed = null;
+    if ($fixed === null) {
+        $v = getenv('APOTHEKE_CLOCK');
+        $fixed = is_string($v) && $v !== '' && ($t = strtotime($v . ' UTC')) !== false ? $t : 0;
+    }
+    return $fixed ?: time();
+}
+
+function app_now(?DateTimeZone $tz = null): DateTimeImmutable
+{
+    return (new DateTimeImmutable('@' . app_time()))->setTimezone($tz ?? new DateTimeZone(date_default_timezone_get()));
+}
+
 function now_utc(): string
 {
-    return gmdate('Y-m-d H:i:s');
+    return gmdate('Y-m-d H:i:s', app_time());
 }
 
 function fmt_time(string $utc): string
