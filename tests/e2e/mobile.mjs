@@ -62,6 +62,31 @@ try {
     await p.emulateMediaType('print');
     ok(await p.$eval('header.top', h => getComputedStyle(h).display === 'none'), 'print stylesheet hides the header');
     await p.emulateMediaType(null);
+    // photos: add two from the library on an item without photos, then use the arrows
+    {
+      const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Hu5wAAAAAASUVORK5CYII=', 'base64');
+      const f1 = path.join(os.tmpdir(), 'e2e-a.png'), f2 = path.join(os.tmpdir(), 'e2e-b.png');
+      fs.writeFileSync(f1, png); fs.writeFileSync(f2, png);
+      await p.goto(base + '/new', { waitUntil: 'networkidle0' });
+      await p.type('input[name=name]', 'E2E gallery');
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.click('#save')]);
+      const link = await p.evaluate(() => [...document.querySelectorAll('a[href^="/item/"]')].find(a => a.textContent.includes('E2E gallery'))?.getAttribute('href'));
+      ok(!!link, 'new item listed');
+      await p.goto(base + link, { waitUntil: 'networkidle0' });
+      ok(!(await p.$('#gallery')) && !!(await p.$('#photoadd')), 'item without photos offers the add form');
+      await p.tap('#photos > summary'); await pause(200);
+      const inp = await p.$('#photoadd-lib');
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0', timeout: 15000 }), inp.uploadFile(f1, f2)]);
+      ok(await p.$eval('#gal-count', e => e.textContent.trim() === '2 / 2'), 'two photos uploaded, gallery opens on the last');
+      await p.tap('#gal-next'); await pause(200);
+      ok(await p.$eval('#gal-count', e => e.textContent.trim() === '1 / 2') && /\?p=0$/.test(p.url()), 'next arrow wraps to the first photo (no reload)');
+      ok(await p.$eval('#gal-prev', b => b.getBoundingClientRect().width >= 44), 'gallery arrows are 44px targets');
+      await p.tap('.thumbs a[data-i="1"]'); await pause(200);
+      ok(await p.$eval('#gal-count', e => e.textContent.trim() === '2 / 2'), 'thumbnail strip selects a photo');
+      ok(await p.$$eval('.pm', l => l.length) === 2 && await p.$eval('.pm.is-cover .pm-badge', e => !!e), 'photo manager lists photos with the cover badge');
+      ok(!(await overflow()), 'no horizontal overflow on the gallery page');
+    }
     // FEATURE-CHECKS
     ok(errors.length === 0, 'no JS errors' + (errors.length ? ': ' + errors.join('; ') : ''));
     await ctx.close();

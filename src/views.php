@@ -349,10 +349,13 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     page_end();
 }
 
-function view_item(array $it): void
+function view_item(array $it, array $photos = [], int $cur = 0): void
 {
     page_start($it['name'], 'page-item');
     $id = (int)$it['id'];
+    $n = count($photos);
+    $cur = $n ? min($cur, $n - 1) : 0;
+    $tok = h(csrf_token());
     ?>
 <header class="top top-simple">
   <div class="bar">
@@ -362,10 +365,24 @@ function view_item(array $it): void
   </div>
 </header>
 <main class="wrap narrow">
-  <?php if (valid_image_name($it['image'])): ?>
-  <a class="hero" href="/media/full/<?= h($it['image']) ?>" target="_blank" rel="noopener">
-    <img src="/media/full/<?= h($it['image']) ?>" alt="<?= h($it['name']) ?>" decoding="async">
-  </a>
+  <?php if ($n): $ph = $photos[$cur]; ?>
+  <div class="gallery" id="gallery" data-count="<?= $n ?>" data-index="<?= $cur ?>">
+    <a class="hero" id="hero" href="/media/full/<?= h($ph['file']) ?>" target="_blank" rel="noopener">
+      <img id="hero-img" src="/media/full/<?= h($ph['file']) ?>" alt="<?= h($it['name']) ?> – photo <?= $cur + 1 ?> of <?= $n ?>" decoding="async">
+    </a>
+    <?php if ($n > 1): ?>
+    <a class="gal-nav gal-prev" id="gal-prev" href="/item/<?= $id ?>?p=<?= ($cur - 1 + $n) % $n ?>" aria-label="Previous photo"><?= icon('back') ?></a>
+    <a class="gal-nav gal-next" id="gal-next" href="/item/<?= $id ?>?p=<?= ($cur + 1) % $n ?>" aria-label="Next photo"><?= icon('back') ?></a>
+    <span class="gal-count" id="gal-count" aria-live="polite"><?= $cur + 1 ?> / <?= $n ?></span>
+    <?php endif; ?>
+  </div>
+  <?php if ($n > 1): ?>
+  <nav class="thumbs" aria-label="Photos">
+    <?php foreach ($photos as $i => $p): ?>
+    <a href="/item/<?= $id ?>?p=<?= $i ?>" data-i="<?= $i ?>" data-full="/media/full/<?= h($p['file']) ?>"<?= $i === $cur ? ' aria-current="true"' : '' ?> aria-label="Photo <?= $i + 1 ?><?= $i === 0 ? ' (cover)' : '' ?>"><img src="/media/thumb/<?= h($p['file']) ?>" alt="" loading="lazy"></a>
+    <?php endforeach; ?>
+  </nav>
+  <?php endif; ?>
   <?php else: ?>
   <a class="hero hero-empty" href="/item/<?= $id ?>/edit"><?= icon('camera') ?><span>Add a photo</span></a>
   <?php endif; ?>
@@ -382,6 +399,34 @@ function view_item(array $it): void
   <?php if (trim($it['notes']) !== ''): ?>
   <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
   <?php endif; ?>
+  <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
+    <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= MAX_PHOTOS ?></span></summary>
+    <?php if ($n): ?>
+    <ul class="pm-list">
+      <?php foreach ($photos as $i => $p): $act = '/item/' . $id . '/photos/' . $p['id'] . '/'; ?>
+      <li class="pm<?= $i === 0 ? ' is-cover' : '' ?>">
+        <img src="/media/thumb/<?= h($p['file']) ?>" alt="Photo <?= $i + 1 ?>" loading="lazy">
+        <?php if ($i === 0): ?><span class="pm-badge">Cover</span><?php endif; ?>
+        <div class="pm-btns">
+          <form method="post" action="<?= $act ?>left"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Move photo <?= $i + 1 ?> left"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('back') ?></button></form>
+          <form method="post" action="<?= $act ?>cover"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Make photo <?= $i + 1 ?> the cover"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('star') ?></button></form>
+          <form method="post" action="<?= $act ?>right"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn pbtn-r" aria-label="Move photo <?= $i + 1 ?> right"<?= $i === $n - 1 ? ' disabled' : '' ?>><?= icon('back') ?></button></form>
+          <form method="post" action="<?= $act ?>delete" data-confirm="Delete this photo?"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn pbtn-del" aria-label="Delete photo <?= $i + 1 ?>"><?= icon('trash') ?></button></form>
+        </div>
+      </li>
+      <?php endforeach; ?>
+    </ul>
+    <?php endif; ?>
+    <?php if ($n < MAX_PHOTOS): ?>
+    <form method="post" action="/item/<?= $id ?>/photos" enctype="multipart/form-data" class="pm-add" id="photoadd">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <label class="btn"><input type="file" name="photos[]" accept="image/*" capture="environment" class="file" id="photoadd-cam"><?= icon('camera') ?> Take photo</label>
+      <label class="btn"><input type="file" name="photos[]" accept="image/*" multiple class="file" id="photoadd-lib"><?= icon('image') ?> Add from library</label>
+      <noscript><button class="btn btn-primary">Upload</button></noscript>
+      <p class="hint pm-status" id="photoadd-status" role="status" hidden></p>
+    </form>
+    <?php endif; ?>
+  </details>
   <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
 </main>

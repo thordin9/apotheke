@@ -14,6 +14,49 @@ final class RepositoryTest extends DatabaseTestCase
         return item_save(null, ['name' => $name, 'location_id' => $loc, 'category_id' => $cat, 'quantity' => $qty, 'notes' => $notes], null, false);
     }
 
+    private function photoName(int $n): string { return str_pad((string)$n, 32, '0', STR_PAD_LEFT) . '.jpg'; }
+
+    public function testPhotosCoverReorderDeleteKeepItemsImageInSync(): void
+    {
+        $id = item_save(null, ['name' => 'p', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $this->photoName(1), false);
+        $p2 = photo_add($id, $this->photoName(2));
+        $p3 = photo_add($id, $this->photoName(3));
+        $files = fn() => array_column(photos_for($id), 'file');
+        $this->assertSame([$this->photoName(1), $this->photoName(2), $this->photoName(3)], $files());
+        $this->assertSame($this->photoName(1), item_get($id)['image']);
+        $this->assertSame(0, photo_action($id, $p3, 'cover'));
+        $this->assertSame([$this->photoName(3), $this->photoName(1), $this->photoName(2)], $files());
+        $this->assertSame($this->photoName(3), item_get($id)['image']);
+        $this->assertSame(2, photo_action($id, $p2, 'right'), 'right at the end stays put');
+        $this->assertSame(1, photo_action($id, $p2, 'left'));
+        $this->assertSame(0, photo_action($id, $p2, 'left'));
+        $this->assertSame($this->photoName(2), item_get($id)['image']);
+        $this->assertSame([0, 1, 2], array_column(photos_for($id), 'position'));
+        $this->assertSame(-1, photo_action($id, $p2, 'delete'));
+        $this->assertSame([$this->photoName(3), $this->photoName(1)], $files());
+        $this->assertSame($this->photoName(3), item_get($id)['image']);
+        // edit with remove_image drops the cover; next photo is promoted
+        $it = item_get($id);
+        item_save($it, ['name' => 'p', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], null, true);
+        $this->assertSame([$this->photoName(1)], $files());
+        $this->assertSame($this->photoName(1), item_get($id)['image']);
+        // edit with a new image replaces the cover
+        item_save(item_get($id), ['name' => 'p', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $this->photoName(9), false);
+        $this->assertSame([$this->photoName(9)], $files());
+    }
+
+    public function testPhotoLimitAndUnknownPhoto(): void
+    {
+        $id = $this->item('many');
+        for ($i = 1; $i <= MAX_PHOTOS; $i++) photo_add($id, $this->photoName($i));
+        try { photo_add($id, $this->photoName(99)); $this->fail('limit'); } catch (UserError $e) { $this->assertStringContainsString('at most', $e->getMessage()); }
+        $other = $this->item('other');
+        $pid = photos_for($id)[0]['id'];
+        try { photo_action($other, $pid, 'cover'); $this->fail('foreign photo'); } catch (UserError $e) { $this->assertSame(404, $e->getCode()); }
+        item_delete(item_get($id));
+        $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM item_photos')->fetchColumn());
+    }
+
     public function testTaxonomyCreateIsCaseAndAccentInsensitive(): void
     {
         $a = tax_create('location', '  Κουτί   5 ');

@@ -17,6 +17,7 @@ anything again with instant search.
 * Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
 * **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
 
+* **Multiple photos per item** (up to 12): add from camera or library, reorder, pick a cover, browse with arrows.
 * **QR labels** for locations and items: print, stick on the box, scan to open the list.
 * An **Overview** panel at the top of the list shows totals (items, total quantity, locations, categories, added this week/month), a chart of items added (30 days by day, or 12 months by month), and the top 5 locations and top 5 categories as bars. Tap a bar to filter the list. It is collapsible, and your choice is remembered. While collapsed, the charts are neither computed nor downloaded; they load the first time you open the panel.
 
@@ -27,6 +28,14 @@ Each label opens that location's item list when you scan it with the iPhone came
 and every item page has a **QR label** button that links straight to the item. Codes are generated on the server in pure PHP
 (`src/qr.php`, no network, no libraries) as crisp SVG, and the page has a print stylesheet (3 labels per row on A4/Letter).
 Set `PUBLIC_URL` if the address printed on the labels should differ from the one you're using right now.
+
+## Photos
+
+Every item can have up to 12 photos. The first one is the **cover**, which the list shows. On the item page, use the ‹ › arrows,
+the thumbnail strip or the ← → keys to page through the gallery. All of these are plain links, so the gallery also works without JavaScript.
+Open **Photos** below the details to add more pictures (camera or library; they are shrunk on the phone before upload),
+move photos left or right, make one the cover (★) or delete it. If you upgrade from an older version, the single photo
+each item had becomes its cover (migration `0003`).
 
 ## Screenshots
 

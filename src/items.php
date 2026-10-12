@@ -192,29 +192,157 @@ function stats(): array
     return $r;
 }
 
-/** @param array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string} $in */
+/** Run $fn inside a transaction (joins an already open one). */
+function db_tx(callable $fn): mixed
+{
+    $pdo = db();
+    if ($pdo->inTransaction()) return $fn($pdo);
+    $pdo->beginTransaction();
+    try {
+        $r = $fn($pdo);
+        $pdo->commit();
+        return $r;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/**
+ * Create or update an item. $newImage (on edit) replaces the cover photo; $removeImage removes the cover
+ * (the next photo, if any, becomes the cover).
+ * @param array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string} $in
+ */
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
     $blob = search_blob($in['name'], $in['notes']);
-    if ($existing === null) {
-        return db_insert(db(), 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-            [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $newImage, $blob, natkey($in['name']), $now, $now]);
-    }
-    $image = $existing['image'];
-    if ($newImage !== null || $removeImage) {
-        image_delete($image);
-        $image = $newImage;
-    }
-    $st = db()->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, image=?, search=?, sort_key=?, updated_at=? WHERE id=?');
-    $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $image, $blob, natkey($in['name']), $now, $existing['id']]);
-    return (int)$existing['id'];
+    $drop = [];
+    $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
+        if ($existing === null) {
+            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $blob, natkey($in['name']), $now, $now]);
+            if ($newImage !== null) photo_insert($id, $newImage, true);
+            return $id;
+        }
+        $id = (int)$existing['id'];
+        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $blob, natkey($in['name']), $now, $id]);
+        if ($newImage !== null || $removeImage) {
+            $cover = photos_for($id)[0] ?? null;
+            if ($cover) { $pdo->prepare('DELETE FROM item_photos WHERE id = ?')->execute([$cover['id']]); $drop[] = $cover['file']; }
+            if ($newImage !== null) photo_insert($id, $newImage, true);
+            photos_renumber($id);
+        }
+        return $id;
+    });
+    foreach ($drop as $f) image_delete($f);   // files only after the commit
+    return $id;
 }
 
 function item_delete(array $item): void
 {
-    db()->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
-    image_delete($item['image']);
+    $files = array_column(photos_for((int)$item['id']), 'file');
+    db_tx(fn(PDO $pdo) => $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]));
+    foreach (array_unique(array_merge($files, [$item['image']])) as $f) image_delete($f);
+}
+
+/* ---------- photos (many per item; position 0 = cover, mirrored in items.image) ---------- */
+
+const MAX_PHOTOS = 12;
+
+/** @return array<int,array{id:int,file:string,position:int}> */
+function photos_for(int $itemId): array
+{
+    $st = db()->prepare('SELECT id, file, position FROM item_photos WHERE item_id = ? ORDER BY position, id');
+    $st->execute([$itemId]);
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'file' => (string)$r['file'], 'position' => (int)$r['position']], $st->fetchAll());
+}
+
+function photo_insert(int $itemId, string $file, bool $asCover = false): int
+{
+    $pdo = db();
+    $st = $pdo->prepare('SELECT COALESCE(MAX(position), -1) FROM item_photos WHERE item_id = ?');
+    $st->execute([$itemId]);
+    $pos = $asCover ? -1 : (int)$st->fetchColumn() + 1;
+    $pid = db_insert($pdo, 'INSERT INTO item_photos (item_id, file, position, created_at) VALUES (?,?,?,?)', [$itemId, $file, $pos, now_utc()]);
+    photos_renumber($itemId);
+    return $pid;
+}
+
+/** Positions 0..n-1 in current order (optionally with $order = photo ids) and sync the cover into items.image. */
+function photos_renumber(int $itemId, ?array $order = null): void
+{
+    $pdo = db();
+    $ids = $order ?? array_column(photos_for($itemId), 'id');
+    $up = $pdo->prepare('UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?');
+    foreach (array_values($ids) as $i => $pid) $up->execute([$i, $pid, $itemId]);
+    $cover = photos_for($itemId)[0]['file'] ?? null;
+    $pdo->prepare('UPDATE items SET image = ? WHERE id = ?')->execute([$cover, $itemId]);
+}
+
+/** Add an uploaded photo (already stored by image_store) to an item. */
+function photo_add(int $itemId, string $file): int
+{
+    return db_tx(function () use ($itemId, $file): int {
+        if (count(photos_for($itemId)) >= MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.');
+        $pid = photo_insert($itemId, $file);
+        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
+        return $pid;
+    });
+}
+
+function photo_find(int $itemId, int $photoId): array
+{
+    foreach (photos_for($itemId) as $i => $p) if ($p['id'] === $photoId) return $p + ['index' => $i];
+    throw new UserError('Photo not found.', 404);
+}
+
+/** $action: cover | left | right | delete. Returns the photo's new index (or -1 when deleted). */
+function photo_action(int $itemId, int $photoId, string $action): int
+{
+    $drop = null;
+    $r = db_tx(function () use ($itemId, $photoId, $action, &$drop): int {
+        $p = photo_find($itemId, $photoId);
+        $ids = array_column(photos_for($itemId), 'id');
+        $i = $p['index'];
+        switch ($action) {
+            case 'cover': array_splice($ids, $i, 1); array_unshift($ids, $photoId); $new = 0; break;
+            case 'left':  $new = max(0, $i - 1); [$ids[$i], $ids[$new]] = [$ids[$new], $ids[$i]]; break;
+            case 'right': $new = min(count($ids) - 1, $i + 1); [$ids[$i], $ids[$new]] = [$ids[$new], $ids[$i]]; break;
+            case 'delete':
+                db()->prepare('DELETE FROM item_photos WHERE id = ?')->execute([$photoId]);
+                array_splice($ids, $i, 1);
+                $drop = $p['file'];
+                $new = -1;
+                break;
+            default: throw new UserError('Unknown photo action.', 404);
+        }
+        photos_renumber($itemId, $ids);
+        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
+        return $new;
+    });
+    if ($drop !== null) image_delete($drop);
+    return $r;
+}
+
+/** All uploaded files from a multi-file field (photos[]) plus single fields. */
+function pick_uploads(array $fields): array
+{
+    $out = [];
+    foreach ($fields as $f) {
+        $file = $_FILES[$f] ?? null;
+        if (!is_array($file)) continue;
+        if (is_array($file['error'])) {
+            foreach ($file['error'] as $k => $err) {
+                if ($err === UPLOAD_ERR_NO_FILE) continue;
+                $out[] = ['name' => $file['name'][$k], 'type' => $file['type'][$k], 'tmp_name' => $file['tmp_name'][$k], 'error' => $err, 'size' => $file['size'][$k]];
+            }
+        } elseif ($file['error'] !== UPLOAD_ERR_NO_FILE) {
+            $out[] = $file;
+        }
+    }
+    return $out;
 }
 
 function item_adjust_qty(int $id, int $delta): ?int

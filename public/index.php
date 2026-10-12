@@ -125,7 +125,7 @@ try {
         if (!$it) { view_error(404, 'Item not found.'); exit; }
         header('Cache-Control: no-store');
         if (!empty($m[2])) view_form($it, $it + ['new_location' => '', 'new_category' => ''], locations(), categories(), null);
-        else view_item($it);
+        else view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)));
         exit;
     }
 
@@ -177,6 +177,33 @@ try {
             redirect('/new?' . http_build_query(array_filter($qs, fn($v) => $v !== null)));
         }
         redirect($existing ? '/item/' . $savedId : '/?saved=' . $savedId);
+    }
+
+    /* ---- photos: add / cover / reorder / delete ---- */
+    if (preg_match('#^/item/(\d+)/photos(?:/(\d+)/(cover|left|right|delete))?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $iid = (int)$m[1];
+        if (!item_get($iid)) throw new UserError('Item not found.', 404);
+        if (empty($m[2])) {
+            $files = pick_uploads(['photos', 'photo']);
+            if (!$files) throw new UserError('Choose a photo to add.', 422);
+            if (count(photos_for($iid)) + count($files) > MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.', 422);
+            $added = 0;
+            foreach ($files as $f) {
+                try {
+                    $name = image_store($f);
+                } catch (UserError $e) {
+                    throw new UserError($e->getMessage(), 422);
+                }
+                photo_add($iid, $name);
+                $added++;
+            }
+            if (wants_json()) json_out(['ok' => true, 'added' => $added, 'count' => count(photos_for($iid))]);
+            redirect('/item/' . $iid . '?p=' . (count(photos_for($iid)) - 1) . '#photos');
+        }
+        $idx = photo_action($iid, (int)$m[2], $m[3]);
+        if (wants_json()) json_out(['ok' => true, 'index' => $idx, 'count' => count(photos_for($iid))]);
+        redirect('/item/' . $iid . '?p=' . max(0, $idx) . '#photos');
     }
 
     /* ---- quantity +/- ---- */
