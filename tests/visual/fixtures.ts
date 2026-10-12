@@ -1,5 +1,5 @@
 import { test as base, expect, Page, TestInfo } from '@playwright/test';
-import { spawn, execFileSync, ChildProcess } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -9,7 +9,18 @@ export const ROOT = path.resolve(__dirname, '../..');
 /** Frozen server clock (UTC) – all timestamps and "last 30 days" charts are deterministic. */
 export const CLOCK = '2026-06-15 09:00:00';
 
-type Server = { base: string; dataDir: string; env: NodeJS.ProcessEnv; proc: ChildProcess };
+/**
+ * The app under test. By default `php -S` on the host; with E2E_DOCKER_IMAGE=<image> the real container
+ * (nginx + php-fpm) instead, with the repo mounted read-only at /repo so seed/SQL helpers run inside it.
+ */
+type Server = {
+  base: string; dataDir: string; filesDir: string; env: NodeJS.ProcessEnv;
+  /** Run PHP CLI with the app's environment (host php, or `docker exec` as www-data). Paths in args: use `at()`. */
+  php: (args: string[]) => Buffer;
+  /** Map a repo / data / files path to where the PHP process sees it. */
+  at: (p: string) => string;
+};
+export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
 type WorkerOpts = { appPassword: string; dbDriver: 'sqlite' | 'pgsql'; publicUrl: string; server: Server };
 type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App };
 
@@ -20,11 +31,11 @@ const freePort = () => new Promise<number>((res, rej) => {
 });
 
 async function waitUp(base: string) {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 300; i++) {
     try { const r = await fetch(base + '/healthz'); if (r.ok) return; } catch { /* not yet */ }
     await new Promise(r => setTimeout(r, 100));
   }
-  throw new Error('php -S did not start at ' + base);
+  throw new Error('app server did not start at ' + base);
 }
 
 export class App {
@@ -35,18 +46,17 @@ export class App {
   async go(p: string) { await this.page.goto(p, { waitUntil: 'networkidle' }); }
   /** A small deterministic JPEG/PNG on disk, for file inputs. */
   image(name: string, rgb: [number, number, number], png = false): string {
-    const out = path.join(this.server.dataDir + '-files', name);
+    const out = path.join(this.server.filesDir, name);
     if (fs.existsSync(out)) return out;
-    fs.mkdirSync(path.dirname(out), { recursive: true });
     const code = `$im=imagecreatetruecolor(640,480);imagefill($im,0,0,imagecolorallocate($im,${rgb.join(',')}));`
       + `imagefilledellipse($im,320,240,300,300,imagecolorallocatealpha($im,255,255,255,60));` + (png ? `imagepng($im,$argv[1]);` : `imagejpeg($im,$argv[1],85);`);
-    execFileSync('php', ['-r', code, out]);
+    this.server.php(['-r', code, this.server.at(out)]);
     return out;
   }
   /** Read the SQLite/PostgreSQL catalog through the app's own PHP (driver-independent). */
   sql<T = Record<string, unknown>>(query: string): T[] {
-    const code = `require '${ROOT}/src/bootstrap.php'; echo json_encode(db()->query($argv[1])->fetchAll());`;
-    return JSON.parse(execFileSync('php', ['-r', code, query], { env: this.server.env }).toString());
+    const code = `require '${this.server.at(ROOT)}/src/bootstrap.php'; echo json_encode(db()->query($argv[1])->fetchAll());`;
+    return JSON.parse(this.server.php(['-r', code, query]).toString());
   }
   async noOverflow() {
     const w = await this.page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
@@ -78,29 +88,56 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   server: [async ({ appPassword, dbDriver, publicUrl }, use, workerInfo) => {
     const port = await freePort();
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), `apotheke-pw-${workerInfo.workerIndex}-`));
-    const env: NodeJS.ProcessEnv = { ...process.env, DATA_DIR: dataDir, TZ: 'Europe/Athens', APOTHEKE_CLOCK: CLOCK, APP_PASSWORD: appPassword, PUBLIC_URL: publicUrl,
+    const filesDir = dataDir + '-files';
+    fs.mkdirSync(filesDir);
+    const appEnv: Record<string, string> = { TZ: 'Europe/Athens', APOTHEKE_CLOCK: CLOCK, APP_PASSWORD: appPassword, PUBLIC_URL: publicUrl,
       SEED_DEFAULTS: '0', APOTHEKE_CONFIG: '/nonexistent', DB_DRIVER: dbDriver };
-    if (dbDriver === 'pgsql') Object.assign(env, { DB_SCHEMA: `pw_${workerInfo.workerIndex}_${process.pid}`, DB_HOST: process.env.TEST_PG_HOST || '127.0.0.1',
+    if (dbDriver === 'pgsql') Object.assign(appEnv, { DB_SCHEMA: `pw_${workerInfo.workerIndex}_${process.pid}`, DB_HOST: process.env.TEST_PG_HOST || '127.0.0.1',
       DB_PORT: process.env.TEST_PG_PORT || '5432', DB_NAME: process.env.TEST_PG_DB || 'apotheke', DB_USER: process.env.TEST_PG_USER || 'apotheke',
       DB_PASSWORD: process.env.TEST_PG_PASSWORD || 'apotheke' });
-    execFileSync('php', [path.join(ROOT, 'tests/visual/seed.php'), dataDir, 'empty'], { env });
-    const proc = spawn('php', ['-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
-      '-S', `127.0.0.1:${port}`, '-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/index.php')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
     let log = '';
-    proc.stderr!.on('data', d => { log += d; if (log.length > 200_000) log = log.slice(-100_000); });
-    const server = { base: `http://127.0.0.1:${port}`, dataDir, env, proc };
-    await waitUp(server.base);
+    const collect = (d: Buffer) => { log += d; if (log.length > 200_000) log = log.slice(-100_000); };
+    let server: Server, stop: () => void;
+    if (DOCKER_IMAGE) {
+      const name = `apotheke-pw-${workerInfo.workerIndex}-${process.pid}`;
+      const env = { ...appEnv, DATA_DIR: '/data' };
+      const e = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
+      fs.chmodSync(filesDir, 0o777);
+      execFileSync('docker', ['run', '-d', '--rm', '--name', name, '--network', 'host', '-e', `PORT=${port}`, ...e,
+        '-v', `${dataDir}:/data`, '-v', `${filesDir}:/files`, '-v', `${ROOT}:/repo:ro`, DOCKER_IMAGE]);
+      const logs = spawn('docker', ['logs', '-f', name], { stdio: ['ignore', 'ignore', 'pipe'] });
+      logs.stderr!.on('data', collect);
+      const at = (p: string) => p.startsWith(dataDir + '-files') ? '/files' + p.slice(filesDir.length)
+        : p.startsWith(dataDir) ? '/data' + p.slice(dataDir.length) : p.startsWith(ROOT) ? '/repo' + p.slice(ROOT.length) : p;
+      server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at,
+        php: args => execFileSync('docker', ['exec', '-u', 'www-data', ...e, name, 'php', ...args]) };
+      stop = () => {
+        try { execFileSync('docker', ['exec', name, 'sh', '-c', 'rm -rf /data/* /files/*']); } catch { /* already gone */ }
+        execFileSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
+        logs.kill();
+      };
+    } else {
+      const env: NodeJS.ProcessEnv = { ...process.env, ...appEnv, DATA_DIR: dataDir };
+      const proc = spawn('php', ['-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
+        '-S', `127.0.0.1:${port}`, '-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/index.php')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+      proc.stderr!.on('data', collect);
+      server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at: p => p, php: args => execFileSync('php', args, { env }) };
+      stop = () => { proc.kill(); };
+    }
+    await waitUp(server.base);   // first: in Docker the entrypoint must have prepared /data
+    server.php([server.at(path.join(ROOT, 'tests/visual/seed.php')), server.at(dataDir), 'empty']);
     await use(server);
-    proc.kill();
+    stop();
     if (/\[apotheke\]|PHP (Fatal|Warning|Notice|Deprecated)/.test(log)) console.error('server log:\n' + log.split('\n').filter(l => /apotheke|PHP /.test(l)).join('\n'));
-    fs.rmSync(dataDir, { recursive: true, force: true });
-    fs.rmSync(dataDir + '-files', { recursive: true, force: true });
+    for (const d of [dataDir, filesDir]) {
+      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* owned by the container's www-data under sticky /tmp */ }
+    }
   }, { scope: 'worker' }],
   baseURL: async ({ server }, use) => { await use(server.base); },
   seed: ['demo', { option: true }],
   /** Fresh, deterministic catalog for every test. */
   reset: [async ({ server, seed }, use) => {
-    execFileSync('php', [path.join(ROOT, 'tests/visual/seed.php'), server.dataDir, seed], { env: server.env });
+    server.php([server.at(path.join(ROOT, 'tests/visual/seed.php')), server.at(server.dataDir), seed]);
     await use();
   }, { auto: true }],
   /** Console errors and uncaught page errors fail the test. */
