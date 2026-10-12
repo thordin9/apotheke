@@ -75,3 +75,11 @@ Prefer TDD for behaviour changes: extend `tests/integration.php` and/or `tests/U
 6. Docs (README feature bullet + user guide as needed).
 
 Details and naming conventions: [docs/contributing.md](docs/contributing.md).
+
+## Cursor Cloud specific instructions
+
+The Cloud Agent environment installs PHP 8.3 (gd, pdo_sqlite, pdo_pgsql, mbstring, zip, exif, pcov), Composer, shellcheck, zbar-tools, and PostgreSQL 17, then runs `composer install`, `npm ci`, `npm ci --prefix tests/e2e`, and Playwright Chromium plus WebKit. On boot it starts PostgreSQL and the PHP built-in server. Use the commands in [Local run](#local-run) and [Tests](#tests-run-before-claiming-done); these notes are only the parts that differ on a Cloud Agent VM.
+
+* The app is already at http://127.0.0.1:8080/ (SQLite in `./data`, no `APP_PASSWORD`). `GET /healthz` returns `ok`. Do not start a second server on port 8080.
+* PostgreSQL 17 listens on `127.0.0.1:5432`. Database, user, and password are all `apotheke` (the `TEST_PG_*` defaults). SQL changes: `DB_DRIVER=pgsql vendor/bin/phpunit`.
+* Functional Playwright is `npx playwright test --grep-invert visual`. Screenshot specs are for the official Playwright Docker image (see [docs/testing.md](docs/testing.md)).
