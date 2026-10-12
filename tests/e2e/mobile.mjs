@@ -111,6 +111,25 @@ try {
       ok(/[?&]tag=\d+/.test(p.url()) && await p.$eval('#achips', e => e.textContent.includes('Garage')), 'tag chip opens the list filtered by that tag');
       ok(await p.$$eval('#grid .card', l => l.length) >= 1, 'filtered list shows the tagged item');
     }
+    // backup & restore: menu → page, download, upload for a dry run, confirm
+    {
+      const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+      await p.goto(base + '/', { waitUntil: 'networkidle0' });
+      await p.tap('#menu-btn'); await pause(250);
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.tap('#menu a[href="/backup"]')]);
+      ok(!!(await p.$('#backup-dl')) && !(await overflow()), 'backup page from the menu, no overflow');
+      ok(await p.$eval('#backup-dl', b => b.getBoundingClientRect().height >= 44), 'download button is a 44px target');
+      const zip = Buffer.from(await (await fetch(base + '/backup.zip')).arrayBuffer());
+      ok(zip.subarray(0, 2).toString() === 'PK', 'backup download is a zip (' + zip.length + ' bytes)');
+      const zf = path.join(os.tmpdir(), 'e2e-backup.zip'); fs.writeFileSync(zf, zip);
+      await (await p.$('#restore-file')).uploadFile(zf);
+      ok(await p.$eval('#restore-name', e => e.textContent === 'e2e-backup.zip'), 'chosen file name shown');
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.tap('#restore-check')]);
+      ok(!!(await p.$('#restore-preview')) && !(await overflow()), 'dry-run summary shown, no overflow');
+      await p.tap('#restore-ok');
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.tap('#restore-go')]);
+      ok(/\/backup\?restored=1$/.test(p.url()) && await p.$eval('.toast', t => t.textContent.includes('restored')), 'restore confirmed, toast shown');
+    }
     // FEATURE-CHECKS
     ok(errors.length === 0, 'no JS errors' + (errors.length ? ': ' + errors.join('; ') : ''));
     await ctx.close();

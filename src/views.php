@@ -17,6 +17,7 @@ function icon(string $n): string
         'trash'  => '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
         'x'      => '<path d="M6 6l12 12M18 6 6 18"/>',
         'pin'    => '<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+        'archive' => '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>',
         'star'   => '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
         'move'   => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
@@ -140,7 +141,8 @@ function menu_html(): string
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
-        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>';
+        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
+        . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>';
     if (app_password() !== '') {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
     }
@@ -760,6 +762,72 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
+function backup_table_rows(array $current, ?array $incoming = null): string
+{
+    $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries'];
+    $o = '<table class="btable"><thead><tr><th scope="col"></th><th scope="col">Now</th>' . ($incoming !== null ? '<th scope="col">In backup</th>' : '') . '</tr></thead><tbody>';
+    foreach ($labels as $t => $l) {
+        if (!isset($current[$t]) && !isset($incoming[$t])) continue;
+        $o .= '<tr><th scope="row">' . $l . '</th><td>' . (int)($current[$t] ?? 0) . '</td>' . ($incoming !== null ? '<td data-t="' . $t . '"><b>' . (int)($incoming[$t] ?? 0) . '</b></td>' : '') . '</tr>';
+    }
+    return $o . '</tbody></table>';
+}
+
+/** Backup & restore page. $preview (dry run) shows what a restore would do and asks for confirmation. */
+function view_backup(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null): void
+{
+    page_start('Backup & restore', 'page-backup');
+    $tok = h(csrf_token());
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Backup &amp; restore</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <?php if ($error !== null): ?><div class="err" role="alert" id="backup-err"><?= h($error) ?></div><?php endif; ?>
+  <?php if ($preview !== null): ?>
+  <section class="panel panel-warn" id="restore-preview" aria-labelledby="rp-title">
+    <h2 id="rp-title">Restore this backup?</h2>
+    <p>Backup from <b><?= h($preview['created_at'] !== '' ? fmt_time($preview['created_at']) : 'an unknown date') ?></b> (<?= h($preview['driver'] === 'pgsql' ? 'PostgreSQL' : 'SQLite') ?>), with <b><?= h(backup_summary_text($preview['tables'], $preview['photos'])) ?></b>.</p>
+    <?= backup_table_rows($current, $preview['tables']) ?>
+    <?php foreach ($preview['warnings'] as $w): ?><p class="hint warn">⚠ <?= h($w) ?></p><?php endforeach; ?>
+    <p class="hint"><b>Everything currently in the catalog will be replaced.</b> Download a backup first if you might want it back.</p>
+    <form method="post" action="/backup/restore/confirm" class="restore-confirm">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <input type="hidden" name="token" value="<?= h($preview['token']) ?>">
+      <label class="check check-ok"><input type="checkbox" name="confirm" value="1" required id="restore-ok"> Yes, replace my catalog with this backup</label>
+      <div class="row-btns">
+        <a class="btn" href="/backup">Cancel</a>
+        <button class="btn btn-danger-solid" id="restore-go">Restore</button>
+      </div>
+    </form>
+  </section>
+  <?php endif; ?>
+  <section class="panel" aria-labelledby="bk-title">
+    <h2 id="bk-title"><?= icon('download') ?> Download a backup</h2>
+    <p class="hint">One zip file with all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
+    <?= backup_table_rows($current) ?>
+    <a class="btn btn-primary btn-block" href="/backup.zip" id="backup-dl" download><?= icon('archive') ?> Download backup (.zip)</a>
+  </section>
+  <section class="panel" aria-labelledby="rs-title">
+    <h2 id="rs-title"><?= icon('archive') ?> Restore from a backup</h2>
+    <p class="hint">Choose an Apotheke backup zip. You'll see what it contains before anything changes.</p>
+    <form method="post" action="/backup/restore" enctype="multipart/form-data" id="restore-form" class="restore-form">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <label class="btn btn-block filepick"><input type="file" name="backup" accept=".zip,application/zip" required id="restore-file" class="file"> <span id="restore-name">Choose backup file…</span></label>
+      <button class="btn btn-block" id="restore-check">Check backup</button>
+    </form>
+    <p class="hint">Large backups can also be restored on the server: <code>php bin/restore.php backup.zip</code>.</p>
+  </section>
+</main>
+<?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
+<?php
+    page_end();
+}
+
 function view_labels(string $heading, array $labels, string $back, array $options = []): void
 {
     page_start('Labels', 'page-labels');

@@ -161,6 +161,10 @@
     render();
   }
 
+  /* ---------- restore: show the chosen file name ---------- */
+  const rf = $('#restore-file');
+  if (rf) rf.addEventListener('change', () => { $('#restore-name').textContent = rf.files[0] ? rf.files[0].name : 'Choose backup file…'; });
+
   /* ---------- print button (labels) ---------- */
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) { e.preventDefault(); window.print(); } });
 

@@ -16,6 +16,7 @@ if (PHP_SAPI === 'cli-server' && $path !== '/' && is_file(__DIR__ . $path) && !s
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/views.php';
+require dirname(__DIR__) . '/src/backup.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -331,6 +332,80 @@ try {
         header('Cache-Control: no-store');
         view_labels($it['name'], [['title' => $it['name'], 'sub' => $it['location'], 'path' => '/item/' . (int)$it['id']]], '/item/' . (int)$it['id']);
         exit;
+    }
+
+    /* ---- backup & restore ---- */
+    if ($path === '/backup' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? 'Backup restored' : null);
+        exit;
+    }
+    if ($path === '/backup.zip' && $method === 'GET') {
+        @set_time_limit(300);
+        $tmp = backup_tmp_dir(DATA_DIR) . '/dl-' . bin2hex(random_bytes(8)) . '.zip';
+        try {
+            backup_create(db(), db_driver(), DATA_DIR, $tmp);
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His') . '.zip"');
+            header('Content-Length: ' . filesize($tmp));
+            header('Cache-Control: no-store');
+            readfile($tmp);
+        } finally {
+            @unlink($tmp);
+        }
+        exit;
+    }
+    if ($path === '/backup/restore' && $method === 'POST') {
+        check_csrf();
+        $file = $_FILES['backup'] ?? null;
+        $fail = function (string $msg): never {
+            http_response_code(422);
+            view_backup(backup_counts(db(), db_driver()), $msg);
+            exit;
+        };
+        if (!is_array($file) || is_array($file['error']) || $file['error'] === UPLOAD_ERR_NO_FILE) $fail('Choose a backup file.');
+        if ($file['error'] !== UPLOAD_ERR_OK) $fail(upload_error_text((int)$file['error']));
+        $token = bin2hex(random_bytes(16));
+        $dest = backup_tmp_dir(DATA_DIR) . "/restore-$token.zip";
+        if (!is_uploaded_file($file['tmp_name']) || !move_uploaded_file($file['tmp_name'], $dest)) $fail('The upload could not be stored.');
+        try {
+            $b = backup_open($dest, db(), db_driver());
+            $b['zip']->close();
+        } catch (UserError $e) {
+            @unlink($dest);
+            $fail($e->getMessage());
+        }
+        header('Cache-Control: no-store');
+        view_backup(backup_counts(db(), db_driver()), null, ['token' => $token] + $b);
+        exit;
+    }
+    if ($path === '/backup/restore/confirm' && $method === 'POST') {
+        check_csrf();
+        $token = (string)($_POST['token'] ?? '');
+        $file = DATA_DIR . "/tmp/restore-$token.zip";
+        if (!preg_match('/^[a-f0-9]{32}$/D', $token) || !is_file($file)) {
+            http_response_code(410);
+            view_backup(backup_counts(db(), db_driver()), 'That restore has expired. Please choose the backup file again.');
+            exit;
+        }
+        if (empty($_POST['confirm'])) {
+            http_response_code(422);
+            $b = backup_open($file, db(), db_driver());
+            $b['zip']->close();
+            view_backup(backup_counts(db(), db_driver()), 'Tick the box to confirm that the catalog will be replaced.', ['token' => $token] + $b);
+            exit;
+        }
+        @set_time_limit(300);
+        try {
+            backup_restore(db(), db_driver(), DATA_DIR, $file);
+        } catch (UserError $e) {
+            http_response_code(422);
+            view_backup(backup_counts(db(), db_driver()), $e->getMessage());
+            exit;
+        } finally {
+            @unlink($file);
+        }
+        redirect('/backup?restored=1');
     }
 
     /* ---- CSV export ---- */

@@ -327,3 +327,8 @@ function ids_from_html(string $html): array
     preg_match_all('#<article class="card" data-id="(\d+)"#', $html, $m);
     return array_map('intval', $m[1]);
 }
+
+function item_exists_in(PDO $db, int $id): bool
+{
+    return (int)$db->query("SELECT COUNT(*) FROM items WHERE id = $id")->fetchColumn() === 1;
+}

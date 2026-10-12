@@ -17,6 +17,7 @@ anything again with instant search.
 * Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
 * **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
 
+* **Backup & restore**: one zip with the data and every photo; restore with a preview first; works between SQLite and PostgreSQL.
 * **Tags & custom fields**: any number of tags per item (autocomplete, tag filter), plus value, purchase date and serial number.
 * **Multiple photos per item** (up to 12): add from camera or library, reorder, pick a cover, browse with arrows.
 * **QR labels** for locations and items: print, stick on the box, scan to open the list.
@@ -29,6 +30,26 @@ Each label opens that location's item list when you scan it with the iPhone came
 and every item page has a **QR label** button that links straight to the item. Codes are generated on the server in pure PHP
 (`src/qr.php`, no network, no libraries) as crisp SVG, and the page has a print stylesheet (3 labels per row on A4/Letter).
 Set `PUBLIC_URL` if the address printed on the labels should differ from the one you're using right now.
+
+## Backup & restore
+
+**☰ → Backup & restore → Download backup** saves one zip file. It holds a portable JSON copy of the database
+(`backup.json`: items, locations, categories, tags, photos list and settings) plus every photo and thumbnail.
+To restore, choose a backup zip on the same page. Apotheke checks the file and shows what it contains next to what you have now.
+Nothing changes until you tick the box and press **Restore**. The restore runs in a single transaction: if anything fails, your catalog stays as it was.
+
+The JSON format doesn't depend on the database, so a backup from a SQLite install restores into PostgreSQL and the other way round.
+From the command line (handy for cron jobs and big archives):
+
+```sh
+php bin/backup.php /backups/apotheke-$(date +%F).zip
+php bin/restore.php /backups/apotheke-2026-10-12.zip --dry-run   # validate + summary only
+php bin/restore.php /backups/apotheke-2026-10-12.zip             # asks "yes", then replaces everything
+```
+
+In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`. The web upload accepts backups up to 512 MB
+(the Apache config raises the limit only for `/backup/restore`). Use the CLI for anything bigger.
+Photo files that the restored data doesn't reference are left in `data/images` and are never deleted automatically.
 
 ## Tags & custom fields
 
@@ -230,11 +251,12 @@ Data goes to `./data` (or set `DATA_DIR=/some/path`).
 ## Files
 
 ```
-Dockerfile                 php:8.3-apache + gd, exif, opcache, pdo_pgsql (pdo_sqlite built in)
+Dockerfile                 php:8.3-apache + gd, exif, opcache, pdo_pgsql, zip (pdo_sqlite built in)
 docker-compose.yml         port 8080, ./data volume, optional "postgres" profile
 config.example.php         all settings (copy to config.php; env vars override)
 bin/migrate.php            run / inspect migrations
 bin/seed.php               starter data (+ --demo items)
+bin/backup.php, restore.php  backup zip from the CLI / restore one (--dry-run, --yes)
 migrations/NNNN_*.php      versioned schema steps (SQL per dialect, or a PHP closure)
 docker/                    apache vhost, php.ini, entrypoint
 public/index.php           front controller / routes
@@ -242,6 +264,7 @@ public/assets/             app.css, app.js, theme.js, icons
 src/config.php             config loader (defaults < config.php < env)
 src/db.php                 PDO connection (SQLite/PostgreSQL), dialect helpers, migration runner
 src/legacy.php             one-time upgrade of pre-migration SQLite installs (v1–v3)
+src/backup.php             portable backup zip (JSON dump + photos) and restore
 src/qr.php                 pure-PHP QR code encoder (SVG) for labels
 src/seed.php               idempotent starter/demo seeding
 src/bootstrap.php          sessions, auth, CSRF, helpers

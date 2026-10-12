@@ -466,3 +466,20 @@ a.tagchip{min-height:36px}
 .more-fields>summary{min-height:48px;display:flex;align-items:center;padding:0 14px;font-weight:600;cursor:pointer;color:var(--accent)}
 .more-grid{padding:0 12px 4px;display:grid;gap:0}
 @media (min-width:560px){.more-grid{grid-template-columns:1fr 1fr}.more-grid .field:last-child{grid-column:1/-1}}
+
+/* backup & restore */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--s4);margin:0 0 var(--s4)}
+.panel h2{display:flex;align-items:center;gap:8px;font-size:18px;margin:0 0 var(--s2)}
+.panel h2 .i{color:var(--accent)}
+.panel-warn{border-color:var(--danger);background:var(--danger-soft)}
+.btn-block{display:flex;width:100%;justify-content:center;margin-top:var(--s3)}
+.btable{width:100%;border-collapse:collapse;margin:var(--s2) 0;font-variant-numeric:tabular-nums}
+.btable th,.btable td{text-align:left;padding:8px 4px;border-bottom:1px solid var(--line)}
+.btable td{text-align:right}
+.btable thead th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;text-align:right}
+.btable thead th:first-child{text-align:left}
+.filepick{position:relative;overflow:hidden}
+.filepick span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:var(--s3)}
+.check-ok{margin-top:var(--s2);color:var(--text)}
+.warn{color:var(--danger)}
