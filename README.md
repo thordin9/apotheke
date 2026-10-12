@@ -89,6 +89,10 @@ each item had becomes its cover (migration `0003`).
 |---|---|---|---|
 | ![New item](docs/screenshots/new-light.png) | ![Item](docs/screenshots/item-dark.png) | ![Manage](docs/screenshots/manage-dark.png) | ![Desktop](docs/screenshots/desktop-light.png) |
 
+| Photo gallery | Tags & custom fields (dark) | QR labels | Restore preview | History (dark) |
+|---|---|---|---|---|
+| ![Gallery](docs/screenshots/gallery-light.png) | ![Tags](docs/screenshots/tags-dark.png) | ![Labels](docs/screenshots/labels-light.png) | ![Restore](docs/screenshots/restore-light.png) | ![Activity](docs/screenshots/activity-dark.png) |
+
 ## Locations & categories
 
 Locations and categories behave identically:
