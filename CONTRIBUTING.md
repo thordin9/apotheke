@@ -40,6 +40,37 @@ vendor/bin/phpunit --coverage-html coverage/html     # needs pcov or xdebug
 
 A quick throwaway PostgreSQL: `docker run --rm -p 5432:5432 -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=apotheke postgres:17`.
 
+### Visual end-to-end tests (Playwright)
+
+`tests/visual/` drives the real app (PHP built-in server, isolated data dir re-seeded before every test,
+server clock frozen with `APOTHEKE_CLOCK`) in WebKit iPhone 13 / iPhone SE, Chromium Pixel 7 and desktop
+Chromium, light and dark, plus a `@smoke` subset against PostgreSQL. It needs PHP 8.3 (gd, pdo_sqlite,
+zip, mbstring) and Node 20+:
+
+```sh
+npm ci
+npx playwright install --with-deps chromium webkit
+npm run test:e2e                              # everything
+npx playwright test --project=desktop-chromium tests/visual/list.spec.ts
+TEST_PG_HOST=127.0.0.1 npm run test:e2e:smoke-pg   # PostgreSQL smoke (TEST_PG_* like PHPUnit)
+npm run test:e2e:report                       # open the HTML report
+```
+
+Screenshots (`toHaveScreenshot`) are compared with the baselines in `tests/visual/__screenshots__/`.
+Those are **only** ever rendered in the official `mcr.microsoft.com/playwright:v<version>-noble` image –
+the same image the CI `e2e` job runs in – because fonts and anti-aliasing differ between machines.
+Locally, screenshot assertions will fail on a non-matching OS; that is expected, run the functional
+specs or use the image. To update baselines after an intended UI change, either:
+
+- `npm run test:e2e:update` (= `scripts/update-snapshots.sh`, needs Docker; runs the image plus a
+  throw-away PostgreSQL container), or
+- add the label **`update-snapshots`** to the PR: the *Update visual snapshots* workflow renders them in
+  the image and uploads a `snapshots` artifact; fetch it with
+  `scripts/update-snapshots.sh --from-ci <run id>` (needs `gh`).
+
+Review the changed PNGs, then commit them (`test(e2e): update visual baselines`). On failure CI uploads
+the HTML report, traces and `*-diff.png` images as the `playwright-report-shard-N` artifacts.
+
 ### Writing a migration
 
 Add `migrations/NNNN_short_name.php` with the next number. Return either `['sqlite' => 'SQL…', 'pgsql' => 'SQL…']`
@@ -73,4 +104,6 @@ scripts/check-commits.sh origin/main
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`:
-lint, integration tests on PHP 8.3, Docker build + smoke test, and (on PRs) the commit check.
+lint, integration tests on PHP 8.3 (SQLite and PostgreSQL), headless mobile checks, the Playwright
+visual E2E suite (`e2e`, 3 shards, inside the Playwright image, `retries=1`), Docker build + smoke
+test, and (on PRs) the commit check.
