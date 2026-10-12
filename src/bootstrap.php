@@ -156,7 +156,8 @@ function natkey(string $s): string
 
 function like_escape(string $s): string
 {
-    return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $s);
+    // '!' as escape char: a backslash inside a SQL literal confuses PDO's placeholder parser on PHP < 8.4 (pgsql)
+    return str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $s);
 }
 
 function wants_json(): bool

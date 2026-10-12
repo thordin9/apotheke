@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * Portability rules used throughout the app:
  *  - case/accent-insensitive uniqueness and search use PHP-folded columns (name_key, search),
- *    so both dialects use plain UNIQUE and LIKE … ESCAPE '\' (no ILIKE/unaccent/collations needed);
+ *    so both dialects use plain UNIQUE and LIKE … ESCAPE '!' (no ILIKE/unaccent/collations needed);
  *  - natural sorting uses a PHP-computed sort_key ("box 2" < "box 10");
  *  - timestamps are stored as UTC 'Y-m-d H:i:s' text in both dialects;
  *  - the few genuinely dialect-specific bits (date bucketing, insert ids, locking) live here.

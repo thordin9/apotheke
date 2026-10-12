@@ -144,7 +144,7 @@ function items_search(string $q, array $f, string $sort, int $page): array
     $args  = [];
     foreach (preg_split('/\s+/u', fold(trim($q)), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $tok) {
         // every word must match the item (name/notes), its location or its category
-        $where[] = "(i.search LIKE ? ESCAPE '\\' OR COALESCE(l.name_key, '') LIKE ? ESCAPE '\\' OR COALESCE(c.name_key, '') LIKE ? ESCAPE '\\')";
+        $where[] = "(i.search LIKE ? ESCAPE '!' OR COALESCE(l.name_key, '') LIKE ? ESCAPE '!' OR COALESCE(c.name_key, '') LIKE ? ESCAPE '!')";
         $like = '%' . like_escape($tok) . '%';
         array_push($args, $like, $like, $like);
     }

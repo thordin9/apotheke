@@ -39,7 +39,7 @@ final class SearchNormalizationTest extends TestCase
 
     public function testLikeEscape(): void
     {
-        $this->assertSame('50\\% off\\_now\\\\', like_escape('50% off_now\\'));
+        $this->assertSame('50!% off!_now!!', like_escape('50% off_now!'));
     }
 
     public function testCleanLine(): void

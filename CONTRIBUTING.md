@@ -44,7 +44,7 @@ A quick throwaway PostgreSQL: `docker run --rm -p 5432:5432 -e POSTGRES_USER=apo
 
 Add `migrations/NNNN_short_name.php` with the next number. Return either `['sqlite' => 'SQL…', 'pgsql' => 'SQL…']`
 or `static function (PDO $pdo, string $driver): void { … }`. Never edit a migration that has been released; add a new one.
-Keep queries portable: compare against PHP-folded columns (`name_key`, `search`) with `LIKE … ESCAPE '\'`, sort by
+Keep queries portable: compare against PHP-folded columns (`name_key`, `search`) with `LIKE … ESCAPE '!'` (see `like_escape()`; avoid backslashes in SQL literals, which trip PDO's placeholder parser on PHP < 8.4), sort by
 `sort_key`, use `CASE` instead of boolean sums, and use `db_insert()` / `db_local_bucket()` for the dialect-specific bits.
 Add tests to `tests/Unit/MigrationRunnerTest.php` and, if data changes, to the legacy section of `tests/integration.php`.
 
