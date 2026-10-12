@@ -54,6 +54,15 @@ try {
     await p.goto(base + '/new', { waitUntil: 'networkidle0' });
     const bar = await p.$eval('.actionbar', e => e.getBoundingClientRect().bottom);
     ok(Math.abs(bar - vp.height) < 2, 'form action bar sticks to the bottom');
+    // QR labels
+    await p.goto(base + '/labels', { waitUntil: 'networkidle0' });
+    ok(await p.$$eval('figure.label svg.qr', l => l.length) > 0, 'labels sheet shows QR codes');
+    ok(!(await overflow()), 'no horizontal overflow on /labels');
+    ok(await p.$eval('#print', b => b.getBoundingClientRect().height >= 44), 'print button is a 44px target');
+    await p.emulateMediaType('print');
+    ok(await p.$eval('header.top', h => getComputedStyle(h).display === 'none'), 'print stylesheet hides the header');
+    await p.emulateMediaType(null);
+    // FEATURE-CHECKS
     ok(errors.length === 0, 'no JS errors' + (errors.length ? ': ' + errors.join('; ') : ''));
     await ctx.close();
   }

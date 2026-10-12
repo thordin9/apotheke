@@ -393,3 +393,24 @@ body>.actionbar{position:fixed;left:0;right:0;margin:0;padding-left:calc(var(--s
 .btn-primary:hover{background:var(--accent-2)}
 .st-link{min-width:44px;justify-content:flex-end}
 body:has(#empty:not([hidden])) .fab{display:none}
+
+/* QR labels */
+.btn-sm{min-height:44px;font-size:15px;padding:0 14px}
+.item-links{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0 0 var(--s4)}
+.labels-intro{max-width:720px}
+.label-opts{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 var(--s4)}
+.labels{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--s3)}
+.label{margin:0;background:#fff;color:#000;border:1px dashed #9a9aa3;border-radius:var(--radius-sm);padding:10px;display:flex;flex-direction:column;align-items:center;gap:6px;break-inside:avoid;page-break-inside:avoid}
+.label .qr{width:100%;max-width:180px;height:auto;display:block}
+.label figcaption{display:grid;text-align:center;gap:2px;line-height:1.2;max-width:100%}
+.label b{font-size:16px;word-break:break-word}
+.label span{font-size:13px;color:#333}
+.label small{font-size:10px;color:#555;word-break:break-all}
+@media print{
+  @page{margin:10mm}
+  body{background:#fff!important;color:#000;padding:0}
+  .no-print,.toast,.fab{display:none!important}
+  .wrap{padding:0;max-width:none}
+  .labels{grid-template-columns:repeat(3,1fr);gap:4mm}
+  .label{border:1px dashed #999;border-radius:2mm}
+}

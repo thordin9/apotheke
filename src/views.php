@@ -28,6 +28,8 @@ function icon(string $n): string
         'filter' => '<path d="M4 5h16l-6 7.5V19l-4 2v-8.5z"/>',
         'download'=> '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
         'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
+        'qr'     => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
+        'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
     return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . ($p[$n] ?? '') . '</svg>';
@@ -137,6 +139,7 @@ function menu_html(): string
     $o .= '</div></form>'
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
+        . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>';
     if (app_password() !== '') {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
@@ -379,6 +382,7 @@ function view_item(array $it): void
   <?php if (trim($it['notes']) !== ''): ?>
   <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
   <?php endif; ?>
+  <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
 </main>
 <div class="actionbar">
@@ -521,6 +525,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
     <button class="btn btn-primary"><?= icon('plus') ?> Add</button>
   </form>
   <div class="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
+  <?php if ($kind === 'location'): ?><p class="item-links"><a class="btn btn-sm" href="/labels"><?= icon('qr') ?> Print QR labels for all locations</a></p><?php endif; ?>
   <p class="hint">★ The default <?= h($t['one']) ?> is preselected when you add a new item. Tap ★ again to clear it.</p>
 
   <?php if (!$list): ?>
@@ -552,6 +557,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
               <input type="hidden" name="on" value="<?= $l['is_default'] ? '0' : '1' ?>">
               <button class="btn"><?= icon('star') ?> <?= $l['is_default'] ? 'Unset default' : 'Set as default' ?></button>
             </form>
+            <?php if ($kind === 'location'): ?><a class="btn" href="/labels?loc=<?= $id ?>"><?= icon('qr') ?> Label</a><?php endif; ?>
             <?php if ($n > 0): ?>
             <a class="btn btn-danger" href="<?= $base ?>/<?= $id ?>/delete"><?= icon('trash') ?> Delete…</a>
             <?php else: ?>
@@ -648,6 +654,46 @@ function view_error(int $code, string $msg): void
     ?>
 <main class="wrap narrow login">
   <div class="empty"><?= icon('box') ?><p><?= h($msg) ?></p><a class="btn btn-primary" href="/">Back to catalog</a></div>
+</main>
+<?php
+    page_end();
+}
+
+/* ---------- QR labels ---------- */
+
+/**
+ * Print-friendly sheet of QR labels.
+ * @param array<int,array{title:string,sub:string,path:string}> $labels
+ */
+function view_labels(string $heading, array $labels, string $back, array $options = []): void
+{
+    page_start('Labels', 'page-labels');
+    ?>
+<header class="top top-simple no-print">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="<?= h($back) ?>" data-back aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">QR labels</h1>
+    <button type="button" class="btn btn-primary" id="print" data-print><?= icon('printer') ?><span class="hide-xs">Print</span></button>
+  </div>
+</header>
+<main class="wrap labels-wrap">
+  <div class="no-print labels-intro">
+    <h2 class="item-name"><?= h($heading) ?></h2>
+    <p class="hint">Scan a label with the phone camera to open <?= $options ? 'the matching list or item' : 'it' ?> in Apotheke. Links point to <b><?= h(public_url('')) ?></b><?= cfg()['public_url'] === '' ? ' (set <code>PUBLIC_URL</code> to change)' : '' ?>.</p>
+    <?php if ($options): ?><nav class="label-opts" aria-label="Label sets"><?php foreach ($options as $href => $txt): ?><a class="achip" href="<?= h($href) ?>"><?= h($txt) ?></a><?php endforeach; ?></nav><?php endif; ?>
+  </div>
+  <?php if (!$labels): ?>
+  <div class="empty"><?= icon('qr') ?><p class="empty-title">Nothing to print yet.</p></div>
+  <?php else: ?>
+  <div class="labels" id="labels">
+    <?php foreach ($labels as $l): $url = public_url($l['path']); ?>
+    <figure class="label" data-url="<?= h($url) ?>">
+      <?= qr_svg($url, 'QR code for ' . $l['title']) ?>
+      <figcaption><b><?= h($l['title']) ?></b><?php if ($l['sub'] !== ''): ?><span><?= h($l['sub']) ?></span><?php endif; ?><small><?= h(preg_replace('#^https?://#', '', $url)) ?></small></figcaption>
+    </figure>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 </main>
 <?php
     page_end();

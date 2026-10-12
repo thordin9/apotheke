@@ -71,6 +71,8 @@ jobs:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
+      - name: Install zbar (QR round-trip tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zbar-tools
       - name: Install dev dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)

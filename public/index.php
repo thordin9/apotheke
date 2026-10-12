@@ -268,6 +268,37 @@ try {
         redirect($t['path'] . '?done=deleted');
     }
 
+    /* ---- QR labels ---- */
+    if ($path === '/labels' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        $locs = locations();
+        $loc = filter_value($_GET['loc'] ?? '');
+        if (ctype_digit($loc)) {
+            $l = tax_get('location', (int)$loc);
+            if (!$l) throw new UserError('Location not found.', 404);
+            $labels = [];
+            if (($_GET['items'] ?? '') === '1') {
+                foreach (items_search('', ['loc' => $loc, 'cat' => ''], 'name', 1, 1000)['items'] as $it) {
+                    $labels[] = ['title' => $it['name'], 'sub' => $l['name'], 'path' => '/item/' . (int)$it['id']];
+                }
+            } else {
+                $labels[] = ['title' => $l['name'], 'sub' => (int)$l['n'] . ' item' . ((int)$l['n'] === 1 ? '' : 's'), 'path' => '/?loc=' . (int)$l['id']];
+            }
+            view_labels($l['name'], $labels, '/locations', ['/labels?loc=' . (int)$l['id'] => 'Location label', '/labels?loc=' . (int)$l['id'] . '&items=1' => 'One label per item', '/labels' => 'All locations']);
+            exit;
+        }
+        $labels = array_map(fn($l) => ['title' => $l['name'], 'sub' => (int)$l['n'] . ' item' . ((int)$l['n'] === 1 ? '' : 's'), 'path' => '/?loc=' . (int)$l['id']], $locs);
+        view_labels('All locations', $labels, '/locations');
+        exit;
+    }
+    if (preg_match('#^/item/(\d+)/label$#D', $path, $m) && $method === 'GET') {
+        $it = item_get((int)$m[1]);
+        if (!$it) throw new UserError('Item not found.', 404);
+        header('Cache-Control: no-store');
+        view_labels($it['name'], [['title' => $it['name'], 'sub' => $it['location'], 'path' => '/item/' . (int)$it['id']]], '/item/' . (int)$it['id']);
+        exit;
+    }
+
     /* ---- CSV export ---- */
     if ($path === '/export.csv' && $method === 'GET') {
         header('Content-Type: text/csv; charset=utf-8');

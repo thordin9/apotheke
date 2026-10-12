@@ -138,7 +138,7 @@ function filter_value(mixed $v): string
  * @param array{loc:string,cat:string} $f
  * @return array{items: array<int,array>, total: int, more: bool}
  */
-function items_search(string $q, array $f, string $sort, int $page): array
+function items_search(string $q, array $f, string $sort, int $page, int $pageSize = PAGE_SIZE): array
 {
     $where = [];
     $args  = [];
@@ -170,9 +170,9 @@ function items_search(string $q, array $f, string $sort, int $page): array
     $total = (int)$st->fetchColumn();
 
     $page   = max(1, $page);
-    $offset = ($page - 1) * PAGE_SIZE;
+    $offset = ($page - 1) * $pageSize;
     $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.image "
-        . ITEM_FROM . " $w ORDER BY $order LIMIT " . PAGE_SIZE . " OFFSET $offset");
+        . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
     return ['items' => $items, 'total' => $total, 'more' => $offset + count($items) < $total];

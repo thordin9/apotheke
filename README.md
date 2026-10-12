@@ -17,7 +17,16 @@ anything again with instant search.
 * Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
 * **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
 
+* **QR labels** for locations and items: print, stick on the box, scan to open the list.
 * An **Overview** panel at the top of the list shows totals (items, total quantity, locations, categories, added this week/month), a chart of items added (30 days by day, or 12 months by month), and the top 5 locations and top 5 categories as bars. Tap a bar to filter the list. It is collapsible, and your choice is remembered. While collapsed, the charts are neither computed nor downloaded; they load the first time you open the panel.
+
+## QR labels
+
+Stick a QR label on every box. **☰ → Print QR labels** (or *Manage → Locations*) prints a sheet with one label per location.
+Each label opens that location's item list when you scan it with the iPhone camera. A location can also print *one label per item*,
+and every item page has a **QR label** button that links straight to the item. Codes are generated on the server in pure PHP
+(`src/qr.php`, no network, no libraries) as crisp SVG, and the page has a print stylesheet (3 labels per row on A4/Letter).
+Set `PUBLIC_URL` if the address printed on the labels should differ from the one you're using right now.
 
 ## Screenshots
 
@@ -91,6 +100,7 @@ so they never wipe a value set in `config.php`.
 | `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. |
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
+| `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Set it if you open the app under a different name than your phone will. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
@@ -211,6 +221,7 @@ public/assets/             app.css, app.js, theme.js, icons
 src/config.php             config loader (defaults < config.php < env)
 src/db.php                 PDO connection (SQLite/PostgreSQL), dialect helpers, migration runner
 src/legacy.php             one-time upgrade of pre-migration SQLite installs (v1–v3)
+src/qr.php                 pure-PHP QR code encoder (SVG) for labels
 src/seed.php               idempotent starter/demo seeding
 src/bootstrap.php          sessions, auth, CSRF, helpers
 src/items.php              item, location and category queries, search, statistics, image processing (GD)

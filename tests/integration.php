@@ -287,6 +287,35 @@ T::ok(str_contains($r['body'], 'class="actionbar"') && str_contains($r['body'], 
 $r = $c->get('/new');
 T::ok(str_contains($r['body'], 'actionbar actionbar-form') && str_contains($r['body'], 'id="save-another"'), 'form sticky action bar with both save buttons');
 
+T::section('QR labels');
+$r = $c->get('/labels');
+T::eq(200, $r['status'], 'labels sheet for all locations');
+T::eq(count($db->query('SELECT id FROM locations')->fetchAll()), substr_count($r['body'], '<figure class="label"'), 'one label per location');
+T::ok(str_contains($r['body'], 'data-print') && str_contains($r['body'], 'id="labels"'), 'print button + label grid');
+T::ok(preg_match('#<svg class="qr"[^>]*viewBox="0 0 \d+ \d+"#', $r['body']) === 1, 'inline SVG QR codes (no external requests)');
+$r = $c->get("/labels?loc=$box2");
+T::eq(1, substr_count($r['body'], '<figure class="label"'), 'single location label');
+T::ok(str_contains($r['body'], $c->base . '/?loc=' . $box2), 'label URL opens the location-filtered list (default base = request host)');
+preg_match('#<svg class="qr".*?</svg>#s', $r['body'], $qm);
+$dec = qr_decode_svg($qm[0] ?? '');
+if ($dec !== null) T::eq($c->base . '/?loc=' . $box2, $dec, 'QR decodes to the location URL (zbarimg)');
+$n2 = (int)$db->query("SELECT COUNT(*) FROM items WHERE location_id = $box2")->fetchColumn();
+T::eq($n2, substr_count($c->get("/labels?loc=$box2&items=1")['body'], '<figure class="label"'), 'one label per item in the location');
+$r = $c->get('/item/' . $nojs . '/label');
+T::ok($r['status'] === 200 && str_contains($r['body'], $c->base . '/item/' . $nojs), 'item label links to the item page');
+T::ok(str_contains($c->get('/item/' . $nojs)['body'], 'href="/item/' . $nojs . '/label"'), 'item page links to its label');
+T::ok(str_contains($c->get('/locations')['body'], 'href="/labels?loc='), 'manage page links to location labels');
+T::eq(404, $c->get('/labels?loc=999999')['status'], 'unknown location → 404');
+T::eq(404, $c->get('/item/999999/label')['status'], 'unknown item → 404');
+$us = new Server($dir, ['PUBLIC_URL' => 'https://stuff.example.lan/']);
+$r = $us->client()->get("/labels?loc=$box2");
+T::ok(str_contains($r['body'], 'https://stuff.example.lan/?loc=' . $box2), 'PUBLIC_URL is used for label links (trailing slash trimmed)');
+preg_match('#<svg class="qr".*?</svg>#s', $r['body'], $qm);
+if (($dec = qr_decode_svg($qm[0] ?? '')) !== null) T::eq('https://stuff.example.lan/?loc=' . $box2, $dec, 'QR encodes the PUBLIC_URL link');
+$us->stop();
+$r = $c->get('/', ['Host: evil"><script>']);
+T::ok(!str_contains($c->get('/labels', ['Host: evil"><x>'])['body'], 'evil"><x>'), 'malformed Host header is not echoed into labels');
+
 T::section('Delete item');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);

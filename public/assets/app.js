@@ -65,6 +65,9 @@
     if (d) { d.open = false; const s = $('summary', d); if (s) s.focus(); }
   });
 
+  /* ---------- print button (labels) ---------- */
+  document.addEventListener('click', e => { if (e.target.closest('[data-print]')) { e.preventDefault(); window.print(); } });
+
   /* ---------- quantity +/- (cards + detail) ---------- */
   const pending = new Map();
   document.addEventListener('click', e => {
