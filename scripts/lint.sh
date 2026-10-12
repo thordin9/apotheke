@@ -14,7 +14,7 @@ else
 fi
 if command -v shellcheck >/dev/null 2>&1; then
   echo "== shellcheck"
-  find . -name '*.sh' -not -path './data/*' -not -path './.git/*' -print0 | xargs -0 shellcheck
+  find . -name '*.sh' -not -path './data/*' -not -path './.git/*' -not -path '*/node_modules/*' -print0 | xargs -0 shellcheck
   echo "   ok"
 else
   echo "== shellcheck: skipped (not installed)"

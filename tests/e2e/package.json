@@ -1,0 +1,7 @@
+{
+  "name": "apotheke-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Optional headless mobile checks (dev only, not shipped)",
+  "devDependencies": { "puppeteer-core": "^23.11.1" }
+}
