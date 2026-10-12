@@ -8,6 +8,7 @@ same on both; it is defined by the numbered files in [`migrations/`](../migratio
 ```mermaid
 erDiagram
   locations ||--o{ items : "location_id (ON DELETE SET NULL)"
+  locations ||--o{ locations : "parent_id (ON DELETE SET NULL)"
   categories ||--o{ items : "category_id (ON DELETE SET NULL)"
   items ||--o{ item_photos : "item_id (ON DELETE CASCADE)"
   items ||--o{ item_tags : "item_id (ON DELETE CASCADE)"
@@ -21,6 +22,7 @@ erDiagram
     int is_default "0/1, at most one 1"
     text sort_key "natkey(name)"
     text created_at
+    int parent_id FK "NULL = top level (0008)"
   }
   categories {
     int id PK
@@ -89,8 +91,13 @@ erDiagram
 
 Notes:
 
-* **Locations are flat.** `locations` has no parent column, so there are no nested locations; the same goes for
-  categories.
+* **Locations form a tree** through `locations.parent_id` (migration 0008, indexed). The tree is small, so it is
+  read in one query and assembled in PHP (`tax_list()` / `location_tree_order()` in `src/items.php` add `depth`,
+  `path` and `total`); there are no recursive SQL queries. `location_set_parent()` refuses cycles and more than
+  `LOCATION_MAX_DEPTH` (6) levels below a top-level location. `tax_delete()` moves a deleted location's children to
+  its parent before deleting it, so the `ON DELETE SET NULL` only matters for rows changed outside the app. On
+  PostgreSQL the foreign key is `DEFERRABLE INITIALLY DEFERRED` so a restore can insert children before their parents
+  (SQLite restores use `PRAGMA defer_foreign_keys`). Categories are flat.
 * All timestamps (`created_at`, `updated_at`, `applied_at`) are UTC text `Y-m-d H:i:s`. `purchase_date`, `lent_at`
   and `lent_due` are calendar dates (`Y-m-d`); "overdue" compares `lent_due` with today's date in `TZ`.
 * `name_key`, `items.search` and `sort_key` are computed in PHP (`fold()`, `natkey()`); this keeps uniqueness, search
@@ -113,6 +120,7 @@ Notes:
 | 0005 | `0005_activity_log.php` | `activity` |
 | 0006 | `0006_low_stock.php` | `items.min_qty` |
 | 0007 | `0007_lending.php` | `items.lent_to`, `lent_at`, `lent_due` + index on `lent_due` |
+| 0008 | `0008_nested_locations.php` | `locations.parent_id` + index |
 
 ## How migrations run
 

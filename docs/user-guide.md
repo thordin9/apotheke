@@ -10,7 +10,8 @@ the Save / Edit bars sit at the bottom within thumb reach, and most screens also
 * [Photos](#photos)
 * [Quantities and low-stock alerts](#quantities-and-low-stock-alerts)
 * [Tags and custom fields](#tags-and-custom-fields)
-* [Locations and categories](#locations-and-categories) (and why there are no nested locations)
+* [Locations and categories](#locations-and-categories)
+* [Nested locations](#nested-locations)
 * [Bulk actions](#bulk-actions)
 * [Lending](#lending)
 * [Duplicating an item](#duplicating-an-item)
@@ -19,7 +20,7 @@ the Save / Edit bars sit at the bottom within thumb reach, and most screens also
 * [Backup, restore and CSV](#backup-restore-and-csv)
 * [Dark mode](#dark-mode)
 * [Password](#password)
-* [Installing on the home screen and offline use](#installing-on-the-home-screen-and-offline-use)
+* [Installing on the home screen](#installing-on-the-home-screen)
 * [iPhone tips](#iphone-tips)
 
 ## The list
@@ -105,8 +106,8 @@ future) and the **serial number** (searchable). They show up as facts on the ite
 
 ## Locations and categories
 
-Locations ("box 1023", "Garage shelf") and categories ("Tools") are managed lists that behave identically (☰ →
-*Locations* / *Categories*, two tabs on the *Manage* page):
+Locations ("box 1023", "Garage shelf") and categories ("Tools") are managed lists (☰ → *Locations* / *Categories*,
+two tabs on the *Manage* page). Both work the same way, except that locations can be nested (next section):
 
 * names are unique regardless of case or accents ("Box 5" = "box 5") and sorted naturally (box 2 before box 10);
 * add, rename, delete, and mark one as the **default** (★) for new items;
@@ -114,9 +115,33 @@ Locations ("box 1023", "Garage shelf") and categories ("Tools") are managed list
   items are never deleted together with a location or category;
 * item counts link to the filtered list.
 
-**There are no nested locations.** A location cannot be placed inside another location ("shelf 2" inside "garage");
-the list is flat, exactly like categories. If you need a hierarchy, encode it in the name so natural sorting groups it:
-"Garage – shelf 1", "Garage – shelf 2", "Garage – workbench". Searching for "garage" then finds the items in all of them.
+## Nested locations
+
+A location can sit inside another one: *Garage › Shelf 2 › Box 1024*. Categories stay flat.
+
+* **Create inside:** on the Locations page, type the name and pick the parent under *Inside* before tapping *Add*
+  (leave it on *Top level* for a top-level location). A location created from the item form (＋) is top-level.
+* **Move:** *Edit* on a location → pick the new parent (or *Top level*) → *Move*. The list only offers places that
+  make sense: a location cannot go inside itself or one of its own sub-locations.
+* **Depth:** up to 6 levels below a top-level location. Deeper trees (or a move that would create one) are refused.
+* **Lists and pickers** show the tree: children are listed under their parent, indented, and in dropdowns marked
+  with "↳".
+* **Counts and filters include sub-locations:** the count next to *Garage* is every item in the garage and in all
+  of its shelves and boxes, and filtering the list by *Garage* (filter sheet, or tapping the count) shows all of them.
+  The filter chip shows the full path.
+* **Item page:** the location is shown with its path (*Garage › Shelf 2 › Box 1024*); each level links to its
+  filtered list.
+* **Deleting** a location only deals with the items *directly* in it (move them or leave them unassigned, as above).
+  Its sub-locations, with their items, move up one level into its parent (or to the top level).
+* An item belongs to exactly one location, the innermost one. Search matches the item's own location name, not the
+  names of its parents: to see everything in the garage, filter by *Garage* rather than searching for it.
+
+```mermaid
+flowchart TD
+  G["Garage"] --> S2["Shelf 2"] --> B["Box 1024"]
+  G --> S10["Shelf 10"]
+  A["Attic"]
+```
 
 ## Bulk actions
 
@@ -204,23 +229,12 @@ never flash the wrong theme. *Auto* follows the device setting.
 If `APP_PASSWORD` is set, Apotheke shows a sign-in page and *Sign out* appears in the menu and footer. There is one
 shared password, no user accounts. Sessions last up to 180 days.
 
-## Installing on the home screen and offline use
+## Installing on the home screen
 
-Apotheke has a web app manifest, so you can install it: in Safari *Share → Add to Home Screen*, in Chrome *Install
-app*. It opens full screen; Android shows *Add item* and *Lent out* shortcuts on the icon.
+Apotheke has a web app manifest, so you can add it to the home screen: in Safari *Share → Add to Home Screen*, in
+Chrome *Install app* / *Add to Home screen*. It then opens full screen like an app. It still needs the server: there
+is no service worker and no offline mode.
 
-**Offline mode** needs a service worker, and browsers only allow those in a secure context: **HTTPS** or
-`http://localhost`. Over plain `http://192.168.x.x` the app works normally, just without offline mode (see
-[Deployment and operations](deployment-and-operations.md#https) for HTTPS). With it:
-
-* the app shell (styles, scripts, icons) is stored on the device;
-* pages are always loaded from the server first; the list (`/`), item pages and `/lent` you opened are kept as the
-  last saved copy;
-* when the server can't be reached, those saved copies are shown with an "Offline – showing the last saved copy"
-  banner; any other page shows an offline page that links to the saved ones;
-* changes (saving, quantity, photos, lending, bulk actions) need the server and are never queued offline;
-* backups, the CSV export and the sign-in pages are never stored; **signing out deletes the saved pages and
-  thumbnails** from the device.
 
 ## iPhone tips
 

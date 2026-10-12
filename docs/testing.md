@@ -20,7 +20,7 @@ KEEP_TEST_DATA=1 php tests/integration.php   # keep the temp data dirs for inspe
 The integration suite starts PHP's built-in server on temporary data directories and exercises the app over HTTP with
 a small client (`tests/lib.php`: cookies, CSRF, multipart uploads, JSON). It covers uploads (images generated with
 GD), search and filters, quantities, edit/delete, locations and categories, low-stock alerts, bulk actions, lending,
-duplicating, the service worker and offline page, QR labels, CSV, backup/restore, migrations from legacy schemas, CSRF
+duplicating, nested locations, QR labels, CSV, backup/restore, migrations from legacy schemas, CSRF
 and upload rejection, password mode and statistics. It prints one line per assertion and exits non-zero on failure.
 
 ## PHPUnit
@@ -88,8 +88,6 @@ npm run test:e2e:report                             # open the HTML report
 * `app.sql()` runs SQL against the test database (to assert or to prepare state), `app.go()` navigates and waits.
 * Every test fails on console errors or uncaught page errors (`errors` fixture). Helpers check layout:
   `app.noOverflow()` (no horizontal scrolling) and `app.tapTargets()` (every visible control ≥ 44 px).
-* Service workers are blocked in all projects (`serviceWorkers: 'block'` in `playwright.config.ts`) so caching never
-  influences other specs; `pwa.spec.ts` opts back in and tests offline mode with `context.setOffline(true)`.
 
 ### Specs
 
@@ -105,7 +103,7 @@ npm run test:e2e:report                             # open the HTML report
 | `bulk.spec.ts` | selection mode, move, tags, select all, delete confirmation |
 | `lending.spec.ts` | lend, overdue, filters, Lent page, return (`@smoke`) |
 | `duplicate.spec.ts` | duplicate with and without photos |
-| `pwa.spec.ts` | manifest, service worker, offline fallback (`@smoke`) |
+| `locations-nested.spec.ts` | nested locations: create inside, move, tree order, filter by parent, item trail, delete (`@smoke`) |
 | `visual.spec.ts`, `visual-login.spec.ts` | `toHaveScreenshot` baselines of the key screens |
 
 ### Screenshot baselines

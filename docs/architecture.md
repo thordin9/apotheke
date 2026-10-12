@@ -11,17 +11,16 @@ public/                   web root (the only directory a web server should expos
   manifest.webmanifest    web app manifest
   assets/                 app.css, app.js, theme.js, icons (served as static files)
 src/
-  bootstrap.php           constants, data directories, sessions, auth, CSRF, small helpers, asset(), service worker
+  bootstrap.php           constants, data directories, sessions, auth, CSRF, small helpers, asset()
   config.php              configuration loader (defaults < config.php < environment)
   db.php                  PDO connection, dialect helpers, migration runner
   legacy.php              one-time conversion of pre-migration SQLite installs (schema v1–v3)
   items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD),
-                          activity log, low stock, bulk actions, lending, duplicating
+                          activity log, low stock, bulk actions, lending, duplicating, the location tree
   backup.php              portable backup zip (dump + photos) and restore
   qr.php                  pure-PHP QR code encoder (SVG)
   seed.php                starter locations/categories and demo data
   views.php               all HTML: page shell, partials (cards, chips, sheets), one view_* function per screen
-  sw.js                   service worker template (served at /sw.js)
 migrations/NNNN_*.php     versioned schema steps
 bin/                      CLI: migrate.php, seed.php, backup.php, restore.php
 docker/                   nginx.conf (template), fastcgi.conf, php-fpm.conf, php.ini, entrypoint.sh
@@ -42,9 +41,9 @@ sequenceDiagram
   B->>W: GET /item/3
   W->>R: not a static file → front controller
   R->>R: security headers (CSP, nosniff, frame options)
-  R->>R: /healthz, /sw.js (no session needed)
+  R->>R: /healthz (no session needed)
   R->>R: init_session() → CSRF token, release session lock
-  R->>R: /login, /logout, /offline, then auth gate (APP_PASSWORD)
+  R->>R: /login, /logout, then auth gate (APP_PASSWORD)
   R->>D: item_get(3), photos_for(3), activity_list(3)
   D->>D: db() connects and runs pending migrations on first use
   R->>V: view_item(...)
@@ -70,7 +69,7 @@ Important routes:
 | `POST /item/N/lend`, `POST /item/N/return`, `GET /lent` | lending |
 | `POST /bulk` | bulk actions on `ids[]` (delete shows a confirmation page first) |
 | `POST /item/N/delete` | delete |
-| `/locations…`, `/categories…` | manage lists (add, rename, default, delete with move) |
+| `/locations…`, `/categories…` | manage lists (add, rename, default, delete with move); `POST /locations/N/parent` moves a location in the tree |
 | `GET /labels`, `GET /item/N/label` | printable QR labels |
 | `GET /activity` | history (all items, or `?item=N`) |
 | `GET /backup`, `GET /backup.zip`, `POST /backup/restore`, `POST /backup/restore/confirm` | backup and restore |
@@ -78,7 +77,6 @@ Important routes:
 | `GET /stats` | lazily loaded overview fragment |
 | `GET /media/(full|thumb)/<hex>.jpg` | photos (strict file-name pattern, served by PHP from `DATA_DIR`) |
 | `POST /theme` | Auto / Light / Dark |
-| `GET /sw.js`, `GET /offline` | service worker and offline page (public, no data) |
 | `GET /healthz` | health check (connects to the database) |
 
 ### Sessions, auth and CSRF
@@ -86,8 +84,8 @@ Important routes:
 `init_session()` opens the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
 `SameSite=Lax`, `Secure` on HTTPS), makes sure a CSRF token exists, and **closes the session right away** so parallel
 requests (photos, instant search) never wait for the session lock. Every state-changing route calls `check_csrf()`
-(form field `csrf` or header `X-CSRF-Token`). With `APP_PASSWORD` set, everything except `/login`, `/healthz`,
-`/sw.js` and `/offline` requires a signed-in session; unauthenticated JSON requests get a 401, media requests a bare
+(form field `csrf` or header `X-CSRF-Token`). With `APP_PASSWORD` set, everything except `/login` and `/healthz`
+requires a signed-in session; unauthenticated JSON requests get a 401, media requests a bare
 401, pages a redirect to `/login`.
 
 ## Database layer
@@ -118,42 +116,21 @@ The Content-Security-Policy forbids inline scripts and styles, so:
 * `public/assets/theme.js` (loaded synchronously in `<head>`) only restores a `localStorage` theme before first paint;
 * `public/assets/app.js` (deferred) progressively enhances server-rendered pages: instant search, the filter sheet,
   chips, quantity buttons (coalescing quick taps), the photo manager and client-side shrinking, tag input, confirm
-  dialogs (`data-confirm`), the overview panel, selection mode and the bulk bar, and the PWA bits (service worker
-  registration, offline page list, offline banner, clearing caches on sign-out);
+  dialogs (`data-confirm`), the overview panel, selection mode and the bulk bar;
 * there are no `style="…"` attributes; all styling is in `public/assets/app.css`, with light/dark variables under
   `[data-theme]` and `prefers-color-scheme`.
 
 Forms are real `<form method="post">` elements, so the core flows work without JavaScript; `app.js` only makes them
 faster (fetch + JSON) where it matters.
 
-## Service worker
+## Location tree
 
-```mermaid
-flowchart TD
-  req["fetch event"] --> m{"GET, same origin?"}
-  m -- no --> pass["browser handles it (never cached)"]
-  m -- yes --> dl{"/backup.zip or /export.csv?"}
-  dl -- yes --> pass
-  dl -- no --> nev{"/backup, /login, /logout, /bulk, /sw.js, /healthz?"}
-  nev -- yes --> netonly["network only<br/>(navigation offline → /offline)"]
-  nev -- no --> xhr{"X-Requested-With: fetch?"}
-  xhr -- yes --> pass
-  xhr -- no --> nav{"navigation?"}
-  nav -- yes --> nf["network first<br/>OK + not redirected + / or /item/N or /lent → save copy"]
-  nf -- offline --> copy["saved copy, else /offline"]
-  nav -- no --> asset{"/assets/* or manifest?"}
-  asset -- yes --> cf["cache first (shell cache)"]
-  asset -- no --> thumb{"/media/thumb/*?"}
-  thumb -- yes --> cfm["cache first (media cache, max 300)"]
-  thumb -- no --> pass
-```
-
-`/sw.js` is generated by `service_worker_js()` from the template `src/sw.js`: `__VERSION__` becomes a hash of the
-template, the precache list (`/offline` and the versioned `app.css`, `app.js`, `theme.js` URLs, icons, manifest),
-the manifest contents and the icon versions; `__PRECACHE__` becomes that list. Any asset change therefore produces a
-new worker, which precaches a new `apotheke-shell-<version>` cache and deletes the old ones on activation. The script
-is sent with `Cache-Control: no-cache`, so browsers check for updates on every navigation. Saved pages go to
-`apotheke-pages` (max. 60, keyed by path, so `?p=` variants share one copy) and thumbnails to `apotheke-media`.
+Locations have an optional `parent_id`. `tax_list('location')` reads all locations with their direct item counts in
+one query and `location_tree_order()` turns them into tree order (each parent followed by its children, siblings
+in natural order), adding `depth`, `path` ("Garage › Shelf 2") and `total` (items including sub-locations). Views use
+that list everywhere: `tax_option_label()` indents dropdown options, `parent_options()` builds the parent picker
+(without the location's own branch), `location_trail_html()` renders the path on the item page. The list filter
+`loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`.
 
 ## Docker image
 

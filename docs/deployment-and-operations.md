@@ -67,10 +67,9 @@ Notes:
 
 * **Pre-migration SQLite installs** (schema v1–v3) are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
   converted and adopted into the migration system in one transaction. Delete the snapshot once everything looks right.
-* Migrations `0006` (low-stock level) and `0007` (lending) only add nullable columns; existing items have no alert and
-  are not lent.
-* Browsers pick up new CSS/JS immediately (`?v=` hashes); installed apps get a new service worker on their next
-  online visit, which replaces the cached app shell.
+* Migrations `0006` (low-stock level), `0007` (lending) and `0008` (parent location) only add nullable columns;
+  existing items have no alert and are not lent, existing locations stay top-level.
+* Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 
 ## Behind a web server or reverse proxy
@@ -121,8 +120,8 @@ Apotheke does not read `X-Forwarded-*` headers. Behind a TLS proxy, therefore:
 
 ## HTTPS
 
-Plain HTTP on a trusted LAN is fine for everything except the **offline mode**: browsers only run service workers on
-HTTPS (or `localhost`). Options for a home network: a reverse proxy with a certificate from your own CA (e.g. Caddy's
+Plain HTTP on a trusted LAN works for every feature, including camera uploads. Use HTTPS when the app is reachable
+from outside your network or when you want the `Secure` session cookie. Options for a home network: a reverse proxy with a certificate from your own CA (e.g. Caddy's
 internal CA, trusted on your phones), or a real domain with a DNS-01 certificate. Camera uploads do not need HTTPS.
 
 ## Security
@@ -136,8 +135,7 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
   object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
   ```
 
-  No inline scripts, no inline styles, no third-party hosts. `blob:` is needed for client-side photo shrinking. The
-  service worker is an external script from the same origin, so it fits this policy unchanged.
+  No inline scripts, no inline styles, no third-party hosts. `blob:` is needed for client-side photo shrinking.
 * **CSRF:** every state-changing request (forms and fetch calls, including bulk actions, lending and duplicating)
   needs the per-session token; an expired token shows a friendly page (status 419) and changes nothing.
 * **SQL:** prepared statements everywhere; dynamic parts (sort columns, table names in backups) come from fixed
@@ -148,9 +146,6 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
 * **Backups:** strict entry-name, size and schema validation before anything is written (see above).
 * **Password:** `APP_PASSWORD` is compared in constant time; a wrong password costs 0.4 s; the session id is
   regenerated on sign-in and sign-out.
-* **Offline caches:** the service worker keeps the last seen list/item pages and thumbnails in the browser's Cache
-  Storage; signing out deletes them. Backups, CSV, sign-in pages, JSON calls and POSTs are never cached. `/sw.js` and
-  `/offline` are public but contain no data.
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and set `APP_PASSWORD`.
 
 ## Monitoring and logs
