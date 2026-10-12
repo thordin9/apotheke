@@ -7,17 +7,20 @@ declare(strict_types=1);
 
 const APP_NAME   = 'Apotheke';
 const APP_TAGLINE = 'the storehouse for your stuff';
-const MAX_UPLOAD = 20 * 1024 * 1024;   // bytes, server-side hard limit
-const FULL_MAX   = 1600;               // px, longest side of stored image
-const THUMB_MAX  = 480;                // px, longest side of thumbnail
-const PAGE_SIZE  = 60;
 
-define('DATA_DIR', rtrim((string)(getenv('DATA_DIR') ?: dirname(__DIR__) . '/data'), '/'));
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db.php';
+
+define('MAX_UPLOAD', cfg()['uploads']['max_mb'] * 1024 * 1024);   // bytes, server-side hard limit
+define('FULL_MAX', cfg()['uploads']['full_max']);                 // px, longest side of stored image
+define('THUMB_MAX', cfg()['uploads']['thumb_max']);               // px, longest side of thumbnail
+define('PAGE_SIZE', cfg()['page_size']);
+define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
 define('THUMB_DIR', DATA_DIR . '/thumbs');
 define('SESS_DIR', DATA_DIR . '/sessions');
 
-date_default_timezone_set((string)(getenv('TZ') ?: 'UTC'));
+date_default_timezone_set(cfg()['timezone']);
 mb_internal_encoding('UTF-8');
 
 foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, SESS_DIR] as $dir) {
@@ -61,7 +64,7 @@ function init_session(): void
 
 function app_password(): string
 {
-    return (string)(getenv('APP_PASSWORD') ?: '');
+    return cfg()['app_password'];
 }
 
 function is_authed(): bool
@@ -101,133 +104,6 @@ function check_csrf(): void
     if (csrf_token() === '' || !hash_equals(csrf_token(), $sent)) {
         throw new UserError('Your session expired. Reload the page and try again.', 419);
     }
-}
-
-/* ---------- database ---------- */
-
-function db(): PDO
-{
-    static $pdo = null;
-    if ($pdo instanceof PDO) return $pdo;
-    $pdo = new PDO('sqlite:' . DATA_DIR . '/catalog.sqlite', null, null, [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
-    $pdo->exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
-    migrate($pdo);
-    return $pdo;
-}
-
-const SCHEMA_VERSION = 3;
-
-function migrate(PDO $pdo): void
-{
-    // Natural, case/accent-insensitive ordering: "box 2" < "box 10".
-    $pdo->sqliteCreateCollation('NATSORT', static fn(string $a, string $b): int => strnatcmp(fold($a), fold($b)));
-
-    $v = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-    if ($v >= SCHEMA_VERSION) return;
-
-    if ($v >= 1) {
-        // Safety net: snapshot the existing database before restructuring it.
-        if (!glob(DATA_DIR . '/catalog-v' . $v . '-backup-*.sqlite')) {
-            $pdo->exec('VACUUM INTO ' . $pdo->quote(DATA_DIR . '/catalog-v' . $v . '-backup-' . gmdate('Ymd-His') . '.sqlite'));
-        }
-    }
-
-    $pdo->exec('BEGIN IMMEDIATE');   // take the write lock up front so concurrent first requests serialise
-    try {
-        // Re-check inside the write transaction (another request may have migrated meanwhile).
-        $v = (int)$pdo->query('PRAGMA user_version')->fetchColumn();
-        if ($v < 2) migrate_to_v2($pdo, $v);
-        if ($v < 3) migrate_to_v3($pdo);
-        $pdo->exec('PRAGMA user_version = ' . SCHEMA_VERSION);
-        $pdo->exec('COMMIT');
-    } catch (Throwable $e) {
-        $pdo->exec('ROLLBACK');
-        throw $e;
-    }
-}
-
-/** v0/v1 → v2: managed locations table; items.location (text) → items.location_id. */
-function migrate_to_v2(PDO $pdo, int $v): void
-{
-
-    $pdo->exec(<<<SQL
-        CREATE TABLE IF NOT EXISTS locations (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT    NOT NULL,
-            name_key   TEXT    NOT NULL UNIQUE,   -- fold(name): case/accent-insensitive uniqueness
-            is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
-            created_at TEXT    NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_one_default ON locations(is_default) WHERE is_default = 1;
-
-        CREATE TABLE items_v2 (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            name        TEXT    NOT NULL,
-            location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
-            quantity    INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 0),
-            notes       TEXT    NOT NULL DEFAULT '',
-            image       TEXT,
-            search      TEXT    NOT NULL DEFAULT '',  -- fold(name + notes)
-            created_at  TEXT    NOT NULL,
-            updated_at  TEXT    NOT NULL
-        );
-    SQL);
-
-    if ($v === 1) {
-        // v1 stored free-text locations on items: turn them into rows, dedupe case-insensitively, link items.
-        $ins = $pdo->prepare('INSERT OR IGNORE INTO locations (name, name_key, created_at) VALUES (?,?,?)');
-        $ids = [];
-        $rows = $pdo->query('SELECT id, name, location, quantity, notes, image, created_at, updated_at FROM items ORDER BY id')->fetchAll();
-        foreach ($rows as $r) {
-            $name = clean_line((string)$r['location'], 120);
-            if ($name === '') continue;
-            $key = fold($name);
-            if (!isset($ids[$key])) {
-                $ins->execute([$name, $key, $r['created_at']]);
-                $st = $pdo->prepare('SELECT id FROM locations WHERE name_key = ?');
-                $st->execute([$key]);
-                $ids[$key] = (int)$st->fetchColumn();
-                $st->closeCursor();   // an open read cursor would block DROP TABLE below
-            }
-        }
-        $copy = $pdo->prepare('INSERT INTO items_v2 (id, name, location_id, quantity, notes, image, search, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)');
-        foreach ($rows as $r) {
-            $name = clean_line((string)$r['location'], 120);
-            $copy->execute([$r['id'], $r['name'], $name === '' ? null : $ids[fold($name)], $r['quantity'], $r['notes'], $r['image'],
-                            fold($r['name'] . "\n" . $r['notes']), $r['created_at'], $r['updated_at']]);
-        }
-        $pdo->exec('DROP TABLE items');
-    } else {
-        $pdo->exec('DROP TABLE IF EXISTS items');
-    }
-
-    $pdo->exec(<<<SQL
-        ALTER TABLE items_v2 RENAME TO items;
-        CREATE INDEX idx_items_location ON items(location_id);
-        CREATE INDEX idx_items_name     ON items(name COLLATE NOCASE);
-        CREATE INDEX idx_items_updated  ON items(updated_at);
-        PRAGMA user_version = 2;
-    SQL);
-}
-
-/** v2 → v3: managed categories table + items.category_id. */
-function migrate_to_v3(PDO $pdo): void
-{
-    $pdo->exec(<<<SQL
-        CREATE TABLE IF NOT EXISTS categories (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT    NOT NULL,
-            name_key   TEXT    NOT NULL UNIQUE,   -- fold(name): case/accent-insensitive uniqueness
-            is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0,1)),
-            created_at TEXT    NOT NULL
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_one_default ON categories(is_default) WHERE is_default = 1;
-        ALTER TABLE items ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL;
-        CREATE INDEX idx_items_category ON items(category_id);
-    SQL);
 }
 
 /* ---------- helpers ---------- */
@@ -272,9 +148,16 @@ function clean_line(string $s, int $max): string
     return mb_substr($s, 0, $max);
 }
 
+/** Natural-sort key: folded text with every number zero-padded ("box 2" < "box 10"); portable ORDER BY. */
+function natkey(string $s): string
+{
+    return mb_substr((string)preg_replace_callback('/\d+/', static fn($m) => str_pad(ltrim($m[0], '0') ?: '0', 12, '0', STR_PAD_LEFT), fold(trim($s))), 0, 400);
+}
+
 function like_escape(string $s): string
 {
-    return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $s);
+    // '!' as escape char: a backslash inside a SQL literal confuses PDO's placeholder parser on PHP < 8.4 (pgsql)
+    return str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $s);
 }
 
 function wants_json(): bool

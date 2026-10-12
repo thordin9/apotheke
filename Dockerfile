@@ -5,12 +5,12 @@ LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Stathis Papandreou"
 
-# GD (JPEG/PNG/WebP), EXIF (photo orientation), OPcache. pdo_sqlite ships with the official image.
+# GD (JPEG/PNG/WebP), EXIF (photo orientation), OPcache, pdo_pgsql (PostgreSQL). pdo_sqlite ships with the official image.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev libwebp-dev; \
+    apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev libwebp-dev libpq-dev; \
     docker-php-ext-configure gd --with-jpeg --with-webp; \
-    docker-php-ext-install -j"$(nproc)" gd exif opcache; \
+    docker-php-ext-install -j"$(nproc)" gd exif opcache pdo_pgsql; \
     php -m | grep -qi pdo_sqlite; \
     rm -rf /var/lib/apt/lists/*; \
     a2enmod headers expires; \
@@ -23,6 +23,9 @@ RUN chmod +x /usr/local/bin/apotheke-entrypoint && a2ensite apotheke
 
 COPY --chown=root:root public /var/www/app/public
 COPY --chown=root:root src /var/www/app/src
+COPY --chown=root:root migrations /var/www/app/migrations
+COPY --chown=root:root bin /var/www/app/bin
+COPY --chown=root:root config.example.php /var/www/app/config.example.php
 
 ENV DATA_DIR=/data \
     APP_PASSWORD="" \

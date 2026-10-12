@@ -1,7 +1,7 @@
 # Contributing to Apotheke
 
-Thanks for helping out! Apotheke is deliberately small: plain PHP 8.3, SQLite and GD,
-no framework, no Composer dependencies, no JS build step. Please keep it that way.
+Thanks for helping out! Apotheke is deliberately small: plain PHP 8.2+, SQLite or PostgreSQL via PDO, and GD.
+No framework, no Composer *runtime* dependencies (PHPUnit is dev-only), no JS build step. Please keep it that way.
 
 ## Running the tests
 
@@ -28,6 +28,25 @@ To smoke-test a running instance (e.g. the Docker container):
 docker compose up -d --build
 scripts/smoke.sh http://127.0.0.1:8080
 ```
+
+### PHPUnit and PostgreSQL
+
+```bash
+composer install
+vendor/bin/phpunit                                   # SQLite
+DB_DRIVER=pgsql TEST_PG_PASSWORD=secret vendor/bin/phpunit   # PostgreSQL (TEST_PG_HOST/PORT/DB/USER)
+vendor/bin/phpunit --coverage-html coverage/html     # needs pcov or xdebug
+```
+
+A quick throwaway PostgreSQL: `docker run --rm -p 5432:5432 -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=apotheke postgres:17`.
+
+### Writing a migration
+
+Add `migrations/NNNN_short_name.php` with the next number. Return either `['sqlite' => 'SQL…', 'pgsql' => 'SQL…']`
+or `static function (PDO $pdo, string $driver): void { … }`. Never edit a migration that has been released; add a new one.
+Keep queries portable: compare against PHP-folded columns (`name_key`, `search`) with `LIKE … ESCAPE '!'` (see `like_escape()`; avoid backslashes in SQL literals, which trip PDO's placeholder parser on PHP < 8.4), sort by
+`sort_key`, use `CASE` instead of boolean sums, and use `db_insert()` / `db_local_bucket()` for the dialect-specific bits.
+Add tests to `tests/Unit/MigrationRunnerTest.php` and, if data changes, to the legacy section of `tests/integration.php`.
 
 ## Commit messages
 

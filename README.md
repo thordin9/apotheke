@@ -72,15 +72,29 @@ Before upgrading, the app saves a snapshot `data/catalog-v<old version>-backup-<
 **Backup:** copy the `data/` folder. For a perfectly consistent copy while the app is running, use
 `sqlite3 data/catalog.sqlite ".backup backup.sqlite"` or stop the container first.
 
-### Options (environment variables)
+### Configuration
 
-| Variable       | Default         | Meaning |
-|----------------|-----------------|---------|
-| `APP_PASSWORD` | *(empty)*       | If set, a single password is needed to open the app. Empty means no login (fine on a trusted LAN). |
-| `TZ`           | `Europe/Athens` | Time zone used to show created/updated times. |
-| `DATA_DIR`     | `/data`         | Where the database and images live inside the container. |
+Settings come from three layers (later wins): built-in defaults → `config.php` → environment variables.
+For Docker, environment variables (or a `.env` file next to `docker-compose.yml`) are the easy way. Without Docker, copy
+[`config.example.php`](config.example.php) to `config.php` (git-ignored) and edit it. Empty environment variables are ignored,
+so they never wipe a value set in `config.php`.
 
-Put these in a `.env` file next to `docker-compose.yml`, for example:
+| Variable | Default | Meaning |
+|---|---|---|
+| `APP_PASSWORD` | *(empty)* | If set, a single password is needed to open the app. Empty means no login (fine on a trusted LAN). |
+| `TZ` | `UTC` (`Europe/Athens` in compose) | Time zone for dates and statistics. |
+| `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
+| `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
+| `SQLITE_PATH` | `<DATA_DIR>/catalog.sqlite` | SQLite database file. |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `127.0.0.1` / `5432` / `apotheke` / `apotheke` / *(empty)* | PostgreSQL connection. |
+| `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema (created if missing). |
+| `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. |
+| `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
+| `PAGE_SIZE` | `60` | Items per page. |
+| `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
+| `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
+
+Example `.env`:
 
 ```
 APP_PASSWORD=change-me
@@ -88,6 +102,48 @@ TZ=Europe/Athens
 ```
 
 then run `docker compose up -d` again. To use a different port, change `"8080:80"` in `docker-compose.yml`.
+
+### PostgreSQL (optional)
+
+SQLite is the default and needs nothing extra. To use PostgreSQL with the bundled container, put this in `.env`:
+
+```
+DB_DRIVER=pgsql
+DB_PASSWORD=a-strong-password
+```
+
+and start with the `postgres` profile:
+
+```bash
+docker compose --profile postgres up -d --build
+```
+
+Its data lives in `./data/postgres`. To use an existing server instead, set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD`, and leave the profile off.
+Photos always stay in `DATA_DIR`, whichever database you use.
+
+### Database migrations & seed data
+
+The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table.
+Pending migrations run **automatically on the first request** (in one transaction, under a lock), or explicitly:
+
+```bash
+php bin/migrate.php            # apply pending migrations
+php bin/migrate.php --status   # show applied / pending
+docker compose exec apotheke php /var/www/app/bin/migrate.php --status
+```
+
+**Upgrading from an older version:** an existing SQLite database (schema v1, v2 or v3) is first copied to
+`data/catalog-vN-backup-<date>.sqlite`, then converted and adopted into the migration system. No data is lost, and if any step
+fails, the whole upgrade is rolled back.
+
+On a **brand-new** database, Apotheke adds a starter set of locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and
+categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby). Turn this off with `SEED_DEFAULTS=false`. Rename or delete
+any of them freely, since seeding only ever runs once. Seeding is idempotent and can be run by hand:
+
+```bash
+php bin/seed.php          # starter locations/categories (skips names that already exist)
+php bin/seed.php --demo   # plus a few demo items with generated photos
+```
 
 ### Update
 
@@ -101,9 +157,17 @@ Replace the app files (keep `data/`), then `docker compose up -d --build`.
 
 ## Tests
 
+Two layers, both runnable without Docker:
+
 ```bash
-tests/run.sh   # lint (php -l, node --check, shellcheck) + integration tests (no Composer)
+tests/run.sh                    # lint (php -l, node --check, shellcheck) + HTTP integration suite on SQLite. No Composer needed
+composer install                # dev only: PHPUnit
+vendor/bin/phpunit              # unit tests (config, migration runner, repositories, search normalisation) + HTTP suite
+DB_DRIVER=pgsql TEST_PG_PASSWORD=… vendor/bin/phpunit   # same against PostgreSQL (TEST_PG_HOST/PORT/DB/USER, defaults 127.0.0.1/5432/apotheke/apotheke)
 ```
+
+On PostgreSQL, every test uses its own throwaway schema. CI runs the whole matrix (SQLite + PostgreSQL service container), uploads
+a coverage report artifact, builds the Docker image and smoke-tests it against both databases.
 
 Optional headless mobile checks (filter sheet, theme switch, overflow at 375 and 390 px wide) need Node and Chrome:
 
@@ -116,7 +180,7 @@ node tests/e2e/mobile.mjs http://127.0.0.1:8080
 
 ## Run without Docker (development)
 
-Needs PHP 8.1+ with `pdo_sqlite`, `gd` (and ideally `exif`, `mbstring`):
+Needs PHP 8.2+ with `gd`, `mbstring` and `pdo_sqlite` or `pdo_pgsql` (ideally also `exif`). Optionally `cp config.example.php config.php` and edit it.
 
 ```bash
 php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:8080 -t public public/index.php
@@ -135,20 +199,26 @@ Data goes to `./data` (or set `DATA_DIR=/some/path`).
 ## Files
 
 ```
-Dockerfile              php:8.3-apache + gd, exif, opcache (pdo_sqlite built in)
-docker-compose.yml      port 8080, ./data volume
-docker/apache.conf      vhost: docroot public/, FallbackResource router, caching
-docker/php.ini          upload limits (20M/22M), opcache
-docker/entrypoint.sh    creates data dirs and fixes ownership for www-data
-public/index.php        front controller / routes
-public/assets/          app.css, app.js, icons
-public/manifest.webmanifest
-src/bootstrap.php       config, SQLite (auto schema + migrations), sessions, auth, CSRF, helpers
-src/items.php           item, location and category queries, search, statistics, image processing (GD)
-src/views.php           HTML templates
-tests/run.sh            lint + integration tests
-tests/integration.php   end-to-end tests (fresh install, items, locations, categories, auth, migrations)
-tests/lib.php           tiny test harness (built-in server, HTTP client, assertions)
+Dockerfile                 php:8.3-apache + gd, exif, opcache, pdo_pgsql (pdo_sqlite built in)
+docker-compose.yml         port 8080, ./data volume, optional "postgres" profile
+config.example.php         all settings (copy to config.php; env vars override)
+bin/migrate.php            run / inspect migrations
+bin/seed.php               starter data (+ --demo items)
+migrations/NNNN_*.php      versioned schema steps (SQL per dialect, or a PHP closure)
+docker/                    apache vhost, php.ini, entrypoint
+public/index.php           front controller / routes
+public/assets/             app.css, app.js, theme.js, icons
+src/config.php             config loader (defaults < config.php < env)
+src/db.php                 PDO connection (SQLite/PostgreSQL), dialect helpers, migration runner
+src/legacy.php             one-time upgrade of pre-migration SQLite installs (v1–v3)
+src/seed.php               idempotent starter/demo seeding
+src/bootstrap.php          sessions, auth, CSRF, helpers
+src/items.php              item, location and category queries, search, statistics, image processing (GD)
+src/views.php              HTML templates
+tests/run.sh               lint + HTTP integration suite (no Composer)
+tests/integration.php      end-to-end HTTP tests (SQLite or PostgreSQL via TEST_DB_DRIVER)
+tests/Unit/, Integration/  PHPUnit suites
+tests/e2e/                 headless mobile checks (puppeteer-core, dev only)
 ```
 
 ## Development

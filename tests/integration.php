@@ -15,7 +15,7 @@ foreach (['pdo_sqlite', 'gd', 'mbstring'] as $ext) {
 $tmpDirs = [];
 register_shutdown_function(function () use (&$tmpDirs) {
     if (getenv('KEEP_TEST_DATA')) return;
-    foreach ($tmpDirs as $d) { rrmdir($d); @unlink($d . '.server.log'); }
+    foreach ($tmpDirs as $d) { rrmdir($d); @unlink($d . '.server.log'); try { testdb_drop($d); } catch (Throwable) {} }
 });
 $newDir = function (string $p) use (&$tmpDirs): string { return $tmpDirs[] = tmpdir('apotheke-' . $p); };
 $savedId = fn(array $r): int => preg_match('/saved=(\d+)/', (string)($r['json']['redirect'] ?? $r['headers']['location'] ?? ''), $m) ? (int)$m[1] : 0;
@@ -28,9 +28,11 @@ $c = $srv->client();
 $r = $c->get('/healthz');
 T::eq(200, $r['status'], 'GET /healthz → 200');
 T::eq('ok', $r['body'], '/healthz body is "ok"');
-T::ok(is_file("$dir/catalog.sqlite") && is_dir("$dir/images") && is_dir("$dir/thumbs") && is_dir("$dir/sessions"), 'data dir layout created (catalog.sqlite, images/, thumbs/, sessions/)');
-$db = sqlite("$dir/catalog.sqlite");
-T::eq(3, (int)$db->query('PRAGMA user_version')->fetchColumn(), 'schema version 3');
+T::ok((test_driver() === 'pgsql' || is_file("$dir/catalog.sqlite")) && is_dir("$dir/images") && is_dir("$dir/thumbs") && is_dir("$dir/sessions"), 'data dir layout created (catalog.sqlite, images/, thumbs/, sessions/)');
+$db = testdb($dir);
+T::eq(migration_versions(), $db->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN), 'all migrations recorded in schema_migrations');
+if (test_driver() === 'sqlite') T::eq(3, (int)$db->query('PRAGMA user_version')->fetchColumn(), 'legacy user_version 3 kept for older app versions');
+T::eq(0, (int)$db->query('SELECT COUNT(*) FROM locations')->fetchColumn() + (int)$db->query('SELECT COUNT(*) FROM categories')->fetchColumn(), 'no starter data when SEED_DEFAULTS=0');
 T::eq([], glob("$dir/catalog-v*-backup-*.sqlite"), 'no backup snapshot on fresh install');
 $r = $c->get('/');
 T::eq(200, $r['status'], 'list page renders');
@@ -203,7 +205,7 @@ T::eq(0, (int)$db->query('SELECT COUNT(*) FROM categories WHERE is_default = 1')
 $c->post('/locations/' . $ids['loc']['Κουτί 5'] . '/delete', ['csrf' => $tok, 'action' => 'unassign']);
 T::eq(null, $db->query("SELECT location_id FROM items WHERE id = $plug")->fetchColumn(), 'delete location + unassign keeps the item');
 T::eq(6, (int)$db->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'no items lost');
-T::eq([], $db->query('PRAGMA foreign_key_check')->fetchAll(), 'foreign keys consistent');
+if (test_driver() === 'sqlite') T::eq([], $db->query('PRAGMA foreign_key_check')->fetchAll(), 'foreign keys consistent');
 
 T::section('Overview statistics');
 $r = $c->get('/stats');
@@ -318,6 +320,26 @@ T::eq(303, $pc->get('/')['status'], 'signed out again');
 $ps->stop();
 
 /* ======================================================================= */
+T::section('Seeding on first use (SEED_DEFAULTS=1)');
+$sd = $newDir('seed');
+$ss = new Server($sd, ['SEED_DEFAULTS' => '1']);
+T::eq(200, $ss->client()->get('/')['status'], 'fresh install with seeding starts');
+$sp = testdb($sd);
+T::eq(['Attic', 'Basement', 'Box 1', 'Garage', 'Kitchen', 'Living room'], $sp->query('SELECT name FROM locations ORDER BY name')->fetchAll(PDO::FETCH_COLUMN), 'starter locations');
+T::eq(6, (int)$sp->query('SELECT COUNT(*) FROM categories')->fetchColumn(), 'starter categories');
+T::eq('Box 1', $sp->query('SELECT name FROM locations WHERE is_default = 1')->fetchColumn(), 'one default location');
+T::eq('General', $sp->query('SELECT name FROM categories WHERE is_default = 1')->fetchColumn(), 'one default category');
+$sc = $ss->client(); $st = $sc->csrf();
+$sc->post('/locations/' . (int)$sp->query("SELECT id FROM locations WHERE name = 'Attic'")->fetchColumn() . '/delete', ['csrf' => $st, 'action' => 'unassign']);
+$ss->stop();
+$ss = new Server($sd, ['SEED_DEFAULTS' => '1']);
+$ss->client()->get('/');
+T::eq(5, (int)$sp->query('SELECT COUNT(*) FROM locations')->fetchColumn(), 'seeding runs once: a deleted starter location stays deleted after restart');
+$ss->stop();
+
+if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
+
+/* ======================================================================= */
 T::section('Migration v1 → v3 (free-text locations)');
 $m1 = $newDir('v1');
 $p = sqlite("$m1/catalog.sqlite");
@@ -337,6 +359,9 @@ $ms = new Server($m1);
 T::eq(200, $ms->client()->get('/')['status'], 'app starts on v1 database');
 $p = sqlite("$m1/catalog.sqlite");
 T::eq(3, (int)$p->query('PRAGMA user_version')->fetchColumn(), 'upgraded to v3');
+T::eq(migration_versions(), $p->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN), 'adopted into schema_migrations, later migrations applied');
+T::ok(str_contains((string)$p->query("SELECT name FROM schema_migrations WHERE version = '0001'")->fetchColumn(), 'legacy v1'), '0001 marked as adopted from legacy v1');
+T::eq(0, (int)$p->query("SELECT COUNT(*) FROM locations WHERE sort_key = ''")->fetchColumn(), 'sort keys back-filled');
 T::eq(['box 1023', 'box 10', 'Κουτί 5'], $p->query('SELECT name FROM locations ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'locations de-duplicated (trim, case, spacing, accents)');
 T::eq(['Drill' => 'box 1023', 'Lego' => 'box 1023', 'Lamp' => 'box 1023', 'Tent' => 'box 10', 'Πρίζα' => 'Κουτί 5', 'Καλώδιο' => 'Κουτί 5', 'Loose' => null],
     $p->query('SELECT i.name, l.name AS l FROM items i LEFT JOIN locations l ON l.id = i.location_id ORDER BY i.id')->fetchAll(PDO::FETCH_KEY_PAIR), 'every item linked (blank → unassigned)');
@@ -379,6 +404,8 @@ T::eq(1, (int)$p->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'catego
 T::eq(['Thing 1' => 'attic', 'Thing 2' => 'box 1023', 'Thing 3' => null], $p->query('SELECT i.name, l.name FROM items i LEFT JOIN locations l ON l.id = i.location_id ORDER BY i.id')->fetchAll(PDO::FETCH_KEY_PAIR), 'items keep their locations');
 T::eq('attic', $p->query('SELECT name FROM locations WHERE is_default = 1')->fetchColumn(), 'default location kept');
 T::eq(1, count(glob("$m2/catalog-v2-backup-*.sqlite")), 'v2 backup snapshot written');
+T::eq(3, (int)sqlite(glob("$m2/catalog-v2-backup-*.sqlite")[0])->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'backup holds the original rows');
+T::eq(0, (int)$p->query('SELECT COUNT(*) FROM locations')->fetchColumn() - 2, 'legacy upgrade does not add starter data');
 $mt = $mc->csrf();
 $r = $mc->api('/save', ['csrf' => $mt, 'name' => 'New', 'location_id' => '1', 'category_id' => '__new', 'new_category' => 'Books']);
 T::ok($r['status'] === 200, 'can create categorized items after upgrade');
@@ -392,7 +419,7 @@ T::eq(500, $ms->client()->get('/')['status'], 'failing upgrade → 500 error pag
 $ms->stop();
 $p = sqlite("$mr/catalog.sqlite");
 T::eq(2, (int)$p->query('PRAGMA user_version')->fetchColumn(), 'database left at v2');
-T::eq(0, (int)$p->query("SELECT COUNT(*) FROM sqlite_master WHERE name = 'categories'")->fetchColumn(), 'partial changes rolled back');
+T::eq(0, (int)$p->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('categories', 'schema_migrations')")->fetchColumn(), 'partial changes rolled back (no categories, no schema_migrations)');
 T::eq(3, (int)$p->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'no items lost');
 
 exit(T::summary());

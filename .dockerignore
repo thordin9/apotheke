@@ -6,3 +6,8 @@ data/
 docker-compose.yml
 .env
 .DS_Store
+vendor/
+tests/
+config.php
+coverage/
+.phpunit.cache/

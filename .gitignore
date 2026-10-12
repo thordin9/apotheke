@@ -3,3 +3,7 @@ data/
 /screenshots/
 *.zip
 tests/e2e/node_modules/
+vendor/
+.phpunit.cache/
+/config.php
+coverage/
