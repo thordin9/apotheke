@@ -93,7 +93,7 @@ jobs:
           path: coverage/
           if-no-files-found: ignore
 
-  e2e:
+  mobile-checks:
     name: Headless mobile checks
     runs-on: ubuntu-latest
     steps:
@@ -122,6 +122,50 @@ jobs:
       - name: Server log
         if: always()
         run: cat /tmp/e2e-server.log || true
+
+  e2e:
+    name: Visual E2E (Playwright, shard ${{ matrix.shard }}/3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Same image as scripts/update-snapshots.sh, so screenshots match the committed baselines pixel for pixel.
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble
+      options: --ipc=host
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: apotheke
+          POSTGRES_PASSWORD: apotheke
+          POSTGRES_DB: apotheke
+        options: >-
+          --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: '1'
+      HOME: /root
+      TEST_PG_HOST: postgres
+      TEST_PG_PASSWORD: apotheke
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PHP 8.3 (same packages as scripts/update-snapshots.sh)
+        run: scripts/e2e-container-setup.sh
+      - name: Install Playwright test runner
+        run: npm ci --no-audit --no-fund
+      - name: Run Playwright
+        run: npx playwright test --shard=${{ matrix.shard }}/3
+      - name: Upload HTML report, traces and screenshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: |
+            tests/visual/report/
+            tests/visual/results/
+          retention-days: 14
 
   docker:
     name: Docker build + smoke test
