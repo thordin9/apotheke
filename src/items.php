@@ -87,19 +87,22 @@ function tax_set_default(string $kind, int $id, bool $on): void
 function tax_delete(string $kind, int $id, ?int $moveTo): int
 {
     $t = tax($kind);
-    $pdo = db();
-    $pdo->beginTransaction();
-    try {
+    return db_tx(function (PDO $pdo) use ($t, $kind, $id, $moveTo): int {
+        $from = (string)(tax_get($kind, $id)['name'] ?? '');
+        $to = $moveTo !== null ? (string)(tax_get($kind, $moveTo)['name'] ?? '') : '';
+        $sel = $pdo->prepare("SELECT id, name FROM items WHERE {$t['col']} = ?");
+        $sel->execute([$id]);
+        foreach ($sel->fetchAll() as $it) {
+            $kind === 'location'
+                ? activity_log((int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
+                : activity_log((int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
+        }
         $st = $pdo->prepare("UPDATE items SET {$t['col']} = ?, updated_at = ? WHERE {$t['col']} = ?");
         $st->execute([$moveTo, now_utc(), $id]);
         $n = $st->rowCount();
         $pdo->prepare("DELETE FROM {$t['table']} WHERE id = ?")->execute([$id]);
-        $pdo->commit();
         return $n;
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
+    });
 }
 
 // Short aliases used by views/router.
@@ -108,7 +111,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.notes, i.image, i.value_cents, i.purchase_date, i.serial, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -119,12 +122,101 @@ function item_get(int $id): ?array
     if (!$row) return null;
     $row['location'] = (string)($row['location'] ?? '');
     $row['category'] = (string)($row['category'] ?? '');
+    $row['value_cents'] = $row['value_cents'] === null ? null : (int)$row['value_cents'];
+    $row['serial'] = (string)($row['serial'] ?? '');
+    $row['tags'] = tags_for((int)$row['id']);
     return $row;
 }
 
-function search_blob(string $name, string $notes): string
+function search_blob(string $name, string $notes, string $serial = '', array $tags = []): string
 {
-    return fold($name . "\n" . $notes);
+    return fold(implode("\n", array_merge([$name, $notes, $serial], $tags)));
+}
+
+/* ---------- tags ---------- */
+
+/** @return array<int,array{id:int,name:string}> */
+function tags_for(int $itemId): array
+{
+    $st = db()->prepare('SELECT t.id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ? ORDER BY t.sort_key, t.id');
+    $st->execute([$itemId]);
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'name' => (string)$r['name']], $st->fetchAll());
+}
+
+/** All tags that are in use, with item counts. */
+function tags_all(): array
+{
+    return db()->query('SELECT t.id, t.name, COUNT(it.item_id) AS n FROM tags t JOIN item_tags it ON it.tag_id = t.id GROUP BY t.id, t.name, t.sort_key ORDER BY t.sort_key, t.id')->fetchAll();
+}
+
+/** Split "a, b; c" (or an array) into clean, de-duplicated tag names (case/accent-insensitive). */
+function tags_parse(string|array $in): array
+{
+    $parts = is_array($in) ? $in : preg_split('/[,;\n]+/u', $in);
+    $out = [];
+    foreach ($parts ?: [] as $p) {
+        $p = ltrim(clean_line((string)$p, 40), '#');
+        if ($p === '') continue;
+        $out[fold($p)] ??= $p;
+    }
+    if (count($out) > 20) throw new UserError('An item can have at most 20 tags.');
+    return array_values($out);
+}
+
+/** Replace an item's tags; creates missing tags, drops tags no item uses any more. */
+function tags_set(int $itemId, array $names): void
+{
+    $pdo = db();
+    $ids = [];
+    $find = $pdo->prepare('SELECT id FROM tags WHERE name_key = ?');
+    foreach ($names as $n) {
+        $find->execute([fold($n)]);
+        $tid = $find->fetchColumn();
+        $ids[] = $tid !== false ? (int)$tid
+            : db_insert($pdo, 'INSERT INTO tags (name, name_key, sort_key, created_at) VALUES (?,?,?,?)', [$n, fold($n), natkey($n), now_utc()]);
+    }
+    $pdo->prepare('DELETE FROM item_tags WHERE item_id = ?')->execute([$itemId]);
+    $ins = $pdo->prepare('INSERT INTO item_tags (item_id, tag_id) VALUES (?,?)');
+    foreach (array_unique($ids) as $tid) $ins->execute([$itemId, $tid]);
+    $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+}
+
+/* ---------- custom fields ---------- */
+
+/** "12.5", "1,234.50", "1.234,50", "€ 12" → cents; '' → null. */
+function parse_money(string $s): ?int
+{
+    $s = preg_replace('/[\p{Sc}\s]+/u', '', $s) ?? '';
+    if ($s === '') return null;
+    if (preg_match('/^(\d{1,3}(?:([.,])\d{3})*|\d+)(?:([.,])(\d{1,2}))?$/D', $s, $m) !== 1 || (($m[2] ?? '') !== '' && ($m[2] ?? '') === ($m[3] ?? ''))) {
+        throw new UserError('Value must be a number like 49.90.');
+    }
+    if (($m[2] ?? '') !== '' && !isset($m[4])) throw new UserError('Value is ambiguous – write it like 1234.50.');
+    $int = (int)preg_replace('/\D/', '', $m[1]);
+    $cents = $int * 100 + (isset($m[4]) ? (int)str_pad($m[4], 2, '0') : 0);
+    if ($cents > 100_000_000_000) throw new UserError('That value is too large.');
+    return $cents;
+}
+
+function fmt_money(?int $cents, ?string $currency = null): string
+{
+    if ($cents === null) return '';
+    return number_format($cents / 100, 2, '.', ',') . ' ' . ($currency ?? cfg()['currency']);
+}
+
+function money_input(?int $cents): string
+{
+    return $cents === null ? '' : number_format($cents / 100, 2, '.', '');
+}
+
+function parse_date_ymd(string $s): ?string
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $s);
+    if (!$d || $d->format('Y-m-d') !== $s || $s < '1900-01-01') throw new UserError('Purchase date must be a valid date (YYYY-MM-DD).');
+    if ($s > date('Y-m-d', time() + 86400)) throw new UserError('Purchase date cannot be in the future.');
+    return $s;
 }
 
 /** Normalise a filter value: '' = all, 'none' = unassigned, digits = id. */
@@ -135,10 +227,10 @@ function filter_value(mixed $v): string
 }
 
 /**
- * @param array{loc:string,cat:string} $f
+ * @param array{loc:string,cat:string,tag?:string} $f
  * @return array{items: array<int,array>, total: int, more: bool}
  */
-function items_search(string $q, array $f, string $sort, int $page): array
+function items_search(string $q, array $f, string $sort, int $page, int $pageSize = PAGE_SIZE): array
 {
     $where = [];
     $args  = [];
@@ -157,6 +249,10 @@ function items_search(string $q, array $f, string $sort, int $page): array
             $args[]  = (int)$v;
         }
     }
+    if (ctype_digit($f['tag'] ?? '')) {
+        $where[] = 'EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id = i.id AND it.tag_id = ?)';
+        $args[]  = (int)$f['tag'];
+    }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $order = match ($sort) {
         'name'     => 'i.sort_key ASC, i.id DESC',
@@ -170,9 +266,9 @@ function items_search(string $q, array $f, string $sort, int $page): array
     $total = (int)$st->fetchColumn();
 
     $page   = max(1, $page);
-    $offset = ($page - 1) * PAGE_SIZE;
+    $offset = ($page - 1) * $pageSize;
     $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.image "
-        . ITEM_FROM . " $w ORDER BY $order LIMIT " . PAGE_SIZE . " OFFSET $offset");
+        . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
     return ['items' => $items, 'total' => $total, 'more' => $offset + count($items) < $total];
@@ -192,39 +288,242 @@ function stats(): array
     return $r;
 }
 
-/** @param array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string} $in */
+/** Run $fn inside a transaction (joins an already open one). */
+function db_tx(callable $fn): mixed
+{
+    $pdo = db();
+    if ($pdo->inTransaction()) return $fn($pdo);
+    $pdo->beginTransaction();
+    try {
+        $r = $fn($pdo);
+        $pdo->commit();
+        return $r;
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+/* ---------- activity log (written inside the same transaction as the change) ---------- */
+
+const ACTIVITY_PAGE = 50;
+
+function activity_log(int $itemId, string $itemName, string $action, array $details = []): void
+{
+    db_insert(db(), 'INSERT INTO activity (item_id, item_name, action, details, created_at) VALUES (?,?,?,?,?)',
+        [$itemId, $itemName, $action, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), now_utc()]);
+}
+
+/** @return array<int,array{id:int,item_id:?int,item_name:string,action:string,details:array,created_at:string,exists:bool}> */
+function activity_list(?int $itemId = null, int $page = 1, int $per = ACTIVITY_PAGE): array
+{
+    $page = max(1, $page);
+    $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
+            FROM activity a LEFT JOIN items i ON i.id = a.item_id' . ($itemId !== null ? ' WHERE a.item_id = ?' : '')
+         . ' ORDER BY a.id DESC LIMIT ' . ($per + 1) . ' OFFSET ' . (($page - 1) * $per);
+    $st = db()->prepare($sql);
+    $st->execute($itemId !== null ? [$itemId] : []);
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'item_id' => $r['item_id'] === null ? null : (int)$r['item_id'], 'item_name' => (string)$r['item_name'],
+        'action' => (string)$r['action'], 'details' => json_decode((string)$r['details'], true) ?: [], 'created_at' => (string)$r['created_at'],
+        'exists' => (int)$r['item_exists'] === 1], $st->fetchAll());
+}
+
+function activity_short(?string $s): string
+{
+    $s = (string)$s;
+    return mb_strlen($s) > 200 ? mb_substr($s, 0, 199) . '…' : $s;
+}
+
+/**
+ * Create or update an item. $newImage (on edit) replaces the cover photo; $removeImage removes the cover
+ * (the next photo, if any, becomes the cover).
+ * @param array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string} $in
+ */
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $blob = search_blob($in['name'], $in['notes']);
-    if ($existing === null) {
-        return db_insert(db(), 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)',
-            [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $newImage, $blob, natkey($in['name']), $now, $now]);
-    }
-    $image = $existing['image'];
-    if ($newImage !== null || $removeImage) {
-        image_delete($image);
-        $image = $newImage;
-    }
-    $st = db()->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, image=?, search=?, sort_key=?, updated_at=? WHERE id=?');
-    $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $image, $blob, natkey($in['name']), $now, $existing['id']]);
-    return (int)$existing['id'];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => ''];
+    $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags']);
+    $drop = [];
+    $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
+        if ($existing === null) {
+            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
+            tags_set($id, $in['tags']);
+            if ($newImage !== null) photo_insert($id, $newImage, true);
+            activity_log($id, $in['name'], 'created', array_filter([
+                'location' => $in['location_id'] !== null ? (string)(tax_get('location', $in['location_id'])['name'] ?? '') : null,
+                'category' => $in['category_id'] !== null ? (string)(tax_get('category', $in['category_id'])['name'] ?? '') : null,
+                'quantity' => $in['quantity'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
+            ], fn($v) => $v !== null));
+            return $id;
+        }
+        $id = (int)$existing['id'];
+        $old = item_get($id) ?? $existing;
+        $nameOf = fn(string $k, ?int $v) => $v === null ? '' : (string)(tax_get($k, $v)['name'] ?? '');
+        $changes = [];
+        $cmp = [
+            'name'          => [$old['name'], $in['name']],
+            'category'      => [(string)$old['category'], $nameOf('category', $in['category_id'])],
+            'notes'         => [activity_short($old['notes']), activity_short($in['notes'])],
+            'value'         => [money_input($old['value_cents'] ?? null), money_input($in['value_cents'])],
+            'purchase_date' => [(string)($old['purchase_date'] ?? ''), (string)($in['purchase_date'] ?? '')],
+            'serial'        => [(string)($old['serial'] ?? ''), $in['serial']],
+            'tags'          => [implode(', ', array_column($old['tags'] ?? [], 'name')), implode(', ', $in['tags'])],
+        ];
+        foreach ($cmp as $k => [$a, $b]) if ($a !== $b) $changes[$k] = [$a, $b];
+        if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes]);
+        if ((int)$old['location_id'] !== (int)$in['location_id'] || ($old['location_id'] === null) !== ($in['location_id'] === null)) {
+            activity_log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])]);
+        }
+        if ((int)$old['quantity'] !== (int)$in['quantity']) activity_log($id, $in['name'], 'quantity', ['from' => (int)$old['quantity'], 'to' => (int)$in['quantity']]);
+        if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
+            activity_log($id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
+        }
+        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
+        tags_set($id, $in['tags']);
+        if ($newImage !== null || $removeImage) {
+            $cover = photos_for($id)[0] ?? null;
+            if ($cover) { $pdo->prepare('DELETE FROM item_photos WHERE id = ?')->execute([$cover['id']]); $drop[] = $cover['file']; }
+            if ($newImage !== null) photo_insert($id, $newImage, true);
+            photos_renumber($id);
+        }
+        return $id;
+    });
+    foreach ($drop as $f) image_delete($f);   // files only after the commit
+    return $id;
 }
 
 function item_delete(array $item): void
 {
-    db()->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
-    image_delete($item['image']);
+    $files = array_column(photos_for((int)$item['id']), 'file');
+    db_tx(function (PDO $pdo) use ($item): void {
+        activity_log((int)$item['id'], (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], fn($v) => $v !== ''));
+        $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
+        $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+    });
+    foreach (array_unique(array_merge($files, [$item['image']])) as $f) image_delete($f);
+}
+
+/* ---------- photos (many per item; position 0 = cover, mirrored in items.image) ---------- */
+
+const MAX_PHOTOS = 12;
+
+/** @return array<int,array{id:int,file:string,position:int}> */
+function photos_for(int $itemId): array
+{
+    $st = db()->prepare('SELECT id, file, position FROM item_photos WHERE item_id = ? ORDER BY position, id');
+    $st->execute([$itemId]);
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'file' => (string)$r['file'], 'position' => (int)$r['position']], $st->fetchAll());
+}
+
+function photo_insert(int $itemId, string $file, bool $asCover = false): int
+{
+    $pdo = db();
+    $st = $pdo->prepare('SELECT COALESCE(MAX(position), -1) FROM item_photos WHERE item_id = ?');
+    $st->execute([$itemId]);
+    $pos = $asCover ? -1 : (int)$st->fetchColumn() + 1;
+    $pid = db_insert($pdo, 'INSERT INTO item_photos (item_id, file, position, created_at) VALUES (?,?,?,?)', [$itemId, $file, $pos, now_utc()]);
+    photos_renumber($itemId);
+    return $pid;
+}
+
+/** Positions 0..n-1 in current order (optionally with $order = photo ids) and sync the cover into items.image. */
+function photos_renumber(int $itemId, ?array $order = null): void
+{
+    $pdo = db();
+    $ids = $order ?? array_column(photos_for($itemId), 'id');
+    $up = $pdo->prepare('UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?');
+    foreach (array_values($ids) as $i => $pid) $up->execute([$i, $pid, $itemId]);
+    $cover = photos_for($itemId)[0]['file'] ?? null;
+    $pdo->prepare('UPDATE items SET image = ? WHERE id = ?')->execute([$cover, $itemId]);
+}
+
+/** Add an uploaded photo (already stored by image_store) to an item. */
+function photo_add(int $itemId, string $file): int
+{
+    return db_tx(function () use ($itemId, $file): int {
+        if (count(photos_for($itemId)) >= MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.');
+        $pid = photo_insert($itemId, $file);
+        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
+        activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo', ['change' => 'added', 'count' => count(photos_for($itemId))]);
+        return $pid;
+    });
+}
+
+function photo_find(int $itemId, int $photoId): array
+{
+    foreach (photos_for($itemId) as $i => $p) if ($p['id'] === $photoId) return $p + ['index' => $i];
+    throw new UserError('Photo not found.', 404);
+}
+
+/** $action: cover | left | right | delete. Returns the photo's new index (or -1 when deleted). */
+function photo_action(int $itemId, int $photoId, string $action): int
+{
+    $drop = null;
+    $r = db_tx(function () use ($itemId, $photoId, $action, &$drop): int {
+        $p = photo_find($itemId, $photoId);
+        $ids = array_column(photos_for($itemId), 'id');
+        $i = $p['index'];
+        switch ($action) {
+            case 'cover': array_splice($ids, $i, 1); array_unshift($ids, $photoId); $new = 0; break;
+            case 'left':  $new = max(0, $i - 1); [$ids[$i], $ids[$new]] = [$ids[$new], $ids[$i]]; break;
+            case 'right': $new = min(count($ids) - 1, $i + 1); [$ids[$i], $ids[$new]] = [$ids[$new], $ids[$i]]; break;
+            case 'delete':
+                db()->prepare('DELETE FROM item_photos WHERE id = ?')->execute([$photoId]);
+                array_splice($ids, $i, 1);
+                $drop = $p['file'];
+                $new = -1;
+                break;
+            default: throw new UserError('Unknown photo action.', 404);
+        }
+        photos_renumber($itemId, $ids);
+        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
+        if ($new !== $i || $action === 'delete') {
+            activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo',
+                ['change' => ['cover' => 'cover', 'left' => 'reordered', 'right' => 'reordered', 'delete' => 'deleted'][$action], 'count' => count($ids)]);
+        }
+        return $new;
+    });
+    if ($drop !== null) image_delete($drop);
+    return $r;
+}
+
+/** All uploaded files from a multi-file field (photos[]) plus single fields. */
+function pick_uploads(array $fields): array
+{
+    $out = [];
+    foreach ($fields as $f) {
+        $file = $_FILES[$f] ?? null;
+        if (!is_array($file)) continue;
+        if (is_array($file['error'])) {
+            foreach ($file['error'] as $k => $err) {
+                if ($err === UPLOAD_ERR_NO_FILE) continue;
+                $out[] = ['name' => $file['name'][$k], 'type' => $file['type'][$k], 'tmp_name' => $file['tmp_name'][$k], 'error' => $err, 'size' => $file['size'][$k]];
+            }
+        } elseif ($file['error'] !== UPLOAD_ERR_NO_FILE) {
+            $out[] = $file;
+        }
+    }
+    return $out;
 }
 
 function item_adjust_qty(int $id, int $delta): ?int
 {
-    $st = db()->prepare('UPDATE items SET quantity = CASE WHEN quantity + ? < 0 THEN 0 ELSE quantity + ? END, updated_at = ? WHERE id = ?');
-    $st->execute([$delta, $delta, now_utc(), $id]);
-    if ($st->rowCount() === 0) return null;
-    $st = db()->prepare('SELECT quantity FROM items WHERE id = ?');
-    $st->execute([$id]);
-    return (int)$st->fetchColumn();
+    return db_tx(function (PDO $pdo) use ($id, $delta): ?int {
+        $st = $pdo->prepare('SELECT name, quantity FROM items WHERE id = ?');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if (!$row) return null;
+        $st = $pdo->prepare('UPDATE items SET quantity = CASE WHEN quantity + ? < 0 THEN 0 ELSE quantity + ? END, updated_at = ? WHERE id = ?');
+        $st->execute([$delta, $delta, now_utc(), $id]);
+        $st = $pdo->prepare('SELECT quantity FROM items WHERE id = ?');
+        $st->execute([$id]);
+        $q = (int)$st->fetchColumn();
+        if ($q !== (int)$row['quantity']) activity_log($id, (string)$row['name'], 'quantity', ['from' => (int)$row['quantity'], 'to' => $q]);
+        return $q;
+    });
 }
 
 /* ---------- images ---------- */

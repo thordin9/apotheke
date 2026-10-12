@@ -302,3 +302,33 @@ function migration_versions(): array
     sort($v);
     return $v;
 }
+
+/** Decode a QR <svg> produced by the app with zbarimg (null when zbarimg is not installed). */
+function qr_decode_svg(string $svg): ?string
+{
+    if (!trim((string)shell_exec('command -v zbarimg 2>/dev/null'))) return null;
+    if (!preg_match('/viewBox="0 0 (\d+) \d+"/', $svg, $vb) || !preg_match('/<path fill="#000" d="([^"]*)"/', $svg, $pm)) return '';
+    $n = (int)$vb[1]; $sc = 6;
+    $im = imagecreatetruecolor($n * $sc, $n * $sc);
+    imagefill($im, 0, 0, imagecolorallocate($im, 255, 255, 255));
+    $black = imagecolorallocate($im, 0, 0, 0);
+    preg_match_all('/M(\d+),(\d+)/', $pm[1], $mm, PREG_SET_ORDER);
+    foreach ($mm as [, $x, $y]) imagefilledrectangle($im, (int)$x * $sc, (int)$y * $sc, ((int)$x + 1) * $sc - 1, ((int)$y + 1) * $sc - 1, $black);
+    $f = tempnam(sys_get_temp_dir(), 'qr') . '.png';
+    imagepng($im, $f);
+    $out = (string)shell_exec('zbarimg -q --raw ' . escapeshellarg($f) . ' 2>/dev/null');
+    @unlink($f);
+    return rtrim($out, "\n");
+}
+
+/** Item ids of the cards in a list HTML fragment, in order. */
+function ids_from_html(string $html): array
+{
+    preg_match_all('#<article class="card" data-id="(\d+)"#', $html, $m);
+    return array_map('intval', $m[1]);
+}
+
+function item_exists_in(PDO $db, int $id): bool
+{
+    return (int)$db->query("SELECT COUNT(*) FROM items WHERE id = $id")->fetchColumn() === 1;
+}

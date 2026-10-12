@@ -16,6 +16,7 @@ if (PHP_SAPI === 'cli-server' && $path !== '/' && is_file(__DIR__ . $path) && !s
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/views.php';
+require dirname(__DIR__) . '/src/backup.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -90,13 +91,13 @@ try {
     /* ---- list / search ---- */
     if ($path === '/' && $method === 'GET') {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
-        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? '')];
+        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : ''];
         $sort = (string)($_GET['sort'] ?? 'recent');
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items']), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== ''), 'more' => $res['more'], 'page' => $page,
+                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== ''), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
         header('Cache-Control: no-store');
@@ -115,7 +116,7 @@ try {
             return ctype_digit($v) && tax_get($kind, (int)$v) ? (int)$v : tax_default_id($kind);
         };
         $vals = ['name' => '', 'location_id' => $pick('location'), 'new_location' => '', 'category_id' => $pick('category'), 'new_category' => '',
-                 'quantity' => 1, 'notes' => ''];
+                 'quantity' => 1, 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'serial' => ''];
         $toast = isset($_GET['saved']) && ($s = item_get((int)$_GET['saved'])) ? 'Saved “' . $s['name'] . '”' : null;
         view_form(null, $vals, locations(), categories(), null, $toast);
         exit;
@@ -124,8 +125,12 @@ try {
         $it = item_get((int)$m[1]);
         if (!$it) { view_error(404, 'Item not found.'); exit; }
         header('Cache-Control: no-store');
-        if (!empty($m[2])) view_form($it, $it + ['new_location' => '', 'new_category' => ''], locations(), categories(), null);
-        else view_item($it);
+        if (!empty($m[2])) view_form($it, ['new_location' => '', 'new_category' => '', 'tags' => implode(', ', array_column($it['tags'], 'name')),
+            'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date']] + $it, locations(), categories(), null);
+        else {
+            $hist = activity_list((int)$it['id'], 1, 10);
+            view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
+        }
         exit;
     }
 
@@ -140,6 +145,10 @@ try {
             'name'     => clean_line((string)($_POST['name'] ?? ''), 200),
             'quantity' => $qty === false ? 1 : $qty,
             'notes'    => mb_substr(trim(str_replace("\r\n", "\n", (string)($_POST['notes'] ?? ''))), 0, 5000),
+            'tags'     => mb_substr((string)($_POST['tags'] ?? ''), 0, 2000),
+            'value'    => clean_line((string)($_POST['value'] ?? ''), 32),
+            'purchase_date' => clean_line((string)($_POST['purchase_date'] ?? ''), 10),
+            'serial'   => clean_line((string)($_POST['serial'] ?? ''), 100),
         ];
         $raw = [];
         foreach (KINDS as $kind) {
@@ -150,6 +159,8 @@ try {
         }
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
+            $fields = ['tags' => tags_parse($vals['tags']), 'value_cents' => parse_money($vals['value']),
+                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'serial' => $vals['serial']];
             foreach (KINDS as $kind) {
                 $t = tax($kind);
                 if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') throw new UserError('Type a name for the new ' . $t['one'] . '.');
@@ -170,13 +181,40 @@ try {
             view_form($existing, $vals, locations(), categories(), $e->getMessage());
             exit;
         }
-        $savedId = item_save($existing, $vals, $newImage, !empty($_POST['remove_image']));
+        $savedId = item_save($existing, $fields + $vals, $newImage, !empty($_POST['remove_image']));
         $after = (string)($_POST['after'] ?? 'view');
         if ($after === 'another') {
             $qs = ['loc' => $vals['location_id'], 'cat' => $vals['category_id'], 'saved' => $savedId];
             redirect('/new?' . http_build_query(array_filter($qs, fn($v) => $v !== null)));
         }
         redirect($existing ? '/item/' . $savedId : '/?saved=' . $savedId);
+    }
+
+    /* ---- photos: add / cover / reorder / delete ---- */
+    if (preg_match('#^/item/(\d+)/photos(?:/(\d+)/(cover|left|right|delete))?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $iid = (int)$m[1];
+        if (!item_get($iid)) throw new UserError('Item not found.', 404);
+        if (empty($m[2])) {
+            $files = pick_uploads(['photos', 'photo']);
+            if (!$files) throw new UserError('Choose a photo to add.', 422);
+            if (count(photos_for($iid)) + count($files) > MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.', 422);
+            $added = 0;
+            foreach ($files as $f) {
+                try {
+                    $name = image_store($f);
+                } catch (UserError $e) {
+                    throw new UserError($e->getMessage(), 422);
+                }
+                photo_add($iid, $name);
+                $added++;
+            }
+            if (wants_json()) json_out(['ok' => true, 'added' => $added, 'count' => count(photos_for($iid))]);
+            redirect('/item/' . $iid . '?p=' . (count(photos_for($iid)) - 1) . '#photos');
+        }
+        $idx = photo_action($iid, (int)$m[2], $m[3]);
+        if (wants_json()) json_out(['ok' => true, 'index' => $idx, 'count' => count(photos_for($iid))]);
+        redirect('/item/' . $iid . '?p=' . max(0, $idx) . '#photos');
     }
 
     /* ---- quantity +/- ---- */
@@ -268,16 +306,144 @@ try {
         redirect($t['path'] . '?done=deleted');
     }
 
+    /* ---- QR labels ---- */
+    if ($path === '/labels' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        $locs = locations();
+        $loc = filter_value($_GET['loc'] ?? '');
+        if (ctype_digit($loc)) {
+            $l = tax_get('location', (int)$loc);
+            if (!$l) throw new UserError('Location not found.', 404);
+            $labels = [];
+            if (($_GET['items'] ?? '') === '1') {
+                foreach (items_search('', ['loc' => $loc, 'cat' => ''], 'name', 1, 1000)['items'] as $it) {
+                    $labels[] = ['title' => $it['name'], 'sub' => $l['name'], 'path' => '/item/' . (int)$it['id']];
+                }
+            } else {
+                $labels[] = ['title' => $l['name'], 'sub' => (int)$l['n'] . ' item' . ((int)$l['n'] === 1 ? '' : 's'), 'path' => '/?loc=' . (int)$l['id']];
+            }
+            view_labels($l['name'], $labels, '/locations', ['/labels?loc=' . (int)$l['id'] => 'Location label', '/labels?loc=' . (int)$l['id'] . '&items=1' => 'One label per item', '/labels' => 'All locations']);
+            exit;
+        }
+        $labels = array_map(fn($l) => ['title' => $l['name'], 'sub' => (int)$l['n'] . ' item' . ((int)$l['n'] === 1 ? '' : 's'), 'path' => '/?loc=' . (int)$l['id']], $locs);
+        view_labels('All locations', $labels, '/locations');
+        exit;
+    }
+    if (preg_match('#^/item/(\d+)/label$#D', $path, $m) && $method === 'GET') {
+        $it = item_get((int)$m[1]);
+        if (!$it) throw new UserError('Item not found.', 404);
+        header('Cache-Control: no-store');
+        view_labels($it['name'], [['title' => $it['name'], 'sub' => $it['location'], 'path' => '/item/' . (int)$it['id']]], '/item/' . (int)$it['id']);
+        exit;
+    }
+
+    /* ---- activity log ---- */
+    if ($path === '/activity' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $item = ctype_digit((string)($_GET['item'] ?? '')) ? (int)$_GET['item'] : null;
+        $itemRow = null;
+        if ($item !== null) {
+            $itemRow = item_get($item);
+            if (!$itemRow) { $last = activity_list($item, 1, 1)[0] ?? null; $itemRow = $last ? ['id' => $item, 'name' => $last['item_name']] : null; }
+            if (!$itemRow) { view_error(404, 'Item not found.'); exit; }
+        }
+        $rows = activity_list($item, $page);
+        view_activity(array_slice($rows, 0, ACTIVITY_PAGE), $page, count($rows) > ACTIVITY_PAGE, $itemRow);
+        exit;
+    }
+
+    /* ---- backup & restore ---- */
+    if ($path === '/backup' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? 'Backup restored' : null);
+        exit;
+    }
+    if ($path === '/backup.zip' && $method === 'GET') {
+        @set_time_limit(300);
+        $tmp = backup_tmp_dir(DATA_DIR) . '/dl-' . bin2hex(random_bytes(8)) . '.zip';
+        try {
+            backup_create(db(), db_driver(), DATA_DIR, $tmp);
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His') . '.zip"');
+            header('Content-Length: ' . filesize($tmp));
+            header('Cache-Control: no-store');
+            readfile($tmp);
+        } finally {
+            @unlink($tmp);
+        }
+        exit;
+    }
+    if ($path === '/backup/restore' && $method === 'POST') {
+        check_csrf();
+        $file = $_FILES['backup'] ?? null;
+        $fail = function (string $msg): never {
+            http_response_code(422);
+            view_backup(backup_counts(db(), db_driver()), $msg);
+            exit;
+        };
+        if (!is_array($file) || is_array($file['error']) || $file['error'] === UPLOAD_ERR_NO_FILE) $fail('Choose a backup file.');
+        if ($file['error'] !== UPLOAD_ERR_OK) $fail(upload_error_text((int)$file['error']));
+        $token = bin2hex(random_bytes(16));
+        $dest = backup_tmp_dir(DATA_DIR) . "/restore-$token.zip";
+        if (!is_uploaded_file($file['tmp_name']) || !move_uploaded_file($file['tmp_name'], $dest)) $fail('The upload could not be stored.');
+        try {
+            $b = backup_open($dest, db(), db_driver());
+            $b['zip']->close();
+        } catch (UserError $e) {
+            @unlink($dest);
+            $fail($e->getMessage());
+        }
+        header('Cache-Control: no-store');
+        view_backup(backup_counts(db(), db_driver()), null, ['token' => $token] + $b);
+        exit;
+    }
+    if ($path === '/backup/restore/confirm' && $method === 'POST') {
+        check_csrf();
+        $token = (string)($_POST['token'] ?? '');
+        $file = DATA_DIR . "/tmp/restore-$token.zip";
+        if (!preg_match('/^[a-f0-9]{32}$/D', $token) || !is_file($file)) {
+            http_response_code(410);
+            view_backup(backup_counts(db(), db_driver()), 'That restore has expired. Please choose the backup file again.');
+            exit;
+        }
+        if (empty($_POST['confirm'])) {
+            http_response_code(422);
+            $b = backup_open($file, db(), db_driver());
+            $b['zip']->close();
+            view_backup(backup_counts(db(), db_driver()), 'Tick the box to confirm that the catalog will be replaced.', ['token' => $token] + $b);
+            exit;
+        }
+        @set_time_limit(300);
+        try {
+            backup_restore(db(), db_driver(), DATA_DIR, $file);
+        } catch (UserError $e) {
+            http_response_code(422);
+            view_backup(backup_counts(db(), db_driver()), $e->getMessage());
+            exit;
+        } finally {
+            @unlink($file);
+        }
+        redirect('/backup?restored=1');
+    }
+
     /* ---- CSV export ---- */
     if ($path === '/export.csv' && $method === 'GET') {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d') . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at'], ',', '"', '\\');
-        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at
+        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial'], ',', '"', '\\');
+        $tagMap = [];
+        foreach (db()->query('SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id ORDER BY t.sort_key, t.id') as $t) $tagMap[(int)$t['item_id']][] = $t['name'];
+        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial
                               " . ITEM_FROM . "
                               ORDER BY CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key, CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key, i.sort_key, i.id") as $r) {
+            $v = $r['value_cents'];
+            unset($r['value_cents']);
+            $r = array_slice($r, 0, 9) + ['tags' => implode(', ', $tagMap[(int)$r['id']] ?? []),
+                 'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : cfg()['currency'],
+                 'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial']];
             fputcsv($out, array_values($r), ',', '"', '\\');
         }
         exit;

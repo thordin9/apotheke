@@ -60,7 +60,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, pdo_pgsql, exif, mbstring, dom
+          extensions: gd, pdo_sqlite, pdo_pgsql, exif, mbstring, dom, zip
           coverage: pcov
           tools: composer:v2
       - name: Composer cache dir
@@ -71,6 +71,8 @@ jobs:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
+      - name: Install zbar (QR round-trip tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zbar-tools
       - name: Install dev dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
@@ -99,7 +101,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: gd, pdo_sqlite, exif, mbstring
+          extensions: gd, pdo_sqlite, exif, mbstring, zip
           coverage: none
           tools: none
       - uses: actions/setup-node@v4

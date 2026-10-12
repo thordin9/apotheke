@@ -65,6 +65,109 @@
     if (d) { d.open = false; const s = $('summary', d); if (s) s.focus(); }
   });
 
+  /* ---------- gallery: arrow buttons / thumbnails / keyboard, no reload (links work without JS) ---------- */
+  const gal = $('#gallery');
+  if (gal && +gal.dataset.count > 1) {
+    const thumbs = [...document.querySelectorAll('.thumbs a[data-full]')];
+    const n = thumbs.length, img = $('#hero-img'), hero = $('#hero'), cnt = $('#gal-count');
+    const show = i => {
+      i = (i + n) % n; gal.dataset.index = i;
+      img.src = thumbs[i].dataset.full; hero.href = thumbs[i].dataset.full;
+      img.alt = img.alt.replace(/photo \d+ of/, 'photo ' + (i + 1) + ' of');
+      cnt.textContent = (i + 1) + ' / ' + n;
+      thumbs.forEach((t, k) => t.setAttribute('aria-current', k === i ? 'true' : 'false'));
+      const base = location.pathname; history.replaceState(null, '', base + '?p=' + i);
+    };
+    document.addEventListener('click', e => {
+      const a = e.target.closest('#gal-prev, #gal-next, .thumbs a[data-i]');
+      if (!a) return;
+      e.preventDefault();
+      const i = +gal.dataset.index;
+      show(a.id === 'gal-prev' ? i - 1 : a.id === 'gal-next' ? i + 1 : +a.dataset.i);
+    });
+    document.addEventListener('keydown', e => {
+      if (e.target.closest('input,textarea,select')) return;
+      if (e.key === 'ArrowLeft') show(+gal.dataset.index - 1);
+      if (e.key === 'ArrowRight') show(+gal.dataset.index + 1);
+    });
+  }
+
+  /* ---------- photo manager: add photos (downscaled on the device, uploaded one by one) ---------- */
+  const padd = $('#photoadd');
+  if (padd) {
+    const st = $('#photoadd-status');
+    padd.querySelectorAll('input[type=file]').forEach(inp => inp.addEventListener('change', async () => {
+      const files = [...(inp.files || [])];
+      if (!files.length) return;
+      st.hidden = false;
+      try {
+        for (let k = 0; k < files.length; k++) {
+          st.textContent = 'Uploading ' + (k + 1) + ' of ' + files.length + '…';
+          let blob = files[k];
+          try { blob = await shrinkImage(files[k]); } catch (_) { /* server validates */ }
+          const fd = new FormData(); fd.append('photos[]', blob, 'photo.jpg');
+          await post(padd.action, fd);
+        }
+        location.href = location.pathname + '?p=999#photos';
+      } catch (err) { st.textContent = err.message; toast(err.message, true); inp.value = ''; }
+    }));
+  }
+
+  /* ---------- tag chips with autocomplete (the comma-separated input stays the form value) ---------- */
+  const tagIn = $('#tags');
+  if (tagIn) {
+    const wrap = document.createElement('div'), entry = document.createElement('input');
+    wrap.className = 'tagbox'; wrap.id = 'tagbox';
+    entry.type = 'text'; entry.id = 'tag-entry'; entry.setAttribute('list', 'tag-list'); entry.autocomplete = 'off';
+    entry.setAttribute('autocapitalize', 'none'); entry.setAttribute('enterkeyhint', 'enter'); entry.placeholder = tagIn.placeholder;
+    entry.setAttribute('aria-label', 'Add a tag');
+    const list = () => tagIn.value.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+    const key = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const render = () => {
+      wrap.querySelectorAll('.tagchip').forEach(c => c.remove());
+      list().forEach(t => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'tagchip tagchip-x'; b.textContent = '#' + t; b.dataset.tag = t;
+        b.setAttribute('aria-label', 'Remove tag ' + t);
+        wrap.insertBefore(b, entry);
+      });
+    };
+    const add = raw => {
+      const cur = list();
+      raw.split(/[,;]+/).map(s => s.trim().replace(/^#/, '')).filter(Boolean).forEach(t => { if (!cur.some(c => key(c) === key(t))) cur.push(t); });
+      tagIn.value = cur.join(', '); entry.value = ''; render();
+    };
+    tagIn.type = 'hidden';
+    tagIn.after(wrap); wrap.appendChild(entry);
+    wrap.addEventListener('click', e => {
+      const c = e.target.closest('.tagchip-x');
+      if (c) { tagIn.value = list().filter(t => t !== c.dataset.tag).join(', '); render(); entry.focus(); } else entry.focus();
+    });
+    entry.addEventListener('keydown', e => {
+      if ((e.key === 'Enter' || e.key === ',') && entry.value.trim()) { e.preventDefault(); add(entry.value); }
+      else if (e.key === 'Enter') e.preventDefault();
+      else if (e.key === 'Backspace' && !entry.value && list().length) { tagIn.value = list().slice(0, -1).join(', '); render(); }
+    });
+    // picking a datalist suggestion fires "input" with the full value; commas typed on phones arrive the same way
+    entry.addEventListener('input', e => {
+      if (/[,;]/.test(entry.value)) add(entry.value);
+      else if (e.inputType === 'insertReplacementText' || e.inputType === undefined) {
+        const opts = [...document.querySelectorAll('#tag-list option')].map(o => o.value);
+        if (opts.includes(entry.value)) add(entry.value);
+      }
+    });
+    entry.addEventListener('blur', () => { if (entry.value.trim()) add(entry.value); });
+    const f = tagIn.form; if (f) f.addEventListener('submit', () => { if (entry.value.trim()) add(entry.value); }, true);
+    render();
+  }
+
+  /* ---------- restore: show the chosen file name ---------- */
+  const rf = $('#restore-file');
+  if (rf) rf.addEventListener('change', () => { $('#restore-name').textContent = rf.files[0] ? rf.files[0].name : 'Choose backup file…'; });
+
+  /* ---------- print button (labels) ---------- */
+  document.addEventListener('click', e => { if (e.target.closest('[data-print]')) { e.preventDefault(); window.print(); } });
+
   /* ---------- quantity +/- (cards + detail) ---------- */
   const pending = new Map();
   document.addEventListener('click', e => {
@@ -171,7 +274,7 @@
         if (append) grid.insertAdjacentHTML('beforeend', j.html); else { grid.innerHTML = j.html; window.scrollTo({ top: 0 }); }
         count.textContent = j.count;
         empty.hidden = j.total > 0;
-        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value);
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value));
         $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
         $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
@@ -193,6 +296,7 @@
     const reset = which => {
       if (which === 'all' || which === 'loc') $('#loc').value = '';
       if (which === 'all' || which === 'cat') $('#cat').value = '';
+      if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
       if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
       if (which === 'all') q.value = '';
       load(false);
@@ -219,6 +323,35 @@
     });
   }
 
+  async function decodeImage(file) {
+    if ('createImageBitmap' in window) {
+      try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (_) {}
+      try { return await createImageBitmap(file); } catch (_) {}
+    }
+    return await new Promise((res, rej) => {
+      const img = new Image(), u = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(u); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(u); rej(new Error('decode')); };
+      img.src = u;
+    });
+  }
+  async function shrinkImage(file) {
+    const src = await decodeImage(file);
+    const w = src.width, h = src.height, s = Math.min(1, MAX_SIDE / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(src, 0, 0, cw, ch);
+    if (src.close) src.close();
+    const out = await new Promise(r => c.toBlob(r, 'image/jpeg', QUALITY));
+    c.width = c.height = 0; // free memory on iOS
+    if (!out) throw new Error('encode');
+    return out.size < file.size || file.type !== 'image/jpeg' ? out : file;
+  }
+
   /* ---------- add/edit form: photo capture, client-side downscale, async upload ---------- */
   const form = $('#itemform');
   if (form) {
@@ -228,35 +361,7 @@
 
     const showErr = m => { err.textContent = m; err.hidden = !m; if (m) err.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
 
-    async function decode(file) {
-      if ('createImageBitmap' in window) {
-        try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (_) {}
-        try { return await createImageBitmap(file); } catch (_) {}
-      }
-      return await new Promise((res, rej) => {
-        const img = new Image(), u = URL.createObjectURL(file);
-        img.onload = () => { URL.revokeObjectURL(u); res(img); };
-        img.onerror = () => { URL.revokeObjectURL(u); rej(new Error('decode')); };
-        img.src = u;
-      });
-    }
-
-    async function shrink(file) {
-      const src = await decode(file);
-      const w = src.width, h = src.height, s = Math.min(1, MAX_SIDE / Math.max(w, h));
-      const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
-      const c = document.createElement('canvas');
-      c.width = cw; c.height = ch;
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch);
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(src, 0, 0, cw, ch);
-      if (src.close) src.close();
-      const out = await new Promise(r => c.toBlob(r, 'image/jpeg', QUALITY));
-      c.width = c.height = 0; // free memory on iOS
-      if (!out) throw new Error('encode');
-      return out;
-    }
+    const shrink = shrinkImage;
 
     inputs.forEach(inp => inp.addEventListener('change', () => {
       const file = inp.files && inp.files[0];

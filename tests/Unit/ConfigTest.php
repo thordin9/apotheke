@@ -33,6 +33,12 @@ final class ConfigTest extends TestCase
         $this->assertSame(60, $c['page_size']);
         $this->assertTrue($c['seed_defaults']);
         $this->assertSame('', $c['app_password']);
+        $this->assertSame('EUR', $c['currency']);
+    }
+
+    public function testCurrencyFromEnv(): void
+    {
+        $this->assertSame('CHF', config_load('/app', null, ['CURRENCY' => ' CHF '])['currency']);
     }
 
     public function testMissingFileIsIgnored(): void

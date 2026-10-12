@@ -10,6 +10,7 @@ const APP_TAGLINE = 'the storehouse for your stuff';
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/qr.php';
 
 define('MAX_UPLOAD', cfg()['uploads']['max_mb'] * 1024 * 1024);   // bytes, server-side hard limit
 define('FULL_MAX', cfg()['uploads']['full_max']);                 // px, longest side of stored image
@@ -211,4 +212,17 @@ function set_theme_cookie(string $theme): string
 function safe_back(string $back): string
 {
     return preg_match('#^/(?![/\\\\])[^\s]*$#D', $back) ? $back : '/';
+}
+
+/** Absolute URL for $path, using PUBLIC_URL when configured (QR labels must work from a phone). */
+function public_url(string $path): string
+{
+    $base = cfg()['public_url'];
+    if ($base === '') {
+        $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
+        if (!preg_match('/^[A-Za-z0-9.\-\[\]:]+$/', $host)) $host = 'localhost';
+        $base = ($https ? 'https' : 'http') . '://' . $host;
+    }
+    return $base . $path;
 }

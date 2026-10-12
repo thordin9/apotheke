@@ -17,6 +17,8 @@ function icon(string $n): string
         'trash'  => '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
         'x'      => '<path d="M6 6l12 12M18 6 6 18"/>',
         'pin'    => '<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+        'archive' => '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>',
+        'clock'  => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
         'star'   => '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
         'move'   => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
@@ -28,6 +30,8 @@ function icon(string $n): string
         'filter' => '<path d="M4 5h16l-6 7.5V19l-4 2v-8.5z"/>',
         'download'=> '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
         'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
+        'qr'     => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
+        'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
     return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . ($p[$n] ?? '') . '</svg>';
@@ -137,7 +141,10 @@ function menu_html(): string
     $o .= '</div></form>'
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
-        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>';
+        . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
+        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
+        . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
+        . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>';
     if (app_password() !== '') {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
     }
@@ -146,20 +153,21 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
 
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
-function active_chips_html(array $f, string $sort, array $locs, array $cats): string
+function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
+    $f += ['tag' => ''];
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
         foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'sort' => $sort === 'recent' ? '' : $sort];
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -167,6 +175,11 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats): st
     $o = '';
     if ($f['loc'] !== '') $o .= '<a class="achip chip-location" href="' . h($href('loc')) . '" data-clear="loc" aria-label="Remove location filter">' . icon('pin') . '<span>' . h($name('location', $locs, $f['loc'])) . '</span>' . icon('x') . '</a>';
     if ($f['cat'] !== '') $o .= '<a class="achip chip-category" href="' . h($href('cat')) . '" data-clear="cat" aria-label="Remove category filter">' . icon('tag') . '<span>' . h($name('category', $cats, $f['cat'])) . '</span>' . icon('x') . '</a>';
+    if ($f['tag'] !== '') {
+        $tn = '?';
+        foreach ($tags ?? tags_all() as $t) if ((string)$t['id'] === $f['tag']) $tn = (string)$t['name'];
+        $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
+    }
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -281,7 +294,9 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true): void
 {
     page_start('');
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '';
+    $f += ['tag' => ''];
+    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '';
+    $tags = tags_all();
     ?>
 <header class="top">
   <div class="bar">
@@ -303,6 +318,15 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           <div class="fpanel-head"><h2 id="fpanel-title">Filter &amp; sort</h2><button type="button" class="btn btn-ghost" id="filter-close">Done</button></div>
           <?= filter_select('location', $locs, $f['loc'], $stats['unassigned']) ?>
           <?= filter_select('category', $cats, $f['cat'], $stats['uncategorized']) ?>
+          <?php if ($tags || $f['tag'] !== ''): ?>
+          <label class="field"><span>Tag</span>
+          <select name="tag" id="tag">
+            <option value="">All tags</option>
+            <?php foreach ($tags as $t): ?>
+            <option value="<?= (int)$t['id'] ?>"<?= (string)$t['id'] === $f['tag'] ? ' selected' : '' ?>><?= h($t['name']) ?> (<?= (int)$t['n'] ?>)</option>
+            <?php endforeach; ?>
+          </select></label>
+          <?php endif; ?>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
             <?php foreach (SORTS as $k => $v): ?>
@@ -315,7 +339,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           </div>
         </div>
       </details>
-      <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats) ?></div>
+      <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats, $tags) ?></div>
     </div>
   </form>
 </header>
@@ -346,10 +370,13 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     page_end();
 }
 
-function view_item(array $it): void
+function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false): void
 {
     page_start($it['name'], 'page-item');
     $id = (int)$it['id'];
+    $n = count($photos);
+    $cur = $n ? min($cur, $n - 1) : 0;
+    $tok = h(csrf_token());
     ?>
 <header class="top top-simple">
   <div class="bar">
@@ -359,10 +386,24 @@ function view_item(array $it): void
   </div>
 </header>
 <main class="wrap narrow">
-  <?php if (valid_image_name($it['image'])): ?>
-  <a class="hero" href="/media/full/<?= h($it['image']) ?>" target="_blank" rel="noopener">
-    <img src="/media/full/<?= h($it['image']) ?>" alt="<?= h($it['name']) ?>" decoding="async">
-  </a>
+  <?php if ($n): $ph = $photos[$cur]; ?>
+  <div class="gallery" id="gallery" data-count="<?= $n ?>" data-index="<?= $cur ?>">
+    <a class="hero" id="hero" href="/media/full/<?= h($ph['file']) ?>" target="_blank" rel="noopener">
+      <img id="hero-img" src="/media/full/<?= h($ph['file']) ?>" alt="<?= h($it['name']) ?> – photo <?= $cur + 1 ?> of <?= $n ?>" decoding="async">
+    </a>
+    <?php if ($n > 1): ?>
+    <a class="gal-nav gal-prev" id="gal-prev" href="/item/<?= $id ?>?p=<?= ($cur - 1 + $n) % $n ?>" aria-label="Previous photo"><?= icon('back') ?></a>
+    <a class="gal-nav gal-next" id="gal-next" href="/item/<?= $id ?>?p=<?= ($cur + 1) % $n ?>" aria-label="Next photo"><?= icon('back') ?></a>
+    <span class="gal-count" id="gal-count" aria-live="polite"><?= $cur + 1 ?> / <?= $n ?></span>
+    <?php endif; ?>
+  </div>
+  <?php if ($n > 1): ?>
+  <nav class="thumbs" aria-label="Photos">
+    <?php foreach ($photos as $i => $p): ?>
+    <a href="/item/<?= $id ?>?p=<?= $i ?>" data-i="<?= $i ?>" data-full="/media/full/<?= h($p['file']) ?>"<?= $i === $cur ? ' aria-current="true"' : '' ?> aria-label="Photo <?= $i + 1 ?><?= $i === 0 ? ' (cover)' : '' ?>"><img src="/media/thumb/<?= h($p['file']) ?>" alt="" loading="lazy"></a>
+    <?php endforeach; ?>
+  </nav>
+  <?php endif; ?>
   <?php else: ?>
   <a class="hero hero-empty" href="/item/<?= $id ?>/edit"><?= icon('camera') ?><span>Add a photo</span></a>
   <?php endif; ?>
@@ -376,8 +417,55 @@ function view_item(array $it): void
     <output class="qval"><?= (int)$it['quantity'] ?></output>
     <button type="button" class="qbtn" data-delta="1" aria-label="Increase"><?= icon('plus') ?></button>
   </div>
+  <?php if (!empty($it['tags'])): ?>
+  <ul class="tags" aria-label="Tags">
+    <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
+  </ul>
+  <?php endif; ?>
+  <?php $facts = array_filter(['Value' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php if ($facts): ?>
+  <dl class="facts" id="facts">
+    <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?></dd></div><?php endforeach; ?>
+  </dl>
+  <?php endif; ?>
   <?php if (trim($it['notes']) !== ''): ?>
   <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
+  <?php endif; ?>
+  <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
+    <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= MAX_PHOTOS ?></span></summary>
+    <?php if ($n): ?>
+    <ul class="pm-list">
+      <?php foreach ($photos as $i => $p): $act = '/item/' . $id . '/photos/' . $p['id'] . '/'; ?>
+      <li class="pm<?= $i === 0 ? ' is-cover' : '' ?>">
+        <img src="/media/thumb/<?= h($p['file']) ?>" alt="Photo <?= $i + 1 ?>" loading="lazy">
+        <?php if ($i === 0): ?><span class="pm-badge">Cover</span><?php endif; ?>
+        <div class="pm-btns">
+          <form method="post" action="<?= $act ?>left"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Move photo <?= $i + 1 ?> left"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('back') ?></button></form>
+          <form method="post" action="<?= $act ?>cover"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Make photo <?= $i + 1 ?> the cover"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('star') ?></button></form>
+          <form method="post" action="<?= $act ?>right"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn pbtn-r" aria-label="Move photo <?= $i + 1 ?> right"<?= $i === $n - 1 ? ' disabled' : '' ?>><?= icon('back') ?></button></form>
+          <form method="post" action="<?= $act ?>delete" data-confirm="Delete this photo?"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn pbtn-del" aria-label="Delete photo <?= $i + 1 ?>"><?= icon('trash') ?></button></form>
+        </div>
+      </li>
+      <?php endforeach; ?>
+    </ul>
+    <?php endif; ?>
+    <?php if ($n < MAX_PHOTOS): ?>
+    <form method="post" action="/item/<?= $id ?>/photos" enctype="multipart/form-data" class="pm-add" id="photoadd">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <label class="btn"><input type="file" name="photos[]" accept="image/*" capture="environment" class="file" id="photoadd-cam"><?= icon('camera') ?> Take photo</label>
+      <label class="btn"><input type="file" name="photos[]" accept="image/*" multiple class="file" id="photoadd-lib"><?= icon('image') ?> Add from library</label>
+      <noscript><button class="btn btn-primary">Upload</button></noscript>
+      <p class="hint pm-status" id="photoadd-status" role="status" hidden></p>
+    </form>
+    <?php endif; ?>
+  </details>
+  <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
+  <?php if ($history): ?>
+  <section class="history" id="history" aria-labelledby="hist-title">
+    <h2 id="hist-title"><?= icon('clock') ?> History</h2>
+    <?= activity_items_html($history, false) ?>
+    <?php if ($historyMore): ?><a class="btn btn-sm" href="/activity?item=<?= $id ?>" id="hist-more">Full history</a><?php endif; ?>
+  </section>
   <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
 </main>
@@ -471,8 +559,30 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </div>
     <label class="field">
       <span>Notes <em>optional</em></span>
-      <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, serial, purchase date…"><?= h($vals['notes']) ?></textarea>
+      <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, where you bought it…"><?= h($vals['notes']) ?></textarea>
     </label>
+    <label class="field">
+      <span>Tags <em>optional, comma-separated</em></span>
+      <input type="text" name="tags" id="tags" value="<?= h($vals['tags'] ?? '') ?>" maxlength="2000" autocomplete="off" autocapitalize="none" list="tag-list" placeholder="e.g. garage, warranty">
+    </label>
+    <datalist id="tag-list"><?php foreach (tags_all() as $t): ?><option value="<?= h($t['name']) ?>"></option><?php endforeach; ?></datalist>
+    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
+      <summary>Value, purchase date &amp; serial</summary>
+      <div class="more-grid">
+        <label class="field">
+          <span>Value <em><?= h(cfg()['currency']) ?></em></span>
+          <input type="text" name="value" id="value" value="<?= h($vals['value'] ?? '') ?>" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="0.00">
+        </label>
+        <label class="field">
+          <span>Purchase date</span>
+          <input type="date" name="purchase_date" id="purchase_date" value="<?= h($vals['purchase_date'] ?? '') ?>" max="<?= date('Y-m-d') ?>">
+        </label>
+        <label class="field">
+          <span>Serial number</span>
+          <input type="text" name="serial" id="serial" value="<?= h($vals['serial'] ?? '') ?>" maxlength="100" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </label>
+      </div>
+    </details>
 
     <div class="actionbar actionbar-form">
       <div class="actionbar-in<?= $isNew ? '' : ' one' ?>">
@@ -521,6 +631,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
     <button class="btn btn-primary"><?= icon('plus') ?> Add</button>
   </form>
   <div class="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
+  <?php if ($kind === 'location'): ?><p class="item-links"><a class="btn btn-sm" href="/labels"><?= icon('qr') ?> Print QR labels for all locations</a></p><?php endif; ?>
   <p class="hint">★ The default <?= h($t['one']) ?> is preselected when you add a new item. Tap ★ again to clear it.</p>
 
   <?php if (!$list): ?>
@@ -552,6 +663,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
               <input type="hidden" name="on" value="<?= $l['is_default'] ? '0' : '1' ?>">
               <button class="btn"><?= icon('star') ?> <?= $l['is_default'] ? 'Unset default' : 'Set as default' ?></button>
             </form>
+            <?php if ($kind === 'location'): ?><a class="btn" href="/labels?loc=<?= $id ?>"><?= icon('qr') ?> Label</a><?php endif; ?>
             <?php if ($n > 0): ?>
             <a class="btn btn-danger" href="<?= $base ?>/<?= $id ?>/delete"><?= icon('trash') ?> Delete…</a>
             <?php else: ?>
@@ -648,6 +760,199 @@ function view_error(int $code, string $msg): void
     ?>
 <main class="wrap narrow login">
   <div class="empty"><?= icon('box') ?><p><?= h($msg) ?></p><a class="btn btn-primary" href="/">Back to catalog</a></div>
+</main>
+<?php
+    page_end();
+}
+
+/* ---------- QR labels ---------- */
+
+/**
+ * Print-friendly sheet of QR labels.
+ * @param array<int,array{title:string,sub:string,path:string}> $labels
+ */
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags'];
+
+/** One activity entry as HTML (already escaped). */
+function activity_html(array $e): string
+{
+    $d = $e['details'];
+    $q = fn($v) => ($v === '' || $v === null) ? '<i>empty</i>' : '“' . h((string)$v) . '”';
+    $none = fn($v) => (string)$v === '' ? '<i>none</i>' : '<b>' . h((string)$v) . '</b>';
+    switch ($e['action']) {
+        case 'created':
+            $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '')
+               . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '');
+            break;
+        case 'edited':
+            $parts = [];
+            foreach (($d['changes'] ?? []) as $k => $ch) {
+                $label = ACTIVITY_FIELDS[$k] ?? ucfirst((string)$k);
+                $val = $k === 'value' ? fn($v) => $v === '' ? '<i>empty</i>' : h($v . ' ' . cfg()['currency']) : $q;
+                $parts[] = '<li><span class="act-field">' . h($label) . '</span> ' . $val($ch[0] ?? '') . ' → ' . $val($ch[1] ?? '') . '</li>';
+            }
+            $t = 'Edited' . (!empty($d['reason']) ? ' (' . h($d['reason']) . ')' : '') . '<ul class="act-changes">' . implode('', $parts) . '</ul>';
+            break;
+        case 'moved':
+            $t = 'Moved from ' . $none($d['from'] ?? '') . ' to ' . $none($d['to'] ?? '') . (!empty($d['reason']) ? ' (' . h($d['reason']) . ')' : '');
+            break;
+        case 'quantity':
+            $t = 'Quantity <b>' . (int)($d['from'] ?? 0) . '</b> → <b>' . (int)($d['to'] ?? 0) . '</b>';
+            break;
+        case 'photo':
+            $t = ['added' => 'Added a photo', 'removed' => 'Removed the cover photo', 'replaced' => 'Replaced the cover photo', 'cover' => 'Chose a new cover photo',
+                  'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo'][$d['change'] ?? ''] ?? 'Changed photos';
+            if (isset($d['count'])) $t .= ' · ' . (int)$d['count'] . ' total';
+            break;
+        case 'deleted':
+            $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
+            break;
+        default:
+            $t = h($e['action']);
+    }
+    return $t;
+}
+
+const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash'];
+
+function activity_items_html(array $entries, bool $withItem): string
+{
+    $o = '<ol class="activity">';
+    foreach ($entries as $e) {
+        $o .= '<li class="act act-' . h($e['action']) . '"><span class="act-ic">' . icon(ACTIVITY_ICONS[$e['action']] ?? 'clock') . '</span><div class="act-body">';
+        if ($withItem) {
+            $o .= $e['exists'] && $e['item_id'] !== null
+                ? '<a class="act-item" href="/item/' . (int)$e['item_id'] . '">' . h($e['item_name']) . '</a>'
+                : '<span class="act-item act-gone">' . h($e['item_name']) . '</span>';
+        }
+        $o .= '<div class="act-text">' . activity_html($e) . '</div><time datetime="' . h(str_replace(' ', 'T', $e['created_at']) . 'Z') . '">' . h(fmt_time($e['created_at'])) . '</time></div></li>';
+    }
+    return $o . '</ol>';
+}
+
+function view_activity(array $entries, int $page, bool $more, ?array $item = null): void
+{
+    page_start($item ? 'History: ' . $item['name'] : 'Recent activity', 'page-activity');
+    $qs = fn(int $p) => ($q = http_build_query(array_filter(['item' => $item ? (int)$item['id'] : null, 'page' => $p > 1 ? $p : null]))) !== '' ? '?' . $q : '';
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="<?= $item ? '/item/' . (int)$item['id'] : '/' ?>" data-back aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm"><?= $item ? 'History' : 'Recent activity' ?></h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow" id="activity">
+  <?php if ($item): ?><h2 class="item-name"><?= h($item['name']) ?></h2><?php endif; ?>
+  <?php if (!$entries): ?>
+  <div class="empty"><?= icon('clock') ?><p class="empty-title">No activity yet.</p><p class="empty-sub">Changes to your items show up here.</p></div>
+  <?php else: ?>
+  <?= activity_items_html($entries, $item === null) ?>
+  <nav class="pager" aria-label="Pages">
+    <?php if ($page > 1): ?><a class="btn" href="/activity<?= h($qs($page - 1)) ?>" rel="prev">Newer</a><?php endif; ?>
+    <?php if ($more): ?><a class="btn" href="/activity<?= h($qs($page + 1)) ?>" rel="next" id="act-older">Older</a><?php endif; ?>
+  </nav>
+  <?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
+function backup_table_rows(array $current, ?array $incoming = null): string
+{
+    $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries'];
+    $o = '<table class="btable"><thead><tr><th scope="col"></th><th scope="col">Now</th>' . ($incoming !== null ? '<th scope="col">In backup</th>' : '') . '</tr></thead><tbody>';
+    foreach ($labels as $t => $l) {
+        if (!isset($current[$t]) && !isset($incoming[$t])) continue;
+        $o .= '<tr><th scope="row">' . $l . '</th><td>' . (int)($current[$t] ?? 0) . '</td>' . ($incoming !== null ? '<td data-t="' . $t . '"><b>' . (int)($incoming[$t] ?? 0) . '</b></td>' : '') . '</tr>';
+    }
+    return $o . '</tbody></table>';
+}
+
+/** Backup & restore page. $preview (dry run) shows what a restore would do and asks for confirmation. */
+function view_backup(array $current, ?string $error = null, ?array $preview = null, ?string $toast = null): void
+{
+    page_start('Backup & restore', 'page-backup');
+    $tok = h(csrf_token());
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Backup &amp; restore</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <?php if ($error !== null): ?><div class="err" role="alert" id="backup-err"><?= h($error) ?></div><?php endif; ?>
+  <?php if ($preview !== null): ?>
+  <section class="panel panel-warn" id="restore-preview" aria-labelledby="rp-title">
+    <h2 id="rp-title">Restore this backup?</h2>
+    <p>Backup from <b><?= h($preview['created_at'] !== '' ? fmt_time($preview['created_at']) : 'an unknown date') ?></b> (<?= h($preview['driver'] === 'pgsql' ? 'PostgreSQL' : 'SQLite') ?>), with <b><?= h(backup_summary_text($preview['tables'], $preview['photos'])) ?></b>.</p>
+    <?= backup_table_rows($current, $preview['tables']) ?>
+    <?php foreach ($preview['warnings'] as $w): ?><p class="hint warn">⚠ <?= h($w) ?></p><?php endforeach; ?>
+    <p class="hint"><b>Everything currently in the catalog will be replaced.</b> Download a backup first if you might want it back.</p>
+    <form method="post" action="/backup/restore/confirm" class="restore-confirm">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <input type="hidden" name="token" value="<?= h($preview['token']) ?>">
+      <label class="check check-ok"><input type="checkbox" name="confirm" value="1" required id="restore-ok"> Yes, replace my catalog with this backup</label>
+      <div class="row-btns">
+        <a class="btn" href="/backup">Cancel</a>
+        <button class="btn btn-danger-solid" id="restore-go">Restore</button>
+      </div>
+    </form>
+  </section>
+  <?php endif; ?>
+  <section class="panel" aria-labelledby="bk-title">
+    <h2 id="bk-title"><?= icon('download') ?> Download a backup</h2>
+    <p class="hint">One zip file with all items, locations, categories, tags<?= isset($current['activity']) ? ', history' : '' ?> and photos. It works with both SQLite and PostgreSQL installs.</p>
+    <?= backup_table_rows($current) ?>
+    <a class="btn btn-primary btn-block" href="/backup.zip" id="backup-dl" download><?= icon('archive') ?> Download backup (.zip)</a>
+  </section>
+  <section class="panel" aria-labelledby="rs-title">
+    <h2 id="rs-title"><?= icon('archive') ?> Restore from a backup</h2>
+    <p class="hint">Choose an Apotheke backup zip. You'll see what it contains before anything changes.</p>
+    <form method="post" action="/backup/restore" enctype="multipart/form-data" id="restore-form" class="restore-form">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <label class="btn btn-block filepick"><input type="file" name="backup" accept=".zip,application/zip" required id="restore-file" class="file"> <span id="restore-name">Choose backup file…</span></label>
+      <button class="btn btn-block" id="restore-check">Check backup</button>
+    </form>
+    <p class="hint">Large backups can also be restored on the server: <code>php bin/restore.php backup.zip</code>.</p>
+  </section>
+</main>
+<?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
+<?php
+    page_end();
+}
+
+function view_labels(string $heading, array $labels, string $back, array $options = []): void
+{
+    page_start('Labels', 'page-labels');
+    ?>
+<header class="top top-simple no-print">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="<?= h($back) ?>" data-back aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">QR labels</h1>
+    <button type="button" class="btn btn-primary" id="print" data-print><?= icon('printer') ?><span class="hide-xs">Print</span></button>
+  </div>
+</header>
+<main class="wrap labels-wrap">
+  <div class="no-print labels-intro">
+    <h2 class="item-name"><?= h($heading) ?></h2>
+    <p class="hint">Scan a label with the phone camera to open <?= $options ? 'the matching list or item' : 'it' ?> in Apotheke. Links point to <b><?= h(public_url('')) ?></b><?= cfg()['public_url'] === '' ? ' (set <code>PUBLIC_URL</code> to change)' : '' ?>.</p>
+    <?php if ($options): ?><nav class="label-opts" aria-label="Label sets"><?php foreach ($options as $href => $txt): ?><a class="achip" href="<?= h($href) ?>"><?= h($txt) ?></a><?php endforeach; ?></nav><?php endif; ?>
+  </div>
+  <?php if (!$labels): ?>
+  <div class="empty"><?= icon('qr') ?><p class="empty-title">Nothing to print yet.</p></div>
+  <?php else: ?>
+  <div class="labels" id="labels">
+    <?php foreach ($labels as $l): $url = public_url($l['path']); ?>
+    <figure class="label" data-url="<?= h($url) ?>">
+      <?= qr_svg($url, 'QR code for ' . $l['title']) ?>
+      <figcaption><b><?= h($l['title']) ?></b><?php if ($l['sub'] !== ''): ?><span><?= h($l['sub']) ?></span><?php endif; ?><small><?= h(preg_replace('#^https?://#', '', $url)) ?></small></figcaption>
+    </figure>
+    <?php endforeach; ?>
+  </div>
+  <?php endif; ?>
 </main>
 <?php
     page_end();

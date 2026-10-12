@@ -5,12 +5,12 @@ LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Stathis Papandreou"
 
-# GD (JPEG/PNG/WebP), EXIF (photo orientation), OPcache, pdo_pgsql (PostgreSQL). pdo_sqlite ships with the official image.
+# GD (JPEG/PNG/WebP), EXIF (photo orientation), OPcache, pdo_pgsql (PostgreSQL), zip (backups). pdo_sqlite ships with the official image.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev libwebp-dev libpq-dev; \
+    apt-get install -y --no-install-recommends libjpeg62-turbo-dev libpng-dev libwebp-dev libpq-dev libzip-dev; \
     docker-php-ext-configure gd --with-jpeg --with-webp; \
-    docker-php-ext-install -j"$(nproc)" gd exif opcache pdo_pgsql; \
+    docker-php-ext-install -j"$(nproc)" gd exif opcache pdo_pgsql zip; \
     php -m | grep -qi pdo_sqlite; \
     rm -rf /var/lib/apt/lists/*; \
     a2enmod headers expires; \
