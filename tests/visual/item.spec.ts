@@ -47,9 +47,11 @@ test.describe('item page', () => {
     // move the last photo left, then make it the cover
     await page.getByRole('button', { name: 'Move photo 3 left' }).click();
     await expect.poll(files).toEqual([f0, f2, f1]);
+    await page.waitForURL(/\/item\/2\?p=1#photos$/);
     await page.locator('#photos > summary').click();
     await page.getByRole('button', { name: 'Make photo 2 the cover' }).click();
     await expect.poll(files).toEqual([f2, f0, f1]);
+    await page.waitForURL(/\/item\/2\?p=0#photos$/); // the form POST redirects; let it land before navigating away
     expect(app.sql<{ image: string }>('SELECT image FROM items WHERE id = 2')[0].image, 'cover = list thumbnail').toBe(f2);
     await app.go('/');
     await expect(page.locator('.card[data-id="2"] img')).toHaveAttribute('src', `/media/thumb/${f2}`);
