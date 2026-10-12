@@ -44,6 +44,36 @@ jobs:
       - name: Run integration tests
         run: php tests/integration.php
 
+  e2e:
+    name: Headless mobile checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, pdo_sqlite, exif, mbstring
+          coverage: none
+          tools: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
+      - name: Install puppeteer-core
+        run: npm ci --prefix tests/e2e
+      - name: Start app and seed demo data
+        run: |
+          mkdir -p /tmp/e2e-data
+          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:8080 -t public public/index.php > /tmp/e2e-server.log 2>&1 &
+          sleep 1
+          php tests/e2e/seed.php http://127.0.0.1:8080
+      - name: Run mobile checks (375×667, 390×844)
+        run: CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:8080
+      - name: Server log
+        if: always()
+        run: cat /tmp/e2e-server.log || true
+
   docker:
     name: Docker build + smoke test
     runs-on: ubuntu-latest
