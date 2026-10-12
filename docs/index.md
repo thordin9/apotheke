@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/apotheke-logo-dark.svg">
+    <img src="assets/apotheke-logo.svg" alt="Apotheke" width="330">
+  </picture>
+</p>
+
 # Apotheke documentation
 
 Apotheke is a small, self-hosted web app for cataloguing your belongings: photos, a location ("box 1023"), a

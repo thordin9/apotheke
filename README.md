@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/apotheke-logo-dark.svg">
+    <img src="docs/assets/apotheke-logo.svg" alt="Apotheke" width="330">
+  </picture>
+</p>
+
 # Apotheke
 
 [![CI](https://github.com/thordin9/apotheke/actions/workflows/ci.yml/badge.svg)](https://github.com/thordin9/apotheke/actions/workflows/ci.yml)
