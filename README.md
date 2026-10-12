@@ -17,6 +17,7 @@ anything again with instant search.
 * Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
 * **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
 
+* **History**: every item keeps an activity log (created, edited old → new, moved, quantity, photos, deleted), plus a global *Recent activity* page.
 * **Backup & restore**: one zip with the data and every photo; restore with a preview first; works between SQLite and PostgreSQL.
 * **Tags & custom fields**: any number of tags per item (autocomplete, tag filter), plus value, purchase date and serial number.
 * **Multiple photos per item** (up to 12): add from camera or library, reorder, pick a cover, browse with arrows.
@@ -31,10 +32,19 @@ and every item page has a **QR label** button that links straight to the item. C
 (`src/qr.php`, no network, no libraries) as crisp SVG, and the page has a print stylesheet (3 labels per row on A4/Letter).
 Set `PUBLIC_URL` if the address printed on the labels should differ from the one you're using right now.
 
+## History
+
+Every change is logged together with the change itself, in the same database transaction, so the log can't get out of step with the data.
+Logged events: item created, fields edited (old → new value for name, category, notes, value, purchase date, serial and tags),
+moved to another location (including moves caused by deleting a location), quantity changed (on the item page or by the +/− buttons),
+photos added, reordered, deleted or a new cover chosen, and item deleted.
+The item page shows the latest ten entries, with a link to the full history. **☰ → Recent activity** lists changes to all items, newest first.
+Entries of deleted items are kept, so you can still see what was removed and when. The log is part of every backup.
+
 ## Backup & restore
 
 **☰ → Backup & restore → Download backup** saves one zip file. It holds a portable JSON copy of the database
-(`backup.json`: items, locations, categories, tags, photos list and settings) plus every photo and thumbnail.
+(`backup.json`: items, locations, categories, tags, photos list, history and settings) plus every photo and thumbnail.
 To restore, choose a backup zip on the same page. Apotheke checks the file and shows what it contains next to what you have now.
 Nothing changes until you tick the box and press **Restore**. The restore runs in a single transaction: if anything fails, your catalog stays as it was.
 

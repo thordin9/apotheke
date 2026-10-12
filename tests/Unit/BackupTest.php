@@ -117,6 +117,21 @@ final class BackupTest extends DatabaseTestCase
         $this->assertSame(['Garage', 'Power'], array_column(item_get((int)$before['tables']['items']['rows'][0][0])['tags'], 'name'));
     }
 
+    public function testIdsOfDeletedItemsAreNotReusedAfterRestore(): void
+    {
+        $src = $this->dataDir();
+        $this->seedCatalog($src);
+        $gone = item_save(null, ['name' => 'temp', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], null, false);
+        item_delete(item_get($gone));   // highest id now only lives on in the activity log
+        $zip = $this->tmp('.zip');
+        backup_create($this->pdo, $this->driver, $src, $zip);
+        [$drv, $pdo] = $this->otherDriver();
+        migrate($pdo, $drv, ['data_dir' => sys_get_temp_dir()]);
+        backup_restore($pdo, $drv, $this->dataDir(), $zip);
+        $next = db_insert($pdo, "INSERT INTO items (name, quantity, notes, search, sort_key, created_at, updated_at) VALUES ('n', 1, '', 'n', 'n', '2026-01-01 00:00:00', '2026-01-01 00:00:00')", []);
+        $this->assertGreaterThan($gone, $next, 'a new item must not inherit the history of a deleted one');
+    }
+
     public function testRestoresAcrossDatabaseDrivers(): void
     {
         $src = $this->dataDir();

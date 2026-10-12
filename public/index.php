@@ -127,7 +127,10 @@ try {
         header('Cache-Control: no-store');
         if (!empty($m[2])) view_form($it, ['new_location' => '', 'new_category' => '', 'tags' => implode(', ', array_column($it['tags'], 'name')),
             'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date']] + $it, locations(), categories(), null);
-        else view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)));
+        else {
+            $hist = activity_list((int)$it['id'], 1, 10);
+            view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
+        }
         exit;
     }
 
@@ -331,6 +334,22 @@ try {
         if (!$it) throw new UserError('Item not found.', 404);
         header('Cache-Control: no-store');
         view_labels($it['name'], [['title' => $it['name'], 'sub' => $it['location'], 'path' => '/item/' . (int)$it['id']]], '/item/' . (int)$it['id']);
+        exit;
+    }
+
+    /* ---- activity log ---- */
+    if ($path === '/activity' && $method === 'GET') {
+        header('Cache-Control: no-store');
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $item = ctype_digit((string)($_GET['item'] ?? '')) ? (int)$_GET['item'] : null;
+        $itemRow = null;
+        if ($item !== null) {
+            $itemRow = item_get($item);
+            if (!$itemRow) { $last = activity_list($item, 1, 1)[0] ?? null; $itemRow = $last ? ['id' => $item, 'name' => $last['item_name']] : null; }
+            if (!$itemRow) { view_error(404, 'Item not found.'); exit; }
+        }
+        $rows = activity_list($item, $page);
+        view_activity(array_slice($rows, 0, ACTIVITY_PAGE), $page, count($rows) > ACTIVITY_PAGE, $itemRow);
         exit;
     }
 

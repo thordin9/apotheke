@@ -87,19 +87,22 @@ function tax_set_default(string $kind, int $id, bool $on): void
 function tax_delete(string $kind, int $id, ?int $moveTo): int
 {
     $t = tax($kind);
-    $pdo = db();
-    $pdo->beginTransaction();
-    try {
+    return db_tx(function (PDO $pdo) use ($t, $kind, $id, $moveTo): int {
+        $from = (string)(tax_get($kind, $id)['name'] ?? '');
+        $to = $moveTo !== null ? (string)(tax_get($kind, $moveTo)['name'] ?? '') : '';
+        $sel = $pdo->prepare("SELECT id, name FROM items WHERE {$t['col']} = ?");
+        $sel->execute([$id]);
+        foreach ($sel->fetchAll() as $it) {
+            $kind === 'location'
+                ? activity_log((int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
+                : activity_log((int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
+        }
         $st = $pdo->prepare("UPDATE items SET {$t['col']} = ?, updated_at = ? WHERE {$t['col']} = ?");
         $st->execute([$moveTo, now_utc(), $id]);
         $n = $st->rowCount();
         $pdo->prepare("DELETE FROM {$t['table']} WHERE id = ?")->execute([$id]);
-        $pdo->commit();
         return $n;
-    } catch (Throwable $e) {
-        $pdo->rollBack();
-        throw $e;
-    }
+    });
 }
 
 // Short aliases used by views/router.
@@ -301,6 +304,36 @@ function db_tx(callable $fn): mixed
     }
 }
 
+/* ---------- activity log (written inside the same transaction as the change) ---------- */
+
+const ACTIVITY_PAGE = 50;
+
+function activity_log(int $itemId, string $itemName, string $action, array $details = []): void
+{
+    db_insert(db(), 'INSERT INTO activity (item_id, item_name, action, details, created_at) VALUES (?,?,?,?,?)',
+        [$itemId, $itemName, $action, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), now_utc()]);
+}
+
+/** @return array<int,array{id:int,item_id:?int,item_name:string,action:string,details:array,created_at:string,exists:bool}> */
+function activity_list(?int $itemId = null, int $page = 1, int $per = ACTIVITY_PAGE): array
+{
+    $page = max(1, $page);
+    $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
+            FROM activity a LEFT JOIN items i ON i.id = a.item_id' . ($itemId !== null ? ' WHERE a.item_id = ?' : '')
+         . ' ORDER BY a.id DESC LIMIT ' . ($per + 1) . ' OFFSET ' . (($page - 1) * $per);
+    $st = db()->prepare($sql);
+    $st->execute($itemId !== null ? [$itemId] : []);
+    return array_map(fn($r) => ['id' => (int)$r['id'], 'item_id' => $r['item_id'] === null ? null : (int)$r['item_id'], 'item_name' => (string)$r['item_name'],
+        'action' => (string)$r['action'], 'details' => json_decode((string)$r['details'], true) ?: [], 'created_at' => (string)$r['created_at'],
+        'exists' => (int)$r['item_exists'] === 1], $st->fetchAll());
+}
+
+function activity_short(?string $s): string
+{
+    $s = (string)$s;
+    return mb_strlen($s) > 200 ? mb_substr($s, 0, 199) . '…' : $s;
+}
+
 /**
  * Create or update an item. $newImage (on edit) replaces the cover photo; $removeImage removes the cover
  * (the next photo, if any, becomes the cover).
@@ -318,9 +351,35 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
                 [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
             tags_set($id, $in['tags']);
             if ($newImage !== null) photo_insert($id, $newImage, true);
+            activity_log($id, $in['name'], 'created', array_filter([
+                'location' => $in['location_id'] !== null ? (string)(tax_get('location', $in['location_id'])['name'] ?? '') : null,
+                'category' => $in['category_id'] !== null ? (string)(tax_get('category', $in['category_id'])['name'] ?? '') : null,
+                'quantity' => $in['quantity'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
+            ], fn($v) => $v !== null));
             return $id;
         }
         $id = (int)$existing['id'];
+        $old = item_get($id) ?? $existing;
+        $nameOf = fn(string $k, ?int $v) => $v === null ? '' : (string)(tax_get($k, $v)['name'] ?? '');
+        $changes = [];
+        $cmp = [
+            'name'          => [$old['name'], $in['name']],
+            'category'      => [(string)$old['category'], $nameOf('category', $in['category_id'])],
+            'notes'         => [activity_short($old['notes']), activity_short($in['notes'])],
+            'value'         => [money_input($old['value_cents'] ?? null), money_input($in['value_cents'])],
+            'purchase_date' => [(string)($old['purchase_date'] ?? ''), (string)($in['purchase_date'] ?? '')],
+            'serial'        => [(string)($old['serial'] ?? ''), $in['serial']],
+            'tags'          => [implode(', ', array_column($old['tags'] ?? [], 'name')), implode(', ', $in['tags'])],
+        ];
+        foreach ($cmp as $k => [$a, $b]) if ($a !== $b) $changes[$k] = [$a, $b];
+        if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes]);
+        if ((int)$old['location_id'] !== (int)$in['location_id'] || ($old['location_id'] === null) !== ($in['location_id'] === null)) {
+            activity_log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])]);
+        }
+        if ((int)$old['quantity'] !== (int)$in['quantity']) activity_log($id, $in['name'], 'quantity', ['from' => (int)$old['quantity'], 'to' => (int)$in['quantity']]);
+        if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
+            activity_log($id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
+        }
         $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
         $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
         tags_set($id, $in['tags']);
@@ -340,6 +399,7 @@ function item_delete(array $item): void
 {
     $files = array_column(photos_for((int)$item['id']), 'file');
     db_tx(function (PDO $pdo) use ($item): void {
+        activity_log((int)$item['id'], (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], fn($v) => $v !== ''));
         $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
         $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
     });
@@ -387,6 +447,7 @@ function photo_add(int $itemId, string $file): int
         if (count(photos_for($itemId)) >= MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.');
         $pid = photo_insert($itemId, $file);
         db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
+        activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo', ['change' => 'added', 'count' => count(photos_for($itemId))]);
         return $pid;
     });
 }
@@ -419,6 +480,10 @@ function photo_action(int $itemId, int $photoId, string $action): int
         }
         photos_renumber($itemId, $ids);
         db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
+        if ($new !== $i || $action === 'delete') {
+            activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo',
+                ['change' => ['cover' => 'cover', 'left' => 'reordered', 'right' => 'reordered', 'delete' => 'deleted'][$action], 'count' => count($ids)]);
+        }
         return $new;
     });
     if ($drop !== null) image_delete($drop);
@@ -446,12 +511,19 @@ function pick_uploads(array $fields): array
 
 function item_adjust_qty(int $id, int $delta): ?int
 {
-    $st = db()->prepare('UPDATE items SET quantity = CASE WHEN quantity + ? < 0 THEN 0 ELSE quantity + ? END, updated_at = ? WHERE id = ?');
-    $st->execute([$delta, $delta, now_utc(), $id]);
-    if ($st->rowCount() === 0) return null;
-    $st = db()->prepare('SELECT quantity FROM items WHERE id = ?');
-    $st->execute([$id]);
-    return (int)$st->fetchColumn();
+    return db_tx(function (PDO $pdo) use ($id, $delta): ?int {
+        $st = $pdo->prepare('SELECT name, quantity FROM items WHERE id = ?');
+        $st->execute([$id]);
+        $row = $st->fetch();
+        if (!$row) return null;
+        $st = $pdo->prepare('UPDATE items SET quantity = CASE WHEN quantity + ? < 0 THEN 0 ELSE quantity + ? END, updated_at = ? WHERE id = ?');
+        $st->execute([$delta, $delta, now_utc(), $id]);
+        $st = $pdo->prepare('SELECT quantity FROM items WHERE id = ?');
+        $st->execute([$id]);
+        $q = (int)$st->fetchColumn();
+        if ($q !== (int)$row['quantity']) activity_log($id, (string)$row['name'], 'quantity', ['from' => (int)$row['quantity'], 'to' => $q]);
+        return $q;
+    });
 }
 
 /* ---------- images ---------- */

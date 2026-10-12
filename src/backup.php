@@ -21,7 +21,7 @@ const BACKUP_MAX_ENTRIES  = 100_000;
 /** Tables in foreign-key order (parents first). Restore deletes in reverse. */
 function backup_tables(): array
 {
-    return ['locations', 'categories', 'tags', 'items', 'item_photos', 'item_tags', 'app_settings'];
+    return ['locations', 'categories', 'tags', 'items', 'item_photos', 'item_tags', 'app_settings', 'activity'];
 }
 
 function backup_table_exists(PDO $pdo, string $driver, string $t): bool
@@ -222,9 +222,19 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
                 foreach ($r as $k => $v) $ins->bindValue($k + 1, $v, match (true) { $v === null => PDO::PARAM_NULL, is_int($v) => PDO::PARAM_INT, is_bool($v) => PDO::PARAM_BOOL, default => PDO::PARAM_STR });
                 $ins->execute();
             }
-            if ($driver === 'pgsql' && in_array('id', backup_columns($pdo, $driver, $t), true)) {
-                // identity columns don't advance on explicit ids: move the sequence past the highest restored id
-                $pdo->query("SELECT setval(pg_get_serial_sequence('$t', 'id'), COALESCE((SELECT MAX(id) FROM $t), 0) + 1, false)");
+        }
+        foreach ($tables as $t) {
+            if (!in_array('id', backup_columns($pdo, $driver, $t), true)) continue;
+            // Never hand out an id again: past the highest restored id and, for items, past every id in the history
+            // (the activity log outlives deleted items).
+            $max = "SELECT MAX(id) AS m FROM $t" . ($t === 'items' && in_array('activity', $tables, true) ? ' UNION ALL SELECT MAX(item_id) AS m FROM activity' : '');
+            $next = (int)$pdo->query("SELECT COALESCE(MAX(m), 0) FROM ($max) x")->fetchColumn();
+            if ($driver === 'pgsql') {
+                // identity columns don't advance on explicit ids
+                $pdo->query("SELECT setval(pg_get_serial_sequence('$t', 'id'), $next + 1, false)");
+            } else {
+                $pdo->prepare('DELETE FROM sqlite_sequence WHERE name = ?')->execute([$t]);
+                $pdo->prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)')->execute([$t, $next]);
             }
         }
         $pdo->commit();

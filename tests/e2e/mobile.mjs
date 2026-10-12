@@ -130,6 +130,21 @@ try {
       await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.tap('#restore-go')]);
       ok(/\/backup\?restored=1$/.test(p.url()) && await p.$eval('.toast', t => t.textContent.includes('restored')), 'restore confirmed, toast shown');
     }
+    // history: change an item, see it on the item page and in recent activity
+    {
+      await p.goto(base + '/', { waitUntil: 'networkidle0' });
+      const link = await p.$eval('#grid .card a.card-img', a => a.getAttribute('href'));
+      await p.goto(base + link, { waitUntil: 'networkidle0' });
+      await p.tap('.qty-lg .qbtn[data-delta="1"]'); await pause(400);
+      await p.reload({ waitUntil: 'networkidle0' });
+      ok(await p.$eval('#history .act-quantity', e => /Quantity \d+ → \d+/.test(e.textContent)), 'quantity change shows in the item history');
+      ok(!(await overflow()), 'no horizontal overflow with history');
+      await p.goto(base + '/', { waitUntil: 'networkidle0' });
+      await p.tap('#menu-btn'); await pause(250);
+      await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle0' }), p.tap('#menu a[href="/activity"]')]);
+      ok(await p.$$eval('#activity .act', l => l.length) > 0 && await p.$eval('#activity .act', e => e.classList.contains('act-quantity')), 'recent activity lists the newest change first');
+      ok(!(await overflow()), 'no horizontal overflow on /activity');
+    }
     // FEATURE-CHECKS
     ok(errors.length === 0, 'no JS errors' + (errors.length ? ': ' + errors.join('; ') : ''));
     await ctx.close();

@@ -483,3 +483,24 @@ a.tagchip{min-height:36px}
 .row-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:var(--s3)}
 .check-ok{margin-top:var(--s2);color:var(--text)}
 .warn{color:var(--danger)}
+
+/* activity log */
+.history{margin:var(--s4) 0}
+.history h2{display:flex;align-items:center;gap:8px;font-size:18px;margin:0 0 var(--s2)}
+.history h2 .i{color:var(--accent)}
+.activity{list-style:none;margin:0 0 var(--s3);padding:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+.act{display:flex;gap:12px;padding:12px 14px;border-top:1px solid var(--line)}
+.act:first-child{border-top:0}
+.act-ic{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.act-ic .i{width:18px;height:18px}
+.act-deleted .act-ic{background:var(--danger-soft);color:var(--danger)}
+.act-body{min-width:0;flex:1;font-size:15px;line-height:1.4}
+.act-item{display:block;font-weight:650;color:var(--text);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-gone{color:var(--muted);text-decoration:line-through}
+.act-text{overflow-wrap:anywhere}
+.act-changes{margin:4px 0 0;padding:0;list-style:none;color:var(--muted)}
+.act-changes li{margin:2px 0}
+.act-field{font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:650;color:var(--muted);margin-right:4px}
+.act time{display:block;font-size:13px;color:var(--muted);margin-top:2px}
+.pager{display:flex;gap:8px;justify-content:space-between}
+.pager .btn[rel=next]{margin-left:auto}

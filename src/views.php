@@ -18,6 +18,7 @@ function icon(string $n): string
         'x'      => '<path d="M6 6l12 12M18 6 6 18"/>',
         'pin'    => '<path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
         'archive' => '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>',
+        'clock'  => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
         'star'   => '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
         'move'   => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
@@ -142,6 +143,7 @@ function menu_html(): string
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
+        . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
         . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>';
     if (app_password() !== '') {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
@@ -368,7 +370,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     page_end();
 }
 
-function view_item(array $it, array $photos = [], int $cur = 0): void
+function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false): void
 {
     page_start($it['name'], 'page-item');
     $id = (int)$it['id'];
@@ -458,6 +460,13 @@ function view_item(array $it, array $photos = [], int $cur = 0): void
     <?php endif; ?>
   </details>
   <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
+  <?php if ($history): ?>
+  <section class="history" id="history" aria-labelledby="hist-title">
+    <h2 id="hist-title"><?= icon('clock') ?> History</h2>
+    <?= activity_items_html($history, false) ?>
+    <?php if ($historyMore): ?><a class="btn btn-sm" href="/activity?item=<?= $id ?>" id="hist-more">Full history</a><?php endif; ?>
+  </section>
+  <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
 </main>
 <div class="actionbar">
@@ -762,6 +771,93 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags'];
+
+/** One activity entry as HTML (already escaped). */
+function activity_html(array $e): string
+{
+    $d = $e['details'];
+    $q = fn($v) => ($v === '' || $v === null) ? '<i>empty</i>' : '“' . h((string)$v) . '”';
+    $none = fn($v) => (string)$v === '' ? '<i>none</i>' : '<b>' . h((string)$v) . '</b>';
+    switch ($e['action']) {
+        case 'created':
+            $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '')
+               . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '');
+            break;
+        case 'edited':
+            $parts = [];
+            foreach (($d['changes'] ?? []) as $k => $ch) {
+                $label = ACTIVITY_FIELDS[$k] ?? ucfirst((string)$k);
+                $val = $k === 'value' ? fn($v) => $v === '' ? '<i>empty</i>' : h($v . ' ' . cfg()['currency']) : $q;
+                $parts[] = '<li><span class="act-field">' . h($label) . '</span> ' . $val($ch[0] ?? '') . ' → ' . $val($ch[1] ?? '') . '</li>';
+            }
+            $t = 'Edited' . (!empty($d['reason']) ? ' (' . h($d['reason']) . ')' : '') . '<ul class="act-changes">' . implode('', $parts) . '</ul>';
+            break;
+        case 'moved':
+            $t = 'Moved from ' . $none($d['from'] ?? '') . ' to ' . $none($d['to'] ?? '') . (!empty($d['reason']) ? ' (' . h($d['reason']) . ')' : '');
+            break;
+        case 'quantity':
+            $t = 'Quantity <b>' . (int)($d['from'] ?? 0) . '</b> → <b>' . (int)($d['to'] ?? 0) . '</b>';
+            break;
+        case 'photo':
+            $t = ['added' => 'Added a photo', 'removed' => 'Removed the cover photo', 'replaced' => 'Replaced the cover photo', 'cover' => 'Chose a new cover photo',
+                  'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo'][$d['change'] ?? ''] ?? 'Changed photos';
+            if (isset($d['count'])) $t .= ' · ' . (int)$d['count'] . ' total';
+            break;
+        case 'deleted':
+            $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
+            break;
+        default:
+            $t = h($e['action']);
+    }
+    return $t;
+}
+
+const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash'];
+
+function activity_items_html(array $entries, bool $withItem): string
+{
+    $o = '<ol class="activity">';
+    foreach ($entries as $e) {
+        $o .= '<li class="act act-' . h($e['action']) . '"><span class="act-ic">' . icon(ACTIVITY_ICONS[$e['action']] ?? 'clock') . '</span><div class="act-body">';
+        if ($withItem) {
+            $o .= $e['exists'] && $e['item_id'] !== null
+                ? '<a class="act-item" href="/item/' . (int)$e['item_id'] . '">' . h($e['item_name']) . '</a>'
+                : '<span class="act-item act-gone">' . h($e['item_name']) . '</span>';
+        }
+        $o .= '<div class="act-text">' . activity_html($e) . '</div><time datetime="' . h(str_replace(' ', 'T', $e['created_at']) . 'Z') . '">' . h(fmt_time($e['created_at'])) . '</time></div></li>';
+    }
+    return $o . '</ol>';
+}
+
+function view_activity(array $entries, int $page, bool $more, ?array $item = null): void
+{
+    page_start($item ? 'History: ' . $item['name'] : 'Recent activity', 'page-activity');
+    $qs = fn(int $p) => ($q = http_build_query(array_filter(['item' => $item ? (int)$item['id'] : null, 'page' => $p > 1 ? $p : null]))) !== '' ? '?' . $q : '';
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="<?= $item ? '/item/' . (int)$item['id'] : '/' ?>" data-back aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm"><?= $item ? 'History' : 'Recent activity' ?></h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow" id="activity">
+  <?php if ($item): ?><h2 class="item-name"><?= h($item['name']) ?></h2><?php endif; ?>
+  <?php if (!$entries): ?>
+  <div class="empty"><?= icon('clock') ?><p class="empty-title">No activity yet.</p><p class="empty-sub">Changes to your items show up here.</p></div>
+  <?php else: ?>
+  <?= activity_items_html($entries, $item === null) ?>
+  <nav class="pager" aria-label="Pages">
+    <?php if ($page > 1): ?><a class="btn" href="/activity<?= h($qs($page - 1)) ?>" rel="prev">Newer</a><?php endif; ?>
+    <?php if ($more): ?><a class="btn" href="/activity<?= h($qs($page + 1)) ?>" rel="next" id="act-older">Older</a><?php endif; ?>
+  </nav>
+  <?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
 function backup_table_rows(array $current, ?array $incoming = null): string
 {
     $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries'];
