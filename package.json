@@ -1,0 +1,14 @@
+{
+  "name": "apotheke-e2e",
+  "private": true,
+  "description": "Dev-only: Playwright visual end-to-end tests for Apotheke (the app itself has no JS build step).",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:smoke-pg": "playwright test --project=pgsql-smoke",
+    "test:e2e:report": "playwright show-report tests/visual/report",
+    "test:e2e:update": "scripts/update-snapshots.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}

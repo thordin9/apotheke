@@ -7,3 +7,6 @@ vendor/
 .phpunit.cache/
 /config.php
 coverage/
+node_modules/
+/tests/visual/report/
+/tests/visual/results/
