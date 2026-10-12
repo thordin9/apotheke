@@ -4,80 +4,70 @@
 
 *The storehouse for your stuff.*
 
-> **Apotheke** comes from the ancient Greek **ἀποθήκη** (*apothḗkē*), "storehouse": a place where things are put away for safekeeping. (It is also where the word for pharmacy comes from in many languages.)
+> **Apotheke** comes from the ancient Greek **ἀποθήκη** (*apothḗkē*), "storehouse": a place where things are put away
+> for safekeeping. (It is also where the word for pharmacy comes from in many languages.)
 
-A small, fast, self-hosted web app for cataloging your belongings: snap a photo on your
-iPhone, name the item, pick where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then find
-anything again with instant search.
+A small, fast, self-hosted web app for cataloguing your belongings: snap a photo on your phone, name the item, pick
+where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then find anything again with instant search.
 
-* Plain PHP 8 + SQLite + GD. No framework, no Composer, no build step, no CDNs: works fully offline on your LAN.
-* Mobile-first UI: every function works one-handed on a phone. 44 px+ tap targets, a bottom sheet for filters and sorting with removable filter chips, sticky Save/Edit bars within thumb reach, large +/- quantity controls, safe-area support and "Add to Home Screen".
-* **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. Your choice is saved (cookie + localStorage) and rendered by the server, so pages never flash the wrong theme. Auto follows your phone's setting.
-* Photos are resized in the browser before upload (max 1600 px, JPEG ~80%), so a 4 MB iPhone photo becomes about 150–300 KB and uploads instantly. The server checks and re-encodes every image with GD (which also strips EXIF/GPS data) and makes a 480 px thumbnail for the grid.
-* Instant search across name, location, category and notes (ignores case and accents, including Greek). Filter by location and/or category (including "No location" / "No category"), sort by recent, name, location, category or quantity, use quick +/- quantity buttons, add/edit/replace photo/delete, and export to CSV.
-* **Locations** and **categories** are managed lists that work the same way. You pick from a dropdown (sorted naturally, so box 2 comes before box 10), can add a new entry right inside the item form, and can mark one entry of each as the **default** for new items.
+Plain PHP + PDO (SQLite or PostgreSQL) + GD. No framework, no runtime Composer packages, no JS build step, no CDNs:
+it works fully offline on your LAN.
 
-* **History**: every item keeps an activity log (created, edited old → new, moved, quantity, photos, deleted), plus a global *Recent activity* page.
-* **Backup & restore**: one zip with the data and every photo; restore with a preview first; works between SQLite and PostgreSQL.
-* **Tags & custom fields**: any number of tags per item (autocomplete, tag filter), plus value, purchase date and serial number.
-* **Multiple photos per item** (up to 12): add from camera or library, reorder, pick a cover, browse with arrows.
-* **QR labels** for locations and items: print, stick on the box, scan to open the list.
-* An **Overview** panel at the top of the list shows totals (items, total quantity, locations, categories, added this week/month), a chart of items added (30 days by day, or 12 months by month), and the top 5 locations and top 5 categories as bars. Tap a bar to filter the list. It is collapsible, and your choice is remembered. While collapsed, the charts are neither computed nor downloaded; they load the first time you open the panel.
+## Contents
 
-## QR labels
+[Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install with Docker](#install-with-docker) ·
+[Install without Docker](#install-without-docker) · [Configuration](#configuration) · [Command-line tools](#command-line-tools) ·
+[Upgrading](#upgrading) · [Testing](#testing) · [CI](#ci) · [Security notes](#security-notes) · [Project layout](#project-layout) ·
+[Contributing](#contributing) · [License](#license)
 
-Stick a QR label on every box. **☰ → Print QR labels** (or *Manage → Locations*) prints a sheet with one label per location.
-Each label opens that location's item list when you scan it with the iPhone camera. A location can also print *one label per item*,
-and every item page has a **QR label** button that links straight to the item. Codes are generated on the server in pure PHP
-(`src/qr.php`, no network, no libraries) as crisp SVG, and the page has a print stylesheet (3 labels per row on A4/Letter).
-Set `PUBLIC_URL` if the address printed on the labels should differ from the one you're using right now.
+## Features
 
-## History
+* **Mobile-first UI.** Every function works one-handed on a phone: 44 px+ tap targets, sticky Save/Edit bars within thumb
+  reach, large +/- quantity controls, safe-area support and "Add to Home Screen" (opens full-screen like an app).
+* **Locations and categories** are managed lists that behave identically. Pick from a dropdown (natural sort, so box 2
+  comes before box 10), add a new entry right inside the item form (＋), and mark one of each as the **default** (★) for new
+  items. Names are unique regardless of case or accents ("Box 5" = "box 5"). **Save & new** keeps the location and
+  category you just used. The *Manage* page (Locations / Categories tabs) shows item counts and lets you add, rename,
+  set/clear the default and delete; deleting an entry that still has items asks whether to **move them** elsewhere or
+  **leave them unassigned**. Items are never deleted with a location or category.
+* **Overview stats** at the top of the list: items, total quantity, locations, categories, added this week/month, a chart of
+  items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars. Tap a bar to filter.
+  The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
+* **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
+  and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
+* **Instant search** across name, location, category, notes, tags and serial number, ignoring case and accents (Greek
+  included).
+* **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
+  and to sort by recent, name, location, category or quantity. Active filters show as removable chips with *Clear all*.
+* **Multiple photos** per item (up to 12): take one with the camera or pick from the library, reorder, choose the cover,
+  delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
+  shrunk on the phone before upload (max 1600 px, JPEG ~80 %), then checked and re-encoded with GD on the server (which
+  strips EXIF/GPS) with a 480 px thumbnail for the grid.
+* **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
+  list), plus value (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
+* **QR labels** for locations and items: ☰ → *Print QR labels* prints one label per location (or one per item in a location;
+  every item page has a *QR label* button). Scanning opens that list or item. Codes are generated on the server in pure PHP
+  (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet (3 labels per row on A4/Letter). Set
+  `PUBLIC_URL` if the address on the labels should differ from the one you are using right now.
+* **Backup & restore**: ☰ → *Backup & restore* downloads one zip with a portable JSON copy of the database (`backup.json`:
+  items, locations, categories, tags, photo list, history, settings) plus every photo and thumbnail. Restoring shows a
+  preview of the file next to your current data; nothing changes until you tick the box and press *Restore*, and it runs in
+  one transaction. The format doesn't depend on the database, so SQLite ↔ PostgreSQL works both ways.
+* **Activity history**: every change is logged in the same transaction as the change itself: created, edited (old → new
+  for name, category, notes, value, purchase date, serial, tags), moved (including moves caused by deleting a location),
+  quantity, photos added/reordered/deleted/new cover, deleted. The item page shows the latest ten entries with a link to
+  the full history; ☰ → *Recent activity* lists all items, newest first. Entries of deleted items are kept.
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date` and `serial` columns).
+* **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
+  Empty means no login, fine on a trusted LAN.
 
-Every change is logged together with the change itself, in the same database transaction, so the log can't get out of step with the data.
-Logged events: item created, fields edited (old → new value for name, category, notes, value, purchase date, serial and tags),
-moved to another location (including moves caused by deleting a location), quantity changed (on the item page or by the +/− buttons),
-photos added, reordered, deleted or a new cover chosen, and item deleted.
-The item page shows the latest ten entries, with a link to the full history. **☰ → Recent activity** lists changes to all items, newest first.
-Entries of deleted items are kept, so you can still see what was removed and when. The log is part of every backup.
+### iPhone camera notes
 
-## Backup & restore
-
-**☰ → Backup & restore → Download backup** saves one zip file. It holds a portable JSON copy of the database
-(`backup.json`: items, locations, categories, tags, photos list, history and settings) plus every photo and thumbnail.
-To restore, choose a backup zip on the same page. Apotheke checks the file and shows what it contains next to what you have now.
-Nothing changes until you tick the box and press **Restore**. The restore runs in a single transaction: if anything fails, your catalog stays as it was.
-
-The JSON format doesn't depend on the database, so a backup from a SQLite install restores into PostgreSQL and the other way round.
-From the command line (handy for cron jobs and big archives):
-
-```sh
-php bin/backup.php /backups/apotheke-$(date +%F).zip
-php bin/restore.php /backups/apotheke-2026-10-12.zip --dry-run   # validate + summary only
-php bin/restore.php /backups/apotheke-2026-10-12.zip             # asks "yes", then replaces everything
-```
-
-In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`. The web upload accepts backups up to 512 MB
-(the Apache config raises the limit only for `/backup/restore`). Use the CLI for anything bigger.
-Photo files that the restored data doesn't reference are left in `data/images` and are never deleted automatically.
-
-## Tags & custom fields
-
-Type tags into the **Tags** field on the item form: press Enter or a comma after each one. Existing tags are suggested as you type.
-Tags show as chips on the item page; tap one to list every item with that tag, or pick a tag under **Filter**.
-Search also finds items by tag and serial number. Tags that no item uses any more are removed automatically.
-
-Under **Value, purchase date & serial** you can record what an item is worth (in the currency set by `CURRENCY`, default `EUR`),
-when you bought it and its serial number. The item page shows these values when they are set, and the CSV export includes them
-(`tags`, `value`, `currency`, `purchase_date`, `serial` columns).
-
-## Photos
-
-Every item can have up to 12 photos. The first one is the **cover**, which the list shows. On the item page, use the ‹ › arrows,
-the thumbnail strip or the ← → keys to page through the gallery. All of these are plain links, so the gallery also works without JavaScript.
-Open **Photos** below the details to add more pictures (camera or library; they are shrunk on the phone before upload),
-move photos left or right, make one the cover (★) or delete it. If you upgrade from an older version, the single photo
-each item had becomes its cover (migration `0003`).
+* **Take photo** uses `<input type="file" accept="image/*" capture="environment">`, which opens the rear camera directly;
+  **Library** picks an existing photo.
+* This works over plain `http://` on your LAN. HTTPS is only needed for the live-camera `getUserMedia` API, which
+  Apotheke does not use.
+* HEIC: iOS hands Safari a JPEG for file inputs; any other image the browser can decode is converted to JPEG on the device.
 
 ## Screenshots
 
@@ -93,17 +83,19 @@ each item had becomes its cover (migration `0003`).
 |---|---|---|---|---|
 | ![Gallery](docs/screenshots/gallery-light.png) | ![Tags](docs/screenshots/tags-dark.png) | ![Labels](docs/screenshots/labels-light.png) | ![Restore](docs/screenshots/restore-light.png) | ![Activity](docs/screenshots/activity-dark.png) |
 
-## Locations & categories
+## Requirements
 
-Locations and categories behave identically:
+**Runtime** (the Docker image has all of this):
 
+* PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
+  `zip` (backups); `exif` is recommended (photo orientation), `opcache` for speed.
+* SQLite (built in) or PostgreSQL (tested with 17).
+* No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
 
-* **In the item form:** pick a location and a category from the two dropdowns. To add one without leaving the form, tap the **＋** next to it (or choose "＋ New location…" / "＋ New category…"), type the name and tap **Add**. If you type a name and just tap Save, it is created as well. Names are unique regardless of case or accents ("Box 5" = "box 5").
-* **Save & new** keeps both the location and the category you chose, which is handy when you're emptying one box.
-* **Manage page** (the sliders icon in the header, a "Manage" link in the form, or the footer links): it has two tabs, **Locations** and **Categories**. Each shows every entry with its item count, and you can add, rename (tap *Edit*), and delete. Tap the ★ to make an entry the default, and tap it again to clear it. There is at most one default per tab, and it is preselected on new items.
-* **Deleting an entry that still has items** opens a confirmation page where you choose to **move the items to another location/category** or **leave them unassigned**. Items are never deleted along with a location or category.
+**Development only:** Composer + PHPUnit 11 (`composer install`), Node 20+ for the JS syntax check and the headless mobile
+checks, `shellcheck` for the shell lint, optionally `zbar-tools` (QR round-trip tests).
 
-## Run it (Docker)
+## Install with Docker
 
 On the LAN server:
 
@@ -112,36 +104,76 @@ git clone https://github.com/thordin9/apotheke.git && cd apotheke
 docker compose up -d --build
 ```
 
-Then on your iPhone (same Wi-Fi) open **http://SERVER-IP:8080**. To find the server IP, run `hostname -I` on the server.
+Then open **http://SERVER-IP:8080** on your phone (same Wi-Fi; `hostname -I` shows the server IP). In Safari tap Share →
+**Add to Home Screen**. To use another port, change `"8080:80"` in `docker-compose.yml`.
 
-**Add to Home Screen:** in Safari tap Share, then **Add to Home Screen**. It opens full-screen like an app.
-
-Everything is stored in `./data` next to `docker-compose.yml`:
+The image is `php:8.3-apache` with `gd`, `exif`, `opcache`, `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). The
+entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
+`HEALTHCHECK` polls `/healthz`. Everything is stored in `./data` next to `docker-compose.yml`:
 
 ```
 data/
-  catalog.sqlite      # the database (created automatically on first run)
+  catalog.sqlite      # the SQLite database (created on first run)
   images/             # full-size photos (≤1600 px JPEG, random file names)
   thumbs/             # 480 px thumbnails
   sessions/           # login sessions
+  postgres/           # only with the postgres profile
 ```
 
-**Upgrading from an older version:** on first start the app upgrades the database automatically.
+Settings go into a `.env` file next to `docker-compose.yml` (see [Configuration](#configuration)), e.g.
 
-* From the very first version (free-text locations), the distinct location texts become managed locations (trimmed and de-duplicated ignoring case and accents), and every item is linked to its location.
-* From the locations version, a `categories` table is added. Existing items start without a category.
+```
+APP_PASSWORD=change-me
+TZ=Europe/Athens
+```
 
-Before upgrading, the app saves a snapshot `data/catalog-v<old version>-backup-<date>.sqlite`. The upgrade runs as a single transaction, so if anything fails, nothing changes. Once everything looks right, you can delete the snapshot.
+then `docker compose up -d` again.
 
-**Backup:** copy the `data/` folder. For a perfectly consistent copy while the app is running, use
-`sqlite3 data/catalog.sqlite ".backup backup.sqlite"` or stop the container first.
+### PostgreSQL (optional)
 
-### Configuration
+SQLite is the default and needs nothing extra. To use the bundled PostgreSQL container, put this in `.env`:
 
-Settings come from three layers (later wins): built-in defaults → `config.php` → environment variables.
-For Docker, environment variables (or a `.env` file next to `docker-compose.yml`) are the easy way. Without Docker, copy
-[`config.example.php`](config.example.php) to `config.php` (git-ignored) and edit it. Empty environment variables are ignored,
-so they never wipe a value set in `config.php`.
+```
+DB_DRIVER=pgsql
+DB_PASSWORD=a-strong-password
+```
+
+and start with the `postgres` profile:
+
+```bash
+docker compose --profile postgres up -d --build
+```
+
+Its data lives in `./data/postgres`. For an existing server set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and
+`DB_PASSWORD` instead and leave the profile off. Photos always stay in `DATA_DIR`, whichever database you use.
+
+### Update
+
+Pull the new version (keep `data/`), then `docker compose up -d --build`. Migrations run automatically; see
+[Upgrading](#upgrading).
+
+## Install without Docker
+
+With PHP and the extensions from [Requirements](#requirements):
+
+```bash
+git clone https://github.com/thordin9/apotheke.git && cd apotheke
+cp config.example.php config.php        # optional; edit, or use environment variables
+php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:8080 -t public public/index.php
+```
+
+Data goes to `./data` (or `DATA_DIR`). The built-in server is fine for a home LAN. Behind Apache or nginx, make `public/`
+the document root, route every request that is not an existing file in `public/` to `public/index.php`, never execute
+any other PHP file, and keep `src/`, `data/` and `config.php` outside the web root (see `docker/apache.conf` for a
+complete example, including the larger request limit for `/backup/restore`). For web restores of big backups, raise
+`upload_max_filesize` / `post_max_size` (the Docker image allows 512 MB on that route only) or use `bin/restore.php`.
+
+## Configuration
+
+Settings come from three layers, later wins: built-in defaults → `config.php` (or the file named by `APOTHEKE_CONFIG`)
+→ environment variables. [`config.example.php`](config.example.php) lists every setting with its variable name; copy it
+to `config.php` (git-ignored). Empty environment variables are ignored, so `APP_PASSWORD: ${APP_PASSWORD:-}` in a
+compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -160,139 +192,127 @@ so they never wipe a value set in `config.php`.
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
-Example `.env`:
+## Command-line tools
 
-```
-APP_PASSWORD=change-me
-TZ=Europe/Athens
-```
-
-then run `docker compose up -d` again. To use a different port, change `"8080:80"` in `docker-compose.yml`.
-
-### PostgreSQL (optional)
-
-SQLite is the default and needs nothing extra. To use PostgreSQL with the bundled container, put this in `.env`:
-
-```
-DB_DRIVER=pgsql
-DB_PASSWORD=a-strong-password
-```
-
-and start with the `postgres` profile:
+All of them read the same configuration as the web app. In Docker, prefix them with
+`docker compose exec apotheke php /var/www/app/bin/…`.
 
 ```bash
-docker compose --profile postgres up -d --build
+php bin/migrate.php                      # apply pending migrations (also adopts legacy SQLite installs)
+php bin/migrate.php --status             # list applied / pending migrations
+php bin/seed.php                         # starter locations/categories (idempotent, skips existing names)
+php bin/seed.php --demo                  # … plus a few demo items with generated photos
+php bin/backup.php                       # apotheke-backup-<date>.zip in the current directory
+php bin/backup.php /backups/home.zip     # … or to that file
+php bin/restore.php home.zip --dry-run   # validate and show what would be restored
+php bin/restore.php home.zip             # asks for confirmation, then REPLACES all data
+php bin/restore.php home.zip --yes       # no prompt (scripts)
 ```
 
-Its data lives in `./data/postgres`. To use an existing server instead, set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD`, and leave the profile off.
-Photos always stay in `DATA_DIR`, whichever database you use.
+The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table. Pending
+migrations also run **automatically on the first request** (one transaction, under a lock), so `bin/migrate.php` is
+optional. On a **brand-new** database Apotheke adds starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement,
+Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby) unless `SEED_DEFAULTS=false`; rename or
+delete them freely.
 
-### Database migrations & seed data
+Backups from the CLI are handy for cron jobs and archives bigger than the web upload limit. Photo files that restored data
+doesn't reference stay in `data/images` and are never deleted automatically.
 
-The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table.
-Pending migrations run **automatically on the first request** (in one transaction, under a lock), or explicitly:
+## Upgrading
+
+On first start after an update the database is upgraded automatically (or run `php bin/migrate.php`).
+
+* **Pre-migration SQLite installs (schema v1–v3)** are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
+  converted and adopted into the migration system in one transaction: if anything fails, nothing changes.
+  * From the very first version (free-text locations), the distinct location texts become managed locations (trimmed,
+    de-duplicated ignoring case and accents) and every item is linked to its location.
+  * From the locations-only version, categories are added; existing items start without a category.
+* **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
+* Migrations `0004` (tags, custom fields) and `0005` (activity log) only add tables/columns.
+
+Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
+(☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use
+`sqlite3 data/catalog.sqlite ".backup backup.sqlite"` while it runs.
+
+## Testing
+
+No Docker needed:
 
 ```bash
-php bin/migrate.php            # apply pending migrations
-php bin/migrate.php --status   # show applied / pending
-docker compose exec apotheke php /var/www/app/bin/migrate.php --status
+tests/run.sh                 # lint (php -l, node --check, shellcheck) + HTTP integration suite on SQLite; no Composer
+composer install             # dev only: PHPUnit
+vendor/bin/phpunit           # unit tests (config, migrations, repositories, search) + the HTTP suite, on SQLite
+DB_DRIVER=pgsql TEST_PG_PASSWORD=secret vendor/bin/phpunit   # against PostgreSQL
 ```
 
-**Upgrading from an older version:** an existing SQLite database (schema v1, v2 or v3) is first copied to
-`data/catalog-vN-backup-<date>.sqlite`, then converted and adopted into the migration system. No data is lost, and if any step
-fails, the whole upgrade is rolled back.
+On PostgreSQL every test uses its own throwaway schema; `TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER` and
+`TEST_PG_PASSWORD` default to `127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. A quick server:
+`docker run --rm -p 5432:5432 -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=apotheke postgres:17`.
 
-On a **brand-new** database, Apotheke adds a starter set of locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and
-categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby). Turn this off with `SEED_DEFAULTS=false`. Rename or delete
-any of them freely, since seeding only ever runs once. Seeding is idempotent and can be run by hand:
-
-```bash
-php bin/seed.php          # starter locations/categories (skips names that already exist)
-php bin/seed.php --demo   # plus a few demo items with generated photos
-```
-
-### Update
-
-Replace the app files (keep `data/`), then `docker compose up -d --build`.
-
-## iPhone camera notes
-
-* The **Take photo** button uses `<input type="file" accept="image/*" capture="environment">`, which opens the rear camera directly. **Library** lets you pick an existing photo.
-* This **works over plain `http://`** on your LAN. HTTPS is not needed for file-input camera capture, unlike the live-camera `getUserMedia` API, which this app does not use.
-* HEIC photos: iOS hands Safari a JPEG when uploading through a file input. If any image still arrives in a format the browser can decode, it is converted to JPEG on the device before upload anyway.
-
-## Tests
-
-Two layers, both runnable without Docker:
-
-```bash
-tests/run.sh                    # lint (php -l, node --check, shellcheck) + HTTP integration suite on SQLite. No Composer needed
-composer install                # dev only: PHPUnit
-vendor/bin/phpunit              # unit tests (config, migration runner, repositories, search normalisation) + HTTP suite
-DB_DRIVER=pgsql TEST_PG_PASSWORD=… vendor/bin/phpunit   # same against PostgreSQL (TEST_PG_HOST/PORT/DB/USER, defaults 127.0.0.1/5432/apotheke/apotheke)
-```
-
-On PostgreSQL, every test uses its own throwaway schema. CI runs the whole matrix (SQLite + PostgreSQL service container), uploads
-a coverage report artifact, builds the Docker image and smoke-tests it against both databases.
-
-Optional headless mobile checks (filter sheet, theme switch, overflow at 375 and 390 px wide) need Node and Chrome:
+Headless mobile checks (filter sheet, theme switch, no overflow at 375 and 390 px) need Node and Chrome:
 
 ```bash
 npm ci --prefix tests/e2e
-php -S 127.0.0.1:8080 -t public public/index.php &   # with DATA_DIR pointing at a scratch dir
+DATA_DIR=/tmp/apotheke-e2e php -S 127.0.0.1:8080 -t public public/index.php &
 php tests/e2e/seed.php http://127.0.0.1:8080
-node tests/e2e/mobile.mjs http://127.0.0.1:8080
+CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:8080
 ```
 
-## Run without Docker (development)
+`scripts/smoke.sh http://127.0.0.1:8080` smoke-tests any running instance (e.g. the Docker container).
 
-Needs PHP 8.2+ with `gd`, `mbstring` and `pdo_sqlite` or `pdo_pgsql` (ideally also `exif`). Optionally `cp config.example.php config.php` and edit it.
+## CI
 
-```bash
-php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:8080 -t public public/index.php
-```
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every pull request and on pushes to `main`:
 
-Data goes to `./data` (or set `DATA_DIR=/some/path`).
+| Job | What it does |
+|---|---|
+| Lint | `scripts/lint.sh` (PHP, JS, shell) |
+| Tests | PHP 8.3 × SQLite / PostgreSQL 17 service: migrations + seeding via the CLI, PHPUnit with a coverage artifact |
+| Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
+| Docker build + smoke test | builds the image, runs `scripts/smoke.sh` against it on SQLite and on PostgreSQL |
+| Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 
 ## Security notes
 
-* All SQL uses prepared statements. All output is HTML-escaped. A strict Content-Security-Policy is set.
-* Every change (save, quantity, delete, login/logout) requires a CSRF token.
-* Uploads: up to 20 MB, validated with `getimagesize` and decoded and re-encoded by GD, then stored under random hex names **outside the web root**. They are served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can ever be executed.
-* Apache only runs `index.php`. `src/` and `data/` are not reachable over HTTP.
+* All SQL uses prepared statements; all output is HTML-escaped; a strict Content-Security-Policy is sent.
+* Every change (save, quantity, delete, theme, login/logout, restore) requires a CSRF token; an expired token shows a
+  friendly page and changes nothing.
+* Uploads are validated with `getimagesize`, decoded and re-encoded by GD and stored under random hex names **outside the
+  web root**, served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed.
+* The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
 * Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set `APP_PASSWORD`.
 
-## Files
+## Project layout
 
 ```
-Dockerfile                 php:8.3-apache + gd, exif, opcache, pdo_pgsql, zip (pdo_sqlite built in)
-docker-compose.yml         port 8080, ./data volume, optional "postgres" profile
-config.example.php         all settings (copy to config.php; env vars override)
-bin/migrate.php            run / inspect migrations
-bin/seed.php               starter data (+ --demo items)
-bin/backup.php, restore.php  backup zip from the CLI / restore one (--dry-run, --yes)
-migrations/NNNN_*.php      versioned schema steps (SQL per dialect, or a PHP closure)
-docker/                    apache vhost, php.ini, entrypoint
-public/index.php           front controller / routes
-public/assets/             app.css, app.js, theme.js, icons
-src/config.php             config loader (defaults < config.php < env)
-src/db.php                 PDO connection (SQLite/PostgreSQL), dialect helpers, migration runner
-src/legacy.php             one-time upgrade of pre-migration SQLite installs (v1–v3)
-src/backup.php             portable backup zip (JSON dump + photos) and restore
-src/qr.php                 pure-PHP QR code encoder (SVG) for labels
-src/seed.php               idempotent starter/demo seeding
-src/bootstrap.php          sessions, auth, CSRF, helpers
-src/items.php              item, location and category queries, search, statistics, image processing (GD)
-src/views.php              HTML templates
-tests/run.sh               lint + HTTP integration suite (no Composer)
-tests/integration.php      end-to-end HTTP tests (SQLite or PostgreSQL via TEST_DB_DRIVER)
-tests/Unit/, Integration/  PHPUnit suites
-tests/e2e/                 headless mobile checks (puppeteer-core, dev only)
+Dockerfile                    php:8.3-apache + gd, exif, opcache, pdo_pgsql, zip
+docker-compose.yml            port 8080, ./data volume, optional "postgres" profile
+docker/                       Apache vhost, php.ini, entrypoint
+config.example.php            every setting (copy to config.php; env vars override)
+bin/                          migrate.php, seed.php, backup.php, restore.php
+migrations/NNNN_*.php         versioned schema steps (SQL per dialect, or a PHP closure)
+public/index.php              front controller and routes
+public/assets/                app.css, app.js, theme.js, icons
+src/config.php                config loader (defaults < config.php < env)
+src/db.php                    PDO connection (SQLite/PostgreSQL), dialect helpers, migration runner
+src/legacy.php                one-time upgrade of pre-migration SQLite installs (v1–v3)
+src/items.php                 items, locations, categories, search, statistics, images (GD)
+src/backup.php                portable backup zip and restore
+src/qr.php                    pure-PHP QR encoder (SVG)
+src/seed.php                  idempotent starter/demo seeding
+src/bootstrap.php             sessions, auth, CSRF, helpers
+src/views.php                 HTML templates
+tests/run.sh, integration.php lint + HTTP integration suite (no Composer)
+tests/Unit/, Integration/     PHPUnit suites
+tests/e2e/                    headless mobile checks (puppeteer-core, dev only)
+scripts/                      lint.sh, smoke.sh, check-commits.sh
 ```
 
-## Development
+## Contributing
 
-Run `tests/run.sh` (lint + integration tests, no Composer needed). See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit message format and CI details.
+Pull requests are welcome. Commits must follow [Conventional Commits](https://www.conventionalcommits.org/) (subject ≤ 72
+characters, checked in CI); see [CONTRIBUTING.md](CONTRIBUTING.md) for the details, test commands and how to write a
+migration.
 
 ## License
 

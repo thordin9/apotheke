@@ -5,8 +5,9 @@ No framework, no Composer *runtime* dependencies (PHPUnit is dev-only), no JS bu
 
 ## Running the tests
 
-Requirements: PHP 8.1+ (8.3 recommended) with `pdo_sqlite`, `gd`, `mbstring` (and `exif`
-for the orientation test). Optional: `node` (JS syntax check) and `shellcheck`.
+Requirements: PHP 8.2+ (8.3 is what CI and the Docker image use) with `pdo_sqlite`, `gd`, `mbstring`,
+`zip` (and `exif` for the orientation test). Optional: `node` (JS syntax check), `shellcheck` and
+`zbar-tools` (QR round-trip tests; skipped when missing). PHPUnit needs `composer install`.
 
 ```bash
 tests/run.sh          # lint (php -l, node --check, shellcheck) + integration tests
@@ -20,7 +21,7 @@ quantity, edit/delete, locations and categories (defaults, delete-with-move), sc
 migrations v1→v3 and v2→v3, CSRF and bad-upload rejection, password mode and statistics.
 They exit non-zero on any failure. Set `KEEP_TEST_DATA=1` to keep the temp dirs.
 
-Headless mobile checks (optional locally, run in CI): see the README's *Tests* section (`tests/e2e/mobile.mjs`).
+Headless mobile checks (optional locally, run in CI): see the README's [Testing](README.md#testing) section (`tests/e2e/mobile.mjs`).
 
 To smoke-test a running instance (e.g. the Docker container):
 
@@ -73,4 +74,6 @@ scripts/check-commits.sh origin/main
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`:
-lint, integration tests on PHP 8.3, Docker build + smoke test, and (on PRs) the commit check.
+lint, PHPUnit (unit + HTTP integration) on PHP 8.3 against SQLite and PostgreSQL, the headless
+mobile checks, Docker build + smoke test (SQLite and PostgreSQL), and (on PRs) the commit check.
+See the README's [CI](README.md#ci) table.
