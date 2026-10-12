@@ -20,6 +20,8 @@ nginx -t -q
 
 php-fpm -F &
 fpm=$!
+# let php-fpm create its socket first, so nginx never answers 502 during start-up
+i=0; while [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
 nginx -g 'daemon off;' &
 ngx=$!
 stopping=0
