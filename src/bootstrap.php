@@ -202,6 +202,23 @@ function redirect(string $to): never
     exit;
 }
 
+function no_store(): void
+{
+    header('Cache-Control: no-store');
+}
+
+/** "1 item" / "8 items" — shared by list counts, labels, toasts and stats. */
+function item_noun(int $n): string
+{
+    return $n . ' item' . ($n === 1 ? '' : 's');
+}
+
+/** Header / overview mini-summary: "1 item · 1 pc" / "8 items · 19 pcs". */
+function stats_brief(int $items, int $qty): string
+{
+    return item_noun($items) . ' · ' . $qty . ' pc' . ($qty === 1 ? '' : 's');
+}
+
 function asset(string $file): string
 {
     $path = dirname(__DIR__) . '/public/assets/' . $file;
