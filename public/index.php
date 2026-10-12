@@ -91,15 +91,13 @@ try {
     /* ---- list / search ---- */
     if ($path === '/' && $method === 'GET') {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
-        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : '',
-                 'stock' => ($_GET['stock'] ?? '') === 'low' ? 'low' : '',
-                 'lend' => in_array($_GET['lend'] ?? '', ['out', 'overdue'], true) ? (string)$_GET['lend'] : ''];
+        $f    = filters_from($_GET);
         $sort = (string)($_GET['sort'] ?? 'recent');
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== ''), 'more' => $res['more'], 'page' => $page,
+                      'count' => count_text($res['total'], $q !== '' || filters_active($f)), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
         header('Cache-Control: no-store');

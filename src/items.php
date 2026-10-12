@@ -399,6 +399,50 @@ function parse_min_qty(string $s): ?int
 const LOW_SQL = 'i.min_qty IS NOT NULL AND i.quantity <= i.min_qty';
 
 /** Normalise a filter value: '' = all, 'none' = unassigned, digits = id. */
+/**
+ * The list's choice filters besides location/category/tag: URL parameter => definition. Adding one here gives it a
+ * select in the filter sheet, a removable chip, URL parsing and a place in the active-filter count; items_search()
+ * applies it. 'chip' labels the chip per value, 'icon' and 'class' style it.
+ */
+function list_filter_defs(): array
+{
+    return [
+        'stock' => ['label' => 'Stock', 'all' => 'All items', 'opts' => ['low' => 'Running low'], 'icon' => 'alert', 'class' => 'chip-low', 'what' => 'running-low filter'],
+        'lend'  => ['label' => 'Lending', 'all' => 'All items', 'opts' => ['out' => 'Lent out', 'overdue' => 'Overdue'], 'icon' => 'handoff', 'class' => 'chip-lend', 'what' => 'lending filter'],
+    ];
+}
+
+/** Parse every list filter from a query array (e.g. $_GET). Unknown values become ''. @return array<string,string> */
+function filters_from(array $src): array
+{
+    $f = ['loc' => filter_value($src['loc'] ?? ''), 'cat' => filter_value($src['cat'] ?? ''),
+          'tag' => is_string($src['tag'] ?? null) && ctype_digit($src['tag']) ? $src['tag'] : ''];
+    foreach (list_filter_defs() as $k => $d) {
+        $v = $src[$k] ?? '';
+        $f[$k] = is_string($v) && isset($d['opts'][$v]) ? $v : '';
+    }
+    return $f;
+}
+
+/** Fill in missing filter keys with ''. */
+function filters_norm(array $f): array
+{
+    return $f + array_fill_keys(array_merge(['loc', 'cat', 'tag'], array_keys(list_filter_defs())), '');
+}
+
+/** True when any filter (not the sort) is set. */
+function filters_active(array $f): bool
+{
+    foreach (filters_norm($f) as $v) if ($v !== '') return true;
+    return false;
+}
+
+/** Query-string parameters for a list URL (empty values and the default sort dropped). */
+function list_query(string $q, array $f, string $sort): array
+{
+    return array_filter(['q' => $q] + filters_norm($f) + ['sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '' && $v !== null);
+}
+
 function filter_value(mixed $v): string
 {
     $v = is_string($v) ? $v : '';

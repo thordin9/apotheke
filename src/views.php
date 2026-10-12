@@ -334,7 +334,7 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + (($f['stock'] ?? '') !== '' ? 1 : 0) + (($f['lend'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return count(array_filter(filters_norm($f), fn($v) => $v !== '')) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
@@ -342,13 +342,13 @@ const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Lo
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
-    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
+    $f = filters_norm($f);
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
         foreach ($list as $l) if ((string)$l['id'] === $v) return (string)($l['path'] ?? $l['name']);
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = list_query(is_string($_GET['q'] ?? null) ? $_GET['q'] : '', $f, $sort);
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -361,8 +361,11 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
         foreach ($tags ?? tags_all() as $t) if ((string)$t['id'] === $f['tag']) $tn = (string)$t['name'];
         $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
     }
-    if ($f['stock'] === 'low') $o .= '<a class="achip chip-low" href="' . h($href('stock')) . '" data-clear="stock" aria-label="Remove running-low filter">' . icon('alert') . '<span>Running low</span>' . icon('x') . '</a>';
-    if ($f['lend'] !== '') $o .= '<a class="achip chip-lend" href="' . h($href('lend')) . '" data-clear="lend" aria-label="Remove lending filter">' . icon('handoff') . '<span>' . ($f['lend'] === 'overdue' ? 'Overdue' : 'Lent out') . '</span>' . icon('x') . '</a>';
+    foreach (list_filter_defs() as $k => $d) {
+        if ($f[$k] === '') continue;
+        $o .= '<a class="achip ' . $d['class'] . '" href="' . h($href($k)) . '" data-clear="' . $k . '" aria-label="Remove ' . h($d['what']) . '">'
+            . icon($d['icon']) . '<span>' . h($d['opts'][$f[$k]]) . '</span>' . icon('x') . '</a>';
+    }
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -425,7 +428,7 @@ function stats_body_html(): string
     ];
     $o = '<div class="tiles">';
     foreach ($tiles as [$k, $v]) $o .= '<div class="tile"><b>' . number_format($v) . '</b><span>' . h($k) . '</span></div>';
-    $o .= '<a class="tile tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-stock="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
+    $o .= '<a class="tile tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-fk="stock" data-fv="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
@@ -480,11 +483,11 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
     page_start('', $select ? 'page-select' : '');
-    $f += ['tag' => '', 'stock' => '', 'lend' => ''];
-    $qs = array_filter(['q' => $q, 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '');
+    $f = filters_norm($f);
+    $qs = list_query($q, $f, $sort);
     $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
     $selHref = '/?' . http_build_query($qs + ['select' => '1']);
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '' || $f['lend'] !== '';
+    $filtered = $q !== '' || filters_active($f);
     $tags = tags_all();
     ?>
 <header class="top">
@@ -516,17 +519,13 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
             <?php endforeach; ?>
           </select></label>
           <?php endif; ?>
-          <label class="field"><span>Stock</span>
-          <select name="stock" id="stock">
-            <option value="">All items</option>
-            <option value="low"<?= $f['stock'] === 'low' ? ' selected' : '' ?>>Running low</option>
+          <?php foreach (list_filter_defs() as $k => $d): ?>
+          <label class="field"><span><?= h($d['label']) ?></span>
+          <select name="<?= $k ?>" id="<?= $k ?>" data-filter>
+            <option value=""><?= h($d['all']) ?></option>
+            <?php foreach ($d['opts'] as $v => $lbl): ?><option value="<?= h($v) ?>"<?= $f[$k] === $v ? ' selected' : '' ?>><?= h($lbl) ?></option><?php endforeach; ?>
           </select></label>
-          <label class="field"><span>Lending</span>
-          <select name="lend" id="lend">
-            <option value="">All items</option>
-            <option value="out"<?= $f['lend'] === 'out' ? ' selected' : '' ?>>Lent out</option>
-            <option value="overdue"<?= $f['lend'] === 'overdue' ? ' selected' : '' ?>>Overdue</option>
-          </select></label>
+          <?php endforeach; ?>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
             <?php foreach (SORTS as $k => $v): ?>

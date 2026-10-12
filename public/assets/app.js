@@ -278,7 +278,7 @@
         document.dispatchEvent(new CustomEvent('grid:update', { detail: sp }));
         count.textContent = j.count;
         empty.hidden = j.total > 0;
-        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || ($('#stock') && $('#stock').value) || ($('#lend') && $('#lend').value));
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || [...document.querySelectorAll('#fsheet select[data-filter]')].some(s => s.value));
         $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
         $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
@@ -301,8 +301,7 @@
       if (which === 'all' || which === 'loc') $('#loc').value = '';
       if (which === 'all' || which === 'cat') $('#cat').value = '';
       if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
-      if ((which === 'all' || which === 'stock') && $('#stock')) $('#stock').value = '';
-      if ((which === 'all' || which === 'lend') && $('#lend')) $('#lend').value = '';
+      document.querySelectorAll('#fsheet select[data-filter]').forEach(s => { if (which === 'all' || which === s.name) s.value = ''; });
       if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
       if (which === 'all') q.value = '';
       load(false);
@@ -318,8 +317,10 @@
 
     // Tapping a location/category chip (or an Overview bar) filters in place.
     document.addEventListener('click', e => {
-      const lt = e.target.closest('#stats a[data-stock]');
-      if (lt && $('#stock')) { e.preventDefault(); $('#stock').value = 'low'; q.value = ''; load(false); return; }
+      // overview tiles that set one of the choice filters: data-fk="stock" data-fv="low"
+      const lt = e.target.closest('#stats a[data-fk]');
+      const ls = lt && document.querySelector('#fsheet select[data-filter][name="' + lt.dataset.fk + '"]');
+      if (ls) { e.preventDefault(); ls.value = lt.dataset.fv; q.value = ''; load(false); return; }
       const c = e.target.closest('#grid a.chip[data-loc], #stats a[data-loc], #grid a.chip[data-cat], #stats a[data-cat]');
       if (!c) return;
       const k = c.dataset.loc !== undefined ? 'loc' : 'cat';
