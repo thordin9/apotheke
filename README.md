@@ -61,6 +61,11 @@ it works fully offline on your LAN.
   the card and the item page show a **Running low** badge (it updates live as you tap −/+), the overview has a *Running
   low* tile with the count (tap it to filter), and the filter sheet has a *Stock → Running low* filter (`/?stock=low`).
   Changes to the level are logged in the history; CSV and backups include it.
+* **Bulk actions**: tap *Select* next to *Filter* to switch the list into selection mode. Tap photos (or the round
+  checkbox) to pick items, *All on page* picks every loaded card, and the selection survives searching and filtering.
+  *Actions* opens a sheet to **move** them to a location, **set the category**, **add tags** or **remove a tag**, or
+  **delete** them after a confirmation page. Each action runs in one transaction, writes a history entry per item and is
+  CSRF-protected (`POST /bulk`, at most 500 items at once). Works without JavaScript too (`/?select=1`, `&all=1`).
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial` and `min_qty`
   columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).

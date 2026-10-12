@@ -32,6 +32,7 @@ function icon(string $n): string
         'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
         'qr'     => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
         'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
+        'check'  => '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
         'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
@@ -92,7 +93,7 @@ function chip_html(string $kind, ?int $id, string $name, bool $large = false): s
         . ($large ? icon($t['icon']) . ' ' : '') . h($name) . '</a>';
 }
 
-function card_html(array $it): string
+function card_html(array $it, bool $select = false, bool $checked = false): string
 {
     $id = (int)$it['id'];
     $img = valid_image_name($it['image'] ?? null)
@@ -104,7 +105,8 @@ function card_html(array $it): string
     if ($chips === '') $chips = '<span class="chip chip-muted">No location</span>';
     $q = (int)$it['quantity'];
     $min = ($it['min_qty'] ?? null) === null ? null : (int)$it['min_qty'];
-    return '<article class="card' . (is_low($it) ? ' is-low' : '') . '" data-id="' . $id . '"' . ($min !== null ? ' data-min="' . $min . '"' : '') . '>'
+    return '<article class="card' . (is_low($it) ? ' is-low' : '') . ($select ? ' selectable' : '') . '" data-id="' . $id . '"' . ($min !== null ? ' data-min="' . $min . '"' : '') . '>'
+        . ($select ? '<label class="sel"><input type="checkbox" class="selbox" name="ids[]" value="' . $id . '" form="bulkform"' . ($checked ? ' checked' : '') . ' aria-label="Select ' . h($it['name']) . '"><span class="selmark" aria-hidden="true">' . icon('check') . '</span></label>' : '')
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
         . '<div class="card-body">'
         . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
@@ -123,9 +125,90 @@ function low_badge_html(): string
     return '<span class="lowbadge" role="status">' . icon('alert') . ' Running low</span>';
 }
 
-function cards_html(array $items): string
+function cards_html(array $items, bool $select = false, bool $checked = false): string
 {
-    return implode('', array_map('card_html', $items));
+    return implode('', array_map(fn($it) => card_html($it, $select, $checked), $items));
+}
+
+/** Toast after a bulk action. */
+function bulk_toast(int $n, string $action): string
+{
+    $s = $n . ' item' . ($n === 1 ? '' : 's');
+    return match ($action) {
+        'move' => "Moved $s", 'category' => "Set the category of $s", 'tag_add' => "Tagged $s",
+        'tag_remove' => "Removed the tag from $s", 'delete' => "Deleted $s", default => "Updated $s",
+    };
+}
+
+/** Fixed bottom bar of the list's selection mode: count, select all on page, actions sheet. */
+function bulk_bar_html(array $locs, array $cats, array $tags, string $back, string $allHref): string
+{
+    $opts = fn(array $rows, string $none) => '<option value="">' . h($none) . '</option>'
+        . implode('', array_map(fn($r) => '<option value="' . (int)$r['id'] . '">' . h($r['name']) . '</option>', $rows));
+    ob_start(); ?>
+<form class="bulkbar" id="bulkform" method="post" action="/bulk">
+  <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+  <input type="hidden" name="back" value="<?= h($back) ?>">
+  <div class="bulkbar-in">
+    <span class="selcount" id="selcount" role="status">Select items</span>
+    <a class="btn" href="<?= h($allHref) ?>" id="sel-all">All on page</a>
+    <details class="fsheet bulksheet" id="bulksheet">
+      <summary class="btn btn-primary" id="bulk-open">Actions</summary>
+      <div class="fpanel" role="dialog" aria-labelledby="bulk-title">
+        <div class="fpanel-head"><h2 id="bulk-title">Selected items</h2><button type="button" class="btn btn-ghost" id="bulk-close">Done</button></div>
+        <div class="bulkrow"><label class="field"><span>Move to location</span><select name="location_id" id="bulk-loc"><?= $opts($locs, 'No location') ?></select></label>
+          <button class="btn btn-primary" name="action" value="move" id="bulk-move">Move</button></div>
+        <div class="bulkrow"><label class="field"><span>Set category</span><select name="category_id" id="bulk-cat"><?= $opts($cats, 'No category') ?></select></label>
+          <button class="btn btn-primary" name="action" value="category" id="bulk-category">Set</button></div>
+        <div class="bulkrow"><label class="field"><span>Add tags</span><input type="text" name="tags" id="bulk-tags" placeholder="e.g. Garage, Winter" autocomplete="off" maxlength="400"></label>
+          <button class="btn btn-primary" name="action" value="tag_add" id="bulk-tag-add">Add</button></div>
+        <?php if ($tags): ?>
+        <div class="bulkrow"><label class="field"><span>Remove tag</span><select name="tag_id" id="bulk-tag"><?php foreach ($tags as $t): ?><option value="<?= (int)$t['id'] ?>"><?= h($t['name']) ?></option><?php endforeach; ?></select></label>
+          <button class="btn" name="action" value="tag_remove" id="bulk-tag-remove">Remove</button></div>
+        <?php endif; ?>
+        <button class="btn btn-danger btn-wide" name="action" value="delete" id="bulk-delete"><?= icon('trash') ?> Delete selected…</button>
+      </div>
+    </details>
+  </div>
+</form>
+<?php
+    return (string)ob_get_clean();
+}
+
+function view_bulk_delete(array $items, string $back): void
+{
+    page_start('Delete items');
+    $n = count($items);
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="<?= h($back) ?>" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Delete items</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h2 class="item-name">Delete <?= $n ?> item<?= $n === 1 ? '' : 's' ?>?</h2>
+  <p class="lead">Their photos are deleted too. The history keeps a record. This can’t be undone.</p>
+  <ul class="bulklist" id="bulklist">
+    <?php foreach ($items as $it): ?><li><?= h($it['name']) ?><?= $it['location'] !== '' ? ' <span class="hint">· ' . h($it['location']) . '</span>' : '' ?></li><?php endforeach; ?>
+  </ul>
+  <form method="post" action="/bulk" class="itemform" id="bulkdel">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="confirm" value="1">
+    <input type="hidden" name="back" value="<?= h($back) ?>">
+    <?php foreach ($items as $it): ?><input type="hidden" name="ids[]" value="<?= (int)$it['id'] ?>"><?php endforeach; ?>
+    <div class="actionbar actionbar-form">
+      <div class="actionbar-in">
+        <a class="btn" href="<?= h($back) ?>">Cancel</a>
+        <button class="btn btn-danger-solid" id="bulk-confirm"><?= icon('trash') ?> Delete <?= $n ?></button>
+      </div>
+    </div>
+  </form>
+</main>
+<?php
+    page_end();
 }
 
 function count_text(int $total, bool $filtered): string
@@ -302,10 +385,13 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
     return $o . '</select></label>';
 }
 
-function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true): void
+function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
-    page_start('');
+    page_start('', $select ? 'page-select' : '');
     $f += ['tag' => '', 'stock' => ''];
+    $qs = array_filter(['q' => $q, 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '');
+    $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
+    $selHref = '/?' . http_build_query($qs + ['select' => '1']);
     $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '';
     $tags = tags_all();
     ?>
@@ -355,6 +441,8 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           </div>
         </div>
       </details>
+      <a class="btn fbtn<?= $select ? ' is-on' : '' ?>" id="select-toggle" href="<?= h($select ? $listHref : $selHref) ?>"<?= $select ? ' aria-pressed="true"' : '' ?>><?= icon($select ? 'x' : 'check') ?><span><?= $select ? 'Done' : 'Select' ?></span></a>
+      <?php if ($select): ?><input type="hidden" name="select" value="1"><?php endif; ?>
       <div class="achips" id="achips"><?= active_chips_html($f, $sort, $locs, $cats, $tags) ?></div>
     </div>
   </form>
@@ -362,7 +450,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 <main class="wrap">
   <?= stats_section($stats, $statsOpen) ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
-  <div class="grid" id="grid" aria-live="polite"><?= cards_html($res['items']) ?></div>
+  <div class="grid" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
     <?= icon('box') ?>
     <p class="empty-title" id="empty-title"><?= $filtered ? 'Nothing matches.' : 'Your catalog is empty.' ?></p>
@@ -380,7 +468,11 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     <?php endif; ?>
   </footer>
 </main>
+<?php if ($select): ?>
+<?= bulk_bar_html($locs, $cats, $tags, $selHref, $selHref . '&all=1') ?>
+<?php else: ?>
 <a class="fab" href="<?= h(new_item_href($f)) ?>" id="fab" aria-label="Add item"><?= icon('camera') ?></a>
+<?php endif; ?>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <?php
     page_end();

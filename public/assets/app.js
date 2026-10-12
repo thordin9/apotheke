@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const csrf = () => ($('meta[name=csrf]') || {}).content || '';
   const MAX_SIDE = 1600, QUALITY = 0.8;
 
@@ -274,6 +275,7 @@
         if (!j.ok) throw new Error(j.error);
         page = p;
         if (append) grid.insertAdjacentHTML('beforeend', j.html); else { grid.innerHTML = j.html; window.scrollTo({ top: 0 }); }
+        document.dispatchEvent(new CustomEvent('grid:update', { detail: sp }));
         count.textContent = j.count;
         empty.hidden = j.total > 0;
         const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || ($('#stock') && $('#stock').value));
@@ -464,5 +466,65 @@
         submitter.textContent = btnText;
       }
     });
+  }
+
+  /* ---------- selection mode + bulk actions ---------- */
+  document.addEventListener('grid:update', e => {
+    const t = $('#select-toggle'); if (!t) return;
+    const sp = new URLSearchParams(e.detail); sp.delete('page');
+    const on = sp.get('select') === '1'; sp.delete('select');
+    if (!on) sp.set('select', '1');
+    const qs = sp.toString();
+    t.href = '/' + (qs ? '?' + qs : '');
+  });
+  const bulk = $('#bulkform');
+  if (bulk) {
+    const grid = $('#grid'), selcount = $('#selcount'), all = $('#sel-all');
+    const picked = new Set($$('.selbox:checked').map(b => b.value));
+    const boxes = () => $$('#grid .selbox');
+    const sync = () => {
+      boxes().forEach(b => { b.checked = picked.has(b.value); b.closest('.card').classList.toggle('is-picked', b.checked); });
+      const n = picked.size;
+      selcount.textContent = n ? n + ' selected' : 'Select items';
+      $$('button[name=action]', bulk).forEach(b => { b.disabled = n === 0; });
+      bulk.classList.toggle('has-picked', n > 0);
+      const bs = boxes();
+      all.textContent = bs.length && bs.every(b => b.checked) ? 'None' : 'All on page';
+    };
+    grid.addEventListener('change', e => {
+      const b = e.target.closest('.selbox'); if (!b) return;
+      if (b.checked) picked.add(b.value); else picked.delete(b.value);
+      sync();
+    });
+    // tapping the photo or the name toggles selection instead of opening the item
+    grid.addEventListener('click', e => {
+      const a = e.target.closest('.selectable .card-img, .selectable .card-title');
+      if (!a) return;
+      e.preventDefault();
+      const b = $('.selbox', a.closest('.card'));
+      b.checked = !b.checked;
+      b.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    all.addEventListener('click', e => {
+      e.preventDefault();
+      const bs = boxes(), on = !bs.every(b => b.checked);
+      bs.forEach(b => { if (on) picked.add(b.value); else picked.delete(b.value); });
+      sync();
+    });
+    // ids of selected items that are not on screen (other searches) still travel with the form
+    bulk.addEventListener('submit', () => {
+      $$('input.keep', bulk).forEach(i => i.remove());
+      const shown = new Set(boxes().map(b => b.value));
+      picked.forEach(id => { if (!shown.has(id)) { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'ids[]'; i.value = id; i.className = 'keep'; bulk.appendChild(i); } });
+    });
+    document.addEventListener('grid:update', e => {
+      const sp = new URLSearchParams(e.detail); sp.delete('page'); sp.delete('select');
+      sp.set('select', '1');
+      $('input[name=back]', bulk).value = '/?' + sp;
+      all.href = '/?' + sp + '&all=1';
+      sync();
+    });
+    const close = $('#bulk-close'); if (close) close.addEventListener('click', () => { $('#bulksheet').open = false; });
+    sync();
   }
 })();

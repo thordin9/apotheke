@@ -97,7 +97,7 @@ try {
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
-            json_out(['ok' => true, 'html' => cards_html($res['items']), 'total' => $res['total'],
+            json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
                       'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== ''), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
@@ -105,7 +105,9 @@ try {
         $toast = null;
         if (isset($_GET['saved']) && ($s = item_get((int)$_GET['saved']))) $toast = 'Saved “' . $s['name'] . '”';
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
-        view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? '1') !== '0');
+        if (isset($_GET['bulk_done'])) $toast = bulk_toast((int)$_GET['bulk_done'], (string)($_GET['bulk_act'] ?? ''));
+        view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? '1') !== '0',
+                  ($_GET['select'] ?? '') === '1', ($_GET['all'] ?? '') === '1');
         exit;
     }
 
@@ -229,6 +231,32 @@ try {
         $row = item_get((int)$m[1]);
         if (wants_json()) json_out(['ok' => true, 'quantity' => $q, 'low' => $row !== null && is_low($row)]);
         redirect('/item/' . (int)$m[1]);
+    }
+
+    /* ---- bulk actions on selected items ---- */
+    if ($path === '/bulk' && $method === 'POST') {
+        check_csrf();
+        $ids    = array_slice(array_map('intval', (array)($_POST['ids'] ?? [])), 0, BULK_MAX + 1);
+        $action = (string)($_POST['action'] ?? '');
+        $back   = (string)($_POST['back'] ?? '');
+        if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
+        $back   = preg_replace('/&?bulk_(?:done|act)=[^&]*/', '', $back);
+        $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
+        try {
+            if ($action === 'delete' && ($_POST['confirm'] ?? '') !== '1') {
+                $items = array_values(array_filter(array_map('item_get', array_values(array_unique(array_filter($ids, fn($i) => $i > 0))))));
+                if (!$items) throw new UserError('Select at least one item.');
+                if (count($items) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.');
+                header('Cache-Control: no-store');
+                view_bulk_delete($items, $back);
+                exit;
+            }
+            $n = items_bulk($ids, $action, ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
+                'tags' => tags_parse((string)($_POST['tags'] ?? '')), 'tag_id' => (int)($_POST['tag_id'] ?? 0)]);
+        } catch (UserError $e) {
+            throw new UserError($e->getMessage(), 422);
+        }
+        redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action));
     }
 
     /* ---- delete ---- */

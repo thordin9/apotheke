@@ -752,3 +752,64 @@ function stats_by(string $kind, int $n = 5): array
     if ($un > 0) $top[] = ['id' => 'none', 'name' => $t['none'], 'n' => $un];
     return $top;
 }
+
+/* ---------- bulk actions ---------- */
+
+const BULK_MAX = 500;
+const BULK_ACTIONS = ['move', 'category', 'tag_add', 'tag_remove', 'delete'];
+
+/** The editable fields of a stored item, in the shape item_save() takes. */
+function item_input(array $it): array
+{
+    return ['name' => (string)$it['name'], 'location_id' => $it['location_id'] !== null ? (int)$it['location_id'] : null,
+            'category_id' => $it['category_id'] !== null ? (int)$it['category_id'] : null, 'quantity' => (int)$it['quantity'],
+            'min_qty' => $it['min_qty'] ?? null, 'notes' => (string)$it['notes'], 'tags' => array_column($it['tags'] ?? [], 'name'),
+            'value_cents' => $it['value_cents'], 'purchase_date' => $it['purchase_date'] !== null ? (string)$it['purchase_date'] : null,
+            'serial' => (string)$it['serial']];
+}
+
+/**
+ * Apply one action to many items in a single transaction; every item gets its own history entry (via item_save /
+ * the delete log). $opt: location_id / category_id (int|null), tags (string[]), tag_id (int).
+ * @param int[] $ids
+ * @return int number of items changed
+ */
+function items_bulk(array $ids, string $action, array $opt = []): int
+{
+    if (!in_array($action, BULK_ACTIONS, true)) throw new UserError('Unknown bulk action.');
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids), fn($i) => $i > 0)));
+    if (!$ids) throw new UserError('Select at least one item.');
+    if (count($ids) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.');
+    if ($action === 'move' && ($opt['location_id'] ?? null) !== null && !tax_get('location', (int)$opt['location_id'])) throw new UserError('That location no longer exists.');
+    if ($action === 'category' && ($opt['category_id'] ?? null) !== null && !tax_get('category', (int)$opt['category_id'])) throw new UserError('That category no longer exists.');
+    if ($action === 'tag_add' && !($opt['tags'] ?? [])) throw new UserError('Enter at least one tag to add.');
+    $files = [];
+    $n = db_tx(function (PDO $pdo) use ($ids, $action, $opt, &$files): int {
+        $n = 0;
+        foreach ($ids as $id) {
+            $it = item_get($id);
+            if (!$it) continue;
+            $in = item_input($it);
+            switch ($action) {
+                case 'move':     $in['location_id'] = $opt['location_id'] ?? null; break;
+                case 'category': $in['category_id'] = $opt['category_id'] ?? null; break;
+                case 'tag_add':  $in['tags'] = tags_parse(array_merge($in['tags'], $opt['tags'])); break;
+                case 'tag_remove':
+                    $in['tags'] = array_column(array_filter($it['tags'], fn($t) => (int)$t['id'] !== (int)($opt['tag_id'] ?? 0)), 'name');
+                    break;
+                case 'delete':
+                    $files = array_merge($files, array_column(photos_for($id), 'file'), [$it['image']]);
+                    activity_log($id, (string)$it['name'], 'deleted', array_filter(['location' => (string)$it['location'], 'quantity' => (int)$it['quantity'], 'bulk' => true], fn($v) => $v !== ''));
+                    $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$id]);
+                    $n++;
+                    continue 2;
+            }
+            item_save($it, $in, null, false);
+            $n++;
+        }
+        $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+        return $n;
+    });
+    foreach (array_unique(array_filter($files)) as $f) image_delete($f);
+    return $n;
+}
