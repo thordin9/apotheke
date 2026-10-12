@@ -75,6 +75,14 @@ it works fully offline on your LAN.
   quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
   photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
   is not copied. The copy's history starts with "Created … copied from “Name”".
+* **Installable, works offline (PWA)**: a web app manifest (standalone, maskable icon, *Add item* / *Lent out* shortcuts)
+  and a service worker (`/sw.js`, an external script, so the strict CSP stays as is). The app shell (CSS, JS, icons) is
+  precached under a version derived from the asset hashes, so a new release replaces the cache on the next visit. Pages
+  are loaded **network first**; the list (`/`), item pages and `/lent` you opened are kept as the last saved copy and shown
+  with an *Offline* banner when the server can't be reached; any other page falls back to an offline page that links to
+  the saved ones. POSTs, backups, the CSV export, sign-in/out and JSON calls are never cached, and signing out clears the
+  saved pages and thumbnails. Browsers only run service workers in a secure context (HTTPS or `localhost`), so over
+  plain `http://` on your LAN the app works as before, just without the offline mode.
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
@@ -328,6 +336,8 @@ A separate *Update visual snapshots* workflow renders new baselines when a PR ge
 * Uploads are validated with `getimagesize`, decoded and re-encoded by GD and stored under random hex names **outside the
   web root**, served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed.
 * The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
+* The service worker keeps the last seen list/item pages on the device for offline use. `/sw.js` and `/offline` are
+  public (they contain no data); signing out deletes the saved pages.
 * Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set `APP_PASSWORD`.
 
 ## Project layout
@@ -350,6 +360,7 @@ src/qr.php                    pure-PHP QR encoder (SVG)
 src/seed.php                  idempotent starter/demo seeding
 src/bootstrap.php             sessions, auth, CSRF, helpers
 src/views.php                 HTML templates
+src/sw.js                     service worker template (served at /sw.js with its cache version)
 tests/run.sh, integration.php lint + HTTP integration suite (no Composer)
 tests/Unit/, Integration/     PHPUnit suites
 tests/e2e/                    headless mobile checks (puppeteer-core, dev only)

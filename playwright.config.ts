@@ -32,6 +32,7 @@ export default defineConfig({
     locale: 'en-GB',
     timezoneId: 'Europe/Athens',
     acceptDownloads: true,
+    serviceWorkers: 'block',   // deterministic network for every spec; pwa.spec.ts opts back in
   },
   projects: [
     // full functional suite + light visuals on every device

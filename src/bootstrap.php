@@ -245,3 +245,22 @@ function public_url(string $path): string
     }
     return $base . $path;
 }
+
+/* ---------- service worker (PWA) ---------- */
+
+/** Files precached by the service worker: the offline page + the versioned app shell. */
+function sw_precache(): array
+{
+    return ['/offline', asset('app.css'), asset('app.js'), asset('theme.js'), '/assets/icon.svg', '/assets/icon-192.png',
+            '/assets/apple-touch-icon.png', '/manifest.webmanifest'];
+}
+
+/** The service worker script; its cache version is a hash of the template and every precached asset version. */
+function service_worker_js(): string
+{
+    $tpl = (string)file_get_contents(__DIR__ . '/sw.js');
+    $man = dirname(__DIR__) . '/public/manifest.webmanifest';
+    $pre = sw_precache();
+    $ver = substr(md5($tpl . implode('|', $pre) . (is_file($man) ? md5_file($man) : '') . asset('icon-192.png') . asset('icon.svg')), 0, 12);
+    return strtr($tpl, ['__VERSION__' => $ver, '__PRECACHE__' => json_encode($pre, JSON_UNESCAPED_SLASHES)]);
+}

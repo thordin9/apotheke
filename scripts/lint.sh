@@ -7,7 +7,7 @@ find public src tests bin migrations config.example.php -name '*.php' -not -path
 echo "   ok"
 if command -v node >/dev/null 2>&1; then
   echo "== JS syntax"
-  find public -name '*.js' -print0 | xargs -0 -n1 node --check
+  find public src -name '*.js' -print0 | xargs -0 -n1 node --check
   echo "   ok"
 else
   echo "== JS syntax: skipped (node not found)"
