@@ -137,6 +137,10 @@ it works fully offline on your LAN.
 |---|---|---|
 | ![Duplicate](docs/screenshots/duplicate-light.png) | ![Location tree](docs/screenshots/locations-tree-light.png) | ![Item in a nested location](docs/screenshots/item-nested-dark.png) |
 
+| Expiring soon + saved filters | Value (dark) | Saved filters | Barcode lookup (dark) | Item barcode |
+|---|---|---|---|---|
+| ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
+
 ## Requirements
 
 **Runtime** (the Docker image has all of this):
