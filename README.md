@@ -149,6 +149,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 |---|---|---|---|---|
 | ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
 
+| Sign in (password mode) |
+|---|
+| ![Sign in](docs/screenshots/login-light.png) |
+
 ## Requirements
 
 **Runtime** (the Docker image has all of this):
