@@ -39,6 +39,8 @@ export default defineConfig({
     // dark colour scheme: visual baselines + theme checks
     ...Object.entries(phones).map(([name, d]) => ({ name: name + '-dark', use: { ...d, colorScheme: 'dark' as const }, testMatch: /(visual[\w-]*|theme)\.spec\.ts/ })),
     // same smoke subset against PostgreSQL
+    // smoke subset against the Docker image (nginx + php-fpm): E2E_DOCKER_IMAGE=apotheke:ci npx playwright test --project=docker-smoke
+    ...(process.env.E2E_DOCKER_IMAGE ? [{ name: 'docker-smoke', use: { ...phones['desktop-chromium'], colorScheme: 'light' as const }, grep: /@smoke/ }] : []),
     { name: 'pgsql-smoke', use: { ...phones['desktop-chromium'], colorScheme: 'light' as const, dbDriver: 'pgsql' }, grep: /@smoke/ },
   ],
 });

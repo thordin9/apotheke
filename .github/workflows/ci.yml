@@ -170,6 +170,7 @@ jobs:
   docker:
     name: Docker build + smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17
@@ -191,17 +192,49 @@ jobs:
           tags: apotheke:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Image size
+        run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run container (SQLite)
         run: docker run -d --name apotheke -p 8080:80 apotheke:ci
       - name: Smoke test SQLite (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8080
+      - name: Web server checks (routing, blocked paths, headers, gzip, body limits)
+        run: bash scripts/docker-checks.sh http://127.0.0.1:8080
       - name: Run container (PostgreSQL)
         run: |
-          docker run -d --name apotheke-pg --network host \
+          docker run -d --name apotheke-pg --network host -e PORT=8081 \
             -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_NAME=apotheke -e DB_USER=apotheke -e DB_PASSWORD=apotheke \
-            apotheke:ci sh -c "sed -i 's/Listen 80$/Listen 8081/' /etc/apache2/ports.conf && sed -i 's/:80>/:8081>/' /etc/apache2/sites-available/apotheke.conf && apotheke-entrypoint apache2-foreground"
+            apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8081
+      - name: Graceful stop (SIGTERM reaches nginx and php-fpm, exit code 0)
+        run: |
+          start=$(date +%s)
+          docker stop -t 20 apotheke
+          code=$(docker inspect -f '{{.State.ExitCode}}' apotheke)
+          echo "stopped in $(( $(date +%s) - start ))s with exit code $code"
+          test "$code" = 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Playwright @smoke E2E against the image
+        env:
+          E2E_DOCKER_IMAGE: apotheke:ci
+          CI: '1'
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test --project=docker-smoke
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-docker
+          path: |
+            tests/visual/report/
+            tests/visual/results/
+          retention-days: 14
       - name: Container logs
         if: always()
         run: |

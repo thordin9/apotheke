@@ -107,8 +107,10 @@ docker compose up -d --build
 Then open **http://SERVER-IP:8080** on your phone (same Wi-Fi; `hostname -I` shows the server IP). In Safari tap Share →
 **Add to Home Screen**. To use another port, change `"8080:80"` in `docker-compose.yml`.
 
-The image is `php:8.3-apache` with `gd`, `exif`, `opcache`, `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). The
-entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
+The image (about 100 MB) is `php:8.3-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
+`pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
+stops both gracefully on `docker stop` and exits if either dies (so `restart: unless-stopped` brings it back). nginx
+listens on port 80 inside the container; set `PORT` to change that (e.g. with `--network host`). The entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
 `HEALTHCHECK` polls `/healthz`. Everything is stored in `./data` next to `docker-compose.yml`:
 
 ```
@@ -164,8 +166,8 @@ php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:8080 -t public pu
 
 Data goes to `./data` (or `DATA_DIR`). The built-in server is fine for a home LAN. Behind Apache or nginx, make `public/`
 the document root, route every request that is not an existing file in `public/` to `public/index.php`, never execute
-any other PHP file, and keep `src/`, `data/` and `config.php` outside the web root (see `docker/apache.conf` for a
-complete example, including the larger request limit for `/backup/restore`). For web restores of big backups, raise
+any other PHP file, and keep `src/`, `data/` and `config.php` outside the web root (see `docker/nginx.conf` and
+`docker/fastcgi.conf` for a complete example, including the larger request limit for `/backup/restore`). For web restores of big backups, raise
 `upload_max_filesize` / `post_max_size` (the Docker image allows 512 MB on that route only) or use `bin/restore.php`.
 
 ## Configuration
@@ -258,7 +260,9 @@ php tests/e2e/seed.php http://127.0.0.1:8080
 CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:8080
 ```
 
-`scripts/smoke.sh http://127.0.0.1:8080` smoke-tests any running instance (e.g. the Docker container).
+`scripts/smoke.sh http://127.0.0.1:8080` smoke-tests any running instance (e.g. the Docker container);
+`scripts/docker-checks.sh` checks the image's web server behaviour, and
+`E2E_DOCKER_IMAGE=apotheke:latest npx playwright test --project=docker-smoke` runs the `@smoke` E2E tests against it.
 
 ### Visual end-to-end tests (Playwright)
 
@@ -292,7 +296,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Tests | PHP 8.3 × SQLite / PostgreSQL 17 service: migrations + seeding via the CLI, PHPUnit with a coverage artifact |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
-| Docker build + smoke test | builds the image, runs `scripts/smoke.sh` against it on SQLite and on PostgreSQL |
+| Docker build + smoke test | builds the image, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 
 A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
@@ -310,9 +314,9 @@ A separate *Update visual snapshots* workflow renders new baselines when a PR ge
 ## Project layout
 
 ```
-Dockerfile                    php:8.3-apache + gd, exif, opcache, pdo_pgsql, zip
+Dockerfile                    php:8.3-fpm-alpine + nginx + tini; gd, exif, opcache, pdo_pgsql, zip
 docker-compose.yml            port 8080, ./data volume, optional "postgres" profile
-docker/                       Apache vhost, php.ini, entrypoint
+docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)
 bin/                          migrate.php, seed.php, backup.php, restore.php
 migrations/NNNN_*.php         versioned schema steps (SQL per dialect, or a PHP closure)
@@ -332,7 +336,7 @@ tests/Unit/, Integration/     PHPUnit suites
 tests/e2e/                    headless mobile checks (puppeteer-core, dev only)
 tests/visual/                 Playwright visual E2E suite, fixtures, seed and screenshot baselines
 playwright.config.ts          Playwright projects (devices × colour schemes, pgsql-smoke)
-scripts/                      lint.sh, smoke.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+scripts/                      lint.sh, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
 ```
 
 ## Contributing

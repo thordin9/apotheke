@@ -28,6 +28,8 @@ To smoke-test a running instance (e.g. the Docker container):
 ```bash
 docker compose up -d --build
 scripts/smoke.sh http://127.0.0.1:8080
+scripts/docker-checks.sh http://127.0.0.1:8080   # nginx routing, blocked paths, headers, gzip, body limits
+E2E_DOCKER_IMAGE=apotheke:latest npx playwright test --project=docker-smoke   # @smoke E2E against the image
 ```
 
 ### PHPUnit and PostgreSQL
@@ -107,5 +109,6 @@ scripts/check-commits.sh origin/main
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`:
 lint, PHPUnit (unit + HTTP integration) on PHP 8.3 against SQLite and PostgreSQL, the headless
 mobile checks, the Playwright visual E2E suite (`e2e`, 3 shards, inside the Playwright image,
-`retries=1`), Docker build + smoke test (SQLite and PostgreSQL), and (on PRs) the commit check.
+`retries=1`), Docker build (nginx + php-fpm) + smoke test (SQLite and PostgreSQL), web server checks, graceful stop
+and the `@smoke` E2E subset against the image, and (on PRs) the commit check.
 See the README's [CI](README.md#ci) table.
