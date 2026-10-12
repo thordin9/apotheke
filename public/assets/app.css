@@ -587,3 +587,13 @@ a.tagchip{min-height:36px}
 .dupform{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
 .dupform .check{margin:0;min-height:44px;padding:0 4px;cursor:pointer}
 .dupform .check input{width:22px;height:22px}
+
+/* nested locations: indented tree on the Locations page, path trail on the item page */
+.loc-d1{--ind:1}.loc-d2{--ind:2}.loc-d3{--ind:3}.loc-d4{--ind:4}.loc-d5{--ind:5}.loc-d6{--ind:6}
+.loc[data-depth]:not([data-depth="0"]){padding-left:calc(min(var(--ind,0),4) * 14px);background-image:linear-gradient(var(--line),var(--line));background-repeat:no-repeat;background-size:2px 100%;background-position:calc(min(var(--ind,0),4) * 14px - 6px) 0}
+.loc-parent{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:8px}
+.loc-parent select,.addloc-parent select{width:100%;min-width:0;min-height:50px}
+.addloc-parent{grid-column:1/-1;margin:0}
+.loctrail{display:contents}
+.trail-sep{align-self:center;color:var(--muted);font-size:18px}
+.chip-parent{opacity:.85}

@@ -96,6 +96,20 @@ function chip_html(string $kind, ?int $id, string $name, bool $large = false): s
         . ($large ? icon($t['icon']) . ' ' : '') . h($name) . '</a>';
 }
 
+/** Item page: the location chip, preceded by its parent locations (Garage › Shelf 2 › [Box 1024]). */
+function location_trail_html(?int $id, string $name): string
+{
+    $chip = chip_html('location', $id, $name, true);
+    if ($id === null) return $chip;
+    $up = location_ancestors($id);
+    if (!$up) return $chip;
+    $o = '<span class="loctrail" id="loctrail">';
+    foreach ($up as $a) {
+        $o .= '<a class="chip chip-location chip-lg chip-parent" href="/?loc=' . $a['id'] . '">' . h($a['name']) . '</a><span class="trail-sep" aria-hidden="true">›</span>';
+    }
+    return $o . $chip . '</span>';
+}
+
 function card_html(array $it, bool $select = false, bool $checked = false): string
 {
     $id = (int)$it['id'];
@@ -218,7 +232,7 @@ function bulk_toast(int $n, string $action): string
 function bulk_bar_html(array $locs, array $cats, array $tags, string $back, string $allHref): string
 {
     $opts = fn(array $rows, string $none) => '<option value="">' . h($none) . '</option>'
-        . implode('', array_map(fn($r) => '<option value="' . (int)$r['id'] . '">' . h($r['name']) . '</option>', $rows));
+        . implode('', array_map(fn($r) => '<option value="' . (int)$r['id'] . '">' . h(tax_option_label($r)) . '</option>', $rows));
     ob_start(); ?>
 <form class="bulkbar" id="bulkform" method="post" action="/bulk">
   <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
@@ -331,7 +345,7 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
     $f += ['tag' => '', 'stock' => '', 'lend' => ''];
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
-        foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
+        foreach ($list as $l) if ((string)$l['id'] === $v) return (string)($l['path'] ?? $l['name']);
         return '?';
     };
     $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'lend' => $f['lend'], 'sort' => $sort === 'recent' ? '' : $sort];
@@ -455,7 +469,7 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
     $o = '<label class="field"><span>' . h($t['One']) . '</span><select name="' . $t['param'] . '" id="' . $t['param'] . '">'
        . '<option value="">All ' . h($t['many']) . '</option>';
     foreach ($list as $l) {
-        $o .= '<option value="' . (int)$l['id'] . '"' . ((string)$l['id'] === $cur ? ' selected' : '') . '>' . h($l['name']) . ' (' . (int)$l['n'] . ')</option>';
+        $o .= '<option value="' . (int)$l['id'] . '"' . ((string)$l['id'] === $cur ? ' selected' : '') . '>' . h(tax_option_label($l)) . ' (' . (int)($l['total'] ?? $l['n']) . ')</option>';
     }
     if ($none > 0 || $cur === 'none') $o .= '<option value="none"' . ($cur === 'none' ? ' selected' : '') . '>' . h($t['none']) . ' (' . $none . ')</option>';
     return $o . '</select></label>';
@@ -599,7 +613,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <?php endif; ?>
   <h2 class="item-name"><?= h($it['name']) ?></h2>
   <div class="item-meta">
-    <?= chip_html('location', $it['location_id'] !== null ? (int)$it['location_id'] : null, $it['location'], true) ?>
+    <?= location_trail_html($it['location_id'] !== null ? (int)$it['location_id'] : null, (string)$it['location']) ?>
     <?= chip_html('category', $it['category_id'] !== null ? (int)$it['category_id'] : null, $it['category'], true) ?>
   </div>
   <?php if (($it['min_qty'] ?? null) !== null): ?>
@@ -695,7 +709,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
        . '<div class="locrow"><select name="' . $field . '" id="' . $p . 'sel" class="locsel">'
        . '<option value="">— ' . h($t['none']) . ' —</option>';
     foreach ($list as $l) {
-        $o .= '<option value="' . (int)$l['id'] . '"' . ((int)$l['id'] === $selected ? ' selected' : '') . '>' . h($l['name']) . ($l['is_default'] ? ' ★' : '') . '</option>';
+        $o .= '<option value="' . (int)$l['id'] . '"' . ((int)$l['id'] === $selected ? ' selected' : '') . '>' . h(tax_option_label($l)) . ($l['is_default'] ? ' ★' : '') . '</option>';
     }
     $o .= '<option value="__new"' . ($newVal !== '' ? ' selected' : '') . '>＋ New ' . h($t['one']) . '…</option></select>'
        . '<button type="button" class="btn btn-square" id="' . $p . 'add" aria-label="New ' . h($t['one']) . '" title="New ' . h($t['one']) . '">' . icon('plus') . '</button></div>'
@@ -834,6 +848,9 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
     <input type="hidden" name="csrf" value="<?= $tok ?>">
     <input type="text" name="name" required maxlength="120" autocomplete="off" autocorrect="off" enterkeyhint="done" placeholder="New <?= h($t['one']) ?>, e.g. <?= h($t['example']) ?>" aria-label="New <?= h($t['one']) ?> name">
     <button class="btn btn-primary"><?= icon('plus') ?> Add</button>
+    <?php if ($kind === 'location' && $list): ?>
+    <label class="field addloc-parent"><span>Inside</span><select name="parent" id="addloc-parent"><?= parent_options($list, null, null) ?></select></label>
+    <?php endif; ?>
   </form>
   <div class="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
   <?php if ($kind === 'location'): ?><p class="item-links"><a class="btn btn-sm" href="/labels"><?= icon('qr') ?> Print QR labels for all locations</a></p><?php endif; ?>
@@ -844,7 +861,7 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
   <?php else: ?>
   <ul class="loclist">
     <?php foreach ($list as $l): $id = (int)$l['id']; $n = (int)$l['n']; ?>
-    <li class="loc<?= $l['is_default'] ? ' is-default' : '' ?>" id="<?= $t['param'] ?>-<?= $id ?>">
+    <li class="loc<?= $l['is_default'] ? ' is-default' : '' ?><?= ($d = min((int)($l['depth'] ?? 0), LOCATION_MAX_DEPTH)) > 0 ? ' loc-d' . $d : '' ?>" id="<?= $t['param'] ?>-<?= $id ?>"<?= $kind === 'location' ? ' data-depth="' . (int)$l['depth'] . '"' : '' ?>>
       <div class="loc-main">
         <form method="post" action="<?= $base ?>/<?= $id ?>/default" class="loc-star-form">
           <input type="hidden" name="csrf" value="<?= $tok ?>">
@@ -852,7 +869,8 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
           <button class="loc-star" aria-label="<?= $l['is_default'] ? 'Unset default' : 'Set as default' ?>" title="<?= $l['is_default'] ? 'Default – tap to unset' : 'Set as default' ?>"><?= icon('star') ?></button>
         </form>
         <a class="loc-name" href="/?<?= $t['param'] ?>=<?= $id ?>"><?= h($l['name']) ?><?php if ($l['is_default']): ?> <span class="badge">Default</span><?php endif; ?></a>
-        <a class="loc-count" href="/?<?= $t['param'] ?>=<?= $id ?>"><?= $n ?> item<?= $n === 1 ? '' : 's' ?></a>
+        <?php $tot = (int)($l['total'] ?? $n); ?>
+        <a class="loc-count" href="/?<?= $t['param'] ?>=<?= $id ?>" title="<?= $tot !== $n ? h($n . ' here, ' . ($tot - $n) . ' in sub-locations') : '' ?>"><?= $tot ?> item<?= $tot === 1 ? '' : 's' ?></a>
       </div>
       <details class="loc-more">
         <summary><?= icon('edit') ?> Edit</summary>
@@ -862,6 +880,13 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
             <input type="text" name="name" value="<?= h($l['name']) ?>" required maxlength="120" autocomplete="off" autocorrect="off" aria-label="Rename <?= h($t['one']) ?>">
             <button class="btn">Rename</button>
           </form>
+          <?php if ($kind === 'location' && count($list) > 1): ?>
+          <form method="post" action="<?= $base ?>/<?= $id ?>/parent" class="loc-parent">
+            <input type="hidden" name="csrf" value="<?= $tok ?>">
+            <select name="parent" aria-label="Put “<?= h($l['name']) ?>” inside"><?= parent_options($list, $id, $l['parent_id']) ?></select>
+            <button class="btn">Move</button>
+          </form>
+          <?php endif; ?>
           <div class="loc-btns">
             <form method="post" action="<?= $base ?>/<?= $id ?>/default">
               <input type="hidden" name="csrf" value="<?= $tok ?>">
@@ -894,6 +919,20 @@ function view_manage(string $kind, array $list, int $unassigned, ?string $error,
     page_end();
 }
 
+/** <option>s for a parent picker: "Top level" plus every location except $self and its sub-locations. */
+function parent_options(array $list, ?int $self, ?int $cur): string
+{
+    $o = '<option value="">' . ($self === null ? 'Top level' : '— Top level —') . '</option>';
+    $skip = -1;
+    foreach ($list as $l) {
+        if ($skip >= 0 && $l['depth'] > $skip) continue;   // inside $self: not allowed
+        $skip = -1;
+        if ($self !== null && $l['id'] === $self) { $skip = $l['depth']; continue; }
+        $o .= '<option value="' . $l['id'] . '"' . ($cur === $l['id'] ? ' selected' : '') . '>' . h(tax_option_label($l)) . '</option>';
+    }
+    return $o;
+}
+
 function view_tax_delete(string $kind, array $entry, array $others): void
 {
     $t = tax($kind);
@@ -909,7 +948,8 @@ function view_tax_delete(string $kind, array $entry, array $others): void
 </header>
 <main class="wrap narrow">
   <h2 class="item-name">“<?= h($entry['name']) ?>”</h2>
-  <p class="lead"><a href="/?<?= $t['param'] ?>=<?= (int)$entry['id'] ?>"><?= $n ?> item<?= $n === 1 ? ' is' : 's are' ?></a> in this <?= h($t['one']) ?>. What should happen to <?= $n === 1 ? 'it' : 'them' ?>?</p>
+  <p class="lead"><?= $n ?> item<?= $n === 1 ? ' is' : 's are' ?> directly in this <?= h($t['one']) ?>. What should happen to <?= $n === 1 ? 'it' : 'them' ?>?</p>
+  <?php if (!empty($entry['children'])): ?><p class="hint" id="del-children">Its <?= (int)$entry['children'] ?> sub-location<?= (int)$entry['children'] === 1 ? '' : 's' ?> (and everything in <?= (int)$entry['children'] === 1 ? 'it' : 'them' ?>) move up one level<?= !empty($entry['parent_name']) ? ' into “' . h($entry['parent_name']) . '”' : ' to the top level' ?>.</p><?php endif; ?>
   <form method="post" action="<?= $t['path'] ?>/<?= (int)$entry['id'] ?>/delete" class="itemform" id="locdel">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if ($others): ?>
@@ -918,7 +958,7 @@ function view_tax_delete(string $kind, array $entry, array $others): void
       <span><strong>Move items to</strong>
         <select name="target" aria-label="Move to <?= h($t['one']) ?>">
           <?php foreach ($others as $o): ?>
-          <option value="<?= (int)$o['id'] ?>"<?= $o['is_default'] ? ' selected' : '' ?>><?= h($o['name']) ?> (<?= (int)$o['n'] ?>)</option>
+          <option value="<?= (int)$o['id'] ?>"<?= $o['is_default'] ? ' selected' : '' ?>><?= h(tax_option_label($o)) ?> (<?= (int)$o['n'] ?>)</option>
           <?php endforeach; ?>
         </select>
       </span>

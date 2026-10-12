@@ -14,7 +14,7 @@ for (const kind of ['locations', 'categories'] as const) {
       await page.locator('#addloc input[name=name]').fill('  Basement   rack ');
       await page.locator('#addloc button').click();
       await expect(page.locator('.loclist > li')).toHaveCount(count + 1);
-      const row = page.locator('.loclist > li').filter({ hasText: 'Basement rack' });
+      const row = page.locator('.loclist > li').filter({ has: page.locator('.loc-name', { hasText: 'Basement rack' }) });
       await expect(row.locator('.loc-count')).toHaveText('0 items');
       // duplicate (case-insensitive) is rejected
       await page.locator('#addloc input[name=name]').fill('BASEMENT RACK');
@@ -24,7 +24,7 @@ for (const kind of ['locations', 'categories'] as const) {
       await row.locator('.loc-more > summary').click();
       await row.locator('.loc-rename input[name=name]').fill('Basement shelf');
       await row.locator('.loc-rename button').click();
-      const renamed = page.locator('.loclist > li').filter({ hasText: 'Basement shelf' });
+      const renamed = page.locator('.loclist > li').filter({ has: page.locator('.loc-name', { hasText: 'Basement shelf' }) });
       await expect(renamed).toHaveCount(1);
       // set as default with the star; only one default
       await renamed.locator('.loc-star').click();
@@ -41,7 +41,7 @@ for (const kind of ['locations', 'categories'] as const) {
       await page.locator('#locdel select[name=target]').selectOption({ label: 'Basement shelf (0)' });
       await page.locator('#locdel button.btn-danger-solid').click();
       await expect(page).toHaveURL(new RegExp(`/${kind}`));
-      await expect(page.locator('.loclist > li').filter({ hasText: 'Basement shelf' }).locator('.loc-count')).toHaveText('2 items');
+      await expect(page.locator('.loclist > li').filter({ has: page.locator('.loc-name', { hasText: 'Basement shelf' }) }).locator('.loc-count')).toHaveText('2 items');
       // empty entry: delete with confirm
       await app.go(`/${kind}`);
       await page.locator('#addloc input[name=name]').fill('Temporary');
@@ -53,7 +53,7 @@ for (const kind of ['locations', 'categories'] as const) {
       await empty.locator('form[data-confirm] button').click();
       await expect(page.locator('.loclist > li .loc-name', { hasText: name })).toHaveCount(0);
       // filter link
-      await page.locator('.loclist > li').filter({ hasText: 'Basement shelf' }).locator('.loc-count').click();
+      await page.locator('.loclist > li').filter({ has: page.locator('.loc-name', { hasText: 'Basement shelf' }) }).locator('.loc-count').click();
       await expect(page).toHaveURL(new RegExp(`[?&]${param}=\\d+`));
       await expect(page.locator('#grid .card')).toHaveCount(2);
       await app.go(`/${kind}`);

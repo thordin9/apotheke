@@ -18,13 +18,135 @@ function tax(string $kind): array
     };
 }
 
-/** All entries, naturally sorted, with item counts. @return array<int,array{id:int,name:string,is_default:int,n:int}> */
+/**
+ * All entries, naturally sorted, with item counts. Locations come in tree order (each parent followed by its
+ * children) and carry parent_id, depth, path ("Garage › Shelf 2") and total (items here and in all sub-locations).
+ * Categories are flat: depth 0, path = name, total = n.
+ * @return array<int,array{id:int,name:string,is_default:int,n:int,parent_id:?int,depth:int,path:string,total:int}>
+ */
 function tax_list(string $kind): array
 {
     $t = tax($kind);
-    return db()->query("SELECT x.id, x.name, x.is_default, COUNT(i.id) AS n
-                        FROM {$t['table']} x LEFT JOIN items i ON i.{$t['col']} = x.id
-                        GROUP BY x.id ORDER BY x.sort_key, x.id")->fetchAll();
+    $isLoc = $kind === 'location';
+    $rows = db()->query('SELECT x.id, x.name, x.is_default, ' . ($isLoc ? 'x.parent_id' : 'NULL') . " AS parent_id, COUNT(i.id) AS n
+                         FROM {$t['table']} x LEFT JOIN items i ON i.{$t['col']} = x.id
+                         GROUP BY x.id, x.name, x.is_default, x.sort_key" . ($isLoc ? ', x.parent_id' : '') . '
+                         ORDER BY x.sort_key, x.id')->fetchAll();
+    return location_tree_order($rows);
+}
+
+const LOCATION_SEP = ' › ';
+const LOCATION_MAX_DEPTH = 6;   // levels below a top-level location
+
+/** Order rows depth-first (siblings keep their order) and add depth/path/total. Rows whose parent is missing become roots. */
+function location_tree_order(array $rows): array
+{
+    $ids = [];
+    foreach ($rows as $r) $ids[(int)$r['id']] = true;
+    $kids = [];
+    foreach ($rows as $r) {
+        $p = $r['parent_id'] !== null && isset($ids[(int)$r['parent_id']]) && (int)$r['parent_id'] !== (int)$r['id'] ? (int)$r['parent_id'] : 0;
+        $kids[$p][] = $r;
+    }
+    $out = [];
+    $seen = [];
+    $walk = function (int $pid, int $depth, string $prefix) use (&$walk, &$kids, &$out, &$seen): int {
+        $sum = 0;
+        foreach ($kids[$pid] ?? [] as $r) {
+            $id = (int)$r['id'];
+            if (isset($seen[$id])) continue;          // defensive: never loop on bad data
+            $seen[$id] = true;
+            $r['id'] = $id;
+            $r['n'] = (int)$r['n'];
+            $r['parent_id'] = $pid > 0 ? $pid : null;
+            $r['depth'] = $depth;
+            $r['path'] = $prefix . $r['name'];
+            $at = count($out);
+            $out[] = $r;
+            $total = $r['n'] + $walk($id, $depth + 1, $r['path'] . LOCATION_SEP);
+            $out[$at]['total'] = $total;
+            $sum += $total;
+        }
+        return $sum;
+    };
+    $walk(0, 0, '');
+    // rows only reachable through a cycle (cannot be created through the app): show them as top-level entries
+    foreach ($rows as $r) {
+        if (isset($seen[(int)$r['id']])) continue;
+        $kids[-(int)$r['id']] = [$r];
+        $walk(-(int)$r['id'], 0, '');
+    }
+    return $out;
+}
+
+/** Ids of $id and every location below it. @return int[] */
+function location_subtree_ids(int $id): array
+{
+    $byParent = [];
+    foreach (db()->query('SELECT id, parent_id FROM locations WHERE parent_id IS NOT NULL')->fetchAll() as $r) $byParent[(int)$r['parent_id']][] = (int)$r['id'];
+    $out = [$id];
+    $seen = [$id => true];
+    for ($i = 0; $i < count($out); $i++) {
+        foreach ($byParent[$out[$i]] ?? [] as $c) if (!isset($seen[$c])) { $seen[$c] = true; $out[] = $c; }
+    }
+    return $out;
+}
+
+/** Locations keyed by id (tree data from tax_list). */
+function locations_by_id(): array
+{
+    $out = [];
+    foreach (tax_list('location') as $l) $out[$l['id']] = $l;
+    return $out;
+}
+
+/** "Garage › Shelf 2 › Box 1024" for a location id, '' when it does not exist. */
+function location_path(?int $id): string
+{
+    return $id === null ? '' : (string)(locations_by_id()[$id]['path'] ?? '');
+}
+
+/** Ancestors of $id from the top down (without $id itself). @return array<int,array{id:int,name:string}> */
+function location_ancestors(int $id, ?array $byId = null): array
+{
+    $byId ??= locations_by_id();
+    $out = [];
+    $p = $byId[$id]['parent_id'] ?? null;
+    while ($p !== null && isset($byId[$p]) && count($out) <= LOCATION_MAX_DEPTH + 1) {
+        array_unshift($out, ['id' => $p, 'name' => (string)$byId[$p]['name']]);
+        $p = $byId[$p]['parent_id'];
+    }
+    return $out;
+}
+
+/** Put location $id inside $parent (null = top level). Rejects cycles and trees deeper than LOCATION_MAX_DEPTH. Returns true when it changed. */
+function location_set_parent(int $id, ?int $parent): bool
+{
+    return db_tx(function (PDO $pdo) use ($id, $parent): bool {
+        $byId = locations_by_id();
+        if (!isset($byId[$id])) throw new UserError('Location not found.', 404);
+        if ($byId[$id]['parent_id'] === $parent) return false;
+        if ($parent !== null) {
+            if (!isset($byId[$parent])) throw new UserError('That parent location no longer exists.', 422);
+            $sub = location_subtree_ids($id);
+            if (in_array($parent, $sub, true)) throw new UserError('A location cannot be put inside itself or one of its own sub-locations.', 422);
+            // depth of the new position + height of the moved subtree must stay within the limit
+            $height = 0;
+            foreach ($sub as $s) if (isset($byId[$s])) $height = max($height, $byId[$s]['depth'] - $byId[$id]['depth']);
+            if ($byId[$parent]['depth'] + 1 + $height > LOCATION_MAX_DEPTH) {
+                throw new UserError('Locations can be nested at most ' . LOCATION_MAX_DEPTH . ' levels deep.', 422);
+            }
+        }
+        $pdo->prepare('UPDATE locations SET parent_id = ? WHERE id = ?')->execute([$parent, $id]);
+        return true;
+    });
+}
+
+/** Option label for a <select>: indented by depth so the tree stays visible. */
+function tax_option_label(array $l): string
+{
+    $d = (int)($l['depth'] ?? 0);
+    return ($d > 0 ? str_repeat("\u{00A0}\u{00A0}\u{00A0}", $d) . '↳ ' : '') . $l['name'];
 }
 
 function tax_get(string $kind, int $id): ?array
@@ -100,6 +222,13 @@ function tax_delete(string $kind, int $id, ?int $moveTo): int
         $st = $pdo->prepare("UPDATE items SET {$t['col']} = ?, updated_at = ? WHERE {$t['col']} = ?");
         $st->execute([$moveTo, now_utc(), $id]);
         $n = $st->rowCount();
+        if ($kind === 'location') {
+            // sub-locations move up one level instead of disappearing from the tree
+            $par = $pdo->prepare('SELECT parent_id FROM locations WHERE id = ?');
+            $par->execute([$id]);
+            $up = $par->fetchColumn();
+            $pdo->prepare('UPDATE locations SET parent_id = ? WHERE parent_id = ?')->execute([$up === false || $up === null ? null : (int)$up, $id]);
+        }
         $pdo->prepare("DELETE FROM {$t['table']} WHERE id = ?")->execute([$id]);
         return $n;
     });
@@ -264,8 +393,10 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
         if ($v === 'none') {
             $where[] = "$col IS NULL";
         } elseif ($v !== '' && ctype_digit($v)) {
-            $where[] = "$col = ?";
-            $args[]  = (int)$v;
+            // a location filter includes everything stored in its sub-locations
+            $ids = $k === 'loc' ? location_subtree_ids((int)$v) : [(int)$v];
+            $where[] = "$col IN (" . implode(',', array_fill(0, count($ids), '?')) . ')';
+            array_push($args, ...$ids);
         }
     }
     if (ctype_digit($f['tag'] ?? '')) {

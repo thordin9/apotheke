@@ -648,6 +648,59 @@ T::ok(is_file("$dir/images/{$srcFiles[0]}"), 'deleting the copy keeps the origin
 T::eq(404, $c->post('/item/999999/duplicate', ['csrf' => $tok])['status'], 'unknown item: 404');
 foreach ([$dSrc, $dNew] as $x) $c->post("/item/$x/delete", ['csrf' => $tok]);
 
+T::section('Nested locations');
+$nl = fn(string $n, $parent = '') => (int)($c->api('/locations', ['csrf' => $tok, 'name' => $n, 'parent' => (string)$parent])['json']['id'] ?? 0);
+$nG = $nl('Nest garage');
+$nS = $nl('Nest shelf', $nG);
+$nB = $nl('Nest box', $nS);
+T::ok($nG && $nS && $nB, 'locations created inside each other');
+T::eq([null, $nG, $nS], array_map(fn($id) => ($v = $db->query("SELECT parent_id FROM locations WHERE id = $id")->fetchColumn()) === null ? null : (int)$v, [$nG, $nS, $nB]), 'parent_id stored');
+$nItem = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Nested drill', 'location_id' => $nB]));
+$nTop = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Garage broom', 'location_id' => $nG]));
+T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nG&sort=name")), ['Garage broom', 'Nested drill'])), 'filtering a location includes its sub-locations');
+T::eq(['Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nS")), ['Garage broom', 'Nested drill'])), 'filtering a sub-location excludes its parent');
+T::ok(str_contains($c->json("/?loc=$nB")['json']['chips'] ?? '', 'Nest garage › Nest shelf › Nest box'), 'filter chip shows the full path');
+$ip = $c->get("/item/$nItem")['body'];
+T::ok(str_contains($ip, 'id="loctrail"') && strpos($ip, 'href="/?loc=' . $nG . '"') < strpos($ip, 'href="/?loc=' . $nS . '"'), 'item page shows the location trail top-down');
+$mg = $c->get('/locations')['body'];
+T::ok(str_contains($mg, 'id="loc-' . $nB . '" data-depth="2"') && str_contains($mg, 'loc-d2'), 'manage page indents by depth');
+T::ok(preg_match('#id="loc-' . $nG . '".*?class="loc-count"[^>]*>2 items#s', $mg) === 1, 'counts include sub-locations');
+T::ok(str_contains($c->get('/new')['body'], "\u{00A0}↳ Nest box"), 'pickers show the tree');
+T::eq(419, $c->post("/locations/$nS/parent", ['parent' => ''])['status'], 'move requires CSRF');
+T::eq(422, $c->post("/locations/$nG/parent", ['csrf' => $tok, 'parent' => (string)$nB])['status'], 'cannot move into its own sub-location');
+T::eq(422, $c->post("/locations/$nG/parent", ['csrf' => $tok, 'parent' => (string)$nG])['status'], 'cannot move into itself');
+T::eq(422, $c->post("/locations/$nG/parent", ['csrf' => $tok, 'parent' => 'x'])['status'], 'bad parent rejected');
+T::eq(404, $c->post('/categories/1/parent', ['csrf' => $tok, 'parent' => ''])['status'], 'categories do not nest');
+$r = $c->post("/locations/$nB/parent", ['csrf' => $tok, 'parent' => '']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=moved'), 'move to the top level');
+T::eq(null, $db->query("SELECT parent_id FROM locations WHERE id = $nB")->fetchColumn() ?: null, 'now top level');
+$c->post("/locations/$nB/parent", ['csrf' => $tok, 'parent' => (string)$nS]);
+// deep chains are limited
+$chain = [$nB];
+for ($i = 0; $i < 4; $i++) $chain[] = $nl("Nest deep $i", end($chain));
+T::ok(!in_array(0, $chain, true), 'nesting works down to 6 levels below the top');
+$tooDeep = $c->api('/locations', ['csrf' => $tok, 'name' => 'Nest too deep', 'parent' => (string)end($chain)]);
+T::ok($tooDeep['status'] === 422 && str_contains($tooDeep['json']['error'] ?? '', 'at most 6 levels'), 'a 7th level is rejected');
+T::eq(0, (int)$db->query("SELECT COUNT(*) FROM locations WHERE name = 'Nest too deep'")->fetchColumn(), 'rejected location is not created');
+T::eq(422, $c->post("/locations/$nG/parent", ['csrf' => $tok, 'parent' => (string)$nl('Nest other')])['status'], 'moving a deep tree below another location is rejected');
+// backup + restore keep the tree
+$bkN = sys_get_temp_dir() . '/apotheke-nest-' . bin2hex(random_bytes(3)) . '.zip';
+file_put_contents($bkN, $c->get('/backup.zip')['body']);
+$rs = $c->post('/backup/restore', ['csrf' => $tok], ['backup' => ['name' => 'n.zip', 'type' => 'application/zip', 'data' => file_get_contents($bkN)]]);
+preg_match('/name="token" value="([a-f0-9]{32})"/', $rs['body'], $tm);
+$c->post('/backup/restore/confirm', ['csrf' => $tok, 'token' => $tm[1] ?? '', 'confirm' => '1']);
+@unlink($bkN);
+T::eq($nS, (int)$db->query("SELECT parent_id FROM locations WHERE id = $nB")->fetchColumn(), 'restore keeps the tree');
+// deleting a middle location moves its children up one level
+$del = $c->get("/locations/$nS/delete")['body'];
+T::ok(str_contains($del, 'id="del-children"') && str_contains($del, 'into “Nest garage”'), 'delete page explains what happens to sub-locations');
+$c->post("/locations/$nS/delete", ['csrf' => $tok, 'action' => 'unassign']);
+T::eq($nG, (int)$db->query("SELECT parent_id FROM locations WHERE id = $nB")->fetchColumn(), 'children move up after delete');
+T::eq($nB, (int)$db->query("SELECT location_id FROM items WHERE id = $nItem")->fetchColumn(), 'items in sub-locations stay put');
+foreach ([$nItem, $nTop] as $x) $c->post("/item/$x/delete", ['csrf' => $tok]);
+foreach (array_reverse(array_merge([$nG, (int)$db->query("SELECT id FROM locations WHERE name = 'Nest other'")->fetchColumn()], $chain)) as $x) $c->post("/locations/$x/delete", ['csrf' => $tok, 'action' => 'unassign']);
+T::eq(0, (int)$db->query("SELECT COUNT(*) FROM locations WHERE name LIKE 'Nest %'")->fetchColumn(), 'cleaned up');
+
 T::section('Delete item');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);

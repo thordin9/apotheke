@@ -35,6 +35,11 @@ it works fully offline on your LAN.
   category you just used. The *Manage* page (Locations / Categories tabs) shows item counts and lets you add, rename,
   set/clear the default and delete; deleting an entry that still has items asks whether to **move them** elsewhere or
   **leave them unassigned**. Items are never deleted with a location or category.
+* **Nested locations**: a location can sit inside another one (Garage › Shelf 2 › Box 1024), up to 6 levels below
+  a top-level location. Create a location *inside* another on the Locations page, or move it with *Edit → Move*
+  (cycles are refused). Lists and pickers show the tree indented, the item page shows the full path with a link
+  per level, and filtering by a location (and its item count) includes everything in its sub-locations. Deleting a
+  location moves its sub-locations up one level. Categories stay flat.
 * **Overview stats** at the top of the list: items, total quantity, locations, categories, added this week/month, a chart of
   items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars. Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
@@ -254,8 +259,8 @@ On first start after an update the database is upgraded automatically (or run `p
     de-duplicated ignoring case and accents) and every item is linked to its location.
   * From the locations-only version, categories are added; existing items start without a category.
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
-* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum) and `0007` (lending) only
-  add tables/columns.
+* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending) and
+  `0008` (parent location) only add tables/columns.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use

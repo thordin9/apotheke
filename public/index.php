@@ -300,7 +300,7 @@ try {
     }
 
     /* ---- locations & categories management ---- */
-    if (preg_match('#^/(locations|categories)(?:/(\d+)(?:/(rename|default|delete))?)?$#D', $path, $m)) {
+    if (preg_match('#^/(locations|categories)(?:/(\d+)(?:/(rename|default|delete|parent))?)?$#D', $path, $m)) {
         $kind = $m[1] === 'locations' ? 'location' : 'category';
         $t = tax($kind);
         $noneCount = stats()[$kind === 'location' ? 'unassigned' : 'uncategorized'];
@@ -310,6 +310,7 @@ try {
                 $toast = match ((string)($_GET['done'] ?? '')) {
                     'added' => $t['One'] . ' added', 'exists' => 'That ' . $t['one'] . ' already exists', 'renamed' => $t['One'] . ' renamed',
                     'default' => 'Default ' . $t['one'] . ' set', 'nodefault' => 'Default cleared', 'deleted' => $t['One'] . ' deleted',
+                    'moved' => $t['One'] . ' moved',
                     default => null,
                 };
                 view_manage($kind, tax_list($kind), $noneCount, null, $toast);
@@ -318,7 +319,14 @@ try {
             if ($method !== 'POST') throw new UserError('Page not found.', 404);
             check_csrf();
             try {
-                $r = tax_create($kind, (string)($_POST['name'] ?? ''));
+                $parent = $kind === 'location' && ctype_digit((string)($_POST['parent'] ?? '')) ? (int)$_POST['parent'] : null;
+                if ($parent !== null && !tax_get('location', $parent)) throw new UserError('That parent location no longer exists.');
+                $r = db_tx(function () use ($kind, $parent): array {
+                    $r = tax_create($kind, (string)($_POST['name'] ?? ''));
+                    // an existing location keeps its place; a new one goes where it was asked for
+                    if ($r['created'] && $parent !== null) location_set_parent($r['id'], $parent);
+                    return $r;
+                });
             } catch (UserError $e) {
                 if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], 422);
                 http_response_code(422);
@@ -334,7 +342,13 @@ try {
         if (!$entry) throw new UserError($t['One'] . ' not found.', 404);
         if ($act === 'delete' && $method === 'GET') {
             header('Cache-Control: no-store');
-            $others = array_values(array_filter(tax_list($kind), fn($l) => (int)$l['id'] !== $eid));
+            $all = tax_list($kind);
+            $others = array_values(array_filter($all, fn($l) => (int)$l['id'] !== $eid));
+            if ($kind === 'location') {
+                $entry['children'] = count(array_filter($all, fn($l) => $l['parent_id'] === $eid));
+                $me = array_values(array_filter($all, fn($l) => $l['id'] === $eid))[0] ?? null;
+                $entry['parent_name'] = $me && $me['parent_id'] !== null ? location_path($me['parent_id']) : '';
+            }
             view_tax_delete($kind, $entry, $others);
             exit;
         }
@@ -350,6 +364,21 @@ try {
                 exit;
             }
             redirect($t['path'] . '?done=renamed#' . $t['param'] . '-' . $eid);
+        }
+        if ($act === 'parent') {
+            if ($kind !== 'location') throw new UserError('Page not found.', 404);
+            $raw = (string)($_POST['parent'] ?? '');
+            if ($raw !== '' && !ctype_digit($raw)) throw new UserError('Pick a location.', 422);
+            try {
+                location_set_parent($eid, $raw === '' ? null : (int)$raw);
+            } catch (UserError $e) {
+                if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], 422);
+                http_response_code(422);
+                view_manage($kind, tax_list($kind), $noneCount, $e->getMessage(), null);
+                exit;
+            }
+            if (wants_json()) json_out(['ok' => true, 'path' => location_path($eid)]);
+            redirect($t['path'] . '?done=moved#' . $t['param'] . '-' . $eid);
         }
         if ($act === 'default') {
             $on = ($_POST['on'] ?? '1') === '1';
