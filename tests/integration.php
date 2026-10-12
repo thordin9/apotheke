@@ -648,29 +648,6 @@ T::ok(is_file("$dir/images/{$srcFiles[0]}"), 'deleting the copy keeps the origin
 T::eq(404, $c->post('/item/999999/duplicate', ['csrf' => $tok])['status'], 'unknown item: 404');
 foreach ([$dSrc, $dNew] as $x) $c->post("/item/$x/delete", ['csrf' => $tok]);
 
-T::section('PWA: service worker + offline page');
-$sw = $c->get('/sw.js');
-T::eq(200, $sw['status'], '/sw.js served');
-T::ok(str_starts_with((string)($sw['headers']['content-type'] ?? ''), 'text/javascript') && ($sw['headers']['cache-control'] ?? '') === 'no-cache', 'JS content type, revalidated on every check');
-T::ok(preg_match("/const VERSION = '([a-f0-9]{12})'/", $sw['body'], $vm) === 1, 'cache version filled in');
-T::ok(!str_contains($sw['body'], '__PRECACHE__') && str_contains($sw['body'], '"/offline"') && str_contains($sw['body'], '/assets/app.css?v='), 'precache list = offline page + versioned assets');
-T::ok(str_contains($sw['body'], "if (req.method !== 'GET') return;") && str_contains($sw['body'], 'backup|export\.csv|login|logout'), 'POSTs, backups, CSV and auth are never cached');
-T::eq($vm[1] ?? '', preg_match("/const VERSION = '([a-f0-9]{12})'/", $c->get('/sw.js')['body'], $vm2) ? $vm2[1] : '', 'version is stable');
-$css = dirname(__DIR__) . '/public/assets/app.css';
-$mt = filemtime($css);
-touch($css, $mt + 7);
-clearstatcache();
-preg_match("/const VERSION = '([a-f0-9]{12})'/", $c->get('/sw.js')['body'], $vm3);
-touch($css, $mt);
-T::ok(($vm3[1] ?? '') !== ($vm[1] ?? '') && ($vm3[1] ?? '') !== '', 'version changes with the asset hashes');
-$off = $c->get('/offline');
-T::ok($off['status'] === 200 && str_contains($off['body'], 'You’re offline') && str_contains($off['body'], 'id="offline-pages"'), '/offline page');
-T::ok(!preg_match('/<script(?![^>]*\bsrc=)[^>]*>/i', $off['body']) && !str_contains($off['body'], 'style="'), 'offline page is CSP-safe (no inline script/style)');
-$anon = $srv->client();
-T::eq(200, $anon->get('/sw.js')['status'], 'sw.js reachable without a session');
-$man = json_decode((string)file_get_contents(dirname(__DIR__) . '/public/manifest.webmanifest'), true);
-T::ok(($man['id'] ?? '') === '/' && count($man['shortcuts'] ?? []) === 2 && in_array('maskable', array_column($man['icons'], 'purpose'), true), 'manifest: id, shortcuts, maskable icon');
-
 T::section('Delete item');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);

@@ -34,7 +34,6 @@ function icon(string $n): string
         'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
         'handoff'=> '<path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M12 15v2"/>',
         'undo'   => '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
-        'wifi-off'=> '<path d="M2 8.8a15 15 0 0 1 4.2-2.6M9.5 5.3A15 15 0 0 1 22 8.8M5 12.5a10 10 0 0 1 5.2-2.4M16.5 11a10 10 0 0 1 2.5 1.5M8.5 16a5 5 0 0 1 7 0M12 20h.01M3 3l18 18"/>',
         'copy'   => '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
         'check'  => '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
         'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
@@ -1167,30 +1166,6 @@ function view_labels(string $heading, array $labels, string $back, array $option
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
-</main>
-<?php
-    page_end();
-}
-
-/** Shown by the service worker when a page isn't reachable offline; app.js lists the pages saved on this device. */
-function view_offline(): void
-{
-    header('Cache-Control: no-cache');
-    page_start('Offline', 'page-offline');
-    ?>
-<header class="top top-simple">
-  <div class="bar">
-    <h1 class="brand"><?= icon('box') ?><span><?= h(APP_NAME) ?></span></h1>
-    <span class="spacer"></span>
-  </div>
-</header>
-<main class="wrap narrow offline">
-  <div class="offline-hero"><?= icon('wifi-off') ?></div>
-  <h2 class="item-name">You’re offline</h2>
-  <p class="lead">This page isn’t saved on this device. Pages you opened recently are available below.</p>
-  <ul class="offline-pages" id="offline-pages" hidden></ul>
-  <p class="hint" id="offline-none" hidden>No pages are saved yet. Open the list or an item while online and it will be kept here.</p>
-  <a class="btn btn-primary btn-wide" href="" id="offline-retry"><?= icon('undo') ?> Try again</a>
 </main>
 <?php
     page_end();

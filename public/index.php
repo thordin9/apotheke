@@ -40,15 +40,6 @@ if ($method === 'POST' && empty($_POST) && empty($_FILES) && (int)($_SERVER['CON
     exit;
 }
 
-// Service worker + offline page: public (no data), so they also work while signed out.
-if ($path === '/sw.js' && $method === 'GET') {
-    header('Content-Type: text/javascript; charset=utf-8');
-    header('Cache-Control: no-cache');
-    header('Service-Worker-Allowed: /');
-    echo service_worker_js();
-    exit;
-}
-
 init_session();
 
 try {
@@ -69,10 +60,6 @@ try {
         check_csrf();
         logout();
         redirect('/login');
-    }
-    if ($path === '/offline' && $method === 'GET') {
-        view_offline();
-        exit;
     }
     if (!is_authed()) {
         if (wants_json()) json_out(['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login'], 401);

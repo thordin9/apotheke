@@ -528,46 +528,4 @@
     const close = $('#bulk-close'); if (close) close.addEventListener('click', () => { $('#bulksheet').open = false; });
     sync();
   }
-
-  /* ---------- PWA: service worker, offline page, offline banner ---------- */
-  if ('serviceWorker' in navigator && window.isSecureContext) {
-    window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {}); });
-    // signing out forgets the pages and thumbnails kept for offline use
-    document.addEventListener('submit', e => {
-      if (!e.target.matches('form[action="/logout"]')) return;
-      if (window.caches) { caches.delete('apotheke-pages'); caches.delete('apotheke-media'); }
-      const c = navigator.serviceWorker.controller; if (c) c.postMessage('clear');
-    }, true);
-  }
-  const offlineList = $('#offline-pages');
-  if (offlineList && window.caches) {
-    (async () => {
-      const c = await caches.open('apotheke-pages');
-      const rows = [];
-      for (const req of await c.keys()) {
-        const res = await c.match(req);
-        const html = res ? await res.text() : '';
-        const m = html.match(/<title>([^<]*)<\/title>/);
-        const tmp = document.createElement('textarea'); tmp.innerHTML = m ? m[1] : '';
-        const u = new URL(req.url);
-        rows.push({ href: u.pathname, title: (tmp.value || u.pathname).replace(/ · [^·]*$/, '') });
-      }
-      rows.reverse();   // newest first
-      rows.forEach(r => {
-        const li = document.createElement('li'), a = document.createElement('a');
-        a.href = r.href; a.textContent = r.href === '/' ? 'All items' : r.title;
-        const s = document.createElement('span'); s.textContent = r.href; a.appendChild(s);
-        li.appendChild(a); offlineList.appendChild(li);
-      });
-      offlineList.hidden = !rows.length;
-      $('#offline-none').hidden = !!rows.length;
-    })().catch(() => { $('#offline-none').hidden = false; });
-  } else if ($('#offline-none')) $('#offline-none').hidden = false;
-  const retry = $('#offline-retry'); if (retry) retry.addEventListener('click', e => { e.preventDefault(); location.reload(); });
-  const banner = () => {
-    let b = $('#offline-banner');
-    if (navigator.onLine || document.body.classList.contains('page-offline')) { if (b) b.remove(); return; }
-    if (!b) { b = document.createElement('div'); b.id = 'offline-banner'; b.className = 'offline-banner'; b.setAttribute('role', 'status'); b.textContent = 'Offline – showing the last saved copy'; document.body.appendChild(b); }
-  };
-  window.addEventListener('online', banner); window.addEventListener('offline', banner); banner();
 })();
