@@ -58,6 +58,28 @@ test.describe('visual', () => {
     await shot(page, 'activity');
   });
 
+  test('stock, bulk, lending, offline', async ({ app, page }) => {
+    app.sql("UPDATE items SET min_qty = 5 WHERE id = 8");
+    app.sql("UPDATE items SET lent_to = 'Maria', lent_at = '2026-05-20', lent_due = '2026-06-01' WHERE id = 3");
+    app.sql("UPDATE items SET lent_to = 'Nikos', lent_at = '2026-06-10' WHERE id = 7");
+    await app.go('/?select=1');
+    await page.locator('.card[data-id="1"] .card-img').click();
+    await page.locator('.card[data-id="2"] .card-img').click();
+    await expect(page.locator('#selcount')).toHaveText('2 selected');
+    await shot(page, 'select');
+    await page.locator('#bulk-open').click();
+    await shot(page, 'bulk-sheet');
+    await app.go('/?stock=low');
+    await shot(page, 'low-stock');
+    await app.go('/item/3');
+    await page.locator('#lending').scrollIntoViewIfNeeded();
+    await shot(page, 'item-lent');
+    await app.go('/lent');
+    await shot(page, 'lent');
+    await app.go('/offline');
+    await shot(page, 'offline');
+  });
+
   test('error page', async ({ page }) => {
     await page.goto('/nope');
     await shot(page, 'not-found');
