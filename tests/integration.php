@@ -44,6 +44,14 @@ foreach (['content-security-policy', 'x-content-type-options', 'x-frame-options'
 $tok = $c->csrf();
 T::ok(strlen($tok) === 64, 'CSRF token present in page');
 
+T::section('HEAD');
+$headHome = $c->req('HEAD', '/');
+T::eq($r['status'], $headHome['status'], 'HEAD / status matches GET /');
+T::eq(200, $headHome['status'], 'HEAD / is 200');
+T::eq(404, $c->req('HEAD', '/no/such/page')['status'], 'HEAD unknown path is 404');
+T::eq(200, $c->req('HEAD', '/healthz')['status'], 'HEAD /healthz is 200');
+T::eq(200, $c->req('HEAD', '/new')['status'], 'HEAD /new is 200');
+
 T::section('CSRF protection');
 foreach (['/save' => ['name' => 'x'], '/locations' => ['name' => 'x'], '/categories' => ['name' => 'x'], '/item/1/qty' => ['delta' => 1], '/item/1/delete' => []] as $p => $f) {
     T::eq(419, $c->api($p, $f)['status'], "POST $p without token → 419");

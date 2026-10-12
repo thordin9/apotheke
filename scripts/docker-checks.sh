@@ -11,6 +11,7 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 hdr() { curl -s -D - -o /dev/null "${@:2}" | tr -d '\r' | awk -v h="$1" 'BEGIN{IGNORECASE=1} index(tolower($0), tolower(h) ":")==1 {sub(/^[^:]*: */, ""); print; exit}'; }
 
 check "front controller"              200 "$(code "$base/")"
+check "HEAD / same as GET"            200 "$(code -I "$base/")"
 check "healthz"                       200 "$(code "$base/healthz")"
 check "unknown route -> app 404"      404 "$(code "$base/no/such/page")"
 # /index.php is handled by the app's router (which has no such route), exactly as under Apache
