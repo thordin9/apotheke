@@ -70,7 +70,8 @@ function page_start(string $title, string $bodyClass = ''): void
 <meta name="description" content="<?= h(APP_NAME . ', ' . APP_TAGLINE) ?>">
 <meta name="csrf" content="<?= h(csrf_token()) ?>">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="<?= h(asset('favicon.svg')) ?>" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <link rel="stylesheet" href="<?= h(asset('app.css')) ?>">
 <script src="<?= h(asset('theme.js')) ?>"></script>
@@ -515,7 +516,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     ?>
 <header class="top">
   <div class="bar">
-    <h1 class="brand"><?= icon('box') ?><span><?= h(APP_NAME) ?></span></h1>
+    <h1 class="brand"><?= brand_logo(28) ?><span><?= h(APP_NAME) ?></span></h1>
     <span class="stats"><?= h(stats_brief((int)$stats['items'], (int)$stats['qty'])) ?></span>
     <a class="btn btn-ghost btn-round hide-sm" href="/locations" aria-label="Manage locations &amp; categories" title="Locations &amp; categories"><?= icon('sliders') ?></a>
     <?= menu_html() ?>
@@ -1152,12 +1153,18 @@ function view_tax_delete(string $kind, array $entry, array $others): void
     page_end();
 }
 
+/** The Apotheke logo tile (cream tile, terracotta jar): legible on light and dark backgrounds; decorative next to the name. */
+function brand_logo(int $size): string
+{
+    return '<img class="brand-logo" src="' . h(asset('icon.svg')) . '" width="' . $size . '" height="' . $size . '" alt="" decoding="async">';
+}
+
 function view_login(?string $error): void
 {
     page_start('Sign in', 'page-login');
     ?>
 <main class="wrap narrow login">
-  <div class="brand brand-lg"><?= icon('box') ?><span><?= h(APP_NAME) ?></span></div>
+  <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(APP_NAME) ?></span></div>
   <p class="tagline"><?= h(ucfirst(APP_TAGLINE)) ?></p>
   <form method="post" action="/login" class="itemform">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">

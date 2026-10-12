@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/apotheke-logo-dark.svg">
+    <img src="docs/assets/apotheke-logo.svg" alt="Apotheke" width="330">
+  </picture>
+</p>
+
 # Apotheke
 
 [![CI](https://github.com/thordin9/apotheke/actions/workflows/ci.yml/badge.svg)](https://github.com/thordin9/apotheke/actions/workflows/ci.yml)
@@ -141,6 +148,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Expiring soon + saved filters | Value (dark) | Saved filters | Barcode lookup (dark) | Item barcode |
 |---|---|---|---|---|
 | ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
+
+| Sign in (password mode) |
+|---|
+| ![Sign in](docs/screenshots/login-light.png) |
 
 ## Requirements
 

@@ -3,6 +3,13 @@ import { test, expect } from './fixtures';
 test.use({ appPassword: 'correct horse' });
 
 test.describe('password mode', () => {
+  test('login screen shows the logo', async ({ page }) => {
+    await page.goto('/login');
+    const logo = page.locator('.login .brand-lg img.brand-logo');
+    await expect(logo).toBeVisible();
+    expect(await logo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  });
+
   test('login, wrong password, logout @smoke', async ({ app, page }) => {
     await page.goto('/item/1');
     await expect(page).toHaveURL(/\/login/);
