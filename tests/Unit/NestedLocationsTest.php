@@ -122,4 +122,53 @@ final class NestedLocationsTest extends DatabaseTestCase
         $this->assertSame(['Tools'], array_column($list, 'path'));
         $this->assertNull($list[0]['parent_id']);
     }
+
+    public function testSearchMatchesAncestorLocationNames(): void
+    {
+        $g = $this->loc('Garage');
+        $s = $this->loc('Shelf 2', $g);
+        $b = $this->loc('Box 1024', $s);
+        $a = $this->loc('Attic');
+        $this->item('Drill', $b);
+        $this->item('Broom', $g);
+        $this->item('Lamp', $a);
+        $this->item('Garage door remote', null);
+        $find = fn(string $q) => array_column(items_search($q, ['loc' => '', 'cat' => ''], 'name', 1)['items'], 'name');
+        $this->assertSame(['Broom', 'Drill', 'Garage door remote'], $find('garage'), 'descendants, the location itself and item names');
+        $this->assertSame(['Drill'], $find('shelf'));
+        $this->assertSame(['Drill'], $find('garage box'), 'every word may match a different level');
+        $this->assertSame(['Drill'], $find('drill garage'));
+        $this->assertSame([], $find('attic drill'));
+        $this->assertSame([], location_ids_matching('%nothing%'));
+        $this->assertSame([$g, $s, $b], location_ids_matching('%garage%'));
+    }
+
+    public function testOverviewRollsUpToTopLevelLocations(): void
+    {
+        $g = $this->loc('Garage');
+        $s = $this->loc('Shelf', $g);
+        $b = $this->loc('Box', $s);
+        $a = $this->loc('Attic');
+        foreach (['Drill', 'Saw', 'Hammer'] as $n) $this->item($n, $b);
+        $this->item('Broom', $s);
+        $this->item('Lamp', $a);
+        $this->item('Fan', $a);
+        $this->item('Loose', null);
+        $this->assertSame([['id' => $g, 'name' => 'Garage', 'n' => 4], ['id' => $a, 'name' => 'Attic', 'n' => 2]], stats_location_rollup());
+        $bars = stats_by('location');
+        $this->assertSame(['Garage', 'Attic', 'No location'], array_column($bars, 'name'));
+        $this->assertSame(7, array_sum(array_column($bars, 'n')), 'every item counted once');
+        $this->assertTrue(locations_nested());
+    }
+
+    public function testRollupWithoutNestingEqualsDirectCounts(): void
+    {
+        $a = $this->loc('A');
+        $b = $this->loc('B');
+        $this->item('x', $b);
+        $this->item('y', $b);
+        $this->item('z', $a);
+        $this->assertSame([['id' => $b, 'name' => 'B', 'n' => 2], ['id' => $a, 'name' => 'A', 'n' => 1]], stats_location_rollup());
+        $this->assertFalse(locations_nested());
+    }
 }

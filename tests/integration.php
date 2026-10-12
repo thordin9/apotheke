@@ -659,6 +659,12 @@ $nItem = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Nested drill', 'l
 $nTop = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Garage broom', 'location_id' => $nG]));
 T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nG&sort=name")), ['Garage broom', 'Nested drill'])), 'filtering a location includes its sub-locations');
 T::eq(['Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nS")), ['Garage broom', 'Nested drill'])), 'filtering a sub-location excludes its parent');
+T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('nest garage') . '&sort=name')), ['Garage broom', 'Nested drill'])), 'search for a parent location finds items in its sub-locations');
+T::eq(['Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('nest shelf'))), ['Garage broom', 'Nested drill'])), 'search for a middle location skips its parent');
+T::eq(['Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('drill garage'))), ['Garage broom', 'Nested drill'])), 'item word + ancestor word');
+$stN = $c->get('/stats')['body'];
+T::ok(preg_match('#data-loc="' . $nG . '">Nest garage</a></span>.*?<span class="hb-n">(\d+)</span>#s', $stN, $hm) === 1 && (int)$hm[1] === 2, 'overview rolls sub-location items up into the top-level location', $hm[1] ?? '');
+T::ok(!preg_match('#data-loc="' . $nS . '">#', $stN) && str_contains($stN, 'id="st-rollup"'), 'sub-locations are not listed separately; note shown');
 T::ok(str_contains($c->json("/?loc=$nB")['json']['chips'] ?? '', 'Nest garage › Nest shelf › Nest box'), 'filter chip shows the full path');
 $ip = $c->get("/item/$nItem")['body'];
 T::ok(str_contains($ip, 'id="loctrail"') && strpos($ip, 'href="/?loc=' . $nG . '"') < strpos($ip, 'href="/?loc=' . $nS . '"'), 'item page shows the location trail top-down');

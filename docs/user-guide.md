@@ -56,7 +56,8 @@ so you can bookmark a filtered view.
 
 The collapsible *Overview* panel at the top of the list shows tiles (items, total quantity, locations, categories,
 added this week, added this month, **Running low**), a chart of items added (last 30 days by day or last 12 months by
-month), and the top 5 locations and categories as bars. Tap a bar, or the *Running low* tile, to filter the list. The
+month), and the top 5 locations and categories as bars. *By location* counts per **top-level** location, including
+everything in its sub-locations, so every item is counted once (under the top of its branch). Tap a bar, or the *Running low* tile, to filter the list. The
 panel remembers whether it was open (cookie) and which range you picked; while it is collapsed the statistics are not
 computed or downloaded at all.
 
@@ -133,8 +134,10 @@ A location can sit inside another one: *Garage › Shelf 2 › Box 1024*. Catego
   filtered list.
 * **Deleting** a location only deals with the items *directly* in it (move them or leave them unassigned, as above).
   Its sub-locations, with their items, move up one level into its parent (or to the top level).
-* An item belongs to exactly one location, the innermost one. Search matches the item's own location name, not the
-  names of its parents: to see everything in the garage, filter by *Garage* rather than searching for it.
+* An item belongs to exactly one location, the innermost one.
+* **Search includes parent locations:** a search word matches an item when it appears in the name of the item's
+  location *or of any location above it*, so searching "garage" finds the drill in *Garage › Shelf 2 › Box 1024*.
+* **Overview:** the *By location* bars count per top-level location, including everything below it.
 
 ```mermaid
 flowchart TD

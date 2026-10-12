@@ -130,7 +130,9 @@ one query and `location_tree_order()` turns them into tree order (each parent fo
 in natural order), adding `depth`, `path` ("Garage › Shelf 2") and `total` (items including sub-locations). Views use
 that list everywhere: `tax_option_label()` indents dropdown options, `parent_options()` builds the parent picker
 (without the location's own branch), `location_trail_html()` renders the path on the item page. The list filter
-`loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`.
+`loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`. A search word that matches a location name expands the same way
+(`location_ids_matching()`), so items below a matching location are found too. The overview's *By location* bars
+come from `stats_location_rollup()`, which adds every item to the top-level location of its branch.
 
 ## Docker image
 

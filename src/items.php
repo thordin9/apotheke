@@ -92,6 +92,37 @@ function location_subtree_ids(int $id): array
     return $out;
 }
 
+/**
+ * Ids of locations whose name matches $like (a LIKE pattern on name_key) plus all of their sub-locations,
+ * so searching "garage" also finds the items on the garage's shelves. @return int[]
+ */
+function location_ids_matching(string $like): array
+{
+    $st = db()->prepare("SELECT id FROM locations WHERE name_key LIKE ? ESCAPE '!'");
+    $st->execute([$like]);
+    $hits = array_map('intval', $st->fetchAll(PDO::FETCH_COLUMN));
+    if (!$hits) return [];
+    $kids = [];
+    foreach (db()->query('SELECT id, parent_id FROM locations WHERE parent_id IS NOT NULL')->fetchAll() as $row) $kids[(int)$row['parent_id']][] = (int)$row['id'];
+    $out = [];
+    $todo = $hits;
+    while ($todo) {
+        $id = array_pop($todo);
+        if (isset($out[$id])) continue;
+        $out[$id] = true;
+        foreach ($kids[$id] ?? [] as $c) $todo[] = $c;
+    }
+    $ids = array_keys($out);
+    sort($ids);
+    return $ids;
+}
+
+/** True when at least one location sits inside another. */
+function locations_nested(): bool
+{
+    return (bool)db()->query('SELECT 1 FROM locations WHERE parent_id IS NOT NULL LIMIT 1')->fetchColumn();
+}
+
 /** Locations keyed by id (tree data from tax_list). */
 function locations_by_id(): array
 {
@@ -383,10 +414,12 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
     $where = [];
     $args  = [];
     foreach (preg_split('/\s+/u', fold(trim($q)), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $tok) {
-        // every word must match the item (name/notes), its location or its category
-        $where[] = "(i.search LIKE ? ESCAPE '!' OR COALESCE(l.name_key, '') LIKE ? ESCAPE '!' OR COALESCE(c.name_key, '') LIKE ? ESCAPE '!')";
+        // every word must match the item (name/notes/serial/tags), its location or any location above it, or its category
         $like = '%' . like_escape($tok) . '%';
-        array_push($args, $like, $like, $like);
+        $locIds = location_ids_matching($like);
+        $where[] = "(i.search LIKE ? ESCAPE '!' OR COALESCE(c.name_key, '') LIKE ? ESCAPE '!'"
+            . ($locIds ? ' OR i.location_id IN (' . implode(',', array_fill(0, count($locIds), '?')) . ')' : '') . ')';
+        array_push($args, $like, $like, ...$locIds);
     }
     foreach (['loc' => 'i.location_id', 'cat' => 'i.category_id'] as $k => $col) {
         $v = $f[$k] ?? '';
@@ -876,15 +909,44 @@ function stats_added_series(string $unit): array
 function stats_by(string $kind, int $n = 5): array
 {
     $t = tax($kind);
-    $rows = db()->query("SELECT x.id, x.name, COUNT(i.id) AS n
-                         FROM items i JOIN {$t['table']} x ON x.id = i.{$t['col']}
-                         GROUP BY x.id ORDER BY n DESC, x.sort_key, x.id")->fetchAll();
+    if ($kind === 'location') {
+        $rows = stats_location_rollup();
+    } else {
+        $rows = db()->query("SELECT x.id, x.name, COUNT(i.id) AS n
+                             FROM items i JOIN {$t['table']} x ON x.id = i.{$t['col']}
+                             GROUP BY x.id, x.name, x.sort_key ORDER BY n DESC, x.sort_key, x.id")->fetchAll();
+    }
     $top = array_slice($rows, 0, $n);
     $rest = array_slice($rows, $n);
     if ($rest) $top[] = ['id' => null, 'name' => 'Other (' . count($rest) . ')', 'n' => array_sum(array_column($rest, 'n')), 'other' => true];
     $un = (int)db()->query("SELECT COUNT(*) FROM items WHERE {$t['col']} IS NULL")->fetchColumn();
     if ($un > 0) $top[] = ['id' => 'none', 'name' => $t['none'], 'n' => $un];
     return $top;
+}
+
+/**
+ * Item counts per top-level location, each including everything in its sub-locations (every item is counted once,
+ * under the top of its branch). Sorted by count, then tree order. @return array<int,array{id:int,name:string,n:int}>
+ */
+function stats_location_rollup(): array
+{
+    $byId = locations_by_id();
+    $root = [];
+    foreach ($byId as $id => $l) {
+        $r = $id;
+        for ($i = 0; ($p = $byId[$r]['parent_id'] ?? null) !== null && isset($byId[$p]) && $i <= LOCATION_MAX_DEPTH + 1; $i++) $r = $p;
+        $root[$id] = $r;
+    }
+    $sum = [];
+    foreach (db()->query('SELECT location_id, COUNT(*) AS n FROM items WHERE location_id IS NOT NULL GROUP BY location_id')->fetchAll() as $row) {
+        $r = $root[(int)$row['location_id']] ?? null;
+        if ($r !== null) $sum[$r] = ($sum[$r] ?? 0) + (int)$row['n'];
+    }
+    $pos = array_flip(array_keys($byId));
+    $out = [];
+    foreach ($sum as $id => $cnt) $out[] = ['id' => $id, 'name' => (string)$byId[$id]['name'], 'n' => $cnt];
+    usort($out, fn($a, $b) => [$b['n'], $pos[$a['id']]] <=> [$a['n'], $pos[$b['id']]]);
+    return $out;
 }
 
 /* ---------- bulk actions ---------- */

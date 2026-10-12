@@ -439,7 +439,9 @@ function stats_body_html(): string
     foreach (KINDS as $kind) {
         $k = tax($kind);
         $o .= '<section class="st-card st-' . $kind . '"><div class="st-head"><h3>By ' . h($k['one']) . '</h3><a class="st-link" href="' . $k['path'] . '">All</a></div>'
-            . hbars(stats_by($kind, 5), $k['param'], 'No items yet.') . '</section>';
+            . hbars(stats_by($kind, 5), $k['param'], 'No items yet.')
+            . ($kind === 'location' && locations_nested() ? '<p class="st-sub" id="st-rollup">Top-level locations, counting everything inside them</p>' : '')
+            . '</section>';
     }
     return $o;
 }

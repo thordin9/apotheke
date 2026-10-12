@@ -38,10 +38,12 @@ it works fully offline on your LAN.
 * **Nested locations**: a location can sit inside another one (Garage › Shelf 2 › Box 1024), up to 6 levels below
   a top-level location. Create a location *inside* another on the Locations page, or move it with *Edit → Move*
   (cycles are refused). Lists and pickers show the tree indented, the item page shows the full path with a link
-  per level, and filtering by a location (and its item count) includes everything in its sub-locations. Deleting a
-  location moves its sub-locations up one level. Categories stay flat.
+  per level, and filtering by a location (and its item count) includes everything in its sub-locations. Searching
+  for a location name also finds the items in its sub-locations ("garage" finds the box on the garage shelf).
+  Deleting a location moves its sub-locations up one level. Categories stay flat.
 * **Overview stats** at the top of the list: items, total quantity, locations, categories, added this week/month, a chart of
-  items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars. Tap a bar to filter.
+  items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars (locations are rolled up to the top-level
+  location, counting everything inside it). Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
