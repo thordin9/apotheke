@@ -80,7 +80,7 @@ final class Server
         $this->log = $dataDir . '.server.log';
         $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
                 '-S', "127.0.0.1:$port", '-t', ROOT . '/public', ROOT . '/public/index.php'];
-        $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => ''], $env);
+        $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'], test_db_env($dataDir), $env);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');
         for ($i = 0; $i < 100; $i++) {
@@ -231,6 +231,45 @@ function jpg_file(string $data, string $name = 'photo.jpg', string $type = 'imag
     return ['name' => $name, 'type' => $type, 'data' => $data];
 }
 
+/* ---------- database under test: SQLite (default) or PostgreSQL (TEST_DB_DRIVER=pgsql) ---------- */
+
+function test_driver(): string
+{
+    return getenv('TEST_DB_DRIVER') === 'pgsql' ? 'pgsql' : 'sqlite';
+}
+
+/** Env for the app server: on pgsql every data dir gets its own throwaway schema. */
+function test_db_env(string $dataDir): array
+{
+    if (test_driver() !== 'pgsql') return ['DB_DRIVER' => 'sqlite'];
+    return ['DB_DRIVER' => 'pgsql', 'DB_SCHEMA' => test_schema($dataDir),
+            'DB_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1', 'DB_PORT' => getenv('TEST_PG_PORT') ?: '5432',
+            'DB_NAME' => getenv('TEST_PG_DB') ?: 'apotheke', 'DB_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
+            'DB_PASSWORD' => getenv('TEST_PG_PASSWORD') ?: 'apotheke'];
+}
+
+function test_schema(string $dataDir): string
+{
+    return 't_' . substr(md5($dataDir), 0, 12);
+}
+
+/** PDO to the same database the server for $dataDir uses. */
+function testdb(string $dataDir): PDO
+{
+    if (test_driver() !== 'pgsql') return sqlite("$dataDir/catalog.sqlite");
+    $e = test_db_env($dataDir);
+    $p = new PDO("pgsql:host={$e['DB_HOST']};port={$e['DB_PORT']};dbname={$e['DB_NAME']}", $e['DB_USER'], $e['DB_PASSWORD'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+    $p->exec('CREATE SCHEMA IF NOT EXISTS "' . $e['DB_SCHEMA'] . '"');
+    $p->exec('SET search_path TO "' . $e['DB_SCHEMA'] . '"');
+    return $p;
+}
+
+function testdb_drop(string $dataDir): void
+{
+    if (test_driver() === 'pgsql') testdb($dataDir)->exec('DROP SCHEMA IF EXISTS "' . test_schema($dataDir) . '" CASCADE');
+}
+
 function sqlite(string $file): PDO
 {
     return new PDO('sqlite:' . $file, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
@@ -254,4 +293,12 @@ function option_labels(string $html, string $selectName): array
     if (!preg_match('#<select name="' . preg_quote($selectName, '#') . '".*?</select>#s', $html, $m)) return [];
     preg_match_all('#<option[^>]*>([^<]*)#', $m[0], $o);
     return array_map(fn($s) => html_entity_decode($s, ENT_QUOTES), $o[1]);
+}
+
+/** Versions of the migration files shipped in migrations/. @return string[] */
+function migration_versions(): array
+{
+    $v = array_map(fn($f) => substr(basename($f), 0, 4), glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: []);
+    sort($v);
+    return $v;
 }
