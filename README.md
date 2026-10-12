@@ -78,6 +78,10 @@ it works fully offline on your LAN.
   *Actions* opens a sheet to **move** them to a location, **set the category**, **add tags** or **remove a tag**, or
   **delete** them after a confirmation page. Each action runs in one transaction, writes a history entry per item and is
   CSRF-protected (`POST /bulk`, at most 500 items at once). Works without JavaScript too (`/?select=1`, `&all=1`).
+* **Expiry and warranty dates**: an optional *Expires / warranty until* date per item (food, medicine, batteries,
+  warranties). Cards and the item page show **Expires in N days** (within `EXPIRY_SOON_DAYS`, default 30) or a red
+  **Expired** badge, the overview has *Expiring soon* and *Expired* tiles, and the filter sheet has *Expiry / warranty →
+  Expiring soon / Expired* (`/?exp=soon`, `/?exp=expired`). The date is in the CSV export, backups and the history.
 * **Lending tracker**: *Lend this item* on the item page records who has it, since when (defaults to today) and an
   optional due date; *Mark as returned* brings it back. Cards show a **Lent · name** or red **Overdue · name** badge
   (overdue = the due date is before today in the `TZ` time zone), the filter sheet has *Lending → Lent out / Overdue*
@@ -87,7 +91,7 @@ it works fully offline on your LAN.
   quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
   photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
   is not copied. The copy's history starts with "Created … copied from “Name”".
-* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`,
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
   Empty means no login, fine on a trusted LAN.
@@ -229,6 +233,7 @@ compose file never wipes a value from `config.php`.
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
 | `CURRENCY` | `EUR` | Currency shown next to item values (ISO code or symbol). Only a label; no conversion. |
+| `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Set it if you open the app under a different name than your phone will. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
@@ -269,8 +274,8 @@ On first start after an update the database is upgraded automatically (or run `p
     de-duplicated ignoring case and accents) and every item is linked to its location.
   * From the locations-only version, categories are added; existing items start without a category.
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
-* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending) and
-  `0008` (parent location) only add tables/columns.
+* Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending),
+  `0008` (parent location) and `0009` (expiry date) only add tables/columns.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use

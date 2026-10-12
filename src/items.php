@@ -271,7 +271,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.expires_on, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -381,6 +381,40 @@ function parse_date_ymd(string $s): ?string
 }
 
 /** An item is running low when it has a low-stock level and its quantity is at or below it. */
+/* ---------- expiry / warranty ---------- */
+
+/** Last day of the "Expiring soon" window (today + expiry_soon_days, local date). */
+function expiry_soon_until(): string
+{
+    return (new DateTimeImmutable(local_today()))->modify('+' . (int)cfg()['expiry_soon_days'] . ' days')->format('Y-m-d');
+}
+
+/** 'expired' (before today), 'soon' (today … today + N days) or '' (no date / later). */
+function expiry_state(array $it, ?string $today = null): string
+{
+    $d = $it['expires_on'] ?? null;
+    if ($d === null || $d === '') return '';
+    $today ??= local_today();
+    if ($d < $today) return 'expired';
+    return $d <= expiry_soon_until() ? 'soon' : '';
+}
+
+/** Days from today until the date (negative = past). */
+function expiry_days(string $date): int
+{
+    return (int)(new DateTimeImmutable(local_today()))->diff(new DateTimeImmutable($date))->format('%r%a');
+}
+
+/** Validate an expiry / warranty date (any valid date from 1900 on; future dates are the normal case). */
+function parse_expiry_date(string $s): ?string
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $d = DateTimeImmutable::createFromFormat('!Y-m-d', $s);
+    if (!$d || $d->format('Y-m-d') !== $s || $s < '1900-01-01' || $s > '2999-12-31') throw new UserError('Expiry date must be a valid date (YYYY-MM-DD).');
+    return $s;
+}
+
 function is_low(array $it): bool
 {
     return ($it['min_qty'] ?? null) !== null && (int)$it['quantity'] <= (int)$it['min_qty'];
@@ -408,6 +442,7 @@ function list_filter_defs(): array
 {
     return [
         'stock' => ['label' => 'Stock', 'all' => 'All items', 'opts' => ['low' => 'Running low'], 'icon' => 'alert', 'class' => 'chip-low', 'what' => 'running-low filter'],
+        'exp'   => ['label' => 'Expiry / warranty', 'all' => 'All items', 'opts' => ['soon' => 'Expiring soon', 'expired' => 'Expired'], 'icon' => 'clock', 'class' => 'chip-exp', 'what' => 'expiry filter'],
         'lend'  => ['label' => 'Lending', 'all' => 'All items', 'opts' => ['out' => 'Lent out', 'overdue' => 'Overdue'], 'icon' => 'handoff', 'class' => 'chip-lend', 'what' => 'lending filter'],
     ];
 }
@@ -481,6 +516,8 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
         $args[]  = (int)$f['tag'];
     }
     if (($f['stock'] ?? '') === 'low') $where[] = '(' . LOW_SQL . ')';
+    if (($f['exp'] ?? '') === 'expired') { $where[] = 'i.expires_on IS NOT NULL AND i.expires_on < ?'; $args[] = local_today(); }
+    if (($f['exp'] ?? '') === 'soon') { $where[] = 'i.expires_on IS NOT NULL AND i.expires_on >= ? AND i.expires_on <= ?'; array_push($args, local_today(), expiry_soon_until()); }
     if (($f['lend'] ?? '') === 'out') $where[] = 'i.lent_to IS NOT NULL';
     if (($f['lend'] ?? '') === 'overdue') { $where[] = 'i.lent_to IS NOT NULL AND i.lent_due IS NOT NULL AND i.lent_due < ?'; $args[] = local_today(); }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
@@ -497,7 +534,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
 
     $page   = max(1, $page);
     $offset = ($page - 1) * $pageSize;
-    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due "
+    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
@@ -572,13 +609,13 @@ function activity_short(?string $s): string
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => '', 'min_qty' => null, 'copied_from' => null];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'expires_on' => null, 'serial' => '', 'min_qty' => null, 'copied_from' => null];
     $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags']);
     $drop = [];
     $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
         if ($existing === null) {
-            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, min_qty, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
+            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, min_qty, notes, image, value_cents, purchase_date, expires_on, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['expires_on'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
             tags_set($id, $in['tags']);
             if ($newImage !== null) photo_insert($id, $newImage, true);
             activity_log($id, $in['name'], 'created', array_filter([
@@ -599,6 +636,7 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
             'notes'         => [activity_short($old['notes']), activity_short($in['notes'])],
             'value'         => [money_input($old['value_cents'] ?? null), money_input($in['value_cents'])],
             'purchase_date' => [(string)($old['purchase_date'] ?? ''), (string)($in['purchase_date'] ?? '')],
+            'expires_on'    => [(string)($old['expires_on'] ?? ''), (string)($in['expires_on'] ?? '')],
             'serial'        => [(string)($old['serial'] ?? ''), $in['serial']],
             'tags'          => [implode(', ', array_column($old['tags'] ?? [], 'name')), implode(', ', $in['tags'])],
             'min_qty'       => [($old['min_qty'] ?? null) === null ? '' : (string)$old['min_qty'], $in['min_qty'] === null ? '' : (string)$in['min_qty']],
@@ -612,8 +650,8 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
         if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
             activity_log($id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
         }
-        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
-        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
+        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, expires_on=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['expires_on'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
         tags_set($id, $in['tags']);
         if ($newImage !== null || $removeImage) {
             $cover = photos_for($id)[0] ?? null;
@@ -907,9 +945,11 @@ function stats_totals(): array
     $st = db()->prepare('SELECT COUNT(*) AS items, COALESCE(SUM(quantity), 0) AS qty,
                                 COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS week,
                                 COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month,
-                                COALESCE(SUM(CASE WHEN min_qty IS NOT NULL AND quantity <= min_qty THEN 1 ELSE 0 END), 0) AS low
+                                COALESCE(SUM(CASE WHEN min_qty IS NOT NULL AND quantity <= min_qty THEN 1 ELSE 0 END), 0) AS low,
+                                COALESCE(SUM(CASE WHEN expires_on IS NOT NULL AND expires_on >= ? AND expires_on <= ? THEN 1 ELSE 0 END), 0) AS expiring,
+                                COALESCE(SUM(CASE WHEN expires_on IS NOT NULL AND expires_on < ? THEN 1 ELSE 0 END), 0) AS expired
                          FROM items');
-    $st->execute([local_boundary_utc('monday this week'), local_boundary_utc('first day of this month')]);
+    $st->execute([local_boundary_utc('monday this week'), local_boundary_utc('first day of this month'), local_today(), expiry_soon_until(), local_today()]);
     $r = $st->fetch();
     return [
         'items'     => (int)$r['items'],
@@ -917,6 +957,8 @@ function stats_totals(): array
         'week'      => (int)$r['week'],
         'month'     => (int)$r['month'],
         'low'       => (int)$r['low'],
+        'expiring'  => (int)$r['expiring'],
+        'expired'   => (int)$r['expired'],
         'locations' => (int)db()->query('SELECT COUNT(*) FROM locations')->fetchColumn(),
         'categories' => (int)db()->query('SELECT COUNT(*) FROM categories')->fetchColumn(),
     ];
@@ -1005,6 +1047,7 @@ function item_input(array $it): array
             'category_id' => $it['category_id'] !== null ? (int)$it['category_id'] : null, 'quantity' => (int)$it['quantity'],
             'min_qty' => $it['min_qty'] ?? null, 'notes' => (string)$it['notes'], 'tags' => array_column($it['tags'] ?? [], 'name'),
             'value_cents' => $it['value_cents'], 'purchase_date' => $it['purchase_date'] !== null ? (string)$it['purchase_date'] : null,
+            'expires_on' => ($it['expires_on'] ?? null) !== null ? (string)$it['expires_on'] : null,
             'serial' => (string)$it['serial']];
 }
 

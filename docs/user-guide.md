@@ -45,6 +45,7 @@ category. It ignores case and accents, Greek included ("πριζα" finds "Πρ�
 | Category | any category, or *No category* |
 | Tag | any tag in use (with its count) |
 | Stock | *All items* / *Running low* |
+| Expiry / warranty | *All items* / *Expiring soon* / *Expired* |
 | Lending | *All items* / *Lent out* / *Overdue* |
 | Sort by | Recently added, Name, Location, Category, Quantity |
 
@@ -55,9 +56,9 @@ so you can bookmark a filtered view.
 ## Overview statistics
 
 The collapsible *Overview* panel at the top of the list shows tiles (items, total quantity, locations, categories,
-added this week, added this month, **Running low**), a chart of items added (last 30 days by day or last 12 months by
+added this week, added this month, **Running low**, **Expiring soon**, **Expired**), a chart of items added (last 30 days by day or last 12 months by
 month), and the top 5 locations and categories as bars. *By location* counts per **top-level** location, including
-everything in its sub-locations, so every item is counted once (under the top of its branch). Tap a bar, or the *Running low* tile, to filter the list. The
+everything in its sub-locations, so every item is counted once (under the top of its branch). Tap a bar, or the *Running low*, *Expiring soon* or *Expired* tile, to filter the list. The
 panel remembers whether it was open (cookie) and which range you picked; while it is collapsed the statistics are not
 computed or downloaded at all.
 
@@ -103,7 +104,28 @@ ignoring case and accents, an item can have up to 20, and unused tags disappear 
 page link to the list filtered by that tag.
 
 *More fields* holds the **value** (in `CURRENCY`; `79,90` and `79.90` both work), the **purchase date** (not in the
-future) and the **serial number** (searchable). They show up as facts on the item page.
+future), the **expiry / warranty date** (see below) and the **serial number** (searchable). They show up as facts on
+the item page.
+
+### Expiry and warranty dates
+
+*Expires / warranty until* is an optional date for anything that runs out: food, medicine, batteries, a warranty.
+
+* **Expiring soon** means the date is today or within the next `EXPIRY_SOON_DAYS` days (default 30, see
+  [Configuration](configuration.md)); the item gets an amber **Expires in N days** (or *Expires today*) badge.
+* **Expired** means the date is before today (in the `TZ` time zone); the badge is red.
+* The overview has *Expiring soon* and *Expired* tiles; tap one to filter. The filter sheet has
+  *Expiry / warranty → Expiring soon / Expired* (`/?exp=soon`, `/?exp=expired`).
+* Changing the date is recorded in the history; the date is included in the CSV export (`expires_on`), backups,
+  duplicates and is kept by bulk actions.
+
+```mermaid
+flowchart LR
+  d{"expires_on"} -- empty --> n["no badge"]
+  d -- "before today" --> e["Expired"]
+  d -- "today … today + N days" --> s["Expires in N days"]
+  d -- later --> n
+```
 
 ## Locations and categories
 
@@ -218,7 +240,7 @@ Entries of deleted items are kept.
 
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,
-serial, min_qty, lent_to, lent_at, lent_due`.
+serial, min_qty, lent_to, lent_at, lent_due, expires_on`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 

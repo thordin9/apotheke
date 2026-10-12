@@ -228,7 +228,7 @@ T::section('CSV export & misc');
 $r = $c->get('/export.csv');
 T::ok(str_contains($r['headers']['content-disposition'] ?? '', 'filename="apotheke-'), 'CSV filename apotheke-<date>.csv');
 $lines = array_map('str_getcsv', array_filter(explode("\n", ltrim($r['body'], "\xEF\xBB\xBF"))));
-T::eq(['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty', 'lent_to', 'lent_at', 'lent_due'], $lines[0], 'CSV header');
+T::eq(['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty', 'lent_to', 'lent_at', 'lent_due', 'expires_on'], $lines[0], 'CSV header');
 T::eq(7, count($lines), 'CSV has header + one row per item');
 T::eq(404, $c->get('/nope')['status'], 'unknown route → 404');
 T::eq(404, $c->get('/item/' . $nojs . '/delete')['status'], 'GET on delete route does nothing');
@@ -344,7 +344,7 @@ $c->api('/save', ['csrf' => $tok, 'id' => $nails, 'name' => 'Nails', 'location_i
 T::eq(0, (int)$db->query("SELECT COUNT(*) FROM tags WHERE name_key = 'hardware'")->fetchColumn(), 'unused tags are removed');
 $csv = array_map('str_getcsv', array_filter(explode("\n", ltrim($c->get('/export.csv')['body'], "\xEF\xBB\xBF"))));
 $hrow = array_values(array_filter($csv, fn($l) => ($l[0] ?? '') === (string)$hdmi))[0] ?? [];
-T::eq(['AV, Cables, Ηλεκτρικά', '1234.50', 'EUR', '2024-03-01', 'SN-42/X', '', '', '', ''], array_slice($hrow, 9), 'CSV includes tags, value, currency, date, serial');
+T::eq(['AV, Cables, Ηλεκτρικά', '1234.50', 'EUR', '2024-03-01', 'SN-42/X', '', '', '', '', ''], array_slice($hrow, 9), 'CSV includes tags, value, currency, date, serial');
 $cs = new Server($dir, ['CURRENCY' => 'CHF']);
 T::ok(str_contains($cs->client()->get("/item/$hdmi")['body'], '1,234.50 CHF'), 'CURRENCY config is shown');
 $cs->stop();
@@ -706,6 +706,61 @@ T::eq($nB, (int)$db->query("SELECT location_id FROM items WHERE id = $nItem")->f
 foreach ([$nItem, $nTop] as $x) $c->post("/item/$x/delete", ['csrf' => $tok]);
 foreach (array_reverse(array_merge([$nG, (int)$db->query("SELECT id FROM locations WHERE name = 'Nest other'")->fetchColumn()], $chain)) as $x) $c->post("/locations/$x/delete", ['csrf' => $tok, 'action' => 'unassign']);
 T::eq(0, (int)$db->query("SELECT COUNT(*) FROM locations WHERE name LIKE 'Nest %'")->fetchColumn(), 'cleaned up');
+
+T::section('Expiry / warranty');
+$today = (new DateTimeImmutable('now', new DateTimeZone(date_default_timezone_get())))->format('Y-m-d');
+$dayOff = fn(int $n) => (new DateTimeImmutable($today))->modify("$n days")->format('Y-m-d');
+T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => 'Bad expiry', 'expires_on' => '2024-02-30'])['status'], 'invalid expiry date rejected');
+$eMilk = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Exp milk', 'expires_on' => $dayOff(-2)]));
+$eBattery = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Exp battery', 'expires_on' => $dayOff(10)]));
+$eTv = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Exp TV warranty', 'expires_on' => $dayOff(400)]));
+T::eq($dayOff(400), (string)$db->query("SELECT expires_on FROM items WHERE id = $eTv")->fetchColumn(), 'future date stored');
+$expT = fn(string $v) => array_values(array_intersect(titles($c->json("/?exp=$v&sort=name")), ['Exp battery', 'Exp milk', 'Exp TV warranty']));
+T::eq(['Exp milk'], $expT('expired'), 'Expired filter');
+T::eq(['Exp battery'], $expT('soon'), 'Expiring soon filter (default 30 days)');
+T::eq(3, count(array_intersect(titles($c->json('/?exp=bogus')), ['Exp battery', 'Exp milk', 'Exp TV warranty'])), 'unknown value ignored');
+$ej = $c->json('/?exp=soon')['json'];
+T::ok(str_contains($ej['html'], 'expbadge is-soon') && str_contains($ej['html'], 'Expires in 10 days') && str_contains($ej['chips'], 'data-clear="exp"'), 'badge + chip');
+T::ok(str_contains($c->json('/?exp=expired')['json']['html'], 'expbadge is-expired'), 'expired badge');
+$ep = $c->get("/item/$eMilk")['body'];
+T::ok(str_contains($ep, '<dt>Expires</dt>') && str_contains($ep, 'is-expired'), 'item page fact + badge');
+T::ok(str_contains($c->get("/item/$eMilk/edit")['body'], 'name="expires_on" id="expires_on" value="' . $dayOff(-2) . '"'), 'edit form prefilled');
+$stE = $c->get('/stats')['body'];
+T::ok(preg_match('#id="tile-expiring"><b>(\d+)</b>#', $stE, $em) === 1 && (int)$em[1] >= 1, 'Expiring soon tile');
+T::ok(preg_match('#id="tile-expired"><b>(\d+)</b>#', $stE, $em2) === 1 && (int)$em2[1] >= 1, 'Expired tile');
+$c->api('/save', ['csrf' => $tok, 'id' => $eTv, 'name' => 'Exp TV warranty', 'expires_on' => $dayOff(20)]);
+T::eq(['Exp battery', 'Exp TV warranty'], $expT('soon'), 'edit moves it into the window');
+$chg = json_decode((string)$db->query("SELECT details FROM activity WHERE item_id = $eTv AND action = 'edited' ORDER BY id DESC LIMIT 1")->fetchColumn(), true);
+T::eq([$dayOff(400), $dayOff(20)], $chg['changes']['expires_on'] ?? null, 'history records the change');
+T::ok(str_contains($c->get("/item/$eTv")['body'], 'Expires'), 'history label');
+$csvE = array_map('str_getcsv', array_filter(explode("\n", ltrim($c->get('/export.csv')['body'], "\xEF\xBB\xBF"))));
+$hdrE = array_search('expires_on', $csvE[0], true);
+$rowE = array_values(array_filter($csvE, fn($l) => ($l[0] ?? '') === (string)$eMilk))[0] ?? [];
+T::eq($dayOff(-2), $rowE[$hdrE] ?? null, 'CSV column');
+$r = $c->post("/item/$eBattery/duplicate", ['csrf' => $tok]);
+preg_match('#/item/(\d+)/edit#', $r['headers']['location'] ?? '', $dm);
+T::eq($dayOff(10), (string)$db->query('SELECT expires_on FROM items WHERE id = ' . (int)($dm[1] ?? 0))->fetchColumn(), 'duplicate keeps the date');
+$c->post('/bulk', ['csrf' => $tok, 'ids' => [$eBattery], 'action' => 'tag_add', 'tags' => 'x', 'back' => '/']);
+T::eq($dayOff(10), (string)$db->query("SELECT expires_on FROM items WHERE id = $eBattery")->fetchColumn(), 'bulk actions keep the date');
+$bkE = sys_get_temp_dir() . '/apotheke-exp-' . bin2hex(random_bytes(3)) . '.zip';
+file_put_contents($bkE, $c->get('/backup.zip')['body']);
+$z = new ZipArchive(); $z->open($bkE);
+$bi = json_decode((string)$z->getFromName('backup.json'), true)['tables']['items'];
+$z->close(); @unlink($bkE);
+T::ok(in_array($dayOff(-2), array_column($bi['rows'], array_search('expires_on', $bi['columns'], true)), true), 'backup includes the date');
+foreach ([$eMilk, $eBattery, $eTv, (int)($dm[1] ?? 0)] as $x) $c->post("/item/$x/delete", ['csrf' => $tok]);
+// configurable window: EXPIRY_SOON_DAYS=5, frozen clock
+$xs = new Server($newDir('exp'), ['EXPIRY_SOON_DAYS' => '5', 'APOTHEKE_CLOCK' => '2026-06-15 09:00:00', 'TZ' => 'UTC']);
+$xc = $xs->client();
+$xt = $xc->csrf();
+foreach (['In 3 days' => '2026-06-18', 'In 5 days' => '2026-06-20', 'In 6 days' => '2026-06-21', 'Yesterday' => '2026-06-14', 'Today' => '2026-06-15'] as $n => $d) {
+    $xc->api('/save', ['csrf' => $xt, 'name' => $n, 'expires_on' => $d]);
+}
+T::eq(['In 3 days', 'In 5 days', 'Today'], titles($xc->json('/?exp=soon&sort=name')), 'EXPIRY_SOON_DAYS=5: today … today+5');
+T::eq(['Yesterday'], titles($xc->json('/?exp=expired')), 'before today is expired');
+T::ok(str_contains($xc->json('/?exp=soon&sort=name')['json']['html'], 'Expires today'), '"Expires today" badge');
+$xs->stop();
+
 
 T::section('Delete item');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();

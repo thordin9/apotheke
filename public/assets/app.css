@@ -506,7 +506,7 @@ a.tagchip{min-height:36px}
 .pager .btn[rel=next]{margin-left:auto}
 
 /* ---------- low stock ---------- */
-.tile-low{grid-column:1/-1;min-height:44px;align-items:center;text-decoration:none;color:inherit}
+.tile-link{min-height:44px;align-items:center;text-decoration:none;color:inherit}
 .tile-low.has-low{background:var(--warn-soft);color:var(--warn)}
 .tile-low.has-low span{color:var(--warn)}
 .lowbadge{display:none;align-self:flex-start;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--warn-soft);color:var(--warn);font-size:12px;font-weight:650}
@@ -597,3 +597,15 @@ a.tagchip{min-height:36px}
 .loctrail{display:contents}
 .trail-sep{align-self:center;color:var(--muted);font-size:18px}
 .chip-parent{opacity:.85}
+
+/* expiry / warranty */
+.tile-link span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile-exp.has-exp{background:var(--warn-soft);color:var(--warn)}
+.tile-exp.has-exp span{color:var(--warn)}
+.tile-expired.has-expired{background:var(--danger-soft);color:var(--danger)}
+.tile-expired.has-expired span{color:var(--danger)}
+.expbadge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn);margin-top:4px;max-width:100%}
+.expbadge .i{width:12px;height:12px}
+.expbadge.is-expired{background:var(--danger-soft);color:var(--danger)}
+.facts .expbadge{margin:0 0 0 6px;vertical-align:middle}
+.chip-exp .i{color:var(--warn)}

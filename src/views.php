@@ -130,6 +130,7 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<div class="chips">' . $chips . '</div>'
         . ($min !== null ? low_badge_html() : '')
         . lend_badge_html($it)
+        . expiry_badge_html($it)
         . '<div class="qty" data-id="' . $id . '">'
         . '<button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"' . ($q <= 0 ? ' disabled' : '') . '>' . icon('minus') . '</button>'
         . '<output class="qval">' . $q . '</output>'
@@ -141,6 +142,16 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
 function low_badge_html(): string
 {
     return '<span class="lowbadge" role="status">' . icon('alert') . ' Running low</span>';
+}
+
+/** "Expired" / "Expires in 5 days" badge, or ''. */
+function expiry_badge_html(array $it): string
+{
+    $st = expiry_state($it);
+    if ($st === '') return '';
+    $n = expiry_days((string)$it['expires_on']);
+    $txt = $st === 'expired' ? 'Expired' : ($n === 0 ? 'Expires today' : 'Expires in ' . $n . ' day' . ($n === 1 ? '' : 's'));
+    return '<span class="expbadge is-' . $st . '">' . icon($st === 'expired' ? 'alert' : 'clock') . ' ' . $txt . '</span>';
 }
 
 /** "Lent to X" / "Overdue" badge, or ''. */
@@ -428,7 +439,9 @@ function stats_body_html(): string
     ];
     $o = '<div class="tiles">';
     foreach ($tiles as [$k, $v]) $o .= '<div class="tile"><b>' . number_format($v) . '</b><span>' . h($k) . '</span></div>';
-    $o .= '<a class="tile tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-fk="stock" data-fv="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
+    $o .= '<a class="tile tile-link tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-fk="stock" data-fv="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
+    $o .= '<a class="tile tile-link tile-exp' . ($t['expiring'] > 0 ? ' has-exp' : '') . '" href="/?exp=soon" data-fk="exp" data-fv="soon" id="tile-expiring"><b>' . number_format($t['expiring']) . '</b><span>Expiring soon</span></a>';
+    $o .= '<a class="tile tile-link tile-expired' . ($t['expired'] > 0 ? ' has-expired' : '') . '" href="/?exp=expired" data-fk="exp" data-fv="expired" id="tile-expired"><b>' . number_format($t['expired']) . '</b><span>Expired</span></a>';
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
@@ -630,10 +643,10 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
   </ul>
   <?php endif; ?>
-  <?php $facts = array_filter(['Value' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php $facts = array_filter(['Value' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
   <?php if ($facts): ?>
   <dl class="facts" id="facts">
-    <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?></dd></div><?php endforeach; ?>
+    <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?><?= $k === 'Expires' ? ' ' . expiry_badge_html($it) : '' ?></dd></div><?php endforeach; ?>
   </dl>
   <?php endif; ?>
   <?php if (trim($it['notes']) !== ''): ?>
@@ -786,8 +799,8 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       <input type="text" name="tags" id="tags" value="<?= h($vals['tags'] ?? '') ?>" maxlength="2000" autocomplete="off" autocapitalize="none" list="tag-list" placeholder="e.g. garage, warranty">
     </label>
     <datalist id="tag-list"><?php foreach (tags_all() as $t): ?><option value="<?= h($t['name']) ?>"></option><?php endforeach; ?></datalist>
-    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
-      <summary>Value, purchase date &amp; serial</summary>
+    <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['expires_on'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
+      <summary>Value, dates &amp; serial</summary>
       <div class="more-grid">
         <label class="field">
           <span>Value <em><?= h(cfg()['currency']) ?></em></span>
@@ -796,6 +809,10 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
         <label class="field">
           <span>Purchase date</span>
           <input type="date" name="purchase_date" id="purchase_date" value="<?= h($vals['purchase_date'] ?? '') ?>" max="<?= date('Y-m-d', app_time()) ?>">
+        </label>
+        <label class="field">
+          <span>Expires / warranty until</span>
+          <input type="date" name="expires_on" id="expires_on" value="<?= h($vals['expires_on'] ?? '') ?>" min="1900-01-01" max="2999-12-31">
         </label>
         <label class="field">
           <span>Serial number</span>
@@ -1017,7 +1034,7 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
-const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
 /** One activity entry as HTML (already escaped). */
 function activity_html(array $e): string

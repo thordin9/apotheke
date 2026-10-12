@@ -28,6 +28,7 @@ const CONFIG_ENV_MAP = [
     'PAGE_SIZE'       => 'page_size',
     'PUBLIC_URL'      => 'public_url',
     'CURRENCY'        => 'currency',
+    'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
     'SEED_DEFAULTS'   => 'seed_defaults',
 ];
 
@@ -55,6 +56,7 @@ function config_defaults(string $root): array
         ],
         'page_size'     => 60,
         'currency'      => 'EUR',            // shown next to item values (ISO code or symbol)
+        'expiry_soon_days' => 30,          // "Expiring soon" = expires within this many days
         'public_url'    => '',             // base URL printed in QR labels; default: from the request
         'seed_defaults' => true,         // starter locations/categories on a brand-new database
     ];
@@ -89,6 +91,7 @@ function config_load(string $root, ?string $file, array $env): array
     $cfg['page_size'] = max(1, (int)$cfg['page_size']);
     $cfg['public_url'] = rtrim((string)$cfg['public_url'], '/');
     $cfg['currency'] = mb_substr(trim((string)$cfg['currency']), 0, 8) ?: 'EUR';
+    $cfg['expiry_soon_days'] = min(3650, max(1, (int)$cfg['expiry_soon_days']));
     $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     $cfg['app_password'] = (string)$cfg['app_password'];
     $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';

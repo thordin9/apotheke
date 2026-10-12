@@ -47,6 +47,7 @@ erDiagram
     text lent_to "nullable"
     text lent_at "nullable, Y-m-d"
     text lent_due "nullable, Y-m-d"
+    text expires_on "nullable, Y-m-d (0009)"
     text search "fold(name, notes, serial, tags)"
     text sort_key
     text created_at
@@ -98,8 +99,9 @@ Notes:
   its parent before deleting it, so the `ON DELETE SET NULL` only matters for rows changed outside the app. On
   PostgreSQL the foreign key is `DEFERRABLE INITIALLY DEFERRED` so a restore can insert children before their parents
   (SQLite restores use `PRAGMA defer_foreign_keys`). Categories are flat.
-* All timestamps (`created_at`, `updated_at`, `applied_at`) are UTC text `Y-m-d H:i:s`. `purchase_date`, `lent_at`
-  and `lent_due` are calendar dates (`Y-m-d`); "overdue" compares `lent_due` with today's date in `TZ`.
+* All timestamps (`created_at`, `updated_at`, `applied_at`) are UTC text `Y-m-d H:i:s`. `purchase_date`, `lent_at`,
+  `lent_due` and `expires_on` are calendar dates (`Y-m-d`); "overdue" and "expired" compare them with today's date in
+  `TZ`.
 * `name_key`, `items.search` and `sort_key` are computed in PHP (`fold()`, `natkey()`); this keeps uniqueness, search
   and natural sorting identical on both databases without collations or extensions.
 * `items.image` mirrors the cover photo (`item_photos.position = 0`) so the list needs no join.
@@ -121,6 +123,7 @@ Notes:
 | 0006 | `0006_low_stock.php` | `items.min_qty` |
 | 0007 | `0007_lending.php` | `items.lent_to`, `lent_at`, `lent_due` + index on `lent_due` |
 | 0008 | `0008_nested_locations.php` | `locations.parent_id` + index |
+| 0009 | `0009_expiry.php` | `items.expires_on` + index |
 
 ## How migrations run
 

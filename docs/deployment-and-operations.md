@@ -67,8 +67,9 @@ Notes:
 
 * **Pre-migration SQLite installs** (schema v1–v3) are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
   converted and adopted into the migration system in one transaction. Delete the snapshot once everything looks right.
-* Migrations `0006` (low-stock level), `0007` (lending) and `0008` (parent location) only add nullable columns;
-  existing items have no alert and are not lent, existing locations stay top-level.
+* Migrations `0006` (low-stock level), `0007` (lending), `0008` (parent location) and `0009` (expiry date) only
+  add nullable columns; existing items have no alert, are not lent and have no expiry date, existing locations stay
+  top-level.
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 
