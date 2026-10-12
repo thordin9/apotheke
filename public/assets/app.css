@@ -292,7 +292,7 @@ select{font-size:16px;height:48px;color:var(--text)}
 .fsheet{flex:none}
 .fsheet>summary{list-style:none}
 .fsheet>summary::-webkit-details-marker{display:none}
-.fbtn{min-height:40px;padding:0 14px;font-size:15px;background:var(--surface);border:1px solid var(--line);color:var(--text)}
+.fbtn{min-height:44px;padding:0 14px;font-size:15px;background:var(--surface);border:1px solid var(--line);color:var(--text)}
 .fsheet[open]>.fbtn{background:var(--surface-2)}
 .fcount{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:700}
 .fsheet[open]>summary::before{background:var(--overlay)}
