@@ -34,6 +34,7 @@ function icon(string $n): string
         'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
         'handoff'=> '<path d="M7 11V7a5 5 0 0 1 10 0v4"/><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M12 15v2"/>',
         'undo'   => '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+        'copy'   => '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
         'check'  => '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
         'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
@@ -652,7 +653,14 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php endif; ?>
   </details>
   <?= lend_section_html($it) ?>
-  <p class="item-links"><a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a></p>
+  <div class="item-links">
+    <a class="btn btn-sm" href="/item/<?= $id ?>/label"><?= icon('qr') ?> QR label</a>
+    <form method="post" action="/item/<?= $id ?>/duplicate" class="dupform" id="dupform">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <?php if ($n): ?><label class="check"><input type="checkbox" name="photos" value="1" id="dup-photos"> with photos</label><?php endif; ?>
+      <button class="btn btn-sm" id="dup-btn"><?= icon('copy') ?> Duplicate</button>
+    </form>
+  </div>
   <?php if ($history): ?>
   <section class="history" id="history" aria-labelledby="hist-title">
     <h2 id="hist-title"><?= icon('clock') ?> History</h2>
@@ -979,7 +987,8 @@ function activity_html(array $e): string
     switch ($e['action']) {
         case 'created':
             $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '') . (isset($d['min_qty']) ? ' · running low at ' . (int)$d['min_qty'] : '')
-               . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '');
+               . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '')
+               . (!empty($d['copied_from']) ? ' · copied from “' . h((string)$d['copied_from']) . '”' : '');
             break;
         case 'edited':
             $parts = [];

@@ -364,7 +364,7 @@ function activity_short(?string $s): string
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => '', 'min_qty' => null];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => '', 'min_qty' => null, 'copied_from' => null];
     $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags']);
     $drop = [];
     $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
@@ -377,6 +377,7 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
                 'location' => $in['location_id'] !== null ? (string)(tax_get('location', $in['location_id'])['name'] ?? '') : null,
                 'category' => $in['category_id'] !== null ? (string)(tax_get('category', $in['category_id'])['name'] ?? '') : null,
                 'quantity' => $in['quantity'], 'min_qty' => $in['min_qty'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
+                'copied_from' => $in['copied_from'],
             ], fn($v) => $v !== null));
             return $id;
         }
@@ -888,4 +889,44 @@ function lent_counts(): array
     $st->execute([local_today()]);
     $r = $st->fetch();
     return ['out' => (int)$r['n'], 'overdue' => (int)$r['late']];
+}
+
+/* ---------- duplicate ---------- */
+
+/** Copy a stored photo (full size + thumbnail) to a new random file name; returns the new name. */
+function image_copy(string $file): string
+{
+    if (!valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) throw new UserError('A photo file is missing.');
+    $new = bin2hex(random_bytes(16)) . '.jpg';
+    if (!@copy(IMG_DIR . '/' . $file, IMG_DIR . '/' . $new)) throw new RuntimeException('could not copy photo');
+    if (is_file(THUMB_DIR . '/' . $file) && !@copy(THUMB_DIR . '/' . $file, THUMB_DIR . '/' . $new)) {
+        @unlink(IMG_DIR . '/' . $new);
+        throw new RuntimeException('could not copy thumbnail');
+    }
+    return $new;
+}
+
+/**
+ * Create a copy of an item: name + " (copy)", location, category, tags, quantity, low-stock level, notes and the custom
+ * fields (value, purchase date, serial). Lending is not copied. With $photos the photo files are duplicated too.
+ */
+function item_duplicate(int $id, bool $photos): int
+{
+    $it = item_get($id);
+    if (!$it) throw new UserError('Item not found.', 404);
+    $in = item_input($it);
+    $in['name'] = mb_substr($in['name'], 0, 193) . ' (copy)';
+    $in['copied_from'] = (string)$it['name'];
+    $copies = [];
+    try {
+        if ($photos) foreach (photos_for($id) as $p) $copies[] = image_copy($p['file']);
+        return db_tx(function () use ($in, $copies): int {
+            $new = item_save(null, $in, null, false);
+            foreach ($copies as $f) photo_insert($new, $f);
+            return $new;
+        });
+    } catch (Throwable $e) {
+        foreach ($copies as $f) image_delete($f);
+        throw $e;
+    }
 }

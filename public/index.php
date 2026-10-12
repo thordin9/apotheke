@@ -131,7 +131,8 @@ try {
         header('Cache-Control: no-store');
         if (!empty($m[2])) view_form($it, ['new_location' => '', 'new_category' => '', 'tags' => implode(', ', array_column($it['tags'], 'name')),
             'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date'],
-            'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null);
+            'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null,
+            isset($_GET['copied']) ? 'Copy created – edit it here' : null);
         else {
             $hist = activity_list((int)$it['id'], 1, 10);
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
@@ -232,6 +233,13 @@ try {
         $row = item_get((int)$m[1]);
         if (wants_json()) json_out(['ok' => true, 'quantity' => $q, 'low' => $row !== null && is_low($row)]);
         redirect('/item/' . (int)$m[1]);
+    }
+
+    /* ---- duplicate ---- */
+    if (preg_match('#^/item/(\d+)/duplicate$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $new = item_duplicate((int)$m[1], ($_POST['photos'] ?? '') === '1');
+        redirect('/item/' . $new . '/edit?copied=1');
     }
 
     /* ---- lending ---- */

@@ -612,6 +612,42 @@ T::eq('Maria', (string)$db->query("SELECT lent_to FROM items WHERE id = $lA")->f
 $c->post("/item/$lA/delete", ['csrf' => $tok]);
 $c->post("/item/$lB/delete", ['csrf' => $tok]);
 
+T::section('Duplicate item');
+$dSrc = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Dup source', 'quantity' => 4, 'min_qty' => '1', 'notes' => 'n', 'tags' => 'Alpha, Beta',
+    'value' => '12.30', 'purchase_date' => '2024-01-02', 'serial' => 'S-1', 'location_id' => $shelf ?? '', 'category_id' => $kitchen ?? ''],
+    []));
+$c->api("/item/$dSrc/photos", ['csrf' => $tok], ['photos[0]' => jpg_file(img_jpeg(60, 40)), 'photos[1]' => jpg_file(img_jpeg(50, 50))]);
+$c->post("/item/$dSrc/lend", ['csrf' => $tok, 'lent_to' => 'Maria']);
+$srcFiles = $db->query("SELECT file FROM item_photos WHERE item_id = $dSrc ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+T::eq(2, count($srcFiles), 'source has two photos');
+T::ok(str_contains($c->get("/item/$dSrc")['body'], 'action="/item/' . $dSrc . '/duplicate"'), 'item page has Duplicate');
+T::eq(419, $c->post("/item/$dSrc/duplicate", [])['status'], 'duplicate requires CSRF');
+$r = $c->post("/item/$dSrc/duplicate", ['csrf' => $tok]);
+T::ok(preg_match('#/item/(\d+)/edit\?copied=1$#', $r['headers']['location'] ?? '', $dm) === 1, 'opens the edit form of the copy');
+$dNew = (int)($dm[1] ?? 0);
+$cols = 'name, location_id, category_id, quantity, min_qty, notes, value_cents, purchase_date, serial, lent_to, image';
+$src = $db->query("SELECT $cols FROM items WHERE id = $dSrc")->fetch(PDO::FETCH_ASSOC);
+$cp = $db->query("SELECT $cols FROM items WHERE id = $dNew")->fetch(PDO::FETCH_ASSOC);
+T::eq(['Dup source (copy)', null, null], [$cp['name'], $cp['lent_to'], $cp['image']], 'name gets " (copy)", lending and photos not copied by default');
+unset($src['name'], $src['lent_to'], $src['image'], $cp['name'], $cp['lent_to'], $cp['image']);
+T::eq($src, $cp, 'location, category, quantity, low level, notes, custom fields copied');
+T::eq(['Alpha', 'Beta'], array_column($db->query("SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = $dNew ORDER BY t.name")->fetchAll(), 'name'), 'tags copied');
+$det = json_decode((string)$db->query("SELECT details FROM activity WHERE item_id = $dNew AND action = 'created'")->fetchColumn(), true);
+T::eq('Dup source', $det['copied_from'] ?? null, 'history: created as a copy');
+T::ok(str_contains($c->get("/item/$dNew/edit?copied=1")['body'], 'Copy created'), 'edit form toast');
+$r = $c->post("/item/$dSrc/duplicate", ['csrf' => $tok, 'photos' => '1']);
+preg_match('#/item/(\d+)/edit#', $r['headers']['location'] ?? '', $dm);
+$dPh = (int)($dm[1] ?? 0);
+$newFiles = $db->query("SELECT file FROM item_photos WHERE item_id = $dPh ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+T::ok(count($newFiles) === 2 && !array_intersect($newFiles, $srcFiles), 'with photos: two new photo files');
+T::ok(array_filter($newFiles, fn($f) => !is_file("$dir/images/$f") || !is_file("$dir/thumbs/$f")) === [], 'files and thumbnails exist');
+T::eq(md5_file("$dir/images/{$srcFiles[0]}"), md5_file("$dir/images/{$newFiles[0]}"), 'same image content, same order');
+T::eq($newFiles[0], (string)$db->query("SELECT image FROM items WHERE id = $dPh")->fetchColumn(), 'cover set');
+$c->post("/item/$dPh/delete", ['csrf' => $tok]);
+T::ok(is_file("$dir/images/{$srcFiles[0]}"), 'deleting the copy keeps the original photos');
+T::eq(404, $c->post('/item/999999/duplicate', ['csrf' => $tok])['status'], 'unknown item: 404');
+foreach ([$dSrc, $dNew] as $x) $c->post("/item/$x/delete", ['csrf' => $tok]);
+
 T::section('Delete item');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);

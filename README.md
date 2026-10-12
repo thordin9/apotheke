@@ -71,6 +71,10 @@ it works fully offline on your LAN.
   (overdue = the due date is before today in the `TZ` time zone), the filter sheet has *Lending → Lent out / Overdue*
   (`/?lend=out`, `/?lend=overdue`), and ☰ → *Lent out* (`/lent`) lists everything that is out, overdue first, with a
   one-tap *Returned* button. Lending and returns are logged in the history; CSV and backup/restore include it.
+* **Duplicate item**: *Duplicate* on the item page creates "Name (copy)" with the same location, category, tags,
+  quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
+  photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
+  is not copied. The copy's history starts with "Created … copied from “Name”".
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
