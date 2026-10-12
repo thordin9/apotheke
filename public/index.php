@@ -66,6 +66,14 @@ try {
         redirect('/login');
     }
 
+    /* ---- theme preference (Auto / Light / Dark) ---- */
+    if ($path === '/theme' && $method === 'POST') {
+        check_csrf();
+        $theme = set_theme_cookie((string)($_POST['theme'] ?? 'auto'));
+        if (wants_json()) json_out(['ok' => true, 'theme' => $theme]);
+        redirect(safe_back((string)($_POST['back'] ?? '/')));
+    }
+
     /* ---- media ---- */
     if (preg_match('#^/media/(full|thumb)/([^/]+)$#D', $path, $m)) {
         serve_image($m[1], $m[2]);
@@ -88,7 +96,8 @@ try {
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items']), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== ''), 'more' => $res['more'], 'page' => $page]);
+                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== ''), 'more' => $res['more'], 'page' => $page,
+                      'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
         header('Cache-Control: no-store');
         $toast = null;

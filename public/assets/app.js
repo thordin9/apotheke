@@ -18,10 +18,10 @@
     return j;
   }
 
-  function toast(msg) {
+  function toast(msg, isErr) {
     document.querySelectorAll('.toast').forEach(t => t.remove());
     const t = document.createElement('div');
-    t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+    t.className = 'toast' + (isErr ? ' toast-err' : ''); t.setAttribute('role', isErr ? 'alert' : 'status'); t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 3000);
   }
@@ -34,6 +34,36 @@
       history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
     }
   } catch (_) {}
+
+  /* ---------- theme switch (Auto / Light / Dark): instant, persisted in localStorage + cookie ---------- */
+  const DARK = '#111113', LIGHT = '#f5f5f7';
+  function applyTheme(t) {
+    const d = document.documentElement;
+    d.setAttribute('data-theme', t);
+    try { localStorage.setItem('theme', t); } catch (_) {}
+    document.cookie = 'theme=' + t + '; path=/; max-age=34560000; SameSite=Lax';
+    document.querySelectorAll('meta[name=theme-color]').forEach(m => m.remove());
+    const cs = $('meta[name=color-scheme]'); if (cs) cs.content = t === 'auto' ? 'light dark' : t;
+    const add = (c, media) => { const m = document.createElement('meta'); m.name = 'theme-color'; m.content = c; if (media) m.media = media; document.head.appendChild(m); };
+    if (t === 'auto') { add(LIGHT, '(prefers-color-scheme: light)'); add(DARK, '(prefers-color-scheme: dark)'); } else add(t === 'dark' ? DARK : LIGHT);
+    document.querySelectorAll('.seg-btn[name=theme]').forEach(b => { const on = b.value === t; b.classList.toggle('on', on); b.setAttribute('aria-checked', on ? 'true' : 'false'); });
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('.seg-btn[name=theme]');
+    if (!b) return;
+    e.preventDefault();
+    applyTheme(b.value);
+    post('/theme', { theme: b.value }).catch(() => {});
+  });
+
+  /* ---------- menus & sheets (<details>): Escape closes, only one open at a time ---------- */
+  const closeAll = except => document.querySelectorAll('details.menu[open], details.fsheet[open]').forEach(d => { if (d !== except) d.open = false; });
+  document.addEventListener('toggle', e => { if (e.target.open && e.target.matches && e.target.matches('details.menu, details.fsheet')) closeAll(e.target); }, true);
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const d = document.querySelector('details.menu[open], details.fsheet[open]');
+    if (d) { d.open = false; const s = $('summary', d); if (s) s.focus(); }
+  });
 
   /* ---------- quantity +/- (cards + detail) ---------- */
   const pending = new Map();
@@ -59,7 +89,7 @@
         out.textContent = j.quantity;
         $('.qbtn[data-delta="-1"]', box).disabled = j.quantity <= 0;
       } catch (err) {
-        out.textContent = p.base; toast(err.message);
+        out.textContent = p.base; toast(err.message, true);
       }
     }, 350);
     pending.set(id, p);
@@ -117,7 +147,7 @@
   const filters = $('#filters');
   if (filters) {
     const grid = $('#grid'), count = $('#count'), empty = $('#empty'), more = $('#more');
-    const q = $('#q');
+    const q = $('#q'), sheet = $('#fsheet'), achips = $('#achips'), fcount = $('#fcount');
     let timer, ctl, page = 1;
 
     const params = (p) => {
@@ -132,6 +162,7 @@
       ctl = new AbortController();
       const p = append ? page + 1 : 1;
       const sp = params(p);
+      if (!append) grid.classList.add('loading');
       try {
         const r = await fetch('/?' + sp, { headers: { 'X-Requested-With': 'fetch', Accept: 'application/json' }, signal: ctl.signal, credentials: 'same-origin' });
         const j = await r.json();
@@ -140,19 +171,39 @@
         if (append) grid.insertAdjacentHTML('beforeend', j.html); else { grid.innerHTML = j.html; window.scrollTo({ top: 0 }); }
         count.textContent = j.count;
         empty.hidden = j.total > 0;
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value);
+        $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
+        $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
+        $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
+        if (j.chips !== undefined) { achips.innerHTML = j.chips; fcount.textContent = j.nfilters; fcount.hidden = !j.nfilters; }
         more.hidden = !j.more;
         if (!append) { sp.delete('page'); history.replaceState(null, '', '/' + (sp.toString() ? '?' + sp : '')); }
         const nq = new URLSearchParams();
         ['loc', 'cat'].forEach(k => { const v = $('#' + k).value; if (/^\d+$/.test(v)) nq.set(k, v); });
         document.querySelectorAll('a.fab, .bar a.btn-primary').forEach(a => a.href = '/new' + (nq.toString() ? '?' + nq : ''));
       } catch (err) {
-        if (err.name !== 'AbortError') toast('Search failed');
-      }
+        if (err.name !== 'AbortError') toast('Search failed – check your connection', true);
+      } finally { if (!append) grid.classList.remove('loading'); }
     }
 
     q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => load(false), 180); });
     filters.addEventListener('change', e => { if (e.target.tagName === 'SELECT') load(false); });
-    filters.addEventListener('submit', e => { e.preventDefault(); clearTimeout(timer); load(false); q.blur(); });
+    filters.addEventListener('submit', e => { e.preventDefault(); clearTimeout(timer); load(false); q.blur(); if (sheet) sheet.open = false; });
+    const closeSheet = $('#filter-close'); if (closeSheet) closeSheet.addEventListener('click', () => { sheet.open = false; $('#filter-open').focus(); });
+    const reset = which => {
+      if (which === 'all' || which === 'loc') $('#loc').value = '';
+      if (which === 'all' || which === 'cat') $('#cat').value = '';
+      if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
+      if (which === 'all') q.value = '';
+      load(false);
+    };
+    document.addEventListener('click', e => {
+      const c = e.target.closest('#achips a[data-clear], #filter-clear, #empty-clear');
+      if (!c) return;
+      e.preventDefault();
+      reset(c.dataset.clear || 'all');
+      if (sheet && c.id === 'filter-clear') sheet.open = false;
+    });
     more.addEventListener('click', () => load(true));
 
     // Tapping a location/category chip (or an Overview bar) filters in place.
@@ -298,7 +349,7 @@
         const j = await post(form.action, fd);
         location.href = j.redirect || '/';
       } catch (ex) {
-        showErr(ex.message === 'Failed to fetch' ? 'Network error – is the server reachable?' : ex.message);
+        showErr(ex.message === 'Failed to fetch' || ex.name === 'TypeError' ? 'Network error – is the server reachable?' : ex.message);
         form.classList.remove('busy');
         submitter.textContent = btnText;
       }

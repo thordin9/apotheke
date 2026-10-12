@@ -20,6 +20,8 @@ quantity, edit/delete, locations and categories (defaults, delete-with-move), sc
 migrations v1→v3 and v2→v3, CSRF and bad-upload rejection, password mode and statistics.
 They exit non-zero on any failure. Set `KEEP_TEST_DATA=1` to keep the temp dirs.
 
+Headless mobile checks (optional locally, run in CI): see the README's *Tests* section (`tests/e2e/mobile.mjs`).
+
 To smoke-test a running instance (e.g. the Docker container):
 
 ```bash
