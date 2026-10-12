@@ -54,10 +54,15 @@ it works fully offline on your LAN.
   preview of the file next to your current data; nothing changes until you tick the box and press *Restore*, and it runs in
   one transaction. The format doesn't depend on the database, so SQLite ↔ PostgreSQL works both ways.
 * **Activity history**: every change is logged in the same transaction as the change itself: created, edited (old → new
-  for name, category, notes, value, purchase date, serial, tags), moved (including moves caused by deleting a location),
+  for name, category, notes, value, purchase date, serial, tags, low-stock level), moved (including moves caused by deleting a location),
   quantity, photos added/reordered/deleted/new cover, deleted. The item page shows the latest ten entries with a link to
   the full history; ☰ → *Recent activity* lists all items, newest first. Entries of deleted items are kept.
-* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date` and `serial` columns).
+* **Low-stock alerts**: give an item an optional *Running low at* level. When its quantity drops to that level or below,
+  the card and the item page show a **Running low** badge (it updates live as you tap −/+), the overview has a *Running
+  low* tile with the count (tap it to filter), and the filter sheet has a *Stock → Running low* filter (`/?stock=low`).
+  Changes to the level are logged in the history; CSV and backups include it.
+* **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial` and `min_qty`
+  columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
   Empty means no login, fine on a trusted LAN.
 

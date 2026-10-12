@@ -111,7 +111,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.notes, i.image, i.value_cents, i.purchase_date, i.serial, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.notes, i.image, i.value_cents, i.purchase_date, i.serial, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -124,6 +124,7 @@ function item_get(int $id): ?array
     $row['category'] = (string)($row['category'] ?? '');
     $row['value_cents'] = $row['value_cents'] === null ? null : (int)$row['value_cents'];
     $row['serial'] = (string)($row['serial'] ?? '');
+    $row['min_qty'] = $row['min_qty'] === null ? null : (int)$row['min_qty'];
     $row['tags'] = tags_for((int)$row['id']);
     return $row;
 }
@@ -219,6 +220,24 @@ function parse_date_ymd(string $s): ?string
     return $s;
 }
 
+/** An item is running low when it has a low-stock level and its quantity is at or below it. */
+function is_low(array $it): bool
+{
+    return ($it['min_qty'] ?? null) !== null && (int)$it['quantity'] <= (int)$it['min_qty'];
+}
+
+/** Low-stock level from a form: '' → null (no alert), else 0…1,000,000. */
+function parse_min_qty(string $s): ?int
+{
+    $s = trim($s);
+    if ($s === '') return null;
+    $v = filter_var($s, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
+    if ($v === false) throw new UserError('“Running low at” must be a whole number (0 or more).');
+    return $v;
+}
+
+const LOW_SQL = 'i.min_qty IS NOT NULL AND i.quantity <= i.min_qty';
+
 /** Normalise a filter value: '' = all, 'none' = unassigned, digits = id. */
 function filter_value(mixed $v): string
 {
@@ -253,6 +272,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
         $where[] = 'EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id = i.id AND it.tag_id = ?)';
         $args[]  = (int)$f['tag'];
     }
+    if (($f['stock'] ?? '') === 'low') $where[] = '(' . LOW_SQL . ')';
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
     $order = match ($sort) {
         'name'     => 'i.sort_key ASC, i.id DESC',
@@ -267,7 +287,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
 
     $page   = max(1, $page);
     $offset = ($page - 1) * $pageSize;
-    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.image "
+    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
@@ -342,19 +362,19 @@ function activity_short(?string $s): string
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => ''];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'serial' => '', 'min_qty' => null];
     $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags']);
     $drop = [];
     $id = db_tx(function (PDO $pdo) use ($existing, $in, $newImage, $removeImage, $now, $blob, &$drop): int {
         if ($existing === null) {
-            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
+            $id = db_insert($pdo, 'INSERT INTO items (name, location_id, category_id, quantity, min_qty, notes, image, value_cents, purchase_date, serial, search, sort_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                [$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], null, $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $now]);
             tags_set($id, $in['tags']);
             if ($newImage !== null) photo_insert($id, $newImage, true);
             activity_log($id, $in['name'], 'created', array_filter([
                 'location' => $in['location_id'] !== null ? (string)(tax_get('location', $in['location_id'])['name'] ?? '') : null,
                 'category' => $in['category_id'] !== null ? (string)(tax_get('category', $in['category_id'])['name'] ?? '') : null,
-                'quantity' => $in['quantity'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
+                'quantity' => $in['quantity'], 'min_qty' => $in['min_qty'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] ?: null,
             ], fn($v) => $v !== null));
             return $id;
         }
@@ -370,6 +390,7 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
             'purchase_date' => [(string)($old['purchase_date'] ?? ''), (string)($in['purchase_date'] ?? '')],
             'serial'        => [(string)($old['serial'] ?? ''), $in['serial']],
             'tags'          => [implode(', ', array_column($old['tags'] ?? [], 'name')), implode(', ', $in['tags'])],
+            'min_qty'       => [($old['min_qty'] ?? null) === null ? '' : (string)$old['min_qty'], $in['min_qty'] === null ? '' : (string)$in['min_qty']],
         ];
         foreach ($cmp as $k => [$a, $b]) if ($a !== $b) $changes[$k] = [$a, $b];
         if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes]);
@@ -380,8 +401,8 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
         if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
             activity_log($id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
         }
-        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
-        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
+        $st = $pdo->prepare('UPDATE items SET name=?, location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, serial=?, search=?, sort_key=?, updated_at=? WHERE id=?');
+        $st->execute([$in['name'], $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['serial'], $blob, natkey($in['name']), $now, $id]);
         tags_set($id, $in['tags']);
         if ($newImage !== null || $removeImage) {
             $cover = photos_for($id)[0] ?? null;
@@ -674,7 +695,8 @@ function stats_totals(): array
 {
     $st = db()->prepare('SELECT COUNT(*) AS items, COALESCE(SUM(quantity), 0) AS qty,
                                 COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS week,
-                                COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month
+                                COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month,
+                                COALESCE(SUM(CASE WHEN min_qty IS NOT NULL AND quantity <= min_qty THEN 1 ELSE 0 END), 0) AS low
                          FROM items');
     $st->execute([local_boundary_utc('monday this week'), local_boundary_utc('first day of this month')]);
     $r = $st->fetch();
@@ -683,6 +705,7 @@ function stats_totals(): array
         'qty'       => (int)$r['qty'],
         'week'      => (int)$r['week'],
         'month'     => (int)$r['month'],
+        'low'       => (int)$r['low'],
         'locations' => (int)db()->query('SELECT COUNT(*) FROM locations')->fetchColumn(),
         'categories' => (int)db()->query('SELECT COUNT(*) FROM categories')->fetchColumn(),
     ];

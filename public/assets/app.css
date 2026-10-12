@@ -504,3 +504,18 @@ a.tagchip{min-height:36px}
 .act time{display:block;font-size:13px;color:var(--muted);margin-top:2px}
 .pager{display:flex;gap:8px;justify-content:space-between}
 .pager .btn[rel=next]{margin-left:auto}
+
+/* ---------- low stock ---------- */
+.tile-low{grid-column:1/-1;min-height:44px;align-items:center;text-decoration:none;color:inherit}
+.tile-low.has-low{background:var(--warn-soft);color:var(--warn)}
+.tile-low.has-low span{color:var(--warn)}
+.lowbadge{display:none;align-self:flex-start;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--warn-soft);color:var(--warn);font-size:12px;font-weight:650}
+.lowbadge .i{width:14px;height:14px}
+.is-low .lowbadge{display:inline-flex}
+.lowbox{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 2px}
+.lowbox .hint{margin:0}
+.lowbox:not(.is-low) .hint::before{content:"✓ ";color:var(--ok)}
+.chip-low .i{color:var(--warn)}
+:root{--warn:#b45309;--warn-soft:rgba(245,158,11,.16)}
+:root[data-theme=dark]{--warn:#fbbf24;--warn-soft:rgba(251,191,36,.16)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]):not([data-theme=dark]){--warn:#fbbf24;--warn-soft:rgba(251,191,36,.16)}}

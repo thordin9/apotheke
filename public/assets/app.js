@@ -191,6 +191,8 @@
         const j = await post('/item/' + id + '/qty', { delta: p.delta });
         out.textContent = j.quantity;
         $('.qbtn[data-delta="-1"]', box).disabled = j.quantity <= 0;
+        const lowEl = box.closest('.card') || $('#lowbox');
+        if (lowEl && 'low' in j) lowEl.classList.toggle('is-low', !!j.low);
       } catch (err) {
         out.textContent = p.base; toast(err.message, true);
       }
@@ -274,7 +276,7 @@
         if (append) grid.insertAdjacentHTML('beforeend', j.html); else { grid.innerHTML = j.html; window.scrollTo({ top: 0 }); }
         count.textContent = j.count;
         empty.hidden = j.total > 0;
-        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value));
+        const filtered = !!(q.value.trim() || $('#loc').value || $('#cat').value || ($('#tag') && $('#tag').value) || ($('#stock') && $('#stock').value));
         $('#empty-title').textContent = filtered ? 'Nothing matches.' : 'Your catalog is empty.';
         $('#empty-sub').textContent = filtered ? 'Try another word or clear the filters.' : 'Snap a photo of something, give it a name and a place. That’s it.';
         $('#empty-add').hidden = filtered; $('#empty-clear').hidden = !filtered;
@@ -297,6 +299,7 @@
       if (which === 'all' || which === 'loc') $('#loc').value = '';
       if (which === 'all' || which === 'cat') $('#cat').value = '';
       if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
+      if ((which === 'all' || which === 'stock') && $('#stock')) $('#stock').value = '';
       if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
       if (which === 'all') q.value = '';
       load(false);
@@ -312,6 +315,8 @@
 
     // Tapping a location/category chip (or an Overview bar) filters in place.
     document.addEventListener('click', e => {
+      const lt = e.target.closest('#stats a[data-stock]');
+      if (lt && $('#stock')) { e.preventDefault(); $('#stock').value = 'low'; q.value = ''; load(false); return; }
       const c = e.target.closest('#grid a.chip[data-loc], #stats a[data-loc], #grid a.chip[data-cat], #stats a[data-cat]');
       if (!c) return;
       const k = c.dataset.loc !== undefined ? 'loc' : 'cat';

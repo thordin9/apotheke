@@ -91,13 +91,14 @@ try {
     /* ---- list / search ---- */
     if ($path === '/' && $method === 'GET') {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
-        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : ''];
+        $f    = ['loc' => filter_value($_GET['loc'] ?? ''), 'cat' => filter_value($_GET['cat'] ?? ''), 'tag' => ctype_digit((string)($_GET['tag'] ?? '')) ? (string)$_GET['tag'] : '',
+                 'stock' => ($_GET['stock'] ?? '') === 'low' ? 'low' : ''];
         $sort = (string)($_GET['sort'] ?? 'recent');
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items']), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== ''), 'more' => $res['more'], 'page' => $page,
+                      'count' => count_text($res['total'], $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== ''), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort)]);
         }
         header('Cache-Control: no-store');
@@ -116,7 +117,7 @@ try {
             return ctype_digit($v) && tax_get($kind, (int)$v) ? (int)$v : tax_default_id($kind);
         };
         $vals = ['name' => '', 'location_id' => $pick('location'), 'new_location' => '', 'category_id' => $pick('category'), 'new_category' => '',
-                 'quantity' => 1, 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'serial' => ''];
+                 'quantity' => 1, 'min_qty' => '', 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'serial' => ''];
         $toast = isset($_GET['saved']) && ($s = item_get((int)$_GET['saved'])) ? 'Saved “' . $s['name'] . '”' : null;
         view_form(null, $vals, locations(), categories(), null, $toast);
         exit;
@@ -126,7 +127,8 @@ try {
         if (!$it) { view_error(404, 'Item not found.'); exit; }
         header('Cache-Control: no-store');
         if (!empty($m[2])) view_form($it, ['new_location' => '', 'new_category' => '', 'tags' => implode(', ', array_column($it['tags'], 'name')),
-            'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date']] + $it, locations(), categories(), null);
+            'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date'],
+            'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null);
         else {
             $hist = activity_list((int)$it['id'], 1, 10);
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
@@ -149,6 +151,7 @@ try {
             'value'    => clean_line((string)($_POST['value'] ?? ''), 32),
             'purchase_date' => clean_line((string)($_POST['purchase_date'] ?? ''), 10),
             'serial'   => clean_line((string)($_POST['serial'] ?? ''), 100),
+            'min_qty'  => clean_line((string)($_POST['min_qty'] ?? ''), 12),
         ];
         $raw = [];
         foreach (KINDS as $kind) {
@@ -160,7 +163,7 @@ try {
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
             $fields = ['tags' => tags_parse($vals['tags']), 'value_cents' => parse_money($vals['value']),
-                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'serial' => $vals['serial']];
+                       'purchase_date' => parse_date_ymd($vals['purchase_date']), 'serial' => $vals['serial'], 'min_qty' => parse_min_qty($vals['min_qty'])];
             foreach (KINDS as $kind) {
                 $t = tax($kind);
                 if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') throw new UserError('Type a name for the new ' . $t['one'] . '.');
@@ -223,7 +226,8 @@ try {
         $delta = max(-1000, min(1000, (int)($_POST['delta'] ?? 0)));
         $q = item_adjust_qty((int)$m[1], $delta);
         if ($q === null) throw new UserError('Item not found.', 404);
-        if (wants_json()) json_out(['ok' => true, 'quantity' => $q]);
+        $row = item_get((int)$m[1]);
+        if (wants_json()) json_out(['ok' => true, 'quantity' => $q, 'low' => $row !== null && is_low($row)]);
         redirect('/item/' . (int)$m[1]);
     }
 
@@ -433,17 +437,18 @@ try {
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial'], ',', '"', '\\');
+        fputcsv($out, ['id', 'name', 'location', 'category', 'quantity', 'notes', 'image', 'created_at', 'updated_at', 'tags', 'value', 'currency', 'purchase_date', 'serial', 'min_qty'], ',', '"', '\\');
         $tagMap = [];
         foreach (db()->query('SELECT it.item_id, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id ORDER BY t.sort_key, t.id') as $t) $tagMap[(int)$t['item_id']][] = $t['name'];
-        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial
+        foreach (db()->query("SELECT i.id, i.name, COALESCE(l.name, '') AS location, COALESCE(c.name, '') AS category, i.quantity, i.notes, i.image, i.created_at, i.updated_at, i.value_cents, i.purchase_date, i.serial, i.min_qty
                               " . ITEM_FROM . "
                               ORDER BY CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key, CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key, i.sort_key, i.id") as $r) {
             $v = $r['value_cents'];
             unset($r['value_cents']);
             $r = array_slice($r, 0, 9) + ['tags' => implode(', ', $tagMap[(int)$r['id']] ?? []),
                  'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : cfg()['currency'],
-                 'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial']];
+                 'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial'],
+                 'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty']];
             fputcsv($out, array_values($r), ',', '"', '\\');
         }
         exit;

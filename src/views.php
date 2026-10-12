@@ -32,6 +32,7 @@ function icon(string $n): string
         'logout' => '<path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/>',
         'qr'     => '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 17h4v4h-4"/>',
         'printer'=> '<path d="M6 9V3h12v6M6 18H4a1 1 0 0 1-1-1v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7"/>',
+        'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
     return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . ($p[$n] ?? '') . '</svg>';
@@ -102,16 +103,24 @@ function card_html(array $it): string
     $chips = chip_html('location', $locId, (string)$it['location']) . chip_html('category', $catId, (string)$it['category']);
     if ($chips === '') $chips = '<span class="chip chip-muted">No location</span>';
     $q = (int)$it['quantity'];
-    return '<article class="card" data-id="' . $id . '">'
+    $min = ($it['min_qty'] ?? null) === null ? null : (int)$it['min_qty'];
+    return '<article class="card' . (is_low($it) ? ' is-low' : '') . '" data-id="' . $id . '"' . ($min !== null ? ' data-min="' . $min . '"' : '') . '>'
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
         . '<div class="card-body">'
         . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
         . '<div class="chips">' . $chips . '</div>'
+        . ($min !== null ? low_badge_html() : '')
         . '<div class="qty" data-id="' . $id . '">'
         . '<button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"' . ($q <= 0 ? ' disabled' : '') . '>' . icon('minus') . '</button>'
         . '<output class="qval">' . $q . '</output>'
         . '<button type="button" class="qbtn" data-delta="1" aria-label="Increase">' . icon('plus') . '</button>'
         . '</div></div></article>';
+}
+
+/** "Running low" badge; shown by CSS while the surrounding card/page has .is-low (so +/- can toggle it). */
+function low_badge_html(): string
+{
+    return '<span class="lowbadge" role="status">' . icon('alert') . ' Running low</span>';
 }
 
 function cards_html(array $items): string
@@ -153,7 +162,7 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return ($f['loc'] !== '' ? 1 : 0) + ($f['cat'] !== '' ? 1 : 0) + (($f['tag'] ?? '') !== '' ? 1 : 0) + (($f['stock'] ?? '') !== '' ? 1 : 0) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
@@ -161,13 +170,13 @@ const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Lo
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
 {
-    $f += ['tag' => ''];
+    $f += ['tag' => '', 'stock' => ''];
     $name = function (string $kind, array $list, string $v): string {
         if ($v === 'none') return tax($kind)['none'];
         foreach ($list as $l) if ((string)$l['id'] === $v) return (string)$l['name'];
         return '?';
     };
-    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'sort' => $sort === 'recent' ? '' : $sort];
+    $base = ['q' => $_GET['q'] ?? '', 'loc' => $f['loc'], 'cat' => $f['cat'], 'tag' => $f['tag'], 'stock' => $f['stock'], 'sort' => $sort === 'recent' ? '' : $sort];
     $href = function (string $drop) use ($base): string {
         $qs = array_filter(array_diff_key($base, [$drop => 1]), fn($v) => $v !== '' && $v !== null);
         return '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -180,6 +189,7 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
         foreach ($tags ?? tags_all() as $t) if ((string)$t['id'] === $f['tag']) $tn = (string)$t['name'];
         $o .= '<a class="achip chip-tagf" href="' . h($href('tag')) . '" data-clear="tag" aria-label="Remove tag filter">#<span>' . h($tn) . '</span>' . icon('x') . '</a>';
     }
+    if ($f['stock'] === 'low') $o .= '<a class="achip chip-low" href="' . h($href('stock')) . '" data-clear="stock" aria-label="Remove running-low filter">' . icon('alert') . '<span>Running low</span>' . icon('x') . '</a>';
     if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
@@ -242,6 +252,7 @@ function stats_body_html(): string
     ];
     $o = '<div class="tiles">';
     foreach ($tiles as [$k, $v]) $o .= '<div class="tile"><b>' . number_format($v) . '</b><span>' . h($k) . '</span></div>';
+    $o .= '<a class="tile tile-low' . ($t['low'] > 0 ? ' has-low' : '') . '" href="/?stock=low" data-stock="low"><b>' . number_format($t['low']) . '</b><span>Running low</span></a>';
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
@@ -294,8 +305,8 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true): void
 {
     page_start('');
-    $f += ['tag' => ''];
-    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '';
+    $f += ['tag' => '', 'stock' => ''];
+    $filtered = $q !== '' || $f['loc'] !== '' || $f['cat'] !== '' || $f['tag'] !== '' || $f['stock'] !== '';
     $tags = tags_all();
     ?>
 <header class="top">
@@ -327,6 +338,11 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
             <?php endforeach; ?>
           </select></label>
           <?php endif; ?>
+          <label class="field"><span>Stock</span>
+          <select name="stock" id="stock">
+            <option value="">All items</option>
+            <option value="low"<?= $f['stock'] === 'low' ? ' selected' : '' ?>>Running low</option>
+          </select></label>
           <label class="field"><span>Sort by</span>
           <select name="sort" id="sort">
             <?php foreach (SORTS as $k => $v): ?>
@@ -412,6 +428,9 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?= chip_html('location', $it['location_id'] !== null ? (int)$it['location_id'] : null, $it['location'], true) ?>
     <?= chip_html('category', $it['category_id'] !== null ? (int)$it['category_id'] : null, $it['category'], true) ?>
   </div>
+  <?php if (($it['min_qty'] ?? null) !== null): ?>
+  <div class="lowbox<?= is_low($it) ? ' is-low' : '' ?>" id="lowbox" data-min="<?= (int)$it['min_qty'] ?>"><?= low_badge_html() ?><span class="hint">Alert at <?= (int)$it['min_qty'] ?> or fewer</span></div>
+  <?php endif; ?>
   <div class="qty qty-lg" data-id="<?= $id ?>">
     <button type="button" class="qbtn" data-delta="-1" aria-label="Decrease"<?= (int)$it['quantity'] <= 0 ? ' disabled' : '' ?>><?= icon('minus') ?></button>
     <output class="qval"><?= (int)$it['quantity'] ?></output>
@@ -557,6 +576,10 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
         <button type="button" class="qbtn" data-step="1" aria-label="Increase"><?= icon('plus') ?></button>
       </div>
     </div>
+    <label class="field">
+      <span>Running low at <em>optional – alert when the quantity is this or less</em></span>
+      <input type="number" name="min_qty" id="min_qty" value="<?= h((string)($vals['min_qty'] ?? '')) ?>" min="0" max="1000000" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 2">
+    </label>
     <label class="field">
       <span>Notes <em>optional</em></span>
       <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, where you bought it…"><?= h($vals['notes']) ?></textarea>
@@ -771,7 +794,7 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
-const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags'];
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
 /** One activity entry as HTML (already escaped). */
 function activity_html(array $e): string
@@ -781,7 +804,7 @@ function activity_html(array $e): string
     $none = fn($v) => (string)$v === '' ? '<i>none</i>' : '<b>' . h((string)$v) . '</b>';
     switch ($e['action']) {
         case 'created':
-            $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '')
+            $t = 'Created' . (!empty($d['location']) ? ' in <b>' . h($d['location']) . '</b>' : '') . (isset($d['quantity']) ? ' · quantity ' . (int)$d['quantity'] : '') . (isset($d['min_qty']) ? ' · running low at ' . (int)$d['min_qty'] : '')
                . (!empty($d['photo']) ? ' · with photo' : '') . (!empty($d['tags']) ? ' · tags ' . h(implode(', ', $d['tags'])) : '');
             break;
         case 'edited':
