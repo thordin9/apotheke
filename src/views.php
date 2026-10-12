@@ -202,7 +202,7 @@ function view_lent(array $items, string $today): void
   </div>
 </header>
 <main class="wrap narrow">
-  <p class="lead" id="lent-summary"><?= count($items) ? count($items) . ' item' . (count($items) === 1 ? '' : 's') . ' out' . ($late ? ' · <b class="late">' . $late . ' overdue</b>' : '') : 'Nothing is lent out right now.' ?></p>
+  <p class="lead" id="lent-summary"><?= count($items) ? item_noun(count($items)) . ' out' . ($late ? ' · <b class="late">' . $late . ' overdue</b>' : '') : 'Nothing is lent out right now.' ?></p>
   <?php if ($items): ?>
   <ul class="lentlist" id="lentlist">
     <?php foreach ($items as $it): $o = is_overdue($it, $today); ?>
@@ -232,7 +232,7 @@ function cards_html(array $items, bool $select = false, bool $checked = false): 
 /** Toast after a bulk action. */
 function bulk_toast(int $n, string $action): string
 {
-    $s = $n . ' item' . ($n === 1 ? '' : 's');
+    $s = item_noun($n);
     return match ($action) {
         'move' => "Moved $s", 'category' => "Set the category of $s", 'tag_add' => "Tagged $s",
         'tag_remove' => "Removed the tag from $s", 'delete' => "Deleted $s", default => "Updated $s",
@@ -312,7 +312,7 @@ function view_bulk_delete(array $items, string $back): void
 
 function count_text(int $total, bool $filtered): string
 {
-    $s = $total . ' item' . ($total === 1 ? '' : 's');
+    $s = item_noun($total);
     return $filtered ? $s . ' found' : $s;
 }
 
@@ -458,7 +458,7 @@ function stats_body_html(): string
         $o .= '<section class="st-card st-wide st-value" id="st-value"><div class="st-head"><h3>Value</h3>'
             . '<a class="st-link" href="/?sort=value">Most valuable</a></div>'
             . '<p class="st-total"><b id="value-total">' . h(fmt_money($val['total'])) . '</b> <span class="st-sub">total purchase price of '
-            . number_format($val['priced']) . ' item' . ($val['priced'] === 1 ? '' : 's') . ' with a price</span></p>'
+            . item_noun($val['priced']) . ' with a price</span></p>'
             . '<div class="st-value-grid"><div><h4>By location</h4>' . hbars($val['by_location'], 'loc', 'No prices yet.', $money) . '</div>'
             . '<div><h4>By category</h4>' . hbars($val['by_category'], 'cat', 'No prices yet.', $money) . '</div></div></section>';
     }
@@ -477,7 +477,7 @@ function stats_section(array $stats, bool $open): string
     if ((int)$stats['items'] === 0) return '';   // the list's own empty state takes over
     return '<details class="stats-box" id="stats"' . ($open ? ' open' : '') . ' data-loaded="' . ($open ? '1' : '0') . '">'
         . '<summary><span class="st-title">' . icon('chart') . ' Overview</span><span class="st-mini">'
-        . (int)$stats['items'] . ' items · ' . (int)$stats['qty'] . ' pcs</span><span class="chev" aria-hidden="true"></span></summary>'
+        . h(stats_brief((int)$stats['items'], (int)$stats['qty'])) . '</span><span class="chev" aria-hidden="true"></span></summary>'
         . '<div class="stats-body" id="stats-body">' . ($open ? stats_body_html() : '<p class="st-sub">Loading…</p>') . '</div>'
         . '</details>';
 }
@@ -516,7 +516,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 <header class="top">
   <div class="bar">
     <h1 class="brand"><?= icon('box') ?><span><?= h(APP_NAME) ?></span></h1>
-    <span class="stats"><?= (int)$stats['items'] ?> items · <?= (int)$stats['qty'] ?> pcs</span>
+    <span class="stats"><?= h(stats_brief((int)$stats['items'], (int)$stats['qty'])) ?></span>
     <a class="btn btn-ghost btn-round hide-sm" href="/locations" aria-label="Manage locations &amp; categories" title="Locations &amp; categories"><?= icon('sliders') ?></a>
     <?= menu_html() ?>
     <a class="btn btn-primary btn-round" href="<?= h(new_item_href($f)) ?>" aria-label="Add item"><?= icon('plus') ?></a>

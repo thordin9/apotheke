@@ -8,8 +8,9 @@ declare(strict_types=1);
 
 $path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));
 
-// Built-in dev server: let it serve real static files directly.
-if (PHP_SAPI === 'cli-server' && $path !== '/' && is_file(__DIR__ . $path) && !str_ends_with($path, '.php')) {
+// Built-in dev server: serve real static files under public/ only (never ../ outside the docroot).
+require_once dirname(__DIR__) . '/src/dev_server.php';
+if (PHP_SAPI === 'cli-server' && dev_server_static_file(__DIR__, $path)) {
     return false;
 }
 
@@ -24,6 +25,9 @@ header('Referrer-Policy: same-origin');
 header("Content-Security-Policy: default-src 'self'; connect-src 'self' blob:; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'");
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if ($method === 'HEAD') {
+    $method = 'GET';
+}
 
 if ($path === '/healthz') {
     header('Content-Type: text/plain');
@@ -45,7 +49,7 @@ init_session();
 try {
     /* ---- auth ---- */
     if ($path === '/login') {
-        if (app_password() === '') redirect('/');
+        if (app_password() === '' || is_authed()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
             if (login((string)($_POST['password'] ?? ''))) redirect('/');
@@ -83,7 +87,7 @@ try {
     /* ---- statistics fragment (lazy-loaded when the Overview panel is opened) ---- */
     if ($path === '/stats' && $method === 'GET') {
         header('Content-Type: text/html; charset=utf-8');
-        header('Cache-Control: no-store');
+        no_store();
         echo stats_body_html();
         exit;
     }
@@ -100,7 +104,7 @@ try {
                       'count' => count_text($res['total'], $q !== '' || filters_active($f)), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort), 'query' => saved_filter_query($_GET)]);
         }
-        header('Cache-Control: no-store');
+        no_store();
         $toast = null;
         if (isset($_GET['saved']) && ($s = item_get((int)$_GET['saved']))) $toast = 'Saved “' . $s['name'] . '”';
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
@@ -113,7 +117,7 @@ try {
 
     /* ---- add / edit forms ---- */
     if ($path === '/new' && $method === 'GET') {
-        header('Cache-Control: no-store');
+        no_store();
         $pick = function (string $kind): ?int {
             $v = (string)($_GET[tax($kind)['param']] ?? '');
             return ctype_digit($v) && tax_get($kind, (int)$v) ? (int)$v : tax_default_id($kind);
@@ -127,7 +131,7 @@ try {
     if (preg_match('#^/item/(\d+)(/edit)?$#D', $path, $m) && $method === 'GET') {
         $it = item_get((int)$m[1]);
         if (!$it) { view_error(404, 'Item not found.'); exit; }
-        header('Cache-Control: no-store');
+        no_store();
         if (!empty($m[2])) view_form($it, ['new_location' => '', 'new_category' => '', 'tags' => implode(', ', array_column($it['tags'], 'name')),
             'value' => money_input($it['value_cents']), 'purchase_date' => (string)$it['purchase_date'], 'expires_on' => (string)($it['expires_on'] ?? ''),
             'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null,
@@ -148,7 +152,7 @@ try {
         $qty = filter_var($_POST['quantity'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
         $vals = [
             'name'     => clean_line((string)($_POST['name'] ?? ''), 200),
-            'quantity' => $qty === false ? 1 : $qty,
+            'quantity' => $qty === false ? 1 : $qty, // placeholder for form redisplay if validation fails
             'notes'    => mb_substr(trim(str_replace("\r\n", "\n", (string)($_POST['notes'] ?? ''))), 0, 5000),
             'tags'     => mb_substr((string)($_POST['tags'] ?? ''), 0, 2000),
             'value'    => clean_line((string)($_POST['value'] ?? ''), 32),
@@ -167,6 +171,7 @@ try {
         }
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
+            if ($qty === false) throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
             $fields = ['tags' => tags_parse($vals['tags']), 'value_cents' => parse_money($vals['value']),
                        'purchase_date' => parse_date_ymd($vals['purchase_date']), 'expires_on' => parse_expiry_date($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => parse_min_qty($vals['min_qty'])];
             foreach (KINDS as $kind) {
@@ -261,7 +266,7 @@ try {
         redirect(($_POST['back'] ?? '') === '/lent' ? '/lent' : '/item/' . $iid . '#lending');
     }
     if ($path === '/lent' && $method === 'GET') {
-        header('Cache-Control: no-store');
+        no_store();
         view_lent(items_lent(), local_today());
         exit;
     }
@@ -280,7 +285,7 @@ try {
                 $items = array_values(array_filter(array_map('item_get', array_values(array_unique(array_filter($ids, fn($i) => $i > 0))))));
                 if (!$items) throw new UserError('Select at least one item.');
                 if (count($items) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.');
-                header('Cache-Control: no-store');
+                no_store();
                 view_bulk_delete($items, $back);
                 exit;
             }
@@ -296,7 +301,8 @@ try {
     if (preg_match('#^/item/(\d+)/delete$#D', $path, $m) && $method === 'POST') {
         check_csrf();
         $it = item_get((int)$m[1]);
-        if ($it) item_delete($it);
+        if (!$it) throw new UserError('Item not found.', 404);
+        item_delete($it);
         redirect('/?deleted=1');
     }
 
@@ -305,18 +311,18 @@ try {
         if (isset($_GET['code']) && is_string($_GET['code']) && barcode_clean($_GET['code']) !== '') {
             redirect('/barcode/' . rawurlencode(barcode_clean($_GET['code'])));
         }
-        header('Cache-Control: no-store');
+        no_store();
         view_barcode();
         exit;
     }
     if (str_starts_with($path, '/barcode/') && $method === 'GET') {   // $path is already URL-decoded; codes may contain "/"
-        header('Cache-Control: no-store');
+        no_store();
         redirect(barcode_target(substr($path, strlen('/barcode/'))));
     }
 
     /* ---- saved filters ---- */
     if ($path === '/filters' && $method === 'GET') {
-        header('Cache-Control: no-store');
+        no_store();
         $toast = match ((string)($_GET['done'] ?? '')) { 'renamed' => 'Filter renamed', 'deleted' => 'Filter deleted', default => null };
         view_saved_filters(saved_filters(), null, $toast);
         exit;
@@ -354,7 +360,7 @@ try {
         $noneCount = stats()[$kind === 'location' ? 'unassigned' : 'uncategorized'];
         if (!isset($m[2]) || $m[2] === '') {
             if ($method === 'GET') {
-                header('Cache-Control: no-store');
+                no_store();
                 $toast = match ((string)($_GET['done'] ?? '')) {
                     'added' => $t['One'] . ' added', 'exists' => 'That ' . $t['one'] . ' already exists', 'renamed' => $t['One'] . ' renamed',
                     'default' => 'Default ' . $t['one'] . ' set', 'nodefault' => 'Default cleared', 'deleted' => $t['One'] . ' deleted',
@@ -389,7 +395,7 @@ try {
         $entry = tax_get($kind, $eid);
         if (!$entry) throw new UserError($t['One'] . ' not found.', 404);
         if ($act === 'delete' && $method === 'GET') {
-            header('Cache-Control: no-store');
+            no_store();
             $all = tax_list($kind);
             $others = array_values(array_filter($all, fn($l) => (int)$l['id'] !== $eid));
             if ($kind === 'location') {
@@ -449,7 +455,7 @@ try {
 
     /* ---- QR labels ---- */
     if ($path === '/labels' && $method === 'GET') {
-        header('Cache-Control: no-store');
+        no_store();
         $locs = locations();
         $loc = filter_value($_GET['loc'] ?? '');
         if (ctype_digit($loc)) {
@@ -461,26 +467,26 @@ try {
                     $labels[] = ['title' => $it['name'], 'sub' => $l['name'], 'path' => '/item/' . (int)$it['id']];
                 }
             } else {
-                $labels[] = ['title' => $l['name'], 'sub' => (int)$l['n'] . ' item' . ((int)$l['n'] === 1 ? '' : 's'), 'path' => '/?loc=' . (int)$l['id']];
+                $labels[] = ['title' => $l['name'], 'sub' => item_noun((int)$l['n']), 'path' => '/?loc=' . (int)$l['id']];
             }
             view_labels($l['name'], $labels, '/locations', ['/labels?loc=' . (int)$l['id'] => 'Location label', '/labels?loc=' . (int)$l['id'] . '&items=1' => 'One label per item', '/labels' => 'All locations']);
             exit;
         }
-        $labels = array_map(fn($l) => ['title' => $l['name'], 'sub' => (int)$l['n'] . ' item' . ((int)$l['n'] === 1 ? '' : 's'), 'path' => '/?loc=' . (int)$l['id']], $locs);
+        $labels = array_map(fn($l) => ['title' => $l['name'], 'sub' => item_noun((int)$l['n']), 'path' => '/?loc=' . (int)$l['id']], $locs);
         view_labels('All locations', $labels, '/locations');
         exit;
     }
     if (preg_match('#^/item/(\d+)/label$#D', $path, $m) && $method === 'GET') {
         $it = item_get((int)$m[1]);
         if (!$it) throw new UserError('Item not found.', 404);
-        header('Cache-Control: no-store');
+        no_store();
         view_labels($it['name'], [['title' => $it['name'], 'sub' => $it['location'], 'path' => '/item/' . (int)$it['id']]], '/item/' . (int)$it['id']);
         exit;
     }
 
     /* ---- activity log ---- */
     if ($path === '/activity' && $method === 'GET') {
-        header('Cache-Control: no-store');
+        no_store();
         $page = max(1, (int)($_GET['page'] ?? 1));
         $item = ctype_digit((string)($_GET['item'] ?? '')) ? (int)$_GET['item'] : null;
         $itemRow = null;
@@ -496,7 +502,7 @@ try {
 
     /* ---- backup & restore ---- */
     if ($path === '/backup' && $method === 'GET') {
-        header('Cache-Control: no-store');
+        no_store();
         view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? 'Backup restored' : null);
         exit;
     }
@@ -508,7 +514,7 @@ try {
             header('Content-Type: application/zip');
             header('Content-Disposition: attachment; filename="apotheke-backup-' . date('Y-m-d-His', app_time()) . '.zip"');
             header('Content-Length: ' . filesize($tmp));
-            header('Cache-Control: no-store');
+            no_store();
             readfile($tmp);
         } finally {
             @unlink($tmp);
@@ -535,7 +541,7 @@ try {
             @unlink($dest);
             $fail($e->getMessage());
         }
-        header('Cache-Control: no-store');
+        no_store();
         view_backup(backup_counts(db(), db_driver()), null, ['token' => $token] + $b);
         exit;
     }

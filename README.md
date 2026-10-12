@@ -17,13 +17,14 @@ it works fully offline on your LAN.
 [configuration](docs/configuration.md) · [user guide](docs/user-guide.md) · [architecture](docs/architecture.md) ·
 [database](docs/database.md) · [testing](docs/testing.md) · [CI](docs/ci.md) ·
 [deployment and operations](docs/deployment-and-operations.md) · [contributing](docs/contributing.md).
+Agents: see [`AGENTS.md`](AGENTS.md).
 
 ## Contents
 
 [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install with Docker](#install-with-docker) ·
 [Install without Docker](#install-without-docker) · [Configuration](#configuration) · [Command-line tools](#command-line-tools) ·
 [Upgrading](#upgrading) · [Testing](#testing) · [CI](#ci) · [Security notes](#security-notes) · [Project layout](#project-layout) ·
-[Contributing](#contributing) · [License](#license) · [Full documentation](docs/index.md)
+[Contributing](#contributing) · [License](#license) · [AGENTS.md](AGENTS.md) · [Full documentation](docs/index.md)
 
 ## Features
 

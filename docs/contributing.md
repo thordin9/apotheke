@@ -1,7 +1,7 @@
 # Contributing
 
 Pull requests are welcome. The short version is in [CONTRIBUTING.md](../CONTRIBUTING.md); this page explains the
-ground rules and walks through adding a feature end to end.
+ground rules and walks through adding a feature end to end. AI agents should also read [AGENTS.md](../AGENTS.md).
 
 ## Ground rules
 

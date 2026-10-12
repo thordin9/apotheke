@@ -5,11 +5,13 @@ category, a quantity, tags and a few custom fields, with instant search. It is p
 PostgreSQL) and GD: no framework, no runtime Composer packages, no JavaScript build step and no CDNs.
 
 The [README](../README.md) is the short tour. These pages go into the details.
+Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 
 ## Contents
 
 | Page | What it covers |
 |---|---|
+| [AGENTS.md](../AGENTS.md) | Instructions for AI agents: stack constraints, layout, tests, commits |
 | [Getting started](getting-started.md) | Docker, Docker Compose (including the `postgres` profile), running without Docker, local development |
 | [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules |
 | [User guide](user-guide.md) | Every feature: items, photos, locations and categories, nested locations, search and filters, low-stock alerts, bulk actions, lending, duplicating, QR labels, history, backup, home screen, iPhone tips |

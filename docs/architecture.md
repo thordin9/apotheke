@@ -7,7 +7,7 @@ HTML, one stylesheet and one script. There is no framework, no autoloader, no te
 
 ```
 public/                   web root (the only directory a web server should expose)
-  index.php               front controller + router (also the router script for `php -S`)
+  index.php               front controller + router (also the router script for `php -S`; HEAD is treated as GET for reads)
   manifest.webmanifest    web app manifest
   assets/                 app.css, app.js, theme.js, icons (served as static files)
 src/
@@ -40,7 +40,7 @@ sequenceDiagram
   participant V as src/views.php
   B->>W: GET /item/3
   W->>R: not a static file → front controller
-  R->>R: security headers (CSP, nosniff, frame options)
+  R->>R: security headers (CSP, nosniff, frame options); HEAD → GET for routing
   R->>R: /healthz (no session needed)
   R->>R: init_session() → CSRF token, release session lock
   R->>R: /login, /logout, then auth gate (APP_PASSWORD)

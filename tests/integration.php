@@ -44,6 +44,19 @@ foreach (['content-security-policy', 'x-content-type-options', 'x-frame-options'
 $tok = $c->csrf();
 T::ok(strlen($tok) === 64, 'CSRF token present in page');
 
+T::section('HEAD');
+$headHome = $c->req('HEAD', '/');
+T::eq($r['status'], $headHome['status'], 'HEAD / status matches GET /');
+T::eq(200, $headHome['status'], 'HEAD / is 200');
+T::eq('no-store', $r['headers']['cache-control'] ?? '', 'GET / sends Cache-Control: no-store');
+T::eq(404, $c->req('HEAD', '/no/such/page')['status'], 'HEAD unknown path is 404');
+T::eq(200, $c->req('HEAD', '/healthz')['status'], 'HEAD /healthz is 200');
+foreach (['/new', '/stats', '/labels', '/backup', '/activity', '/lent', '/filters', '/barcode', '/locations', '/categories', '/export.csv'] as $hp) {
+    T::eq(200, $c->req('HEAD', $hp)['status'], "HEAD $hp is 200");
+}
+T::eq(404, $c->req('HEAD', '/save')['status'], 'HEAD /save (POST-only) is 404');
+T::eq(404, $c->req('HEAD', '/bulk')['status'], 'HEAD /bulk (POST-only) is 404');
+
 T::section('CSRF protection');
 foreach (['/save' => ['name' => 'x'], '/locations' => ['name' => 'x'], '/categories' => ['name' => 'x'], '/item/1/qty' => ['delta' => 1], '/item/1/delete' => []] as $p => $f) {
     T::eq(419, $c->api($p, $f)['status'], "POST $p without token → 419");
@@ -86,12 +99,19 @@ T::ok(selected_option($form, 'location_id') === 'box 2' && selected_option($form
 $c->post('/categories/' . $ids['cat']['Tools'] . '/default', ['csrf' => $tok, 'on' => '0']);
 T::eq(null, selected_option($c->get('/new')['body'], 'category_id'), 'unset default → no category preselected');
 $c->post('/categories/' . $ids['cat']['Tools'] . '/default', ['csrf' => $tok, 'on' => '1']);
+$c->post('/categories/' . $ids['cat']['Electronics'] . '/default', ['csrf' => $tok, 'on' => '0']);
+T::eq('Tools ★', selected_option($c->get('/new')['body'], 'category_id'), 'clearing a non-default category leaves the real default');
 
 T::section('Create items + uploads');
 $big = img_jpeg(4000, 3000);
 $r = $c->api('/save', ['csrf' => $tok, 'name' => 'Cordless drill', 'location_id' => $ids['loc']['box 1023'], 'category_id' => $ids['cat']['Tools'], 'quantity' => 1], ['photo' => jpg_file($big)]);
 $drill = $savedId($r);
 T::ok($r['status'] === 200 && $drill > 0, 'create item with 4000×3000 JPEG', $r['body']);
+$one = $c->get('/')['body'];
+T::ok(str_contains($one, 'class="stats">1 item · 1 pc<'), 'header stats use singular for one item / one pc');
+T::ok(str_contains($one, 'st-mini">1 item · 1 pc<'), 'Overview mini summary uses singular');
+T::eq(200, $c->req('HEAD', "/item/$drill")['status'], 'HEAD /item/{id} is 200');
+T::eq('no-store', $c->get("/item/$drill")['headers']['cache-control'] ?? '', 'item page sends no-store');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 T::ok(is_string($img) && preg_match('/^[a-f0-9]{32}\.jpg$/', $img) === 1, 'random hex file name');
 [$w, $h] = getimagesize("$dir/images/$img") ?: [0, 0];
@@ -109,6 +129,9 @@ T::ok($r['status'] === 422 && str_contains((string)$r['json']['error'], 'Unsuppo
 $r = $c->api('/save', ['csrf' => $tok, 'name' => 'Huge'], ['photo' => jpg_file(random_bytes(21 * 1024 * 1024), 'huge.jpg')]);
 T::ok($r['status'] === 422 && str_contains((string)$r['json']['error'], 'too large'), 'file over 20 MB rejected', (string)$r['body']);
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => '  '])['status'], 'missing name rejected');
+$r = $c->api('/save', ['csrf' => $tok, 'name' => 'BadQty', 'quantity' => 'abc']);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'Quantity'), 'invalid quantity rejected', (string)$r['body']);
+T::eq(0, (int)$db->query("SELECT COUNT(*) FROM items WHERE name = 'BadQty'")->fetchColumn(), 'invalid quantity wrote nothing');
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => 'X', 'location_id' => '9999'])['status'], 'unknown location id rejected');
 T::eq(422, $c->api('/save', ['csrf' => $tok, 'name' => 'X', 'category_id' => '__new', 'new_category' => ''])['status'], '"＋ New category" without a name rejected');
 T::eq(0, count(glob("$dir/images/*")) - 2, 'rejected uploads left no files behind');
@@ -202,6 +225,12 @@ $kitchen = (int)$db->query("SELECT id FROM categories WHERE name = 'Kitchen'")->
 $c->post("/categories/$tools/delete", ['csrf' => $tok, 'action' => 'move', 'target' => $kitchen]);
 T::eq(3, (int)$db->query("SELECT COUNT(*) FROM items WHERE category_id = $kitchen")->fetchColumn(), 'items moved to Kitchen');
 T::eq(0, (int)$db->query('SELECT COUNT(*) FROM categories WHERE is_default = 1')->fetchColumn(), 'deleting the default leaves no default');
+$soloCat = (int)$c->api('/categories', ['csrf' => $tok, 'name' => 'SoloCat'])['json']['id'];
+$soloItem = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Solo item', 'category_id' => $soloCat]));
+$soloPage = $c->get("/categories/$soloCat/delete")['body'];
+T::ok(str_contains($soloPage, '1 item is') && !str_contains($soloPage, '1 items are'), 'confirm page singular grammar for one item');
+$c->post("/categories/$soloCat/delete", ['csrf' => $tok, 'action' => 'unassign']);
+$c->post("/item/$soloItem/delete", ['csrf' => $tok]);
 $c->post('/locations/' . $ids['loc']['Κουτί 5'] . '/delete', ['csrf' => $tok, 'action' => 'unassign']);
 T::eq(null, $db->query("SELECT location_id FROM items WHERE id = $plug")->fetchColumn(), 'delete location + unassign keeps the item');
 T::eq(6, (int)$db->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'no items lost');
@@ -295,6 +324,9 @@ T::ok(str_contains($r['body'], 'data-print') && str_contains($r['body'], 'id="la
 T::ok(preg_match('#<svg class="qr"[^>]*viewBox="0 0 \d+ \d+"#', $r['body']) === 1, 'inline SVG QR codes (no external requests)');
 $r = $c->get("/labels?loc=$box2");
 T::eq(1, substr_count($r['body'], '<figure class="label"'), 'single location label');
+$nBox2 = (int)$db->query("SELECT COUNT(*) FROM items WHERE location_id = $box2")->fetchColumn();
+$nounBox2 = $nBox2 . ' item' . ($nBox2 === 1 ? '' : 's');
+T::ok(str_contains($r['body'], $nounBox2), 'location label subtitle uses singular/plural item count');
 T::ok(str_contains($r['body'], $c->base . '/?loc=' . $box2), 'label URL opens the location-filtered list (default base = request host)');
 preg_match('#<svg class="qr".*?</svg>#s', $r['body'], $qm);
 $dec = qr_decode_svg($qm[0] ?? '');
@@ -380,6 +412,13 @@ T::eq(404, $c->api("/item/999999/photos", ['csrf' => $tok], ['photo' => jpg_file
 T::eq(422, $c->api("/item/$drill/photos", ['csrf' => $tok])['status'], 'no file → 422');
 T::eq(422, $c->api("/item/$drill/photos", ['csrf' => $tok], ['photo' => jpg_file('nope', 'x.jpg')])['status'], 'non-image → 422');
 T::ok(!str_contains($c->get("/item/$hdmi")['body'], 'id="gallery"') && str_contains($c->get("/item/$hdmi")['body'], 'id="photoadd"'), 'item without photos: add-photo form, no gallery');
+while ((int)$db->query("SELECT COUNT(*) FROM item_photos WHERE item_id = $drill")->fetchColumn() < 12) {
+    $r = $c->api("/item/$drill/photos", ['csrf' => $tok], ['photo' => jpg_file(img_jpeg(40, 40))]);
+    if (($r['status'] ?? 0) !== 200) break;
+}
+T::eq(12, (int)$db->query("SELECT COUNT(*) FROM item_photos WHERE item_id = $drill")->fetchColumn(), 'filled gallery to MAX_PHOTOS');
+$r = $c->api("/item/$drill/photos", ['csrf' => $tok], ['photo' => jpg_file(img_jpeg(40, 40))]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'at most 12'), '13th photo rejected over HTTP', (string)$r['body']);
 $allPics = $db->query("SELECT file FROM item_photos WHERE item_id = $drill")->fetchAll(PDO::FETCH_COLUMN);
 
 T::section('Backup & restore');
@@ -537,6 +576,8 @@ T::ok(str_contains($r['headers']['location'] ?? '', '/?select=1&q=Bulk&bulk_done
 T::eq(3, (int)$db->query("SELECT COUNT(*) FROM items WHERE location_id = $shelf AND id IN ($bA,$bB,$bC)")->fetchColumn(), 'all three moved');
 T::eq(3, (int)$db->query("SELECT COUNT(*) FROM activity WHERE action = 'moved' AND item_id IN ($bA,$bB,$bC)")->fetchColumn(), 'one history entry per item');
 T::ok(str_contains($c->get('/?select=1&q=Bulk&bulk_done=3&bulk_act=move')['body'], 'Moved 3 items'), 'toast');
+T::ok(str_contains($c->get('/?select=1&q=Bulk&bulk_done=1&bulk_act=move')['body'], 'Moved 1 item')
+    && !str_contains($c->get('/?select=1&q=Bulk&bulk_done=1&bulk_act=move')['body'], 'Moved 1 items'), 'toast singular for one item');
 $c->post('/bulk', ['csrf' => $tok, 'ids' => [$bA, $bB], 'action' => 'move', 'location_id' => '']);
 T::eq(2, (int)$db->query("SELECT COUNT(*) FROM items WHERE location_id IS NULL AND id IN ($bA,$bB)")->fetchColumn(), 'move to "No location"');
 $c->post('/bulk', ['csrf' => $tok, 'ids' => [$bA, $bC], 'action' => 'category', 'category_id' => $kitchen]);
@@ -587,7 +628,7 @@ T::ok(str_contains($ov['html'], 'lendbadge is-overdue') && str_contains($ov['chi
 T::ok(str_contains($c->json('/?lend=out')['json']['html'], 'Lent · Nikos'), 'lent badge on card');
 $lent = $c->get('/lent')['body'];
 T::ok(strpos($lent, 'Ladder') !== false && strpos($lent, 'Ladder') < strpos($lent, 'Projector'), '/lent lists overdue first');
-T::ok(str_contains($lent, '1 overdue'), '/lent summary');
+T::ok(str_contains($lent, '2 items out') && str_contains($lent, '1 overdue'), '/lent summary plural + overdue');
 T::ok(str_contains($c->get('/')['body'], 'href="/lent"'), 'menu links to the Lent page');
 $csvLend = array_map('str_getcsv', array_filter(explode("\n", ltrim($c->get('/export.csv')['body'], "\xEF\xBB\xBF"))));
 $lrow = array_values(array_filter($csvLend, fn($l) => ($l[0] ?? '') === (string)$lA))[0] ?? [];
@@ -600,6 +641,7 @@ $z->close();
 T::ok(in_array('Maria', array_column($bi['rows'], array_search('lent_to', $bi['columns'], true)), true), 'backup includes lending');
 $c->post("/item/$lA/return", ['csrf' => $tok, 'back' => '/lent']);
 T::eq(null, $db->query("SELECT lent_to FROM items WHERE id = $lA")->fetchColumn() ?: null, 'returned');
+T::ok(str_contains($c->get('/lent')['body'], '1 item out') && !str_contains($c->get('/lent')['body'], '1 items out'), '/lent summary singular when one item remains out');
 $acts = array_column($db->query("SELECT action FROM activity WHERE item_id = $lA ORDER BY id")->fetchAll(), 'action');
 T::eq(['created', 'lent', 'returned'], $acts, 'history: lent + returned');
 T::ok(str_contains($c->get("/item/$lA")['body'], 'Returned by <b>Maria</b>'), 'history rendered');
@@ -778,6 +820,12 @@ foreach ([['Drill', '150,00', $vS, $vTools, '2024-01-10'], ['Saw', '50.00', $vG,
 }
 $vst = $vc->get('/stats')['body'];
 T::ok(str_contains($vst, 'id="value-total">235.50 CHF</b>') && str_contains($vst, '4 items with a price'), 'overall total in the configured currency');
+$v1 = new Server($newDir('val1'), ['CURRENCY' => 'EUR', 'SEED_DEFAULTS' => '0']);
+$v1c = $v1->client();
+$v1t = $v1c->csrf();
+$v1c->api('/save', ['csrf' => $v1t, 'name' => 'Only', 'value' => '9.99']);
+T::ok(str_contains($v1c->get('/stats')['body'], '1 item with a price') && !str_contains($v1c->get('/stats')['body'], '1 items with a price'), 'value card singular for one priced item');
+$v1->stop();
 T::ok(preg_match('#id="st-value".*?data-loc="' . $vG . '">Garage</a></span>.*?<span class="hb-n">200\.00 CHF</span>#s', $vst) === 1, 'per location, sub-locations rolled up');
 T::ok(!preg_match('#id="st-value".*?data-loc="' . $vS . '">#s', $vst), 'sub-location not listed on its own');
 T::ok(preg_match('#id="st-value".*?data-cat="' . $vTools . '">Tools</a></span>.*?<span class="hb-n">200\.00 CHF</span>#s', $vst) === 1, 'per category');
@@ -805,6 +853,7 @@ T::ok(!str_contains($v0->client()->get('/stats')['body'], 'id="st-value"'), 'no 
 $v0->stop();
 
 T::section('Delete item');
+T::eq(404, $c->api('/item/999999/delete', ['csrf' => $tok])['status'], 'delete missing item → 404 (no false toast)');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);
 T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/?deleted=1', 'delete redirects to list');
@@ -899,7 +948,12 @@ T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/login', 'a
 T::eq(401, $pc->get('/media/thumb/' . str_repeat('a', 32) . '.jpg')['status'], 'media → 401');
 T::eq(401, $pc->json('/?q=x')['status'], 'JSON → 401');
 T::eq(303, $pc->get('/stats')['status'], 'stats fragment requires login');
+T::eq(303, $pc->get('/export.csv')['status'], 'CSV export requires login');
+T::eq(303, $pc->get('/backup.zip')['status'], 'backup zip requires login');
 $ptok = $pc->csrf();
+T::eq(419, $pc->post('/login', ['password' => 's3cret'])['status'], 'login without CSRF → 419');
+$r = $pc->post('/login', ['csrf' => $ptok, 'password' => '']);
+T::ok($r['status'] === 200 && str_contains($r['body'], 'Wrong password'), 'empty password refused');
 $r = $pc->post('/login', ['csrf' => $ptok, 'password' => 'wrong']);
 T::ok($r['status'] === 200 && str_contains($r['body'], 'Wrong password'), 'wrong password refused');
 $sidBefore = $pc->cookies['apothekesid'] ?? '';
@@ -911,6 +965,25 @@ $ptok = $pc->csrf();
 T::eq(303, $pc->post('/logout', ['csrf' => $ptok])['status'], 'logout');
 T::eq(303, $pc->get('/')['status'], 'signed out again');
 $ps->stop();
+
+T::section('List pagination (PAGE_SIZE)');
+$pgDir = $newDir('page');
+$pgS = new Server($pgDir, ['PAGE_SIZE' => '2', 'SEED_DEFAULTS' => '0']);
+$pgC = $pgS->client();
+$pgTok = $pgC->csrf();
+foreach (['Alpha', 'Bravo', 'Charlie'] as $n) {
+    $pgC->api('/save', ['csrf' => $pgTok, 'name' => $n]);
+}
+$p1 = $pgC->json('/?sort=name');
+T::eq(200, $p1['status'], 'page 1 JSON ok');
+T::eq(3, (int)($p1['json']['total'] ?? 0), 'total is 3');
+T::eq(true, (bool)($p1['json']['more'] ?? false), 'more=true when PAGE_SIZE=2 and 3 items');
+T::eq(2, substr_count((string)($p1['json']['html'] ?? ''), 'class="card"'), 'page 1 returns 2 cards');
+T::ok(str_contains((string)($p1['json']['count'] ?? ''), '3 items'), 'count text uses total not page size');
+$p2 = $pgC->json('/?sort=name&page=2');
+T::eq(1, substr_count((string)($p2['json']['html'] ?? ''), 'class="card"'), 'page 2 returns the remaining card');
+T::eq(false, (bool)($p2['json']['more'] ?? true), 'more=false on last page');
+$pgS->stop();
 
 /* ======================================================================= */
 T::section('Seeding on first use (SEED_DEFAULTS=1)');
