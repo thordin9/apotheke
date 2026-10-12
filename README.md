@@ -112,6 +112,14 @@ it works fully offline on your LAN.
 |---|---|---|---|---|
 | ![Gallery](docs/screenshots/gallery-light.png) | ![Tags](docs/screenshots/tags-dark.png) | ![Labels](docs/screenshots/labels-light.png) | ![Restore](docs/screenshots/restore-light.png) | ![Activity](docs/screenshots/activity-dark.png) |
 
+| Running low | Bulk actions (dark) | Lent out | Lent item (dark) |
+|---|---|---|---|
+| ![Low stock](docs/screenshots/low-stock-light.png) | ![Bulk actions](docs/screenshots/bulk-dark.png) | ![Lent page](docs/screenshots/lent-light.png) | ![Lent item](docs/screenshots/item-lent-dark.png) |
+
+| Duplicate | Nested locations | Location path (dark) |
+|---|---|---|
+| ![Duplicate](docs/screenshots/duplicate-light.png) | ![Location tree](docs/screenshots/locations-tree-light.png) | ![Item in a nested location](docs/screenshots/item-nested-dark.png) |
+
 ## Requirements
 
 **Runtime** (the Docker image has all of this):
