@@ -762,6 +762,48 @@ T::ok(str_contains($xc->json('/?exp=soon&sort=name')['json']['html'], 'Expires t
 $xs->stop();
 
 
+T::section('Purchase price and value totals');
+$vs = new Server($newDir('val'), ['CURRENCY' => 'CHF', 'SEED_DEFAULTS' => '0']);
+$vc = $vs->client();
+$vt = $vc->csrf();
+$vLoc = fn(string $n, $p = '') => (int)$vc->api('/locations', ['csrf' => $vt, 'name' => $n, 'parent' => (string)$p])['json']['id'];
+$vG = $vLoc('Garage');
+$vS = $vLoc('Shelf', $vG);
+$vA = $vLoc('Attic');
+$vTools = (int)$vc->api('/categories', ['csrf' => $vt, 'name' => 'Tools'])['json']['id'];
+T::ok(str_contains($vc->get('/new')['body'], 'Purchase price <em>CHF</em>'), 'form shows the configured currency');
+T::eq(422, $vc->api('/save', ['csrf' => $vt, 'name' => 'Bad', 'value' => 'abc'])['status'], 'invalid price rejected');
+foreach ([['Drill', '150,00', $vS, $vTools, '2024-01-10'], ['Saw', '50.00', $vG, $vTools, ''], ['Lamp', '25.50', $vA, '', ''], ['Box', '', $vA, $vTools, ''], ['Loose', '10', '', '', '']] as [$n, $v, $l, $cat, $d]) {
+    $vc->api('/save', ['csrf' => $vt, 'name' => $n, 'value' => $v, 'location_id' => (string)$l, 'category_id' => (string)$cat, 'purchase_date' => $d]);
+}
+$vst = $vc->get('/stats')['body'];
+T::ok(str_contains($vst, 'id="value-total">235.50 CHF</b>') && str_contains($vst, '4 items with a price'), 'overall total in the configured currency');
+T::ok(preg_match('#id="st-value".*?data-loc="' . $vG . '">Garage</a></span>.*?<span class="hb-n">200\.00 CHF</span>#s', $vst) === 1, 'per location, sub-locations rolled up');
+T::ok(!preg_match('#id="st-value".*?data-loc="' . $vS . '">#s', $vst), 'sub-location not listed on its own');
+T::ok(preg_match('#id="st-value".*?data-cat="' . $vTools . '">Tools</a></span>.*?<span class="hb-n">200\.00 CHF</span>#s', $vst) === 1, 'per category');
+T::ok(preg_match('#id="st-value".*?<h4>By category</h4>.*?>No category</a></span>.*?<span class="hb-n">35\.50 CHF</span>#s', $vst) === 1, '"No category" bucket (Lamp + Loose)');
+T::eq(['Drill', 'Saw', 'Lamp', 'Loose', 'Box'], titles($vc->json('/?sort=value')), 'sort by value: highest first, no price last');
+T::ok(str_contains($vc->get('/')['body'], '<option value="value"'), 'sort option offered');
+$vcsv = array_map('str_getcsv', array_filter(explode("\n", ltrim($vc->get('/export.csv')['body'], "\xEF\xBB\xBF"))));
+$vh = array_flip($vcsv[0]);
+$vrow = array_values(array_filter($vcsv, fn($l) => ($l[1] ?? '') === 'Drill'))[0];
+T::eq(['150.00', 'CHF', '2024-01-10'], [$vrow[$vh['value']], $vrow[$vh['currency']], $vrow[$vh['purchase_date']]], 'CSV: price, currency, purchase date');
+$vz = sys_get_temp_dir() . '/apotheke-val-' . bin2hex(random_bytes(3)) . '.zip';
+file_put_contents($vz, $vc->get('/backup.zip')['body']);
+$z = new ZipArchive(); $z->open($vz);
+$bi = json_decode((string)$z->getFromName('backup.json'), true)['tables']['items'];
+$z->close(); @unlink($vz);
+T::ok(in_array(15000, array_map('intval', array_column($bi['rows'], array_search('value_cents', $bi['columns'], true))), true), 'backup includes the price');
+$vDrill = (int)$vrow[0];
+T::ok(str_contains($vc->get("/item/$vDrill")['body'], '<dt>Price</dt><dd>150.00 CHF'), 'item page shows the price');
+$vc->api('/save', ['csrf' => $vt, 'id' => $vDrill, 'name' => 'Drill', 'value' => '120', 'location_id' => (string)$vS, 'category_id' => (string)$vTools, 'purchase_date' => '2024-01-10']);
+T::ok(str_contains($vc->get("/item/$vDrill")['body'], 'Purchase price'), 'history labels the price change');
+T::ok(str_contains($vc->get('/stats')['body'], 'id="value-total">205.50 CHF</b>'), 'total follows edits');
+$vs->stop();
+$v0 = new Server($newDir('val0'), ['SEED_DEFAULTS' => '0']);
+T::ok(!str_contains($v0->client()->get('/stats')['body'], 'id="st-value"'), 'no value card without prices');
+$v0->stop();
+
 T::section('Delete item');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);

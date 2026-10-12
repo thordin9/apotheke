@@ -50,13 +50,13 @@ it works fully offline on your LAN.
 * **Instant search** across name, location, category, notes, tags and serial number, ignoring case and accents (Greek
   included).
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
-  and to sort by recent, name, location, category or quantity. Active filters show as removable chips with *Clear all*.
+  and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, reorder, choose the cover,
   delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
   shrunk on the phone before upload (max 1600 px, JPEG ~80 %), then checked and re-encoded with GD on the server (which
   strips EXIF/GPS) with a 480 px thumbnail for the grid.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
-  list), plus value (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
+  list), plus purchase price (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
 * **QR labels** for locations and items: ☰ → *Print QR labels* prints one label per location (or one per item in a location;
   every item page has a *QR label* button). Scanning opens that list or item. Codes are generated on the server in pure PHP
   (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet (3 labels per row on A4/Letter). Set
@@ -78,6 +78,10 @@ it works fully offline on your LAN.
   *Actions* opens a sheet to **move** them to a location, **set the category**, **add tags** or **remove a tag**, or
   **delete** them after a confirmation page. Each action runs in one transaction, writes a history entry per item and is
   CSRF-protected (`POST /bulk`, at most 500 items at once). Works without JavaScript too (`/?select=1`, `&all=1`).
+* **Purchase price and value totals**: an optional purchase price (decimal, `79,90` or `79.90`, in `CURRENCY`,
+  default EUR) and purchase date per item. The overview's *Value* card shows the total purchase price and the
+  totals per location (rolled up to top-level locations) and per category; *Sort by → Value* lists the most valuable
+  items first (items without a price last). Prices are in the CSV export (`value`, `currency`) and backups.
 * **Expiry and warranty dates**: an optional *Expires / warranty until* date per item (food, medicine, batteries,
   warranties). Cards and the item page show **Expires in N days** (within `EXPIRY_SOON_DAYS`, default 30) or a red
   **Expired** badge, the overview has *Expiring soon* and *Expired* tiles, and the filter sheet has *Expiry / warranty →
@@ -275,7 +279,8 @@ On first start after an update the database is upgraded automatically (or run `p
   * From the locations-only version, categories are added; existing items start without a category.
 * **Single photo → multiple photos** (migration `0003`): each item's photo becomes its cover.
 * Migrations `0004` (tags, custom fields), `0005` (activity log), `0006` (low-stock minimum), `0007` (lending),
-  `0008` (parent location) and `0009` (expiry date) only add tables/columns.
+  `0008` (parent location) and `0009` (expiry date) only add tables/columns;
+  `0010` only adds an index on the purchase price.
 
 Once everything looks right you can delete the `catalog-v*-backup-*.sqlite` snapshot. Before any upgrade, take a backup
 (☰ → *Backup & restore* or `bin/backup.php`); a plain copy of `data/` also works if the app is stopped, or use

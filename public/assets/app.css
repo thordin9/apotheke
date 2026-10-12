@@ -609,3 +609,12 @@ a.tagchip{min-height:36px}
 .expbadge.is-expired{background:var(--danger-soft);color:var(--danger)}
 .facts .expbadge{margin:0 0 0 6px;vertical-align:middle}
 .chip-exp .i{color:var(--warn)}
+
+/* overview: purchase-price totals */
+.st-total{margin:0 0 8px;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.st-total b{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.st-total .st-sub{margin:0}
+.st-value-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.st-value-grid h4{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--muted)}
+.st-value .hb-n{min-width:0;white-space:nowrap;font-variant-numeric:tabular-nums}
+@media (min-width:600px){.st-value-grid{grid-template-columns:1fr 1fr}}

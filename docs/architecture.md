@@ -132,7 +132,7 @@ that list everywhere: `tax_option_label()` indents dropdown options, `parent_opt
 (without the location's own branch), `location_trail_html()` renders the path on the item page. The list filter
 `loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`. A search word that matches a location name expands the same way
 (`location_ids_matching()`), so items below a matching location are found too. The overview's *By location* bars
-come from `stats_location_rollup()`, which adds every item to the top-level location of its branch.
+come from `stats_location_rollup()`, which adds every item to the top-level location of its branch. `stats_value()` uses the same rollup for the purchase-price totals of the *Value* card.
 
 ## Docker image
 

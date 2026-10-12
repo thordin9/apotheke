@@ -41,7 +41,7 @@ erDiagram
     int min_qty "nullable: low-stock level"
     text notes
     text image "cover file = item_photos position 0"
-    bigint value_cents "nullable"
+    bigint value_cents "nullable: purchase price in cents (indexed, 0010)"
     text purchase_date "nullable, Y-m-d"
     text serial
     text lent_to "nullable"
@@ -124,6 +124,7 @@ Notes:
 | 0007 | `0007_lending.php` | `items.lent_to`, `lent_at`, `lent_due` + index on `lent_due` |
 | 0008 | `0008_nested_locations.php` | `locations.parent_id` + index |
 | 0009 | `0009_expiry.php` | `items.expires_on` + index |
+| 0010 | `0010_value_index.php` | index on `items.value_cents` (sort by value, totals) |
 
 ## How migrations run
 

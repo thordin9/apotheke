@@ -44,7 +44,7 @@ return [
 | `uploads.full_max` | `IMAGE_FULL_MAX` | `1600` | Longest side in px of stored photos. |
 | `uploads.thumb_max` | `IMAGE_THUMB_MAX` | `480` | Longest side in px of thumbnails. |
 | `page_size` | `PAGE_SIZE` | `60` | Items per page in the list (*Show more* loads the next page). |
-| `currency` | `CURRENCY` | `EUR` | Shown next to item values (ISO code or symbol, max. 8 characters). Only a label. |
+| `currency` | `CURRENCY` | `EUR` | Currency of purchase prices and value totals (ISO code or symbol, max. 8 characters). Only a label: no conversion. |
 | `expiry_soon_days` | `EXPIRY_SOON_DAYS` | `30` | Window for *Expiring soon*: an item whose expiry/warranty date is between today and today + N days. Clamped to 1–3650. |
 | `public_url` | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Without it the scheme and `Host` of the current request are used. |
 | `seed_defaults` | `SEED_DEFAULTS` | `true` | On a brand-new database, create starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby). |

@@ -348,7 +348,7 @@ function active_filter_count(array $f, string $sort): int
     return count(array_filter(filters_norm($f), fn($v) => $v !== '')) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
 }
 
-const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity'];
+const SORTS = ['recent' => 'Recently added', 'name' => 'Name', 'location' => 'Location', 'category' => 'Category', 'qty' => 'Quantity', 'value' => 'Value (highest first)'];
 
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
 function active_chips_html(array $f, string $sort, array $locs, array $cats, ?array $tags = null): string
@@ -412,8 +412,9 @@ function svg_bars(array $series, string $label): string
 }
 
 /** Horizontal "top N" bars (HTML rows + tiny SVG bar each); labels filter the list by $param. */
-function hbars(array $rows, string $param, string $empty): string
+function hbars(array $rows, string $param, string $empty, ?callable $fmt = null): string
 {
+    $fmt ??= fn(int $v): string => (string)$v;
     if (!$rows) return '<p class="st-empty">' . h($empty) . '</p>';
     $max = max(1, ...array_map(fn($r) => (int)$r['n'], $rows));
     $o = '<ul class="hbars">';
@@ -425,7 +426,7 @@ function hbars(array $rows, string $param, string $empty): string
             : '<span>' . $name . '</span>';
         $o .= '<li class="' . (!empty($r['other']) || $r['id'] === 'none' ? 'muted' : '') . '"><span class="hb-name">' . $label . '</span>'
             . '<svg class="hb-bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="hb-track" width="100" height="10" rx="5"/><rect class="hb-fill" width="' . max(2, $pct) . '" height="10" rx="5"/></svg>'
-            . '<span class="hb-n">' . (int)$r['n'] . '</span></li>';
+            . '<span class="hb-n">' . h($fmt((int)$r['n'])) . '</span></li>';
     }
     return $o . '</ul>';
 }
@@ -452,6 +453,16 @@ function stats_body_html(): string
         . '<div class="chart-d">' . svg_bars($days, 'Items added per day, last 30 days') . '<p class="st-sub">' . array_sum(array_column($days, 'n')) . ' in the last 30 days · peak ' . max(array_column($days, 'n')) . '/day</p></div>'
         . '<div class="chart-m">' . svg_bars($months, 'Items added per month, last 12 months') . '<p class="st-sub">' . array_sum(array_column($months, 'n')) . ' in the last 12 months · peak ' . max(array_column($months, 'n')) . '/month</p></div>'
         . '</section>';
+    $val = stats_value(5);
+    if ($val['priced'] > 0) {
+        $money = fn(int $c): string => fmt_money($c);
+        $o .= '<section class="st-card st-wide st-value" id="st-value"><div class="st-head"><h3>Value</h3>'
+            . '<a class="st-link" href="/?sort=value">Most valuable</a></div>'
+            . '<p class="st-total"><b id="value-total">' . h(fmt_money($val['total'])) . '</b> <span class="st-sub">total purchase price of '
+            . number_format($val['priced']) . ' item' . ($val['priced'] === 1 ? '' : 's') . ' with a price</span></p>'
+            . '<div class="st-value-grid"><div><h4>By location</h4>' . hbars($val['by_location'], 'loc', 'No prices yet.', $money) . '</div>'
+            . '<div><h4>By category</h4>' . hbars($val['by_category'], 'cat', 'No prices yet.', $money) . '</div></div></section>';
+    }
     foreach (KINDS as $kind) {
         $k = tax($kind);
         $o .= '<section class="st-card st-' . $kind . '"><div class="st-head"><h3>By ' . h($k['one']) . '</h3><a class="st-link" href="' . $k['path'] . '">All</a></div>'
@@ -643,7 +654,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
   </ul>
   <?php endif; ?>
-  <?php $facts = array_filter(['Value' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php $facts = array_filter(['Price' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? '')], fn($v) => $v !== ''); ?>
   <?php if ($facts): ?>
   <dl class="facts" id="facts">
     <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?><?= $k === 'Expires' ? ' ' . expiry_badge_html($it) : '' ?></dd></div><?php endforeach; ?>
@@ -800,10 +811,10 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </label>
     <datalist id="tag-list"><?php foreach (tags_all() as $t): ?><option value="<?= h($t['name']) ?>"></option><?php endforeach; ?></datalist>
     <details class="more-fields"<?= ($vals['value'] ?? '') !== '' || ($vals['purchase_date'] ?? '') !== '' || ($vals['expires_on'] ?? '') !== '' || ($vals['serial'] ?? '') !== '' ? ' open' : '' ?>>
-      <summary>Value, dates &amp; serial</summary>
+      <summary>Price, dates &amp; serial</summary>
       <div class="more-grid">
         <label class="field">
-          <span>Value <em><?= h(cfg()['currency']) ?></em></span>
+          <span>Purchase price <em><?= h(cfg()['currency']) ?></em></span>
           <input type="text" name="value" id="value" value="<?= h($vals['value'] ?? '') ?>" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="0.00">
         </label>
         <label class="field">
@@ -1034,7 +1045,7 @@ function view_error(int $code, string $msg): void
  * Print-friendly sheet of QR labels.
  * @param array<int,array{title:string,sub:string,path:string}> $labels
  */
-const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Value', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
+const ACTIVITY_FIELDS = ['name' => 'Name', 'category' => 'Category', 'notes' => 'Notes', 'value' => 'Purchase price', 'purchase_date' => 'Purchase date', 'expires_on' => 'Expires', 'serial' => 'Serial no.', 'tags' => 'Tags', 'min_qty' => 'Running low at'];
 
 /** One activity entry as HTML (already escaped). */
 function activity_html(array $e): string

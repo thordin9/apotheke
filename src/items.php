@@ -526,6 +526,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
         'location' => 'CASE WHEN l.id IS NULL THEN 1 ELSE 0 END, l.sort_key ASC, i.sort_key ASC, i.id DESC',
         'category' => 'CASE WHEN c.id IS NULL THEN 1 ELSE 0 END, c.sort_key ASC, i.sort_key ASC, i.id DESC',
         'qty'      => 'i.quantity DESC, i.sort_key ASC, i.id DESC',
+        'value'    => 'CASE WHEN i.value_cents IS NULL THEN 1 ELSE 0 END, i.value_cents DESC, i.sort_key ASC, i.id DESC',
         default    => 'i.updated_at DESC, i.id DESC',
     };
     $st = db()->prepare('SELECT COUNT(*) ' . ITEM_FROM . " $w");
@@ -1014,8 +1015,10 @@ function stats_by(string $kind, int $n = 5): array
  * Item counts per top-level location, each including everything in its sub-locations (every item is counted once,
  * under the top of its branch). Sorted by count, then tree order. @return array<int,array{id:int,name:string,n:int}>
  */
-function stats_location_rollup(): array
+function stats_location_rollup(string $measure = 'count'): array
 {
+    // $measure picks one of two fixed aggregates (never user input): item count or summed purchase price (cents)
+    $agg = $measure === 'value' ? 'COALESCE(SUM(value_cents), 0)' : 'COUNT(*)';
     $byId = locations_by_id();
     $root = [];
     foreach ($byId as $id => $l) {
@@ -1024,7 +1027,7 @@ function stats_location_rollup(): array
         $root[$id] = $r;
     }
     $sum = [];
-    foreach (db()->query('SELECT location_id, COUNT(*) AS n FROM items WHERE location_id IS NOT NULL GROUP BY location_id')->fetchAll() as $row) {
+    foreach (db()->query("SELECT location_id, $agg AS n FROM items WHERE location_id IS NOT NULL" . ($measure === 'value' ? ' AND value_cents IS NOT NULL' : '') . ' GROUP BY location_id')->fetchAll() as $row) {
         $r = $root[(int)$row['location_id']] ?? null;
         if ($r !== null) $sum[$r] = ($sum[$r] ?? 0) + (int)$row['n'];
     }
@@ -1033,6 +1036,31 @@ function stats_location_rollup(): array
     foreach ($sum as $id => $cnt) $out[] = ['id' => $id, 'name' => (string)$byId[$id]['name'], 'n' => $cnt];
     usort($out, fn($a, $b) => [$b['n'], $pos[$a['id']]] <=> [$a['n'], $pos[$b['id']]]);
     return $out;
+}
+
+/**
+ * Purchase-price totals for the overview (cents): overall, per top-level location (sub-locations rolled up) and per
+ * category, each with "No location" / "No category" buckets. Items without a price are not counted.
+ * @return array{total:int, priced:int, by_location: array, by_category: array}
+ */
+function stats_value(int $n = 5): array
+{
+    $r = db()->query('SELECT COALESCE(SUM(value_cents), 0) AS total, COUNT(value_cents) AS priced FROM items')->fetch();
+    $byLoc = array_values(array_filter(stats_location_rollup('value'), fn($x) => $x['n'] > 0));
+    $byCat = array_map(fn($x) => ['id' => (int)$x['id'], 'name' => (string)$x['name'], 'n' => (int)$x['n']],
+        db()->query('SELECT c.id, c.name, SUM(i.value_cents) AS n FROM items i JOIN categories c ON c.id = i.category_id
+                     WHERE i.value_cents IS NOT NULL GROUP BY c.id, c.name, c.sort_key ORDER BY n DESC, c.sort_key, c.id')->fetchAll());
+    $bucket = function (array $rows, string $kind) use ($n): array {
+        $t = tax($kind);
+        $top = array_slice($rows, 0, $n);
+        $rest = array_slice($rows, $n);
+        if ($rest) $top[] = ['id' => null, 'name' => 'Other (' . count($rest) . ')', 'n' => array_sum(array_column($rest, 'n')), 'other' => true];
+        $un = (int)db()->query("SELECT COALESCE(SUM(value_cents), 0) FROM items WHERE {$t['col']} IS NULL")->fetchColumn();
+        if ($un > 0) $top[] = ['id' => 'none', 'name' => $t['none'], 'n' => $un];
+        return $top;
+    };
+    return ['total' => (int)$r['total'], 'priced' => (int)$r['priced'],
+            'by_location' => $bucket($byLoc, 'location'), 'by_category' => $bucket($byCat, 'category')];
 }
 
 /* ---------- bulk actions ---------- */

@@ -102,6 +102,7 @@ npm run test:e2e:report                             # open the HTML report
 | `stock.spec.ts` | low-stock level, live badge, tile and filter |
 | `bulk.spec.ts` | selection mode, move, tags, select all, delete confirmation |
 | `lending.spec.ts` | lend, overdue, filters, Lent page, return (`@smoke`) |
+| `value.spec.ts` | Value card totals, sort by value, editing a price (`@smoke`) |
 | `expiry.spec.ts` | expiry date, badges, Expiring soon / Expired tiles and filters (`@smoke`) |
 | `duplicate.spec.ts` | duplicate with and without photos |
 | `locations-nested.spec.ts` | nested locations: create inside, move, tree order, filter by parent, item trail, delete (`@smoke`) |

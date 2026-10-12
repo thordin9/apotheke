@@ -47,7 +47,7 @@ category. It ignores case and accents, Greek included ("πριζα" finds "Πρ�
 | Stock | *All items* / *Running low* |
 | Expiry / warranty | *All items* / *Expiring soon* / *Expired* |
 | Lending | *All items* / *Lent out* / *Overdue* |
-| Sort by | Recently added, Name, Location, Category, Quantity |
+| Sort by | Recently added, Name, Location, Category, Quantity, Value (highest first; items without a price last) |
 
 Active filters appear as chips under the search field; tap a chip's × to remove it, or *Clear all*. The badge on the
 *Filter* button counts the active filters. Everything lives in the URL (`/?q=drill&loc=3&tag=5&stock=low&lend=out&sort=name`),
@@ -59,6 +59,10 @@ The collapsible *Overview* panel at the top of the list shows tiles (items, tota
 added this week, added this month, **Running low**, **Expiring soon**, **Expired**), a chart of items added (last 30 days by day or last 12 months by
 month), and the top 5 locations and categories as bars. *By location* counts per **top-level** location, including
 everything in its sub-locations, so every item is counted once (under the top of its branch). Tap a bar, or the *Running low*, *Expiring soon* or *Expired* tile, to filter the list. The
+**Value** card (only once at least one item has a purchase price): the total purchase price of all priced items,
+and the totals per top-level location (sub-locations rolled up, like *By location*) and per category, each with a
+*No location* / *No category* bucket. The price is the price of the item entry as entered; it is **not** multiplied
+by the quantity. Items without a price are left out. *Most valuable* opens the list sorted by value. The
 panel remembers whether it was open (cookie) and which range you picked; while it is collapsed the statistics are not
 computed or downloaded at all.
 
@@ -103,7 +107,7 @@ Type tags in the form and press Enter or comma to add them; existing tags are su
 ignoring case and accents, an item can have up to 20, and unused tags disappear automatically. Tag chips on the item
 page link to the list filtered by that tag.
 
-*More fields* holds the **value** (in `CURRENCY`; `79,90` and `79.90` both work), the **purchase date** (not in the
+*Price, dates & serial* holds the **purchase price** (in `CURRENCY`, default EUR; `79,90` and `79.90` both work), the **purchase date** (not in the
 future), the **expiry / warranty date** (see below) and the **serial number** (searchable). They show up as facts on
 the item page.
 
