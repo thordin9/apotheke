@@ -21,8 +21,9 @@ The integration suite starts PHP's built-in server on temporary data directories
 a small client (`tests/lib.php`: cookies, CSRF, multipart uploads, JSON). It covers uploads (images generated with
 GD), search and filters, quantities, edit/delete, locations and categories, low-stock alerts, bulk actions, lending,
 duplicating, nested locations, QR labels, CSV, backup/restore, migrations from legacy schemas, CSRF
-and upload rejection, password mode, statistics, and HEAD-on-read-routes (the router treats `HEAD` like `GET`).
-It prints one line per assertion and exits non-zero on failure.
+and upload rejection, password mode (including gated CSV/backup downloads and login CSRF), statistics,
+HEAD-on-read-routes (the router treats `HEAD` like `GET`), singular stats/`item_noun` copy, list pagination
+(`PAGE_SIZE`), and the HTTP photo limit. It prints one line per assertion and exits non-zero on failure.
 
 ## PHPUnit
 
