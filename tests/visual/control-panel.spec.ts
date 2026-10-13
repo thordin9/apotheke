@@ -195,7 +195,7 @@ test.describe('control panel', () => {
     await expect(other).toHaveURL(/\/login/);
     await other.locator('#login-user').fill('admin');
     await other.locator('#login-pw').fill('garage-secret');
-    await other.locator('button.btn-primary').click();
+    await Promise.all([other.waitForURL(u => !u.pathname.startsWith('/login')), other.locator('button.btn-primary').click()]);
     await other.goto('/settings');
     await expect(other).toHaveURL(/\/settings$/);
     await other.close();
