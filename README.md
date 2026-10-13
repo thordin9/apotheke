@@ -165,6 +165,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 |---|---|---|---|---|
 | ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
 
+| Notes + attachments | Bulk labels (dark) | Favourites + recently viewed | Merge (dark) | Undo |
+|---|---|---|---|---|
+| ![Markdown notes and attachments](docs/screenshots/item-notes-attachments-light.png) | ![Label sheet for a selection](docs/screenshots/labels-selection-dark.png) | ![Favourites chip and recently viewed](docs/screenshots/list-favourites-recent-light.png) | ![Merge confirm screen](docs/screenshots/merge-confirm-dark.png) | ![Undo bar](docs/screenshots/undo-bar-light.png) |
+
 | Sign in (password mode) | Settings | Appearance (dark) | Custom accent + logo |
 |---|---|---|---|
 | ![Sign in](docs/screenshots/login-light.png) | ![Settings](docs/screenshots/settings-light.png) | ![Appearance](docs/screenshots/settings-appearance-dark.png) | ![Custom accent and logo](docs/screenshots/custom-brand-light.png) |
