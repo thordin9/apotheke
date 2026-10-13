@@ -45,7 +45,7 @@ function view_photo_edit(array $it, array $photo, int $count, ?string $error): v
     <p class="pe-info" id="pe-info" aria-live="polite"></p>
     <div class="actionbar actionbar-form"><div class="actionbar-in">
       <a class="btn" href="/item/<?= $id ?>#photos" id="pe-cancel">Cancel</a>
-      <button class="btn btn-primary" id="pe-save"><?= icon('check') ?> Save as new version</button>
+      <button class="btn btn-primary" id="pe-save"><?= icon('check') ?> Save</button>
     </div></div>
   </form>
 </main>

@@ -14,8 +14,12 @@ test.describe('photo editing', () => {
     await expect(page.locator('#pe-canvas')).toBeVisible();
     await app.noOverflow();
     await app.tapTargets();
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    const [manual, bar] = await page.evaluate(() => [document.querySelector('#pe-manual')!.getBoundingClientRect().bottom, document.querySelector('.actionbar')!.getBoundingClientRect().top]);
+    expect(manual, 'the exact-values box is not covered by the action bar').toBeLessThanOrEqual(bar);
     await page.locator('#pe-rr').click();
     await expect(page.locator('#pe-rotate')).toHaveValue('90');
+    await page.locator('#pe-canvas').evaluate(e => e.scrollIntoView({ block: 'center' }));
     const box = (await page.locator('#pe-canvas').boundingBox())!;
     await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
     await page.mouse.down();

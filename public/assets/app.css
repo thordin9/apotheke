@@ -946,3 +946,4 @@ select.imp-ignored{color:var(--muted)}
 .perm input:disabled+span{opacity:.6}
 .role-pending{background:var(--warn-bg,#fff4d6);color:var(--warn-ink,#7a4b00)}
 .login-alt{margin-top:var(--s3)}
+.page-photo-edit .wrap{padding-bottom:calc(110px + var(--sab))}
