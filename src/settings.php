@@ -18,7 +18,7 @@ const SETTINGS_SECTIONS = [
     'locale'     => ['Currency, dates & time', 'Currency, number and date formats, time zone', 'clock'],
     'list'       => ['List', 'Items per page, default sort and view', 'filter'],
     'items'      => ['New item defaults', 'Values pre-filled when you add an item', 'plus'],
-    'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo', 'alert'],
+    'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo, stocktake', 'alert'],
     'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
     'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
     'security'   => ['Password', 'Turn the password on or off, change it', 'lock'],
@@ -91,6 +91,7 @@ function settings_schema(): array
         'lend_due_days'    => ['limits', 'Default loan period (days)', 'int', null, 'Pre-fill “due back” when lending an item. Empty = no due date.', ['min' => 1, 'max' => 3650, 'nullable' => true]],
         'saved_filters_max' => ['limits', 'Saved filters limit', 'int', 50, 'Maximum number of saved filters.', ['min' => 1, 'max' => 500]],
         'undo_seconds'     => ['limits', 'Undo window (seconds)', 'int', 30, 'How long “Undo” is offered after editing, moving or deleting. Deleted photos and attachments stay on disk this long. 0 = no undo.', ['min' => 0, 'max' => 3600]],
+        'stocktake_apply_moves' => ['limits', 'Stocktake: move misplaced items', 'bool', true, 'When finishing a stocktake, items found in the checked location but recorded elsewhere are moved there (you can untick it each time).', []],
         'max_photos'       => ['limits', 'Photos per item', 'int', 12, '', ['min' => 1, 'max' => 50]],
         // uploads
         'max_upload_mb'    => ['uploads', 'Maximum upload (MB)', 'int', 'cfg:uploads.max_mb', 'Per photo. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],

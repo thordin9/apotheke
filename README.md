@@ -126,6 +126,11 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   is not copied. The copy's history starts with "Created … copied from “Name”".
 * **Merge duplicates**: *Merge…* on the item page suggests likely duplicates, shows a confirm screen (combined quantity,
   photos, attachments, tags, filled-in fields, loan) and merges everything — history included — in one transaction.
+* **Stocktake**: ☰ → *Stocktake* checks one location and everything inside it. Tick items in the list or scan their
+  QR label / barcode (camera where `BarcodeDetector` exists, or a USB scanner / typing; `#42` means item 42). Items that
+  turn up but belong elsewhere are listed as *misplaced*. *Finish* shows a report (found / missing / misplaced) and can
+  move the misplaced items into the checked location (logged in their history, default in Control Panel → *Thresholds &
+  limits*). Finished and cancelled stocktakes stay in the history at `/stocktake`; they are part of backups.
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).

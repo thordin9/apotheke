@@ -163,6 +163,11 @@ Notes:
   (`[["img", "…jpg"], ["att", "…pdf"]]`). Tokens live `undo_seconds`; expired ones are pruned (and their files deleted
   if nothing references them again) whenever a new token is created or */undo* is called. Not part of backups; a restore
   clears them.
+* `stocktakes` (migration 0017) is one check of a location (`location_name` keeps its path at the start; `status` is
+  `open`, `done` or `cancelled`; `summary` is JSON with the final counts). `stocktake_lines` has one row per item:
+  `expected = 1` for the snapshot of what was recorded in the location (and its sub-locations) at the start, `expected = 0`
+  for misplaced items found there; `found`, `found_at`, and `moved` once *Finish* moved it. `item_id` becomes NULL when
+  the item is deleted (`item_name` stays). Both tables are part of backups.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -187,6 +192,7 @@ Notes:
 | 0014 | `0014_attachments.php` | `item_attachments` (PDF/image files per item) + index |
 | 0015 | `0015_favourites_recent.php` | `items.favourite` + index, `recent_views` (recently viewed per device or install) |
 | 0016 | `0016_undo.php` | `undo_tokens` (short-lived undo snapshots) + index on `expires_at` |
+| 0017 | `0017_stocktake.php` | `stocktakes`, `stocktake_lines` (location checks and their results) |
 
 ## How migrations run
 

@@ -370,6 +370,7 @@ function menu_html(): string
         . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
+        . '<a class="menu-item" href="/stocktake" role="menuitem" id="menu-stocktake">' . icon('check') . ' Stocktake</a>'
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
         . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>'
         . '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>';
@@ -1350,7 +1351,7 @@ function view_activity(array $entries, int $page, bool $more, ?array $item = nul
 
 function backup_table_rows(array $current, ?array $incoming = null): string
 {
-    $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries'];
+    $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries', 'stocktakes' => 'Stocktakes'];
     $o = '<table class="btable"><thead><tr><th scope="col"></th><th scope="col">Now</th>' . ($incoming !== null ? '<th scope="col">In backup</th>' : '') . '</tr></thead><tbody>';
     foreach ($labels as $t => $l) {
         if (!isset($current[$t]) && !isset($incoming[$t])) continue;

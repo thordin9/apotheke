@@ -19,6 +19,7 @@ require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/views.php';
 require dirname(__DIR__) . '/src/backup.php';
 require dirname(__DIR__) . '/src/settings_views.php';
+require dirname(__DIR__) . '/src/stocktake_views.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -679,6 +680,53 @@ try {
     }
 
     /* ---- QR labels ---- */
+    /* ---- stocktake ---- */
+    if ($path === '/stocktake') {
+        if ($method === 'POST') {
+            check_csrf();
+            $loc = (string)($_POST['location_id'] ?? '');
+            if (!ctype_digit($loc)) throw new UserError('Choose a location to check.', 422);
+            redirect('/stocktake/' . stocktake_start((int)$loc));
+        }
+        no_store();
+        $pre = ctype_digit((string)($_GET['loc'] ?? '')) ? (int)$_GET['loc'] : null;
+        view_stocktakes(stocktake_list(), $pre, match ((string)($_GET['done'] ?? '')) { 'cancelled' => 'Stocktake cancelled', default => null });
+        exit;
+    }
+    if (preg_match('#^/stocktake/(\d+)(?:/(check|report|finish|cancel))?$#D', $path, $m)) {
+        $s = stocktake_get((int)$m[1]);
+        if (!$s) throw new UserError('Stocktake not found.', 404);
+        $act = $m[2] ?? '';
+        if ($method === 'GET' && ($act === '' || $act === 'report')) {
+            no_store();
+            if ($act === '' && $s['status'] === 'open') view_stocktake($s);
+            else view_stocktake_report($s, isset($_GET['finished']) ? 'Stocktake finished' . ((int)$_GET['finished'] > 0 ? ' · ' . item_noun((int)$_GET['finished']) . ' moved' : '') : null);
+            exit;
+        }
+        if ($method !== 'POST' || $act === '' || $act === 'report') throw new UserError('Page not found.', 404);
+        check_csrf();
+        if ($act === 'cancel') { stocktake_cancel($s['id']); redirect('/stocktake?done=cancelled'); }
+        if ($act === 'finish') { $n = stocktake_finish($s['id'], ($_POST['moves'] ?? '') === '1'); redirect('/stocktake/' . $s['id'] . '/report?finished=' . $n); }
+        // check: by item id (tick in the list) or by a scanned / typed code
+        $found = ($_POST['found'] ?? '1') !== '0';
+        try {
+            $iid = ctype_digit((string)($_POST['item_id'] ?? '')) ? (int)$_POST['item_id'] : stocktake_resolve_code((string)($_POST['code'] ?? ''));
+            $r = stocktake_check($s['id'], $iid, $found);
+        } catch (UserError $e) {
+            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+            http_response_code($e->getCode() >= 400 ? $e->getCode() : 422);
+            view_stocktake($s, $e->getMessage());
+            exit;
+        }
+        $msg = match ($r['state']) {
+            'found' => 'Found “' . $r['name'] . '”', 'missing' => 'Unticked “' . $r['name'] . '”',
+            'misplaced' => '“' . $r['name'] . '” belongs in ' . ($r['home'] !== '' ? $r['home'] : 'no location') . ' – marked as misplaced',
+            default => 'Removed “' . $r['name'] . '”',
+        };
+        if (wants_json()) json_out(['ok' => true, 'state' => $r['state'], 'message' => $msg, 'html' => stocktake_body_html(stocktake_get($s['id']))]);
+        redirect('/stocktake/' . $s['id']);
+    }
+
     if ($path === '/labels' && $method === 'GET') {
         no_store();
         $locs = locations();

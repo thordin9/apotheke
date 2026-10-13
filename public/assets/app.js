@@ -181,6 +181,24 @@
     } catch (_) { /* old browser */ }
   }
 
+  /* ---------- stocktake: tick / scan in place (the forms work without JS) ---------- */
+  const stk = $('#stocktake');
+  if (stk) {
+    document.addEventListener('submit', async e => {
+      const f = e.target.closest('form.stk-line, form#stk-scan');
+      if (!f) return;
+      e.preventDefault();
+      const code = $('#stk-code');
+      if (f.id === 'stk-scan' && !code.value.trim()) { code.focus(); return; }
+      try {
+        const j = await post(f.action, new FormData(f));
+        $('#stk-body').innerHTML = j.html;
+        toast(j.message, false);
+        if (f.id === 'stk-scan') { code.value = ''; code.removeAttribute('aria-invalid'); const er = $('#stk-err'); if (er) er.remove(); code.focus(); }
+      } catch (err) { toast(err.message, true); if (f.id === 'stk-scan') code.select(); }
+    });
+  }
+
   /* ---------- favourite star (in place; the form still works without JS) ---------- */
   document.addEventListener('submit', async e => {
     const f = e.target.closest('form.favf');

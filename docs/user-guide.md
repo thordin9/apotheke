@@ -283,6 +283,25 @@ happen before anything changes:
 
 *Merge* then does it all in one database transaction and removes the duplicate; if anything fails, nothing changes.
 
+## Stocktake
+
+☰ → *Stocktake* (`/stocktake`) checks a location against the catalog. Pick the location and *Start stocktake*: every
+item recorded there – including its sub-locations – is listed as *expected* (a snapshot taken at the start).
+
+* **Tick** an item in the list when you see it (tap again to untick), or **scan** it: the field takes a barcode, the link
+  in a QR label (`…/item/42`) or `#42`. *Scan* opens the camera where the browser supports `BarcodeDetector`; a USB
+  barcode scanner that types and presses Enter works everywhere.
+* An item that is **not** expected here (it belongs in another location, or has none) is added under *Found here,
+  belongs elsewhere* – it is **misplaced**. Tap it again to remove it.
+* A barcode several items share asks you to tick the right one in the list instead.
+
+*Finish* shows the report: **missing** (expected, not ticked), **misplaced** and **found**. With *Move the misplaced
+items to …* ticked (default: Control Panel → *Thresholds & limits* → *Stocktake: move misplaced items*), finishing moves
+them into the checked location and records “Moved … (stocktake)” in their history. Missing items are never changed.
+*Cancel* drops a stocktake without changing anything. Starting a stocktake for a location that already has an open one
+continues that one. The list at `/stocktake` keeps every finished and cancelled stocktake with its counts; its report
+stays readable even if items were deleted since. Stocktakes are included in backups.
+
 ## QR labels
 
 ☰ → *Print QR labels* prints one label per location; from a location you can also print one label per item in it, and

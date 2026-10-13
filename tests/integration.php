@@ -1072,7 +1072,7 @@ $secKeys = [
     'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
-    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'max_photos'],
+    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
     'security' => [], 'data' => [], 'system' => [],
 ];
@@ -1602,6 +1602,74 @@ T::eq('/?deleted=1', $uc->post("/item/$u3/delete", ['csrf' => $ut])['headers']['
 T::eq(0, (int)$udb->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn(), 'no token stored');
 $ux->stop();
 T::ok(!$ux->logHas('[apotheke]'), 'no server-side exceptions logged');
+
+T::section('Stocktake');
+$sx = new Server($sxDir = $newDir('stocktake'), ['SEED_DEFAULTS' => '0']);
+$sk = $sx->client();
+$skt = $sk->csrf();
+$sdb2 = testdb($sxDir);
+$garage = (int)$sk->api('/locations', ['csrf' => $skt, 'name' => 'Garage'])['json']['id'];
+$shelf = (int)$sk->api('/locations', ['csrf' => $skt, 'name' => 'Shelf A'])['json']['id'];
+$attic = (int)$sk->api('/locations', ['csrf' => $skt, 'name' => 'Attic'])['json']['id'];
+$sk->api("/locations/$shelf/parent", ['csrf' => $skt, 'parent' => $garage]);
+$drill = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Drill', 'location_id' => $garage, 'quantity' => 1, 'barcode' => '4006381333931']));
+$saw = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Saw', 'location_id' => $shelf, 'quantity' => 1]));
+$tape = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Tape <b>', 'location_id' => $shelf, 'quantity' => 1]));
+$tent = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Tent', 'location_id' => $attic, 'quantity' => 1]));
+T::ok(str_contains($sk->get('/')['body'], 'href="/stocktake"'), 'menu links to stocktake');
+$pg = $sk->get("/stocktake?loc=$garage");
+T::ok($pg['status'] === 200 && str_contains($pg['body'], 'id="stk-start"') && str_contains($pg['body'], '<option value="' . $garage . '" selected'), 'start page preselects ?loc=');
+T::eq(419, $sk->post('/stocktake', ['location_id' => $garage])['status'], 'start needs CSRF');
+T::eq(422, $sk->post('/stocktake', ['csrf' => $skt, 'location_id' => ''])['status'], 'start needs a location');
+$r = $sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $garage]);
+T::ok($r['status'] === 303 && preg_match('#^/stocktake/(\d+)$#', $r['headers']['location'] ?? '', $sm) === 1, 'start redirects to the checking screen');
+$sid = (int)$sm[1];
+T::eq("/stocktake/$sid", $sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $garage])['headers']['location'] ?? '', 'starting again reopens the open stocktake');
+T::eq(3, (int)$sdb2->query("SELECT COUNT(*) FROM stocktake_lines WHERE stocktake_id = $sid AND expected = 1")->fetchColumn(), 'expected = items in the location and its sub-locations');
+$pg = $sk->get("/stocktake/$sid");
+T::ok($pg['status'] === 200 && str_contains($pg['body'], '0 of 3</b> found') && str_contains($pg['body'], 'Garage › Shelf A'), 'checking screen lists expected items with their path');
+T::ok(str_contains($pg['body'], 'Tape &lt;b&gt;') && !str_contains($pg['body'], 'Tape <b>'), 'names are escaped');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'item_id' => $saw, 'found' => '1']);
+T::ok(($r['json']['state'] ?? '') === 'found' && str_contains($r['json']['html'] ?? '', '1 of 3</b> found'), 'tick by id (JSON + fresh list)');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'code' => ' 4006381333931 ']);
+T::eq('found', $r['json']['state'] ?? '', 'scan a barcode');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'code' => 'http://inv.example/item/' . $tent]);
+T::ok(($r['json']['state'] ?? '') === 'misplaced' && str_contains($r['json']['message'] ?? '', 'belongs in Attic'), 'scan a QR label link: item from elsewhere is misplaced');
+T::eq(404, $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'code' => '999999999'])['status'], 'unknown barcode → 404');
+$e = $sk->post("/stocktake/$sid/check", ['csrf' => $skt, 'code' => '#999999']);
+T::ok($e['status'] === 404 && str_contains($e['body'], 'No item has that QR code') && str_contains($e['body'], 'aria-invalid="true"'), 'without JS: error shown on the checking screen');
+T::eq(303, $sk->post("/stocktake/$sid/check", ['csrf' => $skt, 'code' => "#$tape"])['status'], 'without JS: "#id" ticks and redirects back');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'item_id' => $tape, 'found' => '0']);
+T::eq('missing', $r['json']['state'] ?? '', 'untick');
+$rep = $sk->get("/stocktake/$sid/report");
+T::ok($rep['status'] === 200 && str_contains($rep['body'], 'id="stk-finish-form"') && str_contains($rep['body'], 'id="stk-moves" checked'), 'report before finishing: moves pre-ticked (setting)');
+T::ok(preg_match('#id="rep-missing".*Tape &lt;b&gt;.*id="rep-misplaced".*Tent.*belongs in Attic.*id="rep-found".*Drill#s', $rep['body']) === 1, 'report lists missing, misplaced, found');
+T::eq(419, $sk->post("/stocktake/$sid/finish", ['moves' => '1'])['status'], 'finish needs CSRF');
+$r = $sk->post("/stocktake/$sid/finish", ['csrf' => $skt, 'moves' => '1']);
+T::eq("/stocktake/$sid/report?finished=1", $r['headers']['location'] ?? '', 'finish → report');
+T::eq($garage, (int)$sdb2->query("SELECT location_id FROM items WHERE id = $tent")->fetchColumn(), 'misplaced item moved to the checked location');
+T::eq($shelf, (int)$sdb2->query("SELECT location_id FROM items WHERE id = $tape")->fetchColumn(), 'missing item not moved');
+T::ok(str_contains($sk->get("/item/$tent")['body'], 'Moved from <b>Attic</b> to <b>Garage</b> (stocktake)'), 'move recorded in the item history');
+$done = $sk->get("/stocktake/$sid/report?finished=1")['body'];
+T::ok(str_contains($done, 'Stocktake finished · 1 item moved') && str_contains($done, '2 of 3 found · 1 missing · 1 misplaced · 1 moved') && !str_contains($done, 'stk-finish-form'), 'finished report');
+T::eq(409, $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'item_id' => $tape])['status'], 'finished stocktake is read-only');
+T::eq(409, $sk->post("/stocktake/$sid/finish", ['csrf' => $skt])['status'], 'cannot finish twice');
+$hist = $sk->get('/stocktake')['body'];
+T::ok(str_contains($hist, 'id="stk-history"') && str_contains($hist, 'href="/stocktake/' . $sid . '"') && str_contains($hist, '2 of 3 found'), 'history lists finished stocktakes');
+// cancel; finishing without moves
+$s2 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $attic])['headers']['location'], 11);
+$sk->api("/stocktake/$s2/check", ['csrf' => $skt, 'item_id' => $drill]);
+$sk->post("/stocktake/$s2/finish", ['csrf' => $skt]);
+T::eq($garage, (int)$sdb2->query("SELECT location_id FROM items WHERE id = $drill")->fetchColumn(), 'without the moves box nothing moves');
+$s3 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $shelf])['headers']['location'], 11);
+T::eq('/stocktake?done=cancelled', $sk->post("/stocktake/$s3/cancel", ['csrf' => $skt])['headers']['location'] ?? '', 'cancel');
+T::ok(str_contains($sk->get('/stocktake')['body'], 'Cancelled'), 'cancelled shown in history');
+T::eq(404, $sk->get('/stocktake/999999')['status'], 'unknown stocktake → 404');
+T::eq(404, $sk->get("/stocktake/$sid/finish")['status'], 'GET on an action → 404');
+// the item vanishes meanwhile: name kept in the report
+$s4 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $attic])['headers']['location'], 11);
+T::ok(str_contains($sk->get('/backup')['body'], '<th scope="row">Stocktakes</th><td>4</td>'), 'backup counts stocktakes');
+$sx->stop();
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 
