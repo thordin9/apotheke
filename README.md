@@ -73,8 +73,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   tsvector + pg_trgm, with a plain substring fallback when an extension is missing.
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
-* **Multiple photos** per item (up to 12): take one with the camera or pick from the library, reorder, choose the cover,
-  delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
+* **Multiple photos** per item (up to 12): take one with the camera or pick from the library, drag to reorder, choose the cover,
+  crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
   shrunk on the phone before upload (max 1600 px, JPEG ~80 %), then checked and re-encoded with GD on the server (which
   strips EXIF/GPS) with a 480 px thumbnail for the grid.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered

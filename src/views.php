@@ -743,11 +743,13 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
     <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= max_photos() ?></span></summary>
     <?php if ($n): ?>
-    <ul class="pm-list">
+    <ul class="pm-list" id="pm-list" data-order="/item/<?= $id ?>/photos/order">
       <?php foreach ($photos as $i => $p): $act = '/item/' . $id . '/photos/' . $p['id'] . '/'; ?>
-      <li class="pm<?= $i === 0 ? ' is-cover' : '' ?>">
+      <li class="pm<?= $i === 0 ? ' is-cover' : '' ?>" data-id="<?= (int)$p['id'] ?>">
         <img src="/media/thumb/<?= h($p['file']) ?>" alt="Photo <?= $i + 1 ?>" loading="lazy">
         <?php if ($i === 0): ?><span class="pm-badge">Cover</span><?php endif; ?>
+        <?php if ($n > 1): ?><span class="pm-drag" role="img" aria-label="Drag to reorder photo <?= $i + 1 ?>" title="Drag to reorder"><?= icon('menu') ?></span><?php endif; ?>
+        <a class="pbtn pm-edit" href="/item/<?= $id ?>/photos/<?= (int)$p['id'] ?>/edit" id="pm-edit-<?= $i ?>" aria-label="Crop or rotate photo <?= $i + 1 ?>"><?= icon('edit') ?></a>
         <div class="pm-btns">
           <form method="post" action="<?= $act ?>left"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Move photo <?= $i + 1 ?> left"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('back') ?></button></form>
           <form method="post" action="<?= $act ?>cover"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Make photo <?= $i + 1 ?> the cover"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('star') ?></button></form>
@@ -1319,7 +1321,8 @@ function activity_html(array $e): string
             break;
         case 'photo':
             $t = ['added' => 'Added a photo', 'removed' => 'Removed the cover photo', 'replaced' => 'Replaced the cover photo', 'cover' => 'Chose a new cover photo',
-                  'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo'][$d['change'] ?? ''] ?? 'Changed photos';
+                  'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo', 'edited' => 'Edited a photo'][$d['change'] ?? ''] ?? 'Changed photos';
+            if (($d['change'] ?? '') === 'edited') $t .= (!empty($d['rotate']) ? ' · rotated ' . (int)$d['rotate'] . '°' : '') . (isset($d['size']) ? ' · ' . h((string)$d['size']) . ' px' : '');
             if (isset($d['count'])) $t .= ' · ' . (int)$d['count'] . ' total';
             break;
         case 'lent':

@@ -21,6 +21,7 @@ require dirname(__DIR__) . '/src/backup.php';
 require dirname(__DIR__) . '/src/settings_views.php';
 require dirname(__DIR__) . '/src/stocktake_views.php';
 require dirname(__DIR__) . '/src/import_views.php';
+require dirname(__DIR__) . '/src/photo_views.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -213,6 +214,7 @@ try {
             if (!wants_json()) recent_track((int)$it['id']);
             $hist = activity_list((int)$it['id'], 1, 10);
             $toast = isset($_GET['undone']) ? 'Undone' : null;
+            $toast ??= isset($_GET['edited']) ? 'Photo saved as a new version' : (isset($_GET['reordered']) ? 'Photo order saved' : null);
             $toast ??= isset($_GET['merged']) ? 'Merged “' . clean_line((string)$_GET['merged'], 200) . '” into this item' : null;
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10, attachments_for((int)$it['id']), $toast);
         }
@@ -286,6 +288,37 @@ try {
             redirect('/new?' . http_build_query(array_filter($qs, fn($v) => $v !== null)));
         }
         redirect($existing ? '/item/' . $savedId . ($undo ? '?undo=' . $undo : '') : '/?saved=' . $savedId);
+    }
+
+    /* ---- photos: edit (crop / rotate) and order ---- */
+    if (preg_match('#^/item/(\d+)/photos/(\d+)/edit$#D', $path, $m)) {
+        $it = item_get((int)$m[1]) ?? throw new UserError('Item not found.', 404);
+        $ph = photo_find((int)$m[1], (int)$m[2]);
+        if ($method === 'POST') {
+            check_csrf();
+            $pct = fn(string $k, float $d) => is_numeric($_POST['crop_' . $k] ?? null) ? (float)$_POST['crop_' . $k] / 100 : $d;
+            try {
+                $r = photo_edit((int)$it['id'], $ph['id'], (int)($_POST['rotate'] ?? 0), [$pct('x', 0), $pct('y', 0), $pct('w', 1), $pct('h', 1)]);
+            } catch (UserError $e) {
+                if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+                http_response_code($e->getCode() ?: 422);
+                view_photo_edit($it, $ph, count(photos_for((int)$it['id'])), $e->getMessage());
+                exit;
+            }
+            if (wants_json()) json_out(['ok' => true] + $r);
+            redirect('/item/' . $it['id'] . '?p=' . $ph['index'] . '&edited=1#photos');
+        }
+        no_store();
+        view_photo_edit($it, $ph, count(photos_for((int)$it['id'])), null);
+        exit;
+    }
+    if (preg_match('#^/item/(\d+)/photos/order$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        if (!item_get((int)$m[1])) throw new UserError('Item not found.', 404);
+        $ids = is_array($_POST['ids'] ?? null) ? $_POST['ids'] : preg_split('/\s*,\s*/', (string)($_POST['ids'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
+        photo_reorder((int)$m[1], $ids ?: []);
+        if (wants_json()) json_out(['ok' => true]);
+        redirect('/item/' . (int)$m[1] . '?p=0#photos');
     }
 
     /* ---- photos: add / cover / reorder / delete ---- */

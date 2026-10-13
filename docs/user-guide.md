@@ -127,6 +127,15 @@ item page, open *Photos* to add more, reorder them (‹ ›), choose the **cover
 one. Browse with the ‹ › arrows, the thumbnails or ← → on a keyboard; the position is in the URL (`?p=2`), so the
 gallery works without JavaScript too.
 
+**Reorder by dragging**: with two or more photos, drag a photo by its ☰ handle to a new place; the first photo becomes
+the cover. The ‹ › buttons still work (and without JavaScript).
+
+**Crop and rotate**: the ✎ button on a photo opens the editor. Rotate in 90° steps, drag on the photo to draw a crop
+(drag the corners to resize, drag inside to move; arrow keys nudge, Shift + arrows resize) or pick a fixed ratio
+(Free / 1:1 / 4:3). *Save* stores a **new version**: the server applies the edit with GD, regenerates the thumbnail,
+bumps the photo's version and deletes the old file (unless an undo still needs it). Without JavaScript, *Exact values*
+offers the same as a rotation menu and crop fields in percent. Edits are not reversible — the original is not kept.
+
 Photos are shrunk on the device before upload (max. 1600 px, JPEG ~80 %). The server checks every upload with
 `getimagesize`, re-encodes it with GD (which strips EXIF and GPS data), applies the EXIF orientation, writes a
 thumbnail and stores both under random file names outside the web root.

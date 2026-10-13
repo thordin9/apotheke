@@ -30,8 +30,8 @@
   // Clean ?saved= / ?deleted= from the URL so a reload doesn't re-toast.
   try {
     const u = new URL(location.href);
-    if (['saved', 'deleted', 'done'].some(k => u.searchParams.has(k))) {
-      ['saved', 'deleted', 'done'].forEach(k => u.searchParams.delete(k));
+    if (['saved', 'deleted', 'done', 'edited', 'reordered'].some(k => u.searchParams.has(k))) {
+      ['saved', 'deleted', 'done', 'edited', 'reordered'].forEach(k => u.searchParams.delete(k));
       history.replaceState(null, '', u.pathname + (u.search || '') + u.hash);
     }
   } catch (_) {}
@@ -706,5 +706,155 @@
       update();
     }));
     update();
+  }
+  /* ---------- photo editor: crop + rotate on a canvas (no libraries; the server applies it with GD) ---------- */
+  const stage = $('#pe-stage');
+  if (stage && $('#pe-canvas')) {
+    const cv = $('#pe-canvas'), ctx = cv.getContext('2d'), img = new Image();
+    const f = { rot: $('#pe-rotate'), x: $('#pe-x'), y: $('#pe-y'), w: $('#pe-w'), h: $('#pe-h') };
+    const st = { rot: 0, c: { x: 0, y: 0, w: 1, h: 1 }, aspect: 0, drag: null };
+    const MIN = 0.05, HANDLE = 22;
+    const dims = () => (st.rot % 180 ? [img.naturalHeight, img.naturalWidth] : [img.naturalWidth, img.naturalHeight]);
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    const sync = () => {
+      const c = st.c, r4 = v => (Math.round(v * 10000) / 100).toString();
+      f.rot.value = String(st.rot); f.x.value = r4(c.x); f.y.value = r4(c.y); f.w.value = r4(c.w); f.h.value = r4(c.h);
+      const [W, H] = dims();
+      $('#pe-info').textContent = Math.round(c.w * W) + ' × ' + Math.round(c.h * H) + ' px' + (st.rot ? ' · rotated ' + st.rot + '°' : '');
+    };
+    const fitAspect = () => {
+      if (!st.aspect) return;
+      const [W, H] = dims(), c = st.c, cxm = c.x + c.w / 2, cym = c.y + c.h / 2;
+      let w = c.w, h = (c.w * W) / (st.aspect * H);
+      if (h > 1) { h = 1; w = (st.aspect * H) / W; }
+      if (w > 1) { w = 1; h = W / (st.aspect * H); }
+      st.c = { w, h, x: clamp(cxm - w / 2, 0, 1 - w), y: clamp(cym - h / 2, 0, 1 - h) };
+    };
+    const draw = () => {
+      const [W, H] = dims();
+      const cssW = stage.clientWidth, scale = Math.min(cssW / W, (window.innerHeight * 0.6) / H);
+      const dw = Math.max(1, Math.round(W * scale)), dh = Math.max(1, Math.round(H * scale)), dpr = window.devicePixelRatio || 1;
+      cv.style.width = dw + 'px'; cv.style.height = dh + 'px';
+      cv.width = Math.round(dw * dpr); cv.height = Math.round(dh * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.save();
+      ctx.translate(dw / 2, dh / 2); ctx.rotate(st.rot * Math.PI / 180);
+      const iw = st.rot % 180 ? dh : dw, ih = st.rot % 180 ? dw : dh;
+      ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
+      ctx.restore();
+      const c = st.c, x = c.x * dw, y = c.y * dh, w = c.w * dw, h = c.h * dh;
+      ctx.fillStyle = 'rgba(0,0,0,.55)';
+      ctx.beginPath(); ctx.rect(0, 0, dw, dh); ctx.rect(x, y, w, h); ctx.fill('evenodd');
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 1;
+      for (let i = 1; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x + w * i / 3, y); ctx.lineTo(x + w * i / 3, y + h); ctx.moveTo(x, y + h * i / 3); ctx.lineTo(x + w, y + h * i / 3); ctx.stroke(); }
+      ctx.fillStyle = '#fff';
+      for (const [hx, hy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) { ctx.beginPath(); ctx.arc(hx, hy, 9, 0, 2 * Math.PI); ctx.fill(); }
+      sync();
+    };
+    const pt = e => { const r = cv.getBoundingClientRect(); return { x: clamp((e.clientX - r.left) / r.width, 0, 1), y: clamp((e.clientY - r.top) / r.height, 0, 1), r }; };
+    cv.addEventListener('pointerdown', e => {
+      const p = pt(e), c = st.c, near = (ax, ay) => Math.abs((ax - p.x) * p.r.width) <= HANDLE && Math.abs((ay - p.y) * p.r.height) <= HANDLE;
+      const corners = { nw: [c.x, c.y], ne: [c.x + c.w, c.y], sw: [c.x, c.y + c.h], se: [c.x + c.w, c.y + c.h] };
+      let mode = Object.keys(corners).find(k => near(...corners[k]));
+      // a fresh (whole-photo) frame: dragging draws a new crop instead of moving nothing
+      if (!mode) mode = c.w < 0.999 || c.h < 0.999 ? (p.x > c.x && p.x < c.x + c.w && p.y > c.y && p.y < c.y + c.h ? 'move' : 'new') : 'new';
+      st.drag = { mode, p0: p, c0: { ...c } };
+      cv.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    cv.addEventListener('pointermove', e => {
+      const d = st.drag;
+      if (!d) return;
+      const p = pt(e), c0 = d.c0;
+      if (d.mode === 'move') {
+        st.c = { ...c0, x: clamp(c0.x + p.x - d.p0.x, 0, 1 - c0.w), y: clamp(c0.y + p.y - d.p0.y, 0, 1 - c0.h) };
+      } else {
+        // the fixed corner stays, the dragged one follows the pointer
+        const fx = d.mode === 'new' ? d.p0.x : (d.mode.includes('w') ? c0.x + c0.w : c0.x);
+        const fy = d.mode === 'new' ? d.p0.y : (d.mode.includes('n') ? c0.y + c0.h : c0.y);
+        let w = Math.max(MIN, Math.abs(p.x - fx)), h = Math.max(MIN, Math.abs(p.y - fy));
+        if (st.aspect) { const [W, H] = dims(); h = (w * W) / (st.aspect * H); }
+        const x = p.x < fx ? fx - w : fx, y = p.y < fy ? fy - h : fy;
+        if (x >= -0.0001 && y >= -0.0001 && x + w <= 1.0001 && y + h <= 1.0001) st.c = { x: clamp(x, 0, 1), y: clamp(y, 0, 1), w: Math.min(w, 1), h: Math.min(h, 1) };
+      }
+      draw();
+    });
+    const end = () => { st.drag = null; };
+    cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+    cv.addEventListener('keydown', e => {
+      const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!k) return;
+      e.preventDefault();
+      const s = 0.01, c = st.c;
+      if (e.shiftKey) st.c = { ...c, w: clamp(c.w + k[0] * s, MIN, 1 - c.x), h: clamp(c.h + k[1] * s, MIN, 1 - c.y) };
+      else st.c = { ...c, x: clamp(c.x + k[0] * s, 0, 1 - c.w), y: clamp(c.y + k[1] * s, 0, 1 - c.h) };
+      fitAspect(); draw();
+    });
+    const rotate = dir => {
+      const c = st.c;
+      // rotate the crop rectangle with the photo
+      st.c = dir > 0 ? { x: 1 - c.y - c.h, y: c.x, w: c.h, h: c.w } : { x: c.y, y: 1 - c.x - c.w, w: c.h, h: c.w };
+      st.rot = (st.rot + (dir > 0 ? 90 : 270)) % 360;
+      fitAspect(); draw();
+    };
+    $('#pe-rr').addEventListener('click', () => rotate(1));
+    $('#pe-rl').addEventListener('click', () => rotate(-1));
+    $('#pe-reset').addEventListener('click', () => { st.rot = 0; st.c = { x: 0, y: 0, w: 1, h: 1 }; fitAspect(); draw(); });
+    $$('#pe-aspect [data-aspect]').forEach(b => b.addEventListener('click', () => {
+      $$('#pe-aspect [data-aspect]').forEach(o => { o.classList.toggle('on', o === b); o.setAttribute('aria-checked', String(o === b)); });
+      st.aspect = parseFloat(b.dataset.aspect) || 0;
+      fitAspect(); draw();
+    }));
+    // typing exact values updates the preview
+    Object.values(f).forEach(el => el.addEventListener('change', () => {
+      const n = el2 => clamp((parseFloat(el2.value) || 0) / 100, 0, 1);
+      st.rot = [0, 90, 180, 270].includes(+f.rot.value) ? +f.rot.value : 0;
+      const w = Math.max(MIN, n(f.w)), h = Math.max(MIN, n(f.h));
+      st.c = { w, h, x: clamp(n(f.x), 0, 1 - w), y: clamp(n(f.y), 0, 1 - h) };
+      draw();
+    }));
+    $('#pe-form').addEventListener('submit', () => { sync(); $('#pe-save').disabled = true; });
+    img.onload = () => { stage.classList.add('ready'); $('#pe-tools').hidden = false; draw(); };
+    img.src = stage.dataset.src;
+    let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(draw, 100); });
+  }
+
+  /* ---------- photo order: drag the photos in the item's photo box ---------- */
+  const pml = $('#pm-list');
+  if (pml && pml.dataset.order) {
+    let dragEl = null;
+    const save = async () => {
+      const ids = $$('.pm', pml).map(li => li.dataset.id);
+      if (ids.join(',') === pml.dataset.before) return;
+      try {
+        await post(pml.dataset.order, { ids: ids.join(',') });
+        location.href = location.pathname + '?p=0&reordered=1#photos';
+      } catch (err) { toast(err.message, true); }
+    };
+    // listen on the document: moving the <li> in the DOM would drop a pointer capture on the handle
+    const move = e => {
+      if (!dragEl) return;
+      const over = document.elementFromPoint(e.clientX, e.clientY);
+      const li = over && over.closest ? over.closest('.pm') : null;
+      if (!li || li === dragEl || li.parentNode !== pml) return;
+      const r = li.getBoundingClientRect(), after = (e.clientX - r.left) > r.width / 2;
+      const ref = after ? li.nextSibling : li;
+      if (ref !== dragEl && ref !== dragEl.nextSibling) pml.insertBefore(dragEl, ref);
+    };
+    const done = () => {
+      if (!dragEl) return;
+      dragEl.classList.remove('dragging'); dragEl = null;
+      document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', done); document.removeEventListener('pointercancel', done);
+      save();
+    };
+    $$('.pm-drag', pml).forEach(h => {
+      h.addEventListener('pointerdown', e => {
+        dragEl = h.closest('.pm'); dragEl.classList.add('dragging');
+        pml.dataset.before = $$('.pm', pml).map(li => li.dataset.id).join(',');
+        document.addEventListener('pointermove', move); document.addEventListener('pointerup', done); document.addEventListener('pointercancel', done);
+        e.preventDefault();
+      });
+    });
   }
 })();

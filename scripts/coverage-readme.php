@@ -20,6 +20,7 @@ const COV_AREAS = [
     'Users & roles' => ['src/users.php'],
     'Full-text search' => ['src/search.php'],
     'CSV import' => ['src/import.php', 'src/import_views.php'],
+    'Photos' => ['src/photo_edit.php', 'src/photo_views.php'],
     'Notes & attachments' => ['src/markdown.php', 'src/attachments.php'],
     'Views (HTML)' => ['src/views.php', 'src/settings_views.php'],
     'Control Panel settings' => ['src/settings.php'],

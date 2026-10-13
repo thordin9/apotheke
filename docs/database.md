@@ -165,6 +165,8 @@ Notes:
   weighted `tsv` (A name, B tags, C rest) with a GIN index and, if `CREATE EXTENSION pg_trgm` is allowed, a trigram
   index for word similarity. Missing FTS5 / pg_trgm only switch off those extras (Settings → System shows the engine).
   Not part of backups (rebuilt on the next search).
+* `item_photos.version` / `edited_at` (migration 0021): bumped each time a photo is cropped or rotated; the edited
+  image gets a new random file name (cache-safe) and the old file is removed.
 * `imports` (migration 0020): one row per uploaded CSV — `status` `uploaded` / `done`, `mapping` (JSON: column index →
   field), `options` (`create`, `skip_errors`), `result` (counts and the locations/categories/tags it created), `actor`.
   The file waits in `DATA_DIR/tmp/import-<id>.csv` until it is imported. Not part of backups.
@@ -211,6 +213,7 @@ Notes:
 | 0018 | `0018_users.php` | `users` (accounts with roles; the old shared password becomes `admin`), `activity.actor` |
 | 0019 | `0019_search.php` | `search_docs`, `search_meta`; SQLite `search_fts` (FTS5) + `search_fts_v` (vocabulary), PostgreSQL `tsv` column + GIN, optional `pg_trgm` index |
 | 0020 | `0020_import.php` | `imports` (CSV import history: file, mapping, options, result) |
+| 0021 | `0021_photo_versions.php` | `item_photos.version`, `item_photos.edited_at` (crop/rotate versions) |
 
 ## How migrations run
 

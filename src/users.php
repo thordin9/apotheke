@@ -205,6 +205,6 @@ function route_role(string $method, string $path): string
     if (preg_match('#^/(settings|backup)(/|\.zip$|$)#', $path)) return 'admin';
     if (str_starts_with($path, '/account')) return 'viewer';
     if ($method === 'POST') return in_array($path, ['/theme', '/logout', '/recent/clear'], true) ? 'viewer' : 'editor';
-    if ($path === '/new' || str_starts_with($path, '/import') || preg_match('#^/item/\d+/(edit|merge)$#', $path)) return 'editor';
+    if ($path === '/new' || str_starts_with($path, '/import') || preg_match('#^/item/\d+/(edit|merge|photos/\d+/edit)$#', $path)) return 'editor';
     return 'viewer';
 }

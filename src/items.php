@@ -9,6 +9,7 @@ require_once __DIR__ . '/undo.php';
 require_once __DIR__ . '/stocktake.php';
 require_once __DIR__ . '/search.php';
 require_once __DIR__ . '/import.php';
+require_once __DIR__ . '/photo_edit.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
