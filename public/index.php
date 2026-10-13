@@ -18,6 +18,7 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/views.php';
 require dirname(__DIR__) . '/src/backup.php';
+require dirname(__DIR__) . '/src/settings_views.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -34,6 +35,31 @@ if ($path === '/healthz') {
     db();
     exit('ok');
 }
+settings_apply_runtime();
+
+/* ---- branding: public (the sign-in page needs them too) ---- */
+if ($method === 'GET' && $path === '/theme.css') {
+    header('Content-Type: text/css; charset=utf-8');
+    header('Cache-Control: ' . (isset($_GET['v']) ? 'public, max-age=31536000, immutable' : 'no-cache'));
+    exit(accent_css((string)setting('accent')));
+}
+if ($method === 'GET' && $path === '/manifest.webmanifest') {
+    header('Content-Type: application/manifest+json');
+    header('Cache-Control: no-cache');
+    exit(json_encode(manifest_data(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+}
+if ($method === 'GET' && $path === '/favicon.ico') {
+    $own = brand_dir() . '/favicon.ico';
+    $f = setting('logo') === 'png' && is_file($own) ? $own : __DIR__ . '/assets/favicon.ico';
+    header('Content-Type: image/vnd.microsoft.icon');
+    header('Cache-Control: public, max-age=86400');
+    header('Content-Length: ' . filesize($f));
+    readfile($f);
+    exit;
+}
+if ($method === 'GET' && preg_match('#^/brand/([a-z0-9.\-]+)$#D', $path, $bm)) {
+    brand_serve($bm[1]);
+}
 
 // Request bodies larger than post_max_size arrive empty – give a clear message.
 if ($method === 'POST' && empty($_POST) && empty($_FILES) && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
@@ -49,7 +75,7 @@ init_session();
 try {
     /* ---- auth ---- */
     if ($path === '/login') {
-        if (app_password() === '' || is_authed()) redirect('/');
+        if (!auth_enabled() || is_authed()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
             if (login((string)($_POST['password'] ?? ''))) redirect('/');
@@ -96,7 +122,7 @@ try {
     if ($path === '/' && $method === 'GET') {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
         $f    = filters_from($_GET);
-        $sort = (string)($_GET['sort'] ?? 'recent');
+        $sort = is_string($_GET['sort'] ?? null) && isset(SORTS[$_GET['sort']]) ? $_GET['sort'] : default_sort();
         $page = max(1, (int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
@@ -110,7 +136,7 @@ try {
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
         if (isset($_GET['bulk_done'])) $toast = bulk_toast((int)$_GET['bulk_done'], (string)($_GET['bulk_act'] ?? ''));
         if (isset($_GET['filter_saved']) && ($sf = saved_filter_get((int)$_GET['filter_saved']))) $toast = 'Saved filter “' . $sf['name'] . '”';
-        view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? '1') !== '0',
+        view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? (setting('overview_open') ? '1' : '0')) !== '0',
                   ($_GET['select'] ?? '') === '1', ($_GET['all'] ?? '') === '1');
         exit;
     }
@@ -123,7 +149,7 @@ try {
             return ctype_digit($v) && tax_get($kind, (int)$v) ? (int)$v : tax_default_id($kind);
         };
         $vals = ['name' => '', 'location_id' => $pick('location'), 'new_location' => '', 'category_id' => $pick('category'), 'new_category' => '',
-                 'quantity' => 1, 'min_qty' => '', 'notes' => '', 'tags' => '', 'value' => '', 'purchase_date' => '', 'expires_on' => '', 'serial' => '', 'barcode' => barcode_clean((string)($_GET['barcode'] ?? ''))];
+                 'serial' => '', 'barcode' => barcode_clean((string)($_GET['barcode'] ?? ''))] + new_item_defaults();
         $toast = isset($_GET['saved']) && ($s = item_get((int)$_GET['saved'])) ? 'Saved “' . $s['name'] . '”' : null;
         view_form(null, $vals, locations(), categories(), null, $toast);
         exit;
@@ -211,7 +237,7 @@ try {
         if (empty($m[2])) {
             $files = pick_uploads(['photos', 'photo']);
             if (!$files) throw new UserError('Choose a photo to add.', 422);
-            if (count(photos_for($iid)) + count($files) > MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.', 422);
+            if (count(photos_for($iid)) + count($files) > max_photos()) throw new UserError('An item can have at most ' . max_photos() . ' photos.', 422);
             $added = 0;
             foreach ($files as $f) {
                 try {
@@ -304,6 +330,102 @@ try {
         if (!$it) throw new UserError('Item not found.', 404);
         item_delete($it);
         redirect('/?deleted=1');
+    }
+
+    /* ---- control panel ---- */
+    if ($path === '/settings' && $method === 'GET') {
+        no_store();
+        view_settings_home(null);
+        exit;
+    }
+    if ($path === '/settings/export.json' && $method === 'GET') {
+        no_store();
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="apotheke-settings-' . local_today() . '.json"');
+        exit(json_encode(settings_export(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+    if ($path === '/settings/import' && $method === 'POST') {
+        check_csrf();
+        $f = $_FILES['file'] ?? null;
+        $json = $f && ($f['error'] ?? 1) === UPLOAD_ERR_OK ? (string)file_get_contents($f['tmp_name']) : (string)($_POST['json'] ?? '');
+        try {
+            if (strlen($json) > 256 * 1024) throw new UserError('That settings file is too large.');
+            $r = settings_import($json);
+        } catch (UserError $e) {
+            http_response_code(422);
+            view_settings_section('data', [], ['_' => $e->getMessage()], null);
+            exit;
+        }
+        $notes = [];
+        foreach ($r['errors'] as $k => $msg) $notes[] = "Skipped $k: $msg";
+        if ($r['ignored']) $notes[] = 'Ignored unknown or protected keys: ' . implode(', ', $r['ignored']);
+        view_settings_section('data', [], [], 'Imported ' . $r['applied'] . ' setting' . ($r['applied'] === 1 ? '' : 's'), $notes);
+        exit;
+    }
+    if ($path === '/settings/logo' && $method === 'POST') {
+        check_csrf();
+        try {
+            brand_store($_FILES['logo'] ?? ['error' => UPLOAD_ERR_NO_FILE]);
+        } catch (UserError $e) {
+            http_response_code(422);
+            view_settings_section('appearance', [], [], null, [$e->getMessage()]);
+            exit;
+        }
+        redirect('/settings/appearance?done=logo');
+    }
+    if ($path === '/settings/logo/reset' && $method === 'POST') {
+        check_csrf();
+        brand_reset();
+        redirect('/settings/appearance?done=logo-reset');
+    }
+    if ($path === '/settings/password' && $method === 'POST') {
+        check_csrf();
+        $mode = (string)($_POST['mode'] ?? '') === 'disable' ? 'disable' : 'change';
+        try {
+            password_update($mode, (string)($_POST['current'] ?? ''), (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+        } catch (UserError $e) {
+            http_response_code($e->getCode() ?: 422);
+            view_settings_section('security', [], ['password' => $e->getMessage()], null);
+            exit;
+        }
+        if ($mode === 'change') login_session();
+        redirect('/settings/security?done=' . ($mode === 'disable' ? 'pw-off' : 'pw'));
+    }
+    if (preg_match('#^/settings/([a-z]+)(/reset)?$#D', $path, $m) && isset(SETTINGS_SECTIONS[$m[1]])) {
+        $section = $m[1];
+        if ($method === 'GET' && empty($m[2])) {
+            no_store();
+            $toast = match ((string)($_GET['done'] ?? '')) {
+                'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
+                'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Password turned off', default => null,
+            };
+            view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
+            exit;
+        }
+        if ($method === 'POST') {
+            check_csrf();
+            if (!empty($m[2])) {
+                settings_reset_section($section);
+                redirect("/settings/$section?done=reset");
+            }
+            $raw = [];
+            foreach (settings_section_keys($section) as $k) $raw[$k] = $_POST[$k] ?? '';
+            $errors = settings_save($raw);
+            if (!$errors && $section === 'items') {
+                foreach (KINDS as $kind) {
+                    $v = (string)($_POST['default_' . $kind] ?? '');
+                    $cur = tax_default_id($kind);
+                    if ($v === '' && $cur !== null) tax_set_default($kind, $cur, false);
+                    elseif (ctype_digit($v) && tax_get($kind, (int)$v) && (int)$v !== $cur) tax_set_default($kind, (int)$v, true);
+                }
+            }
+            if ($errors) {
+                http_response_code(422);
+                view_settings_section($section, $raw, $errors, null);
+                exit;
+            }
+            redirect("/settings/$section?done=saved");
+        }
     }
 
     /* ---- barcodes ---- */
@@ -589,7 +711,7 @@ try {
             $v = $r['value_cents'];
             unset($r['value_cents']);
             $r = array_slice($r, 0, 9) + ['tags' => implode(', ', $tagMap[(int)$r['id']] ?? []),
-                 'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : cfg()['currency'],
+                 'value' => $v === null ? '' : number_format((int)$v / 100, 2, '.', ''), 'currency' => $v === null ? '' : setting('currency'),
                  'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial'],
                  'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty'],
                  'lent_to' => (string)$r['lent_to'], 'lent_at' => (string)$r['lent_at'], 'lent_due' => (string)$r['lent_due'], 'expires_on' => (string)$r['expires_on'], 'barcode' => (string)$r['barcode']];

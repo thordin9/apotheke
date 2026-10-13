@@ -258,7 +258,7 @@
 
     const params = (p) => {
       const sp = new URLSearchParams(new FormData(filters));
-      for (const [k, v] of [...sp]) if (!v || (k === 'sort' && v === 'recent')) sp.delete(k);
+      for (const [k, v] of [...sp]) if (!v || (k === 'sort' && v === ($('#sort').dataset.default || 'recent'))) sp.delete(k);
       if (p > 1) sp.set('page', p);
       return sp;
     };
@@ -303,7 +303,7 @@
       if (which === 'all' || which === 'cat') $('#cat').value = '';
       if ((which === 'all' || which === 'tag') && $('#tag')) $('#tag').value = '';
       document.querySelectorAll('#fsheet select[data-filter]').forEach(s => { if (which === 'all' || which === s.name) s.value = ''; });
-      if (which === 'all' || which === 'sort') $('#sort').value = 'recent';
+      if (which === 'all' || which === 'sort') $('#sort').value = $('#sort').dataset.default || 'recent';
       if (which === 'all') q.value = '';
       load(false);
     };
@@ -605,5 +605,59 @@
     scanBtns.forEach(b => { b.hidden = false; b.addEventListener('click', () => scan(b)); });
     $('#scan-cancel').addEventListener('click', () => { const f = $(scanBtns[0].dataset.scan); stop(); f.focus(); });
     dlg.addEventListener('close', stop);
+  }
+  /* ---------- Control Panel: colour fields, accent presets and live contrast preview ---------- */
+  $$('input[type=color][data-color-for]').forEach(pick => {
+    const txt = $(pick.dataset.colorFor);
+    if (!txt) return;
+    pick.addEventListener('input', () => { txt.value = pick.value.toUpperCase(); txt.dispatchEvent(new Event('input', { bubbles: true })); });
+    txt.addEventListener('input', () => { const v = normHex(txt.value); if (v) pick.value = v.toLowerCase(); });
+  });
+  function normHex(v) {
+    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((v || '').trim());
+    if (!m) return null;
+    let h = m[1];
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    return '#' + h.toUpperCase();
+  }
+  const accentIn = $('#s-accent'), preview = $('#accent-preview');
+  if (accentIn && preview) {
+    // same maths as accent_variants() in src/settings.php
+    const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+    const hex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+    const lum = h => { const l = rgb(h).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };
+    const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    const mix = (h, to, t) => { const a = rgb(h), b = rgb(to); return hex(a.map((v, i) => v + (b[i] - v) * t)); };
+    const fit = (h, bgs, to) => { for (let i = 0; i <= 50; i++) { const c = mix(h, to, i / 50); if (Math.min(...bgs.map(b => ratio(c, b))) >= 4.5) return c; } return to; };
+    const modes = { light: [['#f5f5f7', '#ffffff'], '#000000', 0.10], dark: [['#111113', '#1c1c20'], '#ffffff', 0.16] };
+    const update = () => {
+      const v = normHex(accentIn.value);
+      if (!v) return;
+      const warn = [];
+      for (const [m, [bgs, to, soft]] of Object.entries(modes)) {
+        const raw = Math.min(...bgs.map(b => ratio(v.toLowerCase(), b)));
+        const c = m === 'dark' && v === '#4F46E5' ? '#8b93ff' : fit(v.toLowerCase(), bgs, to);
+        const ink = ratio(c, '#ffffff') >= ratio(c, '#0b0b10') ? '#ffffff' : '#0b0b10';
+        const pane = $('#pv-' + m);
+        pane.style.setProperty('--accent', c);
+        pane.style.setProperty('--accent-ink', ink);
+        pane.style.setProperty('--accent-soft', 'rgba(' + rgb(c).join(',') + ',' + soft + ')');
+        const r = Math.min(...bgs.map(b => ratio(c, b)));
+        $('.pv-ratio', pane).textContent = r.toFixed(2) + ':1 ' + (r >= 4.5 ? '✓ AA' : '✗');
+        if (c !== v.toLowerCase() && v !== '#4F46E5') warn.push(v + ' is ' + raw.toFixed(2) + ':1 on the ' + m + ' background (WCAG AA needs 4.5:1) – ' + m[0].toUpperCase() + m.slice(1) + ' mode uses ' + c + ' instead.');
+      }
+      const ul = $('#accent-warn');
+      ul.textContent = '';
+      warn.forEach(t => { const li = document.createElement('li'); li.textContent = t; ul.append(li); });
+      ul.hidden = !warn.length;
+      $$('.preset').forEach(b => b.classList.toggle('on', b.dataset.accent.toUpperCase() === v));
+    };
+    accentIn.addEventListener('input', update);
+    $$('.preset').forEach(b => b.addEventListener('click', () => {
+      accentIn.value = b.dataset.accent.toUpperCase();
+      const pick = $('#s-accent-pick'); if (pick) pick.value = b.dataset.accent.toLowerCase();
+      update();
+    }));
+    update();
   }
 })();

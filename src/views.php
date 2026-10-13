@@ -37,6 +37,7 @@ function icon(string $n): string
         'copy'   => '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
         'check'  => '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
         'alert'  => '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/>',
+        'lock'   => '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
         'sliders'=> '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
     ];
     return '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . ($p[$n] ?? '') . '</svg>';
@@ -46,7 +47,7 @@ function icon(string $n): string
 
 function page_start(string $title, string $bodyClass = ''): void
 {
-    $t = $title === '' ? APP_NAME . ' – ' . APP_TAGLINE : $title . ' · ' . APP_NAME;
+    $t = $title === '' ? app_name() . ' – ' . app_tagline() : $title . ' · ' . app_name();
     $theme = theme_pref();
     ?><!doctype html>
 <html lang="en" data-theme="<?= h($theme) ?>">
@@ -64,16 +65,18 @@ function page_start(string $title, string $bodyClass = ''): void
 <?php endif; ?>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="<?= h(APP_NAME) ?>">
+<meta name="apple-mobile-web-app-title" content="<?= h(app_name()) ?>">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="format-detection" content="telephone=no">
-<meta name="description" content="<?= h(APP_NAME . ', ' . APP_TAGLINE) ?>">
+<meta name="description" content="<?= h(app_name() . ', ' . app_tagline()) ?>">
 <meta name="csrf" content="<?= h(csrf_token()) ?>">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
-<link rel="icon" href="<?= h(asset('favicon.svg')) ?>" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="icon" href="<?= h(brand_favicon_svg_url()) ?>" type="image/svg+xml">
+<link rel="apple-touch-icon" href="<?= h(brand_icon_url('180')) ?>">
 <link rel="stylesheet" href="<?= h(asset('app.css')) ?>">
+<?php if (strcasecmp((string)setting('accent'), ACCENT_DEFAULT) !== 0): ?><link rel="stylesheet" href="/theme.css?v=<?= substr(md5((string)setting('accent')), 0, 8) ?>" id="accent-css">
+<?php endif; ?>
 <script src="<?= h(asset('theme.js')) ?>"></script>
 <script src="<?= h(asset('app.js')) ?>" defer></script>
 </head>
@@ -174,7 +177,7 @@ function lend_section_html(array $it): string
         . '<input type="hidden" name="csrf" value="' . $tok . '">'
         . '<label class="field"><span>Lent to</span><input type="text" name="lent_to" id="lent_to" required maxlength="100" autocomplete="name" value="' . h((string)($it['lent_to'] ?? '')) . '" placeholder="Name"></label>'
         . '<div class="lendrow"><label class="field"><span>On</span><input type="date" name="lent_at" id="lent_at" max="' . $today . '" value="' . h((string)($it['lent_at'] ?? $today)) . '"></label>'
-        . '<label class="field"><span>Due back <em>optional</em></span><input type="date" name="lent_due" id="lent_due" value="' . h((string)($it['lent_due'] ?? '')) . '"></label></div>'
+        . '<label class="field"><span>Due back <em>optional</em></span><input type="date" name="lent_due" id="lent_due" value="' . h((string)($it['lent_to'] !== null ? ($it['lent_due'] ?? '') : default_lend_due())) . '"></label></div>'
         . '<button class="btn btn-primary btn-wide" id="lend-save">' . icon('handoff') . ' ' . $btn . '</button></form>';
     if (!is_lent($it)) {
         return '<details class="lendbox" id="lending"><summary>' . icon('handoff') . ' Lend this item</summary>' . $form('Mark as lent') . '</details>';
@@ -182,8 +185,8 @@ function lend_section_html(array $it): string
     $late = is_overdue($it, $today);
     return '<section class="lendbox is-out' . ($late ? ' is-overdue' : '') . '" id="lending" aria-labelledby="lend-title">'
         . '<h2 id="lend-title">' . icon($late ? 'alert' : 'handoff') . ' ' . ($late ? 'Overdue' : 'Lent out') . '</h2>'
-        . '<p class="lendinfo">With <b>' . h((string)$it['lent_to']) . '</b> since ' . h((string)$it['lent_at'])
-        . ($it['lent_due'] !== null ? ' · due back <b>' . h((string)$it['lent_due']) . '</b>' : '') . '</p>'
+        . '<p class="lendinfo">With <b>' . h((string)$it['lent_to']) . '</b> since ' . h(fmt_date((string)$it['lent_at']))
+        . ($it['lent_due'] !== null ? ' · due back <b>' . h(fmt_date((string)$it['lent_due'])) . '</b>' : '') . '</p>'
         . '<form method="post" action="/item/' . $id . '/return"><input type="hidden" name="csrf" value="' . $tok . '">'
         . '<button class="btn btn-primary btn-wide" id="lend-return">' . icon('undo') . ' Mark as returned</button></form>'
         . '<details class="lendedit"><summary>Change</summary>' . $form('Save') . '</details></section>';
@@ -211,8 +214,8 @@ function view_lent(array $items, string $today): void
       <a class="lent-main" href="/item/<?= (int)$it['id'] ?>">
         <span class="lent-img"><?= valid_image_name($it['image'] ?? null) ? '<img src="/media/thumb/' . h($it['image']) . '" alt="" loading="lazy">' : icon('box') ?></span>
         <span class="lent-text"><b><?= h($it['name']) ?></b>
-          <span><?= h((string)$it['lent_to']) ?> · since <?= h((string)$it['lent_at']) ?></span>
-          <span class="lent-due"><?= $it['lent_due'] !== null ? ($o ? 'Overdue · was due ' : 'Due ') . h((string)$it['lent_due']) : 'No due date' ?></span></span>
+          <span><?= h((string)$it['lent_to']) ?> · since <?= h(fmt_date((string)$it['lent_at'])) ?></span>
+          <span class="lent-due"><?= $it['lent_due'] !== null ? ($o ? 'Overdue · was due ' : 'Due ') . h(fmt_date((string)$it['lent_due'])) : 'No due date' ?></span></span>
       </a>
       <form method="post" action="/item/<?= (int)$it['id'] ?>/return"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><input type="hidden" name="back" value="/lent">
         <button class="btn btn-sm" aria-label="Mark <?= h($it['name']) ?> as returned"><?= icon('undo') ?> Returned</button></form>
@@ -338,8 +341,9 @@ function menu_html(): string
         . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
-        . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>';
-    if (app_password() !== '') {
+        . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>'
+        . '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>';
+    if (auth_enabled()) {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
     }
     return $o . '</div></details>';
@@ -347,7 +351,7 @@ function menu_html(): string
 
 function active_filter_count(array $f, string $sort): int
 {
-    return count(array_filter(filters_norm($f), fn($v) => $v !== '')) + ($sort !== 'recent' && isset(SORTS[$sort]) ? 1 : 0);
+    return count(array_filter(filters_norm($f), fn($v) => $v !== '')) + ($sort !== default_sort() && isset(SORTS[$sort]) ? 1 : 0);
 }
 
 /** Removable chips for the active filters (each links to the list without that filter) + "Clear all". */
@@ -377,7 +381,7 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
         $o .= '<a class="achip ' . $d['class'] . '" href="' . h($href($k)) . '" data-clear="' . $k . '" aria-label="Remove ' . h($d['what']) . '">'
             . icon($d['icon']) . '<span>' . h($d['opts'][$f[$k]]) . '</span>' . icon('x') . '</a>';
     }
-    if ($sort !== 'recent' && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
+    if ($sort !== default_sort() && isset(SORTS[$sort])) $o .= '<a class="achip" href="' . h($href('sort')) . '" data-clear="sort" aria-label="Reset sort">Sort: ' . h(SORTS[$sort]) . icon('x') . '</a>';
     if ($o !== '') $o .= '<a class="achip achip-clear" href="/" data-clear="all">Clear all</a>';
     return $o;
 }
@@ -516,7 +520,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     ?>
 <header class="top">
   <div class="bar">
-    <h1 class="brand"><?= brand_logo(28) ?><span><?= h(APP_NAME) ?></span></h1>
+    <h1 class="brand"><?= brand_logo(28) ?><span><?= h(app_name()) ?></span></h1>
     <span class="stats"><?= h(stats_brief((int)$stats['items'], (int)$stats['qty'])) ?></span>
     <a class="btn btn-ghost btn-round hide-sm" href="/locations" aria-label="Manage locations &amp; categories" title="Locations &amp; categories"><?= icon('sliders') ?></a>
     <?= menu_html() ?>
@@ -551,7 +555,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           </select></label>
           <?php endforeach; ?>
           <label class="field"><span>Sort by</span>
-          <select name="sort" id="sort">
+          <select name="sort" id="sort" data-default="<?= h(default_sort()) ?>">
             <?php foreach (SORTS as $k => $v): ?>
             <option value="<?= $k ?>"<?= $sort === $k ? ' selected' : '' ?>><?= $v ?></option>
             <?php endforeach; ?>
@@ -586,7 +590,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 <main class="wrap">
   <?= stats_section($stats, $statsOpen) ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
-  <div class="grid" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
+  <div class="grid<?= setting('list_view') === 'compact' ? ' is-compact' : '' ?>" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
     <?= icon('box') ?>
     <p class="empty-title" id="empty-title"><?= $filtered ? 'Nothing matches.' : 'Your catalog is empty.' ?></p>
@@ -599,7 +603,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     <a href="/locations">Locations</a>
     <a href="/categories">Categories</a>
     <a href="/export.csv" download>Export CSV</a>
-    <?php if (app_password() !== ''): ?>
+    <?php if (auth_enabled()): ?>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><button class="linkbtn">Sign out</button></form>
     <?php endif; ?>
   </footer>
@@ -669,7 +673,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php foreach ($it['tags'] as $t): ?><li><a class="tagchip" href="/?tag=<?= (int)$t['id'] ?>">#<?= h($t['name']) ?></a></li><?php endforeach; ?>
   </ul>
   <?php endif; ?>
-  <?php $facts = array_filter(['Price' => fmt_money($it['value_cents'] ?? null), 'Purchased' => (string)($it['purchase_date'] ?? ''), 'Expires' => (string)($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? ''), 'Barcode' => (string)($it['barcode'] ?? '')], fn($v) => $v !== ''); ?>
+  <?php $facts = array_filter(['Price' => fmt_money($it['value_cents'] ?? null), 'Purchased' => fmt_date($it['purchase_date'] ?? ''), 'Expires' => fmt_date($it['expires_on'] ?? ''), 'Serial no.' => (string)($it['serial'] ?? ''), 'Barcode' => (string)($it['barcode'] ?? '')], fn($v) => $v !== ''); ?>
   <?php if ($facts): ?>
   <dl class="facts" id="facts">
     <?php foreach ($facts as $k => $v): ?><div><dt><?= h($k) ?></dt><dd<?= $k === 'Serial no.' ? ' class="mono"' : '' ?>><?= h($v) ?><?= $k === 'Expires' ? ' ' . expiry_badge_html($it) : '' ?></dd></div><?php endforeach; ?>
@@ -679,7 +683,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
   <?php endif; ?>
   <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
-    <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= MAX_PHOTOS ?></span></summary>
+    <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= max_photos() ?></span></summary>
     <?php if ($n): ?>
     <ul class="pm-list">
       <?php foreach ($photos as $i => $p): $act = '/item/' . $id . '/photos/' . $p['id'] . '/'; ?>
@@ -696,7 +700,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
       <?php endforeach; ?>
     </ul>
     <?php endif; ?>
-    <?php if ($n < MAX_PHOTOS): ?>
+    <?php if ($n < max_photos()): ?>
     <form method="post" action="/item/<?= $id ?>/photos" enctype="multipart/form-data" class="pm-add" id="photoadd">
       <input type="hidden" name="csrf" value="<?= $tok ?>">
       <label class="btn"><input type="file" name="photos[]" accept="image/*" capture="environment" class="file" id="photoadd-cam"><?= icon('camera') ?> Take photo</label>
@@ -778,7 +782,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
   <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate>
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int)$it['id'] ?>"><?php endif; ?>
-    <input type="hidden" name="MAX_FILE_SIZE" value="<?= MAX_UPLOAD ?>">
+    <input type="hidden" name="MAX_FILE_SIZE" value="<?= max_upload() ?>">
 
     <div class="err" id="err" role="alert"<?= $error === null ? ' hidden' : '' ?>><?= h($error) ?></div>
 
@@ -829,7 +833,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       <summary>Price, dates, serial &amp; barcode</summary>
       <div class="more-grid">
         <label class="field">
-          <span>Purchase price <em><?= h(cfg()['currency']) ?></em></span>
+          <span>Purchase price <em><?= h(setting('currency')) ?></em></span>
           <input type="text" name="value" id="value" value="<?= h($vals['value'] ?? '') ?>" inputmode="decimal" maxlength="32" autocomplete="off" placeholder="0.00">
         </label>
         <label class="field">
@@ -1156,7 +1160,7 @@ function view_tax_delete(string $kind, array $entry, array $others): void
 /** The Apotheke logo tile (cream tile, terracotta jar): legible on light and dark backgrounds; decorative next to the name. */
 function brand_logo(int $size): string
 {
-    return '<img class="brand-logo" src="' . h(asset('icon.svg')) . '" width="' . $size . '" height="' . $size . '" alt="" decoding="async">';
+    return '<img class="brand-logo" src="' . h(brand_logo_url()) . '" width="' . $size . '" height="' . $size . '" alt="" decoding="async">';
 }
 
 function view_login(?string $error): void
@@ -1164,8 +1168,8 @@ function view_login(?string $error): void
     page_start('Sign in', 'page-login');
     ?>
 <main class="wrap narrow login">
-  <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(APP_NAME) ?></span></div>
-  <p class="tagline"><?= h(ucfirst(APP_TAGLINE)) ?></p>
+  <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(app_name()) ?></span></div>
+  <p class="tagline"><?= h(ucfirst(app_tagline())) ?></p>
   <form method="post" action="/login" class="itemform">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if ($error): ?><div class="err" role="alert"><?= h($error) ?></div><?php endif; ?>
@@ -1213,7 +1217,7 @@ function activity_html(array $e): string
             $parts = [];
             foreach (($d['changes'] ?? []) as $k => $ch) {
                 $label = ACTIVITY_FIELDS[$k] ?? ucfirst((string)$k);
-                $val = $k === 'value' ? fn($v) => $v === '' ? '<i>empty</i>' : h($v . ' ' . cfg()['currency']) : $q;
+                $val = $k === 'value' ? fn($v) => $v === '' ? '<i>empty</i>' : h($v . ' ' . setting('currency')) : $q;
                 $parts[] = '<li><span class="act-field">' . h($label) . '</span> ' . $val($ch[0] ?? '') . ' → ' . $val($ch[1] ?? '') . '</li>';
             }
             $t = 'Edited' . (!empty($d['reason']) ? ' (' . h($d['reason']) . ')' : '') . '<ul class="act-changes">' . implode('', $parts) . '</ul>';
@@ -1370,7 +1374,7 @@ function view_labels(string $heading, array $labels, string $back, array $option
 <main class="wrap labels-wrap">
   <div class="no-print labels-intro">
     <h2 class="item-name"><?= h($heading) ?></h2>
-    <p class="hint">Scan a label with the phone camera to open <?= $options ? 'the matching list or item' : 'it' ?> in Apotheke. Links point to <b><?= h(public_url('')) ?></b><?= cfg()['public_url'] === '' ? ' (set <code>PUBLIC_URL</code> to change)' : '' ?>.</p>
+    <p class="hint">Scan a label with the phone camera to open <?= $options ? 'the matching list or item' : 'it' ?> in Apotheke. Links point to <b><?= h(public_url('')) ?></b><?= setting('public_url') === '' ? ' (change it in <a href="/settings/general">Settings → General</a>)' : '' ?>.</p>
     <?php if ($options): ?><nav class="label-opts" aria-label="Label sets"><?php foreach ($options as $href => $txt): ?><a class="achip" href="<?= h($href) ?>"><?= h($txt) ?></a><?php endforeach; ?></nav><?php endif; ?>
   </div>
   <?php if (!$labels): ?>
