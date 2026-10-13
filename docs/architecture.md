@@ -96,8 +96,10 @@ requests (photos, instant search) never wait for the session lock. Every state-c
 (form field `csrf` or header `X-CSRF-Token`). When sign-in is on (Settings → Users & sign-in; `APP_PASSWORD` creates the account `admin`), everything except `/login`, `/healthz` and
 the branding routes (`/theme.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) requires a signed-in session (`uid`) whose
 fingerprint matches that user's current password hash (a new password signs the user's other devices out); unauthenticated JSON requests get a 401, media requests a bare
-401, pages a redirect to `/login`. Then `route_role()` (src/users.php) names the role the route needs — viewer for pages,
-editor for every POST and the edit forms, admin for `/settings*` and `/backup*` — and `user_can()` answers 403 otherwise.
+401, pages a redirect to `/login`. With guest browsing on, a visitor who is not signed in is the anonymous user with the role `guest` instead.
+Then `route_perm()` (src/roles.php) names the permission the route needs (view, create, edit, delete, move, bulk, lend,
+import, export, stocktake, labels, settings, users, backup; `self` for /account, `public` for /login and /register) and
+`user_can()` checks it against the role's permissions — 403 for accounts, a redirect to `/login` (JSON 401) for guests.
 
 ## Database layer
 

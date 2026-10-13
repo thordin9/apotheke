@@ -139,7 +139,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   errors, then import in one transaction — optionally creating missing locations (paths like `Garage › Shelf 2` become
   nested), categories and tags. The CSV export imports unchanged (its `id` column updates those items).
 * **Users & roles** (optional): turn sign-in on and give everyone their own account — *admin* (everything), *editor*
-  (change the catalog) or *viewer* (look only), enforced by the server on every route. The history shows who changed
+  (change the catalog), *viewer* (look only) or your own **custom roles** built from 14 granular permissions (view, add,
+  edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
+  every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
+  with a default role, admin approval and rate limiting — both off by default. The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   Empty means no login, fine on a trusted LAN.
 
@@ -320,7 +323,7 @@ php bin/restore.php home.zip --dry-run   # validate and show what would be resto
 php bin/restore.php home.zip             # asks for confirmation, then REPLACES all data
 php bin/restore.php home.zip --yes       # no prompt (scripts)
 php bin/settings.php list                # Control Panel settings (get KEY / set KEY VALUE / reset SECTION / export / import FILE)
-php bin/settings.php users               # accounts · user add|password|role|rename|delete NAME … · auth on|off
+php bin/settings.php users               # accounts · user add|password|role|approve|rename|delete NAME … · roles [reset] · auth on|off
 php bin/settings.php user password admin # locked out? new password for admin
 ```
 

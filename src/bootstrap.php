@@ -11,6 +11,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/qr.php';
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/roles.php';
 require_once __DIR__ . '/users.php';
 define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
@@ -70,6 +71,7 @@ function login(string $username, string $pw): bool
     if (!auth_enabled()) return false;
     $u = user_verify($username, $pw);
     if (!$u) return false;
+    if ($u['status'] !== 'active') throw new UserError('Your account is waiting for an admin’s approval.', 403);
     db()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([now_utc(), $u['id']]);
     login_session($u['id']);
     return true;

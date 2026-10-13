@@ -66,9 +66,24 @@ without `unsafe-inline`. The default indigo needs no extra stylesheet.
 
 Accounts live in the `users` table (migration 0018); passwords are `password_hash()` hashes. The setting
 `auth_enabled` is the switch: off means no sign-in and every visitor is an admin; on means everybody signs in with a
-user name and password and the **role** decides what they may do (viewer: look; editor: change the catalog; admin: also
-the Control Panel, users and backups). The server checks the role of every route (`route_role()` in `src/users.php`);
-a forbidden page answers 403, a forbidden JSON request `{"ok":false,"error":…}` with 403.
+user name and password and the **role** decides what they may do. Roles live in `roles` (migration 0022): a key, a
+name and a JSON list of permissions from `PERMISSIONS` in `src/roles.php` (view, create, edit, delete, move, bulk, lend,
+import, export, stocktake, labels, settings, users, backup). Built-in: admin (always everything; cannot be changed or
+deleted), editor, viewer and guest (anonymous visitors while guest browsing is on; never settings/users/backup).
+`route_perm()` names the permission every route needs, handlers check finer cases (`require_perm('move')` when the
+location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, a forbidden JSON request
+`{"ok":false,"error":…}` with 403, an anonymous visitor is sent to `/login` (JSON: 401). `<body>` carries
+`no-<permission>` classes so CSS hides what the role can't use.
+
+| Setting | Default | |
+|---|---|---|
+| `auth_guest_disabled` | on | off: anonymous visitors browse with the Guest role |
+| `auth_register_disabled` | on | off: public `/register` (CSRF + 5 per hour per address) |
+| `auth_register_role` | viewer | role of self-registered accounts (any but admin) |
+| `auth_register_approval` | off | new accounts are `pending` until an admin approves them |
+
+Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
+manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 / 15 min) and registration.
 
 Only admins see this section. Rules: user names are 1–40 letters, digits and `. _ @ -` (case-insensitive, unique);
 passwords at least 8 characters; the last admin can't be demoted or deleted; you can't delete yourself. A new password
@@ -80,6 +95,8 @@ Locked out? On the server:
 
 ```
 php bin/settings.php users                          # accounts, roles, last sign-in
+php bin/settings.php roles                          # roles and their permissions · roles reset (restore built-ins)
+php bin/settings.php user role NAME admin           # make someone an admin · user approve NAME
 php bin/settings.php user password admin            # new password (asks twice; or pass it as the next argument)
 php bin/settings.php user add anna editor           # roles: admin, editor, viewer
 php bin/settings.php user role anna admin           # · user rename OLD NEW · user delete NAME

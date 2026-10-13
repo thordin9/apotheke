@@ -50,11 +50,18 @@ function icon(string $n): string
 
 /* ---------- layout ---------- */
 
-/** "role-viewer" / "role-editor" while signed in with such an account: CSS hides the controls the role may not use. */
+/**
+ * "no-<permission>" for every permission the current role lacks (plus "role-<key>", and "is-guest" for visitors who are
+ * not signed in): CSS hides the controls they may not use; the server checks every request anyway.
+ */
 function body_role_class(): string
 {
     try { $u = current_user(); } catch (Throwable) { return ''; }
-    return $u && !$u['guest'] && $u['role'] !== 'admin' ? 'role-' . $u['role'] : '';
+    if (!$u || $u['role'] === 'admin') return '';
+    $c = ['role-' . preg_replace('/[^a-z0-9-]/', '', $u['role'])];
+    foreach (array_keys(PERMISSIONS) as $p) if (!user_can($p, $u)) $c[] = 'no-' . $p;
+    if ($u['anon']) $c[] = 'is-guest';
+    return implode(' ', $c);
 }
 
 function page_start(string $title, string $bodyClass = ''): void
@@ -382,19 +389,22 @@ function menu_html(): string
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
         . '<a class="menu-item" href="/barcode" role="menuitem">' . icon('search') . ' Find by barcode</a>'
-        . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
-        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
-        . (user_can('editor') ? '<a class="menu-item" href="/import" role="menuitem" id="menu-import">' . icon('archive') . ' Import CSV</a>' : '')
+        . (user_can('labels') ? '<a class="menu-item" href="/labels" role="menuitem" id="menu-labels">' . icon('qr') . ' Print QR labels</a>' : '')
+        . (user_can('export') ? '<a class="menu-item" href="/export.csv" role="menuitem" id="menu-export">' . icon('download') . ' Export CSV</a>' : '')
+        . (user_can('import') ? '<a class="menu-item" href="/import" role="menuitem" id="menu-import">' . icon('archive') . ' Import CSV</a>' : '')
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
-        . '<a class="menu-item" href="/stocktake" role="menuitem" id="menu-stocktake">' . icon('check') . ' Stocktake</a>'
+        . (user_can('stocktake') ? '<a class="menu-item" href="/stocktake" role="menuitem" id="menu-stocktake">' . icon('check') . ' Stocktake</a>' : '')
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
-        . (user_can('admin') ? '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>'
-        . '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>' : '');
+        . (user_can('backup') ? '<a class="menu-item" href="/backup" role="menuitem" id="menu-backup">' . icon('archive') . ' Backup &amp; restore</a>' : '')
+        . (user_can('settings') ? '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>'
+            : (user_can('users') ? '<a class="menu-item" href="/settings/security" role="menuitem" id="menu-settings">' . icon('sliders') . ' Users &amp; sign-in</a>' : ''));
     $me = current_user();
     if ($me && !$me['guest']) {
-        $o .= '<a class="menu-item" href="/account" role="menuitem" id="menu-account">' . icon('lock') . ' <span>' . h($me['username']) . ' <small class="menu-role">' . h(USER_ROLES[$me['role']]) . '</small></span></a>';
+        $o .= '<a class="menu-item" href="/account" role="menuitem" id="menu-account">' . icon('lock') . ' <span>' . h($me['username']) . ' <small class="menu-role">' . h(role_name($me['role'])) . '</small></span></a>';
     }
-    if (auth_enabled()) {
+    if ($me && $me['anon']) {
+        $o .= '<a class="menu-item" href="/login" role="menuitem" id="menu-login">' . icon('lock') . ' Sign in</a>';
+    } elseif (auth_enabled()) {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
     }
     return $o . '</div></details>';
@@ -1226,7 +1236,7 @@ function brand_logo(int $size): string
     return '<img class="brand-logo" src="' . h(brand_logo_url()) . '" width="' . $size . '" height="' . $size . '" alt="" decoding="async">';
 }
 
-function view_login(?string $error, string $username = ''): void
+function view_login(?string $error, string $username = '', ?string $note = null): void
 {
     page_start('Sign in', 'page-login');
     ?>
@@ -1240,6 +1250,32 @@ function view_login(?string $error, string $username = ''): void
     <label class="field"><span>Password</span><input type="password" name="password" id="login-pw" autocomplete="current-password" required enterkeyhint="go"<?= $username !== '' ? ' autofocus' : '' ?>></label>
     <button class="btn btn-primary btn-wide" id="login-go">Sign in</button>
   </form>
+  <?php if ($note === 'pending'): ?><p class="okbox" role="status" id="login-pending">Account created. You can sign in once an admin has approved it.</p><?php endif; ?>
+  <?php if (registration_open()): ?><p class="login-alt"><a class="btn btn-wide" href="/register" id="login-register">Create an account</a></p><?php endif; ?>
+  <?php if (guest_browsing()): ?><p class="login-alt"><a class="btn btn-wide" href="/" id="login-guest">Look around as a guest</a></p><?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
+function view_register(?string $error, string $username = ''): void
+{
+    page_start('Create an account', 'page-login page-register');
+    $approval = (bool)setting('auth_register_approval');
+    ?>
+<main class="wrap narrow login">
+  <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(app_name()) ?></span></div>
+  <h1 class="tagline">Create an account</h1>
+  <form method="post" action="/register" class="itemform" id="reg-form">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <?php if ($error): ?><div class="err" role="alert" id="reg-err"><?= h($error) ?></div><?php endif; ?>
+    <label class="field"><span>User name <em>letters, digits, . _ @ -</em></span><input type="text" name="username" id="reg-user" value="<?= h($username) ?>" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="<?= USERNAME_MAX ?>" required></label>
+    <label class="field"><span>Password <em>at least <?= PASSWORD_MIN ?> characters</em></span><input type="password" name="new" id="reg-pw" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+    <label class="field"><span>Repeat password</span><input type="password" name="confirm" id="reg-confirm" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+    <p class="hint" id="reg-hint">New accounts get the role <b><?= h(role_name((string)setting('auth_register_role'))) ?></b><?= $approval ? ' and can sign in once an admin has approved them' : '' ?>.</p>
+    <button class="btn btn-primary btn-wide" id="reg-go">Create account</button>
+  </form>
+  <p class="login-alt"><a class="btn btn-wide" href="/login" id="reg-login">I have an account – sign in</a></p>
 </main>
 <?php
     page_end();
@@ -1253,8 +1289,8 @@ function view_account(array $me, ?string $error, ?string $toast): void
     ?>
 <main class="wrap narrow">
   <section class="set-card" id="acct-card">
-    <p class="pw-state"><?= icon('lock') ?> Signed in as <b id="acct-name"><?= h($me['username']) ?></b> · <span class="role role-<?= h($me['role']) ?>" id="acct-role"><?= h(USER_ROLES[$me['role']]) ?></span></p>
-    <p class="hint"><?= h(ucfirst(USER_ROLE_HINTS[$me['role']])) ?>.</p>
+    <p class="pw-state"><?= icon('lock') ?> Signed in as <b id="acct-name"><?= h($me['username']) ?></b> · <span class="role role-<?= h($me['role']) ?>" id="acct-role"><?= h(role_name($me['role'])) ?></span></p>
+    <p class="hint" id="acct-perms">You may: <?= h(implode(', ', array_map(fn($p) => mb_strtolower(PERMISSIONS[$p][0]), role_get($me['role'])['perms'] ?? []))) ?>.</p>
     <?php if ($error): ?><div class="err" role="alert" id="acct-err"><?= h($error) ?></div><?php endif; ?>
     <form method="post" action="/account" class="setform" id="acct-pw">
       <input type="hidden" name="csrf" value="<?= $tok ?>">

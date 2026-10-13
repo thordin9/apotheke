@@ -103,8 +103,12 @@ function settings_schema(): array
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // security (own form)
-        'import_create_missing' => ['data', 'CSV import creates missing entries', 'bool', true, 'Pre-ticks “Create missing locations, categories and tags” on the import screen.', []],
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
+        'auth_guest_disabled' => ['security', 'Disable guest browsing', 'bool', true, 'On: visitors must sign in before they see anything. Off: they can look around with the permissions of the Guest role.', []],
+        'auth_register_disabled' => ['security', 'Disable registrations', 'bool', true, 'Off: anyone who can reach this address can create an account at /register (limited to 5 per hour per address).', []],
+        'auth_register_role' => ['security', 'Role for new registrations', 'role', 'viewer', 'Admin cannot be chosen.', []],
+        'auth_register_approval' => ['security', 'Registrations need an admin’s approval', 'bool', false, 'New accounts can only sign in once an admin approves them under Users.', []],
+        'import_create_missing' => ['data', 'CSV import creates missing entries', 'bool', true, 'Pre-ticks “Create missing locations, categories and tags” on the import screen.', []],
         'password_hash'    => ['security', 'Password (before accounts; moved to the user “admin” by migration 0018)', 'secret', 'cfg_hash', '', []],
     ];
     return $s;
@@ -180,6 +184,9 @@ function setting_validate(string $key, mixed $raw): mixed
             $n = (int)$str;
             if ($n < $o['min'] || $n > $o['max']) throw new UserError("$label: between {$o['min']} and {$o['max']}.");
             return $n;
+        case 'role':
+            if ($str === null || !isset(account_roles()[$str]) || $str === 'admin') throw new UserError("$label: choose a role other than admin.");
+            return $str;
         case 'enum':
             if ($str === null || !array_key_exists($str, $o['options'])) throw new UserError("$label: choose one of the options.");
             return $str;

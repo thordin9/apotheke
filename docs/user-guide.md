@@ -418,20 +418,39 @@ with one shared password? It became the account `admin`; sign in with user name 
 
 Then add an account for each person under **Add a user** and pick a role:
 
-| Role | May |
+| Role | May (default permissions) |
 |---|---|
-| **Viewer** | look at everything: the list, items, photos, history, statistics; export CSV, print labels |
-| **Editor** | also add, change, move and delete items, locations, categories and photos; stocktakes |
-| **Admin** | also the Control Panel, users, backup & restore |
+| **Viewer** | view, export CSV, print labels |
+| **Editor** | also add, edit, delete, move, bulk actions, lend, import, stocktake |
+| **Admin** | everything, including settings, users and backup & restore — always, it cannot be changed |
+| **Guest** | what visitors who are *not* signed in may do while guest browsing is on: view |
 
-The role is checked by the server on every page and action; viewers simply don't see the buttons they can't use.
+**Roles & permissions** (same page) lists every role with a checklist of its permissions: *View, Add items, Edit,
+Delete, Move, Bulk actions, Lend, Import, Export, Stocktake, Labels, Settings, Users, Backup*. Change the built-in
+Editor, Viewer and Guest, or add your own (e.g. “Lender”: view + lend). Deleting a custom role moves its accounts to the
+role you choose. Guests can never get Settings, Users or Backup.
+
+The permissions are checked by the server on every page and action (a refused page says which permission it needs);
+the buttons a role can't use are hidden. Moving an item (changing its location in the form, a bulk move, stocktake
+moves) needs *Move* on top of *Edit*; bulk actions need *Bulk actions* plus the permission of the action.
+
+**Sign-in options** (same page):
+
+* **Disable guest browsing** (on by default): visitors must sign in first. Off: they can look around with the Guest
+  role (*Look around as a guest* on the sign-in page; *Sign in* in the menu).
+* **Disable registrations** (on by default). Off: *Create an account* on the sign-in page opens `/register`; new
+  accounts get the **Role for new registrations** (default Viewer; never Admin). With **Registrations need an admin’s
+  approval** they show up under Users as *Waiting for approval* and can sign in once an admin taps *Approve account*.
+  Sign-in is limited to 10 tries per 15 minutes and registration to 5 per hour per address.
+* Turning accounts off (*Turn sign-in off*) makes everyone an anonymous guest with admin rights again.
 Tap a user to change the role, rename the account, set a new password (signs that user out on every device) or delete it.
 The last admin can't be demoted or deleted, and you can't delete your own account. User names ignore upper/lower case.
 
 Everybody can change their own password under **☰ → (your name)**. The history records who made each change
 ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
 only needs an admin's user name and password. Sessions last up to 180 days. Locked out? On the server:
-`php bin/settings.php user password admin` (or `users` to list accounts, `auth off` to turn sign-in off).
+`php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
+`roles reset` to restore the built-in roles, `auth off` to turn accounts off).
 
 ## Settings (Control Panel)
 

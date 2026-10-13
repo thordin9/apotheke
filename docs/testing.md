@@ -104,6 +104,7 @@ npm run test:e2e:report                             # open the HTML report
 | `photos.spec.ts` | canvas crop/rotate saves a new version, no-JS exact fields, drag-to-reorder sets the cover |
 | `import.spec.ts` | upload, column mapping, dry run with row errors, skip errors, import, export round trip |
 | `search.spec.ts` | ranking, highlights, snippets, typo note, escaping, no-JS search, engine in System |
+| `roles.spec.ts` | roles editor (custom role, permission change, delete), guest browsing, registration + approval, accounts off |
 | `users.spec.ts` | first admin, adding a viewer, read-only UI and 403s, own password, role change, deleting an account |
 | `stock.spec.ts` | low-stock level, live badge, tile and filter |
 | `bulk.spec.ts` | selection mode, move, tags, select all, delete confirmation |

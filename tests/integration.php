@@ -1085,7 +1085,7 @@ $secKeys = [
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
-    'security' => [], 'data' => ['import_create_missing'], 'system' => [],
+    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
 $settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
@@ -1368,7 +1368,7 @@ $vt = $vi->csrf();
 foreach (['/', '/locations', '/categories', '/activity', '/export.csv', '/labels', '/stocktake', '/account'] as $p) T::eq(200, $vi->get($p)['status'], "viewer may open $p");
 foreach (['/new', '/settings', '/settings/security', '/backup', '/backup.zip'] as $p) T::eq(403, $vi->get($p)['status'], "viewer may not open $p");
 $r = $vi->api('/save', ['csrf' => $vt, 'name' => 'Sneaky']);
-T::ok($r['status'] === 403 && str_contains((string)($r['json']['error'] ?? ''), 'editor'), 'viewer cannot save items (JSON 403)');
+T::ok($r['status'] === 403 && str_contains((string)($r['json']['error'] ?? ''), '“Add items” permission'), 'viewer cannot save items (JSON 403)');
 T::eq(403, $vi->post('/locations', ['csrf' => $vt, 'name' => 'Nope'])['status'], 'viewer cannot add locations');
 T::eq(303, $vi->post('/theme', ['csrf' => $vt, 'theme' => 'dark', 'back' => '/'])['status'], 'viewer may still pick a theme');
 $home = $vi->get('/')['body'];
@@ -1427,6 +1427,175 @@ T::ok(str_contains($ucli('user delete nobody'), 'No user'), 'CLI: unknown user')
 T::ok(str_contains($ucli('user delete kim'), 'Deleted kim') && $uid('kim') === 0, 'CLI deletes a user');
 T::ok(str_contains($ucli('auth off'), 'turned off') && !auth_on_db($udb), 'CLI turns sign-in off');
 T::ok(str_contains($ucli('auth on'), 'turned on') && auth_on_db($udb), 'CLI turns sign-in on');
+
+T::section('Roles & permissions (matrix)');
+$rd = $newDir('roles');
+$rs = new Server($rd, ['SEED_DEFAULTS' => '0']);
+$rdb = testdb($rd);
+$root = $rs->client();
+$rt = $root->csrf();
+// accounts off: everybody is an anonymous admin
+T::eq(303, $root->get('/login')['status'], 'accounts off: /login goes home');
+T::eq(404, $root->get('/register')['status'], 'accounts off: no registration');
+T::eq(200, $root->get('/backup')['status'], 'accounts off: anonymous admin may open backups');
+
+$mk = fn(string $n) => $root->api('/locations', ['csrf' => $rt, 'name' => $n]);
+$mk('Shelf A'); $mk('Shelf B');
+$locs = array_map('intval', $rdb->query("SELECT id FROM locations WHERE name IN ('Shelf A', 'Shelf B') ORDER BY name")->fetchAll(PDO::FETCH_COLUMN));
+$r = $root->api('/save', ['csrf' => $rt, 'name' => 'Matrix item', 'quantity' => 1, 'location_id' => $locs[0]]);
+$iid = (int)($r['json']['id'] ?? $rdb->query("SELECT id FROM items WHERE name = 'Matrix item'")->fetchColumn());
+T::ok($iid > 0, 'item for the matrix');
+$root->post('/settings/password', ['csrf' => $rt, 'mode' => 'change', 'username' => 'root', 'new' => 'root-password', 'confirm' => 'root-password']);
+$rt = $root->csrf();
+T::ok(auth_on_db($rdb), 'accounts on');
+$anon = $rs->client();
+$r = $anon->get('/');
+T::ok($r['status'] === 303 && str_contains($r['headers']['location'] ?? '', '/login'), 'default: guest browsing disabled → sign in');
+T::eq(404, $anon->get('/register')['status'], 'default: registrations disabled');
+T::ok(!str_contains($anon->get('/login')['body'], 'id="login-register"') && !str_contains($anon->get('/login')['body'], 'id="login-guest"'), 'login page offers neither');
+
+// one role per permission (plus view), one account each
+$routes = [
+    // method, path, fields, permissions needed (all)
+    ['GET', '/', [], ['view']], ['GET', "/item/$iid", [], ['view']], ['GET', '/activity', [], ['view']], ['GET', '/stocktake', [], ['view']],
+    ['GET', '/new', [], ['create']], ['POST', '/item/999999/duplicate', [], ['create']], ['POST', '/save', ['name' => ''], ['create']],
+    ['GET', "/item/$iid/edit", [], ['edit']], ['POST', '/item/999999/qty', [], ['edit']], ['POST', '/item/999999/photos/order', [], ['edit']],
+    ['POST', '/locations/999999/rename', ['name' => 'x'], ['edit']], ['POST', '/undo', [], ['edit']], ['POST', '/save', ['id' => $iid, 'name' => ''], ['edit']],
+    ['POST', '/item/999999/delete', [], ['delete']], ['GET', '/item/999999/merge', [], ['delete']],
+    ['POST', '/bulk', ['action' => 'category'], ['bulk', 'edit']], ['POST', '/bulk', ['action' => 'delete', 'confirm' => '1'], ['bulk', 'delete']],
+    ['POST', '/bulk', ['action' => 'move'], ['bulk', 'move']], ['POST', '/bulk', ['action' => 'labels'], ['bulk', 'labels']],
+    ['POST', '/item/999999/lend', [], ['lend']], ['POST', '/item/999999/return', [], ['lend']],
+    ['GET', '/import', [], ['import']], ['GET', '/export.csv', [], ['export']],
+    ['POST', '/stocktake', ['location_id' => 999999], ['stocktake']], ['POST', '/stocktake/999999/check', [], ['stocktake']],
+    ['GET', '/labels', [], ['labels']], ['GET', "/item/$iid/label", [], ['labels']],
+    ['GET', '/settings', [], ['settings']], ['GET', '/settings/general', [], ['settings']], ['POST', '/settings/zzz', [], ['settings']], ['GET', '/settings/export.json', [], ['settings']],
+    ['GET', '/settings/security', [], ['users']], ['POST', '/settings/users/999999/role', ['role' => 'viewer'], ['users']], ['POST', '/settings/roles/zzz', [], ['users']],
+    ['GET', '/backup', [], ['backup']], ['POST', '/backup/restore', [], ['backup']],
+];
+$routes[] = ['MOVE', '', [], ['edit', 'move']];
+$denied = fn(array $r) => $r['status'] === 403 || $r['status'] === 401 || str_contains($r['headers']['location'] ?? '', '/login');
+$run = function (Client $c, string $tok, array $rt) use ($iid, $locs, $rdb) {
+    [$m, $p, $f] = $rt;
+    if ($m === 'MOVE') {
+        $cur = (int)$rdb->query("SELECT location_id FROM items WHERE id = $iid")->fetchColumn();
+        return $c->post('/save', ['csrf' => $tok, 'id' => $iid, 'name' => 'Matrix item', 'quantity' => 1, 'location_id' => $cur === $locs[0] ? $locs[1] : $locs[0]]);
+    }
+    return $m === 'GET' ? $c->get($p) : $c->post($p, ['csrf' => $tok] + $f);
+};
+$perms = ['view', 'create', 'edit', 'delete', 'move', 'bulk', 'lend', 'import', 'export', 'stocktake', 'labels', 'settings', 'users', 'backup'];
+$bad = [];
+$checked = 0;
+foreach ($perms as $p) {
+    $have = array_values(array_unique(['view', $p]));
+    $r = $root->post('/settings/roles', ['csrf' => $rt, 'name' => "Only $p", 'perms' => $have]);
+    T::ok(str_contains($r['headers']['location'] ?? '', 'done=role-added'), "role “Only $p” created");
+    $root->post('/settings/users', ['csrf' => $rt, 'username' => "u-$p", 'role' => "only-$p", 'new' => 'matrix-password', 'confirm' => 'matrix-password']);
+    $c = $rs->client();
+    $c->post('/login', ['csrf' => $c->csrf(), 'username' => "u-$p", 'password' => 'matrix-password']);
+    $tok = $c->csrf();
+    foreach ($routes as $rt2) {
+        $allowed = !array_diff($rt2[3], $have);
+        $res = $run($c, $tok, $rt2);
+        $checked++;
+        if ($denied($res) === $allowed) $bad[] = "only-$p {$rt2[0]} {$rt2[1]} " . json_encode($rt2[2]) . " → {$res['status']} (expected " . ($allowed ? 'allowed' : 'denied') . ')';
+    }
+}
+T::eq([], $bad, "every permission against every protected route ($checked requests)");
+// admin may do everything; the admin role is locked
+$adminBad = [];
+foreach ($routes as $rt2) if ($denied($run($root, $rt, $rt2))) $adminBad[] = "{$rt2[0]} {$rt2[1]}";
+T::eq([], $adminBad, 'admin passes every route');
+T::eq(409, $root->post('/settings/roles/admin', ['csrf' => $rt, 'perms' => ['view']])['status'], 'admin role cannot be changed');
+T::eq(409, $root->post('/settings/roles/viewer/delete', ['csrf' => $rt])['status'], 'built-in roles cannot be deleted');
+T::eq(422, $root->post('/settings/roles', ['csrf' => $rt, 'name' => 'Bad', 'perms' => ['fly']])['status'], 'unknown permission rejected');
+$rootId = (int)$rdb->query("SELECT id FROM users WHERE username = 'root'")->fetchColumn();
+T::eq(409, $root->post("/settings/users/$rootId/role", ['csrf' => $rt, 'role' => 'only-users'])['status'], 'lockout: the last admin keeps the role');
+$sec = $root->get('/settings/security')['body'];
+T::ok(str_contains($sec, 'id="rc-only-lend"') && str_contains($sec, 'id="perm-only-lend-lend" checked') && !str_contains($sec, 'id="perm-only-lend-edit" checked') && str_contains($sec, 'id="nr-name"'), 'roles editor lists the roles');
+// edit a custom role, delete it (accounts move)
+$r = $root->post('/settings/roles/only-lend', ['csrf' => $rt, 'name' => 'Lenders', 'perms' => ['view', 'lend', 'labels']]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=role-saved') && json_decode((string)$rdb->query("SELECT perms FROM roles WHERE role_key = 'only-lend'")->fetchColumn(), true) === ['view', 'lend', 'labels'], 'role saved');
+$lu = $rs->client(); $lu->post('/login', ['csrf' => $lu->csrf(), 'username' => 'u-lend', 'password' => 'matrix-password']);
+T::eq(200, $lu->get('/labels')['status'], 'new permission applies at once');
+$root->post('/settings/roles/only-lend/delete', ['csrf' => $rt, 'move_to' => 'editor']);
+T::eq('editor', $rdb->query("SELECT role FROM users WHERE username = 'u-lend'")->fetchColumn(), 'deleting a role moves its accounts');
+T::eq(200, $lu->get('/new')['status'], '… and they get the new role’s permissions');
+// UI follows the permissions
+$vb = $rs->client(); $vb->post('/login', ['csrf' => $vb->csrf(), 'username' => 'u-export', 'password' => 'matrix-password']);
+$home = $vb->get('/')['body'];
+T::ok(str_contains($home, 'no-create') && str_contains($home, 'no-edit') && !str_contains($home, ' no-export') && str_contains($home, 'id="menu-export"') && !str_contains($home, 'id="menu-labels"') && !str_contains($home, 'id="menu-import"'), 'body classes + menu follow the permissions');
+
+// guest browsing toggle
+T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0'])['status'], 'guest browsing allowed');
+$g = $rs->client();
+$gt = $g->csrf();
+T::eq(200, $g->get('/')['status'], 'guest may browse');
+T::ok(str_contains($g->get('/')['body'], 'is-guest') && str_contains($g->get('/')['body'], 'id="menu-login"'), 'guest: body class + sign-in link');
+$r = $g->post("/item/$iid/delete", ['csrf' => $gt]);
+T::ok(str_contains($r['headers']['location'] ?? '', '/login'), 'guest action → sign in');
+T::eq(401, $g->api('/item/999999/qty', ['csrf' => $gt, 'delta' => 1])['status'], 'guest JSON action → 401');
+T::ok(str_contains($g->get('/labels')['headers']['location'] ?? '', '/login'), 'guest: no labels by default');
+$root->post('/settings/roles/guest', ['csrf' => $rt, 'perms' => ['view', 'labels', 'backup']]);
+T::eq(200, $g->get('/labels')['status'], 'guest role permissions are configurable');
+T::ok(str_contains($g->get('/backup')['headers']['location'] ?? '', '/login'), 'guests never get backup');
+T::ok(str_contains($g->get('/login')['body'], 'id="login-guest"'), 'login page offers guest browsing');
+
+// registration: every combination of the toggles
+$n = 0;
+foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach ([false, true] as $approval) {
+    $n++;
+    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0']);
+    $tag = 'guest ' . ($guestOff ? 'off' : 'on') . ', registration ' . ($regOff ? 'off' : 'on') . ', approval ' . ($approval ? 'on' : 'off');
+    $a = $rs->client();
+    $home = $a->get('/');
+    T::eq($guestOff ? 303 : 200, $home['status'], "$tag: anonymous home");
+    $reg = $a->get('/register');
+    T::eq($regOff ? 404 : 200, $reg['status'], "$tag: /register");
+    $r = $a->post('/register', ['csrf' => $a->csrf(), 'username' => "reg$n", 'new' => 'register-pass', 'confirm' => 'register-pass']);
+    if ($regOff) { T::eq(404, $r['status'], "$tag: registration refused"); continue; }
+    $row = $rdb->query("SELECT role, status FROM users WHERE username = 'reg$n'")->fetch();
+    T::eq(['role' => 'editor', 'status' => $approval ? 'pending' : 'active'], $row, "$tag: account created with the configured role");
+    if ($approval) {
+        T::ok(str_contains($r['headers']['location'] ?? '', 'registered=pending'), "$tag: waits for approval");
+        $l = $rs->client();
+        $lr = $l->post('/login', ['csrf' => $l->csrf(), 'username' => "reg$n", 'password' => 'register-pass']);
+        T::ok($lr['status'] === 403 && str_contains($lr['body'], 'approval'), "$tag: pending account cannot sign in");
+        $pid = (int)$rdb->query("SELECT id FROM users WHERE username = 'reg$n'")->fetchColumn();
+        T::ok(str_contains($root->get('/settings/security')['body'], "id=\"approve-$pid\""), "$tag: approve button");
+        $root->post("/settings/users/$pid/approve", ['csrf' => $rt]);
+        $lr = $l->post('/login', ['csrf' => $l->csrf(), 'username' => "reg$n", 'password' => 'register-pass']);
+        T::eq(303, $lr['status'], "$tag: approved account signs in");
+        T::eq(200, $l->get('/new')['status'], "$tag: … with the editor role");
+    } else {
+        T::ok(str_contains($r['headers']['location'] ?? '', 'done=welcome'), "$tag: signed in right away");
+        T::eq(200, $a->get('/new')['status'], "$tag: … with the editor role");
+    }
+}
+T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0'])['status'], 'admin cannot be the registration role');
+$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0']);
+$x = $rs->client();
+T::eq(419, $x->post('/register', ['csrf' => 'wrong', 'username' => 'csrfless', 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'], 'registration needs the CSRF token');
+// rate limits (5 registrations per hour per address; earlier tests used some)
+$rdb->exec("DELETE FROM auth_attempts");
+$codes = [];
+for ($i = 0; $i < 6; $i++) $codes[] = ($x = $rs->client())->post('/register', ['csrf' => $x->csrf(), 'username' => "flood$i", 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'];
+T::eq(429, end($codes), 'registration is rate-limited');
+$rdb->exec("DELETE FROM auth_attempts");
+$codes = [];
+for ($i = 0; $i < 11; $i++) $codes[] = ($x = $rs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'])['status'];
+T::eq([401, 429], [$codes[0], end($codes)], 'sign-in is rate-limited');
+$rdb->exec("DELETE FROM auth_attempts");
+// CLI recovery
+$rcli = fn(string $a) => (string)shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e = ['DATA_DIR' => $rd, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($rd)), $e)) . ' php bin/settings.php ' . $a . ' 2>&1');
+$rdb->exec("UPDATE roles SET perms = '[]' WHERE role_key = 'editor'");
+T::ok(str_contains($rcli('roles'), 'only-view'), 'CLI lists roles');
+T::ok(str_contains($rcli('roles reset'), 'restored') && str_contains((string)$rdb->query("SELECT perms FROM roles WHERE role_key = 'editor'")->fetchColumn(), 'stocktake'), 'CLI restores the built-in roles');
+$rdb->exec("UPDATE users SET status = 'pending' WHERE username = 'u-view'");
+T::ok(str_contains($rcli('user approve u-view'), 'can sign in') && $rdb->query("SELECT status FROM users WHERE username = 'u-view'")->fetchColumn() === 'active', 'CLI approves accounts');
+T::ok(str_contains($rcli('user role u-view admin'), 'now admin'), 'CLI makes someone an admin');
+T::ok(str_contains($rcli('auth off'), 'turned off') && !auth_on_db($rdb), 'CLI turns accounts off');
+T::eq(200, $rs->client()->get('/backup')['status'], 'accounts off again: everyone is admin');
+$rs->stop();
 
 T::section('Full-text search');
 $sx = new Server($sxDir = $newDir('search'), ['SEED_DEFAULTS' => '0']);

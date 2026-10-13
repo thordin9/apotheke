@@ -3,7 +3,7 @@ import { test, expect } from './fixtures';
 test.describe('users & roles', () => {
   test('first admin, add a viewer, the viewer can only look @smoke', async ({ app, page, browser }) => {
     await app.go('/settings/security');
-    await expect(page.locator('#pw-state')).toContainText('Sign-in is off');
+    await expect(page.locator('#pw-state')).toContainText('Accounts are off');
     await page.locator('#pw-user').fill('Stathis');
     await page.locator('#pw-new').fill('admin-secret');
     await page.locator('#pw-confirm').fill('admin-secret');

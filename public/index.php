@@ -90,17 +90,44 @@ init_session();
 try {
     /* ---- auth ---- */
     if ($path === '/login') {
-        if (!auth_enabled() || is_authed()) redirect('/');
+        if (!auth_enabled() || signed_in()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
             $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
-            if (login($who, (string)($_POST['password'] ?? ''))) redirect('/');
-            usleep(400000);
-            http_response_code(401);
-            view_login('Wrong user name or password.', $who);
+            try {
+                rate_limit('login');
+                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login'); redirect('/'); }
+                usleep(400000);
+                http_response_code(401);
+                view_login('Wrong user name or password.', $who);
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 403);
+                view_login($e->getMessage(), $who);
+            }
         } else {
-            view_login(null);
+            view_login(null, '', isset($_GET['registered']) ? (string)$_GET['registered'] : null);
         }
+        exit;
+    }
+    if ($path === '/register') {
+        if (!registration_open()) { view_error(404, 'Registration is closed – ask an admin for an account.'); exit; }
+        if (signed_in()) redirect('/');
+        if ($method === 'POST') {
+            check_csrf();
+            $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
+            try {
+                rate_limit('register');
+                $u = user_register($who, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 422);
+                view_register($e->getMessage(), $who);
+                exit;
+            }
+            if ($u['status'] === 'active') { login_session($u['id']); redirect('/?done=welcome'); }
+            redirect('/login?registered=pending');
+        }
+        no_store();
+        view_register(null, '');
         exit;
     }
     if ($path === '/logout' && $method === 'POST') {
@@ -108,15 +135,17 @@ try {
         logout();
         redirect('/login');
     }
-    if (!is_authed()) {
-        if (wants_json()) json_out(['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login'], 401);
-        if (str_starts_with($path, '/media/')) { http_response_code(401); exit; }
-        redirect('/login');
-    }
-    // roles: viewer < editor < admin, checked for every route (see route_role())
-    $need = route_role($method, $path);
+    // every route needs a permission of the user's role (see route_perm() in roles.php)
+    $need = route_perm($method, $path, $_POST);
     if (!user_can($need)) {
-        $msg = $need === 'admin' ? 'Only an admin can do this.' : 'Your account can look but not change things – ask an admin for the editor role.';
+        $me = current_user();
+        if ($me === null || $me['anon']) {
+            // not signed in: sign in first (a guest may look but not do this)
+            if (wants_json()) json_out(['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login'], 401);
+            if (str_starts_with($path, '/media/')) { http_response_code(401); exit; }
+            redirect('/login');
+        }
+        $msg = 'Your role (' . role_name($me['role']) . ') does not allow this' . (isset(PERMISSIONS[$need]) ? ' – it needs the “' . PERMISSIONS[$need][0] . '” permission' : '') . '. Ask an admin.';
         if (wants_json()) json_out(['ok' => false, 'error' => $msg], 403);
         view_error(403, $msg);
         exit;
@@ -125,7 +154,7 @@ try {
     /* ---- your account: own password ---- */
     if ($path === '/account') {
         $me = current_user();
-        if ($me['guest']) redirect('/settings/security');
+        if ($me['guest']) redirect(user_can('users') ? '/settings/security' : '/');
         if ($method === 'POST') {
             check_csrf();
             try {
@@ -249,6 +278,9 @@ try {
             $vals['new_' . $kind] = clean_line((string)($_POST['new_' . $kind] ?? ''), 120)
                 ?: clean_line((string)($_POST['new_' . $kind . '_ns'] ?? ''), 120);
         }
+        // changing the location of an existing item (or adding a new location on the way) needs "move"
+        $locCol = tax('location')['col'];
+        if ($existing && ((isset($_POST[$locCol]) && ($vals[$locCol] ?? null) !== ($existing[$locCol] === null ? null : (int)$existing[$locCol])) || $vals['new_location'] !== '')) require_perm('move');
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
             if ($qty === false) throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
@@ -417,6 +449,7 @@ try {
         if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
         $back   = preg_replace('/&?(?:bulk_(?:done|act)|undo|undone)=[^&]*/', '', $back);
         $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
+        require_perm(bulk_perm($action));
         if ($action === 'labels') {
             $ids = array_values(array_unique(array_filter($ids, fn($i) => $i > 0)));
             if (!$ids) throw new UserError('Select at least one item.', 422);
@@ -550,7 +583,7 @@ try {
         brand_reset();
         redirect('/settings/appearance?done=logo-reset');
     }
-    /* ---- users & sign-in (admins only, see route_role) ---- */
+    /* ---- users & sign-in (admins only, see route_perm) ---- */
     if ($path === '/settings/password' && $method === 'POST') {
         // turn sign-in on (creating the first admin when there is none) or off
         check_csrf();
@@ -585,7 +618,7 @@ try {
         }
         redirect('/settings/security?done=' . ($mode === 'disable' ? 'pw-off' : 'pw'));
     }
-    if (preg_match('#^/settings/users(?:/(\d+)(?:/(role|password|rename|delete))?)?$#D', $path, $m) && $method === 'POST') {
+    if (preg_match('#^/settings/users(?:/(\d+)(?:/(role|password|rename|delete|approve))?)?$#D', $path, $m) && $method === 'POST') {
         check_csrf();
         $me = current_user();
         $uid = isset($m[1]) && $m[1] !== '' ? (int)$m[1] : 0;
@@ -604,6 +637,9 @@ try {
             } elseif ($act === 'rename') {
                 user_rename($uid, (string)($_POST['username'] ?? ''));
                 $done = 'user-renamed';
+            } elseif ($act === 'approve') {
+                user_approve($uid);
+                $done = 'user-approved';
             } elseif ($act === 'delete') {
                 if ($uid === $me['id']) throw new UserError('You cannot delete your own account while signed in with it.', 409);
                 user_delete($uid);
@@ -618,6 +654,24 @@ try {
         }
         redirect('/settings/security?done=' . $done . '#users');
     }
+    /* ---- roles & permissions (users permission, see route_perm) ---- */
+    if (preg_match('#^/settings/roles(?:/([a-z0-9-]+)(?:/(delete))?)?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $key = $m[1] ?? '';
+        $perms = array_values(array_filter((array)($_POST['perms'] ?? []), 'is_string'));
+        try {
+            if ($key === '') { $key = role_create((string)($_POST['name'] ?? ''), $perms); $done = 'role-added'; }
+            elseif (($m[2] ?? '') === 'delete') { role_delete($key, (string)($_POST['move_to'] ?? 'viewer')); $done = 'role-deleted'; $key = ''; }
+            else { role_update($key, isset($_POST['name']) ? (string)$_POST['name'] : null, $perms); $done = 'role-saved'; }
+        } catch (UserError $e) {
+            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+            http_response_code($e->getCode() ?: 422);
+            view_settings_section('security', [], ['roles' => $e->getMessage()], null);
+            exit;
+        }
+        if (wants_json()) json_out(['ok' => true, 'key' => $key]);
+        redirect('/settings/security?done=' . $done . '#' . ($key !== '' ? 'rc-' . $key : 'roles'));
+    }
     if (preg_match('#^/settings/([a-z]+)(/reset)?$#D', $path, $m) && isset(SETTINGS_SECTIONS[$m[1]])) {
         $section = $m[1];
         if ($method === 'GET' && empty($m[2])) {
@@ -625,7 +679,8 @@ try {
             $toast = match ((string)($_GET['done'] ?? '')) {
                 'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
                 'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Sign-in turned off',
-                'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', default => null,
+                'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', 'user-approved' => 'Account approved',
+                'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
             };
             view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
             exit;
@@ -830,7 +885,7 @@ try {
         if ($method !== 'POST' || $act === '' || $act === 'report') throw new UserError('Page not found.', 404);
         check_csrf();
         if ($act === 'cancel') { stocktake_cancel($s['id']); redirect('/stocktake?done=cancelled'); }
-        if ($act === 'finish') { $n = stocktake_finish($s['id'], ($_POST['moves'] ?? '') === '1'); redirect('/stocktake/' . $s['id'] . '/report?finished=' . $n); }
+        if ($act === 'finish') { if (($_POST['moves'] ?? '') === '1') require_perm('move'); $n = stocktake_finish($s['id'], ($_POST['moves'] ?? '') === '1'); redirect('/stocktake/' . $s['id'] . '/report?finished=' . $n); }
         // check: by item id (tick in the list) or by a scanned / typed code
         $found = ($_POST['found'] ?? '1') !== '0';
         try {

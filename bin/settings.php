@@ -9,11 +9,14 @@ declare(strict_types=1);
  *   php bin/settings.php set KEY VALUE        validated like the web form
  *   php bin/settings.php reset SECTION        back to the config.php/env defaults
  *   php bin/settings.php users                list the accounts (name, role, last sign-in)
- *   php bin/settings.php user add NAME ROLE [PASSWORD]   roles: admin, editor, viewer (asks for the password if not given)
+ *   php bin/settings.php user add NAME ROLE [PASSWORD]   ROLE: admin, editor, viewer or a custom role key (asks for the password if not given)
+ *   php bin/settings.php user approve NAME    approve a self-registered account
  *   php bin/settings.php user password NAME [PASSWORD]   set a new password (signs that user out everywhere)
  *   php bin/settings.php user role NAME ROLE
  *   php bin/settings.php user rename NAME NEWNAME
  *   php bin/settings.php user delete NAME
+ *   php bin/settings.php roles                list the roles and their permissions
+ *   php bin/settings.php roles reset          restore the built-in roles' permissions (custom roles stay)
  *   php bin/settings.php auth on|off          turn sign-in on (needs an admin account) or off
  *   php bin/settings.php password [PASSWORD]  recovery shortcut: set the password of "admin" (created if missing) and turn sign-in on
  *   php bin/settings.php password --off       turn sign-in off
@@ -49,7 +52,7 @@ try {
             break;
         case 'users':
             if (!users_count()) echo "No accounts.\n";
-            foreach (users_list() as $u) printf("%-24s %-7s %s\n", $u['username'], $u['role'], $u['last_login_at'] ? 'last sign-in ' . $u['last_login_at'] . ' UTC' : 'never signed in');
+            foreach (users_list() as $u) printf("%-24s %-7s %s\n", $u['username'], $u['role'] . ($u['status'] === 'pending' ? ' (pending)' : ''), $u['last_login_at'] ? 'last sign-in ' . $u['last_login_at'] . ' UTC' : 'never signed in');
             printf("sign-in is %s\n", auth_enabled() ? 'on' : 'off');
             break;
         case 'user':
@@ -69,6 +72,10 @@ try {
                     user_set_role($find()['id'], (string)($argv[4] ?? ''));
                     echo "{$name} is now " . ($argv[4] ?? '') . ".\n";
                     break;
+                case 'approve':
+                    user_approve($find()['id']);
+                    echo "{$name} can sign in now.\n";
+                    break;
                 case 'rename':
                     user_rename($find()['id'], (string)($argv[4] ?? ''));
                     echo "Renamed.\n";
@@ -78,8 +85,12 @@ try {
                     echo "Deleted {$name}.\n";
                     break;
                 default:
-                    throw new UserError('Use: user add|password|role|rename|delete NAME …');
+                    throw new UserError('Use: user add|password|role|approve|rename|delete NAME …');
             }
+            break;
+        case 'roles':
+            if (($argv[2] ?? '') === 'reset') { roles_reset_builtin(); echo "Built-in roles restored.\n"; break; }
+            foreach (roles() as $k => $r) printf("%-14s %-16s %s\n", $k, $r['name'], implode(',', $r['perms']));
             break;
         case 'auth':
             if (($argv[2] ?? '') === 'on') { auth_turn_on(); echo "Sign-in turned on.\n"; }
@@ -97,6 +108,7 @@ try {
             if ($u) {
                 user_set_password($u['id'], $pw);
                 user_set_role($u['id'], 'admin');
+                user_approve($u['id']);
             } else {
                 user_create('admin', $pw, 'admin');
             }

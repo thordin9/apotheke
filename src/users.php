@@ -4,21 +4,18 @@ declare(strict_types=1);
 /*
  * User accounts and roles. With sign-in turned on (Control Panel → Users & sign-in, setting auth_enabled) everybody
  * signs in with a user name and password; the role decides what they may do:
- *   viewer  – look at everything, export CSV, print labels
- *   editor  – also add, change, move and delete items, locations, categories, photos, stocktakes, imports
- *   admin   – also the Control Panel, users, backup & restore
- * With sign-in off (the "no login" mode for a trusted home network) every visitor is an admin.
+ * the role's permissions (src/roles.php) decide what they may do. Visitors who are not signed in are guests (role
+ * "guest") when guest browsing is allowed, otherwise they are sent to the sign-in page. Accounts can register
+ * themselves at /register when registrations are open (optionally waiting for an admin's approval).
+ * With sign-in off (the "no login" mode for a trusted home network) every visitor is an anonymous admin.
  */
 
-const USER_ROLES = ['admin' => 'Admin', 'editor' => 'Editor', 'viewer' => 'Viewer'];
-const USER_ROLE_HINTS = ['admin' => 'everything, including settings, users and backups', 'editor' => 'add, change and delete items', 'viewer' => 'look only'];
-const ROLE_RANK = ['viewer' => 1, 'editor' => 2, 'admin' => 3];
 const USERNAME_MAX = 40;
 const PASSWORD_MIN = 8;
 
 function user_row(array $r): array
 {
-    return ['id' => (int)$r['id'], 'username' => (string)$r['username'], 'role' => (string)$r['role'], 'password_hash' => (string)$r['password_hash'],
+    return ['id' => (int)$r['id'], 'username' => (string)$r['username'], 'role' => (string)$r['role'], 'status' => (string)($r['status'] ?? 'active'), 'password_hash' => (string)$r['password_hash'],
         'created_at' => (string)$r['created_at'], 'last_login_at' => $r['last_login_at'] === null ? null : (string)$r['last_login_at']];
 }
 
@@ -30,7 +27,8 @@ function users_list(): array
 
 function users_count(?string $role = null): int
 {
-    $st = db()->prepare('SELECT COUNT(*) FROM users' . ($role !== null ? ' WHERE role = ?' : ''));
+    // an admin only counts once approved
+    $st = db()->prepare('SELECT COUNT(*) FROM users' . ($role !== null ? " WHERE role = ? AND status = 'active'" : ''));
     $st->execute($role !== null ? [$role] : []);
     return (int)$st->fetchColumn();
 }
@@ -78,17 +76,34 @@ function user_password_valid(string $new, ?string $confirm = null): string
 
 function user_role_valid(string $role): string
 {
-    if (!isset(USER_ROLES[$role])) throw new UserError('Choose a role: admin, editor or viewer.', 422);
+    if (!isset(account_roles()[$role])) throw new UserError('Choose a role: ' . implode(', ', array_map(fn($r) => mb_strtolower($r['name']), account_roles())) . '.', 422);
     return $role;
 }
 
-function user_create(string $name, string $password, string $role, ?string $confirm = null): int
+function user_create(string $name, string $password, string $role, ?string $confirm = null, string $status = 'active'): int
 {
     $name = user_name_valid($name);
     $role = user_role_valid($role);
     $password = user_password_valid($password, $confirm);
-    return db_insert(db(), 'INSERT INTO users (username, username_key, password_hash, role, created_at) VALUES (?,?,?,?,?)',
-        [$name, user_key($name), password_hash($password, PASSWORD_DEFAULT), $role, now_utc()]);
+    $id = db_insert(db(), 'INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?,?,?,?,?,?)',
+        [$name, user_key($name), password_hash($password, PASSWORD_DEFAULT), $role, $status === 'pending' ? 'pending' : 'active', now_utc()]);
+    roles(true);
+    return $id;
+}
+
+/** Approve a self-registered account waiting for an admin. */
+function user_approve(int $id): void
+{
+    user_get($id) ?? throw new UserError('User not found.', 404);
+    db()->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
+}
+
+/** Lockout guard: after changing user $id to $role (null = deleted), an active admin must remain. */
+function user_guard_admin(array $u, ?string $role): void
+{
+    if ($u['role'] === 'admin' && $u['status'] === 'active' && $role !== 'admin' && users_count('admin') <= 1) {
+        throw new UserError('“' . $u['username'] . '” is the only admin – make someone else an admin first.', 409);
+    }
 }
 
 /** Change the role; refuses to leave the install without an admin. */
@@ -96,8 +111,9 @@ function user_set_role(int $id, string $role): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
     $role = user_role_valid($role);
-    if ($u['role'] === 'admin' && $role !== 'admin' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin – make someone else an admin first.', 409);
+    user_guard_admin($u, $role);
     db()->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $id]);
+    roles(true);
 }
 
 /** New password; every session of that user has to sign in again. */
@@ -118,8 +134,9 @@ function user_rename(int $id, string $name): void
 function user_delete(int $id): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
-    if ($u['role'] === 'admin' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin and cannot be deleted.', 409);
+    if ($u['role'] === 'admin' && $u['status'] === 'active' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin and cannot be deleted.', 409);
     db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
+    roles(true);
 }
 
 /** Check a user name + password; returns the user or null (always spends the same hashing time). */
@@ -168,17 +185,39 @@ function auth_turn_off(): void
 
 /* ---------- the signed-in user and permissions ---------- */
 
-/** The current user (from the session), a guest admin when sign-in is off, or null when nobody is signed in. */
+/** Visitors who are not signed in may look around (as role "guest") – only with sign-in on and guest browsing allowed. */
+function guest_browsing(): bool
+{
+    return auth_enabled() && !setting('auth_guest_disabled');
+}
+
+function registration_open(): bool
+{
+    return auth_enabled() && !setting('auth_register_disabled');
+}
+
+/**
+ * The current user (from the session); an anonymous admin when sign-in is off; the guest (role "guest", 'anon')
+ * while guest browsing is allowed; null when nobody is signed in and guests must sign in.
+ */
 function current_user(?array $set = null, bool $reset = false): ?array
 {
     static $cache = false;
     if ($reset) { $cache = false; return null; }
     if ($set !== null) { $cache = $set; return $set; }
     if ($cache !== false) return $cache;
-    if (!auth_enabled()) return $cache = ['id' => null, 'username' => '', 'role' => 'admin', 'guest' => true];
+    if (!auth_enabled()) return $cache = ['id' => null, 'username' => '', 'role' => 'admin', 'status' => 'active', 'guest' => true, 'anon' => false];
     $uid = (int)($_SESSION['uid'] ?? 0);
     $u = $uid > 0 ? user_get($uid) : null;
-    return $cache = ($u && hash_equals(user_epoch($u), (string)($_SESSION['auth_epoch'] ?? ''))) ? $u + ['guest' => false] : null;
+    if ($u && $u['status'] === 'active' && hash_equals(user_epoch($u), (string)($_SESSION['auth_epoch'] ?? ''))) return $cache = $u + ['guest' => false, 'anon' => false];
+    return $cache = guest_browsing() ? ['id' => null, 'username' => '', 'role' => 'guest', 'status' => 'active', 'guest' => true, 'anon' => true] : null;
+}
+
+/** Signed in with an account (not the anonymous admin or a guest)? */
+function signed_in(?array $u = null): bool
+{
+    $u ??= current_user();
+    return $u !== null && !$u['guest'];
 }
 
 /** Name recorded in the history (null with sign-in off). */
@@ -189,22 +228,52 @@ function current_actor(): ?string
     return $u && !$u['guest'] ? $u['username'] : null;
 }
 
-function user_can(string $need, ?array $u = null): bool
+/** May the current user (or $u) do $perm (one of PERMISSIONS, or 'self' = signed in with an account, 'public')? */
+function user_can(string $perm, ?array $u = null): bool
 {
+    if ($perm === 'public') return true;
     $u ??= current_user();
-    return $u !== null && (ROLE_RANK[$u['role']] ?? 0) >= (ROLE_RANK[$need] ?? 99);
+    if ($u === null) return false;
+    if ($perm === 'self') return !$u['guest'];
+    return role_has($u['role'], $perm);
 }
 
-/**
- * The role a request needs. GET pages are for viewers, except the forms that only make sense for editors;
- * every POST changes something and needs an editor, apart from per-device preferences and signing out.
- * The Control Panel, users and backups are for admins; /account (your own password) is for everybody.
- */
-function route_role(string $method, string $path): string
+/* ---------- rate limiting (sign-in, registration) ---------- */
+
+const RATE_LIMITS = ['login' => [10, 900], 'register' => [5, 3600]];
+
+function client_key(): string
 {
-    if (preg_match('#^/(settings|backup)(/|\.zip$|$)#', $path)) return 'admin';
-    if (str_starts_with($path, '/account')) return 'viewer';
-    if ($method === 'POST') return in_array($path, ['/theme', '/logout', '/recent/clear'], true) ? 'viewer' : 'editor';
-    if ($path === '/new' || str_starts_with($path, '/import') || preg_match('#^/item/\d+/(edit|merge|photos/\d+/edit)$#', $path)) return 'editor';
-    return 'viewer';
+    return substr(hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? 'cli')), 0, 32);
+}
+
+/** Throws 429 when $kind was tried too often from this address; otherwise records the attempt. */
+function rate_limit(string $kind): void
+{
+    [$max, $window] = RATE_LIMITS[$kind];
+    $now = app_time();
+    $pdo = db();
+    $pdo->prepare('DELETE FROM auth_attempts WHERE at < ?')->execute([$now - 86400]);
+    $st = $pdo->prepare('SELECT COUNT(*) FROM auth_attempts WHERE kind = ? AND client = ? AND at >= ?');
+    $st->execute([$kind, client_key(), $now - $window]);
+    if ((int)$st->fetchColumn() >= $max) {
+        throw new UserError('Too many attempts from this address – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
+    }
+    $pdo->prepare('INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)')->execute([$kind, client_key(), $now]);
+}
+
+function rate_limit_clear(string $kind): void
+{
+    db()->prepare('DELETE FROM auth_attempts WHERE kind = ? AND client = ?')->execute([$kind, client_key()]);
+}
+
+/** Self-registration: creates an account with the configured role (pending when approval is required). */
+function user_register(string $name, string $password, string $confirm): array
+{
+    if (!registration_open()) throw new UserError('Registration is closed.', 403);
+    $role = (string)setting('auth_register_role');
+    if (!isset(account_roles()[$role]) || $role === 'admin') $role = 'viewer';
+    $pending = (bool)setting('auth_register_approval');
+    $id = user_create($name, $password, $role, $confirm, $pending ? 'pending' : 'active');
+    return user_get($id);
 }

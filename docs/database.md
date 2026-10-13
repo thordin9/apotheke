@@ -165,6 +165,10 @@ Notes:
   weighted `tsv` (A name, B tags, C rest) with a GIN index and, if `CREATE EXTENSION pg_trgm` is allowed, a trigram
   index for word similarity. Missing FTS5 / pg_trgm only switch off those extras (Settings → System shows the engine).
   Not part of backups (rebuilt on the next search).
+* `roles` (migration 0022): `role_key` (unique; `users.role` refers to it), `name`, `perms` (JSON list), `builtin`.
+  Seeded with admin / editor / viewer / guest; unknown `users.role` values became viewer. `users.status` is `active`
+  or `pending` (self-registered, waiting for approval). `auth_attempts` (kind, hashed client address, unix time) backs
+  the sign-in and registration rate limits; rows older than a day are dropped. Not part of backups.
 * `item_photos.version` / `edited_at` (migration 0021): bumped each time a photo is cropped or rotated; the edited
   image gets a new random file name (cache-safe) and the old file is removed.
 * `imports` (migration 0020): one row per uploaded CSV — `status` `uploaded` / `done`, `mapping` (JSON: column index →
@@ -214,6 +218,7 @@ Notes:
 | 0019 | `0019_search.php` | `search_docs`, `search_meta`; SQLite `search_fts` (FTS5) + `search_fts_v` (vocabulary), PostgreSQL `tsv` column + GIN, optional `pg_trgm` index |
 | 0020 | `0020_import.php` | `imports` (CSV import history: file, mapping, options, result) |
 | 0021 | `0021_photo_versions.php` | `item_photos.version`, `item_photos.edited_at` (crop/rotate versions) |
+| 0022 | `0022_roles.php` | `roles` (built-in + custom permission sets), `users.status`, `auth_attempts` (rate limits) |
 
 ## How migrations run
 

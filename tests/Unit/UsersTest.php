@@ -69,21 +69,7 @@ final class UsersTest extends DatabaseTestCase
         current_user(null, true);
         $this->assertTrue(auth_enabled());
         $this->assertNull(current_user(), 'nobody signed in');
-        $this->assertFalse(user_can('viewer'));
-    }
-
-    public function testRouteRoles(): void
-    {
-        $cases = [['GET', '/', 'viewer'], ['GET', '/item/5', 'viewer'], ['GET', '/export.csv', 'viewer'], ['GET', '/stocktake/3', 'viewer'],
-            ['GET', '/new', 'editor'], ['GET', '/item/5/edit', 'editor'], ['GET', '/item/5/merge', 'editor'], ['POST', '/save', 'editor'],
-            ['POST', '/item/5/delete', 'editor'], ['POST', '/stocktake', 'editor'], ['POST', '/theme', 'viewer'], ['POST', '/logout', 'viewer'],
-            ['GET', '/account', 'viewer'], ['POST', '/account', 'viewer'], ['GET', '/settings', 'admin'], ['POST', '/settings/users', 'admin'],
-            ['GET', '/backup', 'admin'], ['GET', '/backup.zip', 'admin'], ['POST', '/backup/restore', 'admin'], ['GET', '/settingsx', 'viewer']];
-        foreach ($cases as [$m, $p, $role]) $this->assertSame($role, route_role($m, $p), "$m $p");
-        $viewer = ['role' => 'viewer'];
-        $this->assertTrue(user_can('viewer', $viewer));
-        $this->assertFalse(user_can('editor', $viewer));
-        $this->assertTrue(user_can('editor', ['role' => 'admin']));
+        $this->assertFalse(user_can('view'));
     }
 
     public function testMigrationTurnsThePasswordIntoAdmin(): void
