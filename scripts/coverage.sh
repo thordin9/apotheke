@@ -8,7 +8,8 @@ rm -rf "$out"
 mkdir -p "$out/cov-unit" "$out/cov-http" "$out/cov-all" "$out/http-raw"
 php -d pcov.enabled=1 -d pcov.directory="$PWD" -d "pcov.exclude=~/(vendor|tests)/~" vendor/bin/phpunit --testsuite unit --no-progress --coverage-php "$out/cov-unit/unit.cov"
 mkdir -p "$out/tmp"
-if ! TMPDIR="$PWD/$out/tmp" APOTHEKE_COVERAGE_DIR="$PWD/$out/http-raw" php tests/integration.php > "$out/integration.log" 2>&1; then
+# test data and server logs go to $out/tmp and are kept (KEEP_TEST_DATA) so a failure can be diagnosed
+if ! KEEP_TEST_DATA=1 TMPDIR="$PWD/$out/tmp" APOTHEKE_COVERAGE_DIR="$PWD/$out/http-raw" php tests/integration.php > "$out/integration.log" 2>&1; then
   tail -40 "$out/integration.log"
   echo "== php -S errors"
   tmp=$(TMPDIR="$PWD/$out/tmp" php -r 'echo sys_get_temp_dir();')
