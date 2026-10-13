@@ -7,6 +7,8 @@ re='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore)(\([a-z0-9._/-]+\))?
 check() {
   local subject=$1 label=$2
   if [[ $subject =~ ^(Merge|Revert|fixup!|squash!)\  ]]; then echo "skip  $label: $subject"; return 0; fi
+  # Release commits are written by .github/workflows/release.yml (see docs/releasing.md).
+  if [[ $subject =~ ^chore\(release\):\ v[0-9]+\.[0-9]+\.[0-9]+ ]]; then echo "skip  $label: $subject (release)"; return 0; fi
   if [[ ! $subject =~ $re ]]; then
     echo "FAIL  $label: \"$subject\" is not <type>[(scope)][!]: <subject>"; return 1
   fi

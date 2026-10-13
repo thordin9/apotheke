@@ -32,8 +32,15 @@ if ($method === 'HEAD') {
 
 if ($path === '/healthz') {
     header('Content-Type: text/plain');
+    header('X-Apotheke-Version: ' . app_version());
     db();
     exit('ok');
+}
+if ($path === '/health') {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    db();
+    exit(json_encode(['status' => 'ok', 'version' => app_version()]));
 }
 settings_apply_runtime();
 
@@ -42,6 +49,11 @@ if ($method === 'GET' && $path === '/theme.css') {
     header('Content-Type: text/css; charset=utf-8');
     header('Cache-Control: ' . (isset($_GET['v']) ? 'public, max-age=31536000, immutable' : 'no-cache'));
     exit(accent_css((string)setting('accent')));
+}
+if ($method === 'GET' && $path === '/labels.css') {
+    header('Content-Type: text/css; charset=utf-8');
+    header('Cache-Control: ' . (isset($_GET['v']) ? 'public, max-age=31536000, immutable' : 'no-cache'));
+    exit(labels_css());
 }
 if ($method === 'GET' && $path === '/manifest.webmanifest') {
     header('Content-Type: application/manifest+json');
@@ -134,6 +146,7 @@ try {
         $toast = null;
         if (isset($_GET['saved']) && ($s = item_get((int)$_GET['saved']))) $toast = 'Saved “' . $s['name'] . '”';
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
+        if (isset($_GET['undone'])) $toast = 'Undone';
         if (isset($_GET['bulk_done'])) $toast = bulk_toast((int)$_GET['bulk_done'], (string)($_GET['bulk_act'] ?? ''));
         if (isset($_GET['filter_saved']) && ($sf = saved_filter_get((int)$_GET['filter_saved']))) $toast = 'Saved filter “' . $sf['name'] . '”';
         view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? (setting('overview_open') ? '1' : '0')) !== '0',
@@ -163,8 +176,11 @@ try {
             'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null,
             isset($_GET['copied']) ? 'Copy created – edit it here' : null);
         else {
+            if (!wants_json()) recent_track((int)$it['id']);
             $hist = activity_list((int)$it['id'], 1, 10);
-            view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
+            $toast = isset($_GET['undone']) ? 'Undone' : null;
+            $toast ??= isset($_GET['merged']) ? 'Merged “' . clean_line((string)$_GET['merged'], 200) . '” into this item' : null;
+            view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10, attachments_for((int)$it['id']), $toast);
         }
         exit;
     }
@@ -220,13 +236,20 @@ try {
             view_form($existing, $vals, locations(), categories(), $e->getMessage());
             exit;
         }
+        $before = $existing ? undo_snapshot([(int)$existing['id']]) : [];
         $savedId = item_save($existing, $fields + $vals, $newImage, !empty($_POST['remove_image']));
+        $undo = null;
+        if ($before) {
+            $strip = fn(array $s) => [array_diff_key($s['row'], ['updated_at' => 1, 'search' => 1, 'image' => 1]), $s['tags']];
+            $now = undo_snapshot([$savedId]);
+            if ($now && $strip($now[0]) !== $strip($before[0])) $undo = undo_create('edit', 'Saved “' . $vals['name'] . '”', $before);
+        }
         $after = (string)($_POST['after'] ?? 'view');
         if ($after === 'another') {
             $qs = ['loc' => $vals['location_id'], 'cat' => $vals['category_id'], 'saved' => $savedId];
             redirect('/new?' . http_build_query(array_filter($qs, fn($v) => $v !== null)));
         }
-        redirect($existing ? '/item/' . $savedId : '/?saved=' . $savedId);
+        redirect($existing ? '/item/' . $savedId . ($undo ? '?undo=' . $undo : '') : '/?saved=' . $savedId);
     }
 
     /* ---- photos: add / cover / reorder / delete ---- */
@@ -254,6 +277,25 @@ try {
         $idx = photo_action($iid, (int)$m[2], $m[3]);
         if (wants_json()) json_out(['ok' => true, 'index' => $idx, 'count' => count(photos_for($iid))]);
         redirect('/item/' . $iid . '?p=' . max(0, $idx) . '#photos');
+    }
+
+    /* ---- attachments: upload / delete / download ---- */
+    if (preg_match('#^/item/(\d+)/attachments(?:/(\d+)/delete)?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $iid = (int)$m[1];
+        if (empty($m[2])) {
+            $n = attachments_add($iid, pick_uploads(['files', 'file']));
+            if (wants_json()) json_out(['ok' => true, 'added' => $n, 'count' => count(attachments_for($iid))]);
+        } else {
+            attachment_delete($iid, (int)$m[2]);
+            if (wants_json()) json_out(['ok' => true, 'count' => count(attachments_for($iid))]);
+        }
+        redirect('/item/' . $iid . '#attachments');
+    }
+    if (preg_match('#^/attachment/(\d+)$#D', $path, $m) && $method === 'GET') {
+        $a = attachment_get((int)$m[1]);
+        if (!$a) { http_response_code(404); exit('Not found'); }
+        attachment_serve($a);
     }
 
     /* ---- quantity +/- ---- */
@@ -304,8 +346,14 @@ try {
         $action = (string)($_POST['action'] ?? '');
         $back   = (string)($_POST['back'] ?? '');
         if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
-        $back   = preg_replace('/&?bulk_(?:done|act)=[^&]*/', '', $back);
+        $back   = preg_replace('/&?(?:bulk_(?:done|act)|undo|undone)=[^&]*/', '', $back);
         $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
+        if ($action === 'labels') {
+            $ids = array_values(array_unique(array_filter($ids, fn($i) => $i > 0)));
+            if (!$ids) throw new UserError('Select at least one item.', 422);
+            if (count($ids) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.', 422);
+            redirect('/labels?ids=' . implode(',', $ids));
+        }
         try {
             if ($action === 'delete' && ($_POST['confirm'] ?? '') !== '1') {
                 $items = array_values(array_filter(array_map('item_get', array_values(array_unique(array_filter($ids, fn($i) => $i > 0))))));
@@ -315,12 +363,65 @@ try {
                 view_bulk_delete($items, $back);
                 exit;
             }
+            $snap = undo_enabled() && in_array($action, UNDO_ACTIONS, true) && count($ids) <= BULK_MAX ? undo_snapshot(array_unique(array_filter($ids, fn($i) => $i > 0))) : [];
             $n = items_bulk($ids, $action, ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
-                'tags' => tags_parse((string)($_POST['tags'] ?? '')), 'tag_id' => (int)($_POST['tag_id'] ?? 0)]);
+                'tags' => tags_parse((string)($_POST['tags'] ?? '')), 'tag_id' => (int)($_POST['tag_id'] ?? 0), 'keep_files' => $action === 'delete' && $snap]);
         } catch (UserError $e) {
             throw new UserError($e->getMessage(), 422);
         }
-        redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action));
+        $undo = $n ? undo_create($action === 'delete' ? 'delete' : $action, bulk_toast($n, $action), $snap, ['back' => $back], $action === 'delete' ? undo_snapshot_files($snap) : []) : null;
+        redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action) . ($undo ? '&undo=' . $undo : ''));
+    }
+
+    /* ---- merge duplicates ---- */
+    if (preg_match('#^/item/(\d+)/merge$#D', $path, $m)) {
+        $it = item_get((int)$m[1]);
+        if (!$it) throw new UserError('Item not found.', 404);
+        if ($method === 'POST') {
+            check_csrf();
+            $into = (int)($_POST['into'] ?? 0);
+            if (($_POST['confirm'] ?? '') !== '1') redirect('/item/' . (int)$it['id'] . '/merge?into=' . $into);
+            $p = item_merge((int)$it['id'], $into);
+            if (wants_json()) json_out(['ok' => true, 'id' => $into, 'quantity' => (int)$p['result']['quantity']]);
+            redirect('/item/' . $into . '?merged=' . rawurlencode((string)$it['name']));
+        }
+        if ($method === 'GET') {
+            no_store();
+            $into = (string)($_GET['into'] ?? '');
+            if (ctype_digit($into)) { view_merge_confirm(merge_preview((int)$it['id'], (int)$into)); exit; }
+            $q = clean_line((string)($_GET['q'] ?? ''), 200);
+            view_merge_pick($it, merge_candidates($it, $q), $q);
+            exit;
+        }
+    }
+
+    /* ---- favourites / recently viewed ---- */
+    if (preg_match('#^/item/(\d+)/fav$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $id = (int)$m[1];
+        $it = item_get($id);
+        if (!$it) throw new UserError('Item not found.', 404);
+        $on = isset($_POST['on']) ? (string)$_POST['on'] === '1' : empty($it['favourite']);
+        fav_set($id, $on);
+        if (wants_json()) json_out(['ok' => true, 'favourite' => $on, 'count' => fav_count()]);
+        $back = (string)($_POST['back'] ?? '');
+        redirect(preg_match('#^/(\?[^\r\n]*)?$|^/item/\d+$#D', $back) ? $back : '/item/' . $id);
+    }
+    if ($path === '/recent/clear' && $method === 'POST') {
+        check_csrf();
+        recent_clear();
+        redirect('/');
+    }
+
+    /* ---- undo ---- */
+    if ($path === '/undo' && $method === 'POST') {
+        check_csrf();
+        undo_prune();
+        $r = undo_apply((string)($_POST['token'] ?? ''));
+        $n = count($r['ids']);
+        if (wants_json()) json_out(['ok' => true, 'action' => $r['action'], 'ids' => $r['ids']]);
+        if ($r['back'] !== '' && preg_match('#^/\?[^\r\n]*$#D', $r['back'])) redirect($r['back'] . '&undone=' . $n);
+        redirect($n === 1 ? '/item/' . $r['ids'][0] . '?undone=1' : '/?undone=' . $n);
     }
 
     /* ---- delete ---- */
@@ -328,8 +429,10 @@ try {
         check_csrf();
         $it = item_get((int)$m[1]);
         if (!$it) throw new UserError('Item not found.', 404);
-        item_delete($it);
-        redirect('/?deleted=1');
+        $snap = undo_enabled() ? undo_snapshot([(int)$it['id']]) : [];
+        item_delete($it, (bool)$snap);
+        $undo = undo_create('delete', 'Deleted “' . $it['name'] . '”', $snap, [], undo_snapshot_files($snap));
+        redirect('/?deleted=1' . ($undo ? '&undo=' . $undo : ''));
     }
 
     /* ---- control panel ---- */
@@ -579,23 +682,40 @@ try {
     if ($path === '/labels' && $method === 'GET') {
         no_store();
         $locs = locations();
+        $locLabel = fn($l) => ['title' => $l['name'], 'sub' => item_noun((int)($l['total'] ?? $l['n'])), 'path' => '/?loc=' . (int)$l['id']];
+        $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)($_GET['ids'] ?? ''))), fn($i) => $i > 0)));
+        if ($ids) {
+            if (count($ids) > BULK_MAX) throw new UserError('Print at most ' . BULK_MAX . ' labels at once.', 422);
+            $labels = [];
+            foreach ($ids as $id) if ($it = item_get($id)) $labels[] = ['title' => $it['name'], 'sub' => (string)$it['location'], 'path' => '/item/' . $id];
+            view_labels(item_noun(count($labels)) . ' selected', $labels, '/?select=1');
+            exit;
+        }
         $loc = filter_value($_GET['loc'] ?? '');
         if (ctype_digit($loc)) {
             $l = tax_get('location', (int)$loc);
             if (!$l) throw new UserError('Location not found.', 404);
+            $byId = [];
+            foreach ($locs as $r) $byId[(int)$r['id']] = $r;
+            $base = '/labels?loc=' . (int)$l['id'];
             $labels = [];
             if (($_GET['items'] ?? '') === '1') {
                 foreach (items_search('', ['loc' => $loc, 'cat' => ''], 'name', 1, 1000)['items'] as $it) {
-                    $labels[] = ['title' => $it['name'], 'sub' => $l['name'], 'path' => '/item/' . (int)$it['id']];
+                    $labels[] = ['title' => $it['name'], 'sub' => (string)$it['location'], 'path' => '/item/' . (int)$it['id']];
                 }
+            } elseif (($_GET['sub'] ?? '') === '1') {
+                $sub = array_flip(location_subtree_ids((int)$l['id']));
+                foreach ($locs as $r) if (isset($sub[(int)$r['id']])) $labels[] = $locLabel($r);
             } else {
-                $labels[] = ['title' => $l['name'], 'sub' => item_noun((int)$l['n']), 'path' => '/?loc=' . (int)$l['id']];
+                $labels[] = $locLabel($byId[(int)$l['id']] ?? $l);
             }
-            view_labels($l['name'], $labels, '/locations', ['/labels?loc=' . (int)$l['id'] => 'Location label', '/labels?loc=' . (int)$l['id'] . '&items=1' => 'One label per item', '/labels' => 'All locations']);
+            $opts = [$base => 'Location label'];
+            if (count(location_subtree_ids((int)$l['id'])) > 1) $opts[$base . '&sub=1'] = 'Location + sub-locations';
+            $opts += [$base . '&items=1' => 'One label per item', '/labels' => 'All locations'];
+            view_labels($l['name'], $labels, '/locations', $opts);
             exit;
         }
-        $labels = array_map(fn($l) => ['title' => $l['name'], 'sub' => item_noun((int)$l['n']), 'path' => '/?loc=' . (int)$l['id']], $locs);
-        view_labels('All locations', $labels, '/locations');
+        view_labels('All locations', array_map($locLabel, $locs), '/locations');
         exit;
     }
     if (preg_match('#^/item/(\d+)/label$#D', $path, $m) && $method === 'GET') {

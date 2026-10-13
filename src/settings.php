@@ -18,8 +18,9 @@ const SETTINGS_SECTIONS = [
     'locale'     => ['Currency, dates & time', 'Currency, number and date formats, time zone', 'clock'],
     'list'       => ['List', 'Items per page, default sort and view', 'filter'],
     'items'      => ['New item defaults', 'Values pre-filled when you add an item', 'plus'],
-    'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters', 'alert'],
-    'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality', 'camera'],
+    'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo', 'alert'],
+    'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
+    'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
     'security'   => ['Password', 'Turn the password on or off, change it', 'lock'],
     'data'       => ['Backup & data', 'Backup, restore, CSV and settings export', 'archive'],
     'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
@@ -67,6 +68,8 @@ function settings_schema(): array
         'page_size'     => ['list', 'Items per page', 'int', 'cfg:page_size', 'More items load with “Show more”.', ['min' => 1, 'max' => 500]],
         'default_sort'  => ['list', 'Default sort', 'enum', 'recent', 'Order of the list when no sort is chosen.', ['options' => SORTS]],
         'list_view'     => ['list', 'View', 'enum', 'grid', 'Photo cards, or compact rows that fit more items on the screen.', ['options' => ['grid' => 'Cards with photos', 'compact' => 'Compact rows']]],
+        'recent_limit'  => ['list', 'Recently viewed', 'int', 8, 'How many recently opened items the list shows above the results. 0 = hide.', ['min' => 0, 'max' => 50]],
+        'recent_scope'  => ['list', 'Recently viewed is kept', 'enum', 'device', '', ['options' => ['device' => 'Per device (a cookie)', 'install' => 'Shared by everyone']]],
         'overview_open' => ['list', 'Show the overview open', 'bool', true, 'Whether the statistics overview starts expanded (each device remembers its own choice afterwards).', []],
         // items
         'default_quantity' => ['items', 'Quantity', 'int', 1, '', ['min' => 0, 'max' => 1000000]],
@@ -75,16 +78,28 @@ function settings_schema(): array
         'default_notes'    => ['items', 'Notes', 'string', '', 'Text pre-filled in the notes field.', ['max' => 500]],
         'default_purchase_today' => ['items', 'Purchase date = today', 'bool', false, 'Pre-fill the purchase date with today.', []],
         'default_expiry_months'  => ['items', 'Expires after (months)', 'int', null, 'Pre-fill the expiry/warranty date this many months from today. Empty = no date.', ['min' => 1, 'max' => 600, 'nullable' => true]],
+        // labels
+        'label_width_mm'   => ['labels', 'Label width (mm)', 'int', 60, 'Printed width of one label.', ['min' => 15, 'max' => 200]],
+        'label_height_mm'  => ['labels', 'Label height (mm)', 'int', 70, 'Printed height of one label (the QR code shrinks to fit).', ['min' => 15, 'max' => 280]],
+        'label_columns'    => ['labels', 'Labels per row', 'int', 3, 'Columns on a printed page (A4 fits 3 × 60 mm).', ['min' => 1, 'max' => 10]],
+        'label_gap_mm'     => ['labels', 'Gap between labels (mm)', 'int', 4, '0 for sticker sheets without a gap.', ['min' => 0, 'max' => 30]],
+        'label_show_sub'   => ['labels', 'Print the location / item count', 'bool', true, 'The second line under the name.', []],
+        'label_show_url'   => ['labels', 'Print the link', 'bool', true, 'The address the QR code points to, in small print.', []],
+        'label_border'     => ['labels', 'Print cut lines', 'bool', true, 'A dashed border around each label.', []],
         // limits
         'expiry_soon_days' => ['limits', '“Expiring soon” window (days)', 'int', 'cfg:expiry_soon_days', 'An item is expiring soon when its date is within this many days.', ['min' => 1, 'max' => 3650]],
         'lend_due_days'    => ['limits', 'Default loan period (days)', 'int', null, 'Pre-fill “due back” when lending an item. Empty = no due date.', ['min' => 1, 'max' => 3650, 'nullable' => true]],
         'saved_filters_max' => ['limits', 'Saved filters limit', 'int', 50, 'Maximum number of saved filters.', ['min' => 1, 'max' => 500]],
+        'undo_seconds'     => ['limits', 'Undo window (seconds)', 'int', 30, 'How long “Undo” is offered after editing, moving or deleting. Deleted photos and attachments stay on disk this long. 0 = no undo.', ['min' => 0, 'max' => 3600]],
         'max_photos'       => ['limits', 'Photos per item', 'int', 12, '', ['min' => 1, 'max' => 50]],
         // uploads
         'max_upload_mb'    => ['uploads', 'Maximum upload (MB)', 'int', 'cfg:uploads.max_mb', 'Per photo. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'image_full_max'   => ['uploads', 'Photo size (px)', 'int', 'cfg:uploads.full_max', 'Longest side of stored photos. Applies to new uploads.', ['min' => 320, 'max' => 8000]],
         'image_thumb_max'  => ['uploads', 'Thumbnail size (px)', 'int', 'cfg:uploads.thumb_max', 'Longest side of list thumbnails. Applies to new uploads.', ['min' => 64, 'max' => 2000]],
         'jpeg_quality'     => ['uploads', 'JPEG quality', 'int', 82, '40–95; thumbnails use 6 less.', ['min' => 40, 'max' => 95]],
+        'attach_types'     => ['uploads', 'Attachment types', 'enum', 'pdf_images', 'Receipts, manuals and warranty cards attached to an item. The real file type is checked, not the name.', ['options' => ATTACH_TYPE_SETS]],
+        'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
+        'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // security (own form)
         'auth_enabled'     => ['security', 'Require a password', 'internal', 'cfg_auth', '', []],
         'password_hash'    => ['security', 'Password', 'secret', 'cfg_hash', '', []],
@@ -468,6 +483,19 @@ function accent_warnings(string $hex): array
         }
     }
     return $w;
+}
+
+/** Generated print stylesheet for the QR label grid (served at /labels.css, keeps the CSP at style-src 'self'). */
+function labels_css(): string
+{
+    $w = (int)setting('label_width_mm'); $hgt = (int)setting('label_height_mm');
+    $c = (int)setting('label_columns'); $g = (int)setting('label_gap_mm');
+    $qr = max(8, min($w - 6, $hgt - (setting('label_show_sub') ? 18 : 12) - (setting('label_show_url') ? 4 : 0)));
+    return "/* QR label grid from Settings > QR labels */\n@media print{\n"
+        . ".labels{grid-template-columns:repeat($c,{$w}mm)!important;gap:{$g}mm!important;justify-content:start}\n"
+        . ".label{width:{$w}mm;height:{$hgt}mm;overflow:hidden;padding:2mm!important;box-sizing:border-box;justify-content:center"
+        . (setting('label_border') ? '' : ';border:0!important') . "}\n"
+        . ".label .qr{width:{$qr}mm!important;max-width:{$qr}mm!important;height:{$qr}mm!important}\n}\n";
 }
 
 /** The generated stylesheet for a custom accent (served at /theme.css). '' for the default accent. */

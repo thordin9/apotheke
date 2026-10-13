@@ -28,6 +28,12 @@ $c = $srv->client();
 $r = $c->get('/healthz');
 T::eq(200, $r['status'], 'GET /healthz → 200');
 T::eq('ok', $r['body'], '/healthz body is "ok"');
+$ver = trim((string)file_get_contents(__DIR__ . '/../VERSION'));
+T::ok(preg_match('/^\d+\.\d+\.\d+$/', $ver) === 1, 'VERSION file holds a SemVer version');
+T::eq($ver, $r['headers']['x-apotheke-version'] ?? '', '/healthz sends the version header');
+$r = $c->get('/health');
+T::eq(['status' => 'ok', 'version' => $ver], $r['json'] ?? null, '/health reports status and version (JSON)');
+T::ok(str_contains($c->get('/')['body'], '<span class="app-version" title="Apotheke version">v' . $ver . '</span>'), 'version in the footer');
 T::ok((test_driver() === 'pgsql' || is_file("$dir/catalog.sqlite")) && is_dir("$dir/images") && is_dir("$dir/thumbs") && is_dir("$dir/sessions"), 'data dir layout created (catalog.sqlite, images/, thumbs/, sessions/)');
 $db = testdb($dir);
 T::eq(migration_versions(), $db->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN), 'all migrations recorded in schema_migrations');
@@ -212,7 +218,7 @@ T::eq(404, $c->api('/item/99999/qty', ['csrf' => $tok, 'delta' => 1])['status'],
 T::section('Edit');
 $old = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->api('/save', ['csrf' => $tok, 'id' => $drill, 'name' => 'Cordless drill 18V', 'location_id' => $ids['loc']['box 2'], 'category_id' => $ids['cat']['Tools'], 'quantity' => 2, 'notes' => 'Makita'], ['photo' => jpg_file(img_jpeg(1000, 800))]);
-T::eq("/item/$drill", $r['json']['redirect'] ?? null, 'edit redirects to detail');
+T::ok(preg_match('#^/item/' . $drill . '\?undo=[a-f0-9]{32}$#', (string)($r['json']['redirect'] ?? '')) === 1, 'edit redirects to detail (with an undo token)');
 $row = $db->query("SELECT name, location_id, quantity, notes, image FROM items WHERE id = $drill")->fetch();
 T::ok($row['name'] === 'Cordless drill 18V' && (int)$row['location_id'] === $ids['loc']['box 2'] && (int)$row['quantity'] === 2 && $row['notes'] === 'Makita', 'fields updated');
 T::ok($row['image'] !== $old && !is_file("$dir/images/$old") && !is_file("$dir/thumbs/$old") && is_file("$dir/images/{$row['image']}"), 'photo replaced, old files deleted');
@@ -360,6 +366,23 @@ T::ok($r['status'] === 200 && str_contains($r['body'], $c->base . '/item/' . $no
 T::ok(str_contains($c->get('/item/' . $nojs)['body'], 'href="/item/' . $nojs . '/label"'), 'item page links to its label');
 T::ok(str_contains($c->get('/locations')['body'], 'href="/labels?loc='), 'manage page links to location labels');
 T::eq(404, $c->get('/labels?loc=999999')['status'], 'unknown location → 404');
+// bulk selection → labels
+$lblIds = array_map('intval', $db->query('SELECT id FROM items ORDER BY id LIMIT 3')->fetchAll(PDO::FETCH_COLUMN));
+$r = $c->post('/bulk', ['csrf' => $tok, 'action' => 'labels', 'ids' => $lblIds, 'back' => '/?select=1']);
+T::eq(303, $r['status'], 'bulk “Print QR labels” redirects');
+T::eq('/labels?ids=' . implode(',', $lblIds), parse_url($r['headers']['location'] ?? '', PHP_URL_PATH) . '?' . parse_url($r['headers']['location'] ?? '', PHP_URL_QUERY), '… to the labels of the selection');
+$r = $c->get('/labels?ids=' . implode(',', $lblIds) . ',999999,abc');
+T::eq(3, substr_count($r['body'], '<figure class="label"'), 'one label per selected item (unknown ids skipped)');
+foreach ($lblIds as $x) T::ok(str_contains($r['body'], $c->base . '/item/' . $x . '"'), "label links to item $x");
+T::ok(str_contains($r['body'], '3 items selected'), 'selection heading');
+T::eq(422, $c->post('/bulk', ['csrf' => $tok, 'action' => 'labels', 'ids' => []])['status'], 'labels need a selection');
+T::eq(419, $c->post('/bulk', ['action' => 'labels', 'ids' => $lblIds])['status'], 'bulk labels need CSRF');
+// label size/grid from the Control Panel, as a generated stylesheet (CSP stays style-src 'self')
+preg_match('#href="(/labels\.css\?v=[0-9a-f]{8})"#', $r['body'], $lm);
+T::ok(isset($lm[1]), 'labels page links the generated label stylesheet');
+$css = $c->get($lm[1] ?? '/labels.css');
+T::ok(str_contains($css['headers']['content-type'] ?? '', 'text/css') && str_contains($css['body'], 'repeat(3,60mm)') && str_contains($css['body'], 'height:70mm'), 'default grid: 3 × 60 mm wide, 70 mm high');
+T::ok(!preg_match('/<style|style="/', $r['body']), 'no inline styles on the labels page');
 T::eq(404, $c->get('/item/999999/label')['status'], 'unknown item → 404');
 $us = new Server($dir, ['PUBLIC_URL' => 'https://env.example.lan']);
 T::ok(!str_contains($us->client()->get("/labels?loc=$box2")['body'], 'env.example.lan'), 'PUBLIC_URL env on an existing database: the stored setting wins');
@@ -725,6 +748,11 @@ T::eq([null, $nG, $nS], array_map(fn($id) => ($v = $db->query("SELECT parent_id 
 $nItem = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Nested drill', 'location_id' => $nB]));
 $nTop = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Garage broom', 'location_id' => $nG]));
 T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nG&sort=name")), ['Garage broom', 'Nested drill'])), 'filtering a location includes its sub-locations');
+$r = $c->get("/labels?loc=$nG&sub=1");
+T::eq(3, substr_count($r['body'], '<figure class="label"'), 'location labels including sub-locations');
+T::ok(str_contains($r['body'], $c->base . '/?loc=' . $nB . '"') && str_contains($r['body'], '2 items'), '… with the nested box and roll-up counts');
+T::ok(str_contains($c->get("/labels?loc=$nG")['body'], "/labels?loc=$nG&amp;sub=1"), 'location label page offers the sub-location set');
+T::eq(2, substr_count($c->get("/labels?loc=$nG&items=1")['body'], '<figure class="label"'), 'item labels include items in sub-locations');
 T::eq(['Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nS")), ['Garage broom', 'Nested drill'])), 'filtering a sub-location excludes its parent');
 T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('nest garage') . '&sort=name')), ['Garage broom', 'Nested drill'])), 'search for a parent location finds items in its sub-locations');
 T::eq(['Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('nest shelf'))), ['Garage broom', 'Nested drill'])), 'search for a middle location skips its parent');
@@ -881,8 +909,11 @@ T::section('Delete item');
 T::eq(404, $c->api('/item/999999/delete', ['csrf' => $tok])['status'], 'delete missing item → 404 (no false toast)');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);
-T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/?deleted=1', 'delete redirects to list');
-T::ok(!is_file("$dir/images/$img") && !is_file("$dir/thumbs/$img"), 'image + thumbnail removed');
+T::ok($r['status'] === 303 && preg_match('#^/\?deleted=1&undo=([a-f0-9]{32})$#', $r['headers']['location'] ?? '', $um) === 1, 'delete redirects to list (with an undo token)');
+T::ok(is_file("$dir/images/$img"), 'files kept while undo is possible');
+$db->exec("UPDATE undo_tokens SET expires_at = '2000-01-01 00:00:00'");
+T::eq(410, $c->post('/undo', ['csrf' => $tok, 'token' => $um[1] ?? ''])['status'], 'expired undo token → 410');
+T::ok(!is_file("$dir/images/$img") && !is_file("$dir/thumbs/$img"), 'image + thumbnail removed once the undo window is over');
 T::ok(array_filter($allPics, fn($f) => is_file("$dir/images/$f") || is_file("$dir/thumbs/$f")) === [], 'every gallery photo removed');
 T::eq(0, (int)$db->query("SELECT COUNT(*) FROM item_photos WHERE item_id = $drill")->fetchColumn(), 'photo rows removed');
 T::eq(404, $c->get("/item/$drill")['status'], 'item gone');
@@ -1038,10 +1069,11 @@ $secKeys = [
     'general' => ['app_name', 'app_tagline', 'public_url'],
     'appearance' => ['accent', 'theme_default', 'icon_background'],
     'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
-    'list' => ['page_size', 'default_sort', 'list_view', 'overview_open'],
+    'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
-    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'max_photos'],
-    'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality'],
+    'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
+    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'max_photos'],
+    'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
     'security' => [], 'data' => [], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
@@ -1060,6 +1092,7 @@ foreach ($secKeys as $sec => $keys) {
     foreach ($keys as $k) T::ok(str_contains($pg['body'], 'id="s-' . $k . '"'), "$sec shows $k");
 }
 T::eq(404, $sc->get('/settings/bogus')['status'], 'unknown section 404');
+T::ok(str_contains($sc->get('/settings/system')['body'], '<code id="app-version">' . trim((string)file_get_contents(__DIR__ . '/../VERSION')) . '</code>'), 'version in Control Panel → System');
 // export lists every visible setting, never the password
 $ex = $sc->get('/settings/export.json');
 T::ok(str_contains($ex['headers']['content-type'] ?? '', 'application/json') && str_contains($ex['headers']['content-disposition'] ?? '', 'attachment'), 'export is a JSON download');
@@ -1096,6 +1129,17 @@ T::ok(str_contains($hb, '<title>Shed Stock') || str_contains($hb, 'Shed Stock</t
 T::ok(str_contains($sc->get('/settings/general?done=saved')['body'], 'Settings saved'), 'saved toast');
 T::ok(str_contains(json_encode($sc->get('/manifest.webmanifest')['json']), 'Shed Stock'), 'app name in the manifest');
 T::ok(str_contains($sc->get('/labels')['body'], 'https://inv.example.org'), 'public URL used on QR labels');
+// QR label size and grid
+$r = $save('labels', ['label_width_mm' => '38', 'label_height_mm' => '21', 'label_columns' => '5', 'label_gap_mm' => '0', 'label_show_sub' => false, 'label_show_url' => false, 'label_border' => false]);
+T::ok(str_contains($r['headers']['location'] ?? '', '/settings/labels?done=saved'), 'label settings saved');
+$lb = $sc->get('/labels')['body'];
+preg_match('#href="(/labels\.css\?v=[0-9a-f]{8})"#', $lb, $lm);
+$css = $sc->get($lm[1] ?? '/labels.css')['body'];
+T::ok(str_contains($css, 'repeat(5,38mm)') && str_contains($css, 'height:21mm') && str_contains($css, 'gap:0mm') && str_contains($css, 'border:0'), 'stylesheet follows the label settings');
+T::ok(!str_contains($lb, '<small>inv.example.org') && !preg_match('#<figcaption><b>[^<]*</b><span>#', $lb), 'link and subtitle lines can be turned off');
+T::ok(str_contains($lb, '38 × 21 mm, 5 per row'), 'labels page shows the current size');
+T::eq(422, $save('labels', ['label_columns' => '0'])['status'], 'columns out of range rejected');
+$sc->post('/settings/labels/reset', ['csrf' => $st]);
 // appearance
 $r = $save('appearance', ['accent' => 'c8502d', 'theme_default' => 'dark', 'icon_background' => '#ffffff']);
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved'), 'appearance saved');
@@ -1277,6 +1321,287 @@ T::ok(str_contains((string)$cli('set page_size 0'), 'between 1 and 500'), 'CLI v
 T::eq('33', trim((string)$cli('get page_size')), 'CLI get');
 T::ok(str_contains((string)$cli('password locksmith1'), 'Password set') && auth_on_db($sdb), 'CLI recovery: set a password');
 T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
+
+T::section('Notes (Markdown) + attachments');
+$fx = new Server($fxDir = $newDir('attach'), ['SEED_DEFAULTS' => '1']);
+$fc = $fx->client();
+$ft = $fc->csrf();
+$fdb = testdb($fxDir);
+$pdf = "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n";
+$md = "# Manual\nUse **care** and *love* <script>alert(1)</script>\n\n- step [docs](https://example.org/a?b=1&c=2)\n- [bad](javascript:alert(1))\n\n`<b>`";
+$ai = $savedId($fc->api('/save', ['csrf' => $ft, 'name' => 'Drill with docs', 'notes' => $md]));
+$ip = $fc->get("/item/$ai")['body'];
+T::ok(str_contains($ip, '<h3>Manual</h3>') && str_contains($ip, '<strong>care</strong>') && str_contains($ip, '<em>love</em>'), 'notes render headings, bold, italic');
+T::ok(str_contains($ip, '<li>step <a href="https://example.org/a?b=1&amp;c=2" rel="nofollow noopener noreferrer" target="_blank">docs</a></li>'), 'links and lists render, with rel=nofollow');
+T::ok(!str_contains($ip, '<script>alert(1)') && str_contains($ip, '&lt;script&gt;alert(1)&lt;/script&gt;'), 'raw HTML in notes is escaped');
+T::ok(!str_contains($ip, 'href="javascript'), 'javascript: links are not linked');
+T::ok(str_contains($ip, '<code>&lt;b&gt;</code>'), 'inline code is escaped');
+T::ok(str_contains($fc->get("/item/$ai/edit")['body'], 'id="notes-help"'), 'form explains the Markdown subset');
+T::ok(str_contains($ip, 'id="attachments"') && str_contains($ip, 'id="attadd"'), 'item page has the attachments card');
+$r = $fc->post("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'Receipt 2026<x>.pdf', 'type' => 'application/pdf', 'data' => $pdf], 'files[1]' => jpg_file(img_png(40, 40), 'scan.png', 'image/png')]);
+T::ok(str_contains($r['headers']['location'] ?? '', "/item/$ai#attachments"), 'upload PDF + image (no-JS form)');
+$rows = $fdb->query("SELECT id, file, name, mime, size FROM item_attachments WHERE item_id = $ai ORDER BY id")->fetchAll();
+T::eq(2, count($rows), 'two attachments stored');
+T::ok(preg_match('/^[a-f0-9]{32}\.pdf$/', $rows[0]['file']) === 1 && is_file("$fxDir/files/{$rows[0]['file']}"), 'stored under DATA_DIR/files with a random name');
+T::eq('Receipt 2026x.pdf', $rows[0]['name'], 'display name cleaned');
+T::eq('image/png', $rows[1]['mime'], 'type sniffed from content');
+$dl = $fc->get('/attachment/' . $rows[0]['id']);
+T::ok($dl['status'] === 200 && $dl['body'] === $pdf && str_contains($dl['headers']['content-disposition'] ?? '', 'attachment;') && ($dl['headers']['content-type'] ?? '') === 'application/pdf', 'download serves the file as an attachment');
+T::ok(str_contains($dl['headers']['content-security-policy'] ?? '', 'sandbox') && ($dl['headers']['x-content-type-options'] ?? '') === 'nosniff', 'download is sandboxed');
+T::eq(404, $fc->get('/attachment/999999')['status'], 'unknown attachment 404');
+$ip = $fc->get("/item/$ai")['body'];
+T::ok(str_contains($ip, 'Receipt 2026x.pdf') && str_contains($ip, 'href="/attachment/' . $rows[0]['id'] . '"'), 'item page lists the attachments');
+T::ok(str_contains($ip, 'Attached “Receipt 2026x.pdf”'), 'history records the upload');
+$bad = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'evil.pdf', 'type' => 'application/pdf', 'data' => '<html><script>x</script>']]);
+T::ok($bad['status'] === 422 && str_contains((string)($bad['json']['error'] ?? ''), 'Only PDF'), 'content that is not PDF/image is rejected');
+T::eq(419, $fc->post("/item/$ai/attachments", [], ['files[0]' => ['name' => 'a.pdf', 'type' => 'application/pdf', 'data' => $pdf]])['status'], 'upload needs CSRF');
+// panel limits
+$fc->post('/settings/uploads', ['csrf' => $ft, 'max_upload_mb' => '20', 'image_full_max' => '1600', 'image_thumb_max' => '480', 'jpeg_quality' => '82', 'attach_types' => 'pdf', 'attach_max_mb' => '1', 'attach_max_per_item' => '3']);
+$r = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => jpg_file(img_png(40, 40), 'x.png', 'image/png')]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'Only PDF files'), 'attachment types setting takes effect');
+$r = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'big.pdf', 'type' => 'application/pdf', 'data' => $pdf . str_repeat('0', 1100 * 1024)]]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'larger than 1 MB'), 'attachment size setting takes effect');
+$r = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'a.pdf', 'type' => 'application/pdf', 'data' => $pdf], 'files[1]' => ['name' => 'b.pdf', 'type' => 'application/pdf', 'data' => $pdf]]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'at most 3'), 'attachments-per-item setting takes effect (all or nothing)');
+T::eq(2, (int)$fdb->query("SELECT COUNT(*) FROM item_attachments WHERE item_id = $ai")->fetchColumn(), 'nothing stored on a rejected batch');
+// backup + restore keep attachments
+$zf = sys_get_temp_dir() . '/apotheke-att-' . bin2hex(random_bytes(3)) . '.zip';
+file_put_contents($zf, $fc->get('/backup.zip')['body']);
+$z = new ZipArchive(); $z->open($zf);
+T::ok($z->locateName('files/' . $rows[0]['file']) !== false && $z->locateName('files/' . $rows[1]['file']) !== false, 'backup contains the attachment files');
+$z->close();
+$r = $fc->api("/item/$ai/attachments/{$rows[0]['id']}/delete", ['csrf' => $ft]);
+T::ok($r['status'] === 200 && !is_file("$fxDir/files/{$rows[0]['file']}"), 'delete removes row and file');
+T::ok(str_contains($fc->get("/item/$ai")['body'], 'Removed attachment “Receipt 2026x.pdf”'), 'history records the removal');
+$rs = $fc->post('/backup/restore', ['csrf' => $ft], ['backup' => ['name' => 'b.zip', 'type' => 'application/zip', 'data' => file_get_contents($zf)]]);
+preg_match('/name="token" value="([a-f0-9]{32})"/', $rs['body'], $tm);
+$fc->post('/backup/restore/confirm', ['csrf' => $ft, 'token' => $tm[1] ?? '', 'confirm' => '1']);
+@unlink($zf);
+T::ok((int)$fdb->query("SELECT COUNT(*) FROM item_attachments WHERE item_id = $ai")->fetchColumn() === 2 && is_file("$fxDir/files/{$rows[0]['file']}"), 'restore brings attachments and files back');
+T::eq($pdf, $fc->get('/attachment/' . $rows[0]['id'])['body'], 'restored attachment downloads');
+// deleting the item removes its files
+$fc->post("/item/$ai/delete", ['csrf' => $ft]);
+$fdb->exec("UPDATE undo_tokens SET expires_at = '2000-01-01 00:00:00'");
+$fc->post('/undo', ['csrf' => $ft, 'token' => str_repeat('0', 32)]);
+T::ok(!is_file("$fxDir/files/{$rows[0]['file']}") && (int)$fdb->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn() === 0, 'deleting the item removes its attachments');
+$fx->stop();
+
+T::section('Favourites + recently viewed');
+$vx = new Server($vxDir = $newDir('fav'), ['SEED_DEFAULTS' => '1']);
+$vc = $vx->client();
+$vt = $vc->csrf();
+$vdb = testdb($vxDir);
+$vIds = [];
+foreach (['Fav drill', 'Fav saw', 'Fav tape', 'Plain hammer'] as $n) $vIds[$n] = $savedId($vc->api('/save', ['csrf' => $vt, 'name' => $n]));
+$home = $vc->get('/')['body'];
+T::ok(substr_count($home, 'class="favbtn" aria-pressed="false"') >= 4, 'every card has a star toggle');
+T::ok(!str_contains($home, 'id="fav-chip"'), 'no favourites chip while nothing is starred');
+$before = $vdb->query("SELECT updated_at FROM items WHERE id = {$vIds['Fav drill']}")->fetchColumn();
+$r = $vc->api("/item/{$vIds['Fav drill']}/fav", ['csrf' => $vt, 'on' => '1']);
+T::ok(($r['json']['favourite'] ?? null) === true && ($r['json']['count'] ?? 0) === 1, 'star via JSON');
+T::eq(303, $vc->post("/item/{$vIds['Fav saw']}/fav", ['csrf' => $vt, 'on' => '1', 'back' => '/'])['status'], 'star without JS redirects back');
+T::eq('/', $vc->post("/item/{$vIds['Fav saw']}/fav", ['csrf' => $vt, 'on' => '1', 'back' => '/'])['headers']['location'] ?? '', '… to the list');
+T::eq("/item/{$vIds['Fav saw']}", $vc->post("/item/{$vIds['Fav saw']}/fav", ['csrf' => $vt, 'on' => '1', 'back' => 'https://evil.example/'])['headers']['location'] ?? '', 'foreign back URL ignored');
+T::eq($before, $vdb->query("SELECT updated_at FROM items WHERE id = {$vIds['Fav drill']}")->fetchColumn(), 'starring keeps the list order (updated_at unchanged)');
+T::eq(419, $vc->post("/item/{$vIds['Fav tape']}/fav", ['on' => '1'])['status'], 'star needs CSRF');
+T::eq(404, $vc->api('/item/999999/fav', ['csrf' => $vt, 'on' => '1'])['status'], 'unknown item → 404');
+$favs = titles($vc->json('/?fav=1&sort=name'));
+T::eq(['Fav drill', 'Fav saw'], $favs, 'favourites filter');
+$home = $vc->get('/')['body'];
+T::ok(preg_match('#id="fav-chip" href="/\?fav=1"[^>]*>.*?Favourites <b>2</b>#s', $home) === 1, 'quick favourites chip with count');
+$fl = $vc->get('/?fav=1')['body'];
+T::ok(str_contains($fl, 'chip-fav') && str_contains($fl, 'Favourites only'), 'active filter chip');
+T::ok(str_contains($fl, '<option value="1" selected>Favourites only</option>'), 'filter sheet shows the favourites filter');
+T::ok(str_contains($vc->get("/item/{$vIds['Fav drill']}")['body'], 'aria-pressed="true" aria-label="Favourite: Fav drill"'), 'item page star is on');
+$vc->api("/item/{$vIds['Fav drill']}/fav", ['csrf' => $vt]);
+T::eq(0, (int)$vdb->query("SELECT favourite FROM items WHERE id = {$vIds['Fav drill']}")->fetchColumn(), 'without “on” the star toggles');
+$vc->post('/filters', ['csrf' => $vt, 'name' => 'Starred', 'fav' => '1']);
+T::eq('fav=1', $vdb->query("SELECT query FROM saved_filters WHERE name = 'Starred'")->fetchColumn(), 'saved filter stores fav=1');
+
+// recently viewed: per device (cookie) by default
+T::ok(!str_contains($vx->client()->get('/')['body'], 'id="recent"'), 'no recently viewed strip before opening anything');
+foreach (['Fav drill', 'Fav saw', 'Fav tape', 'Fav drill'] as $n) $vc->get("/item/{$vIds[$n]}");
+T::ok(preg_match('/^[a-f0-9]{32}$/', $vc->cookies['apo_dev'] ?? '') === 1, 'device cookie set on first view');
+$home = $vc->get('/')['body'];
+preg_match('#<section class="recent".*?</section>#s', $home, $rm);
+preg_match_all('#href="/item/(\d+)" class="recent-it"#', $rm[0] ?? '', $rr);
+T::eq([$vIds['Fav drill'], $vIds['Fav tape'], $vIds['Fav saw']], array_map('intval', $rr[1]), 'recently viewed: newest first, no duplicates');
+T::ok(!str_contains($vc->get('/?q=fav')['body'], 'id="recent"'), 'strip hidden while searching/filtering');
+$other = $vx->client();
+$other->get('/');
+T::ok(!str_contains($other->get('/')['body'], 'id="recent"'), 'another device has its own (empty) list');
+$save = fn(array $over) => $vc->post('/settings/list', ['csrf' => $vt] + $over + ['page_size' => '60', 'default_sort' => 'recent', 'list_view' => 'grid', 'recent_limit' => '8', 'recent_scope' => 'device', 'overview_open' => '1']);
+$sv = $save(['recent_limit' => '2']);
+T::eq(303, $sv['status'], 'list settings saved', substr($sv['body'], 0, 300));
+$vc->get("/item/{$vIds['Fav saw']}");
+preg_match('#<section class="recent".*?</section>#s', $vc->get('/')['body'], $rm);
+T::eq(2, substr_count($rm[0] ?? '', 'class="recent-it"'), 'limit from the Control Panel');
+T::ok(str_contains($rm[0] ?? '', 'recent-fav'), 'starred items are marked in the strip');
+T::eq(2, (int)$vdb->query("SELECT COUNT(*) FROM recent_views WHERE scope LIKE 'd:%' AND scope = 'd:" . $vc->cookies['apo_dev'] . "'")->fetchColumn(), 'older entries pruned');
+$save(['recent_scope' => 'install']);
+$vc->get("/item/{$vIds['Fav saw']}");
+T::ok(str_contains($other->get('/')['body'], 'class="recent-it"'), 'shared per install: other devices see it');
+$vc->post('/recent/clear', ['csrf' => $vt]);
+T::ok(!str_contains($other->get('/')['body'], 'id="recent"'), 'clear empties the list');
+$save(['recent_limit' => '0']);
+$vc->get("/item/{$vIds['Fav saw']}");
+T::eq(0, (int)$vdb->query("SELECT COUNT(*) FROM recent_views WHERE scope = '*'")->fetchColumn(), 'limit 0 turns tracking off');
+$save(['recent_limit' => '8']);
+$vc->get("/item/{$vIds['Fav tape']}");
+$vc->post("/item/{$vIds['Fav tape']}/delete", ['csrf' => $vt]);
+T::eq(0, (int)$vdb->query("SELECT COUNT(*) FROM recent_views WHERE item_id = {$vIds['Fav tape']}")->fetchColumn(), 'deleted items leave the list');
+// backup keeps the star
+$bzf = tmpdir('apotheke-favzip') . '/b.zip';
+$tmpDirs[] = dirname($bzf);
+file_put_contents($bzf, $vc->get('/backup.zip')['body']);
+$bzz = new ZipArchive();
+$bzz->open($bzf);
+$bjs = json_decode((string)$bzz->getFromName('backup.json'), true);
+$favCol = array_search('favourite', $bjs['tables']['items']['columns'] ?? [], true);
+T::ok($favCol !== false && in_array(1, array_map(fn($r) => (int)$r[$favCol], $bjs['tables']['items']['rows'] ?? []), true), 'backup includes favourites');
+T::ok(!isset($bjs['tables']['recent_views']), 'recently viewed is not backed up (per-device state)');
+$vx->stop();
+
+T::section('Merge duplicates');
+$mx = new Server($mxDir = $newDir('merge'), ['SEED_DEFAULTS' => '1']);
+$mc = $mx->client();
+$mt = $mc->csrf();
+$mdb = testdb($mxDir);
+$locA = (int)$mc->api('/locations', ['csrf' => $mt, 'name' => 'Merge shelf'])['json']['id'];
+$keep = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'AA batteries', 'quantity' => 4, 'tags' => 'power', 'notes' => 'Kitchen drawer', 'serial' => ''], ['photo' => jpg_file(img_jpeg(200, 150))]));
+$dupe = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'aa Batteries', 'quantity' => 6, 'location_id' => $locA, 'tags' => 'power, spare', 'notes' => 'Bought in bulk', 'value' => '9.99', 'serial' => 'LOT-7', 'barcode' => '4006381333931']));
+$other = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'Torch', 'quantity' => 1]));
+$mc->api("/item/$dupe/photos", ['csrf' => $mt], ['photos[0]' => jpg_file(img_jpeg(120, 120)), 'photos[1]' => jpg_file(img_png(90, 90), 'x.png', 'image/png')]);
+$mc->api("/item/$dupe/attachments", ['csrf' => $mt], ['files[0]' => jpg_file($pdf, 'manual.pdf', 'application/pdf')]);
+$mc->api("/item/$dupe/lend", ['csrf' => $mt, 'lent_to' => 'Maria']);
+$mc->api("/item/$dupe/fav", ['csrf' => $mt, 'on' => '1']);
+$dupeHist = $mdb->query("SELECT id FROM activity WHERE item_id = $dupe ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+$keepPhotos = $mdb->query("SELECT file FROM item_photos WHERE item_id = $keep ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+$dupePhotos = $mdb->query("SELECT file FROM item_photos WHERE item_id = $dupe ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+T::ok(str_contains($mc->get("/item/$dupe")['body'], 'href="/item/' . $dupe . '/merge"'), 'item page links to merge');
+$pick = $mc->get("/item/$dupe/merge");
+T::eq(200, $pick['status'], 'merge picker renders');
+preg_match_all('#class="merge-pick" href="/item/' . $dupe . '/merge\?into=(\d+)"#', $pick['body'], $pm);
+T::eq($keep, (int)($pm[1][0] ?? 0), 'same name (ignoring case) is offered first');
+T::ok(!in_array((string)$dupe, $pm[1], true), 'the item itself is not offered');
+T::ok(str_contains($mc->get("/item/$dupe/merge?q=torch")['body'], "into=$other"), 'search for another target');
+$conf = $mc->get("/item/$dupe/merge?into=$keep");
+T::ok($conf['status'] === 200 && str_contains($conf['body'], 'id="mergeform"') && str_contains($conf['body'], '<b>4</b> + <b>6</b> = <b>10</b>'), 'confirm screen shows the combined quantity');
+T::ok(str_contains($conf['body'], '+2 (after the current ones)') && str_contains($conf['body'], 'Attachments</span> +1') && str_contains($conf['body'], '+ spare'), '… photos, attachments, new tags');
+T::ok(str_contains($conf['body'], 'Serial number</span> empty → “LOT-7”') && str_contains($conf['body'], 'Location</span> empty → “Merge shelf”'), '… fields filled from the duplicate');
+T::ok(str_contains($conf['body'], 'is taken over'), '… the loan is taken over');
+T::eq(4, (int)$mdb->query("SELECT quantity FROM items WHERE id = $keep")->fetchColumn(), 'the confirm screen changes nothing');
+T::eq(422, $mc->get("/item/$dupe/merge?into=$dupe")['status'], 'merging into itself is refused');
+T::eq(404, $mc->get("/item/$dupe/merge?into=999999")['status'], 'unknown target → 404');
+T::eq(419, $mc->post("/item/$dupe/merge", ['into' => $keep, 'confirm' => '1'])['status'], 'merge needs CSRF');
+T::eq(303, $mc->post("/item/$dupe/merge", ['csrf' => $mt, 'into' => $keep])['status'], 'without confirm=1 it only redirects to the confirm screen');
+T::ok((bool)$mdb->query("SELECT 1 FROM items WHERE id = $dupe")->fetchColumn(), '… and merges nothing');
+$r = $mc->post("/item/$dupe/merge", ['csrf' => $mt, 'into' => $keep, 'confirm' => '1']);
+T::eq("/item/$keep?merged=aa%20Batteries", $r['headers']['location'] ?? '', 'merge redirects to the kept item');
+$k = $mdb->query("SELECT * FROM items WHERE id = $keep")->fetch();
+T::ok(!$mdb->query("SELECT 1 FROM items WHERE id = $dupe")->fetchColumn(), 'duplicate removed');
+T::eq(10, (int)$k['quantity'], 'quantities added');
+T::eq([$locA, 'LOT-7', 999, '4006381333931'], [(int)$k['location_id'], $k['serial'], (int)$k['value_cents'], $k['barcode']], 'empty fields filled from the duplicate');
+T::eq("Kitchen drawer\n\nBought in bulk", $k['notes'], 'notes appended');
+T::eq(['Maria', 1], [$k['lent_to'], (int)$k['favourite']], 'loan taken over, star kept');
+T::eq(array_merge($keepPhotos, $dupePhotos), $mdb->query("SELECT file FROM item_photos WHERE item_id = $keep ORDER BY position")->fetchAll(PDO::FETCH_COLUMN), 'photos moved after the existing ones');
+T::eq($keepPhotos[0], $k['image'], 'cover unchanged');
+T::ok(array_filter($dupePhotos, fn($f) => !is_file("$mxDir/images/$f")) === [], 'photo files kept');
+$att = $mdb->query("SELECT file FROM item_attachments WHERE item_id = $keep")->fetchAll(PDO::FETCH_COLUMN);
+T::ok(count($att) === 1 && is_file("$mxDir/files/{$att[0]}"), 'attachment moved with its file');
+T::eq(['power', 'spare'], $mdb->query("SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = $keep ORDER BY t.name")->fetchAll(PDO::FETCH_COLUMN), 'tags combined');
+T::ok(count($dupeHist) >= 4 && $mdb->query('SELECT COUNT(*) FROM activity WHERE item_id = ' . $keep . ' AND id IN (' . implode(',', $dupeHist) . ')')->fetchColumn() == count($dupeHist), 'history of the duplicate moved over');
+$kp = $mc->get("/item/$keep?merged=aa%20Batteries")['body'];
+T::ok(str_contains($kp, 'Merged “aa Batteries” into this item'), 'toast after merging');
+T::ok(str_contains($kp, 'Merged <b>“aa Batteries”</b> into this item · quantity <b>4</b> → <b>10</b> · 2 photos · 1 attachment'), 'history entry for the merge');
+T::ok(str_contains($kp, 'Lent to <b>Maria</b>'), 'the duplicate’s loan history is on the kept item');
+T::ok(str_contains($mc->get("/?q=lot-7")['body'], '/item/' . $keep . '"'), 'search finds the merged serial');
+// both lent: the target's loan wins; the transaction is all-or-nothing
+$b1 = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'Ladder', 'quantity' => 1]));
+$b2 = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'Ladder', 'quantity' => 1000000]));
+$mc->api("/item/$b1/lend", ['csrf' => $mt, 'lent_to' => 'Nikos']);
+$mc->api("/item/$b2/lend", ['csrf' => $mt, 'lent_to' => 'Eleni']);
+T::ok(str_contains($mc->get("/item/$b2/merge?into=$b1")['body'], 'the loan to <b>Nikos</b> is kept'), 'both lent: confirm explains which loan stays');
+$mc->post("/item/$b2/merge", ['csrf' => $mt, 'into' => $b1, 'confirm' => '1']);
+T::eq(['Nikos', 1000000], [($l = $mdb->query("SELECT lent_to, quantity FROM items WHERE id = $b1")->fetch())['lent_to'], (int)$l['quantity']], 'target loan kept, quantity capped at the maximum');
+$mx->stop();
+
+T::section('Undo (edit, move, delete, bulk)');
+$ux = new Server($uxDir = $newDir('undo'), ['SEED_DEFAULTS' => '1']);
+$uc = $ux->client();
+$ut = $uc->csrf();
+$udb = testdb($uxDir);
+$uTok = fn(array $r) => preg_match('/[?&]undo=([a-f0-9]{32})/', (string)($r['headers']['location'] ?? $r['json']['redirect'] ?? ''), $m) ? $m[1] : '';
+$uLoc1 = (int)$uc->api('/locations', ['csrf' => $ut, 'name' => 'Undo shelf'])['json']['id'];
+$uLoc2 = (int)$uc->api('/locations', ['csrf' => $ut, 'name' => 'Undo attic'])['json']['id'];
+$u1 = $savedId($uc->api('/save', ['csrf' => $ut, 'name' => 'Kettle', 'quantity' => 2, 'location_id' => $uLoc1, 'tags' => 'kitchen', 'notes' => 'white'], ['photo' => jpg_file(img_jpeg(200, 150))]));
+$u2 = $savedId($uc->api('/save', ['csrf' => $ut, 'name' => 'Toaster', 'quantity' => 1, 'location_id' => $uLoc1]));
+$uc->api("/item/$u1/attachments", ['csrf' => $ut], ['files[0]' => jpg_file($pdf, 'warranty.pdf', 'application/pdf')]);
+$uc->api("/item/$u1/fav", ['csrf' => $ut, 'on' => '1']);
+// edit
+$r = $uc->post('/save', ['csrf' => $ut, 'id' => $u1, 'name' => 'Electric kettle', 'quantity' => '5', 'location_id' => $uLoc2, 'tags' => 'kitchen, electric', 'notes' => 'steel']);
+$tk = $uTok($r);
+T::ok($tk !== '', 'edit offers an undo token');
+$ip = $uc->get("/item/$u1?undo=$tk")['body'];
+T::ok(str_contains($ip, 'id="undo-bar"') && str_contains($ip, 'Saved “Electric kettle”') && str_contains($ip, 'name="token" value="' . $tk . '"'), 'undo bar with label and token');
+T::ok(preg_match('/data-left="(\d+)"/', $ip, $lm) === 1 && (int)$lm[1] > 0 && (int)$lm[1] <= 30, 'bar knows the seconds left (default window 30 s)');
+T::eq(0, (int)$udb->query("SELECT COUNT(*) FROM undo_tokens WHERE token = '$tk' AND payload NOT LIKE '%Kettle%'")->fetchColumn(), 'snapshot holds the old values');
+T::eq('', $uTok($uc->post('/save', ['csrf' => $ut, 'id' => $u2, 'name' => 'Toaster', 'quantity' => '1', 'location_id' => $uLoc1])), 'no undo when nothing changed');
+T::eq(419, $uc->post('/undo', ['token' => $tk])['status'], 'undo needs CSRF');
+$r = $uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::eq("/item/$u1?undone=1", $r['headers']['location'] ?? '', 'undo returns to the item');
+$k = $udb->query("SELECT * FROM items WHERE id = $u1")->fetch();
+T::eq(['Kettle', 2, $uLoc1, 'white', 1], [$k['name'], (int)$k['quantity'], (int)$k['location_id'], $k['notes'], (int)$k['favourite']], 'edit undone (name, quantity, location, notes; star untouched)');
+T::eq(['kitchen'], $udb->query("SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = $u1")->fetchAll(PDO::FETCH_COLUMN), 'tags back, unused tag removed');
+T::ok(!$udb->query("SELECT 1 FROM tags WHERE name = 'electric'")->fetchColumn(), 'tag created by the edit is gone');
+$hp = $uc->get("/item/$u1?undone=1")['body'];
+T::ok(str_contains($hp, '>Undone<') && str_contains($hp, 'Edited (undo)'), 'toast + history entry “Edited (undo)”');
+T::eq(410, $uc->post('/undo', ['csrf' => $ut, 'token' => $tk])['status'], 'a token works once');
+T::eq(410, $uc->post('/undo', ['csrf' => $ut, 'token' => 'nope'])['status'], 'bogus token → 410');
+// bulk move
+$r = $uc->post('/bulk', ['csrf' => $ut, 'action' => 'move', 'ids' => [$u1, $u2], 'location_id' => (string)$uLoc2, 'back' => '/?select=1']);
+$tk = $uTok($r);
+T::ok($tk !== '' && str_contains($uc->get('/?select=1&undo=' . $tk)['body'], 'Moved 2 items'), 'bulk move offers undo');
+$uc->post('/save', ['csrf' => $ut, 'id' => $u2, 'name' => 'Toaster 2000', 'quantity' => '1', 'location_id' => $uLoc2]);
+$r = $uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::eq('/?select=1&undone=2', $r['headers']['location'] ?? '', 'bulk undo returns to the list');
+T::eq([$uLoc1, $uLoc1], array_map('intval', $udb->query("SELECT location_id FROM items WHERE id IN ($u1, $u2) ORDER BY id")->fetchAll(PDO::FETCH_COLUMN)), 'locations back');
+T::eq('Toaster 2000', $udb->query("SELECT name FROM items WHERE id = $u2")->fetchColumn(), 'bulk undo only reverts what the bulk action changed');
+// bulk tags
+$tk = $uTok($uc->post('/bulk', ['csrf' => $ut, 'action' => 'tag_add', 'ids' => [$u1, $u2], 'tags' => 'sale', 'back' => '/?select=1']));
+$uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::ok(!$udb->query("SELECT 1 FROM tags WHERE name = 'sale'")->fetchColumn(), 'bulk tag add undone');
+// delete one = soft delete
+$photo = $udb->query("SELECT file FROM item_photos WHERE item_id = $u1")->fetchColumn();
+$attf = $udb->query("SELECT file FROM item_attachments WHERE item_id = $u1")->fetchColumn();
+$tk = $uTok($uc->post("/item/$u1/delete", ['csrf' => $ut]));
+T::ok($tk !== '' && !$udb->query("SELECT 1 FROM items WHERE id = $u1")->fetchColumn(), 'delete offers undo, the item is gone');
+T::ok(str_contains($uc->get('/?deleted=1&undo=' . $tk)['body'], 'Deleted “Kettle”'), 'undo bar on the list');
+T::ok(is_file("$uxDir/images/$photo") && is_file("$uxDir/files/$attf"), 'photo and attachment files kept for now');
+$r = $uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::eq("/item/$u1?undone=1", $r['headers']['location'] ?? '', 'restored item opens (same id)');
+$k = $udb->query("SELECT * FROM items WHERE id = $u1")->fetch();
+T::ok($k && $k['name'] === 'Kettle' && (int)$k['favourite'] === 1 && $k['image'] === $photo, 'item restored with its fields, star and cover');
+T::eq([$photo], $udb->query("SELECT file FROM item_photos WHERE item_id = $u1")->fetchAll(PDO::FETCH_COLUMN), 'photos restored');
+T::eq('warranty.pdf', $udb->query("SELECT name FROM item_attachments WHERE item_id = $u1")->fetchColumn(), 'attachments restored');
+T::eq(['kitchen'], $udb->query("SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = $u1")->fetchAll(PDO::FETCH_COLUMN), 'tags restored');
+T::eq(200, $uc->get('/media/full/' . $photo)['status'], 'restored photo serves');
+T::ok(str_contains($uc->get("/item/$u1")['body'], 'Restored (deleting was undone)'), 'history shows the restore (and keeps the delete)');
+// bulk delete, then let the window pass: files are removed
+$tk = $uTok($uc->post('/bulk', ['csrf' => $ut, 'action' => 'delete', 'confirm' => '1', 'ids' => [$u1, $u2], 'back' => '/?select=1']));
+T::ok($tk !== '' && is_file("$uxDir/images/$photo"), 'bulk delete offers undo and keeps files');
+$udb->exec("UPDATE undo_tokens SET expires_at = '2000-01-01 00:00:00'");
+T::eq(410, $uc->post('/undo', ['csrf' => $ut, 'token' => $tk])['status'], 'too late');
+T::ok(!is_file("$uxDir/images/$photo") && !is_file("$uxDir/files/$attf"), 'expired: the kept files are deleted');
+T::eq(0, (int)$udb->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn(), 'expired tokens pruned');
+T::ok(!str_contains($uc->get('/?undo=' . $tk)['body'], 'id="undo-bar"'), 'no bar for an expired token');
+// window 0 = off
+$uc->post('/settings/limits', ['csrf' => $ut, 'expiry_soon_days' => '30', 'lend_due_days' => '', 'saved_filters_max' => '50', 'undo_seconds' => '0', 'max_photos' => '12']);
+$u3 = $savedId($uc->api('/save', ['csrf' => $ut, 'name' => 'Mixer']));
+T::eq('/?deleted=1', $uc->post("/item/$u3/delete", ['csrf' => $ut])['headers']['location'] ?? '', 'undo off: plain delete');
+T::eq(0, (int)$udb->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn(), 'no token stored');
+$ux->stop();
+T::ok(!$ux->logHas('[apotheke]'), 'no server-side exceptions logged');
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 

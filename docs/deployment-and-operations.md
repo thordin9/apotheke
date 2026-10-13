@@ -151,7 +151,9 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
 
 ## Monitoring and logs
 
-* `GET /healthz` returns `ok` after connecting to the database (the Docker `HEALTHCHECK` uses it).
+* `GET /healthz` returns `ok` after connecting to the database (the Docker `HEALTHCHECK` uses it) and sends the running
+  version in `X-Apotheke-Version`.
+* `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
   are logged as `[apotheke] …` and shown to the user as a generic error page.
 * Disk usage is almost entirely `data/images` and `data/thumbs`.

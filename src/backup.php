@@ -8,6 +8,7 @@ declare(strict_types=1);
  *   backup.json   {"format":"apotheke-backup","version":1,"created_at":…,"app":…,"driver":…,"schema":[migration versions],
  *                  "tables":{"<table>":{"columns":[…],"rows":[[…],…]}, …}}
  *   images/<hex>.jpg, thumbs/<hex>.jpg   every photo referenced by the data
+ *   files/<hex>.<pdf|jpg|png|webp>       every attachment referenced by the data
  * The JSON dump is driver-neutral, so a backup taken on SQLite restores into PostgreSQL and vice versa.
  * Restore replaces ALL catalog data in one transaction; photo files are written first (random names, so
  * nothing existing is overwritten) and files no longer referenced are kept (harmless, never deleted).
@@ -21,7 +22,7 @@ const BACKUP_MAX_ENTRIES  = 100_000;
 /** Tables in foreign-key order (parents first). Restore deletes in reverse. */
 function backup_tables(): array
 {
-    return ['locations', 'categories', 'tags', 'items', 'item_photos', 'item_tags', 'app_settings', 'activity', 'saved_filters'];
+    return ['locations', 'categories', 'tags', 'items', 'item_photos', 'item_tags', 'item_attachments', 'app_settings', 'activity', 'saved_filters'];
 }
 
 function backup_table_exists(PDO $pdo, string $driver, string $t): bool
@@ -84,6 +85,19 @@ function backup_photo_files(array $dump): array
     return array_keys($files);
 }
 
+/** Attachment file names referenced by a dump. */
+function backup_attachment_files(array $dump): array
+{
+    $tb = $dump['tables']['item_attachments'] ?? null;
+    if (!$tb) return [];
+    $i = array_search('file', $tb['columns'], true);
+    if ($i === false) return [];
+    $files = [];
+    foreach ($tb['rows'] as $r) if (valid_attachment_name($r[$i] ?? null)) $files[$r[$i]] = true;
+    ksort($files);
+    return array_keys($files);
+}
+
 /**
  * Write a backup zip.
  * @return array{tables:array<string,int>,photos:int,missing:string[],bytes:int}
@@ -107,6 +121,11 @@ function backup_create(PDO $pdo, string $driver, string $dataDir, string $zipPat
         }
         $n++;
     }
+    foreach (backup_attachment_files($dump) as $f) {
+        $full = "$dataDir/files/$f";
+        if (!is_file($full)) { $missing[] = $f; continue; }
+        $zip->addFile($full, "files/$f");
+    }
     if (!$zip->close()) throw new RuntimeException("Cannot write $zipPath");
     return ['tables' => array_map(fn($t) => count($t['rows']), $dump['tables']), 'photos' => $n, 'missing' => $missing, 'bytes' => (int)filesize($zipPath)];
 }
@@ -125,7 +144,8 @@ function backup_open(string $zipPath, PDO $pdo, string $driver): array
         $s = $zip->statIndex($i);
         $total += (int)($s['size'] ?? 0);
         $name = (string)($s['name'] ?? '');
-        if ($name !== 'backup.json' && !preg_match('#^(images|thumbs)/[a-f0-9]{32}\.jpg$#D', $name) && !preg_match('#^(images|thumbs)/$#D', $name)) {
+        if ($name !== 'backup.json' && !preg_match('#^(images|thumbs)/[a-f0-9]{32}\.jpg$#D', $name) && !preg_match('#^(images|thumbs|files)/$#D', $name)
+            && !preg_match('#^files/[a-f0-9]{32}\.(pdf|jpg|png|webp)$#D', $name)) {
             throw new UserError('Unexpected file in backup: ' . mb_substr($name, 0, 80));
         }
     }
@@ -164,6 +184,9 @@ function backup_open(string $zipPath, PDO $pdo, string $driver): array
     foreach (backup_photo_files($dump) as $f) {
         if ($zip->locateName("images/$f") === false) { $warnings[] = "Photo $f is missing from the archive."; continue; }
         $photos++;
+    }
+    foreach (backup_attachment_files($dump) as $f) {
+        if ($zip->locateName("files/$f") === false) $warnings[] = "Attachment $f is missing from the archive.";
     }
     return ['dump' => $dump, 'zip' => $zip, 'tables' => array_map(fn($t) => count($t['rows']), $dump['tables']), 'photos' => $photos,
             'created_at' => (string)($dump['created_at'] ?? ''), 'driver' => (string)($dump['driver'] ?? '?'), 'warnings' => $warnings];
@@ -207,6 +230,15 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
         }
         $written++;
     }
+    if (!is_dir("$dataDir/files")) mkdir("$dataDir/files", 0770, true);
+    foreach (backup_attachment_files($dump) as $f) {
+        $data = $zip->getFromName("files/$f");
+        if ($data === false || is_file("$dataDir/files/$f")) continue;
+        $tmp = "$dataDir/files/.restore-" . bin2hex(random_bytes(6));
+        file_put_contents($tmp, $data, LOCK_EX);
+        if (attach_sniff($tmp) !== pathinfo($f, PATHINFO_EXTENSION)) { @unlink($tmp); $b['warnings'][] = "Attachment $f does not match its type and was skipped."; continue; }
+        rename($tmp, "$dataDir/files/$f");
+    }
     $zip->close();
 
     // 2) data: one transaction, children deleted first, parents inserted first
@@ -249,6 +281,8 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
         $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
         foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";
     }
+    // undo tokens refer to the data that was just replaced
+    if (backup_table_exists($pdo, $driver, 'undo_tokens')) undo_prune(true);
     return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $b['warnings']];
 }
 

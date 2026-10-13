@@ -63,6 +63,17 @@ them with a short description, where you can **rename** or **delete** them. Name
 accents) and you can keep up to 50. A saved filter stores the search words, filters and sort, not the results, so it
 always shows the current matches. Saved filters are included in backups.
 
+## Favourites and recently viewed
+
+Tap the ☆ on a card (or in the item page header) to make an item a **favourite**; tap again to remove it. As soon as
+something is starred, a **★ Favourites** chip with the count appears above the list: it switches the list to
+favourites only (`/?fav=1`) and back. The same filter is in the filter sheet (*Favourites*), combines with search and
+the other filters and can be part of a saved filter. Starring doesn't change an item's place in the list.
+
+**Recently viewed** shows the last items you opened as a row of thumbnails above the list (not while searching or
+filtering). By default each device keeps its own list (an anonymous cookie); *Settings → List* can share one list for
+everyone, change how many are shown (0 hides it). *Clear* empties it.
+
 ## Overview statistics
 
 The collapsible *Overview* panel at the top of the list shows tiles (items, total quantity, locations, categories,
@@ -84,6 +95,19 @@ the value, purchase date and serial number. A new item gets the default location
 
 *Save & new* saves and opens an empty form that keeps the location and category you just used, which is handy when
 you are emptying a box. On the item page, *Edit* opens the same form and *Delete* asks for confirmation first.
+
+## Notes and attachments
+
+**Notes** understand a small, safe Markdown subset: `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, `# headings`,
+`- lists`, `1. numbered steps`, `> quotes`, ```` ``` ```` code blocks, `---` and links (`[text](https://…)`, plain
+`https://…` addresses become links too). Everything else, including HTML, is shown as plain text; links open in a new
+tab and only `http`, `https` and `mailto` are allowed.
+
+**Attachments** keep receipts, manuals and warranty cards with the item. On the item page open *Attachments*, pick one
+or more files and press *Upload*. Tap a file to download it, 🗑 removes it (after confirmation). By default PDFs and
+JPEG/PNG/WebP images up to 10 MB are accepted, at most 10 per item; the types and limits are in *Settings → Photos &
+uploads*. Files are checked by their content (not the name), stored under random names outside the web root and always
+downloaded, never opened inside the app. They are part of the backup and are deleted together with the item.
 
 ## Photos
 
@@ -241,12 +265,56 @@ level, notes, value, purchase date and serial number, and opens the copy's edit 
 **with photos** to copy the photos too: the image files are duplicated, so deleting or changing photos of one item
 never affects the other. Lending status is not copied. The copy's history starts with "Created … copied from “Name”".
 
+## Merging duplicates
+
+Ended up with the same thing twice? Open the one you want to **get rid of** and tap **Merge…** at the bottom of the
+item page. The next screen lists likely duplicates first (same name regardless of case or accents, then same barcode,
+then similar names); search if the right one isn't there. Pick the item to **keep** and you see exactly what will
+happen before anything changes:
+
+* quantities are **added** (capped at 1,000,000);
+* photos are appended after the kept item's photos (its cover stays), attachments and **tags** are combined;
+* fields that are **empty** on the kept item (location, category, running-low level, price, purchase date,
+  expiry/warranty, serial, barcode) are filled from the duplicate; fields it already has are not overwritten;
+* the duplicate's notes are appended to the kept notes;
+* a loan is taken over if the kept item isn't lent (if both are lent, the kept item's loan stays), the ★ is kept if
+  either had one;
+* the duplicate's **history moves** to the kept item, plus a "Merged “…” into this item" entry.
+
+*Merge* then does it all in one database transaction and removes the duplicate; if anything fails, nothing changes.
+
 ## QR labels
 
 ☰ → *Print QR labels* prints one label per location; from a location you can also print one label per item in it, and
 every item page has a *QR label* button. Scanning a label opens that filtered list or item. The codes are generated on
-the server in pure PHP (`src/qr.php`, SVG, no network) with a print stylesheet (3 labels per row on A4/Letter). If the
-address your phone should open differs from the one you are using, set `PUBLIC_URL`.
+the server in pure PHP (`src/qr.php`, SVG, no network) with a print stylesheet. If the address your phone should open
+differs from the one you are using, set the public URL (*Settings → General*).
+
+**Several at once:** in selection mode (*Select*), pick items and choose **Print QR labels** in the actions sheet; you
+get one label per selected item (`/labels?ids=…`, up to the bulk limit). On a location's label page,
+**Location + sub-locations** prints a label for the location and every location inside it; *One label per item*
+includes the items in sub-locations too.
+
+**Label size:** *Settings → QR labels* sets the printed width and height (mm), labels per row, the gap (0 for sticker
+sheets), whether to print the subtitle and link lines, and dashed cut lines. The page shows the current size above the
+labels; the sizes are delivered as a generated stylesheet (`/labels.css`), so the strict CSP stays in place. Print at
+100 % scale (no “fit to page”) to get exact millimetres.
+
+## Undo
+
+After you **save an edit**, **delete** an item or run a **bulk action** (move, set category, add/remove a tag, delete), a
+bar at the bottom says what happened and offers **Undo** — for 30 seconds by default (*Settings → Thresholds & limits →
+Undo window*; 0 turns it off). Undo puts things back exactly as they were:
+
+* an edit: every field and the tags (photos you added or removed in the same edit stay as they are);
+* a bulk move / category / tag change: only what the bulk action changed, so later edits to the same items survive;
+* a delete: the item comes back with the **same id** (so printed QR labels keep working), its photos, attachments,
+  tags, loan and ★. Deleting is a *soft delete* while undo is possible: the files stay on disk until the window is over
+  and are removed afterwards.
+
+The history keeps both entries ("Deleted…", then "Restored (deleting was undone)"; edits show "Edited (undo)"). Each
+undo works once; after the window the bar disappears and the server refuses the token. Works without JavaScript too
+(the bar is then simply shown until you leave the page).
 
 ## History
 
@@ -261,7 +329,7 @@ Entries of deleted items are kept.
 ☰ → *Backup & restore*:
 
 * **Download backup** creates one zip with `backup.json` (every table: items with all their fields, locations,
-  categories, tags, photos, history, settings) plus all photo files and thumbnails. The format doesn't depend on the
+  categories, tags, photos, history, settings, attachments) plus all photo files, thumbnails and attached files. The format doesn't depend on the
   database, so you can move between SQLite and PostgreSQL.
 * **Restore** uploads such a zip and first shows a preview (counts in the file vs. your current data). Nothing changes
   until you tick the confirmation box and press *Restore*; then all data is **replaced** in one transaction.

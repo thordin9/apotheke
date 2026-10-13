@@ -53,6 +53,13 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars (locations are rolled up to the top-level
   location, counting everything inside it). Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
+* **Favourites and recently viewed**: star items on the card or item page, a ★ chip and filter show only favourites;
+  the last opened items appear as a thumbnail strip above the list (per device or shared, length set in the Control Panel).
+* **Undo**: after an edit, a delete or a bulk action a bar offers *Undo* for a configurable window (30 s by default).
+  Deleting is a soft delete until then: undo restores the item with its id, photos, attachments and tags.
+* **Notes and attachments**: notes support a safe Markdown subset (bold, italic, lists, headings, code, links — rendered
+  on the server, everything else escaped). Attach receipts, manuals and warranty cards (PDF/JPEG/PNG/WebP; types, size and
+  count limits in the Control Panel); they are downloaded, never rendered inline, and included in backups.
 * **Control Panel** (☰ → *Settings*): name, accent colour with presets and an automatic WCAG AA contrast check for light
   and dark mode, your own logo (SVG cleaned on upload; PNG/JPEG/WebP also become the favicon and home-screen icons),
   currency and number/date/time formats, time zone, page size, default sort, a compact list view, defaults for new items,
@@ -72,8 +79,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   list), plus purchase price (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
 * **QR labels** for locations and items: ☰ → *Print QR labels* prints one label per location (or one per item in a location;
   every item page has a *QR label* button). Scanning opens that list or item. Codes are generated on the server in pure PHP
-  (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet (3 labels per row on A4/Letter). Set
-  `PUBLIC_URL` if the address on the labels should differ from the one you are using right now.
+  (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet. **Bulk printing**: pick items in selection
+  mode → *Print QR labels*, or print a location together with all its sub-locations. Label width/height, labels per
+  row, gap and printed lines are set in *Settings → QR labels* (delivered as a generated stylesheet, CSP-safe). Set the
+  public URL if the address on the labels should differ from the one you are using right now.
 * **Backup & restore**: ☰ → *Backup & restore* downloads one zip with a portable JSON copy of the database (`backup.json`:
   items, locations, categories, tags, photo list, history, settings) plus every photo and thumbnail. Restoring shows a
   preview of the file next to your current data; nothing changes until you tick the box and press *Restore*, and it runs in
@@ -115,6 +124,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
   photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
   is not copied. The copy's history starts with "Created … copied from “Name”".
+* **Merge duplicates**: *Merge…* on the item page suggests likely duplicates, shows a confirm screen (combined quantity,
+  photos, attachments, tags, filled-in fields, loan) and merges everything — history included — in one transaction.
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
@@ -153,6 +164,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Expiring soon + saved filters | Value (dark) | Saved filters | Barcode lookup (dark) | Item barcode |
 |---|---|---|---|---|
 | ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
+
+| Notes + attachments | Bulk labels (dark) | Favourites + recently viewed | Merge (dark) | Undo |
+|---|---|---|---|---|
+| ![Markdown notes and attachments](docs/screenshots/item-notes-attachments-light.png) | ![Label sheet for a selection](docs/screenshots/labels-selection-dark.png) | ![Favourites chip and recently viewed](docs/screenshots/list-favourites-recent-light.png) | ![Merge confirm screen](docs/screenshots/merge-confirm-dark.png) | ![Undo bar](docs/screenshots/undo-bar-light.png) |
 
 | Sign in (password mode) | Settings | Appearance (dark) | Custom accent + logo |
 |---|---|---|---|
@@ -351,6 +366,42 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 `scripts/docker-checks.sh` checks the image's web server behaviour, and
 `E2E_DOCKER_IMAGE=apotheke:latest npx playwright test --project=docker-smoke` runs the `@smoke` E2E tests against it.
 
+### Coverage
+
+<!-- coverage:start -->
+| Area | PHPUnit (unit) | HTTP integration | Combined |
+|---|---:|---:|---:|
+| Front controller & routes | – | 96.3 % | 96.3 % |
+| Items, search, bulk, lending | 86.9 % | 96.7 % | 97.6 % |
+| Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
+| Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
+| Views (HTML) | 5.7 % | 99.4 % | 99.3 % |
+| Control Panel settings | 71.8 % | 96.8 % | 97.0 % |
+| Backup & restore | 87.2 % | 89.9 % | 98.9 % |
+| Database, migrations, legacy | 80.1 % | 91.9 % | 98.2 % |
+| Bootstrap, config, QR, seed | 72.0 % | 89.9 % | 91.2 % |
+| **All PHP** (4159 lines) | **56.4 %** | **96.1 %** | **97.3 %** |
+
+| Playwright project | Functional tests | Visual tests |
+|---|---:|---:|
+| `chromium-pixel` | 69 | 17 |
+| `chromium-pixel-dark` | 2 | 17 |
+| `desktop-chromium` | 69 | 17 |
+| `desktop-chromium-dark` | 2 | 17 |
+| `pgsql-smoke` | 24 | 0 |
+| `webkit-iphone-se` | 69 | 17 |
+| `webkit-iphone-se-dark` | 2 | 17 |
+| `webkit-iphone13` | 69 | 17 |
+| `webkit-iphone13-dark` | 2 | 17 |
+| **Total** | **308** | **136** |
+
+<sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
+<!-- coverage:end -->
+
+`npm run coverage:readme` (`scripts/coverage.sh`, needs pcov) runs the unit suite with coverage, the HTTP suite with a
+per-request collector, merges both with phpcov (HTML report in `coverage/html/`) and rewrites the table above. CI uploads
+the same reports as the `coverage-sqlite` artifact; see [docs/ci.md](docs/ci.md#why-the-coverage-table-is-refreshed-by-the-release-commit).
+
 ### Visual end-to-end tests (Playwright)
 
 `tests/visual/` drives the real app with [Playwright](https://playwright.dev) on WebKit (iPhone 13, iPhone SE), Chromium
@@ -387,6 +438,10 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 
 A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
+After CI passes on `main`, the *Release* workflow bumps the [SemVer](https://semver.org/) version from the Conventional
+Commits, updates [`VERSION`](VERSION), [`CHANGELOG.md`](CHANGELOG.md) and the coverage table, tags and publishes a GitHub
+Release ([docs/releasing.md](docs/releasing.md)). The running version is shown in the footer, under Control Panel →
+*System*, in `GET /health` (`{"status":"ok","version":"…"}`) and in the `X-Apotheke-Version` header of `/healthz`.
 
 ## Security notes
 
@@ -395,6 +450,8 @@ A separate *Update visual snapshots* workflow renders new baselines when a PR ge
   friendly page and changes nothing.
 * Uploads are validated with `getimagesize`, decoded and re-encoded by GD and stored under random hex names **outside the
   web root**, served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed.
+* Attachments are checked by their magic bytes, stored under random names in `data/files/` and served only as downloads
+  with `Content-Disposition: attachment`, `nosniff` and a `sandbox` CSP.
 * The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
 * Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set a password (Settings → Password).
 * Uploaded SVG logos are sanitized (no scripts, handlers, external references or entities) and served with a sandbox CSP;

@@ -1,6 +1,6 @@
 # CI
 
-Two GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
+Three GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
 
 ## `ci.yml`: on every pull request and on pushes to `main`
 
@@ -22,11 +22,29 @@ The jobs are independent and run in parallel.
 | Job | Steps |
 |---|---|
 | **Lint** | PHP 8.3 and Node 20, installs `shellcheck`, runs `scripts/lint.sh` (`php -l`, `node --check`, Markdown link check, `shellcheck`). |
-| **Tests (PHP 8.3, sqlite / pgsql)** | Matrix over the database with a PostgreSQL 17 service. Installs `zbar-tools` for the QR round-trip tests and the Composer dev dependencies, then: migrations through the CLI on a fresh database (`bin/migrate.php`, an idempotent second run, `bin/seed.php --demo` twice, `--status`), and PHPUnit (unit tests + the HTTP suite) with pcov coverage. The coverage report is uploaded as `coverage-<db>`. |
+| **Tests (PHP 8.3, sqlite / pgsql)** | Matrix over the database with a PostgreSQL 17 service. Installs `zbar-tools` for the QR round-trip tests and the Composer dev dependencies, then: migrations through the CLI on a fresh database (`bin/migrate.php`, an idempotent second run, `bin/seed.php --demo` twice, `--status`), and PHPUnit (unit tests + the HTTP suite). The SQLite leg then runs `scripts/coverage.sh --no-readme` (pcov: unit suite with `--coverage-php`, every `php -S` request of the HTTP suite through the `tests/coverage/prepend.php` collector, merged with phpcov; plus `playwright test --list` for the test counts), writes the coverage table to the job summary and uploads `coverage-sqlite` (clover XML for unit / HTTP / combined, HTML report, `playwright-list.json`). The [release workflow](#releaseyml-versions-changelog-and-github-releases) reads that artifact. |
 | **Headless mobile checks** | Starts `php -S` with demo data and runs `tests/e2e/mobile.mjs` (puppeteer-core + Chrome) at 375×667 and 390×844: filter sheet, theme switch, overflow, sticky bars, photos. |
 | **Visual E2E (shard N/3)** | Runs inside `mcr.microsoft.com/playwright:v1.64.0-noble` with a PostgreSQL service; `scripts/e2e-container-setup.sh` installs PHP 8.3, then `npx playwright test --shard=N/3` (`retries=1` in CI). On failure the HTML report, traces and screenshot diffs are uploaded as `playwright-report-shard-N`. |
 | **Docker build + smoke test** | Builds the image with Buildx (GitHub Actions cache), writes its size to the job summary, then: container on SQLite → `scripts/smoke.sh` and `scripts/docker-checks.sh` (routing, blocked paths, headers, gzip, body limits); a second container on PostgreSQL (`--network host`, `PORT=8081`) → `scripts/smoke.sh`; a graceful-stop check (`docker stop` must exit 0 within 20 s); the Playwright `@smoke` subset against the image (`E2E_DOCKER_IMAGE=apotheke:ci`, project `docker-smoke`). Container logs are always printed. |
-| **Conventional Commits** | Pull requests only: `scripts/check-commits.sh <base sha> <head sha>` checks every commit subject in the PR. |
+| **Conventional Commits** | Pull requests only: `scripts/check-commits.sh <base sha> <head sha>` checks every commit subject in the PR (merge commits and `chore(release): vX.Y.Z` commits are skipped). |
+
+## `release.yml`: versions, changelog and GitHub Releases
+
+Runs when CI finishes successfully for a push to `main` (`workflow_run`), or by hand (`workflow_dispatch`).
+`permissions: contents: write` (push the release commit and tag, create the release) and `actions: read` (download the
+CI coverage artifact); `concurrency: release`, never cancelled. It skips when `main` has moved past the commit CI tested.
+`scripts/release.php plan` computes the bump from the Conventional Commits since the last `v*` tag; if there is one, the
+README coverage table is regenerated from `coverage-sqlite`, `release.php apply` updates `VERSION` and `CHANGELOG.md`,
+and the job pushes `chore(release): vX.Y.Z [skip ci]` plus the tag atomically and runs `gh release create`.
+The release commit doesn't start CI (`[skip ci]`, and pushes made with `GITHUB_TOKEN` never trigger workflows), so there is
+no loop. Details: [releasing.md](releasing.md).
+
+### Why the coverage table is refreshed by the release commit
+
+The alternative, a CI check that fails when the README table is stale, would make every PR that adds a line of code
+re-run the full coverage locally and commit the result, and two PRs would conflict on the table. Coverage numbers are a
+property of what is on `main`, so the release workflow writes them from the artifact of the exact commit it releases.
+Locally `npm run coverage:readme` (or `php scripts/coverage-readme.php coverage --check`) is still available.
 
 ## `snapshots.yml`: Update visual snapshots
 

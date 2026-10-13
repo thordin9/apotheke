@@ -12,6 +12,8 @@ erDiagram
   categories ||--o{ items : "category_id (ON DELETE SET NULL)"
   items ||--o{ item_photos : "item_id (ON DELETE CASCADE)"
   items ||--o{ item_tags : "item_id (ON DELETE CASCADE)"
+  items ||--o{ item_attachments : "item_id (ON DELETE CASCADE)"
+  items ||--o{ recent_views : "item_id (ON DELETE CASCADE)"
   tags ||--o{ item_tags : "tag_id (ON DELETE CASCADE)"
   items ||--o{ activity : "item_id (no FK, kept after delete)"
 
@@ -53,6 +55,7 @@ erDiagram
     text sort_key
     text created_at
     text updated_at
+    int favourite "0/1 (0015)"
   }
   item_photos {
     int id PK
@@ -60,6 +63,30 @@ erDiagram
     text file "32 hex chars + .jpg"
     int position "0 = cover"
     text created_at
+  }
+  item_attachments {
+    int id PK
+    int item_id FK
+    text file UK "32 hex chars + .pdf/.jpg/.png/.webp"
+    text name "original file name (cleaned)"
+    text mime
+    bigint size "bytes"
+    text created_at
+  }
+  recent_views {
+    text scope PK "d:<device cookie> or * (shared)"
+    int item_id PK
+    bigint seq "order, newest = highest"
+    text viewed_at
+  }
+  undo_tokens {
+    text token PK "32 hex, random"
+    text action "edit, move, category, tag_add, tag_remove, delete"
+    text label
+    text payload "JSON snapshot"
+    text files "JSON, kept files"
+    text created_at
+    text expires_at
   }
   tags {
     int id PK
@@ -122,10 +149,20 @@ Notes:
 * An item is **running low** when `min_qty IS NOT NULL AND quantity <= min_qty`, and **lent** when
   `lent_to IS NOT NULL`.
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
-  "due": "…"}` for a loan, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
+  "due": "…"}` for a loan, `{"from": "Drill", "from_id": 7, "quantity": [2, 5], "photos": 1}` for a merge, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
   `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins. The
   password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).
+* `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
+  random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
+* `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
+  `seq` orders it, rows beyond the limit are deleted on every view and rows older than 90 days now and then. It is
+  per-device state and therefore **not** part of backups.
+* `undo_tokens` (migration 0016) backs *Undo*: `payload` is JSON with a full snapshot of every affected item (the
+  `items` row, tag names, photo and attachment rows), `files` lists the photo/attachment files a delete keeps on disk
+  (`[["img", "…jpg"], ["att", "…pdf"]]`). Tokens live `undo_seconds`; expired ones are pruned (and their files deleted
+  if nothing references them again) whenever a new token is created or */undo* is called. Not part of backups; a restore
+  clears them.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -147,6 +184,9 @@ Notes:
 | 0011 | `0011_saved_filters.php` | `saved_filters` (named list views) |
 | 0012 | `0012_barcode.php` | `items.barcode` + index |
 | 0013 | `0013_settings.php` | `settings` (Control Panel key/value), seeded from `config.php` / env |
+| 0014 | `0014_attachments.php` | `item_attachments` (PDF/image files per item) + index |
+| 0015 | `0015_favourites_recent.php` | `items.favourite` + index, `recent_views` (recently viewed per device or install) |
+| 0016 | `0016_undo.php` | `undo_tokens` (short-lived undo snapshots) + index on `expires_at` |
 
 ## How migrations run
 

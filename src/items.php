@@ -1,6 +1,12 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/markdown.php';
+require_once __DIR__ . '/attachments.php';
+require_once __DIR__ . '/favourites.php';
+require_once __DIR__ . '/merge.php';
+require_once __DIR__ . '/undo.php';
+
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
 const KINDS = ['location', 'category'];
@@ -275,7 +281,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.expires_on, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.barcode, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.expires_on, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.barcode, i.favourite, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -453,6 +459,7 @@ function list_filter_defs(): array
     return [
         'stock' => ['label' => 'Stock', 'all' => 'All items', 'opts' => ['low' => 'Running low'], 'icon' => 'alert', 'class' => 'chip-low', 'what' => 'running-low filter'],
         'exp'   => ['label' => 'Expiry / warranty', 'all' => 'All items', 'opts' => ['soon' => 'Expiring soon', 'expired' => 'Expired'], 'icon' => 'clock', 'class' => 'chip-exp', 'what' => 'expiry filter'],
+        'fav'   => ['label' => 'Favourites', 'all' => 'All items', 'opts' => ['1' => 'Favourites only'], 'icon' => 'star', 'class' => 'chip-fav', 'what' => 'favourites filter'],
         'lend'  => ['label' => 'Lending', 'all' => 'All items', 'opts' => ['out' => 'Lent out', 'overdue' => 'Overdue'], 'icon' => 'handoff', 'class' => 'chip-lend', 'what' => 'lending filter'],
     ];
 }
@@ -528,6 +535,7 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
     if (($f['stock'] ?? '') === 'low') $where[] = '(' . LOW_SQL . ')';
     if (($f['exp'] ?? '') === 'expired') { $where[] = 'i.expires_on IS NOT NULL AND i.expires_on < ?'; $args[] = local_today(); }
     if (($f['exp'] ?? '') === 'soon') { $where[] = 'i.expires_on IS NOT NULL AND i.expires_on >= ? AND i.expires_on <= ?'; array_push($args, local_today(), expiry_soon_until()); }
+    if (($f['fav'] ?? '') === '1') $where[] = 'i.favourite = 1';
     if (($f['lend'] ?? '') === 'out') $where[] = 'i.lent_to IS NOT NULL';
     if (($f['lend'] ?? '') === 'overdue') { $where[] = 'i.lent_to IS NOT NULL AND i.lent_due IS NOT NULL AND i.lent_due < ?'; $args[] = local_today(); }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
@@ -546,7 +554,7 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
     $page   = max(1, $page);
     $pageSize ??= page_size();
     $offset = ($page - 1) * $pageSize;
-    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on "
+    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on, i.favourite "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
@@ -621,7 +629,7 @@ function activity_short(?string $s): string
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'expires_on' => null, 'serial' => '', 'barcode' => '', 'min_qty' => null, 'copied_from' => null];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'expires_on' => null, 'serial' => '', 'barcode' => '', 'min_qty' => null, 'copied_from' => null, 'reason' => null];
     $in['barcode'] = barcode_clean((string)$in['barcode']);
     $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags'], $in['barcode']);
     $drop = [];
@@ -656,9 +664,9 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
             'min_qty'       => [($old['min_qty'] ?? null) === null ? '' : (string)$old['min_qty'], $in['min_qty'] === null ? '' : (string)$in['min_qty']],
         ];
         foreach ($cmp as $k => [$a, $b]) if ($a !== $b) $changes[$k] = [$a, $b];
-        if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes]);
+        if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes] + array_filter(['reason' => $in['reason']]));
         if ((int)$old['location_id'] !== (int)$in['location_id'] || ($old['location_id'] === null) !== ($in['location_id'] === null)) {
-            activity_log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])]);
+            activity_log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])] + array_filter(['reason' => $in['reason']]));
         }
         if ((int)$old['quantity'] !== (int)$in['quantity']) activity_log($id, $in['name'], 'quantity', ['from' => (int)$old['quantity'], 'to' => (int)$in['quantity']]);
         if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
@@ -679,15 +687,19 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
     return $id;
 }
 
-function item_delete(array $item): void
+/** Delete an item. With $keepFiles its photo/attachment files stay on disk (an undo token owns them). */
+function item_delete(array $item, bool $keepFiles = false): void
 {
     $files = array_column(photos_for((int)$item['id']), 'file');
+    $att = array_column(attachments_for((int)$item['id']), 'file');
     db_tx(function (PDO $pdo) use ($item): void {
         activity_log((int)$item['id'], (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], fn($v) => $v !== ''));
         $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
         $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
     });
+    if ($keepFiles) return;
     foreach (array_unique(array_merge($files, [$item['image']])) as $f) image_delete($f);
+    foreach ($att as $f) attachment_file_delete($f);
 }
 
 /* ---------- photos (many per item; position 0 = cover, mirrored in items.image) ---------- */
@@ -1107,7 +1119,8 @@ function items_bulk(array $ids, string $action, array $opt = []): int
     if ($action === 'category' && ($opt['category_id'] ?? null) !== null && !tax_get('category', (int)$opt['category_id'])) throw new UserError('That category no longer exists.');
     if ($action === 'tag_add' && !($opt['tags'] ?? [])) throw new UserError('Enter at least one tag to add.');
     $files = [];
-    $n = db_tx(function (PDO $pdo) use ($ids, $action, $opt, &$files): int {
+    $attFiles = [];
+    $n = db_tx(function (PDO $pdo) use ($ids, $action, $opt, &$files, &$attFiles): int {
         $n = 0;
         foreach ($ids as $id) {
             $it = item_get($id);
@@ -1122,6 +1135,7 @@ function items_bulk(array $ids, string $action, array $opt = []): int
                     break;
                 case 'delete':
                     $files = array_merge($files, array_column(photos_for($id), 'file'), [$it['image']]);
+                    $attFiles = array_merge($attFiles, array_column(attachments_for($id), 'file'));
                     activity_log($id, (string)$it['name'], 'deleted', array_filter(['location' => (string)$it['location'], 'quantity' => (int)$it['quantity'], 'bulk' => true], fn($v) => $v !== ''));
                     $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$id]);
                     $n++;
@@ -1133,7 +1147,9 @@ function items_bulk(array $ids, string $action, array $opt = []): int
         $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
         return $n;
     });
+    if (!empty($opt['keep_files'])) return $n;
     foreach (array_unique(array_filter($files)) as $f) image_delete($f);
+    foreach ($attFiles as $f) attachment_file_delete($f);
     return $n;
 }
 

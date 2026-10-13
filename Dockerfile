@@ -28,7 +28,7 @@ COPY --chown=root:root public /var/www/app/public
 COPY --chown=root:root src /var/www/app/src
 COPY --chown=root:root migrations /var/www/app/migrations
 COPY --chown=root:root bin /var/www/app/bin
-COPY --chown=root:root config.example.php /var/www/app/config.example.php
+COPY --chown=root:root config.example.php VERSION /var/www/app/
 
 ENV DATA_DIR=/data \
     APP_PASSWORD="" \

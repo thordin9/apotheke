@@ -78,8 +78,9 @@ final class Server
         fclose($sock);
         $this->base = "http://127.0.0.1:$port";
         $this->log = $dataDir . '.server.log';
-        $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
-                '-S', "127.0.0.1:$port", '-t', ROOT . '/public', ROOT . '/public/index.php'];
+        $cov = getenv('APOTHEKE_COVERAGE_DIR') ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M', ...$cov,
+                '-S', "127.0.0.1:$port", '-t', ROOT . '/public', $cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php'];
         $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'], test_db_env($dataDir), $env);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');

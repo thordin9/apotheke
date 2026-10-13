@@ -7,6 +7,10 @@ function icon(string $n): string
 {
     static $p = [
         'plus'   => '<path d="M12 5v14M5 12h14"/>',
+        'paperclip' => '<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
+        'file'   => '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+        'merge'  => '<path d="M7 4v4a5 5 0 0 0 5 5h0a5 5 0 0 1 5 5v2M17 4v4a5 5 0 0 1-2 4M4 7l3-3 3 3M14 7l3-3 3 3"/>',
+        'eye'    => '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
         'minus'  => '<path d="M5 12h14"/>',
         'search' => '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
         'camera' => '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
@@ -20,6 +24,7 @@ function icon(string $n): string
         'archive' => '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>',
         'clock'  => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
         'star'   => '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+        'history' => '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
         'move'   => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
         'tag'    => '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.6"/>',
@@ -86,6 +91,7 @@ function page_start(string $title, string $bodyClass = ''): void
 
 function page_end(): void
 {
+    echo undo_bar_html();
     echo "\n</body>\n</html>\n";
 }
 
@@ -129,6 +135,7 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
     return '<article class="card' . (is_low($it) ? ' is-low' : '') . ($select ? ' selectable' : '') . '" data-id="' . $id . '"' . ($min !== null ? ' data-min="' . $min . '"' : '') . '>'
         . ($select ? '<label class="sel"><input type="checkbox" class="selbox" name="ids[]" value="' . $id . '" form="bulkform"' . ($checked ? ' checked' : '') . ' aria-label="Select ' . h($it['name']) . '"><span class="selmark" aria-hidden="true">' . icon('check') . '</span></label>' : '')
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
+        . ($select ? '' : fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/'))
         . '<div class="card-body">'
         . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
         . '<div class="chips">' . $chips . '</div>'
@@ -140,6 +147,28 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<output class="qval">' . $q . '</output>'
         . '<button type="button" class="qbtn" data-delta="1" aria-label="Increase">' . icon('plus') . '</button>'
         . '</div></div></article>';
+}
+
+/** Star toggle (a small POST form, so it works without JavaScript; app.js toggles it in place). */
+function fav_button_html(int $id, string $name, bool $on, string $back): string
+{
+    return '<form class="favf" method="post" action="/item/' . $id . '/fav"><input type="hidden" name="csrf" value="' . h(csrf_token()) . '">'
+        . '<input type="hidden" name="on" value="' . ($on ? '0' : '1') . '"><input type="hidden" name="back" value="' . h($back) . '">'
+        . '<button class="favbtn" aria-pressed="' . ($on ? 'true' : 'false') . '" aria-label="Favourite: ' . h($name) . '" title="Favourite">' . icon('star') . '</button></form>';
+}
+
+/** "Recently viewed" strip on the list page (thumbnails, horizontally scrollable). */
+function recent_html(array $items): string
+{
+    if (!$items) return '';
+    $o = '<section class="recent" id="recent" aria-labelledby="recent-h"><div class="recent-head"><h2 id="recent-h">' . icon('history') . ' Recently viewed</h2>'
+        . '<form method="post" action="/recent/clear"><input type="hidden" name="csrf" value="' . h(csrf_token()) . '"><button class="btn btn-ghost btn-sm" id="recent-clear">Clear</button></form></div><ol class="recent-row">';
+    foreach ($items as $it) {
+        $img = valid_image_name($it['image'] ?? null) ? '<img src="/media/thumb/' . h($it['image']) . '" alt="" loading="lazy" decoding="async">' : '<span class="ph">' . icon('box') . '</span>';
+        $o .= '<li><a href="/item/' . (int)$it['id'] . '" class="recent-it">' . $img . '<span>' . h($it['name']) . '</span>'
+            . (!empty($it['favourite']) ? '<b class="recent-fav" aria-label="Favourite">' . icon('star') . '</b>' : '') . '</a></li>';
+    }
+    return $o . '</ol></section>';
 }
 
 /** "Running low" badge; shown by CSS while the surrounding card/page has .is-low (so +/- can toggle it). */
@@ -269,6 +298,7 @@ function bulk_bar_html(array $locs, array $cats, array $tags, string $back, stri
         <div class="bulkrow"><label class="field"><span>Remove tag</span><select name="tag_id" id="bulk-tag"><?php foreach ($tags as $t): ?><option value="<?= (int)$t['id'] ?>"><?= h($t['name']) ?></option><?php endforeach; ?></select></label>
           <button class="btn" name="action" value="tag_remove" id="bulk-tag-remove">Remove</button></div>
         <?php endif; ?>
+        <button class="btn btn-wide" name="action" value="labels" id="bulk-labels"><?= icon('qr') ?> Print QR labels</button>
         <button class="btn btn-danger btn-wide" name="action" value="delete" id="bulk-delete"><?= icon('trash') ?> Delete selected…</button>
       </div>
     </details>
@@ -292,7 +322,7 @@ function view_bulk_delete(array $items, string $back): void
 </header>
 <main class="wrap narrow">
   <h2 class="item-name">Delete <?= $n ?> item<?= $n === 1 ? '' : 's' ?>?</h2>
-  <p class="lead">Their photos are deleted too. The history keeps a record. This can’t be undone.</p>
+  <p class="lead">Their photos are deleted too. The history keeps a record. <?= undo_enabled() ? 'You can undo this for ' . (int)setting('undo_seconds') . ' seconds afterwards.' : 'This can’t be undone.' ?></p>
   <ul class="bulklist" id="bulklist">
     <?php foreach ($items as $it): ?><li><?= h($it['name']) ?><?= $it['location'] !== '' ? ' <span class="hint">· ' . h($it['location']) . '</span>' : '' ?></li><?php endforeach; ?>
   </ul>
@@ -551,7 +581,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           <label class="field"><span><?= h($d['label']) ?></span>
           <select name="<?= $k ?>" id="<?= $k ?>" data-filter>
             <option value=""><?= h($d['all']) ?></option>
-            <?php foreach ($d['opts'] as $v => $lbl): ?><option value="<?= h($v) ?>"<?= $f[$k] === $v ? ' selected' : '' ?>><?= h($lbl) ?></option><?php endforeach; ?>
+            <?php foreach ($d['opts'] as $v => $lbl): ?><option value="<?= h((string)$v) ?>"<?= $f[$k] === (string)$v ? ' selected' : '' ?>><?= h($lbl) ?></option><?php endforeach; ?>
           </select></label>
           <?php endforeach; ?>
           <label class="field"><span>Sort by</span>
@@ -572,6 +602,9 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     </div>
     <?php $curQuery = http_build_query($qs); ?>
     <div class="saved-row" id="saved-row">
+      <?php $nFav = fav_count(); if ($nFav || $f['fav'] !== ''): $favOn = $f['fav'] === '1'; ?>
+      <a class="achip chip-fav<?= $favOn ? ' is-on' : '' ?>" id="fav-chip" href="<?= h('/' . (($fq = http_build_query(list_query($q, ['fav' => $favOn ? '' : '1'] + $f, $sort))) ? '?' . $fq : '')) ?>"<?= $favOn ? ' aria-pressed="true"' : '' ?>><?= icon('star') ?> Favourites <b><?= $nFav ?></b></a>
+      <?php endif; ?>
       <div class="saved-chips" id="saved-chips"><?= saved_filters_html(saved_filters(), $curQuery) ?></div>
       <details class="savefilter" id="savefilter"<?= $curQuery === '' ? ' hidden' : '' ?>>
         <summary class="btn btn-sm" id="savefilter-open"><?= icon('star') ?> Save filter</summary>
@@ -588,6 +621,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
   </form>
 </header>
 <main class="wrap">
+  <?= !$select && !$filtered ? recent_html(recent_items()) : '' ?>
   <?= stats_section($stats, $statsOpen) ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
   <div class="grid<?= setting('list_view') === 'compact' ? ' is-compact' : '' ?>" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
@@ -606,6 +640,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     <?php if (auth_enabled()): ?>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><button class="linkbtn">Sign out</button></form>
     <?php endif; ?>
+    <span class="app-version" title="Apotheke version">v<?= h(app_version()) ?></span>
   </footer>
 </main>
 <?php if ($select): ?>
@@ -618,7 +653,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     page_end();
 }
 
-function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false): void
+function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false, array $attachments = [], ?string $toast = null): void
 {
     page_start($it['name'], 'page-item');
     $id = (int)$it['id'];
@@ -630,6 +665,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <div class="bar">
     <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
     <h1 class="title-sm">Item</h1>
+    <?= fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/item/' . $id) ?>
     <a class="btn btn-ghost" href="/item/<?= $id ?>/edit" aria-label="Edit item"><?= icon('edit') ?><span class="hide-xs">Edit</span></a>
   </div>
 </header>
@@ -680,8 +716,9 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   </dl>
   <?php endif; ?>
   <?php if (trim($it['notes']) !== ''): ?>
-  <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
+  <div class="notes md" id="notes"><?= md_render($it['notes']) ?></div>
   <?php endif; ?>
+  <?= attachments_html($id, $attachments) ?>
   <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
     <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= max_photos() ?></span></summary>
     <?php if ($n): ?>
@@ -718,6 +755,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
       <?php if ($n): ?><label class="check"><input type="checkbox" name="photos" value="1" id="dup-photos"> with photos</label><?php endif; ?>
       <button class="btn btn-sm" id="dup-btn"><?= icon('copy') ?> Duplicate</button>
     </form>
+    <a class="btn btn-sm" href="/item/<?= $id ?>/merge" id="merge-link"><?= icon('merge') ?> Merge…</a>
   </div>
   <?php if ($history): ?>
   <section class="history" id="history" aria-labelledby="hist-title">
@@ -728,9 +766,10 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
 </main>
+<?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <div class="actionbar">
   <div class="actionbar-in">
-    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”? This cannot be undone.">
+    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”?<?= undo_enabled() ? ' You can undo this for ' . (int)setting('undo_seconds') . ' seconds.' : ' This cannot be undone.' ?>">
       <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
       <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete</button>
     </form>
@@ -822,7 +861,8 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </label>
     <label class="field">
       <span>Notes <em>optional</em></span>
-      <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, where you bought it…"><?= h($vals['notes']) ?></textarea>
+      <textarea name="notes" rows="4" maxlength="5000" placeholder="Model, where you bought it…" aria-describedby="notes-help"><?= h($vals['notes']) ?></textarea>
+      <small class="field-help" id="notes-help">Markdown: **bold**, *italic*, - lists, 1. steps, `code`, [link](https://…)</small>
     </label>
     <label class="field">
       <span>Tags <em>optional, comma-separated</em></span>
@@ -1240,6 +1280,20 @@ function activity_html(array $e): string
         case 'returned':
             $t = 'Returned by <b>' . h((string)($d['from'] ?? '')) . '</b>' . (isset($d['days']) ? ' after ' . (int)$d['days'] . ' day' . ((int)$d['days'] === 1 ? '' : 's') : '');
             break;
+        case 'attachment':
+            $t = (($d['change'] ?? '') === 'removed' ? 'Removed attachment ' : 'Attached ') . '“' . h((string)($d['file'] ?? '')) . '”';
+            break;
+        case 'merged':
+            $t = 'Merged <b>“' . h((string)($d['from'] ?? '')) . '”</b> into this item';
+            if (isset($d['quantity'][0], $d['quantity'][1]) && $d['quantity'][0] !== $d['quantity'][1]) $t .= ' · quantity <b>' . (int)$d['quantity'][0] . '</b> → <b>' . (int)$d['quantity'][1] . '</b>';
+            if (!empty($d['photos'])) $t .= ' · ' . (int)$d['photos'] . ' photo' . ((int)$d['photos'] === 1 ? '' : 's');
+            if (!empty($d['attachments'])) $t .= ' · ' . (int)$d['attachments'] . ' attachment' . ((int)$d['attachments'] === 1 ? '' : 's');
+            if (!empty($d['filled'])) $t .= ' · filled in ' . h(implode(', ', (array)$d['filled']));
+            if (($d['lending'] ?? '') === 'copied') $t .= ' · loan taken over';
+            break;
+        case 'restored':
+            $t = 'Restored (deleting was undone)';
+            break;
         case 'deleted':
             $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
             break;
@@ -1249,7 +1303,7 @@ function activity_html(array $e): string
     return $t;
 }
 
-const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
+const ACTIVITY_ICONS = ['restored' => 'undo', 'merged' => 'merge', 'attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
 function activity_items_html(array $entries, bool $withItem): string
 {
@@ -1363,7 +1417,9 @@ function view_backup(array $current, ?string $error = null, ?array $preview = nu
 function view_labels(string $heading, array $labels, string $back, array $options = []): void
 {
     page_start('Labels', 'page-labels');
+    $cfg = [(int)setting('label_width_mm'), (int)setting('label_height_mm'), (int)setting('label_columns'), (int)setting('label_gap_mm'), (int)setting('label_border'), (int)setting('label_show_sub'), (int)setting('label_show_url')];
     ?>
+<link rel="stylesheet" href="/labels.css?v=<?= substr(md5(implode(',', $cfg)), 0, 8) ?>" id="labels-css">
 <header class="top top-simple no-print">
   <div class="bar">
     <a class="btn btn-ghost btn-round" href="<?= h($back) ?>" data-back aria-label="Back"><?= icon('back') ?></a>
@@ -1375,6 +1431,7 @@ function view_labels(string $heading, array $labels, string $back, array $option
   <div class="no-print labels-intro">
     <h2 class="item-name"><?= h($heading) ?></h2>
     <p class="hint">Scan a label with the phone camera to open <?= $options ? 'the matching list or item' : 'it' ?> in Apotheke. Links point to <b><?= h(public_url('')) ?></b><?= setting('public_url') === '' ? ' (change it in <a href="/settings/general">Settings → General</a>)' : '' ?>.</p>
+    <p class="hint labels-size"><?= count($labels) ?> label<?= count($labels) === 1 ? '' : 's' ?> · <?= $cfg[0] ?> × <?= $cfg[1] ?> mm, <?= $cfg[2] ?> per row (<a href="/settings/labels">change</a>)</p>
     <?php if ($options): ?><nav class="label-opts" aria-label="Label sets"><?php foreach ($options as $href => $txt): ?><a class="achip" href="<?= h($href) ?>"><?= h($txt) ?></a><?php endforeach; ?></nav><?php endif; ?>
   </div>
   <?php if (!$labels): ?>
@@ -1384,11 +1441,133 @@ function view_labels(string $heading, array $labels, string $back, array $option
     <?php foreach ($labels as $l): $url = public_url($l['path']); ?>
     <figure class="label" data-url="<?= h($url) ?>">
       <?= qr_svg($url, 'QR code for ' . $l['title']) ?>
-      <figcaption><b><?= h($l['title']) ?></b><?php if ($l['sub'] !== ''): ?><span><?= h($l['sub']) ?></span><?php endif; ?><small><?= h(preg_replace('#^https?://#', '', $url)) ?></small></figcaption>
+      <figcaption><b><?= h($l['title']) ?></b><?php if ($l['sub'] !== '' && setting('label_show_sub')): ?><span><?= h($l['sub']) ?></span><?php endif; ?><?php if (setting('label_show_url')): ?><small><?= h(preg_replace('#^https?://#', '', $url)) ?></small><?php endif; ?></figcaption>
     </figure>
     <?php endforeach; ?>
   </div>
   <?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
+/** Attachments card on the item page: list with download/delete, upload form (works without JS). */
+function attachments_html(int $id, array $list): string
+{
+    $tok = h(csrf_token());
+    $max = (int)setting('attach_max_per_item');
+    $accept = implode(',', array_map(fn($e) => ATTACH_TYPES[$e][0], attach_allowed()));
+    $types = implode(', ', array_map(fn($e) => ATTACH_TYPES[$e][1], attach_allowed()));
+    $o = '<details class="photos-box att-box" id="attachments"' . ($list ? ' open' : '') . '><summary>' . icon('paperclip') . ' Attachments <span class="muted-n">' . count($list) . '/' . $max . '</span></summary>';
+    if ($list) {
+        $o .= '<ul class="att-list">';
+        foreach ($list as $a) {
+            $o .= '<li class="att" data-id="' . (int)$a['id'] . '"><a class="att-dl" href="/attachment/' . (int)$a['id'] . '" download>'
+                . icon($a['mime'] === 'application/pdf' ? 'file' : 'image') . '<span class="att-name">' . h($a['name']) . '</span><small>' . h(fmt_bytes((int)$a['size'])) . '</small></a>'
+                . '<form method="post" action="/item/' . $id . '/attachments/' . (int)$a['id'] . '/delete" data-confirm="Delete “' . h($a['name']) . '”?"><input type="hidden" name="csrf" value="' . $tok . '">'
+                . '<button class="pbtn pbtn-del" aria-label="Delete ' . h($a['name']) . '">' . icon('trash') . '</button></form></li>';
+        }
+        $o .= '</ul>';
+    }
+    if (count($list) < $max) {
+        $o .= '<form method="post" action="/item/' . $id . '/attachments" enctype="multipart/form-data" class="att-add" id="attadd"><input type="hidden" name="csrf" value="' . $tok . '">'
+            . '<label class="btn"><input type="file" name="files[]" multiple accept="' . h($accept) . '" class="file" id="att-file">' . icon('paperclip') . ' Attach files</label>'
+            . '<button class="btn btn-primary" id="att-upload">' . icon('check') . ' Upload</button>'
+            . '<p class="hint">' . h($types) . ' · max ' . (int)setting('attach_max_mb') . ' MB each</p></form>';
+    }
+    return $o . '</details>';
+}
+
+/** Merge step 1: pick the item to keep (likely duplicates first, or search). */
+function view_merge_pick(array $it, array $cands, string $q): void
+{
+    $id = (int)$it['id'];
+    page_start('Merge');
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/item/<?= $id ?>" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Merge duplicates</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h2 class="item-name">Merge “<?= h($it['name']) ?>” into…</h2>
+  <p class="lead">Pick the item to keep. Its quantity grows by <?= (int)$it['quantity'] ?>; photos, attachments, tags, history and empty fields come over from “<?= h($it['name']) ?>”, which is then removed. You confirm on the next screen.</p>
+  <form class="search merge-search" method="get" action="/item/<?= $id ?>/merge" role="search">
+    <?= icon('search') ?>
+    <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search for the item to keep" autocomplete="off" enterkeyhint="search" id="merge-q" aria-label="Search for the item to keep">
+  </form>
+  <?php if ($cands): ?>
+  <ul class="merge-list" id="merge-list">
+    <?php foreach ($cands as $c): ?>
+    <li><a class="merge-pick" href="/item/<?= $id ?>/merge?into=<?= (int)$c['id'] ?>" data-id="<?= (int)$c['id'] ?>">
+      <?= valid_image_name($c['image'] ?? null) ? '<img src="/media/thumb/' . h($c['image']) . '" alt="" loading="lazy">' : '<span class="ph">' . icon('box') . '</span>' ?>
+      <span class="merge-name"><b><?= h($c['name']) ?></b><small><?= h($c['location'] !== '' ? $c['location'] : 'No location') ?> · qty <?= (int)$c['quantity'] ?></small></span>
+      <?= icon('back') ?></a></li>
+    <?php endforeach; ?>
+  </ul>
+  <?php else: ?>
+  <div class="empty"><?= icon('search') ?><p class="empty-title"><?= $q === '' ? 'No similar items found.' : 'Nothing matches “' . h($q) . '”.' ?></p><p class="hint">Search by name, location or barcode.</p></div>
+  <?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
+/** Merge step 2: what will happen, then one button. */
+function view_merge_confirm(array $p): void
+{
+    $src = $p['source']; $dst = $p['target']; $in = $p['result'];
+    $sid = (int)$src['id']; $tid = (int)$dst['id'];
+    page_start('Merge');
+    $row = fn(string $label, string $html) => '<li><span class="act-field">' . h($label) . '</span> ' . $html . '</li>';
+    $rows = [$row('Quantity', '<b>' . (int)$dst['quantity'] . '</b> + <b>' . (int)$src['quantity'] . '</b> = <b>' . (int)$in['quantity'] . '</b>')];
+    if ($p['photos']) $rows[] = $row('Photos', '+' . $p['photos'] . ' (after the current ones)');
+    if ($p['attachments']) $rows[] = $row('Attachments', '+' . $p['attachments']);
+    $newTags = array_diff($in['tags'], array_column($dst['tags'], 'name'));
+    if ($newTags) $rows[] = $row('Tags', '+ ' . h(implode(', ', $newTags)));
+    foreach ($p['fills'] as $k => $label) {
+        if ($k === 'notes') { $rows[] = $row('Notes', 'the source’s notes are appended'); continue; }
+        $v = match ($k) {
+            'location_id' => (string)$src['location'], 'category_id' => (string)$src['category'],
+            'value_cents' => money_input($in['value_cents']) . ' ' . setting('currency'),
+            default => (string)$in[$k],
+        };
+        $rows[] = $row($label, 'empty → “' . h($v) . '”');
+    }
+    if ($p['lending'] === 'copied') $rows[] = $row('Lending', 'lent to <b>' . h((string)$src['lent_to']) . '</b> is taken over');
+    if ($p['lending'] === 'kept') $rows[] = $row('Lending', 'both are lent: the loan to <b>' . h((string)$dst['lent_to']) . '</b> is kept, the other one is dropped');
+    if (!empty($src['favourite']) && empty($dst['favourite'])) $rows[] = $row('Favourite', '★ is kept');
+    if ($p['history']) $rows[] = $row('History', $p['history'] . ' entr' . ($p['history'] === 1 ? 'y moves' : 'ies move') . ' over');
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/item/<?= $sid ?>/merge" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Merge duplicates</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h2 class="item-name">Merge into “<?= h($dst['name']) ?>”?</h2>
+  <div class="merge-pair" id="merge-pair">
+    <div class="merge-card merge-src"><small>Removed</small><b><?= h($src['name']) ?></b><span><?= h($src['location'] !== '' ? $src['location'] : 'No location') ?></span></div>
+    <span class="merge-arrow" aria-hidden="true"><?= icon('merge') ?></span>
+    <div class="merge-card merge-dst"><small>Kept</small><b><?= h($dst['name']) ?></b><span><?= h($dst['location'] !== '' ? $dst['location'] : 'No location') ?></span></div>
+  </div>
+  <ul class="act-changes merge-changes" id="merge-changes"><?= implode('', $rows) ?></ul>
+  <p class="hint">Fields the kept item already has stay as they are. Everything happens in one step; if anything fails, nothing changes.</p>
+  <form method="post" action="/item/<?= $sid ?>/merge" class="itemform" id="mergeform">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <input type="hidden" name="into" value="<?= $tid ?>">
+    <input type="hidden" name="confirm" value="1">
+    <div class="actionbar actionbar-form">
+      <div class="actionbar-in">
+        <a class="btn" href="/item/<?= $sid ?>">Cancel</a>
+        <button class="btn btn-primary" id="merge-confirm"><?= icon('merge') ?> Merge</button>
+      </div>
+    </div>
+  </form>
 </main>
 <?php
     page_end();
