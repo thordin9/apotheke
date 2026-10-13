@@ -7,6 +7,21 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-13
+
+### Breaking changes
+
+- **docker:** serve on port 9091 by default ([#17](https://github.com/thordin9/apotheke/pull/17))
+
+### Fixed
+
+- **ci:** start the mobile-check server on port 9091 ([#17](https://github.com/thordin9/apotheke/pull/17))
+
+### Maintenance
+
+- **e2e:** test: wait for sign-in to finish before opening settings ([#17](https://github.com/thordin9/apotheke/pull/17))
+- **e2e:** test: update visual baselines ([#17](https://github.com/thordin9/apotheke/pull/17))
+
 ## [1.2.0] - 2026-10-13
 
 ### Added
@@ -92,7 +107,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/thordin9/apotheke/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/thordin9/apotheke/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/thordin9/apotheke/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/thordin9/apotheke/compare/v1.0.0...v1.1.0
