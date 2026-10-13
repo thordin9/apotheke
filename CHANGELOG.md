@@ -7,6 +7,30 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-13
+
+### Added
+
+- **stocktake:** location stocktakes with scanning, report and moves ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **auth:** user accounts with admin/editor/viewer roles ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **search:** ranked full-text search with highlights and typo tolerance ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **import:** CSV import with column mapping, dry run and preview ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **photos:** in-browser crop/rotate and photo reordering ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **auth:** configurable roles, guest browsing and self-registration ([#16](https://github.com/thordin9/apotheke/pull/16))
+
+### Fixed
+
+- **ui:** unique quick-add fields, 375px tiles, FAB clearance ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **photos:** keep the editor's exact-values box clear of the action bar ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **ui:** keep the filter button at 44px in WebKit ([#16](https://github.com/thordin9/apotheke/pull/16))
+
+### Maintenance
+
+- **e2e:** test: visual checks for stocktake, search, import, photos, roles ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **e2e:** test: wait for the un-favourite request before checking the DB ([#16](https://github.com/thordin9/apotheke/pull/16))
+- **e2e:** test: update visual baselines ([#16](https://github.com/thordin9/apotheke/pull/16))
+- docs: screenshots for stocktake, import, photo editor and roles ([#16](https://github.com/thordin9/apotheke/pull/16))
+
 ## [1.1.1] - 2026-10-13
 
 ### Fixed
@@ -68,7 +92,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/thordin9/apotheke/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/thordin9/apotheke/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/thordin9/apotheke/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/thordin9/apotheke/releases/tag/v1.0.0

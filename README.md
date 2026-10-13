@@ -391,29 +391,34 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 <!-- coverage:start -->
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 96.3 % | 96.3 % |
-| Items, search, bulk, lending | 86.9 % | 96.7 % | 97.6 % |
+| Front controller & routes | – | 97.1 % | 97.1 % |
+| Items, search, bulk, lending | 86.5 % | 94.7 % | 97.7 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
+| Stocktake | 44.9 % | 98.1 % | 99.5 % |
+| Users & roles | 91.3 % | 93.8 % | 96.4 % |
+| Full-text search | 89.0 % | 87.7 % | 90.8 % |
+| CSV import | 59.7 % | 97.8 % | 98.2 % |
+| Photos | 61.2 % | 91.8 % | 91.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 5.7 % | 99.4 % | 99.3 % |
-| Control Panel settings | 71.8 % | 96.8 % | 97.0 % |
+| Views (HTML) | 5.3 % | 99.8 % | 99.7 % |
+| Control Panel settings | 72.2 % | 96.8 % | 97.0 % |
 | Backup & restore | 87.2 % | 89.9 % | 98.9 % |
-| Database, migrations, legacy | 80.1 % | 91.4 % | 98.2 % |
-| Bootstrap, config, QR, seed | 72.0 % | 89.9 % | 91.2 % |
-| **All PHP** (4159 lines) | **56.4 %** | **96.0 %** | **97.3 %** |
+| Database, migrations, legacy | 83.8 % | 89.7 % | 97.6 % |
+| Bootstrap, config, QR, seed | 71.4 % | 89.9 % | 91.1 % |
+| **All PHP** (5573 lines) | **58.3 %** | **95.6 %** | **97.2 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 69 | 17 |
-| `chromium-pixel-dark` | 2 | 17 |
-| `desktop-chromium` | 69 | 17 |
-| `desktop-chromium-dark` | 2 | 17 |
-| `pgsql-smoke` | 24 | 0 |
-| `webkit-iphone-se` | 69 | 17 |
-| `webkit-iphone-se-dark` | 2 | 17 |
-| `webkit-iphone13` | 69 | 17 |
-| `webkit-iphone13-dark` | 2 | 17 |
-| **Total** | **308** | **136** |
+| `chromium-pixel` | 86 | 22 |
+| `chromium-pixel-dark` | 2 | 22 |
+| `desktop-chromium` | 86 | 22 |
+| `desktop-chromium-dark` | 2 | 22 |
+| `pgsql-smoke` | 30 | 0 |
+| `webkit-iphone-se` | 86 | 22 |
+| `webkit-iphone-se-dark` | 2 | 22 |
+| `webkit-iphone13` | 86 | 22 |
+| `webkit-iphone13-dark` | 2 | 22 |
+| **Total** | **382** | **176** |
 
 <sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->
