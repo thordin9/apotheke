@@ -53,6 +53,11 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars (locations are rolled up to the top-level
   location, counting everything inside it). Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
+* **Control Panel** (☰ → *Settings*): name, accent colour with presets and an automatic WCAG AA contrast check for light
+  and dark mode, your own logo (SVG cleaned on upload; PNG/JPEG/WebP also become the favicon and home-screen icons),
+  currency and number/date/time formats, time zone, page size, default sort, a compact list view, defaults for new items,
+  thresholds and limits, photo sizes and the password — stored in the database, exportable as JSON, resettable per
+  section. Database and paths stay in `config.php` / env and are shown read-only. See [docs/control-panel.md](docs/control-panel.md).
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
 * **Instant search** across name, location, category, notes, tags and serial number, ignoring case and accents (Greek
@@ -149,16 +154,16 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 |---|---|---|---|---|
 | ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
 
-| Sign in (password mode) |
-|---|
-| ![Sign in](docs/screenshots/login-light.png) |
+| Sign in (password mode) | Settings | Appearance (dark) | Custom accent + logo |
+|---|---|---|---|
+| ![Sign in](docs/screenshots/login-light.png) | ![Settings](docs/screenshots/settings-light.png) | ![Appearance](docs/screenshots/settings-appearance-dark.png) | ![Custom accent and logo](docs/screenshots/custom-brand-light.png) |
 
 ## Requirements
 
 **Runtime** (the Docker image has all of this):
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
-  `zip` (backups); `exif` is recommended (photo orientation), `opcache` for speed.
+  `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
 * SQLite (built in) or PostgreSQL (tested with 17).
 * No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
 
@@ -242,15 +247,21 @@ any other PHP file, and keep `src/`, `data/` and `config.php` outside the web ro
 
 ## Configuration
 
-Settings come from three layers, later wins: built-in defaults → `config.php` (or the file named by `APOTHEKE_CONFIG`)
+Most settings are edited in the **Control Panel** (☰ → *Settings*) and stored in the database. `config.php` and the
+environment provide the **bootstrap** values (data directory, database connection, seeding) and the **initial defaults**
+for everything else: on a new install or upgrade they are copied into the database once; after that the panel (or
+`php bin/settings.php`) is the place to change them. Details: [docs/control-panel.md](docs/control-panel.md) and
+[docs/configuration.md](docs/configuration.md).
+
+`config.php` / environment layers, later wins: built-in defaults → `config.php` (or the file named by `APOTHEKE_CONFIG`)
 → environment variables. [`config.example.php`](config.example.php) lists every setting with its variable name; copy it
 to `config.php` (git-ignored). Empty environment variables are ignored, so `APP_PASSWORD: ${APP_PASSWORD:-}` in a
 compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `APP_PASSWORD` | *(empty)* | If set, a single password is needed to open the app. Empty means no login (fine on a trusted LAN). |
-| `TZ` | `UTC` (`Europe/Athens` in compose) | Time zone for dates and statistics. |
+| `APP_PASSWORD` | *(empty)* | Initial password (a single shared one); afterwards Settings → Password. Empty means no login (fine on a trusted LAN). |
+| `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
 | `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
 | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
 | `SQLITE_PATH` | `<DATA_DIR>/catalog.sqlite` | SQLite database file. |
@@ -262,6 +273,7 @@ compose file never wipes a value from `config.php`.
 | `CURRENCY` | `EUR` | Currency shown next to item values (ISO code or symbol). Only a label; no conversion. |
 | `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Set it if you open the app under a different name than your phone will. |
+| `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
@@ -280,6 +292,8 @@ php bin/backup.php /backups/home.zip     # … or to that file
 php bin/restore.php home.zip --dry-run   # validate and show what would be restored
 php bin/restore.php home.zip             # asks for confirmation, then REPLACES all data
 php bin/restore.php home.zip --yes       # no prompt (scripts)
+php bin/settings.php list                # Control Panel settings (get KEY / set KEY VALUE / reset SECTION / export / import FILE)
+php bin/settings.php password            # set a new password (locked out?) · --off to remove it
 ```
 
 The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table. Pending
@@ -382,7 +396,9 @@ A separate *Update visual snapshots* workflow renders new baselines when a PR ge
 * Uploads are validated with `getimagesize`, decoded and re-encoded by GD and stored under random hex names **outside the
   web root**, served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed.
 * The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
-* Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set `APP_PASSWORD`.
+* Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set a password (Settings → Password).
+* Uploaded SVG logos are sanitized (no scripts, handlers, external references or entities) and served with a sandbox CSP;
+  the custom accent is a generated stylesheet, so the CSP keeps `style-src 'self'`.
 
 ## Project layout
 

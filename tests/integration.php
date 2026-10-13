@@ -361,12 +361,15 @@ T::ok(str_contains($c->get('/item/' . $nojs)['body'], 'href="/item/' . $nojs . '
 T::ok(str_contains($c->get('/locations')['body'], 'href="/labels?loc='), 'manage page links to location labels');
 T::eq(404, $c->get('/labels?loc=999999')['status'], 'unknown location → 404');
 T::eq(404, $c->get('/item/999999/label')['status'], 'unknown item → 404');
-$us = new Server($dir, ['PUBLIC_URL' => 'https://stuff.example.lan/']);
-$r = $us->client()->get("/labels?loc=$box2");
-T::ok(str_contains($r['body'], 'https://stuff.example.lan/?loc=' . $box2), 'PUBLIC_URL is used for label links (trailing slash trimmed)');
-preg_match('#<svg class="qr".*?</svg>#s', $r['body'], $qm);
-if (($dec = qr_decode_svg($qm[0] ?? '')) !== null) T::eq('https://stuff.example.lan/?loc=' . $box2, $dec, 'QR encodes the PUBLIC_URL link');
+$us = new Server($dir, ['PUBLIC_URL' => 'https://env.example.lan']);
+T::ok(!str_contains($us->client()->get("/labels?loc=$box2")['body'], 'env.example.lan'), 'PUBLIC_URL env on an existing database: the stored setting wins');
 $us->stop();
+$c->post('/settings/general', ['csrf' => $tok, 'app_name' => 'Apotheke', 'app_tagline' => 'the storehouse for your stuff', 'public_url' => 'https://stuff.example.lan/']);
+$r = $c->get("/labels?loc=$box2");
+T::ok(str_contains($r['body'], 'https://stuff.example.lan/?loc=' . $box2), 'public address setting is used for label links (trailing slash trimmed)');
+preg_match('#<svg class="qr".*?</svg>#s', $r['body'], $qm);
+if (($dec = qr_decode_svg($qm[0] ?? '')) !== null) T::eq('https://stuff.example.lan/?loc=' . $box2, $dec, 'QR encodes the public address link');
+$c->post('/settings/general/reset', ['csrf' => $tok]);
 $r = $c->get('/', ['Host: evil"><script>']);
 T::ok(!str_contains($c->get('/labels', ['Host: evil"><x>'])['body'], 'evil"><x>'), 'malformed Host header is not echoed into labels');
 
@@ -399,8 +402,8 @@ T::eq(0, (int)$db->query("SELECT COUNT(*) FROM tags WHERE name_key = 'hardware'"
 $csv = array_map('str_getcsv', array_filter(explode("\n", ltrim($c->get('/export.csv')['body'], "\xEF\xBB\xBF"))));
 $hrow = array_values(array_filter($csv, fn($l) => ($l[0] ?? '') === (string)$hdmi))[0] ?? [];
 T::eq(['AV, Cables, Ηλεκτρικά', '1234.50', 'EUR', '2024-03-01', 'SN-42/X', '', '', '', '', '', ''], array_slice($hrow, 9), 'CSV includes tags, value, currency, date, serial');
-$cs = new Server($dir, ['CURRENCY' => 'CHF']);
-T::ok(str_contains($cs->client()->get("/item/$hdmi")['body'], '1,234.50 CHF'), 'CURRENCY config is shown');
+$cs = new Server($newDir('cur'), ['CURRENCY' => 'CHF']);
+T::ok(str_contains($cs->client()->get('/new')['body'], 'Purchase price <em>CHF</em>'), 'CURRENCY seeds the currency setting of a new database');
 $cs->stop();
 
 T::section('Multiple photos');
@@ -1024,6 +1027,256 @@ $ss = new Server($sd, ['SEED_DEFAULTS' => '1']);
 $ss->client()->get('/');
 T::eq(5, (int)$sp->query('SELECT COUNT(*) FROM locations')->fetchColumn(), 'seeding runs once: a deleted starter location stays deleted after restart');
 $ss->stop();
+
+T::section('Control Panel (settings)');
+$sd = $newDir('settings');
+$ss = new Server($sd, ['SEED_DEFAULTS' => '1', 'CURRENCY' => 'CHF', 'PAGE_SIZE' => '40']);
+$sc = $ss->client();
+$st = $sc->csrf();
+$sdb = testdb($sd);
+$secKeys = [
+    'general' => ['app_name', 'app_tagline', 'public_url'],
+    'appearance' => ['accent', 'theme_default', 'icon_background'],
+    'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
+    'list' => ['page_size', 'default_sort', 'list_view', 'overview_open'],
+    'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
+    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'max_photos'],
+    'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality'],
+    'security' => [], 'data' => [], 'system' => [],
+];
+$visible = array_merge(...array_values($secKeys));
+$settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
+T::eq($settingsTotal, (int)$sdb->query('SELECT COUNT(*) FROM settings')->fetchColumn(), 'migration seeds one row per setting');
+T::eq('"CHF"', $sdb->query("SELECT value FROM settings WHERE name = 'currency'")->fetchColumn(), 'config/env values are the initial defaults');
+T::eq('40', $sdb->query("SELECT value FROM settings WHERE name = 'page_size'")->fetchColumn(), 'PAGE_SIZE seeded');
+$home = $sc->get('/');
+T::ok(str_contains($home['body'], 'id="menu-settings"') && str_contains($home['body'], 'href="/settings"'), 'menu links to the Control Panel');
+$sh = $sc->get('/settings');
+T::ok($sh['status'] === 200 && ($sh['headers']['cache-control'] ?? '') === 'no-store', '/settings 200, no-store');
+foreach ($secKeys as $sec => $keys) {
+    T::ok(str_contains($sh['body'], 'id="sl-' . $sec . '"'), "home links to $sec");
+    $pg = $sc->get("/settings/$sec");
+    T::eq(200, $pg['status'], "/settings/$sec renders");
+    foreach ($keys as $k) T::ok(str_contains($pg['body'], 'id="s-' . $k . '"'), "$sec shows $k");
+}
+T::eq(404, $sc->get('/settings/bogus')['status'], 'unknown section 404');
+// export lists every visible setting, never the password
+$ex = $sc->get('/settings/export.json');
+T::ok(str_contains($ex['headers']['content-type'] ?? '', 'application/json') && str_contains($ex['headers']['content-disposition'] ?? '', 'attachment'), 'export is a JSON download');
+T::eq($visible, array_keys($ex['json']['settings'] ?? []), 'export has every visible setting');
+T::ok(!str_contains($ex['body'], 'password_hash'), 'export never includes the password');
+// a helper that posts a whole section like the browser does
+$cur = fn() => $sc->get('/settings/export.json')['json']['settings'];
+$save = function (string $sec, array $over) use ($sc, &$st, $cur, $secKeys) {
+    $vals = $cur();
+    $f = ['csrf' => $st];
+    foreach ($secKeys[$sec] as $k) {
+        $v = array_key_exists($k, $over) ? $over[$k] : ($vals[$k] ?? '');
+        $f[$k] = is_bool($v) ? ($v ? '1' : '0') : (string)($v ?? '');
+    }
+    foreach ($over as $k => $v) if (!isset($f[$k])) $f[$k] = (string)$v;
+    return $sc->post("/settings/$sec", $f);
+};
+// CSRF on every form
+foreach (['/settings/general', '/settings/general/reset', '/settings/import', '/settings/logo', '/settings/logo/reset', '/settings/password'] as $u) {
+    T::eq(419, $sc->post($u, ['app_name' => 'Hacked'])['status'], "$u needs the CSRF token");
+}
+T::eq('Apotheke', $cur()['app_name'], 'nothing changed without CSRF');
+// validation: 422, nothing stored, error shown
+$bad = $save('list', ['page_size' => '0', 'default_sort' => 'name']);
+T::ok($bad['status'] === 422 && str_contains($bad['body'], 'between 1 and 500') && str_contains($bad['body'], 'aria-invalid'), 'invalid value → 422 with the message');
+T::eq(40, $cur()['page_size'], 'invalid save stores nothing');
+T::eq('recent', $cur()['default_sort'], 'all-or-nothing');
+
+// general
+$r = $save('general', ['app_name' => 'Shed Stock', 'app_tagline' => 'tools & bits', 'public_url' => 'https://inv.example.org/']);
+T::ok(str_contains($r['headers']['location'] ?? '', '/settings/general?done=saved'), 'save redirects with a toast');
+$hb = $sc->get('/')['body'];
+T::ok(str_contains($hb, '<title>Shed Stock') || str_contains($hb, 'Shed Stock</title>'), 'app name in the title');
+T::ok(str_contains($sc->get('/settings/general?done=saved')['body'], 'Settings saved'), 'saved toast');
+T::ok(str_contains(json_encode($sc->get('/manifest.webmanifest')['json']), 'Shed Stock'), 'app name in the manifest');
+T::ok(str_contains($sc->get('/labels')['body'], 'https://inv.example.org'), 'public URL used on QR labels');
+// appearance
+$r = $save('appearance', ['accent' => 'c8502d', 'theme_default' => 'dark', 'icon_background' => '#ffffff']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved'), 'appearance saved');
+$ap = $sc->get('/settings/appearance?done=saved')['body'];
+T::ok(str_contains($ap, 'C8502D') && str_contains($ap, '4.16:1'), 'contrast warning for terracotta on light');
+$hb = $sc->get('/')['body'];
+T::ok(preg_match('#<link rel="stylesheet" href="/theme\.css\?v=[a-f0-9]+" id="accent-css">#', $hb) === 1, 'custom accent adds the generated stylesheet');
+T::ok(str_contains($hb, 'data-theme="dark"'), 'theme default applies when the device has no choice');
+$css = $sc->get('/theme.css');
+T::ok(str_contains($css['headers']['content-type'] ?? '', 'text/css') && str_contains($css['body'], '--accent:#') && str_contains($css['body'], 'prefers-color-scheme:dark'), '/theme.css serves light + dark variables');
+T::ok(!str_contains($hb, 'style="') || !preg_match('#<style#', $hb), 'no inline style blocks (CSP)');
+$csp = $sc->get('/')['headers']['content-security-policy'] ?? '';
+T::ok($csp === '' || !str_contains($csp, 'unsafe-inline') || str_contains($csp, "style-src 'self'"), 'CSP without unsafe-inline styles');
+$mf = $sc->get('/manifest.webmanifest');
+T::ok(str_contains($mf['headers']['content-type'] ?? '', 'manifest+json') && ($mf['json']['background_color'] ?? '') !== '', 'manifest served dynamically');
+T::eq(422, $save('appearance', ['accent' => 'blue'])['status'], 'invalid colour rejected');
+// logo: SVG (sanitized)
+$svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><script>alert(1)</script><rect width="10" height="10" fill="#c8502d"/></svg>';
+$r = $sc->post('/settings/logo', ['csrf' => $st], ['logo' => ['name' => 'l.svg', 'type' => 'image/svg+xml', 'data' => $svg]]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=logo'), 'SVG logo uploaded');
+$hb = $sc->get('/')['body'];
+T::ok(preg_match('#src="/brand/logo\.svg\?v=[a-f0-9]+"#', $hb) === 1, 'header uses the custom SVG logo');
+$ls = $sc->get('/brand/logo.svg');
+T::ok(str_contains($ls['headers']['content-type'] ?? '', 'image/svg+xml') && str_contains($ls['headers']['content-security-policy'] ?? '', 'sandbox'), 'logo served as SVG with a sandbox CSP');
+T::ok(!str_contains($ls['body'], 'script') && !str_contains($ls['body'], 'onload') && str_contains($ls['body'], '<rect'), 'SVG sanitized on upload');
+T::ok(str_contains($hb, 'href="/brand/logo.svg?v='), 'SVG logo is the favicon');
+T::eq(422, $sc->post('/settings/logo', ['csrf' => $st], ['logo' => ['name' => 'x.svg', 'type' => 'image/svg+xml', 'data' => '<!DOCTYPE x [<!ENTITY a "b">]><svg/>']])['status'], 'SVG with entities rejected');
+T::eq(422, $sc->post('/settings/logo', ['csrf' => $st], ['logo' => ['name' => 'x.gif', 'type' => 'image/gif', 'data' => 'GIF89a....']])['status'], 'other formats rejected');
+T::eq(422, $sc->post('/settings/logo', ['csrf' => $st], ['logo' => ['name' => 'big.png', 'type' => 'image/png', 'data' => str_repeat('x', 2 * 1024 * 1024 + 10)]])['status'], 'logo size limit');
+T::eq(422, $sc->post('/settings/logo', ['csrf' => $st], ['logo' => jpg_file(img_jpeg(32, 32))])['status'], 'too-small raster logo rejected');
+// logo: PNG → icons regenerated
+$icoBefore = $sc->get('/favicon.ico')['body'];
+$r = $sc->post('/settings/logo', ['csrf' => $st], ['logo' => jpg_file(img_png(600, 300), 'logo.png', 'image/png')]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=logo'), 'PNG logo uploaded');
+foreach (['logo.png' => 512, 'icon-32.png' => 32, 'icon-180.png' => 180, 'icon-192.png' => 192, 'icon-512.png' => 512, 'icon-maskable-512.png' => 512] as $fn => $px) {
+    $g = $sc->get("/brand/$fn");
+    $sz = @getimagesizefromstring($g['body']) ?: [0, 0];
+    T::ok($g['status'] === 200 && ($g['headers']['content-type'] ?? '') === 'image/png' && $sz[0] === $px && $sz[1] === $px, "$fn generated {$px}px");
+}
+$mask = imagecreatefromstring($sc->get('/brand/icon-maskable-512.png')['body']);
+T::eq('ffffff', sprintf('%06x', imagecolorat($mask, 2, 2) & 0xffffff), 'maskable icon uses the icon background');
+$ico = $sc->get('/favicon.ico');
+T::ok($ico['body'] !== $icoBefore && str_starts_with($ico['body'], "\0\0\1\0"), 'favicon.ico regenerated');
+$mf = $sc->get('/manifest.webmanifest')['json'];
+T::ok(str_contains(json_encode($mf['icons'] ?? [], JSON_UNESCAPED_SLASHES), '/brand/icon-192.png'), 'manifest icons point to the generated icons');
+$hb = $sc->get('/')['body'];
+T::ok(str_contains($hb, 'src="/brand/logo.png?v=') && str_contains($hb, 'apple-touch-icon" href="/brand/icon-180.png?v='), 'header + apple-touch use the PNG logo');
+T::eq(404, $sc->get('/brand/../catalog.sqlite')['status'] ?: 404, 'brand route only serves its files');
+T::eq(404, $sc->get('/brand/other.png')['status'], 'unknown brand file 404');
+$r = $sc->post('/settings/logo/reset', ['csrf' => $st]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=logo-reset') && !is_file("$sd/brand/logo.png"), 'reset to the default logo');
+T::eq(404, $sc->get('/brand/logo.png')['status'], 'custom logo gone after reset');
+T::ok(str_contains($sc->get('/')['body'], '/assets/'), 'default logo back');
+// locale
+$val = $sc->api('/save', ['csrf' => $st, 'name' => 'Money item', 'value' => '1234.5', 'purchase_date' => '2026-01-15', 'expires_on' => '2030-03-04']);
+$mi = $savedId($val);
+$r = $save('locale', ['currency' => 'USD', 'money_format' => 'de', 'currency_position' => 'before', 'date_format' => 'd.m.Y', 'time_format' => 'g:i A', 'timezone' => 'America/New_York']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved'), 'locale saved');
+$ip = $sc->get("/item/$mi")['body'];
+T::ok(str_contains($ip, 'USD 1.234,50') || str_contains($ip, 'USD&nbsp;1.234,50') || str_contains($ip, 'USD 1.234,50'), 'currency, number format and position take effect');
+T::ok(str_contains($ip, '15.01.2026') && str_contains($ip, '04.03.2030'), 'date format takes effect');
+T::ok(preg_match('/\d{1,2}:\d{2} (AM|PM)/', $ip) === 1, 'time format takes effect');
+$ny = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('g:i A');
+$ny2 = (new DateTimeImmutable('-1 minute', new DateTimeZone('America/New_York')))->format('g:i A');
+T::ok(str_contains($ip, $ny) || str_contains($ip, $ny2), 'timezone takes effect');
+T::eq(422, $save('locale', ['timezone' => 'Mars/Olympus'])['status'], 'unknown time zone rejected');
+// list
+foreach (['Zeta', 'Alpha', 'Mid'] as $n) $sc->api('/save', ['csrf' => $st, 'name' => "Sort $n"]);
+$save('list', ['page_size' => '2', 'default_sort' => 'name', 'list_view' => 'compact', 'overview_open' => false]);
+$lj = $sc->json('/');
+T::ok(($lj['json']['more'] ?? false) === true && substr_count($lj['json']['html'] ?? '', '<article class="card') === 2, 'page size takes effect');
+T::eq(['Money item', 'Sort Alpha'], array_slice(titles($lj), 0, 2), 'default sort takes effect');
+$hb = $sc->get('/')['body'];
+T::ok(str_contains($hb, 'is-compact'), 'compact view takes effect');
+T::ok(str_contains($hb, 'id="stats" data-loaded="0"'), 'overview starts closed');
+T::ok(str_contains($hb, 'data-default="name"'), 'sort menu knows the default');
+// new item defaults
+$locs = $sdb->query("SELECT id, name FROM locations ORDER BY id")->fetchAll(PDO::FETCH_KEY_PAIR);
+$cats = $sdb->query("SELECT id, name FROM categories ORDER BY id")->fetchAll(PDO::FETCH_KEY_PAIR);
+$r = $save('items', ['default_quantity' => '4', 'default_min_qty' => '2', 'default_tags' => 'garage, new', 'default_notes' => 'Bought at', 'default_purchase_today' => true, 'default_expiry_months' => '24',
+                     'default_location' => (string)array_key_last($locs), 'default_category' => (string)array_key_last($cats)]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved'), 'item defaults saved');
+$nw = $sc->get('/new')['body'];
+T::ok(str_contains($nw, 'name="quantity" id="quantity" value="4"') || preg_match('/name="quantity"[^>]*value="4"/', $nw) === 1, 'default quantity');
+T::ok(preg_match('/name="min_qty"[^>]*value="2"/', $nw) === 1, 'default min qty');
+T::ok(str_contains($nw, 'garage, new'), 'default tags');
+T::ok(str_contains($nw, 'Bought at'), 'default notes');
+$todayNy = (new DateTimeImmutable('now', new DateTimeZone('America/New_York')))->format('Y-m-d');
+T::ok(preg_match('/name="purchase_date"[^>]*value="' . $todayNy . '"/', $nw) === 1, 'purchase date = today (in the configured zone)');
+T::ok(preg_match('/name="expires_on"[^>]*value="' . (new DateTimeImmutable($todayNy))->modify('+24 months')->format('Y-m-d') . '"/', $nw) === 1, 'expiry window default');
+T::eq($locs[array_key_last($locs)] . ' ★', selected_option($nw, 'location_id'), 'default location');
+T::eq($cats[array_key_last($cats)] . ' ★', selected_option($nw, 'category_id'), 'default category');
+$save('items', ['default_location' => '', 'default_category' => '']);
+T::eq(0, (int)$sdb->query('SELECT COUNT(*) FROM locations WHERE is_default = 1')->fetchColumn(), 'default location can be cleared');
+// thresholds & limits
+$save('limits', ['expiry_soon_days' => '5', 'lend_due_days' => '14', 'saved_filters_max' => '1', 'max_photos' => '1']);
+$sc->api('/save', ['csrf' => $st, 'name' => 'Exp ten', 'expires_on' => (new DateTimeImmutable($todayNy))->modify('+10 days')->format('Y-m-d')]);
+T::ok(!in_array('Exp ten', titles($sc->json('/?exp=soon')), true), 'expiry window takes effect');
+$save('limits', ['expiry_soon_days' => '30']);
+T::ok(in_array('Exp ten', titles($sc->json('/?exp=soon')), true), 'wider expiry window');
+T::ok(str_contains($sc->get("/item/$mi")['body'], 'value="' . (new DateTimeImmutable($todayNy))->modify('+14 days')->format('Y-m-d') . '"'), 'loan period pre-fills the due date');
+T::eq(200, $sc->api('/filters', ['csrf' => $st, 'name' => 'One', 'q' => 'a'])['status'], 'first saved filter');
+T::eq(422, $sc->api('/filters', ['csrf' => $st, 'name' => 'Two', 'q' => 'b'])['status'], 'saved-filter limit takes effect');
+$r1 = $sc->api("/item/$mi/photos", ['csrf' => $st], ['photos[0]' => jpg_file(img_jpeg(300, 200)), 'photos[1]' => jpg_file(img_jpeg(300, 200))]);
+T::ok($r1['status'] === 422 && str_contains((string)($r1['json']['error'] ?? ''), 'at most 1'), 'photo limit takes effect', $r1['body']);
+// uploads
+$save('uploads', ['image_full_max' => '800', 'image_thumb_max' => '200', 'jpeg_quality' => '95', 'max_upload_mb' => '1']);
+$up = $sc->api('/save', ['csrf' => $st, 'name' => 'Big photo'], ['photo' => jpg_file(img_jpeg(1200, 900, 70))]);
+$bi = (string)$sdb->query('SELECT image FROM items WHERE id = ' . $savedId($up))->fetchColumn();
+[$fw] = @getimagesize("$sd/images/$bi") ?: [0];
+[$tw] = @getimagesize("$sd/thumbs/$bi") ?: [0];
+T::ok($fw === 800 && $tw === 200, "photo + thumbnail sizes take effect ($fw / $tw)");
+$hiQ = filesize("$sd/images/$bi");
+$save('uploads', ['jpeg_quality' => '40']);
+$up2 = $sc->api('/save', ['csrf' => $st, 'name' => 'Low q'], ['photo' => jpg_file(img_jpeg(1200, 900, 70))]);
+$bi2 = (string)$sdb->query('SELECT image FROM items WHERE id = ' . $savedId($up2))->fetchColumn();
+T::ok(filesize("$sd/images/$bi2") < $hiQ, 'JPEG quality takes effect');
+$huge = $sc->api('/save', ['csrf' => $st, 'name' => 'Too big'], ['photo' => jpg_file(random_bytes(1200 * 1024))]);
+T::ok($huge['status'] >= 400 && str_contains((string)($huge['json']['error'] ?? ''), '1 MB'), 'upload limit takes effect');
+// reset a section
+$r = $sc->post('/settings/uploads/reset', ['csrf' => $st]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=reset') && $cur()['image_full_max'] === 1600 && $cur()['max_upload_mb'] === 20, 'reset section restores the defaults');
+T::eq('Shed Stock', $cur()['app_name'], 'reset leaves other sections alone');
+// import / export
+$dump = $sc->get('/settings/export.json')['body'];
+$save('general', ['app_name' => 'Changed']);
+$im = $sc->post('/settings/import', ['csrf' => $st], ['file' => ['name' => 's.json', 'type' => 'application/json', 'data' => $dump]]);
+T::ok($im['status'] === 200 && str_contains($im['body'], 'Imported ' . count($visible) . ' settings'), 'import applies every setting');
+T::eq('Shed Stock', $cur()['app_name'], 'import restores values');
+$bj = json_decode($dump, true);
+$bj['settings']['page_size'] = 0;
+$bj['settings']['password_hash'] = 'x';
+$im = $sc->post('/settings/import', ['csrf' => $st, 'json' => json_encode($bj)]);
+T::ok(str_contains($im['body'], 'Skipped page_size') && str_contains($im['body'], 'password_hash'), 'import reports invalid and protected keys');
+T::eq(422, $sc->post('/settings/import', ['csrf' => $st, 'json' => '{"nope":1}'])['status'], 'foreign JSON rejected');
+// system: bootstrap read-only
+$sy = $sc->get('/settings/system')['body'];
+T::ok(str_contains($sy, 'id="systable"') && str_contains($sy, 'Data directory') && !str_contains($sy, '<input type="text"'), 'bootstrap values shown read-only');
+// password on/off
+T::eq(422, $sc->post('/settings/password', ['csrf' => $st, 'mode' => 'change', 'new' => 'short', 'confirm' => 'short'])['status'], 'short password rejected');
+$r = $sc->post('/settings/password', ['csrf' => $st, 'mode' => 'change', 'new' => 'garage-secret', 'confirm' => 'garage-secret']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=pw'), 'password set');
+T::eq(200, $sc->get('/')['status'], 'this device stays signed in');
+$st = $sc->csrf();
+$other = $ss->client();
+T::ok(str_contains($other->get('/')['headers']['location'] ?? '', '/login'), 'others must sign in');
+T::ok(str_contains($other->get('/settings')['headers']['location'] ?? '', '/login'), 'Control Panel protected by the password');
+T::eq(200, $other->get('/theme.css')['status'], 'theme.css stays public (sign-in page)');
+$ot = $other->csrf();
+$other->post('/login', ['csrf' => $ot, 'password' => 'garage-secret']);
+T::eq(200, $other->get('/settings')['status'], 'sign in with the new password');
+T::eq(403, $sc->post('/settings/password', ['csrf' => $st, 'mode' => 'change', 'current' => 'wrong', 'new' => 'another-one', 'confirm' => 'another-one'])['status'], 'wrong current password → 403');
+$sc->post('/settings/password', ['csrf' => $st, 'mode' => 'change', 'current' => 'garage-secret', 'new' => 'another-one', 'confirm' => 'another-one']);
+$st = $sc->csrf();
+T::ok(str_contains($other->get('/')['headers']['location'] ?? '', '/login'), 'changing the password signs other sessions out');
+$save('security', ['auth_enabled' => '0', 'password_hash' => '']);
+T::eq(true, auth_on_db($sdb), 'posting the security section cannot clear the password');
+$r = $sc->post('/settings/password', ['csrf' => $st, 'mode' => 'disable', 'current' => 'another-one']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=pw-off') && !auth_on_db($sdb), 'password turned off');
+T::eq(200, $ss->client()->get('/')['status'], 'open again without a password');
+// settings travel with backups
+$bk = $sc->get('/backup.zip')['body'];
+$zf = tempnam(sys_get_temp_dir(), 'bk');
+file_put_contents($zf, $bk);
+$z = new ZipArchive();
+$z->open($zf);
+$dumpJ = json_decode((string)$z->getFromName('backup.json'), true);
+$z->close();
+@unlink($zf);
+T::ok(($dumpJ['settings']['app_name'] ?? '') === 'Shed Stock' && !isset($dumpJ['settings']['password_hash']), 'backups contain the settings (never the password)');
+// env no longer overrides a configured database; the CLI
+$ss->stop();
+$ss = new Server($sd, ['PAGE_SIZE' => '7', 'APP_PASSWORD' => 'envpw']);
+T::eq(2, $ss->client()->get('/settings/export.json')['json']['settings']['page_size'] ?? null, 'DB wins over env once seeded');
+$ss->stop();
+$cli = fn(string $a) => shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e = ['DATA_DIR' => $sd, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($sd)), $e)) . ' php bin/settings.php ' . $a . ' 2>&1');
+T::ok(str_contains((string)$cli('set page_size 33'), 'page_size = 33'), 'CLI set');
+T::ok(str_contains((string)$cli('set page_size 0'), 'between 1 and 500'), 'CLI validates');
+T::eq('33', trim((string)$cli('get page_size')), 'CLI get');
+T::ok(str_contains((string)$cli('password locksmith1'), 'Password set') && auth_on_db($sdb), 'CLI recovery: set a password');
+T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 

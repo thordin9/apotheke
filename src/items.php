@@ -367,7 +367,9 @@ function parse_money(string $s): ?int
 function fmt_money(?int $cents, ?string $currency = null): string
 {
     if ($cents === null) return '';
-    return number_format($cents / 100, 2, '.', ',') . ' ' . ($currency ?? cfg()['currency']);
+    $n = fmt_number($cents / 100);
+    $c = $currency ?? (string)setting('currency');
+    return setting('currency_position') === 'before' ? $c . ' ' . $n : $n . ' ' . $c;
 }
 
 function money_input(?int $cents): string
@@ -391,7 +393,7 @@ function parse_date_ymd(string $s): ?string
 /** Last day of the "Expiring soon" window (today + expiry_soon_days, local date). */
 function expiry_soon_until(): string
 {
-    return (new DateTimeImmutable(local_today()))->modify('+' . (int)cfg()['expiry_soon_days'] . ' days')->format('Y-m-d');
+    return (new DateTimeImmutable(local_today()))->modify('+' . (int)setting('expiry_soon_days') . ' days')->format('Y-m-d');
 }
 
 /** 'expired' (before today), 'soon' (today … today + N days) or '' (no date / later). */
@@ -483,7 +485,7 @@ function filters_active(array $f): bool
 /** Query-string parameters for a list URL (empty values and the default sort dropped). */
 function list_query(string $q, array $f, string $sort): array
 {
-    return array_filter(['q' => $q] + filters_norm($f) + ['sort' => $sort === 'recent' ? '' : $sort], fn($v) => $v !== '' && $v !== null);
+    return array_filter(['q' => $q] + filters_norm($f) + ['sort' => $sort === default_sort() ? '' : $sort], fn($v) => $v !== '' && $v !== null);
 }
 
 function filter_value(mixed $v): string
@@ -496,7 +498,7 @@ function filter_value(mixed $v): string
  * @param array{loc:string,cat:string,tag?:string} $f
  * @return array{items: array<int,array>, total: int, more: bool}
  */
-function items_search(string $q, array $f, string $sort, int $page, int $pageSize = PAGE_SIZE): array
+function items_search(string $q, array $f, string $sort, int $page, ?int $pageSize = null): array
 {
     $where = [];
     $args  = [];
@@ -542,6 +544,7 @@ function items_search(string $q, array $f, string $sort, int $page, int $pageSiz
     $total = (int)$st->fetchColumn();
 
     $page   = max(1, $page);
+    $pageSize ??= page_size();
     $offset = ($page - 1) * $pageSize;
     $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
@@ -689,7 +692,6 @@ function item_delete(array $item): void
 
 /* ---------- photos (many per item; position 0 = cover, mirrored in items.image) ---------- */
 
-const MAX_PHOTOS = 12;
 
 /** @return array<int,array{id:int,file:string,position:int}> */
 function photos_for(int $itemId): array
@@ -725,7 +727,7 @@ function photos_renumber(int $itemId, ?array $order = null): void
 function photo_add(int $itemId, string $file): int
 {
     return db_tx(function () use ($itemId, $file): int {
-        if (count(photos_for($itemId)) >= MAX_PHOTOS) throw new UserError('An item can have at most ' . MAX_PHOTOS . ' photos.');
+        if (count(photos_for($itemId)) >= max_photos()) throw new UserError('An item can have at most ' . max_photos() . ' photos.');
         $pid = photo_insert($itemId, $file);
         db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
         activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo', ['change' => 'added', 'count' => count(photos_for($itemId))]);
@@ -824,7 +826,7 @@ function image_delete(?string $name): void
 function upload_error_text(int $code): string
 {
     return match ($code) {
-        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'That photo is too large (max ' . (MAX_UPLOAD >> 20) . ' MB).',
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'That photo is too large (max ' . (max_upload() >> 20) . ' MB).',
         UPLOAD_ERR_PARTIAL => 'The upload was interrupted. Please try again.',
         UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'Server could not store the upload.',
         default => 'Upload failed (code ' . $code . ').',
@@ -850,7 +852,7 @@ function image_store(array $file): string
 {
     if ($file['error'] !== UPLOAD_ERR_OK) throw new UserError(upload_error_text((int)$file['error']));
     if (!is_uploaded_file($file['tmp_name']) && PHP_SAPI !== 'cli') throw new UserError('Invalid upload.');
-    if ($file['size'] > MAX_UPLOAD) throw new UserError(upload_error_text(UPLOAD_ERR_INI_SIZE));
+    if ($file['size'] > max_upload()) throw new UserError(upload_error_text(UPLOAD_ERR_INI_SIZE));
 
     $info = @getimagesize($file['tmp_name']);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
@@ -873,11 +875,11 @@ function image_store(array $file): string
     }
 
     $name = bin2hex(random_bytes(16)) . '.jpg';
-    $full = image_fit($src, FULL_MAX);
-    $thumb = image_fit($src, THUMB_MAX);
+    $full = image_fit($src, image_full_max());
+    $thumb = image_fit($src, image_thumb_max());
     imageinterlace($full, true);
     imageinterlace($thumb, true);
-    $ok = imagejpeg($full, IMG_DIR . '/' . $name, 82) && imagejpeg($thumb, THUMB_DIR . '/' . $name, 76);
+    $ok = imagejpeg($full, IMG_DIR . '/' . $name, (int)setting('jpeg_quality')) && imagejpeg($thumb, THUMB_DIR . '/' . $name, (int)setting('jpeg_quality') - 6);
     if (!$ok) {
         image_delete($name);
         throw new UserError('Server could not save the image.');
@@ -1251,7 +1253,6 @@ function item_duplicate(int $id, bool $photos): int
 
 /* ---------- saved filters ---------- */
 
-const SAVED_FILTERS_MAX = 50;
 
 /**
  * Normalised query string of a list view: only known parameters with valid values, in a fixed order, so the same
@@ -1260,7 +1261,7 @@ const SAVED_FILTERS_MAX = 50;
 function saved_filter_query(array $src): string
 {
     $q = clean_line(is_string($src['q'] ?? null) ? $src['q'] : '', 200);
-    $sort = is_string($src['sort'] ?? null) && isset(SORTS[$src['sort']]) ? $src['sort'] : 'recent';
+    $sort = is_string($src['sort'] ?? null) && isset(SORTS[$src['sort']]) ? $src['sort'] : default_sort();
     return http_build_query(list_query($q, filters_from($src), $sort));
 }
 
@@ -1296,8 +1297,8 @@ function saved_filter_create(string $name, string $query): int
     return db_tx(function (PDO $pdo) use ($name, $query): int {
         $name = saved_filter_name($name);
         if ($query === '') throw new UserError('Choose a search, filter or sort first – there is nothing to save.', 422);
-        if ((int)$pdo->query('SELECT COUNT(*) FROM saved_filters')->fetchColumn() >= SAVED_FILTERS_MAX) {
-            throw new UserError('You can keep up to ' . SAVED_FILTERS_MAX . ' saved filters. Delete one first.', 422);
+        if ((int)$pdo->query('SELECT COUNT(*) FROM saved_filters')->fetchColumn() >= saved_filters_max()) {
+            throw new UserError('You can keep up to ' . saved_filters_max() . ' saved filters. Delete one first.', 422);
         }
         return db_insert($pdo, 'INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES (?,?,?,?,?)',
             [$name, fold($name), $query, natkey($name), now_utc()]);

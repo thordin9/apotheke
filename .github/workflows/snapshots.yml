@@ -38,7 +38,7 @@ jobs:
       - run: scripts/e2e-container-setup.sh
       - run: npm ci --no-audit --no-fund
       - name: Render baselines
-        run: npx playwright test --update-snapshots --retries=0 --workers=3
+        run: npx playwright test --update-snapshots=all --retries=0 --workers=3
       - uses: actions/upload-artifact@v4
         if: always()
         with:

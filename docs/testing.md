@@ -130,7 +130,7 @@ sequenceDiagram
   Dev->>PR: push the UI change
   Dev->>PR: add the label update-snapshots
   PR->>WF: pull_request (labeled)
-  WF->>WF: npx playwright test --update-snapshots in the Playwright image
+  WF->>WF: npx playwright test --update-snapshots=all in the Playwright image
   WF-->>Dev: artifact "snapshots"
   Dev->>Dev: scripts/update-snapshots.sh --from-ci RUN_ID
   Dev->>PR: review PNGs, commit "test(e2e): update visual baselines", push
