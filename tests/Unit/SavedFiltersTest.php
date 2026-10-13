@@ -51,7 +51,7 @@ final class SavedFiltersTest extends DatabaseTestCase
 
     public function testLimit(): void
     {
-        for ($i = 1; $i <= SAVED_FILTERS_MAX; $i++) saved_filter_create('F' . $i, 'q=' . $i);
+        for ($i = 1; $i <= saved_filters_max(); $i++) saved_filter_create('F' . $i, 'q=' . $i);
         try { saved_filter_create('One more', 'q=x'); $this->fail('limit not enforced'); }
         catch (UserError $e) { $this->assertSame(422, $e->getCode()); }
     }

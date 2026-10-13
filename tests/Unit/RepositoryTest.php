@@ -48,7 +48,7 @@ final class RepositoryTest extends DatabaseTestCase
     public function testPhotoLimitAndUnknownPhoto(): void
     {
         $id = $this->item('many');
-        for ($i = 1; $i <= MAX_PHOTOS; $i++) photo_add($id, $this->photoName($i));
+        for ($i = 1; $i <= max_photos(); $i++) photo_add($id, $this->photoName($i));
         try { photo_add($id, $this->photoName(99)); $this->fail('limit'); } catch (UserError $e) { $this->assertStringContainsString('at most', $e->getMessage()); }
         $other = $this->item('other');
         $pid = photos_for($id)[0]['id'];
