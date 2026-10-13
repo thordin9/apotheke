@@ -122,6 +122,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   quantity, low-stock level, notes and custom fields (value, purchase date, serial) and opens its edit form. Tick *with
   photos* to copy the photos as well (the files are duplicated, so deleting either item never affects the other). Lending
   is not copied. The copy's history starts with "Created … copied from “Name”".
+* **Merge duplicates**: *Merge…* on the item page suggests likely duplicates, shows a confirm screen (combined quantity,
+  photos, attachments, tags, filled-in fields, loan) and merges everything — history included — in one transaction.
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
 * **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).

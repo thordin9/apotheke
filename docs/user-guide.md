@@ -265,6 +265,24 @@ level, notes, value, purchase date and serial number, and opens the copy's edit 
 **with photos** to copy the photos too: the image files are duplicated, so deleting or changing photos of one item
 never affects the other. Lending status is not copied. The copy's history starts with "Created … copied from “Name”".
 
+## Merging duplicates
+
+Ended up with the same thing twice? Open the one you want to **get rid of** and tap **Merge…** at the bottom of the
+item page. The next screen lists likely duplicates first (same name regardless of case or accents, then same barcode,
+then similar names); search if the right one isn't there. Pick the item to **keep** and you see exactly what will
+happen before anything changes:
+
+* quantities are **added** (capped at 1,000,000);
+* photos are appended after the kept item's photos (its cover stays), attachments and **tags** are combined;
+* fields that are **empty** on the kept item (location, category, running-low level, price, purchase date,
+  expiry/warranty, serial, barcode) are filled from the duplicate; fields it already has are not overwritten;
+* the duplicate's notes are appended to the kept notes;
+* a loan is taken over if the kept item isn't lent (if both are lent, the kept item's loan stays), the ★ is kept if
+  either had one;
+* the duplicate's **history moves** to the kept item, plus a "Merged “…” into this item" entry.
+
+*Merge* then does it all in one database transaction and removes the duplicate; if anything fails, nothing changes.
+
 ## QR labels
 
 ☰ → *Print QR labels* prints one label per location; from a location you can also print one label per item in it, and

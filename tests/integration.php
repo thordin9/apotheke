@@ -1450,6 +1450,70 @@ T::ok($favCol !== false && in_array(1, array_map(fn($r) => (int)$r[$favCol], $bj
 T::ok(!isset($bjs['tables']['recent_views']), 'recently viewed is not backed up (per-device state)');
 $vx->stop();
 
+T::section('Merge duplicates');
+$mx = new Server($mxDir = $newDir('merge'), ['SEED_DEFAULTS' => '1']);
+$mc = $mx->client();
+$mt = $mc->csrf();
+$mdb = testdb($mxDir);
+$locA = (int)$mc->api('/locations', ['csrf' => $mt, 'name' => 'Merge shelf'])['json']['id'];
+$keep = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'AA batteries', 'quantity' => 4, 'tags' => 'power', 'notes' => 'Kitchen drawer', 'serial' => ''], ['photo' => jpg_file(img_jpeg(200, 150))]));
+$dupe = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'aa Batteries', 'quantity' => 6, 'location_id' => $locA, 'tags' => 'power, spare', 'notes' => 'Bought in bulk', 'value' => '9.99', 'serial' => 'LOT-7', 'barcode' => '4006381333931']));
+$other = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'Torch', 'quantity' => 1]));
+$mc->api("/item/$dupe/photos", ['csrf' => $mt], ['photos[0]' => jpg_file(img_jpeg(120, 120)), 'photos[1]' => jpg_file(img_png(90, 90), 'x.png', 'image/png')]);
+$mc->api("/item/$dupe/attachments", ['csrf' => $mt], ['files[0]' => jpg_file($pdf, 'manual.pdf', 'application/pdf')]);
+$mc->api("/item/$dupe/lend", ['csrf' => $mt, 'lent_to' => 'Maria']);
+$mc->api("/item/$dupe/fav", ['csrf' => $mt, 'on' => '1']);
+$dupeHist = $mdb->query("SELECT id FROM activity WHERE item_id = $dupe ORDER BY id")->fetchAll(PDO::FETCH_COLUMN);
+$keepPhotos = $mdb->query("SELECT file FROM item_photos WHERE item_id = $keep ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+$dupePhotos = $mdb->query("SELECT file FROM item_photos WHERE item_id = $dupe ORDER BY position")->fetchAll(PDO::FETCH_COLUMN);
+T::ok(str_contains($mc->get("/item/$dupe")['body'], 'href="/item/' . $dupe . '/merge"'), 'item page links to merge');
+$pick = $mc->get("/item/$dupe/merge");
+T::eq(200, $pick['status'], 'merge picker renders');
+preg_match_all('#class="merge-pick" href="/item/' . $dupe . '/merge\?into=(\d+)"#', $pick['body'], $pm);
+T::eq($keep, (int)($pm[1][0] ?? 0), 'same name (ignoring case) is offered first');
+T::ok(!in_array((string)$dupe, $pm[1], true), 'the item itself is not offered');
+T::ok(str_contains($mc->get("/item/$dupe/merge?q=torch")['body'], "into=$other"), 'search for another target');
+$conf = $mc->get("/item/$dupe/merge?into=$keep");
+T::ok($conf['status'] === 200 && str_contains($conf['body'], 'id="mergeform"') && str_contains($conf['body'], '<b>4</b> + <b>6</b> = <b>10</b>'), 'confirm screen shows the combined quantity');
+T::ok(str_contains($conf['body'], '+2 (after the current ones)') && str_contains($conf['body'], 'Attachments</span> +1') && str_contains($conf['body'], '+ spare'), '… photos, attachments, new tags');
+T::ok(str_contains($conf['body'], 'Serial number</span> empty → “LOT-7”') && str_contains($conf['body'], 'Location</span> empty → “Merge shelf”'), '… fields filled from the duplicate');
+T::ok(str_contains($conf['body'], 'is taken over'), '… the loan is taken over');
+T::eq(4, (int)$mdb->query("SELECT quantity FROM items WHERE id = $keep")->fetchColumn(), 'the confirm screen changes nothing');
+T::eq(422, $mc->get("/item/$dupe/merge?into=$dupe")['status'], 'merging into itself is refused');
+T::eq(404, $mc->get("/item/$dupe/merge?into=999999")['status'], 'unknown target → 404');
+T::eq(419, $mc->post("/item/$dupe/merge", ['into' => $keep, 'confirm' => '1'])['status'], 'merge needs CSRF');
+T::eq(303, $mc->post("/item/$dupe/merge", ['csrf' => $mt, 'into' => $keep])['status'], 'without confirm=1 it only redirects to the confirm screen');
+T::ok((bool)$mdb->query("SELECT 1 FROM items WHERE id = $dupe")->fetchColumn(), '… and merges nothing');
+$r = $mc->post("/item/$dupe/merge", ['csrf' => $mt, 'into' => $keep, 'confirm' => '1']);
+T::eq("/item/$keep?merged=aa%20Batteries", $r['headers']['location'] ?? '', 'merge redirects to the kept item');
+$k = $mdb->query("SELECT * FROM items WHERE id = $keep")->fetch();
+T::ok(!$mdb->query("SELECT 1 FROM items WHERE id = $dupe")->fetchColumn(), 'duplicate removed');
+T::eq(10, (int)$k['quantity'], 'quantities added');
+T::eq([$locA, 'LOT-7', 999, '4006381333931'], [(int)$k['location_id'], $k['serial'], (int)$k['value_cents'], $k['barcode']], 'empty fields filled from the duplicate');
+T::eq("Kitchen drawer\n\nBought in bulk", $k['notes'], 'notes appended');
+T::eq(['Maria', 1], [$k['lent_to'], (int)$k['favourite']], 'loan taken over, star kept');
+T::eq(array_merge($keepPhotos, $dupePhotos), $mdb->query("SELECT file FROM item_photos WHERE item_id = $keep ORDER BY position")->fetchAll(PDO::FETCH_COLUMN), 'photos moved after the existing ones');
+T::eq($keepPhotos[0], $k['image'], 'cover unchanged');
+T::ok(array_filter($dupePhotos, fn($f) => !is_file("$mxDir/images/$f")) === [], 'photo files kept');
+$att = $mdb->query("SELECT file FROM item_attachments WHERE item_id = $keep")->fetchAll(PDO::FETCH_COLUMN);
+T::ok(count($att) === 1 && is_file("$mxDir/files/{$att[0]}"), 'attachment moved with its file');
+T::eq(['power', 'spare'], $mdb->query("SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = $keep ORDER BY t.name")->fetchAll(PDO::FETCH_COLUMN), 'tags combined');
+T::ok(count($dupeHist) >= 4 && $mdb->query('SELECT COUNT(*) FROM activity WHERE item_id = ' . $keep . ' AND id IN (' . implode(',', $dupeHist) . ')')->fetchColumn() == count($dupeHist), 'history of the duplicate moved over');
+$kp = $mc->get("/item/$keep?merged=aa%20Batteries")['body'];
+T::ok(str_contains($kp, 'Merged “aa Batteries” into this item'), 'toast after merging');
+T::ok(str_contains($kp, 'Merged <b>“aa Batteries”</b> into this item · quantity <b>4</b> → <b>10</b> · 2 photos · 1 attachment'), 'history entry for the merge');
+T::ok(str_contains($kp, 'Lent to <b>Maria</b>'), 'the duplicate’s loan history is on the kept item');
+T::ok(str_contains($mc->get("/?q=lot-7")['body'], '/item/' . $keep . '"'), 'search finds the merged serial');
+// both lent: the target's loan wins; the transaction is all-or-nothing
+$b1 = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'Ladder', 'quantity' => 1]));
+$b2 = $savedId($mc->api('/save', ['csrf' => $mt, 'name' => 'Ladder', 'quantity' => 1000000]));
+$mc->api("/item/$b1/lend", ['csrf' => $mt, 'lent_to' => 'Nikos']);
+$mc->api("/item/$b2/lend", ['csrf' => $mt, 'lent_to' => 'Eleni']);
+T::ok(str_contains($mc->get("/item/$b2/merge?into=$b1")['body'], 'the loan to <b>Nikos</b> is kept'), 'both lent: confirm explains which loan stays');
+$mc->post("/item/$b2/merge", ['csrf' => $mt, 'into' => $b1, 'confirm' => '1']);
+T::eq(['Nikos', 1000000], [($l = $mdb->query("SELECT lent_to, quantity FROM items WHERE id = $b1")->fetch())['lent_to'], (int)$l['quantity']], 'target loan kept, quantity capped at the maximum');
+$mx->stop();
+
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 
 /* ======================================================================= */

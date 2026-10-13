@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/markdown.php';
 require_once __DIR__ . '/attachments.php';
 require_once __DIR__ . '/favourites.php';
+require_once __DIR__ . '/merge.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 

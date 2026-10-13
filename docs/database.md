@@ -140,7 +140,7 @@ Notes:
 * An item is **running low** when `min_qty IS NOT NULL AND quantity <= min_qty`, and **lent** when
   `lent_to IS NOT NULL`.
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
-  "due": "…"}` for a loan, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
+  "due": "…"}` for a loan, `{"from": "Drill", "from_id": 7, "quantity": [2, 5], "photos": 1}` for a merge, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
   `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins. The
   password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).

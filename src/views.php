@@ -651,7 +651,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     page_end();
 }
 
-function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false, array $attachments = []): void
+function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false, array $attachments = [], ?string $toast = null): void
 {
     page_start($it['name'], 'page-item');
     $id = (int)$it['id'];
@@ -753,6 +753,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
       <?php if ($n): ?><label class="check"><input type="checkbox" name="photos" value="1" id="dup-photos"> with photos</label><?php endif; ?>
       <button class="btn btn-sm" id="dup-btn"><?= icon('copy') ?> Duplicate</button>
     </form>
+    <a class="btn btn-sm" href="/item/<?= $id ?>/merge" id="merge-link"><?= icon('merge') ?> Merge…</a>
   </div>
   <?php if ($history): ?>
   <section class="history" id="history" aria-labelledby="hist-title">
@@ -763,6 +764,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
 </main>
+<?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <div class="actionbar">
   <div class="actionbar-in">
     <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”? This cannot be undone.">
@@ -1279,6 +1281,14 @@ function activity_html(array $e): string
         case 'attachment':
             $t = (($d['change'] ?? '') === 'removed' ? 'Removed attachment ' : 'Attached ') . '“' . h((string)($d['file'] ?? '')) . '”';
             break;
+        case 'merged':
+            $t = 'Merged <b>“' . h((string)($d['from'] ?? '')) . '”</b> into this item';
+            if (isset($d['quantity'][0], $d['quantity'][1]) && $d['quantity'][0] !== $d['quantity'][1]) $t .= ' · quantity <b>' . (int)$d['quantity'][0] . '</b> → <b>' . (int)$d['quantity'][1] . '</b>';
+            if (!empty($d['photos'])) $t .= ' · ' . (int)$d['photos'] . ' photo' . ((int)$d['photos'] === 1 ? '' : 's');
+            if (!empty($d['attachments'])) $t .= ' · ' . (int)$d['attachments'] . ' attachment' . ((int)$d['attachments'] === 1 ? '' : 's');
+            if (!empty($d['filled'])) $t .= ' · filled in ' . h(implode(', ', (array)$d['filled']));
+            if (($d['lending'] ?? '') === 'copied') $t .= ' · loan taken over';
+            break;
         case 'deleted':
             $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
             break;
@@ -1288,7 +1298,7 @@ function activity_html(array $e): string
     return $t;
 }
 
-const ACTIVITY_ICONS = ['attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
+const ACTIVITY_ICONS = ['merged' => 'merge', 'attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
 function activity_items_html(array $entries, bool $withItem): string
 {
@@ -1461,4 +1471,99 @@ function attachments_html(int $id, array $list): string
             . '<p class="hint">' . h($types) . ' · max ' . (int)setting('attach_max_mb') . ' MB each</p></form>';
     }
     return $o . '</details>';
+}
+
+/** Merge step 1: pick the item to keep (likely duplicates first, or search). */
+function view_merge_pick(array $it, array $cands, string $q): void
+{
+    $id = (int)$it['id'];
+    page_start('Merge');
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/item/<?= $id ?>" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Merge duplicates</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h2 class="item-name">Merge “<?= h($it['name']) ?>” into…</h2>
+  <p class="lead">Pick the item to keep. Its quantity grows by <?= (int)$it['quantity'] ?>; photos, attachments, tags, history and empty fields come over from “<?= h($it['name']) ?>”, which is then removed. You confirm on the next screen.</p>
+  <form class="search merge-search" method="get" action="/item/<?= $id ?>/merge" role="search">
+    <?= icon('search') ?>
+    <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search for the item to keep" autocomplete="off" enterkeyhint="search" id="merge-q" aria-label="Search for the item to keep">
+  </form>
+  <?php if ($cands): ?>
+  <ul class="merge-list" id="merge-list">
+    <?php foreach ($cands as $c): ?>
+    <li><a class="merge-pick" href="/item/<?= $id ?>/merge?into=<?= (int)$c['id'] ?>" data-id="<?= (int)$c['id'] ?>">
+      <?= valid_image_name($c['image'] ?? null) ? '<img src="/media/thumb/' . h($c['image']) . '" alt="" loading="lazy">' : '<span class="ph">' . icon('box') . '</span>' ?>
+      <span class="merge-name"><b><?= h($c['name']) ?></b><small><?= h($c['location'] !== '' ? $c['location'] : 'No location') ?> · qty <?= (int)$c['quantity'] ?></small></span>
+      <?= icon('back') ?></a></li>
+    <?php endforeach; ?>
+  </ul>
+  <?php else: ?>
+  <div class="empty"><?= icon('search') ?><p class="empty-title"><?= $q === '' ? 'No similar items found.' : 'Nothing matches “' . h($q) . '”.' ?></p><p class="hint">Search by name, location or barcode.</p></div>
+  <?php endif; ?>
+</main>
+<?php
+    page_end();
+}
+
+/** Merge step 2: what will happen, then one button. */
+function view_merge_confirm(array $p): void
+{
+    $src = $p['source']; $dst = $p['target']; $in = $p['result'];
+    $sid = (int)$src['id']; $tid = (int)$dst['id'];
+    page_start('Merge');
+    $row = fn(string $label, string $html) => '<li><span class="act-field">' . h($label) . '</span> ' . $html . '</li>';
+    $rows = [$row('Quantity', '<b>' . (int)$dst['quantity'] . '</b> + <b>' . (int)$src['quantity'] . '</b> = <b>' . (int)$in['quantity'] . '</b>')];
+    if ($p['photos']) $rows[] = $row('Photos', '+' . $p['photos'] . ' (after the current ones)');
+    if ($p['attachments']) $rows[] = $row('Attachments', '+' . $p['attachments']);
+    $newTags = array_diff($in['tags'], array_column($dst['tags'], 'name'));
+    if ($newTags) $rows[] = $row('Tags', '+ ' . h(implode(', ', $newTags)));
+    foreach ($p['fills'] as $k => $label) {
+        if ($k === 'notes') { $rows[] = $row('Notes', 'the source’s notes are appended'); continue; }
+        $v = match ($k) {
+            'location_id' => (string)$src['location'], 'category_id' => (string)$src['category'],
+            'value_cents' => money_input($in['value_cents']) . ' ' . setting('currency'),
+            default => (string)$in[$k],
+        };
+        $rows[] = $row($label, 'empty → “' . h($v) . '”');
+    }
+    if ($p['lending'] === 'copied') $rows[] = $row('Lending', 'lent to <b>' . h((string)$src['lent_to']) . '</b> is taken over');
+    if ($p['lending'] === 'kept') $rows[] = $row('Lending', 'both are lent: the loan to <b>' . h((string)$dst['lent_to']) . '</b> is kept, the other one is dropped');
+    if (!empty($src['favourite']) && empty($dst['favourite'])) $rows[] = $row('Favourite', '★ is kept');
+    if ($p['history']) $rows[] = $row('History', $p['history'] . ' entr' . ($p['history'] === 1 ? 'y moves' : 'ies move') . ' over');
+    ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/item/<?= $sid ?>/merge" aria-label="Back"><?= icon('back') ?></a>
+    <h1 class="title-sm">Merge duplicates</h1>
+    <span class="spacer"></span>
+  </div>
+</header>
+<main class="wrap narrow">
+  <h2 class="item-name">Merge into “<?= h($dst['name']) ?>”?</h2>
+  <div class="merge-pair" id="merge-pair">
+    <div class="merge-card merge-src"><small>Removed</small><b><?= h($src['name']) ?></b><span><?= h($src['location'] !== '' ? $src['location'] : 'No location') ?></span></div>
+    <span class="merge-arrow" aria-hidden="true"><?= icon('merge') ?></span>
+    <div class="merge-card merge-dst"><small>Kept</small><b><?= h($dst['name']) ?></b><span><?= h($dst['location'] !== '' ? $dst['location'] : 'No location') ?></span></div>
+  </div>
+  <ul class="act-changes merge-changes" id="merge-changes"><?= implode('', $rows) ?></ul>
+  <p class="hint">Fields the kept item already has stay as they are. Everything happens in one step; if anything fails, nothing changes.</p>
+  <form method="post" action="/item/<?= $sid ?>/merge" class="itemform" id="mergeform">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <input type="hidden" name="into" value="<?= $tid ?>">
+    <input type="hidden" name="confirm" value="1">
+    <div class="actionbar actionbar-form">
+      <div class="actionbar-in">
+        <a class="btn" href="/item/<?= $sid ?>">Cancel</a>
+        <button class="btn btn-primary" id="merge-confirm"><?= icon('merge') ?> Merge</button>
+      </div>
+    </div>
+  </form>
+</main>
+<?php
+    page_end();
 }

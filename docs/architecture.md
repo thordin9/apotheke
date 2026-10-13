@@ -22,6 +22,7 @@ src/
   markdown.php            safe Markdown subset for notes (escape first, then a few constructs; http/https/mailto links)
   attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
   favourites.php          favourite flag, recently viewed list (device cookie or shared scope)
+  merge.php               merging duplicates: preview (confirm screen), item_merge() in one transaction, candidates
   backup.php              portable backup zip (dump + photos + attachments) and restore
   qr.php                  pure-PHP QR code encoder (SVG)
   seed.php                starter locations/categories and demo data
