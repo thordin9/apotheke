@@ -882,7 +882,7 @@ body.no-lend #lending,body.no-bulk .bulk-toggle,body.no-labels .label-link,body.
   .tile span{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
 }
 .page-list .wrap{padding-bottom:calc(128px + var(--sab))}
-.fbtn{min-height:44px}
+.fbtn{min-height:44px;height:auto;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;line-height:1.2}
 
 /* ---------- search: highlighted matches + snippet ---------- */
 mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px;box-shadow:inset 0 -2px 0 var(--accent)}
