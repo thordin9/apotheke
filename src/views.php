@@ -552,7 +552,7 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
-    page_start('', $select ? 'page-select' : '');
+    page_start('', $select ? 'page-select' : 'page-list');
     $f = filters_norm($f);
     $qs = list_query($q, $f, $sort);
     $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -571,7 +571,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
   <form class="filters" action="/" method="get" role="search" id="filters">
     <label class="search">
       <?= icon('search') ?>
-      <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search names, places, categories, notes" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" id="q">
+      <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search items…" aria-label="Search names, places, categories, notes" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" id="q">
     </label>
     <div class="frow">
       <details class="fsheet" id="fsheet">
@@ -811,7 +811,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
        . '<div class="newloc" id="new' . $p . '"' . ($newVal === '' ? ' hidden' : '') . '>'
        . '<input type="text" name="' . $newField . '" id="new' . $p . 'name" value="' . h($newVal) . '" maxlength="120" autocomplete="off" autocorrect="off" enterkeyhint="done" placeholder="New ' . h($t['one']) . ', e.g. ' . h($t['example']) . '" aria-label="New ' . h($t['one']) . ' name">'
        . '<button type="button" class="btn btn-primary" id="new' . $p . 'ok">Add</button></div>'
-       . '<noscript><input type="text" name="' . $newField . '" maxlength="120" placeholder="…or type a new ' . h($t['one']) . '" class="ns-newloc"></noscript>'
+       . '<noscript><input type="text" name="' . $newField . '_ns" maxlength="120" placeholder="…or type a new ' . h($t['one']) . '" class="ns-newloc"></noscript>'
        . '</div>';
     return $o;
 }

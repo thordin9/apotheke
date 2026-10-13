@@ -130,6 +130,13 @@ $c->post('/categories/' . $ids['cat']['Tools'] . '/default', ['csrf' => $tok, 'o
 $c->post('/categories/' . $ids['cat']['Electronics'] . '/default', ['csrf' => $tok, 'on' => '0']);
 T::eq('Tools ★', selected_option($c->get('/new')['body'], 'category_id'), 'clearing a non-default category leaves the real default');
 
+$nf = $c->get('/new')['body'];
+T::ok(substr_count($nf, 'name="new_location"') === 1 && substr_count($nf, 'name="new_category"') === 1, '/new: one quick-add field per name (the noscript one is new_*_ns)');
+$r = $c->api('/save', ['csrf' => $tok, 'name' => 'NS probe', 'location_id' => '__new', 'new_location' => '', 'new_location_ns' => 'Shed NS', 'category_id' => '', 'quantity' => 1]);
+$nsId = $savedId($r);
+T::eq('Shed NS', $db->query("SELECT l.name FROM items i JOIN locations l ON l.id = i.location_id WHERE i.id = $nsId")->fetchColumn(), 'no-JS new location field saved');
+$c->post("/item/$nsId/delete", ['csrf' => $tok]);
+$c->post('/locations/' . (int)$db->query("SELECT id FROM locations WHERE name = 'Shed NS'")->fetchColumn() . '/delete', ['csrf' => $tok, 'action' => 'unassign']);
 T::section('Create items + uploads');
 $big = img_jpeg(4000, 3000);
 $r = $c->api('/save', ['csrf' => $tok, 'name' => 'Cordless drill', 'location_id' => $ids['loc']['box 1023'], 'category_id' => $ids['cat']['Tools'], 'quantity' => 1], ['photo' => jpg_file($big)]);

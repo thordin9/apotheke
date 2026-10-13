@@ -869,3 +869,12 @@ body.role-viewer:not(.page-account) main form[method=post],body.role-viewer .bul
 .role{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--surface-3)}
 .role-admin{background:var(--accent);color:var(--accent-ink)}
 .act-by{color:var(--muted)}
+
+/* phones: tiles two per row with wrapping labels; keep the last content clear of the floating camera button */
+@media (max-width:420px){
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tile{flex-wrap:wrap;align-items:baseline}
+  .tile span{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+}
+.page-list .wrap{padding-bottom:calc(128px + var(--sab))}
+.fbtn{min-height:44px}

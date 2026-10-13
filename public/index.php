@@ -242,7 +242,9 @@ try {
             $col = tax($kind)['col'];
             $raw[$kind] = (string)($_POST[$col] ?? '');
             $vals[$col] = ctype_digit($raw[$kind]) ? (int)$raw[$kind] : null;
-            $vals['new_' . $kind] = clean_line((string)($_POST['new_' . $kind] ?? ''), 120);
+            // the quick-add box (JS) or, without JavaScript, the <noscript> field next to the dropdown (own name, no duplicates)
+            $vals['new_' . $kind] = clean_line((string)($_POST['new_' . $kind] ?? ''), 120)
+                ?: clean_line((string)($_POST['new_' . $kind . '_ns'] ?? ''), 120);
         }
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
