@@ -21,6 +21,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 | [AGENTS.md](../AGENTS.md) | Instructions for AI agents: stack constraints, layout, tests, commits |
 | [Getting started](getting-started.md) | Docker, Docker Compose (including the `postgres` profile), running without Docker, local development |
 | [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules |
+| [Control Panel](control-panel.md) | Settings at `/settings`: what lives in the database vs. `config.php`, accent contrast, logo upload, password, import/export, `bin/settings.php` |
 | [User guide](user-guide.md) | Every feature: items, photos, locations and categories, nested locations, search and filters, low-stock alerts, bulk actions, lending, duplicating, QR labels, history, backup, home screen, iPhone tips |
 | [Architecture](architecture.md) | Directory layout, request flow, the database layer, front-end JavaScript |
 | [Database](database.md) | Schema and ER diagram, migrations and how to write one |

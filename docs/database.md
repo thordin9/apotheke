@@ -88,6 +88,11 @@ erDiagram
     text details "JSON"
     text created_at
   }
+  settings {
+    text name PK "key from settings_schema()"
+    text value "JSON-encoded typed value"
+    text updated_at
+  }
   app_settings {
     text name PK
     text value
@@ -118,6 +123,9 @@ Notes:
   `lent_to IS NOT NULL`.
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
   "due": "…"}` for a loan, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
+* `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
+  `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins. The
+  password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -138,6 +146,7 @@ Notes:
 | 0010 | `0010_value_index.php` | index on `items.value_cents` (sort by value, totals) |
 | 0011 | `0011_saved_filters.php` | `saved_filters` (named list views) |
 | 0012 | `0012_barcode.php` | `items.barcode` + index |
+| 0013 | `0013_settings.php` | `settings` (Control Panel key/value), seeded from `config.php` / env |
 
 ## How migrations run
 

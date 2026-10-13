@@ -8,11 +8,13 @@ HTML, one stylesheet and one script. There is no framework, no autoloader, no te
 ```
 public/                   web root (the only directory a web server should expose)
   index.php               front controller + router (also the router script for `php -S`; HEAD is treated as GET for reads)
-  manifest.webmanifest    web app manifest
   assets/                 app.css, app.js, theme.js, icons (served as static files)
 src/
   bootstrap.php           constants, data directories, sessions, auth, CSRF, small helpers, asset()
   config.php              configuration loader (defaults < config.php < environment)
+  settings.php            Control Panel settings: schema, validation, typed per-request cache, accent contrast maths,
+                          logo upload/SVG sanitizer/icon generation, manifest, password
+  settings_views.php      Control Panel pages (/settings/…)
   db.php                  PDO connection, dialect helpers, migration runner
   legacy.php              one-time conversion of pre-migration SQLite installs (schema v1–v3)
   items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD),
@@ -22,7 +24,7 @@ src/
   seed.php                starter locations/categories and demo data
   views.php               all HTML: page shell, partials (cards, chips, sheets), one view_* function per screen
 migrations/NNNN_*.php     versioned schema steps
-bin/                      CLI: migrate.php, seed.php, backup.php, restore.php
+bin/                      CLI: migrate.php, seed.php, backup.php, restore.php, settings.php
 docker/                   nginx.conf (template), fastcgi.conf, php-fpm.conf, php.ini, entrypoint.sh
 tests/                    run.sh, integration.php + lib.php, Unit/, Integration/, e2e/ (puppeteer), visual/ (Playwright)
 scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
@@ -86,8 +88,9 @@ Important routes:
 `init_session()` opens the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
 `SameSite=Lax`, `Secure` on HTTPS), makes sure a CSRF token exists, and **closes the session right away** so parallel
 requests (photos, instant search) never wait for the session lock. Every state-changing route calls `check_csrf()`
-(form field `csrf` or header `X-CSRF-Token`). With `APP_PASSWORD` set, everything except `/login` and `/healthz`
-requires a signed-in session; unauthenticated JSON requests get a 401, media requests a bare
+(form field `csrf` or header `X-CSRF-Token`). When the password is on (Settings → Password; seeded from `APP_PASSWORD`), everything except `/login`, `/healthz` and
+the branding routes (`/theme.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) requires a signed-in session whose
+fingerprint matches the current password hash (changing the password signs other devices out); unauthenticated JSON requests get a 401, media requests a bare
 401, pages a redirect to `/login`.
 
 ## Database layer
@@ -121,6 +124,15 @@ The Content-Security-Policy forbids inline scripts and styles, so:
   dialogs (`data-confirm`), the overview panel, selection mode and the bulk bar;
 * there are no `style="…"` attributes; all styling is in `public/assets/app.css`, with light/dark variables under
   `[data-theme]` and `prefers-color-scheme`.
+
+### Settings
+
+Two layers: **bootstrap** values (`cfg()`: data dir, database, seeding) come from `config.php` / the environment;
+**everything else** comes from `setting($key)` (`src/settings.php`), which loads the `settings` table once per request
+and falls back to the defaults (`config.php` values or literals) before migration 0013. The custom accent is delivered
+as a generated stylesheet (`/theme.css?v=<hash>`, CSS variables for light, dark and `prefers-color-scheme`), so no inline
+styles are needed; the manifest and `favicon.ico` are generated routes, so an uploaded logo can replace the icons. See
+[control-panel.md](control-panel.md).
 
 Forms are real `<form method="post">` elements, so the core flows work without JavaScript; `app.js` only makes them
 faster (fetch + JSON) where it matters.

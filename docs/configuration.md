@@ -9,6 +9,18 @@ Apotheke reads its settings once per request (`cfg()` in `src/config.php`) from 
 **Empty environment variables are ignored.** That is deliberate: a compose file can say
 `APP_PASSWORD: ${APP_PASSWORD:-}` without ever wiping a value set in `config.php`.
 
+## Bootstrap settings vs. the Control Panel
+
+Since the Control Panel (see [control-panel.md](control-panel.md)) there are two kinds of settings:
+
+* **Bootstrap** — needed before the database can be opened: `data_dir`, everything under `db.*`, `seed_defaults` and the
+  config-file path. They are only read from `config.php` / the environment and are shown read-only under
+  **Settings → System**.
+* **Everything else** (marked *DB* in the table below) — stored in the database. `config.php` / environment values are
+  only the **initial defaults**: the `0013_settings` migration copies them into the `settings` table on a new install or
+  an upgrade, and *Reset to defaults* in the panel goes back to them. After that, change them in the panel or with
+  `php bin/settings.php set KEY VALUE`; editing the environment no longer changes an existing database.
+
 ## `config.php`
 
 Copy [`config.example.php`](../config.example.php) to `config.php` (it is git-ignored) and change what you need. The
@@ -26,28 +38,32 @@ return [
 
 ## Every setting
 
-| `config.php` key | Environment variable | Default | Meaning |
-|---|---|---|---|
-| `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | Photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file. Created if missing. |
-| `timezone` | `TZ` | `UTC` (`Europe/Athens` in `docker-compose.yml`) | Time zone for displayed times, the statistics buckets and "today" (lending due dates). |
-| `app_password` | `APP_PASSWORD` | *(empty)* | If set, a single shared password is required. Empty means no login. |
-| `db.driver` | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`; anything else is an error. |
-| `db.sqlite_path` | `SQLITE_PATH` | `<data_dir>/catalog.sqlite` | SQLite database file. |
-| `db.dsn` | `DB_DSN` | *(empty)* | Full PDO DSN for PostgreSQL; overrides host, port and name. |
-| `db.host` | `DB_HOST` | `127.0.0.1` | PostgreSQL host. |
-| `db.port` | `DB_PORT` | `5432` | PostgreSQL port. |
-| `db.name` | `DB_NAME` | `apotheke` | PostgreSQL database. |
-| `db.user` | `DB_USER` | `apotheke` | PostgreSQL user. |
-| `db.password` | `DB_PASSWORD` | *(empty)* | PostgreSQL password. |
-| `db.schema` | `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema (`search_path`); created if missing. |
-| `uploads.max_mb` | `MAX_UPLOAD_MB` | `20` | Server-side upload limit per photo in MB. Also raise PHP's `upload_max_filesize` / `post_max_size` (and the web server's body limit) if you increase it. |
-| `uploads.full_max` | `IMAGE_FULL_MAX` | `1600` | Longest side in px of stored photos. |
-| `uploads.thumb_max` | `IMAGE_THUMB_MAX` | `480` | Longest side in px of thumbnails. |
-| `page_size` | `PAGE_SIZE` | `60` | Items per page in the list (*Show more* loads the next page). |
-| `currency` | `CURRENCY` | `EUR` | Currency of purchase prices and value totals (ISO code or symbol, max. 8 characters). Only a label: no conversion. |
-| `expiry_soon_days` | `EXPIRY_SOON_DAYS` | `30` | Window for *Expiring soon*: an item whose expiry/warranty date is between today and today + N days. Clamped to 1–3650. |
-| `public_url` | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Without it the scheme and `Host` of the current request are used. |
-| `seed_defaults` | `SEED_DEFAULTS` | `true` | On a brand-new database, create starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby). |
+| `config.php` key | Environment variable | Default | Where | Meaning |
+|---|---|---|---|---|
+| `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | bootstrap | Photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file. Created if missing. |
+| `timezone` | `TZ` | `UTC` (`Europe/Athens` in `docker-compose.yml`) | DB — Currency, dates & time → Time zone | Time zone for displayed times, the statistics buckets and "today" (lending due dates). |
+| `app_password` | `APP_PASSWORD` | *(empty)* | DB — Password | Initial shared password (stored as a hash when the database is created/upgraded). Empty means no login. Later changes: Settings → Password or `php bin/settings.php password`. |
+| `db.driver` | `DB_DRIVER` | `sqlite` | bootstrap | `sqlite` or `pgsql`; anything else is an error. |
+| `db.sqlite_path` | `SQLITE_PATH` | `<data_dir>/catalog.sqlite` | bootstrap | SQLite database file. |
+| `db.dsn` | `DB_DSN` | *(empty)* | bootstrap | Full PDO DSN for PostgreSQL; overrides host, port and name. |
+| `db.host` | `DB_HOST` | `127.0.0.1` | bootstrap | PostgreSQL host. |
+| `db.port` | `DB_PORT` | `5432` | bootstrap | PostgreSQL port. |
+| `db.name` | `DB_NAME` | `apotheke` | bootstrap | PostgreSQL database. |
+| `db.user` | `DB_USER` | `apotheke` | bootstrap | PostgreSQL user. |
+| `db.password` | `DB_PASSWORD` | *(empty)* | bootstrap | PostgreSQL password. |
+| `db.schema` | `DB_SCHEMA` | *(empty)* | bootstrap | Optional PostgreSQL schema (`search_path`); created if missing. |
+| `uploads.max_mb` | `MAX_UPLOAD_MB` | `20` | DB — Photos & uploads | Server-side upload limit per photo in MB. Also raise PHP's `upload_max_filesize` / `post_max_size` (and the web server's body limit) if you increase it. |
+| `uploads.full_max` | `IMAGE_FULL_MAX` | `1600` | DB — Photos & uploads | Longest side in px of stored photos. |
+| `uploads.thumb_max` | `IMAGE_THUMB_MAX` | `480` | DB — Photos & uploads | Longest side in px of thumbnails. |
+| `page_size` | `PAGE_SIZE` | `60` | DB — List → Items per page | Items per page in the list (*Show more* loads the next page). |
+| `currency` | `CURRENCY` | `EUR` | DB — Currency, dates & time | Currency of purchase prices and value totals (ISO code or symbol, max. 8 characters). Only a label: no conversion. |
+| `expiry_soon_days` | `EXPIRY_SOON_DAYS` | `30` | DB — Thresholds & limits | Window for *Expiring soon*: an item whose expiry/warranty date is between today and today + N days. Clamped to 1–3650. |
+| `public_url` | `PUBLIC_URL` | *(from the request)* | DB — General → Public URL | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Without it the scheme and `Host` of the current request are used. |
+| `seed_defaults` | `SEED_DEFAULTS` | `true` | bootstrap | On a brand-new database, create starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby). |
+
+The Control Panel adds more DB settings with built-in defaults only (accent, logo, theme, number/date/time formats,
+list sort/view, new-item defaults, loan period, saved-filter and photo limits, JPEG quality); see
+[control-panel.md](control-panel.md#sections).
 
 Values are normalised after loading: `data_dir` and `public_url` lose a trailing `/`, the numeric upload settings and
 `page_size` are at least `1`, `seed_defaults` accepts the usual boolean spellings (`true/false`, `1/0`, `yes/no`,
@@ -74,7 +90,7 @@ in `docker/nginx.conf`; every other route keeps the 22 MB body limit); otherwise
 
 ## Examples
 
-SQLite with a password (`.env` for Docker Compose):
+SQLite with a password (`.env` for Docker Compose; the password, zone and currency are copied into the database on the first start and edited in the Control Panel afterwards):
 
 ```
 APP_PASSWORD=change-me
