@@ -20,6 +20,7 @@ the Save / Edit bars sit at the bottom within thumb reach, and most screens also
 * [Backup, restore and CSV](#backup-restore-and-csv)
 * [Dark mode](#dark-mode)
 * [Password](#password)
+* [Settings (Control Panel)](#settings-control-panel)
 * [Installing on the home screen](#installing-on-the-home-screen)
 * [iPhone tips](#iphone-tips)
 
@@ -279,8 +280,21 @@ never flash the wrong theme. *Auto* follows the device setting.
 
 ## Password
 
-If `APP_PASSWORD` is set, Apotheke shows a sign-in page and *Sign out* appears in the menu and footer. There is one
-shared password, no user accounts. Sessions last up to 180 days.
+When a password is set (**☰ → Settings → Password**, or `APP_PASSWORD` on the first start), Apotheke shows a sign-in
+page and *Sign out* appears in the menu and footer. There is one shared password, no user accounts. Sessions last up to
+180 days; changing the password signs every other device out. Forgot it? `php bin/settings.php password` on the server.
+
+## Settings (Control Panel)
+
+**☰ → Settings** configures the app for everyone: name and tagline, accent colour (with presets and an automatic
+contrast check for light and dark mode), your own logo (SVG, PNG, JPEG or WebP; PNG/JPEG/WebP also become the home-screen
+icon and favicon), currency and number/date/time formats, time zone, items per page, default sort and a compact list
+view, defaults for new items (quantity, low-stock threshold, tags, notes, purchase date, expiry, location, category),
+the *Expiring soon* window, the default loan period, limits for saved filters and photos, photo sizes and the password.
+*Backup & data* exports/imports the settings as JSON next to the backup and CSV links. Each section can be reset to its
+defaults. Details: [control-panel.md](control-panel.md).
+
+![Settings](screenshots/settings-light.png) ![Accent colour](screenshots/settings-appearance-dark.png)
 
 ## Installing on the home screen
 
