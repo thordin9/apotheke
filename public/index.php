@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /*
  * Apotheke – front controller / router.
- * Apache: FallbackResource /index.php   ·   Dev: php -S 0.0.0.0:8080 -t public public/index.php
+ * Apache: FallbackResource /index.php   ·   Dev: php -S 0.0.0.0:9091 -t public public/index.php
  */
 
 $path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));

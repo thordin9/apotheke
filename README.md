@@ -213,13 +213,19 @@ git clone https://github.com/thordin9/apotheke.git && cd apotheke
 docker compose up -d --build
 ```
 
-Then open **http://SERVER-IP:8080** on your phone (same Wi-Fi; `hostname -I` shows the server IP). In Safari tap Share →
-**Add to Home Screen**. To use another port, change `"8080:80"` in `docker-compose.yml`.
+Then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` shows the server IP). In Safari tap Share →
+**Add to Home Screen**. To use another host port, change the left side of `"9091:9091"` in `docker-compose.yml`
+(e.g. `"8080:9091"`).
+
+> **Upgrading from 1.x (port 8080):** the image now listens on **9091** (was 80 inside the container) and the compose
+> file maps host port **9091** (was 8080). Update bookmarks, home-screen icons, reverse proxies and `PUBLIC_URL`;
+> QR labels printed with `:8080` in them need reprinting (or keep the old address with `ports: ["8080:9091"]`).
+> `docker run -p 8080:80 …` becomes `-p 9091:9091` (or `-p 8080:9091`). `PORT` still overrides the container port.
 
 The image (about 100 MB) is `php:8.3-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
 `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
 stops both gracefully on `docker stop` and exits if either dies (so `restart: unless-stopped` brings it back). nginx
-listens on port 80 inside the container; set `PORT` to change that (e.g. with `--network host`). The entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
+listens on port 9091 inside the container; set `PORT` to change that (e.g. with `--network host`). The entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
 `HEALTHCHECK` polls `/healthz`. Everything is stored in `./data` next to `docker-compose.yml`:
 
 ```
@@ -270,7 +276,7 @@ With PHP and the extensions from [Requirements](#requirements):
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
 cp config.example.php config.php        # optional; edit, or use environment variables
-php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:8080 -t public public/index.php
+php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:9091 -t public public/index.php
 ```
 
 Data goes to `./data` (or `DATA_DIR`). The built-in server is fine for a home LAN. Behind Apache or nginx, make `public/`
@@ -306,7 +312,7 @@ compose file never wipes a value from `config.php`.
 | `PAGE_SIZE` | `60` | Items per page. |
 | `CURRENCY` | `EUR` | Currency shown next to item values (ISO code or symbol). Only a label; no conversion. |
 | `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
-| `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Set it if you open the app under a different name than your phone will. |
+| `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Set it if you open the app under a different name than your phone will. |
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
@@ -377,12 +383,12 @@ Headless mobile checks (filter sheet, theme switch, no overflow at 375 and 390 p
 
 ```bash
 npm ci --prefix tests/e2e
-DATA_DIR=/tmp/apotheke-e2e php -S 127.0.0.1:8080 -t public public/index.php &
-php tests/e2e/seed.php http://127.0.0.1:8080
-CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:8080
+DATA_DIR=/tmp/apotheke-e2e php -S 127.0.0.1:9091 -t public public/index.php &
+php tests/e2e/seed.php http://127.0.0.1:9091
+CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:9091
 ```
 
-`scripts/smoke.sh http://127.0.0.1:8080` smoke-tests any running instance (e.g. the Docker container);
+`scripts/smoke.sh http://127.0.0.1:9091` smoke-tests any running instance (e.g. the Docker container);
 `scripts/docker-checks.sh` checks the image's web server behaviour, and
 `E2E_DOCKER_IMAGE=apotheke:latest npx playwright test --project=docker-smoke` runs the `@smoke` E2E tests against it.
 
@@ -486,7 +492,7 @@ Release ([docs/releasing.md](docs/releasing.md)). The running version is shown i
 
 ```
 Dockerfile                    php:8.3-fpm-alpine + nginx + tini; gd, exif, opcache, pdo_pgsql, zip
-docker-compose.yml            port 8080, ./data volume, optional "postgres" profile
+docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)
 bin/                          migrate.php, seed.php, backup.php, restore.php

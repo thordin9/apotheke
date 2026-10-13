@@ -33,11 +33,11 @@ COPY --chown=root:root config.example.php VERSION /var/www/app/
 ENV DATA_DIR=/data \
     APP_PASSWORD="" \
     TZ=UTC \
-    PORT=80
+    PORT=9091
 
 WORKDIR /var/www/app
 VOLUME ["/data"]
-EXPOSE 80
+EXPOSE 9091
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1

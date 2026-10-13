@@ -86,11 +86,14 @@ Rules for any web server in front of PHP-FPM:
 tested example (static assets with long-lived caching and gzip, blocked paths, the larger limit and timeouts on
 `/backup/restore`).
 
-With the Docker image you usually only put a TLS-terminating reverse proxy in front of port 8080, for example Caddy:
+Upgrading from 1.x: the image listens on port 9091 (it was 80) and compose publishes 9091 (it was 8080) — point your
+reverse proxy at the new port, or publish the old one with `ports: ["8080:9091"]`.
+
+With the Docker image you usually only put a TLS-terminating reverse proxy in front of port 9091, for example Caddy:
 
 ```
 apotheke.example.lan {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:9091
     request_body {
         max_size 520MB
     }
@@ -106,7 +109,7 @@ server {
     # ssl_certificate …; ssl_certificate_key …;
     client_max_body_size 520m;
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:9091;
         proxy_set_header Host $host;
         proxy_read_timeout 300s;
     }

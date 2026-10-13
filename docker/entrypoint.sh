@@ -12,7 +12,7 @@ chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 
 if [ "$#" -gt 0 ] && [ "$1" != "apotheke" ]; then exec "$@"; fi
 
-PORT="${PORT:-80}"
+PORT="${PORT:-9091}"
 case "$PORT" in ''|*[!0-9]*) echo "PORT must be a number" >&2; exit 64;; esac
 sed "s/__PORT__/$PORT/g" /etc/nginx/apotheke.conf.template > /etc/nginx/nginx.conf
 mkdir -p /tmp/nginx-body /tmp/nginx-fastcgi

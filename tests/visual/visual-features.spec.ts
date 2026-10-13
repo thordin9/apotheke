@@ -13,7 +13,7 @@ const shot = async (page: Page, name: string, fullPage = false) => {
   await expect(page).toHaveScreenshot(name + '.png', { fullPage, mask: [page.locator('.app-version'), page.locator('time'), page.locator('.times')] });
 };
 
-test.use({ publicUrl: 'http://apotheke.local:8080' });
+test.use({ publicUrl: 'http://apotheke.local:9091' });
 
 const csrfOf = async (page: Page) => (await page.locator('meta[name=csrf]').getAttribute('content'))!;
 

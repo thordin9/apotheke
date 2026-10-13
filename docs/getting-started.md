@@ -13,7 +13,7 @@ git clone https://github.com/thordin9/apotheke.git && cd apotheke
 docker compose up -d --build
 ```
 
-Open `http://SERVER-IP:8080` on your phone (same network). The compose file maps host port **8080** to port 80 in the
+Open `http://SERVER-IP:9091` on your phone (same network). The compose file maps host port **9091** to port 9091 in the
 container and mounts `./data` as `/data`:
 
 ```
@@ -83,7 +83,7 @@ full `DB_DSN`) and leave the profile off. Photos are always stored in `DATA_DIR`
 
 ```bash
 docker build -t apotheke .
-docker run -d --name apotheke -p 8080:80 -v "$PWD/data:/data" -e TZ=Europe/Athens apotheke
+docker run -d --name apotheke -p 9091:9091 -v "$PWD/data:/data" -e TZ=Europe/Athens apotheke
 ```
 
 With `--network host`, set `-e PORT=8081` (or any free port) so nginx listens there.
@@ -96,7 +96,7 @@ recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
 cp config.example.php config.php        # optional
-php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:8080 -t public public/index.php
+php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:9091 -t public public/index.php
 ```
 
 `public/index.php` doubles as the router script for PHP's built-in server: real files under `public/` are served
@@ -106,7 +106,7 @@ directly, everything else goes through the app. For Apache or nginx see
 ## Local development
 
 ```bash
-php -S 127.0.0.1:8080 -t public public/index.php       # app on http://127.0.0.1:8080, data in ./data
+php -S 127.0.0.1:9091 -t public public/index.php       # app on http://127.0.0.1:9091, data in ./data
 php bin/seed.php --demo                                 # optional demo items with generated photos
 tests/run.sh                                            # lint + HTTP integration suite (no Composer needed)
 composer install && vendor/bin/phpunit                  # PHPUnit (dev only)

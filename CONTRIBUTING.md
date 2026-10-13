@@ -27,8 +27,8 @@ To smoke-test a running instance (e.g. the Docker container):
 
 ```bash
 docker compose up -d --build
-scripts/smoke.sh http://127.0.0.1:8080
-scripts/docker-checks.sh http://127.0.0.1:8080   # nginx routing, blocked paths, headers, gzip, body limits
+scripts/smoke.sh http://127.0.0.1:9091
+scripts/docker-checks.sh http://127.0.0.1:9091   # nginx routing, blocked paths, headers, gzip, body limits
 E2E_DOCKER_IMAGE=apotheke:latest npx playwright test --project=docker-smoke   # @smoke E2E against the image
 ```
 
