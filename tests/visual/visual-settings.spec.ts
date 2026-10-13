@@ -17,7 +17,7 @@ test.describe('visual: control panel', () => {
   test('home and sections', async ({ app, page }) => {
     await app.go('/settings');
     await shot(page, 'settings-home');
-    for (const s of ['general', 'appearance', 'locale', 'list', 'items', 'limits', 'uploads', 'security', 'data', 'system']) {
+    for (const s of ['general', 'appearance', 'locale', 'list', 'items', 'labels', 'limits', 'uploads', 'security', 'data', 'system']) {
       await app.go(`/settings/${s}`);
       await shot(page, `settings-${s}`);
     }
