@@ -18,7 +18,7 @@ if ! KEEP_TEST_DATA=1 TMPDIR="$PWD/$out/tmp" APOTHEKE_COVERAGE_DIR="$PWD/$out/ht
 fi
 tail -1 "$out/integration.log"
 if ! compgen -G "$out/http-raw/*.raw" > /dev/null; then
-  echo "no HTTP coverage dumps were written; php -S environment:" >&2
+  echo "no HTTP coverage dumps were written (re-run with APOTHEKE_COVERAGE_TRACE=1 for a per-request trace); php -S environment:" >&2
   php -d pcov.enabled=1 -d auto_prepend_file="$PWD/tests/coverage/prepend.php" -r 'var_dump(PHP_VERSION, extension_loaded("pcov"), ini_get("pcov.enabled"), ini_get("pcov.directory"), ini_get("opcache.enable_cli"), ini_get("opcache.jit"), ini_get("auto_prepend_file"), getenv("APOTHEKE_COVERAGE_DIR"));' >&2
   { grep -h -iE 'fatal|error|warning|collector' "$(TMPDIR="$PWD/$out/tmp" php -r 'echo sys_get_temp_dir();')"/apotheke-*.server.log | grep -v JIT | sort -u | head -20; } >&2 || true
   exit 1
