@@ -129,7 +129,7 @@ jobs:
       - name: Start app and seed demo data
         run: |
           mkdir -p /tmp/e2e-data
-          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:8080 -t public public/index.php > /tmp/e2e-server.log 2>&1 &
+          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:9091 -t public public/index.php > /tmp/e2e-server.log 2>&1 &
           sleep 1
           php tests/e2e/seed.php http://127.0.0.1:9091
       - name: Run mobile checks (375×667, 390×844)
