@@ -11,7 +11,8 @@ mkdir -p "$out/tmp"
 if ! TMPDIR="$PWD/$out/tmp" APOTHEKE_COVERAGE_DIR="$PWD/$out/http-raw" php tests/integration.php > "$out/integration.log" 2>&1; then
   tail -40 "$out/integration.log"
   echo "== php -S errors"
-  grep -h -m 20 -iE 'fatal|error|warning|exception' "$out"/tmp/*.server.log || echo "(none logged)"
+  tmp=$(TMPDIR="$PWD/$out/tmp" php -r 'echo sys_get_temp_dir();')
+  grep -h -m 20 -iE 'fatal|error|warning|exception' "$tmp"/apotheke-*.server.log || echo "(none logged in $tmp)"
   exit 1
 fi
 tail -1 "$out/integration.log"
