@@ -362,6 +362,42 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 `scripts/docker-checks.sh` checks the image's web server behaviour, and
 `E2E_DOCKER_IMAGE=apotheke:latest npx playwright test --project=docker-smoke` runs the `@smoke` E2E tests against it.
 
+### Coverage
+
+<!-- coverage:start -->
+| Area | PHPUnit (unit) | HTTP integration | Combined |
+|---|---:|---:|---:|
+| Front controller & routes | – | 96.3 % | 96.3 % |
+| Items, search, bulk, lending | 86.9 % | 96.7 % | 97.6 % |
+| Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
+| Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
+| Views (HTML) | 5.7 % | 99.4 % | 99.3 % |
+| Control Panel settings | 71.8 % | 96.8 % | 97.0 % |
+| Backup & restore | 87.2 % | 89.9 % | 98.9 % |
+| Database, migrations, legacy | 80.1 % | 91.9 % | 98.2 % |
+| Bootstrap, config, QR, seed | 72.0 % | 89.9 % | 91.2 % |
+| **All PHP** (4159 lines) | **56.4 %** | **96.1 %** | **97.3 %** |
+
+| Playwright project | Functional tests | Visual tests |
+|---|---:|---:|
+| `chromium-pixel` | 69 | 17 |
+| `chromium-pixel-dark` | 2 | 17 |
+| `desktop-chromium` | 69 | 17 |
+| `desktop-chromium-dark` | 2 | 17 |
+| `pgsql-smoke` | 24 | 0 |
+| `webkit-iphone-se` | 69 | 17 |
+| `webkit-iphone-se-dark` | 2 | 17 |
+| `webkit-iphone13` | 69 | 17 |
+| `webkit-iphone13-dark` | 2 | 17 |
+| **Total** | **308** | **136** |
+
+<sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
+<!-- coverage:end -->
+
+`npm run coverage:readme` (`scripts/coverage.sh`, needs pcov) runs the unit suite with coverage, the HTTP suite with a
+per-request collector, merges both with phpcov (HTML report in `coverage/html/`) and rewrites the table above. CI uploads
+the same reports as the `coverage-sqlite` artifact; see [docs/ci.md](docs/ci.md#why-the-coverage-table-is-refreshed-by-the-release-commit).
+
 ### Visual end-to-end tests (Playwright)
 
 `tests/visual/` drives the real app with [Playwright](https://playwright.dev) on WebKit (iPhone 13, iPhone SE), Chromium
@@ -398,6 +434,10 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 
 A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
+After CI passes on `main`, the *Release* workflow bumps the [SemVer](https://semver.org/) version from the Conventional
+Commits, updates [`VERSION`](VERSION), [`CHANGELOG.md`](CHANGELOG.md) and the coverage table, tags and publishes a GitHub
+Release ([docs/releasing.md](docs/releasing.md)). The running version is shown in the footer, under Control Panel →
+*System*, in `GET /health` (`{"status":"ok","version":"…"}`) and in the `X-Apotheke-Version` header of `/healthz`.
 
 ## Security notes
 

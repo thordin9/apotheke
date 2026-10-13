@@ -83,15 +83,30 @@ jobs:
           php bin/seed.php --demo
           php bin/seed.php --demo | grep -q 'Demo items created: 0'
           php bin/migrate.php --status
-      - name: PHPUnit (unit + HTTP integration) with coverage
-        run: vendor/bin/phpunit --coverage-text --coverage-clover coverage/clover.xml --coverage-html coverage/html --log-junit coverage/junit.xml
-      - name: Upload coverage report
-        if: always()
+      - name: PHPUnit (unit + HTTP integration)
+        run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
+      - uses: actions/setup-node@v4
+        if: matrix.db == 'sqlite'
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Coverage (unit + HTTP suites merged, Playwright test counts)
+        if: matrix.db == 'sqlite'
+        run: |
+          npm ci --no-audit --no-fund
+          bash scripts/coverage.sh --no-readme
+          php scripts/coverage-readme.php coverage --print >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage report (clover XML + HTML; used by the release workflow)
+        if: matrix.db == 'sqlite'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.db }}
-          path: coverage/
-          if-no-files-found: ignore
+          name: coverage-sqlite
+          path: |
+            coverage/*.xml
+            coverage/*.txt
+            coverage/playwright-list.json
+            coverage/html/
+          if-no-files-found: error
 
   mobile-checks:
     name: Headless mobile checks

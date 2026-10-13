@@ -16,6 +16,7 @@
         "ext-dom": "SVG logo uploads in the Control Panel (sanitizer)"
     },
     "require-dev": {
+        "phpunit/phpcov": "^10.0",
         "phpunit/phpunit": "^11.5"
     },
     "autoload-dev": {
