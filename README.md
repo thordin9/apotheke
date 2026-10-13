@@ -371,16 +371,16 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 <!-- coverage:start -->
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 96.3 % | 96.3 % |
-| Items, search, bulk, lending | 86.9 % | 96.7 % | 97.6 % |
-| Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
-| Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 5.7 % | 99.4 % | 99.3 % |
-| Control Panel settings | 71.8 % | 96.8 % | 97.0 % |
-| Backup & restore | 87.2 % | 89.9 % | 98.9 % |
-| Database, migrations, legacy | 80.1 % | 91.9 % | 98.2 % |
-| Bootstrap, config, QR, seed | 72.0 % | 89.9 % | 91.2 % |
-| **All PHP** (4159 lines) | **56.4 %** | **96.1 %** | **97.3 %** |
+| Front controller & routes | – | 0.0 % | 0.0 % |
+| Items, search, bulk, lending | 86.9 % | 0.0 % | 86.9 % |
+| Favourites, merge, undo | 80.9 % | 0.0 % | 80.9 % |
+| Notes & attachments | 88.2 % | 0.0 % | 88.2 % |
+| Views (HTML) | 5.7 % | 0.0 % | 5.7 % |
+| Control Panel settings | 71.8 % | 0.0 % | 71.8 % |
+| Backup & restore | 87.2 % | 0.0 % | 87.2 % |
+| Database, migrations, legacy | 80.1 % | 0.0 % | 80.1 % |
+| Bootstrap, config, QR, seed | 72.0 % | 0.0 % | 72.0 % |
+| **All PHP** (4162 lines) | **56.4 %** | **0.0 %** | **47.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
