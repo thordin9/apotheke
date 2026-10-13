@@ -18,6 +18,7 @@ const COV_AREAS = [
     'Favourites, merge, undo' => ['src/favourites.php', 'src/merge.php', 'src/undo.php'],
     'Stocktake' => ['src/stocktake.php', 'src/stocktake_views.php'],
     'Users & roles' => ['src/users.php'],
+    'Full-text search' => ['src/search.php'],
     'Notes & attachments' => ['src/markdown.php', 'src/attachments.php'],
     'Views (HTML)' => ['src/views.php', 'src/settings_views.php'],
     'Control Panel settings' => ['src/settings.php'],

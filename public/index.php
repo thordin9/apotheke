@@ -172,7 +172,7 @@ try {
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || filters_active($f)), 'more' => $res['more'], 'page' => $page,
+                      'count' => count_text($res['total'], $q !== '' || filters_active($f)) . search_fixed_note($res['fixed'] ?? []), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort), 'query' => saved_filter_query($_GET)]);
         }
         no_store();

@@ -157,6 +157,14 @@ Notes:
   (`password_hash()`), `role` (`admin`, `editor`, `viewer`), `created_at`, `last_login_at`. The migration turns an existing
   shared password into the account `admin` with role admin. `activity.actor` (same migration) is the user name that made
   the change (NULL with sign-in off or from the CLI). Users are not part of backups.
+* `search_docs` (migration 0019): one row per item with the folded (lower case, no accents) `name_f`, `tags_f`, `other_f`
+  (notes, serial, barcode, borrower, category, location path) used for matching and the original `other` for snippets.
+  It is derived data: `src/search.php` rebuilds it when a fingerprint of items, locations, categories and tags (kept in
+  `search_meta`) changes, so no write path needs a hook. SQLite mirrors it into the FTS5 table `search_fts`
+  (`unicode61 remove_diacritics 2`) and reads typo candidates from `search_fts_v` (fts5vocab); PostgreSQL has a generated
+  weighted `tsv` (A name, B tags, C rest) with a GIN index and, if `CREATE EXTENSION pg_trgm` is allowed, a trigram
+  index for word similarity. Missing FTS5 / pg_trgm only switch off those extras (Settings → System shows the engine).
+  Not part of backups (rebuilt on the next search).
 * `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
   random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
 * `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
@@ -198,6 +206,7 @@ Notes:
 | 0016 | `0016_undo.php` | `undo_tokens` (short-lived undo snapshots) + index on `expires_at` |
 | 0017 | `0017_stocktake.php` | `stocktakes`, `stocktake_lines` (location checks and their results) |
 | 0018 | `0018_users.php` | `users` (accounts with roles; the old shared password becomes `admin`), `activity.actor` |
+| 0019 | `0019_search.php` | `search_docs`, `search_meta`; SQLite `search_fts` (FTS5) + `search_fts_v` (vocabulary), PostgreSQL `tsv` column + GIN, optional `pg_trgm` index |
 
 ## How migrations run
 

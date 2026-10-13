@@ -279,8 +279,8 @@ function sqlite(string $file): PDO
 /** Card titles from a list JSON response. */
 function titles(array $r): array
 {
-    preg_match_all('/class="card-title"[^>]*>([^<]*)</', (string)($r['json']['html'] ?? ''), $m);
-    return array_map(fn($s) => html_entity_decode($s, ENT_QUOTES), $m[1]);
+    preg_match_all('#class="card-title"[^>]*>(.*?)</a>#s', (string)($r['json']['html'] ?? ''), $m);
+    return array_map(fn($s) => html_entity_decode(strip_tags($s), ENT_QUOTES), $m[1]);
 }
 
 function selected_option(string $html, string $selectName): ?string

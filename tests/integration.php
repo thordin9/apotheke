@@ -1080,7 +1080,7 @@ $secKeys = [
     'general' => ['app_name', 'app_tagline', 'public_url'],
     'appearance' => ['accent', 'theme_default', 'icon_background'],
     'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
-    'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'overview_open'],
+    'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'search_typos', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
@@ -1427,6 +1427,51 @@ T::ok(str_contains($ucli('user delete nobody'), 'No user'), 'CLI: unknown user')
 T::ok(str_contains($ucli('user delete kim'), 'Deleted kim') && $uid('kim') === 0, 'CLI deletes a user');
 T::ok(str_contains($ucli('auth off'), 'turned off') && !auth_on_db($udb), 'CLI turns sign-in off');
 T::ok(str_contains($ucli('auth on'), 'turned on') && auth_on_db($udb), 'CLI turns sign-in on');
+
+T::section('Full-text search');
+$sx = new Server($sxDir = $newDir('search'), ['SEED_DEFAULTS' => '0']);
+$xc = $sx->client();
+$xt = $xc->csrf();
+$xdb = testdb($sxDir);
+$mk = function (array $f) use ($xc, $xt, $savedId): int { return $savedId($xc->api('/save', ['csrf' => $xt, 'quantity' => 1] + $f)); };
+$a = $mk(['name' => 'Screwdriver set', 'location_id' => '__new', 'new_location' => 'Garage', 'tags' => 'tools, workshop']);
+$garage = (int)$xdb->query("SELECT id FROM locations WHERE name = 'Garage'")->fetchColumn();
+$b = $mk(['name' => 'Bit box', 'location_id' => '__new', 'new_location' => 'Shelf 2', 'notes' => 'Fits the screwdriver handle', 'serial' => 'SN-7731']);
+$shelf = (int)$xdb->query("SELECT id FROM locations WHERE name = 'Shelf 2'")->fetchColumn();
+$xc->post("/locations/$shelf/parent", ['csrf' => $xt, 'parent' => $garage]);
+$cc = $mk(['name' => 'Κατσαβίδι <b>', 'notes' => 'Ελληνικό <script>x</script>', 'barcode' => '4006381333931', 'category_id' => '__new', 'new_category' => 'Εργαλεία']);
+$xs = fn(string $q): array => titles($xc->json('/?q=' . rawurlencode($q)));
+T::eq(['Screwdriver set', 'Bit box'], $xs('screwdriver'), 'ranked: name match before a notes match');
+T::eq(['Bit box'], $xs('7731'), 'serial number (custom field), substring');
+T::eq(['Κατσαβίδι <b>'], $xs('4006381333931'), 'barcode');
+T::eq(['Screwdriver set'], $xs('workshop'), 'tags');
+T::eq(['Κατσαβίδι <b>'], $xs('εργαλεια'), 'category, Greek without accents');
+T::eq(['Bit box'], $xs('garage shelf'), 'location path: parent + child names');
+T::ok(in_array('Bit box', $xs('garage'), true), 'a parent location finds items in sub-locations');
+T::eq([], $xs('screwdriver nothinglikethis'), 'every word must match');
+$r = $xc->json('/?q=screwdrivr');
+T::ok(titles($r) === ['Screwdriver set', 'Bit box'] && str_contains((string)$r['json']['count'], 'showing “screwdriver” for “screwdrivr”'), 'typo tolerance, with a note', (string)($r['json']['count'] ?? ''));
+$r = $xc->json('/?q=fits');
+T::ok(str_contains((string)$r['json']['html'], '<p class="snip"><span class="snip-k">Notes</span> <mark>Fits</mark> the screwdriver handle</p>'), 'snippet of the matching field with highlight', (string)$r['json']['html']);
+T::ok(str_contains((string)$xc->json('/?q=set')['json']['html'], 'Screwdriver <mark>set</mark>'), 'name highlighted');
+$r = (string)$xc->json('/?q=' . rawurlencode('ελληνικο'))['json']['html'];
+T::ok(str_contains($r, 'Κατσαβίδι &lt;b&gt;') && str_contains($r, '<mark>Ελληνικό</mark> &lt;script&gt;') && !str_contains($r, '<script>'), 'highlighted text stays escaped');
+$r = $xc->json('/?q=' . rawurlencode('<b>'));
+T::ok(titles($r) === ['Κατσαβίδι <b>'] && str_contains((string)$r['json']['html'], '<mark>&lt;b&gt;</mark>'), 'markup in the query is just text', implode('|', titles($r)) . ' ' . substr((string)$r['json']['html'], 0, 600));
+$xc->api('/save', ['csrf' => $xt, 'id' => $a, 'name' => 'Torx set', 'quantity' => 1, 'location_id' => $garage]);
+T::eq(['Bit box'], $xs('screwdriver'), 'index follows edits');
+$xc->post("/locations/$garage/rename", ['csrf' => $xt, 'name' => 'Workshop']);
+T::ok(in_array('Bit box', $xs('workshop'), true), 'index follows location renames');
+$xc->post("/item/$b/delete", ['csrf' => $xt]);
+T::eq([], $xs('7731'), 'deleted items drop out');
+$save = fn(array $kv) => $xc->post('/settings/list', ['csrf' => $xt] + $kv + ['page_size' => '60', 'default_sort' => 'recent', 'list_view' => 'grid', 'recent_limit' => '8', 'recent_scope' => 'device', 'overview_open' => '1']);
+$save(['search_typos' => '0']);
+T::eq([], $xs('torxx'), 'typo tolerance can be turned off (Control Panel → List)');
+$save(['search_typos' => '1']);
+T::eq(['Torx set'], $xs('torxx'), '… and on');
+T::ok(str_contains($xc->get('/settings/system')['body'], 'Search engine'), 'System shows the search engine');
+T::eq(1, (int)$xdb->query("SELECT COUNT(*) FROM search_docs WHERE item_id = $cc")->fetchColumn(), 'documents stored');
+$sx->stop();
 
 T::section('Notes (Markdown) + attachments');
 $fx = new Server($fxDir = $newDir('attach'), ['SEED_DEFAULTS' => '1']);

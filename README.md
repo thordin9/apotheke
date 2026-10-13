@@ -67,8 +67,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   section. Database and paths stay in `config.php` / env and are shown read-only. See [docs/control-panel.md](docs/control-panel.md).
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
-* **Instant search** across name, location, category, notes, tags and serial number, ignoring case and accents (Greek
-  included).
+* **Full-text search**, instant, across name, notes, tags, serial number, barcode, borrower, category and the whole
+  location path: ranked (name before tags before the rest), matches highlighted with a snippet of the field that
+  matched, typo-tolerant ("screwdrivr"), ignoring case and accents (Greek included). SQLite FTS5 or PostgreSQL
+  tsvector + pg_trgm, with a plain substring fallback when an extension is missing.
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, reorder, choose the cover,

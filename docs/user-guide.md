@@ -35,8 +35,18 @@ Tap a location or category chip on a card to filter by it.
 
 ## Search, filters and sorting
 
-**Search** is instant (results update while you type) and matches the name, notes, serial number, tags, location and
-category. It ignores case and accents, Greek included ("πριζα" finds "Πρίζα").
+**Search** is instant (results update while you type) and matches the name, notes, tags, serial number, barcode,
+who it is lent to, the category and the whole location path ("garage" also finds the items on the garage's shelves).
+It ignores case and accents, Greek included ("πριζα" finds "Πρίζα"). Every word must match somewhere; parts of words
+count too ("rill" finds "drill").
+
+* **Best match first**: without a chosen sort, results are ranked — a hit in the name beats one in the tags, which beats
+  notes and the other fields; a word start beats the middle of a word. Pick a sort in the filter sheet to override.
+* **Highlighted**: the matching letters are marked in the name, and when the match is elsewhere a short line shows
+  where ("Notes … Fits the *screwdriver* handle").
+* **Typos**: a word that finds nothing is also looked up with one letter different (two for words of 8+ letters), and
+  the count says so ("showing “screwdriver” for “screwdrivr”"). Words under 4 letters must match exactly. Turn it off
+  under **Settings → List → Typo tolerance in search**.
 
 **Filter** opens a bottom sheet with:
 

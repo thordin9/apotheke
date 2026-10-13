@@ -247,6 +247,7 @@ function settings_system_html(): string
         . 'See <code>docs/configuration.md</code>.</p>'
         . '<table class="systable" id="systable"><tbody>'
         . '<tr><th scope="row">Version</th><td><code id="app-version">' . h(app_version()) . '</code><small>VERSION · <a href="https://github.com/thordin9/apotheke/releases">release notes</a></small></td></tr>' . $rows
+        . '<tr><th scope="row">Search engine</th><td><code id="search-engine">' . h(search_engine()) . '</code><small>' . h(search_engine_label()) . '</small></td></tr>'
         . '<tr><th scope="row">Database schema</th><td><code>' . h((string)array_key_last($applied)) . '</code><small>' . count($applied) . ' migrations applied</small></td></tr>'
         . '</tbody></table>'
         . '<p class="hint">All other options (everything in the other sections) were copied from <code>config.php</code> / the environment when this database was created or upgraded, and are edited here from then on.</p></section>';

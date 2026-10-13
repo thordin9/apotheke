@@ -144,7 +144,8 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
         . ($select ? '' : fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/'))
         . '<div class="card-body">'
-        . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
+        . '<a class="card-title" href="/item/' . $id . '">' . ($it['hl'] ?? h($it['name'])) . '</a>'
+        . (!empty($it['snip']) ? '<p class="snip">' . $it['snip'] . '</p>' : '')
         . '<div class="chips">' . $chips . '</div>'
         . ($min !== null ? low_badge_html() : '')
         . lend_badge_html($it)
@@ -349,6 +350,13 @@ function view_bulk_delete(array $items, string $back): void
 </main>
 <?php
     page_end();
+}
+
+/** "· showing “drill” for “drlil”" when typo tolerance stepped in. */
+function search_fixed_note(array $fixed): string
+{
+    if (!$fixed) return '';
+    return ' · showing ' . implode(', ', array_map(fn($from, $to) => '“' . $to . '” for “' . $from . '”', array_keys($fixed), $fixed));
 }
 
 function count_text(int $total, bool $filtered): string
@@ -635,7 +643,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 <main class="wrap">
   <?= !$select && !$filtered ? recent_html(recent_items()) : '' ?>
   <?= stats_section($stats, $statsOpen) ?>
-  <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
+  <p class="count" id="count"><?= h(count_text($res['total'], $filtered) . search_fixed_note($res['fixed'] ?? [])) ?></p>
   <div class="grid<?= setting('list_view') === 'compact' ? ' is-compact' : '' ?>" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
     <?= icon('box') ?>

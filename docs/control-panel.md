@@ -25,7 +25,7 @@ database. Use the panel (or `bin/settings.php`) instead.
 | **General** | App name (title, header, manifest, backups' file name stays `apotheke-…`), tagline, public URL for QR labels |
 | **Appearance** | Logo upload / reset, accent colour (picker, 9 presets incl. Terracotta, live light/dark preview with contrast), default theme (Auto/Light/Dark), icon background |
 | **Currency, dates & time** | Currency label, number format (`1,234.56`, `1.234,56`, `1 234,56`, `1’234.56`, `1234.56`), currency before/after, date format, 24 h / 12 h time, time zone |
-| **List** | Items per page (1–500), default sort, view (photo cards or compact rows), *Recently viewed* length (0–50, 0 = hide) and whether it is kept per device (cookie) or shared, whether the Overview starts open |
+| **List** | Items per page (1–500), default sort, view (photo cards or compact rows), *Recently viewed* length (0–50, 0 = hide) and whether it is kept per device (cookie) or shared, typo tolerance in search, whether the Overview starts open |
 | **New item defaults** | Quantity, running-low threshold, tags, notes, purchase date = today, expiry *N* months ahead, default location and category (the same ★ as on the Locations/Categories pages) |
 | **QR labels** | Label width and height (mm), labels per row, gap (mm), print the subtitle / link line, dashed cut lines |
 | **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, **undo window** (seconds, 0–3600, 0 = no undo), max photos per item |
