@@ -1,0 +1,80 @@
+name: Release
+
+# After CI passes on a push to main, compute the next SemVer version from the Conventional Commits since the last
+# tag, update VERSION, CHANGELOG.md and the README coverage table, commit "chore(release): vX.Y.Z [skip ci]",
+# tag it and publish a GitHub Release. See docs/releasing.md.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version, changelog, tag and GitHub Release
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: none
+      - name: Only release the commit CI tested
+        id: guard
+        run: |
+          head=$(git rev-parse HEAD)
+          if [ -n "$RUN_SHA" ] && [ "$head" != "$RUN_SHA" ]; then
+            echo "main moved on ($head != $RUN_SHA); the newer commit's CI run releases it"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Plan
+        id: plan
+        if: steps.guard.outputs.skip == 'false'
+        run: php scripts/release.php plan --github-output | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Refresh README coverage table from the CI artifact
+        if: steps.plan.outputs.release == 'true' && env.RUN_ID != ''
+        run: |
+          if gh run download "$RUN_ID" -n coverage-sqlite -D "$RUNNER_TEMP/coverage"; then
+            php scripts/coverage-readme.php "$RUNNER_TEMP/coverage"
+          else
+            echo "::warning::coverage-sqlite artifact not found; README coverage table left as is"
+          fi
+      - name: Update VERSION and CHANGELOG.md, commit, tag and push
+        if: steps.plan.outputs.release == 'true'
+        env:
+          NEXT: ${{ steps.plan.outputs.next }}
+        run: |
+          php scripts/release.php apply --notes="$RUNNER_TEMP/notes.md"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add VERSION CHANGELOG.md README.md
+          git commit -m "chore(release): v$NEXT [skip ci]"
+          git tag -a "v$NEXT" -m "v$NEXT"
+          git push --atomic origin HEAD:main "v$NEXT"
+      - name: GitHub Release
+        if: steps.plan.outputs.release == 'true'
+        env:
+          NEXT: ${{ steps.plan.outputs.next }}
+        run: gh release create "v$NEXT" --title "v$NEXT" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

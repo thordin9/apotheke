@@ -259,3 +259,11 @@ function public_url(string $path): string
     }
     return $base . $path;
 }
+
+/** The app version from the VERSION file (single source of truth, SemVer; updated by the release workflow). */
+function app_version(): string
+{
+    static $v = null;
+    return $v ??= (($t = @file_get_contents(dirname(__DIR__) . '/VERSION')) !== false && preg_match('/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/', trim($t)) ? trim($t) : '0.0.0');
+}
+

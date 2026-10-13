@@ -32,8 +32,15 @@ if ($method === 'HEAD') {
 
 if ($path === '/healthz') {
     header('Content-Type: text/plain');
+    header('X-Apotheke-Version: ' . app_version());
     db();
     exit('ok');
+}
+if ($path === '/health') {
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+    db();
+    exit(json_encode(['status' => 'ok', 'version' => app_version()]));
 }
 settings_apply_runtime();
 

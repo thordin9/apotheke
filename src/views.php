@@ -640,6 +640,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     <?php if (auth_enabled()): ?>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"><button class="linkbtn">Sign out</button></form>
     <?php endif; ?>
+    <span class="app-version" title="Apotheke version">v<?= h(app_version()) ?></span>
   </footer>
 </main>
 <?php if ($select): ?>

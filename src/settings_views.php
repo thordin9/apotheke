@@ -210,7 +210,8 @@ function settings_system_html(): string
     return '<section class="set-card"><p class="hint">These values are needed before the database can be opened, so they cannot be stored in it. '
         . 'Change them in <code>config.php</code> or with environment variables (environment wins) and restart the app. '
         . 'See <code>docs/configuration.md</code>.</p>'
-        . '<table class="systable" id="systable"><tbody>' . $rows
+        . '<table class="systable" id="systable"><tbody>'
+        . '<tr><th scope="row">Version</th><td><code id="app-version">' . h(app_version()) . '</code><small>VERSION · <a href="https://github.com/thordin9/apotheke/releases">release notes</a></small></td></tr>' . $rows
         . '<tr><th scope="row">Database schema</th><td><code>' . h((string)array_key_last($applied)) . '</code><small>' . count($applied) . ' migrations applied</small></td></tr>'
         . '</tbody></table>'
         . '<p class="hint">All other options (everything in the other sections) were copied from <code>config.php</code> / the environment when this database was created or upgraded, and are edited here from then on.</p></section>';

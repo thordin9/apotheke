@@ -11,7 +11,7 @@ const shot = async (page: Page, name: string, fullPage = false) => {
     Promise.all(imgs.map(i => { const im = i as HTMLImageElement; im.loading = 'eager'; return im.decode().catch(() => {}); })),
     new Promise(r => setTimeout(r, 3000)),
   ]));
-  await expect(page).toHaveScreenshot(name + '.png', { fullPage, mask: [page.locator('time'), page.locator('.times')] });
+  await expect(page).toHaveScreenshot(name + '.png', { fullPage, mask: [page.locator('.app-version'), page.locator('time'), page.locator('.times')] });
 };
 
 test.use({ publicUrl: 'http://apotheke.local:8080' });

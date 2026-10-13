@@ -27,6 +27,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 | [Database](database.md) | Schema and ER diagram, migrations and how to write one |
 | [Testing](testing.md) | `tests/run.sh`, PHPUnit on SQLite and PostgreSQL, the headless mobile checks, Playwright and the screenshot baseline workflow |
 | [CI](ci.md) | Every GitHub Actions job, the snapshot workflow, commit rules |
+| [Releasing](releasing.md) | SemVer from Conventional Commits, `VERSION`, `CHANGELOG.md`, tags and GitHub Releases |
 | [Deployment and operations](deployment-and-operations.md) | Backup and restore, upgrades, reverse proxies and HTTPS, security headers and CSP |
 | [Contributing](contributing.md) | Ground rules, workflow, commit messages, adding a feature end to end |
 

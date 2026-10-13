@@ -812,3 +812,4 @@ dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;bor
 body:has(.undo-bar:not([hidden])) .toast,body:has(.undo-bar:not([hidden])) .fab{display:none}
 .page-select .undo-bar,body:has(.actionbar) .undo-bar{bottom:calc(84px + env(safe-area-inset-bottom))}
 @media print{.undo-bar{display:none!important}}
+.foot .app-version{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}

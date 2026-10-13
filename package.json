@@ -6,7 +6,9 @@
     "test:e2e": "playwright test",
     "test:e2e:smoke-pg": "playwright test --project=pgsql-smoke",
     "test:e2e:report": "playwright show-report tests/visual/report",
-    "test:e2e:update": "scripts/update-snapshots.sh"
+    "test:e2e:update": "scripts/update-snapshots.sh",
+    "coverage:readme": "bash scripts/coverage.sh",
+    "release:plan": "php scripts/release.php plan"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0"

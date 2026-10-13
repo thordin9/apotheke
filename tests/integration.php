@@ -28,6 +28,12 @@ $c = $srv->client();
 $r = $c->get('/healthz');
 T::eq(200, $r['status'], 'GET /healthz → 200');
 T::eq('ok', $r['body'], '/healthz body is "ok"');
+$ver = trim((string)file_get_contents(__DIR__ . '/../VERSION'));
+T::ok(preg_match('/^\d+\.\d+\.\d+$/', $ver) === 1, 'VERSION file holds a SemVer version');
+T::eq($ver, $r['headers']['x-apotheke-version'] ?? '', '/healthz sends the version header');
+$r = $c->get('/health');
+T::eq(['status' => 'ok', 'version' => $ver], $r['json'] ?? null, '/health reports status and version (JSON)');
+T::ok(str_contains($c->get('/')['body'], '<span class="app-version" title="Apotheke version">v' . $ver . '</span>'), 'version in the footer');
 T::ok((test_driver() === 'pgsql' || is_file("$dir/catalog.sqlite")) && is_dir("$dir/images") && is_dir("$dir/thumbs") && is_dir("$dir/sessions"), 'data dir layout created (catalog.sqlite, images/, thumbs/, sessions/)');
 $db = testdb($dir);
 T::eq(migration_versions(), $db->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN), 'all migrations recorded in schema_migrations');
@@ -1086,6 +1092,7 @@ foreach ($secKeys as $sec => $keys) {
     foreach ($keys as $k) T::ok(str_contains($pg['body'], 'id="s-' . $k . '"'), "$sec shows $k");
 }
 T::eq(404, $sc->get('/settings/bogus')['status'], 'unknown section 404');
+T::ok(str_contains($sc->get('/settings/system')['body'], '<code id="app-version">' . trim((string)file_get_contents(__DIR__ . '/../VERSION')) . '</code>'), 'version in Control Panel → System');
 // export lists every visible setting, never the password
 $ex = $sc->get('/settings/export.json');
 T::ok(str_contains($ex['headers']['content-type'] ?? '', 'application/json') && str_contains($ex['headers']['content-disposition'] ?? '', 'attachment'), 'export is a JSON download');
