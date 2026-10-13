@@ -151,8 +151,12 @@ Notes:
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
   "due": "…"}` for a loan, `{"from": "Drill", "from_id": 7, "quantity": [2, 5], "photos": 1}` for a merge, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
-  `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins. The
-  password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).
+  `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins.
+  `auth_enabled` switches sign-in on; the old shared `password_hash` is empty since migration 0018. See [control-panel.md](control-panel.md).
+* `users` (migration 0018): `username` as typed, `username_key` (lower-case, unique) for lookups, `password_hash`
+  (`password_hash()`), `role` (`admin`, `editor`, `viewer`), `created_at`, `last_login_at`. The migration turns an existing
+  shared password into the account `admin` with role admin. `activity.actor` (same migration) is the user name that made
+  the change (NULL with sign-in off or from the CLI). Users are not part of backups.
 * `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
   random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
 * `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
@@ -193,6 +197,7 @@ Notes:
 | 0015 | `0015_favourites_recent.php` | `items.favourite` + index, `recent_views` (recently viewed per device or install) |
 | 0016 | `0016_undo.php` | `undo_tokens` (short-lived undo snapshots) + index on `expires_at` |
 | 0017 | `0017_stocktake.php` | `stocktakes`, `stocktake_lines` (location checks and their results) |
+| 0018 | `0018_users.php` | `users` (accounts with roles; the old shared password becomes `admin`), `activity.actor` |
 
 ## How migrations run
 

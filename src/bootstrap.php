@@ -11,6 +11,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/qr.php';
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/users.php';
 define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
 define('THUMB_DIR', DATA_DIR . '/thumbs');
@@ -56,29 +57,36 @@ function init_session(): void
     session_write_close();
 }
 
-/* ---------- auth (optional, APP_PASSWORD) ---------- */
+/* ---------- auth (user accounts, see users.php) ---------- */
 
 function is_authed(): bool
 {
-    return !auth_enabled() || (!empty($_SESSION['auth']) && hash_equals(auth_epoch(), (string)($_SESSION['auth_epoch'] ?? '')));
+    return current_user() !== null;
 }
 
-function login(string $pw): bool
+/** Sign in with a user name and password. */
+function login(string $username, string $pw): bool
 {
-    if (!auth_enabled() || !password_verify($pw, (string)setting('password_hash'))) return false;
-    login_session();
+    if (!auth_enabled()) return false;
+    $u = user_verify($username, $pw);
+    if (!$u) return false;
+    db()->prepare('UPDATE users SET last_login_at = ? WHERE id = ?')->execute([now_utc(), $u['id']]);
+    login_session($u['id']);
     return true;
 }
 
-/** Mark this session as signed in with the current password (also after changing it). */
-function login_session(): void
+/** Mark this session as signed in as user $uid (also after the user changed their own password). */
+function login_session(int $uid): void
 {
+    $u = user_get($uid);
+    if (!$u) return;
     start_session();
     session_regenerate_id(true);
-    $_SESSION['auth'] = true;
-    $_SESSION['auth_epoch'] = auth_epoch();
+    $_SESSION['uid'] = $u['id'];
+    $_SESSION['auth_epoch'] = user_epoch($u);
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
     session_write_close();
+    current_user(null, true);
 }
 
 function logout(): void

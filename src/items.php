@@ -598,22 +598,22 @@ const ACTIVITY_PAGE = 50;
 
 function activity_log(int $itemId, string $itemName, string $action, array $details = []): void
 {
-    db_insert(db(), 'INSERT INTO activity (item_id, item_name, action, details, created_at) VALUES (?,?,?,?,?)',
-        [$itemId, $itemName, $action, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), now_utc()]);
+    db_insert(db(), 'INSERT INTO activity (item_id, item_name, action, details, created_at, actor) VALUES (?,?,?,?,?,?)',
+        [$itemId, $itemName, $action, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), now_utc(), current_actor()]);
 }
 
 /** @return array<int,array{id:int,item_id:?int,item_name:string,action:string,details:array,created_at:string,exists:bool}> */
 function activity_list(?int $itemId = null, int $page = 1, int $per = ACTIVITY_PAGE): array
 {
     $page = max(1, $page);
-    $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
+    $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, a.actor, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
             FROM activity a LEFT JOIN items i ON i.id = a.item_id' . ($itemId !== null ? ' WHERE a.item_id = ?' : '')
          . ' ORDER BY a.id DESC LIMIT ' . ($per + 1) . ' OFFSET ' . (($page - 1) * $per);
     $st = db()->prepare($sql);
     $st->execute($itemId !== null ? [$itemId] : []);
     return array_map(fn($r) => ['id' => (int)$r['id'], 'item_id' => $r['item_id'] === null ? null : (int)$r['item_id'], 'item_name' => (string)$r['item_name'],
         'action' => (string)$r['action'], 'details' => json_decode((string)$r['details'], true) ?: [], 'created_at' => (string)$r['created_at'],
-        'exists' => (int)$r['item_exists'] === 1], $st->fetchAll());
+        'actor' => $r['actor'] === null ? null : (string)$r['actor'], 'exists' => (int)$r['item_exists'] === 1], $st->fetchAll());
 }
 
 function activity_short(?string $s): string

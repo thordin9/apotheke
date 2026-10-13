@@ -1,7 +1,7 @@
 # Control Panel
 
 The Control Panel (**☰ → Settings**, `/settings`) is where everything that is not needed to *open* the database is
-configured: name, colours, logo, formats, list behaviour, defaults for new items, limits, photo sizes and the password.
+configured: name, colours, logo, formats, list behaviour, defaults for new items, limits, photo sizes, users and sign-in.
 Values are stored in the database (`settings` table), take effect on the next request and travel with backups.
 
 ![Control Panel](screenshots/settings-light.png)
@@ -30,7 +30,7 @@ database. Use the panel (or `bin/settings.php`) instead.
 | **QR labels** | Label width and height (mm), labels per row, gap (mm), print the subtitle / link line, dashed cut lines |
 | **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, **undo window** (seconds, 0–3600, 0 = no undo), max photos per item |
 | **Photos & uploads** | Upload limit per photo (MB), stored photo size, thumbnail size, JPEG quality (thumbnails use quality − 6); attachments: allowed types (PDF + images / PDF only / images only), max size per file (MB), max files per item |
-| **Password** | Turn the shared password on/off, change it (min. 8 characters; the current password is required) |
+| **Users & sign-in** | Turn sign-in on/off (the first time creates an admin account), change your password, add users with a role (admin / editor / viewer), change roles, rename, set passwords, delete accounts |
 | **Backup & data** | Backup / restore, CSV export, settings export / import (JSON) |
 | **System** | Read-only bootstrap values, PHP version, schema version |
 
@@ -62,17 +62,32 @@ without `unsafe-inline`. The default indigo needs no extra stylesheet.
   manifest (`/manifest.webmanifest`, now generated) and the apple-touch icon point at them.
 * Files live in `DATA_DIR/brand/`. **Use the default logo** deletes them.
 
-## Password
+## Users & sign-in
 
-The password is stored as a `password_hash()` hash in the database. Changing it signs out every other device (sessions
-carry a fingerprint of the hash); the device you changed it on stays signed in. Locked out? On the server:
+Accounts live in the `users` table (migration 0018); passwords are `password_hash()` hashes. The setting
+`auth_enabled` is the switch: off means no sign-in and every visitor is an admin; on means everybody signs in with a
+user name and password and the **role** decides what they may do (viewer: look; editor: change the catalog; admin: also
+the Control Panel, users and backups). The server checks the role of every route (`route_role()` in `src/users.php`);
+a forbidden page answers 403, a forbidden JSON request `{"ok":false,"error":…}` with 403.
+
+Only admins see this section. Rules: user names are 1–40 letters, digits and `. _ @ -` (case-insensitive, unique);
+passwords at least 8 characters; the last admin can't be demoted or deleted; you can't delete yourself. A new password
+signs that user out on every device (sessions carry a fingerprint of the hash); changing your own keeps this device
+signed in. Turning sign-in off keeps the accounts. Accounts are **not** part of backups or the settings export, so a
+restore never locks you out.
+
+Locked out? On the server:
 
 ```
-php bin/settings.php password            # asks for a new password
-php bin/settings.php password --off      # no password
+php bin/settings.php users                          # accounts, roles, last sign-in
+php bin/settings.php user password admin            # new password (asks twice; or pass it as the next argument)
+php bin/settings.php user add anna editor           # roles: admin, editor, viewer
+php bin/settings.php user role anna admin           # · user rename OLD NEW · user delete NAME
+php bin/settings.php auth off                       # no sign-in (auth on: back on, needs an admin)
+php bin/settings.php password                       # shortcut: password of "admin" (created if missing) + sign-in on
 ```
 
-(In Docker: `docker compose exec apotheke php bin/settings.php password`.)
+(In Docker: `docker compose exec apotheke php bin/settings.php users`.)
 
 ## Import / export
 

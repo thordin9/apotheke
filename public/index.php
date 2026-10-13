@@ -91,9 +91,11 @@ try {
         if (!auth_enabled() || is_authed()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
-            if (login((string)($_POST['password'] ?? ''))) redirect('/');
+            $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
+            if (login($who, (string)($_POST['password'] ?? ''))) redirect('/');
             usleep(400000);
-            view_login('Wrong password.');
+            http_response_code(401);
+            view_login('Wrong user name or password.', $who);
         } else {
             view_login(null);
         }
@@ -108,6 +110,36 @@ try {
         if (wants_json()) json_out(['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login'], 401);
         if (str_starts_with($path, '/media/')) { http_response_code(401); exit; }
         redirect('/login');
+    }
+    // roles: viewer < editor < admin, checked for every route (see route_role())
+    $need = route_role($method, $path);
+    if (!user_can($need)) {
+        $msg = $need === 'admin' ? 'Only an admin can do this.' : 'Your account can look but not change things – ask an admin for the editor role.';
+        if (wants_json()) json_out(['ok' => false, 'error' => $msg], 403);
+        view_error(403, $msg);
+        exit;
+    }
+
+    /* ---- your account: own password ---- */
+    if ($path === '/account') {
+        $me = current_user();
+        if ($me['guest']) redirect('/settings/security');
+        if ($method === 'POST') {
+            check_csrf();
+            try {
+                if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 422);
+                view_account($me, $e->getMessage(), null);
+                exit;
+            }
+            login_session($me['id']);
+            redirect('/account?done=pw');
+        }
+        no_store();
+        view_account($me, null, isset($_GET['done']) ? 'Password changed' : null);
+        exit;
     }
 
     /* ---- theme preference (Auto / Light / Dark) ---- */
@@ -482,18 +514,73 @@ try {
         brand_reset();
         redirect('/settings/appearance?done=logo-reset');
     }
+    /* ---- users & sign-in (admins only, see route_role) ---- */
     if ($path === '/settings/password' && $method === 'POST') {
+        // turn sign-in on (creating the first admin when there is none) or off
         check_csrf();
         $mode = (string)($_POST['mode'] ?? '') === 'disable' ? 'disable' : 'change';
+        $me = current_user();
         try {
-            password_update($mode, (string)($_POST['current'] ?? ''), (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+            if ($mode === 'disable') {
+                if (!$me['guest'] && !user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                auth_turn_off();
+            } elseif (!$me['guest']) {
+                // signed in: change your own password
+                if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                login_session($me['id']);
+            } else {
+                $name = clean_line((string)($_POST['username'] ?? 'admin'), USERNAME_MAX * 2) ?: 'admin';
+                $u = user_by_name($name);
+                if ($u) {
+                    // an account exists already: sign in as that admin to turn sign-in back on
+                    if ($u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    $uid = $u['id'];
+                } else {
+                    $uid = db_tx(fn() => user_create($name, (string)($_POST['new'] ?? ''), 'admin', (string)($_POST['confirm'] ?? '')));
+                }
+                auth_turn_on();
+                login_session($uid);
+            }
         } catch (UserError $e) {
             http_response_code($e->getCode() ?: 422);
             view_settings_section('security', [], ['password' => $e->getMessage()], null);
             exit;
         }
-        if ($mode === 'change') login_session();
         redirect('/settings/security?done=' . ($mode === 'disable' ? 'pw-off' : 'pw'));
+    }
+    if (preg_match('#^/settings/users(?:/(\d+)(?:/(role|password|rename|delete))?)?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $me = current_user();
+        $uid = isset($m[1]) && $m[1] !== '' ? (int)$m[1] : 0;
+        $act = $m[2] ?? '';
+        try {
+            if ($uid === 0) {
+                user_create((string)($_POST['username'] ?? ''), (string)($_POST['new'] ?? ''), (string)($_POST['role'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                $done = 'user-added';
+            } elseif ($act === 'role') {
+                user_set_role($uid, (string)($_POST['role'] ?? ''));
+                $done = 'user-role';
+            } elseif ($act === 'password') {
+                user_set_password($uid, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                if ($uid === $me['id']) login_session($uid);
+                $done = 'user-pw';
+            } elseif ($act === 'rename') {
+                user_rename($uid, (string)($_POST['username'] ?? ''));
+                $done = 'user-renamed';
+            } elseif ($act === 'delete') {
+                if ($uid === $me['id']) throw new UserError('You cannot delete your own account while signed in with it.', 409);
+                user_delete($uid);
+                $done = 'user-deleted';
+            } else {
+                throw new UserError('Page not found.', 404);
+            }
+        } catch (UserError $e) {
+            http_response_code($e->getCode() ?: 422);
+            view_settings_section('security', [], ['users' => $e->getMessage()], null);
+            exit;
+        }
+        redirect('/settings/security?done=' . $done . '#users');
     }
     if (preg_match('#^/settings/([a-z]+)(/reset)?$#D', $path, $m) && isset(SETTINGS_SECTIONS[$m[1]])) {
         $section = $m[1];
@@ -501,7 +588,8 @@ try {
             no_store();
             $toast = match ((string)($_GET['done'] ?? '')) {
                 'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
-                'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Password turned off', default => null,
+                'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Sign-in turned off',
+                'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', default => null,
             };
             view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
             exit;

@@ -19,7 +19,7 @@ the Save / Edit bars sit at the bottom within thumb reach, and most screens also
 * [History](#history)
 * [Backup, restore and CSV](#backup-restore-and-csv)
 * [Dark mode](#dark-mode)
-* [Password](#password)
+* [Users and sign-in](#users-and-sign-in)
 * [Settings (Control Panel)](#settings-control-panel)
 * [Installing on the home screen](#installing-on-the-home-screen)
 * [iPhone tips](#iphone-tips)
@@ -341,7 +341,7 @@ Every change is recorded in the same transaction as the change: created (includi
 values of name, category, notes, value, purchase date, serial, tags and low-stock level), moved, quantity, photos
 (added, reordered, deleted, new cover), lent, returned and deleted. Bulk actions log one entry per item. The item
 page shows the latest ten entries with a link to the full history; ☰ → *Recent activity* lists all items, newest first.
-Entries of deleted items are kept.
+Entries of deleted items are kept. With sign-in on, every entry also names the account that made the change.
 
 ## Backup, restore and CSV
 
@@ -365,11 +365,30 @@ More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-
 ☰ → *Auto / Light / Dark*. The choice is stored in a cookie (and `localStorage`) and rendered by the server, so pages
 never flash the wrong theme. *Auto* follows the device setting.
 
-## Password
+## Users and sign-in
 
-When a password is set (**☰ → Settings → Password**, or `APP_PASSWORD` on the first start), Apotheke shows a sign-in
-page and *Sign out* appears in the menu and footer. There is one shared password, no user accounts. Sessions last up to
-180 days; changing the password signs every other device out. Forgot it? `php bin/settings.php password` on the server.
+Out of the box nobody has to sign in (fine on a trusted home network): every visitor may do everything. To require
+sign-in, open **☰ → Settings → Users & sign-in**, pick a user name (default `admin`) and a password and tap *Turn
+sign-in on*: that creates the first account, an **admin**, and signs you in with it. With `APP_PASSWORD` set on the first
+start the same happens automatically — the account is called `admin` and has that password. (Upgrading from a version
+with one shared password? It became the account `admin`; sign in with user name `admin` and the old password.)
+
+Then add an account for each person under **Add a user** and pick a role:
+
+| Role | May |
+|---|---|
+| **Viewer** | look at everything: the list, items, photos, history, statistics; export CSV, print labels |
+| **Editor** | also add, change, move and delete items, locations, categories and photos; stocktakes |
+| **Admin** | also the Control Panel, users, backup & restore |
+
+The role is checked by the server on every page and action; viewers simply don't see the buttons they can't use.
+Tap a user to change the role, rename the account, set a new password (signs that user out on every device) or delete it.
+The last admin can't be demoted or deleted, and you can't delete your own account. User names ignore upper/lower case.
+
+Everybody can change their own password under **☰ → (your name)**. The history records who made each change
+("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
+only needs an admin's user name and password. Sessions last up to 180 days. Locked out? On the server:
+`php bin/settings.php user password admin` (or `users` to list accounts, `auth off` to turn sign-in off).
 
 ## Settings (Control Panel)
 

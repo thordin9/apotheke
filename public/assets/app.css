@@ -852,3 +852,20 @@ body:has(.undo-bar:not([hidden])) .toast,body:has(.undo-bar:not([hidden])) .fab{
 .stk-list>li,.stk-replist>li,.stk-hist>li,.stk-tick{min-width:0}
 .stk-replist a,.stk-replist small,.stk-hist b{overflow-wrap:anywhere}
 .stk-scan .scanrow input{flex:1 1 0;width:0;min-width:0}
+
+/* ---------- users & roles ---------- */
+body.role-viewer .fab,body.role-viewer .qty .qbtn,body.role-viewer.page-item .actionbar,body.role-viewer .needs-edit,
+body.role-viewer:not(.page-account) main form[method=post],body.role-viewer .bulk-toggle{display:none!important}
+.menu-role{display:block;font-size:12px;color:var(--muted);font-weight:500}
+.userlist{list-style:none;margin:0 0 var(--s3);padding:0;display:grid;gap:var(--s2)}
+.user details{border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+.user summary{display:flex;gap:var(--s3);align-items:center;min-height:56px;padding:var(--s2) var(--s3);cursor:pointer;list-style:none}
+.user summary::-webkit-details-marker{display:none}
+.user-ic{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);flex:none}
+.user-t{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;min-width:0}
+.user-t b{overflow-wrap:anywhere}.user-t small{flex-basis:100%;color:var(--muted);font-size:13px}
+.user-forms{display:grid;gap:var(--s3);padding:0 var(--s3) var(--s3)}
+.user-f{display:grid;gap:var(--s2)}.user-f .btn,.user-forms .btn{min-height:44px}
+.role{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:var(--surface-3)}
+.role-admin{background:var(--accent);color:var(--accent-ink)}
+.act-by{color:var(--muted)}

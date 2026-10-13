@@ -21,7 +21,7 @@ const SETTINGS_SECTIONS = [
     'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo, stocktake', 'alert'],
     'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
     'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
-    'security'   => ['Password', 'Turn the password on or off, change it', 'lock'],
+    'security'   => ['Users & sign-in', 'Accounts, roles, passwords; sign-in on or off', 'lock'],
     'data'       => ['Backup & data', 'Backup, restore, CSV and settings export', 'archive'],
     'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
 ];
@@ -102,8 +102,8 @@ function settings_schema(): array
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // security (own form)
-        'auth_enabled'     => ['security', 'Require a password', 'internal', 'cfg_auth', '', []],
-        'password_hash'    => ['security', 'Password', 'secret', 'cfg_hash', '', []],
+        'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
+        'password_hash'    => ['security', 'Password (before accounts; moved to the user “admin” by migration 0018)', 'secret', 'cfg_hash', '', []],
     ];
     return $s;
 }
@@ -740,36 +740,4 @@ function manifest_data(): array
         'theme_color' => strcasecmp($accent, ACCENT_DEFAULT) === 0 ? '#C8502D' : accent_variants($accent)['light']['accent'],
         'icons' => $icons,
     ];
-}
-
-/* ---------- password ---------- */
-
-function auth_enabled(): bool
-{
-    return (bool)setting('auth_enabled') && (string)setting('password_hash') !== '';
-}
-
-/** Fingerprint of the current password hash; sessions signed in with an older password are no longer valid. */
-function auth_epoch(): string
-{
-    return substr(hash('sha256', (string)setting('password_hash')), 0, 16);
-}
-
-/**
- * Change the password settings. $current is required whenever a password is active.
- * $mode: 'change' (set a new password, turning it on), 'disable'.
- */
-function password_update(string $mode, string $current, string $new = '', string $confirm = ''): void
-{
-    if (auth_enabled() && !password_verify($current, (string)setting('password_hash'))) {
-        throw new UserError('The current password is not correct.', 403);
-    }
-    if ($mode === 'disable') {
-        settings_store(['auth_enabled' => false, 'password_hash' => '']);
-        return;
-    }
-    if (mb_strlen($new) < 8) throw new UserError('Use at least 8 characters for the password.');
-    if (strlen($new) > 200) throw new UserError('That password is too long.');
-    if (!hash_equals($new, $confirm)) throw new UserError('The two new passwords do not match.');
-    settings_store(['auth_enabled' => true, 'password_hash' => password_hash($new, PASSWORD_DEFAULT)]);
 }

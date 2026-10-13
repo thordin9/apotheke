@@ -169,22 +169,57 @@ function settings_appearance_extra(array $values, string $tok): string
 function settings_security_html(string $tok, array $errors): string
 {
     $on = auth_enabled();
-    $err = isset($errors['password']) ? '<div class="err" role="alert" id="pw-err">' . h($errors['password']) . '</div>' : '';
-    $cur = '<label class="field"><span>Current password</span><input type="password" name="current" id="pw-current" autocomplete="current-password" required></label>';
-    $new = '<label class="field"><span>New password <em>at least 8 characters</em></span><input type="password" name="new" id="pw-new" autocomplete="new-password" minlength="8" required></label>'
-        . '<label class="field"><span>Repeat new password</span><input type="password" name="confirm" id="pw-confirm" autocomplete="new-password" minlength="8" required></label>';
+    $me = current_user();
+    $err = fn(string $k, string $id) => isset($errors[$k]) ? '<div class="err" role="alert" id="' . $id . '">' . h($errors[$k]) . '</div>' : '';
+    $pw = fn(string $id, string $label = 'Password') => '<label class="field"><span>' . $label . ' <em>at least ' . PASSWORD_MIN . ' characters</em></span><input type="password" name="new" id="' . $id . '" autocomplete="new-password" minlength="' . PASSWORD_MIN . '" required></label>'
+        . '<label class="field"><span>Repeat ' . strtolower($label) . '</span><input type="password" name="confirm" id="' . $id . '-confirm" autocomplete="new-password" minlength="' . PASSWORD_MIN . '" required></label>';
+    $cur = '<label class="field"><span>Your current password</span><input type="password" name="current" id="pw-current" autocomplete="current-password" required></label>';
+    $roleSel = function (string $name, string $id, string $cur) {
+        $o = '<select name="' . $name . '" id="' . $id . '">';
+        foreach (USER_ROLES as $k => $l) $o .= '<option value="' . $k . '"' . ($k === $cur ? ' selected' : '') . '>' . $l . ' – ' . USER_ROLE_HINTS[$k] . '</option>';
+        return $o . '</select>';
+    };
     $o = '<section class="set-card" id="pw-card"><p class="pw-state" id="pw-state">' . icon('lock') . ' '
-        . ($on ? 'A password is required to use Apotheke.' : 'No password: anyone who can reach this address can use Apotheke (fine on a private home network).') . '</p>' . $err;
+        . ($on ? 'Sign-in is on: everybody signs in with their own user name and password.' : 'Sign-in is off: anyone who can reach this address can use Apotheke with full rights (fine on a private home network).') . '</p>' . $err('password', 'pw-err');
+    $admins = users_count('admin');
     if ($on) {
         $o .= '<form method="post" action="/settings/password" class="setform" id="pw-change"><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="change">'
-            . '<h2 class="set-h">Change password</h2>' . $cur . $new . '<button class="btn btn-primary btn-wide" id="pw-save">Change password</button></form>'
-            . '<form method="post" action="/settings/password" class="setform" id="pw-disable" data-confirm="Turn the password off? Anyone on the network can then use Apotheke."><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="disable">'
-            . '<h2 class="set-h">Turn the password off</h2>' . str_replace(['id="pw-current"'], ['id="pw-current-off"'], $cur) . '<button class="btn btn-danger btn-wide" id="pw-off">Turn password off</button></form>';
+            . '<h2 class="set-h">Change your password</h2><p class="hint">Signed in as <b id="me-name">' . h($me['username']) . '</b> (' . h(USER_ROLES[$me['role']]) . ').</p>'
+            . $cur . str_replace(['name="new" id="pw-new"', 'id="pw-new-confirm"'], ['name="new" id="pw-new"', 'id="pw-confirm"'], $pw('pw-new', 'New password')) . '<button class="btn btn-primary btn-wide" id="pw-save">Change password</button></form>'
+            . '<form method="post" action="/settings/password" class="setform" id="pw-disable" data-confirm="Turn sign-in off? Anyone on the network can then use Apotheke with full rights. The accounts are kept."><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="disable">'
+            . '<h2 class="set-h">Turn sign-in off</h2>' . str_replace('id="pw-current"', 'id="pw-current-off"', $cur) . '<button class="btn btn-danger btn-wide" id="pw-off">Turn sign-in off</button></form>';
     } else {
+        $first = $admins === 0;
         $o .= '<form method="post" action="/settings/password" class="setform" id="pw-enable"><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="change">'
-            . '<h2 class="set-h">Turn the password on</h2>' . $new . '<button class="btn btn-primary btn-wide" id="pw-save">Turn password on</button></form>';
+            . '<h2 class="set-h">Turn sign-in on</h2><p class="hint">' . ($first ? 'Create the first account – an admin. You are signed in with it right away.' : 'Accounts exist already: enter an admin’s user name and password to turn sign-in on again.') . '</p>'
+            . '<label class="field"><span>User name</span><input type="text" name="username" id="pw-user" value="admin" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="' . USERNAME_MAX . '" required></label>'
+            . ($first ? str_replace('id="pw-new-confirm"', 'id="pw-confirm"', $pw('pw-new')) : '<label class="field"><span>Password</span><input type="password" name="new" id="pw-new" autocomplete="current-password" required></label>')
+            . '<button class="btn btn-primary btn-wide" id="pw-save">Turn sign-in on</button></form>';
     }
-    return $o . '<p class="hint">Forgot the password? On the server run <code>php bin/settings.php password</code> to set a new one, or <code>php bin/settings.php password --off</code>.</p></section>';
+    $o .= '</section>';
+    // accounts
+    $users = users_list();
+    $o .= '<section class="set-card" id="users"><h2 class="set-h">Users <span class="muted-n">' . count($users) . '</span></h2>' . $err('users', 'users-err');
+    if (!$users) $o .= '<p class="hint">No accounts yet.</p>';
+    $o .= '<ul class="userlist" id="userlist">';
+    foreach ($users as $u) {
+        $self = !$me['guest'] && $me['id'] === $u['id'];
+        $id = $u['id'];
+        $o .= '<li class="user" id="user-' . $id . '"><details><summary><span class="user-ic">' . icon('lock') . '</span><span class="user-t"><b>' . h($u['username']) . '</b>' . ($self ? ' <em>(you)</em>' : '')
+            . '<span class="role role-' . $u['role'] . '">' . h(USER_ROLES[$u['role']]) . '</span><small>' . ($u['last_login_at'] ? 'Last sign-in ' . h(fmt_time($u['last_login_at'])) : 'Never signed in') . '</small></span></summary>'
+            . '<div class="user-forms">'
+            . '<form method="post" action="/settings/users/' . $id . '/role" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '"><label class="field"><span>Role</span>' . $roleSel('role', 'role-' . $id, $u['role']) . '</label><button class="btn" id="role-save-' . $id . '">Change role</button></form>'
+            . '<form method="post" action="/settings/users/' . $id . '/rename" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '"><label class="field"><span>User name</span><input type="text" name="username" id="uname-' . $id . '" value="' . h($u['username']) . '" maxlength="' . USERNAME_MAX . '" autocapitalize="off" spellcheck="false" required></label><button class="btn">Rename</button></form>'
+            . '<form method="post" action="/settings/users/' . $id . '/password" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '">' . $pw('upw-' . $id, 'New password') . '<button class="btn" id="upw-save-' . $id . '">Set password</button></form>'
+            . (!$self ? '<form method="post" action="/settings/users/' . $id . '/delete" data-confirm="Delete the account “' . h($u['username']) . '”? Their history entries keep the name."><input type="hidden" name="csrf" value="' . $tok . '"><button class="btn btn-danger btn-wide" id="udel-' . $id . '">' . icon('trash') . ' Delete account</button></form>' : '')
+            . '</div></details></li>';
+    }
+    $o .= '</ul><form method="post" action="/settings/users" class="setform" id="user-add"><input type="hidden" name="csrf" value="' . $tok . '"><h2 class="set-h">Add a user</h2>'
+        . '<label class="field"><span>User name</span><input type="text" name="username" id="nu-name" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="' . USERNAME_MAX . '" required></label>'
+        . '<label class="field"><span>Role</span>' . $roleSel('role', 'nu-role', 'editor') . '</label>' . $pw('nu-pw')
+        . '<button class="btn btn-primary btn-wide" id="nu-save">' . icon('plus') . ' Add user</button></form>'
+        . ($on ? '' : '<p class="hint">Accounts only count while sign-in is on.</p>') . '</section>';
+    return $o . '<p class="hint">Locked out? On the server run <code>php bin/settings.php user password admin</code> to set a new password, <code>php bin/settings.php users</code> to list the accounts, or <code>php bin/settings.php auth off</code> to turn sign-in off.</p>';
 }
 
 function settings_data_html(string $tok): string

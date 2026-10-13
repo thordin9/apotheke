@@ -183,8 +183,9 @@ test.describe('control panel', () => {
     await expect(page.locator('#s-image_thumb_max')).toHaveValue('480');
   });
 
-  test('security: turn the password on, sign in, turn it off', async ({ page, browser }) => {
+  test('security: turn sign-in on, sign in, turn it off', async ({ page, browser }) => {
     await open(page, 'security');
+    await expect(page.locator('#pw-user')).toHaveValue('admin');
     await page.locator('#pw-new').fill('garage-secret');
     await page.locator('#pw-confirm').fill('garage-secret');
     await page.locator('#pw-save').click();
@@ -192,7 +193,8 @@ test.describe('control panel', () => {
     const other = await browser.newPage({ baseURL: page.url().replace(/\/settings.*$/, '') });
     await other.goto('/settings');
     await expect(other).toHaveURL(/\/login/);
-    await other.locator('input[name=password]').fill('garage-secret');
+    await other.locator('#login-user').fill('admin');
+    await other.locator('#login-pw').fill('garage-secret');
     await other.locator('button.btn-primary').click();
     await other.goto('/settings');
     await expect(other).toHaveURL(/\/settings$/);
@@ -200,7 +202,7 @@ test.describe('control panel', () => {
     await page.locator('#pw-current-off').fill('garage-secret');
     page.once('dialog', d => d.accept());
     await page.locator('#pw-off').click();
-    await expect(page.locator('.toast')).toHaveText('Password turned off');
+    await expect(page.locator('.toast')).toHaveText('Sign-in turned off');
   });
 
   test('data: backup, CSV and settings export / import', async ({ app, page }) => {

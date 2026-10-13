@@ -50,6 +50,13 @@ function icon(string $n): string
 
 /* ---------- layout ---------- */
 
+/** "role-viewer" / "role-editor" while signed in with such an account: CSS hides the controls the role may not use. */
+function body_role_class(): string
+{
+    try { $u = current_user(); } catch (Throwable) { return ''; }
+    return $u && !$u['guest'] && $u['role'] !== 'admin' ? 'role-' . $u['role'] : '';
+}
+
 function page_start(string $title, string $bodyClass = ''): void
 {
     $t = $title === '' ? app_name() . ' – ' . app_tagline() : $title . ' · ' . app_name();
@@ -85,7 +92,7 @@ function page_start(string $title, string $bodyClass = ''): void
 <script src="<?= h(asset('theme.js')) ?>"></script>
 <script src="<?= h(asset('app.js')) ?>" defer></script>
 </head>
-<body class="<?= h($bodyClass) ?>">
+<body class="<?= h(trim($bodyClass . ' ' . body_role_class())) ?>">
 <?php
 }
 
@@ -372,8 +379,12 @@ function menu_html(): string
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
         . '<a class="menu-item" href="/stocktake" role="menuitem" id="menu-stocktake">' . icon('check') . ' Stocktake</a>'
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
-        . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>'
-        . '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>';
+        . (user_can('admin') ? '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>'
+        . '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>' : '');
+    $me = current_user();
+    if ($me && !$me['guest']) {
+        $o .= '<a class="menu-item" href="/account" role="menuitem" id="menu-account">' . icon('lock') . ' <span>' . h($me['username']) . ' <small class="menu-role">' . h(USER_ROLES[$me['role']]) . '</small></span></a>';
+    }
     if (auth_enabled()) {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
     }
@@ -1204,20 +1215,48 @@ function brand_logo(int $size): string
     return '<img class="brand-logo" src="' . h(brand_logo_url()) . '" width="' . $size . '" height="' . $size . '" alt="" decoding="async">';
 }
 
-function view_login(?string $error): void
+function view_login(?string $error, string $username = ''): void
 {
     page_start('Sign in', 'page-login');
     ?>
 <main class="wrap narrow login">
   <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(app_name()) ?></span></div>
   <p class="tagline"><?= h(ucfirst(app_tagline())) ?></p>
-  <form method="post" action="/login" class="itemform">
+  <form method="post" action="/login" class="itemform" id="login-form">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if ($error): ?><div class="err" role="alert"><?= h($error) ?></div><?php endif; ?>
-    <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required autofocus enterkeyhint="go"></label>
-    <button class="btn btn-primary btn-wide">Sign in</button>
+    <label class="field"><span>User name</span><input type="text" name="username" id="login-user" value="<?= h($username) ?>" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="<?= USERNAME_MAX * 2 ?>" required<?= $username === '' ? ' autofocus' : '' ?>></label>
+    <label class="field"><span>Password</span><input type="password" name="password" id="login-pw" autocomplete="current-password" required enterkeyhint="go"<?= $username !== '' ? ' autofocus' : '' ?>></label>
+    <button class="btn btn-primary btn-wide" id="login-go">Sign in</button>
   </form>
 </main>
+<?php
+    page_end();
+}
+
+function view_account(array $me, ?string $error, ?string $toast): void
+{
+    page_start('Your account', 'page-account');
+    echo settings_header('Your account', '/');
+    $tok = h(csrf_token());
+    ?>
+<main class="wrap narrow">
+  <section class="set-card" id="acct-card">
+    <p class="pw-state"><?= icon('lock') ?> Signed in as <b id="acct-name"><?= h($me['username']) ?></b> · <span class="role role-<?= h($me['role']) ?>" id="acct-role"><?= h(USER_ROLES[$me['role']]) ?></span></p>
+    <p class="hint"><?= h(ucfirst(USER_ROLE_HINTS[$me['role']])) ?>.</p>
+    <?php if ($error): ?><div class="err" role="alert" id="acct-err"><?= h($error) ?></div><?php endif; ?>
+    <form method="post" action="/account" class="setform" id="acct-pw">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <h2 class="set-h">Change your password</h2>
+      <label class="field"><span>Current password</span><input type="password" name="current" id="acct-current" autocomplete="current-password" required></label>
+      <label class="field"><span>New password <em>at least <?= PASSWORD_MIN ?> characters</em></span><input type="password" name="new" id="acct-new" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+      <label class="field"><span>Repeat new password</span><input type="password" name="confirm" id="acct-confirm" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+      <button class="btn btn-primary btn-wide" id="acct-save">Change password</button>
+    </form>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="btn btn-wide" id="acct-logout"><?= icon('logout') ?> Sign out</button></form>
+  </section>
+</main>
+<?php if ($toast): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <?php
     page_end();
 }
@@ -1316,7 +1355,8 @@ function activity_items_html(array $entries, bool $withItem): string
                 ? '<a class="act-item" href="/item/' . (int)$e['item_id'] . '">' . h($e['item_name']) . '</a>'
                 : '<span class="act-item act-gone">' . h($e['item_name']) . '</span>';
         }
-        $o .= '<div class="act-text">' . activity_html($e) . '</div><time datetime="' . h(str_replace(' ', 'T', $e['created_at']) . 'Z') . '">' . h(fmt_time($e['created_at'])) . '</time></div></li>';
+        $o .= '<div class="act-text">' . activity_html($e) . '</div><time datetime="' . h(str_replace(' ', 'T', $e['created_at']) . 'Z') . '">' . h(fmt_time($e['created_at'])) . '</time>'
+            . (!empty($e['actor']) ? ' <span class="act-by">· ' . h($e['actor']) . '</span>' : '') . '</div></li>';
     }
     return $o . '</ol>';
 }
