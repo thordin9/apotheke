@@ -12,6 +12,9 @@ try {
     const ctx = await browser.createBrowserContext();
     const p = await ctx.newPage();
     await p.setViewport({ ...vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    // Taps scroll their target to the middle of the screen first, so the sticky header and action bar never cover it.
+    const rawTap = p.tap.bind(p);
+    p.tap = async sel => { await p.$eval(sel, e => e.scrollIntoView({ block: 'center', inline: 'nearest' })); return rawTap(sel); };
     const errors = []; p.on('pageerror', e => errors.push(e.message));
     await p.goto(base + '/', { waitUntil: 'networkidle0' });
     const overflow = async () => p.evaluate(() => document.documentElement.scrollWidth > innerWidth);
