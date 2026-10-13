@@ -13,6 +13,7 @@ erDiagram
   items ||--o{ item_photos : "item_id (ON DELETE CASCADE)"
   items ||--o{ item_tags : "item_id (ON DELETE CASCADE)"
   items ||--o{ item_attachments : "item_id (ON DELETE CASCADE)"
+  items ||--o{ recent_views : "item_id (ON DELETE CASCADE)"
   tags ||--o{ item_tags : "tag_id (ON DELETE CASCADE)"
   items ||--o{ activity : "item_id (no FK, kept after delete)"
 
@@ -54,6 +55,7 @@ erDiagram
     text sort_key
     text created_at
     text updated_at
+    int favourite "0/1 (0015)"
   }
   item_photos {
     int id PK
@@ -70,6 +72,12 @@ erDiagram
     text mime
     bigint size "bytes"
     text created_at
+  }
+  recent_views {
+    text scope PK "d:<device cookie> or * (shared)"
+    int item_id PK
+    bigint seq "order, newest = highest"
+    text viewed_at
   }
   tags {
     int id PK
@@ -138,6 +146,9 @@ Notes:
   password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).
 * `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
   random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
+* `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
+  `seq` orders it, rows beyond the limit are deleted on every view and rows older than 90 days now and then. It is
+  per-device state and therefore **not** part of backups.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -160,6 +171,7 @@ Notes:
 | 0012 | `0012_barcode.php` | `items.barcode` + index |
 | 0013 | `0013_settings.php` | `settings` (Control Panel key/value), seeded from `config.php` / env |
 | 0014 | `0014_attachments.php` | `item_attachments` (PDF/image files per item) + index |
+| 0015 | `0015_favourites_recent.php` | `items.favourite` + index, `recent_views` (recently viewed per device or install) |
 
 ## How migrations run
 

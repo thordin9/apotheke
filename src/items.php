@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/markdown.php';
 require_once __DIR__ . '/attachments.php';
+require_once __DIR__ . '/favourites.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
@@ -278,7 +279,7 @@ function categories(): array { return tax_list('category'); }
 
 /* ---------- item data access ---------- */
 
-const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.expires_on, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.barcode, i.created_at, i.updated_at';
+const ITEM_COLS = 'i.id, i.name, i.location_id, l.name AS location, i.category_id, c.name AS category, i.quantity, i.min_qty, i.expires_on, i.notes, i.image, i.value_cents, i.lent_to, i.lent_at, i.lent_due, i.purchase_date, i.serial, i.barcode, i.favourite, i.created_at, i.updated_at';
 const ITEM_FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
 function item_get(int $id): ?array
@@ -456,6 +457,7 @@ function list_filter_defs(): array
     return [
         'stock' => ['label' => 'Stock', 'all' => 'All items', 'opts' => ['low' => 'Running low'], 'icon' => 'alert', 'class' => 'chip-low', 'what' => 'running-low filter'],
         'exp'   => ['label' => 'Expiry / warranty', 'all' => 'All items', 'opts' => ['soon' => 'Expiring soon', 'expired' => 'Expired'], 'icon' => 'clock', 'class' => 'chip-exp', 'what' => 'expiry filter'],
+        'fav'   => ['label' => 'Favourites', 'all' => 'All items', 'opts' => ['1' => 'Favourites only'], 'icon' => 'star', 'class' => 'chip-fav', 'what' => 'favourites filter'],
         'lend'  => ['label' => 'Lending', 'all' => 'All items', 'opts' => ['out' => 'Lent out', 'overdue' => 'Overdue'], 'icon' => 'handoff', 'class' => 'chip-lend', 'what' => 'lending filter'],
     ];
 }
@@ -531,6 +533,7 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
     if (($f['stock'] ?? '') === 'low') $where[] = '(' . LOW_SQL . ')';
     if (($f['exp'] ?? '') === 'expired') { $where[] = 'i.expires_on IS NOT NULL AND i.expires_on < ?'; $args[] = local_today(); }
     if (($f['exp'] ?? '') === 'soon') { $where[] = 'i.expires_on IS NOT NULL AND i.expires_on >= ? AND i.expires_on <= ?'; array_push($args, local_today(), expiry_soon_until()); }
+    if (($f['fav'] ?? '') === '1') $where[] = 'i.favourite = 1';
     if (($f['lend'] ?? '') === 'out') $where[] = 'i.lent_to IS NOT NULL';
     if (($f['lend'] ?? '') === 'overdue') { $where[] = 'i.lent_to IS NOT NULL AND i.lent_due IS NOT NULL AND i.lent_due < ?'; $args[] = local_today(); }
     $w = $where ? 'WHERE ' . implode(' AND ', $where) : '';
@@ -549,7 +552,7 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
     $page   = max(1, $page);
     $pageSize ??= page_size();
     $offset = ($page - 1) * $pageSize;
-    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on "
+    $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on, i.favourite "
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();

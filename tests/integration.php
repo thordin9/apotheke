@@ -1060,7 +1060,7 @@ $secKeys = [
     'general' => ['app_name', 'app_tagline', 'public_url'],
     'appearance' => ['accent', 'theme_default', 'icon_background'],
     'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
-    'list' => ['page_size', 'default_sort', 'list_view', 'overview_open'],
+    'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'max_photos'],
@@ -1373,6 +1373,82 @@ T::eq($pdf, $fc->get('/attachment/' . $rows[0]['id'])['body'], 'restored attachm
 $fc->post("/item/$ai/delete", ['csrf' => $ft]);
 T::ok(!is_file("$fxDir/files/{$rows[0]['file']}") && (int)$fdb->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn() === 0, 'deleting the item removes its attachments');
 $fx->stop();
+
+T::section('Favourites + recently viewed');
+$vx = new Server($vxDir = $newDir('fav'), ['SEED_DEFAULTS' => '1']);
+$vc = $vx->client();
+$vt = $vc->csrf();
+$vdb = testdb($vxDir);
+$vIds = [];
+foreach (['Fav drill', 'Fav saw', 'Fav tape', 'Plain hammer'] as $n) $vIds[$n] = $savedId($vc->api('/save', ['csrf' => $vt, 'name' => $n]));
+$home = $vc->get('/')['body'];
+T::ok(substr_count($home, 'class="favbtn" aria-pressed="false"') >= 4, 'every card has a star toggle');
+T::ok(!str_contains($home, 'id="fav-chip"'), 'no favourites chip while nothing is starred');
+$before = $vdb->query("SELECT updated_at FROM items WHERE id = {$vIds['Fav drill']}")->fetchColumn();
+$r = $vc->api("/item/{$vIds['Fav drill']}/fav", ['csrf' => $vt, 'on' => '1']);
+T::ok(($r['json']['favourite'] ?? null) === true && ($r['json']['count'] ?? 0) === 1, 'star via JSON');
+T::eq(303, $vc->post("/item/{$vIds['Fav saw']}/fav", ['csrf' => $vt, 'on' => '1', 'back' => '/'])['status'], 'star without JS redirects back');
+T::eq('/', $vc->post("/item/{$vIds['Fav saw']}/fav", ['csrf' => $vt, 'on' => '1', 'back' => '/'])['headers']['location'] ?? '', '… to the list');
+T::eq("/item/{$vIds['Fav saw']}", $vc->post("/item/{$vIds['Fav saw']}/fav", ['csrf' => $vt, 'on' => '1', 'back' => 'https://evil.example/'])['headers']['location'] ?? '', 'foreign back URL ignored');
+T::eq($before, $vdb->query("SELECT updated_at FROM items WHERE id = {$vIds['Fav drill']}")->fetchColumn(), 'starring keeps the list order (updated_at unchanged)');
+T::eq(419, $vc->post("/item/{$vIds['Fav tape']}/fav", ['on' => '1'])['status'], 'star needs CSRF');
+T::eq(404, $vc->api('/item/999999/fav', ['csrf' => $vt, 'on' => '1'])['status'], 'unknown item → 404');
+$favs = titles($vc->json('/?fav=1&sort=name'));
+T::eq(['Fav drill', 'Fav saw'], $favs, 'favourites filter');
+$home = $vc->get('/')['body'];
+T::ok(preg_match('#id="fav-chip" href="/\?fav=1"[^>]*>.*?Favourites <b>2</b>#s', $home) === 1, 'quick favourites chip with count');
+$fl = $vc->get('/?fav=1')['body'];
+T::ok(str_contains($fl, 'chip-fav') && str_contains($fl, 'Favourites only'), 'active filter chip');
+T::ok(str_contains($fl, '<option value="1" selected>Favourites only</option>'), 'filter sheet shows the favourites filter');
+T::ok(str_contains($vc->get("/item/{$vIds['Fav drill']}")['body'], 'aria-pressed="true" aria-label="Favourite: Fav drill"'), 'item page star is on');
+$vc->api("/item/{$vIds['Fav drill']}/fav", ['csrf' => $vt]);
+T::eq(0, (int)$vdb->query("SELECT favourite FROM items WHERE id = {$vIds['Fav drill']}")->fetchColumn(), 'without “on” the star toggles');
+$vc->post('/filters', ['csrf' => $vt, 'name' => 'Starred', 'fav' => '1']);
+T::eq('fav=1', $vdb->query("SELECT query FROM saved_filters WHERE name = 'Starred'")->fetchColumn(), 'saved filter stores fav=1');
+
+// recently viewed: per device (cookie) by default
+T::ok(!str_contains($vx->client()->get('/')['body'], 'id="recent"'), 'no recently viewed strip before opening anything');
+foreach (['Fav drill', 'Fav saw', 'Fav tape', 'Fav drill'] as $n) $vc->get("/item/{$vIds[$n]}");
+T::ok(preg_match('/^[a-f0-9]{32}$/', $vc->cookies['apo_dev'] ?? '') === 1, 'device cookie set on first view');
+$home = $vc->get('/')['body'];
+preg_match('#<section class="recent".*?</section>#s', $home, $rm);
+preg_match_all('#href="/item/(\d+)" class="recent-it"#', $rm[0] ?? '', $rr);
+T::eq([$vIds['Fav drill'], $vIds['Fav tape'], $vIds['Fav saw']], array_map('intval', $rr[1]), 'recently viewed: newest first, no duplicates');
+T::ok(!str_contains($vc->get('/?q=fav')['body'], 'id="recent"'), 'strip hidden while searching/filtering');
+$other = $vx->client();
+$other->get('/');
+T::ok(!str_contains($other->get('/')['body'], 'id="recent"'), 'another device has its own (empty) list');
+$save = fn(array $over) => $vc->post('/settings/list', ['csrf' => $vt] + $over + ['page_size' => '60', 'default_sort' => 'recent', 'list_view' => 'grid', 'recent_limit' => '8', 'recent_scope' => 'device', 'overview_open' => '1']);
+$sv = $save(['recent_limit' => '2']);
+T::eq(303, $sv['status'], 'list settings saved', substr($sv['body'], 0, 300));
+$vc->get("/item/{$vIds['Fav saw']}");
+preg_match('#<section class="recent".*?</section>#s', $vc->get('/')['body'], $rm);
+T::eq(2, substr_count($rm[0] ?? '', 'class="recent-it"'), 'limit from the Control Panel');
+T::ok(str_contains($rm[0] ?? '', 'recent-fav'), 'starred items are marked in the strip');
+T::eq(2, (int)$vdb->query("SELECT COUNT(*) FROM recent_views WHERE scope LIKE 'd:%' AND scope = 'd:" . $vc->cookies['apo_dev'] . "'")->fetchColumn(), 'older entries pruned');
+$save(['recent_scope' => 'install']);
+$vc->get("/item/{$vIds['Fav saw']}");
+T::ok(str_contains($other->get('/')['body'], 'class="recent-it"'), 'shared per install: other devices see it');
+$vc->post('/recent/clear', ['csrf' => $vt]);
+T::ok(!str_contains($other->get('/')['body'], 'id="recent"'), 'clear empties the list');
+$save(['recent_limit' => '0']);
+$vc->get("/item/{$vIds['Fav saw']}");
+T::eq(0, (int)$vdb->query("SELECT COUNT(*) FROM recent_views WHERE scope = '*'")->fetchColumn(), 'limit 0 turns tracking off');
+$save(['recent_limit' => '8']);
+$vc->get("/item/{$vIds['Fav tape']}");
+$vc->post("/item/{$vIds['Fav tape']}/delete", ['csrf' => $vt]);
+T::eq(0, (int)$vdb->query("SELECT COUNT(*) FROM recent_views WHERE item_id = {$vIds['Fav tape']}")->fetchColumn(), 'deleted items leave the list');
+// backup keeps the star
+$bzf = tmpdir('apotheke-favzip') . '/b.zip';
+$tmpDirs[] = dirname($bzf);
+file_put_contents($bzf, $vc->get('/backup.zip')['body']);
+$bzz = new ZipArchive();
+$bzz->open($bzf);
+$bjs = json_decode((string)$bzz->getFromName('backup.json'), true);
+$favCol = array_search('favourite', $bjs['tables']['items']['columns'] ?? [], true);
+T::ok($favCol !== false && in_array(1, array_map(fn($r) => (int)$r[$favCol], $bjs['tables']['items']['rows'] ?? []), true), 'backup includes favourites');
+T::ok(!isset($bjs['tables']['recent_views']), 'recently viewed is not backed up (per-device state)');
+$vx->stop();
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 

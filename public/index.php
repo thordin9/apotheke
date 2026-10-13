@@ -168,6 +168,7 @@ try {
             'min_qty' => $it['min_qty'] === null ? '' : (string)$it['min_qty']] + $it, locations(), categories(), null,
             isset($_GET['copied']) ? 'Copy created – edit it here' : null);
         else {
+            if (!wants_json()) recent_track((int)$it['id']);
             $hist = activity_list((int)$it['id'], 1, 10);
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10, attachments_for((int)$it['id']));
         }
@@ -351,6 +352,24 @@ try {
             throw new UserError($e->getMessage(), 422);
         }
         redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action));
+    }
+
+    /* ---- favourites / recently viewed ---- */
+    if (preg_match('#^/item/(\d+)/fav$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $id = (int)$m[1];
+        $it = item_get($id);
+        if (!$it) throw new UserError('Item not found.', 404);
+        $on = isset($_POST['on']) ? (string)$_POST['on'] === '1' : empty($it['favourite']);
+        fav_set($id, $on);
+        if (wants_json()) json_out(['ok' => true, 'favourite' => $on, 'count' => fav_count()]);
+        $back = (string)($_POST['back'] ?? '');
+        redirect(preg_match('#^/(\?[^\r\n]*)?$|^/item/\d+$#D', $back) ? $back : '/item/' . $id);
+    }
+    if ($path === '/recent/clear' && $method === 'POST') {
+        check_csrf();
+        recent_clear();
+        redirect('/');
     }
 
     /* ---- delete ---- */

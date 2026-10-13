@@ -63,6 +63,17 @@ them with a short description, where you can **rename** or **delete** them. Name
 accents) and you can keep up to 50. A saved filter stores the search words, filters and sort, not the results, so it
 always shows the current matches. Saved filters are included in backups.
 
+## Favourites and recently viewed
+
+Tap the ☆ on a card (or in the item page header) to make an item a **favourite**; tap again to remove it. As soon as
+something is starred, a **★ Favourites** chip with the count appears above the list: it switches the list to
+favourites only (`/?fav=1`) and back. The same filter is in the filter sheet (*Favourites*), combines with search and
+the other filters and can be part of a saved filter. Starring doesn't change an item's place in the list.
+
+**Recently viewed** shows the last items you opened as a row of thumbnails above the list (not while searching or
+filtering). By default each device keeps its own list (an anonymous cookie); *Settings → List* can share one list for
+everyone, change how many are shown (0 hides it). *Clear* empties it.
+
 ## Overview statistics
 
 The collapsible *Overview* panel at the top of the list shows tiles (items, total quantity, locations, categories,

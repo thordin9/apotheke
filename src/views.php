@@ -24,6 +24,7 @@ function icon(string $n): string
         'archive' => '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>',
         'clock'  => '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
         'star'   => '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+        'history' => '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
         'move'   => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
         'tag'    => '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.6"/>',
@@ -133,6 +134,7 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
     return '<article class="card' . (is_low($it) ? ' is-low' : '') . ($select ? ' selectable' : '') . '" data-id="' . $id . '"' . ($min !== null ? ' data-min="' . $min . '"' : '') . '>'
         . ($select ? '<label class="sel"><input type="checkbox" class="selbox" name="ids[]" value="' . $id . '" form="bulkform"' . ($checked ? ' checked' : '') . ' aria-label="Select ' . h($it['name']) . '"><span class="selmark" aria-hidden="true">' . icon('check') . '</span></label>' : '')
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
+        . ($select ? '' : fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/'))
         . '<div class="card-body">'
         . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
         . '<div class="chips">' . $chips . '</div>'
@@ -144,6 +146,28 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<output class="qval">' . $q . '</output>'
         . '<button type="button" class="qbtn" data-delta="1" aria-label="Increase">' . icon('plus') . '</button>'
         . '</div></div></article>';
+}
+
+/** Star toggle (a small POST form, so it works without JavaScript; app.js toggles it in place). */
+function fav_button_html(int $id, string $name, bool $on, string $back): string
+{
+    return '<form class="favf" method="post" action="/item/' . $id . '/fav"><input type="hidden" name="csrf" value="' . h(csrf_token()) . '">'
+        . '<input type="hidden" name="on" value="' . ($on ? '0' : '1') . '"><input type="hidden" name="back" value="' . h($back) . '">'
+        . '<button class="favbtn" aria-pressed="' . ($on ? 'true' : 'false') . '" aria-label="Favourite: ' . h($name) . '" title="Favourite">' . icon('star') . '</button></form>';
+}
+
+/** "Recently viewed" strip on the list page (thumbnails, horizontally scrollable). */
+function recent_html(array $items): string
+{
+    if (!$items) return '';
+    $o = '<section class="recent" id="recent" aria-labelledby="recent-h"><div class="recent-head"><h2 id="recent-h">' . icon('history') . ' Recently viewed</h2>'
+        . '<form method="post" action="/recent/clear"><input type="hidden" name="csrf" value="' . h(csrf_token()) . '"><button class="btn btn-ghost btn-sm" id="recent-clear">Clear</button></form></div><ol class="recent-row">';
+    foreach ($items as $it) {
+        $img = valid_image_name($it['image'] ?? null) ? '<img src="/media/thumb/' . h($it['image']) . '" alt="" loading="lazy" decoding="async">' : '<span class="ph">' . icon('box') . '</span>';
+        $o .= '<li><a href="/item/' . (int)$it['id'] . '" class="recent-it">' . $img . '<span>' . h($it['name']) . '</span>'
+            . (!empty($it['favourite']) ? '<b class="recent-fav" aria-label="Favourite">' . icon('star') . '</b>' : '') . '</a></li>';
+    }
+    return $o . '</ol></section>';
 }
 
 /** "Running low" badge; shown by CSS while the surrounding card/page has .is-low (so +/- can toggle it). */
@@ -556,7 +580,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
           <label class="field"><span><?= h($d['label']) ?></span>
           <select name="<?= $k ?>" id="<?= $k ?>" data-filter>
             <option value=""><?= h($d['all']) ?></option>
-            <?php foreach ($d['opts'] as $v => $lbl): ?><option value="<?= h($v) ?>"<?= $f[$k] === $v ? ' selected' : '' ?>><?= h($lbl) ?></option><?php endforeach; ?>
+            <?php foreach ($d['opts'] as $v => $lbl): ?><option value="<?= h((string)$v) ?>"<?= $f[$k] === (string)$v ? ' selected' : '' ?>><?= h($lbl) ?></option><?php endforeach; ?>
           </select></label>
           <?php endforeach; ?>
           <label class="field"><span>Sort by</span>
@@ -577,6 +601,9 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     </div>
     <?php $curQuery = http_build_query($qs); ?>
     <div class="saved-row" id="saved-row">
+      <?php $nFav = fav_count(); if ($nFav || $f['fav'] !== ''): $favOn = $f['fav'] === '1'; ?>
+      <a class="achip chip-fav<?= $favOn ? ' is-on' : '' ?>" id="fav-chip" href="<?= h('/' . (($fq = http_build_query(list_query($q, ['fav' => $favOn ? '' : '1'] + $f, $sort))) ? '?' . $fq : '')) ?>"<?= $favOn ? ' aria-pressed="true"' : '' ?>><?= icon('star') ?> Favourites <b><?= $nFav ?></b></a>
+      <?php endif; ?>
       <div class="saved-chips" id="saved-chips"><?= saved_filters_html(saved_filters(), $curQuery) ?></div>
       <details class="savefilter" id="savefilter"<?= $curQuery === '' ? ' hidden' : '' ?>>
         <summary class="btn btn-sm" id="savefilter-open"><?= icon('star') ?> Save filter</summary>
@@ -594,6 +621,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 </header>
 <main class="wrap">
   <?= stats_section($stats, $statsOpen) ?>
+  <?= !$select && !$filtered ? recent_html(recent_items()) : '' ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
   <div class="grid<?= setting('list_view') === 'compact' ? ' is-compact' : '' ?>" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
@@ -635,6 +663,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <div class="bar">
     <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
     <h1 class="title-sm">Item</h1>
+    <?= fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/item/' . $id) ?>
     <a class="btn btn-ghost" href="/item/<?= $id ?>/edit" aria-label="Edit item"><?= icon('edit') ?><span class="hide-xs">Edit</span></a>
   </div>
 </header>

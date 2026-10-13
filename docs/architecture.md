@@ -21,6 +21,7 @@ src/
                           activity log, low stock, bulk actions, lending, duplicating, the location tree
   markdown.php            safe Markdown subset for notes (escape first, then a few constructs; http/https/mailto links)
   attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
+  favourites.php          favourite flag, recently viewed list (device cookie or shared scope)
   backup.php              portable backup zip (dump + photos + attachments) and restore
   qr.php                  pure-PHP QR code encoder (SVG)
   seed.php                starter locations/categories and demo data

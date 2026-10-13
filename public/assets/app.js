@@ -169,6 +169,23 @@
   /* ---------- print button (labels) ---------- */
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) { e.preventDefault(); window.print(); } });
 
+  /* ---------- favourite star (in place; the form still works without JS) ---------- */
+  document.addEventListener('submit', async e => {
+    const f = e.target.closest('form.favf');
+    if (!f) return;
+    e.preventDefault();
+    const b = $('.favbtn', f), inp = $('input[name=on]', f);
+    const on = inp.value === '1';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false'); inp.value = on ? '0' : '1';   // optimistic
+    try {
+      const j = await post(f.action, { on: on ? '1' : '0' });
+      const n = $('#fav-chip b'); if (n) n.textContent = j.count;
+      toast(j.favourite ? 'Added to favourites' : 'Removed from favourites');
+    } catch (err) {
+      b.setAttribute('aria-pressed', on ? 'false' : 'true'); inp.value = on ? '1' : '0'; toast(err.message, true);
+    }
+  });
+
   /* ---------- quantity +/- (cards + detail) ---------- */
   const pending = new Map();
   document.addEventListener('click', e => {

@@ -68,6 +68,8 @@ function settings_schema(): array
         'page_size'     => ['list', 'Items per page', 'int', 'cfg:page_size', 'More items load with “Show more”.', ['min' => 1, 'max' => 500]],
         'default_sort'  => ['list', 'Default sort', 'enum', 'recent', 'Order of the list when no sort is chosen.', ['options' => SORTS]],
         'list_view'     => ['list', 'View', 'enum', 'grid', 'Photo cards, or compact rows that fit more items on the screen.', ['options' => ['grid' => 'Cards with photos', 'compact' => 'Compact rows']]],
+        'recent_limit'  => ['list', 'Recently viewed', 'int', 8, 'How many recently opened items the list shows above the results. 0 = hide.', ['min' => 0, 'max' => 50]],
+        'recent_scope'  => ['list', 'Recently viewed is kept', 'enum', 'device', '', ['options' => ['device' => 'Per device (a cookie)', 'install' => 'Shared by everyone']]],
         'overview_open' => ['list', 'Show the overview open', 'bool', true, 'Whether the statistics overview starts expanded (each device remembers its own choice afterwards).', []],
         // items
         'default_quantity' => ['items', 'Quantity', 'int', 1, '', ['min' => 0, 'max' => 1000000]],
