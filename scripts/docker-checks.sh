@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Web-server behaviour of the Docker image (nginx + php-fpm), on top of scripts/smoke.sh.
-# Usage: scripts/docker-checks.sh [base-url]   (default http://127.0.0.1:8080)
+# Usage: scripts/docker-checks.sh [base-url]   (default http://127.0.0.1:9091)
 set -euo pipefail
-base=${1:-http://127.0.0.1:8080}
+base=${1:-http://127.0.0.1:9091}
 fail=0
 check() { # name expected actual
   if [[ $2 == "$3" ]]; then echo "ok   $1"; else echo "FAIL $1: expected '$2', got '$3'"; fail=1; fi

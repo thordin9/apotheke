@@ -11,7 +11,7 @@ const shot = async (page: Page, name: string, fullPage = true) => {
   await expect(page).toHaveScreenshot(name + '.png', { fullPage, mask: [page.locator('.app-version'), page.locator('time'), page.locator('.times'), page.locator('#systable td')] });
 };
 
-test.use({ publicUrl: 'http://apotheke.local:8080' });
+test.use({ publicUrl: 'http://apotheke.local:9091' });
 
 test.describe('visual: control panel', () => {
   test('home and sections', async ({ app, page }) => {

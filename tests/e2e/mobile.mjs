@@ -1,7 +1,7 @@
 // Headless mobile checks for the filter sheet and theme switch (optional; needs puppeteer-core + Chrome).
-// Usage: node tests/e2e/mobile.mjs http://127.0.0.1:8080   (CHROME=/path/to/chrome to override)
+// Usage: node tests/e2e/mobile.mjs http://127.0.0.1:9091   (CHROME=/path/to/chrome to override)
 import puppeteer from 'puppeteer-core';
-const base = process.argv[2] || 'http://127.0.0.1:8080';
+const base = process.argv[2] || 'http://127.0.0.1:9091';
 const exe = process.env.CHROME || '/usr/bin/google-chrome';
 let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ✔ ' : '  ✘ ') + m); if (!c) fails++; };

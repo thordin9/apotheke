@@ -14,7 +14,7 @@ const shot = async (page: Page, name: string, fullPage = false) => {
     page.locator('.user small'), page.locator('.stk-h small'), page.locator('#imp-history small')] });
 };
 
-test.use({ publicUrl: 'http://apotheke.local:8080' });
+test.use({ publicUrl: 'http://apotheke.local:9091' });
 
 async function accountsOn(page: Page, app: any) {
   await app.go('/settings/security');

@@ -37,11 +37,11 @@ Data lives in `DATA_DIR` (Compose: `./data` → `/data`): SQLite file, `images/`
 ## Local run
 
 ```bash
-docker compose up -d --build          # http://127.0.0.1:8080/
+docker compose up -d --build          # http://127.0.0.1:9091/
 # or without Docker:
 cp config.example.php config.php      # optional; env vars override
 php bin/migrate.php
-php -S 127.0.0.1:8080 -t public public/index.php
+php -S 127.0.0.1:9091 -t public public/index.php
 ```
 
 Optional password: `APP_PASSWORD`. Optional Postgres: set `DB_DRIVER=pgsql` and use the Compose `postgres` profile (see README).
@@ -53,7 +53,7 @@ Optional password: `APP_PASSWORD`. Optional Postgres: set `DB_DRIVER=pgsql` and 
 ```bash
 tests/run.sh                              # lint + HTTP integration (no Composer)
 composer install && vendor/bin/phpunit    # unit + same integration via PHPUnit
-scripts/docker-checks.sh http://127.0.0.1:8080   # nginx behaviour of the image
+scripts/docker-checks.sh http://127.0.0.1:9091   # nginx behaviour of the image
 npx playwright test --grep-invert visual  # functional E2E (after npm ci + browsers)
 ```
 

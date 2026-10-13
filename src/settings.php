@@ -51,7 +51,7 @@ function settings_schema(): array
         // general
         'app_name'      => ['general', 'App name', 'string', 'Apotheke', 'Shown in the header, the window title and on the home screen.', ['max' => 40, 'required' => true]],
         'app_tagline'   => ['general', 'Tagline', 'string', 'the storehouse for your stuff', 'Shown on the sign-in page and in the page description.', ['max' => 80]],
-        'public_url'    => ['general', 'Public address', 'url', 'cfg:public_url', 'Base URL printed in QR labels, e.g. http://192.168.1.10:8080. Empty = the address you are using right now.', []],
+        'public_url'    => ['general', 'Public address', 'url', 'cfg:public_url', 'Base URL printed in QR labels, e.g. http://192.168.1.10:9091. Empty = the address you are using right now.', []],
         // appearance
         'accent'        => ['appearance', 'Accent colour', 'color', ACCENT_DEFAULT, 'Buttons, links and highlights. Lighter/darker variants are derived so text stays readable (WCAG AA) in light and dark mode.', []],
         'theme_default' => ['appearance', 'Default theme', 'enum', 'auto', 'Used until someone picks Auto / Light / Dark in the menu on their device.', ['options' => ['auto' => 'System (auto)', 'light' => 'Light', 'dark' => 'Dark']]],

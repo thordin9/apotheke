@@ -11,7 +11,7 @@ final class QrCodeTest extends TestCase
     public static function payloads(): array
     {
         return [
-            'short url'       => ['http://192.168.1.10:8080/?loc=12', 'M'],
+            'short url'       => ['http://192.168.1.10:9091/?loc=12', 'M'],
             'item url'        => ['https://apotheke.example.org/item/123456', 'Q'],
             'single char'     => ['x', 'L'],
             'utf-8'           => ['Κουτί 5 – box', 'H'],

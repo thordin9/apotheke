@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Smoke-test a running Apotheke instance: front page 200, one photo upload.
-# Usage: scripts/smoke.sh [base-url]   (default http://127.0.0.1:8080)
+# Usage: scripts/smoke.sh [base-url]   (default http://127.0.0.1:9091)
 set -euo pipefail
-base=${1:-http://127.0.0.1:8080}
+base=${1:-http://127.0.0.1:9091}
 jar=$(mktemp); img=$(mktemp --suffix=.jpg)
 trap 'rm -f "$jar" "$img"' EXIT
 for _ in $(seq 1 30); do curl -fsS "$base/healthz" >/dev/null 2>&1 && break; sleep 1; done

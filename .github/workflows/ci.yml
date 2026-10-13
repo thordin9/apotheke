@@ -129,11 +129,11 @@ jobs:
       - name: Start app and seed demo data
         run: |
           mkdir -p /tmp/e2e-data
-          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:8080 -t public public/index.php > /tmp/e2e-server.log 2>&1 &
+          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:9091 -t public public/index.php > /tmp/e2e-server.log 2>&1 &
           sleep 1
-          php tests/e2e/seed.php http://127.0.0.1:8080
+          php tests/e2e/seed.php http://127.0.0.1:9091
       - name: Run mobile checks (375×667, 390×844)
-        run: CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:8080
+        run: CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:9091
       - name: Server log
         if: always()
         run: cat /tmp/e2e-server.log || true
@@ -210,11 +210,11 @@ jobs:
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run container (SQLite)
-        run: docker run -d --name apotheke -p 8080:80 apotheke:ci
+        run: docker run -d --name apotheke -p 9091:9091 apotheke:ci
       - name: Smoke test SQLite (front page + upload)
-        run: bash scripts/smoke.sh http://127.0.0.1:8080
+        run: bash scripts/smoke.sh http://127.0.0.1:9091
       - name: Web server checks (routing, blocked paths, headers, gzip, body limits)
-        run: bash scripts/docker-checks.sh http://127.0.0.1:8080
+        run: bash scripts/docker-checks.sh http://127.0.0.1:9091
       - name: Run container (PostgreSQL)
         run: |
           docker run -d --name apotheke-pg --network host -e PORT=8081 \

@@ -51,9 +51,9 @@ docker run --rm -p 5432:5432 -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=secr
 
 ```bash
 npm ci --prefix tests/e2e
-DATA_DIR=/tmp/apotheke-e2e php -S 127.0.0.1:8080 -t public public/index.php &
-php tests/e2e/seed.php http://127.0.0.1:8080
-CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:8080
+DATA_DIR=/tmp/apotheke-e2e php -S 127.0.0.1:9091 -t public public/index.php &
+php tests/e2e/seed.php http://127.0.0.1:9091
+CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:9091
 ```
 
 ## Playwright (end-to-end and visual)

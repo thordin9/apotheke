@@ -58,7 +58,7 @@ return [
 | `page_size` | `PAGE_SIZE` | `60` | DB — List → Items per page | Items per page in the list (*Show more* loads the next page). |
 | `currency` | `CURRENCY` | `EUR` | DB — Currency, dates & time | Currency of purchase prices and value totals (ISO code or symbol, max. 8 characters). Only a label: no conversion. |
 | `expiry_soon_days` | `EXPIRY_SOON_DAYS` | `30` | DB — Thresholds & limits | Window for *Expiring soon*: an item whose expiry/warranty date is between today and today + N days. Clamped to 1–3650. |
-| `public_url` | `PUBLIC_URL` | *(from the request)* | DB — General → Public URL | Base URL encoded in QR labels, e.g. `http://192.168.1.10:8080`. Without it the scheme and `Host` of the current request are used. |
+| `public_url` | `PUBLIC_URL` | *(from the request)* | DB — General → Public URL | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Without it the scheme and `Host` of the current request are used. |
 | `seed_defaults` | `SEED_DEFAULTS` | `true` | bootstrap | On a brand-new database, create starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby). |
 
 The Control Panel adds more DB settings with built-in defaults only (accent, logo, theme, number/date/time formats,
@@ -74,7 +74,7 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | Variable | Used by | Meaning |
 |---|---|---|
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
-| `PORT` | Docker image | Port nginx listens on inside the container (default `80`). Must be a number. |
+| `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |
 | `TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER`, `TEST_PG_PASSWORD` | tests | PostgreSQL used by PHPUnit, `tests/run.sh` and the Playwright `pgsql-smoke` project. Defaults `127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. |
 | `DB_DRIVER` | tests | `pgsql` runs PHPUnit / `tests/run.sh` against PostgreSQL. |
@@ -112,5 +112,5 @@ DB_SCHEMA=apotheke
 QR labels that should point at a fixed address:
 
 ```
-PUBLIC_URL=http://apotheke.lan:8080
+PUBLIC_URL=http://apotheke.lan:9091
 ```
