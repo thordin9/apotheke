@@ -621,8 +621,8 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
   </form>
 </header>
 <main class="wrap">
-  <?= stats_section($stats, $statsOpen) ?>
   <?= !$select && !$filtered ? recent_html(recent_items()) : '' ?>
+  <?= stats_section($stats, $statsOpen) ?>
   <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
   <div class="grid<?= setting('list_view') === 'compact' ? ' is-compact' : '' ?>" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
