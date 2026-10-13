@@ -32,9 +32,10 @@ The jobs are independent and run in parallel.
 
 Runs when a pull request gets the label **`update-snapshots`** (or manually via *workflow_dispatch* on `main`). In the
 same Playwright image as the `e2e` job, with a PostgreSQL service, it runs
-`npx playwright test --update-snapshots --retries=0 --workers=3` and uploads `tests/visual/__screenshots__/` as the
+`npx playwright test --update-snapshots=all --retries=0 --workers=3` and uploads `tests/visual/__screenshots__/` as the
 artifact **`snapshots`** (14 days). Fetch it with `scripts/update-snapshots.sh --from-ci <run id>` and commit the
-result; see [Testing](testing.md#screenshot-baselines). The workflow never pushes anything itself.
+result; see [Testing](testing.md#screenshot-baselines). `=all` re-renders every baseline (not only failing ones), so
+shots that drifted within the tolerance are refreshed too. The workflow never pushes anything itself.
 
 ## Commit rules
 

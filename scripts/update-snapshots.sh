@@ -27,5 +27,5 @@ docker rm -f apotheke-e2e-pg >/dev/null 2>&1 || true
 docker run -d --rm --name apotheke-e2e-pg --network apotheke-e2e -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=apotheke -e POSTGRES_DB=apotheke postgres:17 >/dev/null
 trap 'docker rm -f apotheke-e2e-pg >/dev/null 2>&1 || true' EXIT
 docker run --rm --ipc=host --network apotheke-e2e -v "$PWD":/work -w /work -e CI=1 -e TEST_PG_HOST=apotheke-e2e-pg -e TEST_PG_PASSWORD=apotheke \
-  "$IMAGE" bash -c 'scripts/e2e-container-setup.sh && for i in $(seq 30); do php -r "exit(@fsockopen(\"apotheke-e2e-pg\",5432)?0:1);" && break; sleep 1; done; npm ci --no-audit --no-fund && npx playwright test --update-snapshots --retries=0 "$@"' _ "$@"
+  "$IMAGE" bash -c 'scripts/e2e-container-setup.sh && for i in $(seq 30); do php -r "exit(@fsockopen(\"apotheke-e2e-pg\",5432)?0:1);" && break; sleep 1; done; npm ci --no-audit --no-fund && npx playwright test --update-snapshots=all --retries=0 "$@"' _ "$@"
 echo "Updated $DIR – review the changes, then commit them."
