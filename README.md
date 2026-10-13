@@ -163,7 +163,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 **Runtime** (the Docker image has all of this):
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
-  `zip` (backups); `exif` is recommended (photo orientation), `opcache` for speed.
+  `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
 * SQLite (built in) or PostgreSQL (tested with 17).
 * No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
 

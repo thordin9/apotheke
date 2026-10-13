@@ -12,7 +12,8 @@
     "suggest": {
         "ext-pdo_sqlite": "SQLite storage (default)",
         "ext-pdo_pgsql": "PostgreSQL storage",
-        "ext-exif": "Honour photo orientation"
+        "ext-exif": "Honour photo orientation",
+        "ext-dom": "SVG logo uploads in the Control Panel (sanitizer)"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5"

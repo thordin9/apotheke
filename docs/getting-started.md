@@ -91,7 +91,7 @@ With `--network host`, set `-e PORT=8081` (or any free port) so nginx listens th
 ## Without Docker
 
 Requirements: PHP 8.2+ with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP), `mbstring` and `zip`; `exif` is
-recommended (photo orientation), `opcache` for speed.
+recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke

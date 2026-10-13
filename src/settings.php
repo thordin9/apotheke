@@ -529,6 +529,7 @@ function brand_reset(): void
  */
 function svg_sanitize(string $svg): string
 {
+    if (!class_exists(DOMDocument::class)) throw new UserError('SVG logos need the PHP dom extension; upload a PNG, JPEG or WebP instead.');
     if (strlen($svg) > 512 * 1024) throw new UserError('That SVG is too large (max 512 KB).');
     if (preg_match('/<!(DOCTYPE|ENTITY)/i', $svg)) throw new UserError('SVG files with a DOCTYPE or entities are not accepted.');
     $doc = new DOMDocument();

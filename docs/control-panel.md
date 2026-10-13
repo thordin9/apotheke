@@ -51,7 +51,7 @@ without `unsafe-inline`. The default indigo needs no extra stylesheet.
 
 ## Logo
 
-* **SVG** (max. 2 MB, needs a `viewBox` or width/height): cleaned on upload — scripts, event handlers, `foreignObject`,
+* **SVG** (max. 512 KB, needs a `viewBox` or width/height; requires the PHP `dom` extension, included in the Docker image): cleaned on upload — scripts, event handlers, `foreignObject`,
   external references (`href`/`url()` to anything but `#id`), entities and DOCTYPEs are removed or rejected. It is used for
   the header, sign-in page and `favicon.svg`; served with `Content-Security-Policy: default-src 'none'; sandbox`. GD
   cannot rasterise SVG, so the PNG home-screen icons and `favicon.ico` stay the Apotheke defaults — upload a PNG if you
