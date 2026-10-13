@@ -7,6 +7,15 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-13
+
+### Fixed
+
+- **ci:** fail the coverage run when no HTTP coverage was collected ([#15](https://github.com/thordin9/apotheke/pull/15))
+- **test:** log why the coverage collector skips a request ([#15](https://github.com/thordin9/apotheke/pull/15))
+- **test:** trace the coverage collector per request ([#15](https://github.com/thordin9/apotheke/pull/15))
+- **test:** load the coverage collector from the router on PHP 8.3 ([#15](https://github.com/thordin9/apotheke/pull/15))
+
 ## [1.1.0] - 2026-10-13
 
 ### Added
@@ -59,6 +68,7 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/thordin9/apotheke/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/thordin9/apotheke/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/thordin9/apotheke/releases/tag/v1.0.0
