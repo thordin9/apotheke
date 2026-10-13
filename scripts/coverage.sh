@@ -13,14 +13,14 @@ if ! KEEP_TEST_DATA=1 TMPDIR="$PWD/$out/tmp" APOTHEKE_COVERAGE_DIR="$PWD/$out/ht
   tail -40 "$out/integration.log"
   echo "== php -S errors"
   tmp=$(TMPDIR="$PWD/$out/tmp" php -r 'echo sys_get_temp_dir();')
-  grep -h -m 20 -iE 'fatal|error|warning|exception' "$tmp"/apotheke-*.server.log || echo "(none logged in $tmp)"
+  grep -h -m 20 -iE 'fatal|error|warning|exception|collector' "$tmp"/apotheke-*.server.log || echo "(none logged in $tmp)"
   exit 1
 fi
 tail -1 "$out/integration.log"
 if ! compgen -G "$out/http-raw/*.raw" > /dev/null; then
   echo "no HTTP coverage dumps were written; php -S environment:" >&2
   php -d pcov.enabled=1 -d auto_prepend_file="$PWD/tests/coverage/prepend.php" -r 'var_dump(PHP_VERSION, extension_loaded("pcov"), ini_get("pcov.enabled"), ini_get("pcov.directory"), ini_get("opcache.enable_cli"), ini_get("opcache.jit"), ini_get("auto_prepend_file"), getenv("APOTHEKE_COVERAGE_DIR"));' >&2
-  grep -h -m 10 -iE 'fatal|error|warning' "$(TMPDIR="$PWD/$out/tmp" php -r 'echo sys_get_temp_dir();')"/apotheke-*.server.log >&2 || true
+  { grep -h -iE 'fatal|error|warning|collector' "$(TMPDIR="$PWD/$out/tmp" php -r 'echo sys_get_temp_dir();')"/apotheke-*.server.log | grep -v JIT | sort -u | head -20; } >&2 || true
   exit 1
 fi
 php tests/coverage/merge.php "$out/http-raw" "$out/cov-http/http.cov"
