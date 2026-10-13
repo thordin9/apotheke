@@ -31,7 +31,7 @@ database. Use the panel (or `bin/settings.php`) instead.
 | **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, **undo window** (seconds, 0–3600, 0 = no undo), max photos per item |
 | **Photos & uploads** | Upload limit per photo (MB), stored photo size, thumbnail size, JPEG quality (thumbnails use quality − 6); attachments: allowed types (PDF + images / PDF only / images only), max size per file (MB), max files per item |
 | **Users & sign-in** | Turn sign-in on/off (the first time creates an admin account), change your password, add users with a role (admin / editor / viewer), change roles, rename, set passwords, delete accounts |
-| **Backup & data** | Backup / restore, CSV export, settings export / import (JSON) |
+| **Backup & data** | Backup / restore, CSV export, CSV import (and whether it pre-ticks *create missing locations, categories and tags*), settings export / import (JSON) |
 | **System** | Read-only bootstrap values, PHP version, schema version |
 
 Every field shows its default; **Reset this section to defaults** puts a section back to the `config.php` / built-in

@@ -101,6 +101,7 @@ npm run test:e2e:report                             # open the HTML report
 | `data.spec.ts` | QR labels, CSV, backup, restore dry run and confirm, rejected files |
 | `history.spec.ts` | activity log |
 | `auth.spec.ts`, `errors.spec.ts`, `theme.spec.ts` | sign-in, error pages, Auto/Light/Dark |
+| `import.spec.ts` | upload, column mapping, dry run with row errors, skip errors, import, export round trip |
 | `search.spec.ts` | ranking, highlights, snippets, typo note, escaping, no-JS search, engine in System |
 | `users.spec.ts` | first admin, adding a viewer, read-only UI and 403s, own password, role change, deleting an account |
 | `stock.spec.ts` | low-stock level, live badge, tile and filter |

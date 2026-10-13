@@ -18,6 +18,7 @@ the Save / Edit bars sit at the bottom within thumb reach, and most screens also
 * [QR labels](#qr-labels)
 * [History](#history)
 * [Backup, restore and CSV](#backup-restore-and-csv)
+* [Importing a CSV file](#importing-a-csv-file)
 * [Dark mode](#dark-mode)
 * [Users and sign-in](#users-and-sign-in)
 * [Settings (Control Panel)](#settings-control-panel)
@@ -369,6 +370,29 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
 serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
+
+## Importing a CSV file
+
+☰ → *Import CSV* (editors and admins) adds or updates many items at once:
+
+1. **Upload** a `.csv` file (max. 5 MB, 5,000 rows). Commas, semicolons and tabs work; a UTF-8 BOM or a Windows-1252
+   file (old Excel) is fine.
+2. **Map the columns**: every column of the file is a card with two sample values and a choice — *Name* (required),
+   *ID*, *Location*, *Category*, *Quantity*, *Notes*, *Tags*, *Value*, *Purchase date*, *Serial number*, *Barcode*,
+   *Low-stock level*, *Expires on*, *Lent to*, *Due back* or *Ignore*. Headers like “Qty”, “Where”, “Price” or the
+   export's own names are recognised automatically.
+3. **Preview (dry run)** runs the whole import and then undoes it, so it shows exactly what would happen: how many rows
+   are new, updated or unchanged, which locations/categories/tags would be created, and every problem with its row
+   number ("Row 3 “Rope”: Quantity “two” is not a whole number").
+4. **Import** applies it in one transaction: all rows or none. While a row has an error the button stays disabled —
+   fix the file, or tick *Skip rows with errors*.
+
+Options: *Create missing locations, categories and tags* (default from Settings → Backup & data); off means a name
+that doesn't exist is an error. A location can be a path — `Garage › Shelf 2`, `Garage > Shelf 2` or
+`Garage / Shelf 2` — and missing levels are created nested. Rows with an *ID* that exists update that item (columns
+you didn't map keep their values); other rows are added. Importing a file from *Export CSV* therefore changes nothing,
+and into an empty install it recreates the catalogue. Dates are `YYYY-MM-DD`; values like `49.90` or `49,90`. The
+history records every added or changed item; *Recent imports* lists who imported what.
 
 ## Dark mode
 

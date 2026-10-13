@@ -20,6 +20,7 @@ require dirname(__DIR__) . '/src/views.php';
 require dirname(__DIR__) . '/src/backup.php';
 require dirname(__DIR__) . '/src/settings_views.php';
 require dirname(__DIR__) . '/src/stocktake_views.php';
+require dirname(__DIR__) . '/src/import_views.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -955,6 +956,45 @@ try {
     }
 
     /* ---- CSV export ---- */
+    /* ---- CSV import ---- */
+    if ($path === '/import') {
+        if ($method === 'POST') {
+            check_csrf();
+            try {
+                $iid = import_upload($_FILES['csv'] ?? []);
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 422);
+                view_import_home($e->getMessage(), null);
+                exit;
+            }
+            redirect('/import/' . $iid);
+        }
+        no_store();
+        view_import_home(null, isset($_GET['done']) && ($d = import_get((int)$_GET['done'])) && $d['result'] ? 'Imported · ' . import_summary_text($d['result']) : null);
+        exit;
+    }
+    if (preg_match('#^/import/(\d+)(?:/(preview|commit))?$#D', $path, $m)) {
+        $imp = import_get((int)$m[1]) ?? throw new UserError('Import not found.', 404);
+        $act = $m[2] ?? '';
+        if ($imp['status'] === 'done') redirect('/import?done=' . $imp['id']);
+        [$header, $rows] = import_rows($imp);
+        if ($act === '' && $method === 'GET') { no_store(); view_import_map($imp, $header, $rows, null, null); exit; }
+        if ($act === '' || $method !== 'POST') throw new UserError('Page not found.', 404);
+        check_csrf();
+        try {
+            [$imp['mapping'], $imp['options']] = import_set_mapping($imp['id'], $header, $_POST);
+            if ($act === 'commit') {
+                import_commit($imp);
+                redirect('/import?done=' . $imp['id']);
+            }
+            view_import_map($imp, $header, $rows, import_run($imp, false), null);
+        } catch (UserError $e) {
+            http_response_code($e->getCode() ?: 422);
+            view_import_map($imp, $header, $rows, $act === 'commit' ? import_run($imp, false) : null, $e->getMessage());
+        }
+        exit;
+    }
+
     if ($path === '/export.csv' && $method === 'GET') {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');

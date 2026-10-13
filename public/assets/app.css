@@ -883,3 +883,29 @@ body.role-viewer:not(.page-account) main form[method=post],body.role-viewer .bul
 mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px;box-shadow:inset 0 -2px 0 var(--accent)}
 .snip{margin:2px 0 4px;font-size:12.5px;line-height:1.35;color:var(--muted);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .snip-k{font-weight:600;color:var(--text)}
+
+/* ---------- CSV import ---------- */
+.imp-cols{list-style:none;margin:0 0 var(--s3);padding:0;display:grid;gap:var(--s2)}
+.imp-col{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:var(--s2) var(--s3)}
+.imp-col .field{margin:0}
+.imp-head{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.imp-head b{overflow-wrap:anywhere}.imp-head small{color:var(--muted);font-weight:400;overflow-wrap:anywhere}
+.imp-col select{min-height:44px;width:100%}
+select.imp-ignored{color:var(--muted)}
+.imp-sum{display:flex;flex-wrap:wrap;gap:var(--s2);margin:0 0 var(--s3)}
+.imp-n{flex:1 1 90px;background:var(--surface-2);border-radius:var(--radius-sm);padding:8px 12px;font-size:14px}
+.imp-n b{display:block;font-size:22px}
+.imp-new b{color:var(--ok)}.imp-upd b{color:var(--accent)}.imp-bad b{color:var(--danger)}
+.imp-errors{margin:0 0 var(--s3);padding:var(--s2) var(--s3) var(--s2) calc(var(--s3) + 14px);background:var(--danger-soft);border-radius:var(--radius-sm);font-size:14px;overflow-wrap:anywhere}
+.imp-rows{list-style:none;margin:0 0 var(--s3);padding:0;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden}
+.imp-row{display:flex;gap:var(--s2);align-items:center;padding:8px 12px;border-top:1px solid var(--line);font-size:14px;min-width:0}
+.imp-row:first-child{border-top:0}
+.imp-line{color:var(--muted);font-variant-numeric:tabular-nums;min-width:2.5em}
+.imp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-state{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--surface-3)}
+.imp-new .imp-state{background:var(--ok);color:#fff}.imp-error .imp-state{background:var(--danger);color:#fff}
+.imp-hist{list-style:none;margin:0;padding:0;display:grid;gap:var(--s2)}
+.imp-hist li{display:grid;gap:2px;overflow-wrap:anywhere}.imp-hist a{min-height:44px;display:inline-flex;align-items:center}
+.imp-hist small{color:var(--muted)}
+.page-import .check{display:flex;gap:10px;align-items:flex-start;min-height:44px;margin:var(--s2) 0}
+.page-import .check small{display:block;color:var(--muted)}

@@ -8,6 +8,7 @@ require_once __DIR__ . '/merge.php';
 require_once __DIR__ . '/undo.php';
 require_once __DIR__ . '/stocktake.php';
 require_once __DIR__ . '/search.php';
+require_once __DIR__ . '/import.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 

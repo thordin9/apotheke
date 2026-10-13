@@ -1085,7 +1085,7 @@ $secKeys = [
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
-    'security' => [], 'data' => [], 'system' => [],
+    'security' => [], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
 $settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
@@ -1472,6 +1472,90 @@ T::eq(['Torx set'], $xs('torxx'), '… and on');
 T::ok(str_contains($xc->get('/settings/system')['body'], 'Search engine'), 'System shows the search engine');
 T::eq(1, (int)$xdb->query("SELECT COUNT(*) FROM search_docs WHERE item_id = $cc")->fetchColumn(), 'documents stored');
 $sx->stop();
+
+T::section('CSV import');
+$ix = new Server($ixDir = $newDir('import'), ['SEED_DEFAULTS' => '0']);
+$ic = $ix->client();
+$it = $ic->csrf();
+$idb = testdb($ixDir);
+$up = fn(string $csv, string $n = 'stuff.csv') => $ic->post('/import', ['csrf' => $it], ['csv' => jpg_file($csv, $n, 'text/csv')]);
+T::eq(200, $ic->get('/import')['status'], 'import page');
+T::ok(str_contains($ic->get('/')['body'], 'id="menu-import"'), 'menu links to the import');
+T::eq(422, $up("name\n")['status'], 'a header without rows is refused');
+T::eq(422, $ic->post('/import', ['csrf' => $it])['status'], 'no file → 422');
+// semicolon, BOM, Greek, odd headers
+$csv = "\xEF\xBB\xBFItem;Where;Type;Qty;Price;Tags;Comment\n"
+    . "Drill;Garage › Shelf 1;Tools;2;49,90;power, garage;Makita\n"
+    . "Πρίζα;Κουτί 5;;3;;;\n"
+    . "Broken;Garage;Tools;lots;;;\n"
+    . ";Garage;;1;;;no name\n";
+$r = $up($csv);
+T::ok(preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm) === 1, 'upload → mapping page');
+$iid = (int)$mm[1];
+$page = $ic->get("/import/$iid")['body'];
+T::ok(str_contains($page, 'id="imp-col-0"') && preg_match('#name="col\[0\]".*?<option value="name" selected#s', $page) && preg_match('#name="col\[6\]".*?<option value="notes" selected#s', $page), 'columns mapped automatically from the header names');
+T::ok(str_contains($page, 'e.g. Drill · Πρίζα'), 'sample values shown');
+$cols = ['name', 'location', 'category', 'quantity', 'value', 'tags', 'notes'];
+$pv = $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => $cols, 'create' => '1']);
+T::ok($pv['status'] === 200 && str_contains($pv['body'], '<b>2</b> new') && str_contains($pv['body'], '<b>2</b> errors'), 'preview counts', substr(strip_tags($pv['body']), 0, 0));
+T::ok(str_contains($pv['body'], 'Row 4</b> “Broken”: Quantity “lots”') && str_contains($pv['body'], 'Row 5</b>: Name is empty.'), 'row errors with line numbers');
+T::ok(str_contains($pv['body'], 'locations: Garage, Shelf 1, Κουτί 5') && str_contains($pv['body'], 'categories: Tools'), 'lists what would be created');
+T::ok(preg_match('#id="imp-commit"[^>]*disabled#', $pv['body']) === 1, 'import blocked while rows have errors');
+T::eq(0, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn() + (int)$idb->query('SELECT COUNT(*) FROM locations')->fetchColumn(), 'dry run changed nothing');
+T::eq(422, $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols, 'create' => '1'])['status'], 'commit refused with errors');
+T::eq(0, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn(), '… nothing imported');
+T::eq(422, $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => ['', 'location']])['status'], 'a name column is required');
+T::eq(422, $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => ['name', 'name']])['status'], 'a field can be used once');
+$pv = $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => $cols]);
+T::ok(str_contains($pv['body'], 'Unknown tag “power”') && str_contains($pv['body'], 'Unknown location “Κουτί 5”'), 'without "create missing": unknown tags and locations are errors');
+$r = $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols, 'create' => '1', 'skip_errors' => '1']);
+T::ok(str_contains($r['headers']['location'] ?? '', '/import?done=' . $iid), 'import with skipped rows');
+T::ok(str_contains($ic->get('/import?done=' . $iid)['body'], 'Imported · 2 added · 0 updated · 2 skipped · 3 new locations · 1 new category · 2 new tags'), 'summary toast');
+$drill = $idb->query("SELECT i.id, i.quantity, i.value_cents, i.notes, l.name AS loc, c.name AS cat FROM items i JOIN locations l ON l.id = i.location_id JOIN categories c ON c.id = i.category_id WHERE i.name = 'Drill'")->fetch();
+T::ok($drill && (int)$drill['quantity'] === 2 && (int)$drill['value_cents'] === 4990 && $drill['loc'] === 'Shelf 1' && $drill['cat'] === 'Tools' && $drill['notes'] === 'Makita', 'values imported');
+T::eq('Garage', $idb->query("SELECT p.name FROM locations l JOIN locations p ON p.id = l.parent_id WHERE l.name = 'Shelf 1'")->fetchColumn(), 'location path creates nested locations');
+T::eq(['garage', 'power'], array_map('strtolower', $idb->query("SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = {$drill['id']} ORDER BY t.name")->fetchAll(PDO::FETCH_COLUMN)), 'tags imported');
+T::eq(2, (int)$idb->query("SELECT COUNT(*) FROM activity WHERE action = 'created'")->fetchColumn(), 'history records the new items');
+T::eq(303, $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols])['status'], 'a finished import cannot run twice');
+T::eq(2, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn(), '… still 2 items');
+T::ok(!is_file("$ixDir/tmp/import-$iid.csv"), 'uploaded file removed after the import');
+// round trip with the export
+$c2 = $ic->get('/export.csv')['body'];
+$r = $up($c2, 'export.csv');
+preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm);
+$eid = (int)$mm[1];
+$page = $ic->get("/import/$eid")['body'];
+$auto = [];
+preg_match_all('#name="col\[(\d+)\]".*?</select>#s', $page, $sel);
+foreach ($sel[0] as $k => $html) $auto[] = preg_match('#<option value="([a-z_]*)" selected#', $html, $o) ? $o[1] : '';
+T::ok(in_array('id', $auto, true) && in_array('barcode', $auto, true) && in_array('lent_to', $auto, true), 'export headers map automatically', implode(',', $auto));
+$pv = $ic->post("/import/$eid/preview", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
+T::ok(str_contains($pv['body'], '<b>0</b> new') && str_contains($pv['body'], '<b>0</b> updated') && str_contains($pv['body'], '<b>2</b> unchanged') && str_contains($pv['body'], '<b>0</b> errors'), 'own export: every row matches its item (unchanged)');
+$before = $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn();
+$ic->post("/import/$eid/commit", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
+T::eq($before, $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn(), 'unchanged rows leave no history');
+T::eq($c2, $ic->get('/export.csv')['body'], 'export → import → export is identical');
+// into an empty install
+$iy = new Server($iyDir = $newDir('import2'), ['SEED_DEFAULTS' => '0']);
+$yc = $iy->client();
+$yt = $yc->csrf();
+$r = $yc->post('/import', ['csrf' => $yt], ['csv' => jpg_file($c2, 'export.csv', 'text/csv')]);
+preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm);
+$yc->post("/import/{$mm[1]}/commit", ['csrf' => $yt, 'col' => $auto, 'create' => '1']);
+$ydb = testdb($iyDir);
+T::eq(['Drill', 'Πρίζα'], $ydb->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'export imports into a fresh install');
+T::eq('Shelf 1', $ydb->query("SELECT l.name FROM items i JOIN locations l ON l.id = i.location_id WHERE i.name = 'Drill'")->fetchColumn(), '… with its location');
+$iy->stop();
+// roles: viewers cannot import
+$ic->post('/settings/password', ['csrf' => $it, 'mode' => 'change', 'username' => 'admin', 'new' => 'import-admin', 'confirm' => 'import-admin']);
+$it = $ic->csrf();
+$ic->post('/settings/users', ['csrf' => $it, 'username' => 'viewer', 'role' => 'viewer', 'new' => 'viewer-pass', 'confirm' => 'viewer-pass']);
+$vc = $ix->client();
+$vc->post('/login', ['csrf' => $vc->csrf(), 'username' => 'viewer', 'password' => 'viewer-pass']);
+T::eq(403, $vc->get('/import')['status'], 'viewers cannot open the import');
+T::eq(403, $vc->post('/import', ['csrf' => $vc->csrf()], ['csv' => jpg_file("name\nX\n", 'x.csv', 'text/csv')])['status'], '… nor upload');
+T::ok(!str_contains($vc->get('/')['body'], 'id="menu-import"'), '… and see no menu entry');
+$ix->stop();
 
 T::section('Notes (Markdown) + attachments');
 $fx = new Server($fxDir = $newDir('attach'), ['SEED_DEFAULTS' => '1']);

@@ -135,6 +135,9 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   limits*). Finished and cancelled stocktakes stay in the history at `/stocktake`; they are part of backups.
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
+* **CSV import**: upload a spreadsheet, map its columns (guessed from the headers), preview a dry run with every row's
+  errors, then import in one transaction — optionally creating missing locations (paths like `Garage › Shelf 2` become
+  nested), categories and tags. The CSV export imports unchanged (its `id` column updates those items).
 * **Users & roles** (optional): turn sign-in on and give everyone their own account — *admin* (everything), *editor*
   (change the catalog) or *viewer* (look only), enforced by the server on every route. The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.

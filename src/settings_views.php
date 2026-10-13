@@ -226,7 +226,8 @@ function settings_data_html(string $tok): string
 {
     return '<section class="set-card"><h2 class="set-h">Your catalogue</h2><div class="set-links">'
         . '<a class="btn btn-wide" href="/backup" id="d-backup">' . icon('archive') . ' Backup &amp; restore</a>'
-        . '<a class="btn btn-wide" href="/export.csv" id="d-csv">' . icon('download') . ' Export CSV</a></div></section>'
+        . '<a class="btn btn-wide" href="/export.csv" id="d-csv">' . icon('download') . ' Export CSV</a>'
+        . '<a class="btn btn-wide" href="/import" id="d-import">' . icon('archive') . ' Import CSV…</a></div></section>'
         . '<section class="set-card"><h2 class="set-h">Settings file</h2>'
         . '<p class="hint">Download every setting as JSON (the password and the logo are not included), or load such a file. Invalid values in the file are skipped and listed.</p>'
         . '<a class="btn btn-wide" href="/settings/export.json" id="d-export" download>' . icon('download') . ' Export settings (JSON)</a>'

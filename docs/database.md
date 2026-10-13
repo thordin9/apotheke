@@ -165,6 +165,9 @@ Notes:
   weighted `tsv` (A name, B tags, C rest) with a GIN index and, if `CREATE EXTENSION pg_trgm` is allowed, a trigram
   index for word similarity. Missing FTS5 / pg_trgm only switch off those extras (Settings → System shows the engine).
   Not part of backups (rebuilt on the next search).
+* `imports` (migration 0020): one row per uploaded CSV — `status` `uploaded` / `done`, `mapping` (JSON: column index →
+  field), `options` (`create`, `skip_errors`), `result` (counts and the locations/categories/tags it created), `actor`.
+  The file waits in `DATA_DIR/tmp/import-<id>.csv` until it is imported. Not part of backups.
 * `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
   random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
 * `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
@@ -207,6 +210,7 @@ Notes:
 | 0017 | `0017_stocktake.php` | `stocktakes`, `stocktake_lines` (location checks and their results) |
 | 0018 | `0018_users.php` | `users` (accounts with roles; the old shared password becomes `admin`), `activity.actor` |
 | 0019 | `0019_search.php` | `search_docs`, `search_meta`; SQLite `search_fts` (FTS5) + `search_fts_v` (vocabulary), PostgreSQL `tsv` column + GIN, optional `pg_trgm` index |
+| 0020 | `0020_import.php` | `imports` (CSV import history: file, mapping, options, result) |
 
 ## How migrations run
 
