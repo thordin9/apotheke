@@ -91,8 +91,6 @@ jobs:
           node-version: '20'
           cache: npm
       - name: Coverage (unit + HTTP suites merged, Playwright test counts)
-        env:
-          APOTHEKE_COVERAGE_TRACE: "1"
         if: matrix.db == 'sqlite'
         run: |
           npm ci --no-audit --no-fund

@@ -7,6 +7,8 @@ declare(strict_types=1);
  * line data (cheap); tests/coverage/merge.php turns all dumps into one php-code-coverage .cov file that
  * `vendor/bin/phpcov merge` combines with the PHPUnit run.
  */
+if (defined('APOTHEKE_COVERAGE_STARTED')) return;
+define('APOTHEKE_COVERAGE_STARTED', true);
 (static function (): void {
     $dir = getenv('APOTHEKE_COVERAGE_DIR') ?: ($_SERVER['APOTHEKE_COVERAGE_DIR'] ?? $_ENV['APOTHEKE_COVERAGE_DIR'] ?? '');
     if (!is_string($dir) || $dir === '') { error_log('coverage collector: APOTHEKE_COVERAGE_DIR not set'); return; }
