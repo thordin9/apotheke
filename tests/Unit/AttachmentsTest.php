@@ -53,10 +53,10 @@ final class AttachmentsTest extends DatabaseTestCase
     public function testLimits(): void
     {
         $id = item_save(null, ['name' => 'TV', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], null, false);
-        settings_save(['attach_types' => 'images', 'attach_max_per_item' => '1']);
+        $this->assertSame([], settings_save(['attach_types' => 'images', 'attach_max_per_item' => '1']));
         settings_cache(null, true);
         try { attachments_add($id, [$this->tmp('%PDF-1.4')]); $this->fail('pdf accepted'); } catch (UserError $e) { $this->assertStringContainsString('Only', $e->getMessage()); }
-        settings_save(['attach_types' => 'pdf_images']);
+        $this->assertSame([], settings_save(['attach_types' => 'pdf_images']));
         settings_cache(null, true);
         try { attachments_add($id, [$this->tmp('%PDF-1.4'), $this->tmp('%PDF-1.4')]); $this->fail('limit ignored'); } catch (UserError $e) { $this->assertStringContainsString('at most 1', $e->getMessage()); }
         $this->assertSame([], attachments_for($id));

@@ -258,8 +258,18 @@ never affects the other. Lending status is not copied. The copy's history starts
 
 ☰ → *Print QR labels* prints one label per location; from a location you can also print one label per item in it, and
 every item page has a *QR label* button. Scanning a label opens that filtered list or item. The codes are generated on
-the server in pure PHP (`src/qr.php`, SVG, no network) with a print stylesheet (3 labels per row on A4/Letter). If the
-address your phone should open differs from the one you are using, set `PUBLIC_URL`.
+the server in pure PHP (`src/qr.php`, SVG, no network) with a print stylesheet. If the address your phone should open
+differs from the one you are using, set the public URL (*Settings → General*).
+
+**Several at once:** in selection mode (*Select*), pick items and choose **Print QR labels** in the actions sheet; you
+get one label per selected item (`/labels?ids=…`, up to the bulk limit). On a location's label page,
+**Location + sub-locations** prints a label for the location and every location inside it; *One label per item*
+includes the items in sub-locations too.
+
+**Label size:** *Settings → QR labels* sets the printed width and height (mm), labels per row, the gap (0 for sticker
+sheets), whether to print the subtitle and link lines, and dashed cut lines. The page shows the current size above the
+labels; the sizes are delivered as a generated stylesheet (`/labels.css`), so the strict CSP stays in place. Print at
+100 % scale (no “fit to page”) to get exact millimetres.
 
 ## History
 

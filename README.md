@@ -75,8 +75,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   list), plus purchase price (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
 * **QR labels** for locations and items: ☰ → *Print QR labels* prints one label per location (or one per item in a location;
   every item page has a *QR label* button). Scanning opens that list or item. Codes are generated on the server in pure PHP
-  (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet (3 labels per row on A4/Letter). Set
-  `PUBLIC_URL` if the address on the labels should differ from the one you are using right now.
+  (`src/qr.php`, no network, no libraries) as SVG, with a print stylesheet. **Bulk printing**: pick items in selection
+  mode → *Print QR labels*, or print a location together with all its sub-locations. Label width/height, labels per
+  row, gap and printed lines are set in *Settings → QR labels* (delivered as a generated stylesheet, CSP-safe). Set the
+  public URL if the address on the labels should differ from the one you are using right now.
 * **Backup & restore**: ☰ → *Backup & restore* downloads one zip with a portable JSON copy of the database (`backup.json`:
   items, locations, categories, tags, photo list, history, settings) plus every photo and thumbnail. Restoring shows a
   preview of the file next to your current data; nothing changes until you tick the box and press *Restore*, and it runs in

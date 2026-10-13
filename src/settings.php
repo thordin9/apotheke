@@ -19,6 +19,7 @@ const SETTINGS_SECTIONS = [
     'list'       => ['List', 'Items per page, default sort and view', 'filter'],
     'items'      => ['New item defaults', 'Values pre-filled when you add an item', 'plus'],
     'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters', 'alert'],
+    'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
     'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
     'security'   => ['Password', 'Turn the password on or off, change it', 'lock'],
     'data'       => ['Backup & data', 'Backup, restore, CSV and settings export', 'archive'],
@@ -75,6 +76,14 @@ function settings_schema(): array
         'default_notes'    => ['items', 'Notes', 'string', '', 'Text pre-filled in the notes field.', ['max' => 500]],
         'default_purchase_today' => ['items', 'Purchase date = today', 'bool', false, 'Pre-fill the purchase date with today.', []],
         'default_expiry_months'  => ['items', 'Expires after (months)', 'int', null, 'Pre-fill the expiry/warranty date this many months from today. Empty = no date.', ['min' => 1, 'max' => 600, 'nullable' => true]],
+        // labels
+        'label_width_mm'   => ['labels', 'Label width (mm)', 'int', 60, 'Printed width of one label.', ['min' => 15, 'max' => 200]],
+        'label_height_mm'  => ['labels', 'Label height (mm)', 'int', 70, 'Printed height of one label (the QR code shrinks to fit).', ['min' => 15, 'max' => 280]],
+        'label_columns'    => ['labels', 'Labels per row', 'int', 3, 'Columns on a printed page (A4 fits 3 × 60 mm).', ['min' => 1, 'max' => 10]],
+        'label_gap_mm'     => ['labels', 'Gap between labels (mm)', 'int', 4, '0 for sticker sheets without a gap.', ['min' => 0, 'max' => 30]],
+        'label_show_sub'   => ['labels', 'Print the location / item count', 'bool', true, 'The second line under the name.', []],
+        'label_show_url'   => ['labels', 'Print the link', 'bool', true, 'The address the QR code points to, in small print.', []],
+        'label_border'     => ['labels', 'Print cut lines', 'bool', true, 'A dashed border around each label.', []],
         // limits
         'expiry_soon_days' => ['limits', '“Expiring soon” window (days)', 'int', 'cfg:expiry_soon_days', 'An item is expiring soon when its date is within this many days.', ['min' => 1, 'max' => 3650]],
         'lend_due_days'    => ['limits', 'Default loan period (days)', 'int', null, 'Pre-fill “due back” when lending an item. Empty = no due date.', ['min' => 1, 'max' => 3650, 'nullable' => true]],
@@ -471,6 +480,19 @@ function accent_warnings(string $hex): array
         }
     }
     return $w;
+}
+
+/** Generated print stylesheet for the QR label grid (served at /labels.css, keeps the CSP at style-src 'self'). */
+function labels_css(): string
+{
+    $w = (int)setting('label_width_mm'); $hgt = (int)setting('label_height_mm');
+    $c = (int)setting('label_columns'); $g = (int)setting('label_gap_mm');
+    $qr = max(8, min($w - 6, $hgt - (setting('label_show_sub') ? 18 : 12) - (setting('label_show_url') ? 4 : 0)));
+    return "/* QR label grid from Settings > QR labels */\n@media print{\n"
+        . ".labels{grid-template-columns:repeat($c,{$w}mm)!important;gap:{$g}mm!important;justify-content:start}\n"
+        . ".label{width:{$w}mm;height:{$hgt}mm;overflow:hidden;padding:2mm!important;box-sizing:border-box;justify-content:center"
+        . (setting('label_border') ? '' : ';border:0!important') . "}\n"
+        . ".label .qr{width:{$qr}mm!important;max-width:{$qr}mm!important;height:{$qr}mm!important}\n}\n";
 }
 
 /** The generated stylesheet for a custom accent (served at /theme.css). '' for the default accent. */

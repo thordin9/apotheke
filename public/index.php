@@ -43,6 +43,11 @@ if ($method === 'GET' && $path === '/theme.css') {
     header('Cache-Control: ' . (isset($_GET['v']) ? 'public, max-age=31536000, immutable' : 'no-cache'));
     exit(accent_css((string)setting('accent')));
 }
+if ($method === 'GET' && $path === '/labels.css') {
+    header('Content-Type: text/css; charset=utf-8');
+    header('Cache-Control: ' . (isset($_GET['v']) ? 'public, max-age=31536000, immutable' : 'no-cache'));
+    exit(labels_css());
+}
 if ($method === 'GET' && $path === '/manifest.webmanifest') {
     header('Content-Type: application/manifest+json');
     header('Cache-Control: no-cache');
@@ -325,6 +330,12 @@ try {
         if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
         $back   = preg_replace('/&?bulk_(?:done|act)=[^&]*/', '', $back);
         $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
+        if ($action === 'labels') {
+            $ids = array_values(array_unique(array_filter($ids, fn($i) => $i > 0)));
+            if (!$ids) throw new UserError('Select at least one item.', 422);
+            if (count($ids) > BULK_MAX) throw new UserError('Select at most ' . BULK_MAX . ' items at once.', 422);
+            redirect('/labels?ids=' . implode(',', $ids));
+        }
         try {
             if ($action === 'delete' && ($_POST['confirm'] ?? '') !== '1') {
                 $items = array_values(array_filter(array_map('item_get', array_values(array_unique(array_filter($ids, fn($i) => $i > 0))))));
@@ -598,23 +609,40 @@ try {
     if ($path === '/labels' && $method === 'GET') {
         no_store();
         $locs = locations();
+        $locLabel = fn($l) => ['title' => $l['name'], 'sub' => item_noun((int)($l['total'] ?? $l['n'])), 'path' => '/?loc=' . (int)$l['id']];
+        $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', (string)($_GET['ids'] ?? ''))), fn($i) => $i > 0)));
+        if ($ids) {
+            if (count($ids) > BULK_MAX) throw new UserError('Print at most ' . BULK_MAX . ' labels at once.', 422);
+            $labels = [];
+            foreach ($ids as $id) if ($it = item_get($id)) $labels[] = ['title' => $it['name'], 'sub' => (string)$it['location'], 'path' => '/item/' . $id];
+            view_labels(item_noun(count($labels)) . ' selected', $labels, '/?select=1');
+            exit;
+        }
         $loc = filter_value($_GET['loc'] ?? '');
         if (ctype_digit($loc)) {
             $l = tax_get('location', (int)$loc);
             if (!$l) throw new UserError('Location not found.', 404);
+            $byId = [];
+            foreach ($locs as $r) $byId[(int)$r['id']] = $r;
+            $base = '/labels?loc=' . (int)$l['id'];
             $labels = [];
             if (($_GET['items'] ?? '') === '1') {
                 foreach (items_search('', ['loc' => $loc, 'cat' => ''], 'name', 1, 1000)['items'] as $it) {
-                    $labels[] = ['title' => $it['name'], 'sub' => $l['name'], 'path' => '/item/' . (int)$it['id']];
+                    $labels[] = ['title' => $it['name'], 'sub' => (string)$it['location'], 'path' => '/item/' . (int)$it['id']];
                 }
+            } elseif (($_GET['sub'] ?? '') === '1') {
+                $sub = array_flip(location_subtree_ids((int)$l['id']));
+                foreach ($locs as $r) if (isset($sub[(int)$r['id']])) $labels[] = $locLabel($r);
             } else {
-                $labels[] = ['title' => $l['name'], 'sub' => item_noun((int)$l['n']), 'path' => '/?loc=' . (int)$l['id']];
+                $labels[] = $locLabel($byId[(int)$l['id']] ?? $l);
             }
-            view_labels($l['name'], $labels, '/locations', ['/labels?loc=' . (int)$l['id'] => 'Location label', '/labels?loc=' . (int)$l['id'] . '&items=1' => 'One label per item', '/labels' => 'All locations']);
+            $opts = [$base => 'Location label'];
+            if (count(location_subtree_ids((int)$l['id'])) > 1) $opts[$base . '&sub=1'] = 'Location + sub-locations';
+            $opts += [$base . '&items=1' => 'One label per item', '/labels' => 'All locations'];
+            view_labels($l['name'], $labels, '/locations', $opts);
             exit;
         }
-        $labels = array_map(fn($l) => ['title' => $l['name'], 'sub' => item_noun((int)$l['n']), 'path' => '/?loc=' . (int)$l['id']], $locs);
-        view_labels('All locations', $labels, '/locations');
+        view_labels('All locations', array_map($locLabel, $locs), '/locations');
         exit;
     }
     if (preg_match('#^/item/(\d+)/label$#D', $path, $m) && $method === 'GET') {

@@ -273,6 +273,7 @@ function bulk_bar_html(array $locs, array $cats, array $tags, string $back, stri
         <div class="bulkrow"><label class="field"><span>Remove tag</span><select name="tag_id" id="bulk-tag"><?php foreach ($tags as $t): ?><option value="<?= (int)$t['id'] ?>"><?= h($t['name']) ?></option><?php endforeach; ?></select></label>
           <button class="btn" name="action" value="tag_remove" id="bulk-tag-remove">Remove</button></div>
         <?php endif; ?>
+        <button class="btn btn-wide" name="action" value="labels" id="bulk-labels"><?= icon('qr') ?> Print QR labels</button>
         <button class="btn btn-danger btn-wide" name="action" value="delete" id="bulk-delete"><?= icon('trash') ?> Delete selected…</button>
       </div>
     </details>
@@ -1372,7 +1373,9 @@ function view_backup(array $current, ?string $error = null, ?array $preview = nu
 function view_labels(string $heading, array $labels, string $back, array $options = []): void
 {
     page_start('Labels', 'page-labels');
+    $cfg = [(int)setting('label_width_mm'), (int)setting('label_height_mm'), (int)setting('label_columns'), (int)setting('label_gap_mm'), (int)setting('label_border'), (int)setting('label_show_sub'), (int)setting('label_show_url')];
     ?>
+<link rel="stylesheet" href="/labels.css?v=<?= substr(md5(implode(',', $cfg)), 0, 8) ?>" id="labels-css">
 <header class="top top-simple no-print">
   <div class="bar">
     <a class="btn btn-ghost btn-round" href="<?= h($back) ?>" data-back aria-label="Back"><?= icon('back') ?></a>
@@ -1384,6 +1387,7 @@ function view_labels(string $heading, array $labels, string $back, array $option
   <div class="no-print labels-intro">
     <h2 class="item-name"><?= h($heading) ?></h2>
     <p class="hint">Scan a label with the phone camera to open <?= $options ? 'the matching list or item' : 'it' ?> in Apotheke. Links point to <b><?= h(public_url('')) ?></b><?= setting('public_url') === '' ? ' (change it in <a href="/settings/general">Settings → General</a>)' : '' ?>.</p>
+    <p class="hint labels-size"><?= count($labels) ?> label<?= count($labels) === 1 ? '' : 's' ?> · <?= $cfg[0] ?> × <?= $cfg[1] ?> mm, <?= $cfg[2] ?> per row (<a href="/settings/labels">change</a>)</p>
     <?php if ($options): ?><nav class="label-opts" aria-label="Label sets"><?php foreach ($options as $href => $txt): ?><a class="achip" href="<?= h($href) ?>"><?= h($txt) ?></a><?php endforeach; ?></nav><?php endif; ?>
   </div>
   <?php if (!$labels): ?>
@@ -1393,7 +1397,7 @@ function view_labels(string $heading, array $labels, string $back, array $option
     <?php foreach ($labels as $l): $url = public_url($l['path']); ?>
     <figure class="label" data-url="<?= h($url) ?>">
       <?= qr_svg($url, 'QR code for ' . $l['title']) ?>
-      <figcaption><b><?= h($l['title']) ?></b><?php if ($l['sub'] !== ''): ?><span><?= h($l['sub']) ?></span><?php endif; ?><small><?= h(preg_replace('#^https?://#', '', $url)) ?></small></figcaption>
+      <figcaption><b><?= h($l['title']) ?></b><?php if ($l['sub'] !== '' && setting('label_show_sub')): ?><span><?= h($l['sub']) ?></span><?php endif; ?><?php if (setting('label_show_url')): ?><small><?= h(preg_replace('#^https?://#', '', $url)) ?></small><?php endif; ?></figcaption>
     </figure>
     <?php endforeach; ?>
   </div>

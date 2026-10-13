@@ -360,6 +360,23 @@ T::ok($r['status'] === 200 && str_contains($r['body'], $c->base . '/item/' . $no
 T::ok(str_contains($c->get('/item/' . $nojs)['body'], 'href="/item/' . $nojs . '/label"'), 'item page links to its label');
 T::ok(str_contains($c->get('/locations')['body'], 'href="/labels?loc='), 'manage page links to location labels');
 T::eq(404, $c->get('/labels?loc=999999')['status'], 'unknown location → 404');
+// bulk selection → labels
+$lblIds = array_map('intval', $db->query('SELECT id FROM items ORDER BY id LIMIT 3')->fetchAll(PDO::FETCH_COLUMN));
+$r = $c->post('/bulk', ['csrf' => $tok, 'action' => 'labels', 'ids' => $lblIds, 'back' => '/?select=1']);
+T::eq(303, $r['status'], 'bulk “Print QR labels” redirects');
+T::eq('/labels?ids=' . implode(',', $lblIds), parse_url($r['headers']['location'] ?? '', PHP_URL_PATH) . '?' . parse_url($r['headers']['location'] ?? '', PHP_URL_QUERY), '… to the labels of the selection');
+$r = $c->get('/labels?ids=' . implode(',', $lblIds) . ',999999,abc');
+T::eq(3, substr_count($r['body'], '<figure class="label"'), 'one label per selected item (unknown ids skipped)');
+foreach ($lblIds as $x) T::ok(str_contains($r['body'], $c->base . '/item/' . $x . '"'), "label links to item $x");
+T::ok(str_contains($r['body'], '3 items selected'), 'selection heading');
+T::eq(422, $c->post('/bulk', ['csrf' => $tok, 'action' => 'labels', 'ids' => []])['status'], 'labels need a selection');
+T::eq(419, $c->post('/bulk', ['action' => 'labels', 'ids' => $lblIds])['status'], 'bulk labels need CSRF');
+// label size/grid from the Control Panel, as a generated stylesheet (CSP stays style-src 'self')
+preg_match('#href="(/labels\.css\?v=[0-9a-f]{8})"#', $r['body'], $lm);
+T::ok(isset($lm[1]), 'labels page links the generated label stylesheet');
+$css = $c->get($lm[1] ?? '/labels.css');
+T::ok(str_contains($css['headers']['content-type'] ?? '', 'text/css') && str_contains($css['body'], 'repeat(3,60mm)') && str_contains($css['body'], 'height:70mm'), 'default grid: 3 × 60 mm wide, 70 mm high');
+T::ok(!preg_match('/<style|style="/', $r['body']), 'no inline styles on the labels page');
 T::eq(404, $c->get('/item/999999/label')['status'], 'unknown item → 404');
 $us = new Server($dir, ['PUBLIC_URL' => 'https://env.example.lan']);
 T::ok(!str_contains($us->client()->get("/labels?loc=$box2")['body'], 'env.example.lan'), 'PUBLIC_URL env on an existing database: the stored setting wins');
@@ -725,6 +742,11 @@ T::eq([null, $nG, $nS], array_map(fn($id) => ($v = $db->query("SELECT parent_id 
 $nItem = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Nested drill', 'location_id' => $nB]));
 $nTop = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'Garage broom', 'location_id' => $nG]));
 T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nG&sort=name")), ['Garage broom', 'Nested drill'])), 'filtering a location includes its sub-locations');
+$r = $c->get("/labels?loc=$nG&sub=1");
+T::eq(3, substr_count($r['body'], '<figure class="label"'), 'location labels including sub-locations');
+T::ok(str_contains($r['body'], $c->base . '/?loc=' . $nB . '"') && str_contains($r['body'], '2 items'), '… with the nested box and roll-up counts');
+T::ok(str_contains($c->get("/labels?loc=$nG")['body'], "/labels?loc=$nG&amp;sub=1"), 'location label page offers the sub-location set');
+T::eq(2, substr_count($c->get("/labels?loc=$nG&items=1")['body'], '<figure class="label"'), 'item labels include items in sub-locations');
 T::eq(['Nested drill'], array_values(array_intersect(titles($c->json("/?loc=$nS")), ['Garage broom', 'Nested drill'])), 'filtering a sub-location excludes its parent');
 T::eq(['Garage broom', 'Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('nest garage') . '&sort=name')), ['Garage broom', 'Nested drill'])), 'search for a parent location finds items in its sub-locations');
 T::eq(['Nested drill'], array_values(array_intersect(titles($c->json('/?q=' . rawurlencode('nest shelf'))), ['Garage broom', 'Nested drill'])), 'search for a middle location skips its parent');
@@ -1040,6 +1062,7 @@ $secKeys = [
     'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
     'list' => ['page_size', 'default_sort', 'list_view', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
+    'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
     'security' => [], 'data' => [], 'system' => [],
@@ -1096,6 +1119,17 @@ T::ok(str_contains($hb, '<title>Shed Stock') || str_contains($hb, 'Shed Stock</t
 T::ok(str_contains($sc->get('/settings/general?done=saved')['body'], 'Settings saved'), 'saved toast');
 T::ok(str_contains(json_encode($sc->get('/manifest.webmanifest')['json']), 'Shed Stock'), 'app name in the manifest');
 T::ok(str_contains($sc->get('/labels')['body'], 'https://inv.example.org'), 'public URL used on QR labels');
+// QR label size and grid
+$r = $save('labels', ['label_width_mm' => '38', 'label_height_mm' => '21', 'label_columns' => '5', 'label_gap_mm' => '0', 'label_show_sub' => false, 'label_show_url' => false, 'label_border' => false]);
+T::ok(str_contains($r['headers']['location'] ?? '', '/settings/labels?done=saved'), 'label settings saved');
+$lb = $sc->get('/labels')['body'];
+preg_match('#href="(/labels\.css\?v=[0-9a-f]{8})"#', $lb, $lm);
+$css = $sc->get($lm[1] ?? '/labels.css')['body'];
+T::ok(str_contains($css, 'repeat(5,38mm)') && str_contains($css, 'height:21mm') && str_contains($css, 'gap:0mm') && str_contains($css, 'border:0'), 'stylesheet follows the label settings');
+T::ok(!str_contains($lb, '<small>inv.example.org') && !preg_match('#<figcaption><b>[^<]*</b><span>#', $lb), 'link and subtitle lines can be turned off');
+T::ok(str_contains($lb, '38 × 21 mm, 5 per row'), 'labels page shows the current size');
+T::eq(422, $save('labels', ['label_columns' => '0'])['status'], 'columns out of range rejected');
+$sc->post('/settings/labels/reset', ['csrf' => $st]);
 // appearance
 $r = $save('appearance', ['accent' => 'c8502d', 'theme_default' => 'dark', 'icon_background' => '#ffffff']);
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved'), 'appearance saved');
