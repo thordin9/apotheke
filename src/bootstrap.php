@@ -5,17 +5,12 @@ declare(strict_types=1);
  * Apotheke – core: config, database, sessions, auth, CSRF, helpers.
  */
 
-const APP_NAME   = 'Apotheke';
-const APP_TAGLINE = 'the storehouse for your stuff';
+const APP_NAME   = 'Apotheke';   // product id (backups); the displayed name is app_name() (Control Panel)
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/qr.php';
-
-define('MAX_UPLOAD', cfg()['uploads']['max_mb'] * 1024 * 1024);   // bytes, server-side hard limit
-define('FULL_MAX', cfg()['uploads']['full_max']);                 // px, longest side of stored image
-define('THUMB_MAX', cfg()['uploads']['thumb_max']);               // px, longest side of thumbnail
-define('PAGE_SIZE', cfg()['page_size']);
+require_once __DIR__ . '/settings.php';
 define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
 define('THUMB_DIR', DATA_DIR . '/thumbs');
@@ -63,25 +58,27 @@ function init_session(): void
 
 /* ---------- auth (optional, APP_PASSWORD) ---------- */
 
-function app_password(): string
-{
-    return cfg()['app_password'];
-}
-
 function is_authed(): bool
 {
-    return app_password() === '' || !empty($_SESSION['auth']);
+    return !auth_enabled() || (!empty($_SESSION['auth']) && hash_equals(auth_epoch(), (string)($_SESSION['auth_epoch'] ?? '')));
 }
 
 function login(string $pw): bool
 {
-    if (app_password() === '' || !hash_equals(app_password(), $pw)) return false;
+    if (!auth_enabled() || !password_verify($pw, (string)setting('password_hash'))) return false;
+    login_session();
+    return true;
+}
+
+/** Mark this session as signed in with the current password (also after changing it). */
+function login_session(): void
+{
     start_session();
     session_regenerate_id(true);
     $_SESSION['auth'] = true;
+    $_SESSION['auth_epoch'] = auth_epoch();
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
     session_write_close();
-    return true;
 }
 
 function logout(): void
@@ -142,7 +139,7 @@ function fmt_time(string $utc): string
 {
     try {
         $d = new DateTimeImmutable($utc, new DateTimeZone('UTC'));
-        return $d->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('j M Y, H:i');
+        return $d->setTimezone(new DateTimeZone(date_default_timezone_get()))->format('j M Y, ' . setting('time_format'));
     } catch (Throwable) {
         return $utc;
     }
@@ -232,8 +229,8 @@ const THEMES = ['auto', 'light', 'dark'];
 
 function theme_pref(): string
 {
-    $t = (string)($_COOKIE['theme'] ?? 'auto');
-    return in_array($t, THEMES, true) ? $t : 'auto';
+    $t = (string)($_COOKIE['theme'] ?? '');
+    return in_array($t, THEMES, true) ? $t : (string)setting('theme_default');
 }
 
 function set_theme_cookie(string $theme): string
@@ -253,7 +250,7 @@ function safe_back(string $back): string
 /** Absolute URL for $path, using PUBLIC_URL when configured (QR labels must work from a phone). */
 function public_url(string $path): string
 {
-    $base = cfg()['public_url'];
+    $base = (string)setting('public_url');
     if ($base === '') {
         $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
         $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');

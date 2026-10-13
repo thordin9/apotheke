@@ -64,6 +64,8 @@ function backup_dump(PDO $pdo, string $driver): array
         'driver'     => $driver,
         'schema'     => array_keys(migrations_applied($pdo, $driver)),
         'tables'     => $tables,
+        // Control Panel settings (not the password, not the logo file); restored when present
+        'settings'   => settings_export()['settings'],
     ];
 }
 
@@ -200,7 +202,7 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
             if ($thumb !== false && ($ti = @getimagesizefromstring($thumb)) && $ti[2] === IMAGETYPE_JPEG) {
                 file_put_contents("$dataDir/thumbs/$f", $thumb, LOCK_EX);
             } elseif (($im = @imagecreatefromstring($data)) !== false) {
-                imagejpeg(image_fit($im, THUMB_MAX), "$dataDir/thumbs/$f", 76);   // regenerate a missing thumbnail
+                imagejpeg(image_fit($im, image_thumb_max()), "$dataDir/thumbs/$f", 76);   // regenerate a missing thumbnail
             }
         }
         $written++;
@@ -242,6 +244,10 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
         $pdo->rollBack();
         if ($e instanceof PDOException) throw new UserError('The backup could not be restored (' . preg_replace('/\s+/', ' ', mb_substr($e->getMessage(), 0, 200)) . '). Nothing was changed.');
         throw $e;
+    }
+    if (is_array($dump['settings'] ?? null)) {
+        $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
+        foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";
     }
     return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $b['warnings']];
 }
