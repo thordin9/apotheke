@@ -7,10 +7,11 @@ out=coverage
 rm -rf "$out"
 mkdir -p "$out/cov-unit" "$out/cov-http" "$out/cov-all" "$out/http-raw"
 php -d pcov.enabled=1 -d pcov.directory="$PWD" -d "pcov.exclude=~/(vendor|tests)/~" vendor/bin/phpunit --testsuite unit --no-progress --coverage-php "$out/cov-unit/unit.cov"
-if ! APOTHEKE_COVERAGE_DIR="$PWD/$out/http-raw" php tests/integration.php > "$out/integration.log" 2>&1; then
+mkdir -p "$out/tmp"
+if ! TMPDIR="$PWD/$out/tmp" APOTHEKE_COVERAGE_DIR="$PWD/$out/http-raw" php tests/integration.php > "$out/integration.log" 2>&1; then
   tail -40 "$out/integration.log"
-  log=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'apotheke-*.server.log' -newer "$out/cov-unit/unit.cov" -print -quit 2>/dev/null || true)
-  if [[ -n $log ]]; then echo "== $log"; tail -40 "$log"; fi
+  echo "== php -S errors"
+  grep -h -m 20 -iE 'fatal|error|warning|exception' "$out"/tmp/*.server.log || echo "(none logged)"
   exit 1
 fi
 tail -1 "$out/integration.log"
@@ -19,6 +20,6 @@ cp "$out/cov-unit/unit.cov" "$out/cov-http/http.cov" "$out/cov-all/"
 vendor/bin/phpcov merge --clover "$out/unit.xml" "$out/cov-unit" > /dev/null
 vendor/bin/phpcov merge --clover "$out/http.xml" "$out/cov-http" > /dev/null
 vendor/bin/phpcov merge --clover "$out/combined.xml" --html "$out/html" --text "$out/combined.txt" "$out/cov-all" > /dev/null
-rm -rf "$out/http-raw"
+rm -rf "$out/http-raw" "$out/tmp"
 npx --no-install playwright test --list --reporter=json > "$out/playwright-list.json"
 if [[ ${1:-} != --no-readme ]]; then php scripts/coverage-readme.php "$out"; fi
