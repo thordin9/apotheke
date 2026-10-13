@@ -55,6 +55,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
 * **Favourites and recently viewed**: star items on the card or item page, a ★ chip and filter show only favourites;
   the last opened items appear as a thumbnail strip above the list (per device or shared, length set in the Control Panel).
+* **Undo**: after an edit, a delete or a bulk action a bar offers *Undo* for a configurable window (30 s by default).
+  Deleting is a soft delete until then: undo restores the item with its id, photos, attachments and tags.
 * **Notes and attachments**: notes support a safe Markdown subset (bold, italic, lists, headings, code, links — rendered
   on the server, everything else escaped). Attach receipts, manuals and warranty cards (PDF/JPEG/PNG/WebP; types, size and
   count limits in the Control Panel); they are downloaded, never rendered inline, and included in backups.

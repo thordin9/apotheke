@@ -91,6 +91,7 @@ function page_start(string $title, string $bodyClass = ''): void
 
 function page_end(): void
 {
+    echo undo_bar_html();
     echo "\n</body>\n</html>\n";
 }
 
@@ -321,7 +322,7 @@ function view_bulk_delete(array $items, string $back): void
 </header>
 <main class="wrap narrow">
   <h2 class="item-name">Delete <?= $n ?> item<?= $n === 1 ? '' : 's' ?>?</h2>
-  <p class="lead">Their photos are deleted too. The history keeps a record. This can’t be undone.</p>
+  <p class="lead">Their photos are deleted too. The history keeps a record. <?= undo_enabled() ? 'You can undo this for ' . (int)setting('undo_seconds') . ' seconds afterwards.' : 'This can’t be undone.' ?></p>
   <ul class="bulklist" id="bulklist">
     <?php foreach ($items as $it): ?><li><?= h($it['name']) ?><?= $it['location'] !== '' ? ' <span class="hint">· ' . h($it['location']) . '</span>' : '' ?></li><?php endforeach; ?>
   </ul>
@@ -767,7 +768,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <div class="actionbar">
   <div class="actionbar-in">
-    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”? This cannot be undone.">
+    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”?<?= undo_enabled() ? ' You can undo this for ' . (int)setting('undo_seconds') . ' seconds.' : ' This cannot be undone.' ?>">
       <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
       <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete</button>
     </form>
@@ -1289,6 +1290,9 @@ function activity_html(array $e): string
             if (!empty($d['filled'])) $t .= ' · filled in ' . h(implode(', ', (array)$d['filled']));
             if (($d['lending'] ?? '') === 'copied') $t .= ' · loan taken over';
             break;
+        case 'restored':
+            $t = 'Restored (deleting was undone)';
+            break;
         case 'deleted':
             $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
             break;
@@ -1298,7 +1302,7 @@ function activity_html(array $e): string
     return $t;
 }
 
-const ACTIVITY_ICONS = ['merged' => 'merge', 'attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
+const ACTIVITY_ICONS = ['restored' => 'undo', 'merged' => 'merge', 'attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
 function activity_items_html(array $entries, bool $withItem): string
 {

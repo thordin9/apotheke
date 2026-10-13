@@ -139,6 +139,7 @@ try {
         $toast = null;
         if (isset($_GET['saved']) && ($s = item_get((int)$_GET['saved']))) $toast = 'Saved “' . $s['name'] . '”';
         if (isset($_GET['deleted'])) $toast = 'Item deleted';
+        if (isset($_GET['undone'])) $toast = 'Undone';
         if (isset($_GET['bulk_done'])) $toast = bulk_toast((int)$_GET['bulk_done'], (string)($_GET['bulk_act'] ?? ''));
         if (isset($_GET['filter_saved']) && ($sf = saved_filter_get((int)$_GET['filter_saved']))) $toast = 'Saved filter “' . $sf['name'] . '”';
         view_list($q, $f, $sort, $res, locations(), categories(), stats(), $toast, ($_COOKIE['stats_open'] ?? (setting('overview_open') ? '1' : '0')) !== '0',
@@ -170,7 +171,8 @@ try {
         else {
             if (!wants_json()) recent_track((int)$it['id']);
             $hist = activity_list((int)$it['id'], 1, 10);
-            $toast = isset($_GET['merged']) ? 'Merged “' . clean_line((string)$_GET['merged'], 200) . '” into this item' : null;
+            $toast = isset($_GET['undone']) ? 'Undone' : null;
+            $toast ??= isset($_GET['merged']) ? 'Merged “' . clean_line((string)$_GET['merged'], 200) . '” into this item' : null;
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10, attachments_for((int)$it['id']), $toast);
         }
         exit;
@@ -227,13 +229,20 @@ try {
             view_form($existing, $vals, locations(), categories(), $e->getMessage());
             exit;
         }
+        $before = $existing ? undo_snapshot([(int)$existing['id']]) : [];
         $savedId = item_save($existing, $fields + $vals, $newImage, !empty($_POST['remove_image']));
+        $undo = null;
+        if ($before) {
+            $strip = fn(array $s) => [array_diff_key($s['row'], ['updated_at' => 1, 'search' => 1, 'image' => 1]), $s['tags']];
+            $now = undo_snapshot([$savedId]);
+            if ($now && $strip($now[0]) !== $strip($before[0])) $undo = undo_create('edit', 'Saved “' . $vals['name'] . '”', $before);
+        }
         $after = (string)($_POST['after'] ?? 'view');
         if ($after === 'another') {
             $qs = ['loc' => $vals['location_id'], 'cat' => $vals['category_id'], 'saved' => $savedId];
             redirect('/new?' . http_build_query(array_filter($qs, fn($v) => $v !== null)));
         }
-        redirect($existing ? '/item/' . $savedId : '/?saved=' . $savedId);
+        redirect($existing ? '/item/' . $savedId . ($undo ? '?undo=' . $undo : '') : '/?saved=' . $savedId);
     }
 
     /* ---- photos: add / cover / reorder / delete ---- */
@@ -330,7 +339,7 @@ try {
         $action = (string)($_POST['action'] ?? '');
         $back   = (string)($_POST['back'] ?? '');
         if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
-        $back   = preg_replace('/&?bulk_(?:done|act)=[^&]*/', '', $back);
+        $back   = preg_replace('/&?(?:bulk_(?:done|act)|undo|undone)=[^&]*/', '', $back);
         $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
         if ($action === 'labels') {
             $ids = array_values(array_unique(array_filter($ids, fn($i) => $i > 0)));
@@ -347,12 +356,14 @@ try {
                 view_bulk_delete($items, $back);
                 exit;
             }
+            $snap = undo_enabled() && in_array($action, UNDO_ACTIONS, true) && count($ids) <= BULK_MAX ? undo_snapshot(array_unique(array_filter($ids, fn($i) => $i > 0))) : [];
             $n = items_bulk($ids, $action, ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
-                'tags' => tags_parse((string)($_POST['tags'] ?? '')), 'tag_id' => (int)($_POST['tag_id'] ?? 0)]);
+                'tags' => tags_parse((string)($_POST['tags'] ?? '')), 'tag_id' => (int)($_POST['tag_id'] ?? 0), 'keep_files' => $action === 'delete' && $snap]);
         } catch (UserError $e) {
             throw new UserError($e->getMessage(), 422);
         }
-        redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action));
+        $undo = $n ? undo_create($action === 'delete' ? 'delete' : $action, bulk_toast($n, $action), $snap, ['back' => $back], $action === 'delete' ? undo_snapshot_files($snap) : []) : null;
+        redirect($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action) . ($undo ? '&undo=' . $undo : ''));
     }
 
     /* ---- merge duplicates ---- */
@@ -395,13 +406,26 @@ try {
         redirect('/');
     }
 
+    /* ---- undo ---- */
+    if ($path === '/undo' && $method === 'POST') {
+        check_csrf();
+        undo_prune();
+        $r = undo_apply((string)($_POST['token'] ?? ''));
+        $n = count($r['ids']);
+        if (wants_json()) json_out(['ok' => true, 'action' => $r['action'], 'ids' => $r['ids']]);
+        if ($r['back'] !== '' && preg_match('#^/\?[^\r\n]*$#D', $r['back'])) redirect($r['back'] . '&undone=' . $n);
+        redirect($n === 1 ? '/item/' . $r['ids'][0] . '?undone=1' : '/?undone=' . $n);
+    }
+
     /* ---- delete ---- */
     if (preg_match('#^/item/(\d+)/delete$#D', $path, $m) && $method === 'POST') {
         check_csrf();
         $it = item_get((int)$m[1]);
         if (!$it) throw new UserError('Item not found.', 404);
-        item_delete($it);
-        redirect('/?deleted=1');
+        $snap = undo_enabled() ? undo_snapshot([(int)$it['id']]) : [];
+        item_delete($it, (bool)$snap);
+        $undo = undo_create('delete', 'Deleted “' . $it['name'] . '”', $snap, [], undo_snapshot_files($snap));
+        redirect('/?deleted=1' . ($undo ? '&undo=' . $undo : ''));
     }
 
     /* ---- control panel ---- */

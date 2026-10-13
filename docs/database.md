@@ -79,6 +79,15 @@ erDiagram
     bigint seq "order, newest = highest"
     text viewed_at
   }
+  undo_tokens {
+    text token PK "32 hex, random"
+    text action "edit, move, category, tag_add, tag_remove, delete"
+    text label
+    text payload "JSON snapshot"
+    text files "JSON, kept files"
+    text created_at
+    text expires_at
+  }
   tags {
     int id PK
     text name
@@ -149,6 +158,11 @@ Notes:
 * `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
   `seq` orders it, rows beyond the limit are deleted on every view and rows older than 90 days now and then. It is
   per-device state and therefore **not** part of backups.
+* `undo_tokens` (migration 0016) backs *Undo*: `payload` is JSON with a full snapshot of every affected item (the
+  `items` row, tag names, photo and attachment rows), `files` lists the photo/attachment files a delete keeps on disk
+  (`[["img", "…jpg"], ["att", "…pdf"]]`). Tokens live `undo_seconds`; expired ones are pruned (and their files deleted
+  if nothing references them again) whenever a new token is created or */undo* is called. Not part of backups; a restore
+  clears them.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -172,6 +186,7 @@ Notes:
 | 0013 | `0013_settings.php` | `settings` (Control Panel key/value), seeded from `config.php` / env |
 | 0014 | `0014_attachments.php` | `item_attachments` (PDF/image files per item) + index |
 | 0015 | `0015_favourites_recent.php` | `items.favourite` + index, `recent_views` (recently viewed per device or install) |
+| 0016 | `0016_undo.php` | `undo_tokens` (short-lived undo snapshots) + index on `expires_at` |
 
 ## How migrations run
 

@@ -281,6 +281,8 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
         $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
         foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";
     }
+    // undo tokens refer to the data that was just replaced
+    if (backup_table_exists($pdo, $driver, 'undo_tokens')) undo_prune(true);
     return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $b['warnings']];
 }
 

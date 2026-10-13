@@ -23,6 +23,7 @@ src/
   attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
   favourites.php          favourite flag, recently viewed list (device cookie or shared scope)
   merge.php               merging duplicates: preview (confirm screen), item_merge() in one transaction, candidates
+  undo.php                undo tokens: item snapshots, soft delete (files kept until expiry), apply, prune, the bar
   backup.php              portable backup zip (dump + photos + attachments) and restore
   qr.php                  pure-PHP QR code encoder (SVG)
   seed.php                starter locations/categories and demo data

@@ -5,6 +5,7 @@ require_once __DIR__ . '/markdown.php';
 require_once __DIR__ . '/attachments.php';
 require_once __DIR__ . '/favourites.php';
 require_once __DIR__ . '/merge.php';
+require_once __DIR__ . '/undo.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
@@ -628,7 +629,7 @@ function activity_short(?string $s): string
 function item_save(?array $existing, array $in, ?string $newImage, bool $removeImage): int
 {
     $now  = now_utc();
-    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'expires_on' => null, 'serial' => '', 'barcode' => '', 'min_qty' => null, 'copied_from' => null];
+    $in += ['tags' => [], 'value_cents' => null, 'purchase_date' => null, 'expires_on' => null, 'serial' => '', 'barcode' => '', 'min_qty' => null, 'copied_from' => null, 'reason' => null];
     $in['barcode'] = barcode_clean((string)$in['barcode']);
     $blob = search_blob($in['name'], $in['notes'], $in['serial'], $in['tags'], $in['barcode']);
     $drop = [];
@@ -663,9 +664,9 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
             'min_qty'       => [($old['min_qty'] ?? null) === null ? '' : (string)$old['min_qty'], $in['min_qty'] === null ? '' : (string)$in['min_qty']],
         ];
         foreach ($cmp as $k => [$a, $b]) if ($a !== $b) $changes[$k] = [$a, $b];
-        if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes]);
+        if ($changes) activity_log($id, $in['name'], 'edited', ['changes' => $changes] + array_filter(['reason' => $in['reason']]));
         if ((int)$old['location_id'] !== (int)$in['location_id'] || ($old['location_id'] === null) !== ($in['location_id'] === null)) {
-            activity_log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])]);
+            activity_log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])] + array_filter(['reason' => $in['reason']]));
         }
         if ((int)$old['quantity'] !== (int)$in['quantity']) activity_log($id, $in['name'], 'quantity', ['from' => (int)$old['quantity'], 'to' => (int)$in['quantity']]);
         if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
@@ -686,7 +687,8 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
     return $id;
 }
 
-function item_delete(array $item): void
+/** Delete an item. With $keepFiles its photo/attachment files stay on disk (an undo token owns them). */
+function item_delete(array $item, bool $keepFiles = false): void
 {
     $files = array_column(photos_for((int)$item['id']), 'file');
     $att = array_column(attachments_for((int)$item['id']), 'file');
@@ -695,6 +697,7 @@ function item_delete(array $item): void
         $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
         $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
     });
+    if ($keepFiles) return;
     foreach (array_unique(array_merge($files, [$item['image']])) as $f) image_delete($f);
     foreach ($att as $f) attachment_file_delete($f);
 }
@@ -1144,6 +1147,7 @@ function items_bulk(array $ids, string $action, array $opt = []): int
         $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
         return $n;
     });
+    if (!empty($opt['keep_files'])) return $n;
     foreach (array_unique(array_filter($files)) as $f) image_delete($f);
     foreach ($attFiles as $f) attachment_file_delete($f);
     return $n;

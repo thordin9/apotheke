@@ -300,6 +300,22 @@ sheets), whether to print the subtitle and link lines, and dashed cut lines. The
 labels; the sizes are delivered as a generated stylesheet (`/labels.css`), so the strict CSP stays in place. Print at
 100 % scale (no “fit to page”) to get exact millimetres.
 
+## Undo
+
+After you **save an edit**, **delete** an item or run a **bulk action** (move, set category, add/remove a tag, delete), a
+bar at the bottom says what happened and offers **Undo** — for 30 seconds by default (*Settings → Thresholds & limits →
+Undo window*; 0 turns it off). Undo puts things back exactly as they were:
+
+* an edit: every field and the tags (photos you added or removed in the same edit stay as they are);
+* a bulk move / category / tag change: only what the bulk action changed, so later edits to the same items survive;
+* a delete: the item comes back with the **same id** (so printed QR labels keep working), its photos, attachments,
+  tags, loan and ★. Deleting is a *soft delete* while undo is possible: the files stay on disk until the window is over
+  and are removed afterwards.
+
+The history keeps both entries ("Deleted…", then "Restored (deleting was undone)"; edits show "Edited (undo)"). Each
+undo works once; after the window the bar disappears and the server refuses the token. Works without JavaScript too
+(the bar is then simply shown until you leave the page).
+
 ## History
 
 Every change is recorded in the same transaction as the change: created (including "copied from"), edited (old → new

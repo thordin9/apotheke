@@ -799,3 +799,16 @@ dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;bor
 .merge-arrow{color:var(--accent)}
 .merge-arrow .i{transform:rotate(90deg)}
 .merge-changes{margin:0 0 var(--s3);padding-left:1.1em;display:grid;gap:6px}
+
+/* undo bar (after edit / move / delete / bulk) */
+.undo-bar{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom));z-index:60;display:flex;align-items:center;gap:6px;
+  width:min(560px,calc(100% - 24px));padding:6px 6px 6px 16px;border-radius:14px;background:var(--text);color:var(--bg);box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.undo-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:15px}
+.undo-bar form{margin:0;flex:none}
+.undo-btn{min-height:44px;background:transparent;color:var(--accent-on-dark,#a5b4fc);border:0;font-weight:700}
+:root[data-theme=dark] .undo-btn{color:var(--accent)}
+.undo-x{min-height:44px;min-width:44px;color:inherit;opacity:.7;flex:none}
+.undo-bar[hidden]{display:none}
+body:has(.undo-bar:not([hidden])) .toast{display:none}
+.page-select .undo-bar,body:has(.actionbar) .undo-bar{bottom:calc(84px + env(safe-area-inset-bottom))}
+@media print{.undo-bar{display:none!important}}

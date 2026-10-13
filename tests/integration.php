@@ -212,7 +212,7 @@ T::eq(404, $c->api('/item/99999/qty', ['csrf' => $tok, 'delta' => 1])['status'],
 T::section('Edit');
 $old = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->api('/save', ['csrf' => $tok, 'id' => $drill, 'name' => 'Cordless drill 18V', 'location_id' => $ids['loc']['box 2'], 'category_id' => $ids['cat']['Tools'], 'quantity' => 2, 'notes' => 'Makita'], ['photo' => jpg_file(img_jpeg(1000, 800))]);
-T::eq("/item/$drill", $r['json']['redirect'] ?? null, 'edit redirects to detail');
+T::ok(preg_match('#^/item/' . $drill . '\?undo=[a-f0-9]{32}$#', (string)($r['json']['redirect'] ?? '')) === 1, 'edit redirects to detail (with an undo token)');
 $row = $db->query("SELECT name, location_id, quantity, notes, image FROM items WHERE id = $drill")->fetch();
 T::ok($row['name'] === 'Cordless drill 18V' && (int)$row['location_id'] === $ids['loc']['box 2'] && (int)$row['quantity'] === 2 && $row['notes'] === 'Makita', 'fields updated');
 T::ok($row['image'] !== $old && !is_file("$dir/images/$old") && !is_file("$dir/thumbs/$old") && is_file("$dir/images/{$row['image']}"), 'photo replaced, old files deleted');
@@ -903,8 +903,11 @@ T::section('Delete item');
 T::eq(404, $c->api('/item/999999/delete', ['csrf' => $tok])['status'], 'delete missing item → 404 (no false toast)');
 $img = $db->query("SELECT image FROM items WHERE id = $drill")->fetchColumn();
 $r = $c->post("/item/$drill/delete", ['csrf' => $tok]);
-T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/?deleted=1', 'delete redirects to list');
-T::ok(!is_file("$dir/images/$img") && !is_file("$dir/thumbs/$img"), 'image + thumbnail removed');
+T::ok($r['status'] === 303 && preg_match('#^/\?deleted=1&undo=([a-f0-9]{32})$#', $r['headers']['location'] ?? '', $um) === 1, 'delete redirects to list (with an undo token)');
+T::ok(is_file("$dir/images/$img"), 'files kept while undo is possible');
+$db->exec("UPDATE undo_tokens SET expires_at = '2000-01-01 00:00:00'");
+T::eq(410, $c->post('/undo', ['csrf' => $tok, 'token' => $um[1] ?? ''])['status'], 'expired undo token → 410');
+T::ok(!is_file("$dir/images/$img") && !is_file("$dir/thumbs/$img"), 'image + thumbnail removed once the undo window is over');
 T::ok(array_filter($allPics, fn($f) => is_file("$dir/images/$f") || is_file("$dir/thumbs/$f")) === [], 'every gallery photo removed');
 T::eq(0, (int)$db->query("SELECT COUNT(*) FROM item_photos WHERE item_id = $drill")->fetchColumn(), 'photo rows removed');
 T::eq(404, $c->get("/item/$drill")['status'], 'item gone');
@@ -1063,7 +1066,7 @@ $secKeys = [
     'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
-    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'max_photos'],
+    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
     'security' => [], 'data' => [], 'system' => [],
 ];
@@ -1371,6 +1374,8 @@ T::ok((int)$fdb->query("SELECT COUNT(*) FROM item_attachments WHERE item_id = $a
 T::eq($pdf, $fc->get('/attachment/' . $rows[0]['id'])['body'], 'restored attachment downloads');
 // deleting the item removes its files
 $fc->post("/item/$ai/delete", ['csrf' => $ft]);
+$fdb->exec("UPDATE undo_tokens SET expires_at = '2000-01-01 00:00:00'");
+$fc->post('/undo', ['csrf' => $ft, 'token' => str_repeat('0', 32)]);
 T::ok(!is_file("$fxDir/files/{$rows[0]['file']}") && (int)$fdb->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn() === 0, 'deleting the item removes its attachments');
 $fx->stop();
 
@@ -1513,6 +1518,83 @@ T::ok(str_contains($mc->get("/item/$b2/merge?into=$b1")['body'], 'the loan to <b
 $mc->post("/item/$b2/merge", ['csrf' => $mt, 'into' => $b1, 'confirm' => '1']);
 T::eq(['Nikos', 1000000], [($l = $mdb->query("SELECT lent_to, quantity FROM items WHERE id = $b1")->fetch())['lent_to'], (int)$l['quantity']], 'target loan kept, quantity capped at the maximum');
 $mx->stop();
+
+T::section('Undo (edit, move, delete, bulk)');
+$ux = new Server($uxDir = $newDir('undo'), ['SEED_DEFAULTS' => '1']);
+$uc = $ux->client();
+$ut = $uc->csrf();
+$udb = testdb($uxDir);
+$uTok = fn(array $r) => preg_match('/[?&]undo=([a-f0-9]{32})/', (string)($r['headers']['location'] ?? $r['json']['redirect'] ?? ''), $m) ? $m[1] : '';
+$uLoc1 = (int)$uc->api('/locations', ['csrf' => $ut, 'name' => 'Undo shelf'])['json']['id'];
+$uLoc2 = (int)$uc->api('/locations', ['csrf' => $ut, 'name' => 'Undo attic'])['json']['id'];
+$u1 = $savedId($uc->api('/save', ['csrf' => $ut, 'name' => 'Kettle', 'quantity' => 2, 'location_id' => $uLoc1, 'tags' => 'kitchen', 'notes' => 'white'], ['photo' => jpg_file(img_jpeg(200, 150))]));
+$u2 = $savedId($uc->api('/save', ['csrf' => $ut, 'name' => 'Toaster', 'quantity' => 1, 'location_id' => $uLoc1]));
+$uc->api("/item/$u1/attachments", ['csrf' => $ut], ['files[0]' => jpg_file($pdf, 'warranty.pdf', 'application/pdf')]);
+$uc->api("/item/$u1/fav", ['csrf' => $ut, 'on' => '1']);
+// edit
+$r = $uc->post('/save', ['csrf' => $ut, 'id' => $u1, 'name' => 'Electric kettle', 'quantity' => '5', 'location_id' => $uLoc2, 'tags' => 'kitchen, electric', 'notes' => 'steel']);
+$tk = $uTok($r);
+T::ok($tk !== '', 'edit offers an undo token');
+$ip = $uc->get("/item/$u1?undo=$tk")['body'];
+T::ok(str_contains($ip, 'id="undo-bar"') && str_contains($ip, 'Saved “Electric kettle”') && str_contains($ip, 'name="token" value="' . $tk . '"'), 'undo bar with label and token');
+T::ok(preg_match('/data-left="(\d+)"/', $ip, $lm) === 1 && (int)$lm[1] > 0 && (int)$lm[1] <= 30, 'bar knows the seconds left (default window 30 s)');
+T::eq(0, (int)$udb->query("SELECT COUNT(*) FROM undo_tokens WHERE token = '$tk' AND payload NOT LIKE '%Kettle%'")->fetchColumn(), 'snapshot holds the old values');
+T::eq('', $uTok($uc->post('/save', ['csrf' => $ut, 'id' => $u2, 'name' => 'Toaster', 'quantity' => '1', 'location_id' => $uLoc1])), 'no undo when nothing changed');
+T::eq(419, $uc->post('/undo', ['token' => $tk])['status'], 'undo needs CSRF');
+$r = $uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::eq("/item/$u1?undone=1", $r['headers']['location'] ?? '', 'undo returns to the item');
+$k = $udb->query("SELECT * FROM items WHERE id = $u1")->fetch();
+T::eq(['Kettle', 2, $uLoc1, 'white', 1], [$k['name'], (int)$k['quantity'], (int)$k['location_id'], $k['notes'], (int)$k['favourite']], 'edit undone (name, quantity, location, notes; star untouched)');
+T::eq(['kitchen'], $udb->query("SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = $u1")->fetchAll(PDO::FETCH_COLUMN), 'tags back, unused tag removed');
+T::ok(!$udb->query("SELECT 1 FROM tags WHERE name = 'electric'")->fetchColumn(), 'tag created by the edit is gone');
+$hp = $uc->get("/item/$u1?undone=1")['body'];
+T::ok(str_contains($hp, '>Undone<') && str_contains($hp, 'Edited (undo)'), 'toast + history entry “Edited (undo)”');
+T::eq(410, $uc->post('/undo', ['csrf' => $ut, 'token' => $tk])['status'], 'a token works once');
+T::eq(410, $uc->post('/undo', ['csrf' => $ut, 'token' => 'nope'])['status'], 'bogus token → 410');
+// bulk move
+$r = $uc->post('/bulk', ['csrf' => $ut, 'action' => 'move', 'ids' => [$u1, $u2], 'location_id' => (string)$uLoc2, 'back' => '/?select=1']);
+$tk = $uTok($r);
+T::ok($tk !== '' && str_contains($uc->get('/?select=1&undo=' . $tk)['body'], 'Moved 2 items'), 'bulk move offers undo');
+$uc->post('/save', ['csrf' => $ut, 'id' => $u2, 'name' => 'Toaster 2000', 'quantity' => '1', 'location_id' => $uLoc2]);
+$r = $uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::eq('/?select=1&undone=2', $r['headers']['location'] ?? '', 'bulk undo returns to the list');
+T::eq([$uLoc1, $uLoc1], array_map('intval', $udb->query("SELECT location_id FROM items WHERE id IN ($u1, $u2) ORDER BY id")->fetchAll(PDO::FETCH_COLUMN)), 'locations back');
+T::eq('Toaster 2000', $udb->query("SELECT name FROM items WHERE id = $u2")->fetchColumn(), 'bulk undo only reverts what the bulk action changed');
+// bulk tags
+$tk = $uTok($uc->post('/bulk', ['csrf' => $ut, 'action' => 'tag_add', 'ids' => [$u1, $u2], 'tags' => 'sale', 'back' => '/?select=1']));
+$uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::ok(!$udb->query("SELECT 1 FROM tags WHERE name = 'sale'")->fetchColumn(), 'bulk tag add undone');
+// delete one = soft delete
+$photo = $udb->query("SELECT file FROM item_photos WHERE item_id = $u1")->fetchColumn();
+$attf = $udb->query("SELECT file FROM item_attachments WHERE item_id = $u1")->fetchColumn();
+$tk = $uTok($uc->post("/item/$u1/delete", ['csrf' => $ut]));
+T::ok($tk !== '' && !$udb->query("SELECT 1 FROM items WHERE id = $u1")->fetchColumn(), 'delete offers undo, the item is gone');
+T::ok(str_contains($uc->get('/?deleted=1&undo=' . $tk)['body'], 'Deleted “Kettle”'), 'undo bar on the list');
+T::ok(is_file("$uxDir/images/$photo") && is_file("$uxDir/files/$attf"), 'photo and attachment files kept for now');
+$r = $uc->post('/undo', ['csrf' => $ut, 'token' => $tk]);
+T::eq("/item/$u1?undone=1", $r['headers']['location'] ?? '', 'restored item opens (same id)');
+$k = $udb->query("SELECT * FROM items WHERE id = $u1")->fetch();
+T::ok($k && $k['name'] === 'Kettle' && (int)$k['favourite'] === 1 && $k['image'] === $photo, 'item restored with its fields, star and cover');
+T::eq([$photo], $udb->query("SELECT file FROM item_photos WHERE item_id = $u1")->fetchAll(PDO::FETCH_COLUMN), 'photos restored');
+T::eq('warranty.pdf', $udb->query("SELECT name FROM item_attachments WHERE item_id = $u1")->fetchColumn(), 'attachments restored');
+T::eq(['kitchen'], $udb->query("SELECT t.name FROM tags t JOIN item_tags it ON it.tag_id = t.id WHERE it.item_id = $u1")->fetchAll(PDO::FETCH_COLUMN), 'tags restored');
+T::eq(200, $uc->get('/media/full/' . $photo)['status'], 'restored photo serves');
+T::ok(str_contains($uc->get("/item/$u1")['body'], 'Restored (deleting was undone)'), 'history shows the restore (and keeps the delete)');
+// bulk delete, then let the window pass: files are removed
+$tk = $uTok($uc->post('/bulk', ['csrf' => $ut, 'action' => 'delete', 'confirm' => '1', 'ids' => [$u1, $u2], 'back' => '/?select=1']));
+T::ok($tk !== '' && is_file("$uxDir/images/$photo"), 'bulk delete offers undo and keeps files');
+$udb->exec("UPDATE undo_tokens SET expires_at = '2000-01-01 00:00:00'");
+T::eq(410, $uc->post('/undo', ['csrf' => $ut, 'token' => $tk])['status'], 'too late');
+T::ok(!is_file("$uxDir/images/$photo") && !is_file("$uxDir/files/$attf"), 'expired: the kept files are deleted');
+T::eq(0, (int)$udb->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn(), 'expired tokens pruned');
+T::ok(!str_contains($uc->get('/?undo=' . $tk)['body'], 'id="undo-bar"'), 'no bar for an expired token');
+// window 0 = off
+$uc->post('/settings/limits', ['csrf' => $ut, 'expiry_soon_days' => '30', 'lend_due_days' => '', 'saved_filters_max' => '50', 'undo_seconds' => '0', 'max_photos' => '12']);
+$u3 = $savedId($uc->api('/save', ['csrf' => $ut, 'name' => 'Mixer']));
+T::eq('/?deleted=1', $uc->post("/item/$u3/delete", ['csrf' => $ut])['headers']['location'] ?? '', 'undo off: plain delete');
+T::eq(0, (int)$udb->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn(), 'no token stored');
+$ux->stop();
+T::ok(!$ux->logHas('[apotheke]'), 'no server-side exceptions logged');
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 

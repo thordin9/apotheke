@@ -28,7 +28,7 @@ database. Use the panel (or `bin/settings.php`) instead.
 | **List** | Items per page (1–500), default sort, view (photo cards or compact rows), *Recently viewed* length (0–50, 0 = hide) and whether it is kept per device (cookie) or shared, whether the Overview starts open |
 | **New item defaults** | Quantity, running-low threshold, tags, notes, purchase date = today, expiry *N* months ahead, default location and category (the same ★ as on the Locations/Categories pages) |
 | **QR labels** | Label width and height (mm), labels per row, gap (mm), print the subtitle / link line, dashed cut lines |
-| **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, max photos per item |
+| **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, **undo window** (seconds, 0–3600, 0 = no undo), max photos per item |
 | **Photos & uploads** | Upload limit per photo (MB), stored photo size, thumbnail size, JPEG quality (thumbnails use quality − 6); attachments: allowed types (PDF + images / PDF only / images only), max size per file (MB), max files per item |
 | **Password** | Turn the shared password on/off, change it (min. 8 characters; the current password is required) |
 | **Backup & data** | Backup / restore, CSV export, settings export / import (JSON) |

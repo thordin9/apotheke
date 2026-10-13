@@ -169,6 +169,18 @@
   /* ---------- print button (labels) ---------- */
   document.addEventListener('click', e => { if (e.target.closest('[data-print]')) { e.preventDefault(); window.print(); } });
 
+  /* ---------- undo bar: hide when the window closes, drop ?undo= from the address ---------- */
+  const ub = $('#undo-bar');
+  if (ub) {
+    const hide = () => { ub.hidden = true; };
+    setTimeout(hide, Math.max(0, parseInt(ub.dataset.left, 10) || 0) * 1000);
+    const x = $('#undo-x'); if (x) x.addEventListener('click', hide);
+    try {
+      const u = new URL(location.href);
+      if (u.searchParams.has('undo')) { u.searchParams.delete('undo'); history.replaceState(history.state, '', u.pathname + (u.search || '') + u.hash); }
+    } catch (_) { /* old browser */ }
+  }
+
   /* ---------- favourite star (in place; the form still works without JS) ---------- */
   document.addEventListener('submit', async e => {
     const f = e.target.closest('form.favf');
