@@ -279,8 +279,8 @@ function sqlite(string $file): PDO
 /** Card titles from a list JSON response. */
 function titles(array $r): array
 {
-    preg_match_all('/class="card-title"[^>]*>([^<]*)</', (string)($r['json']['html'] ?? ''), $m);
-    return array_map(fn($s) => html_entity_decode($s, ENT_QUOTES), $m[1]);
+    preg_match_all('#class="card-title"[^>]*>(.*?)</a>#s', (string)($r['json']['html'] ?? ''), $m);
+    return array_map(fn($s) => html_entity_decode(strip_tags($s), ENT_QUOTES), $m[1]);
 }
 
 function selected_option(string $html, string $selectName): ?string
@@ -334,9 +334,9 @@ function item_exists_in(PDO $db, int $id): bool
     return (int)$db->query("SELECT COUNT(*) FROM items WHERE id = $id")->fetchColumn() === 1;
 }
 
-/** Is the app password switched on in this database? (reads the settings table directly) */
+/** Is sign-in switched on in this database? (reads the settings and users tables directly) */
 function auth_on_db(PDO $db): bool
 {
-    $v = $db->query("SELECT name, value FROM settings WHERE name IN ('auth_enabled', 'password_hash')")->fetchAll(PDO::FETCH_KEY_PAIR);
-    return json_decode($v['auth_enabled'] ?? 'false') === true && json_decode($v['password_hash'] ?? '""') !== '';
+    $v = $db->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn();
+    return json_decode((string)($v ?: 'false')) === true && (int)$db->query('SELECT COUNT(*) FROM users')->fetchColumn() > 0;
 }

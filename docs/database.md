@@ -151,8 +151,29 @@ Notes:
 * `activity.details` is JSON, e.g. `{"changes": {"min_qty": ["2", ""]}}` for an edit, `{"to": "Maria", "at": "…",
   "due": "…"}` for a loan, `{"from": "Drill", "from_id": 7, "quantity": [2, 5], "photos": 1}` for a merge, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
-  `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins. The
-  password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).
+  `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins.
+  `auth_enabled` switches sign-in on; the old shared `password_hash` is empty since migration 0018. See [control-panel.md](control-panel.md).
+* `users` (migration 0018): `username` as typed, `username_key` (lower-case, unique) for lookups, `password_hash`
+  (`password_hash()`), `role` (`admin`, `editor`, `viewer`), `created_at`, `last_login_at`. The migration turns an existing
+  shared password into the account `admin` with role admin. `activity.actor` (same migration) is the user name that made
+  the change (NULL with sign-in off or from the CLI). Users are not part of backups.
+* `search_docs` (migration 0019): one row per item with the folded (lower case, no accents) `name_f`, `tags_f`, `other_f`
+  (notes, serial, barcode, borrower, category, location path) used for matching and the original `other` for snippets.
+  It is derived data: `src/search.php` rebuilds it when a fingerprint of items, locations, categories and tags (kept in
+  `search_meta`) changes, so no write path needs a hook. SQLite mirrors it into the FTS5 table `search_fts`
+  (`unicode61 remove_diacritics 2`) and reads typo candidates from `search_fts_v` (fts5vocab); PostgreSQL has a generated
+  weighted `tsv` (A name, B tags, C rest) with a GIN index and, if `CREATE EXTENSION pg_trgm` is allowed, a trigram
+  index for word similarity. Missing FTS5 / pg_trgm only switch off those extras (Settings → System shows the engine).
+  Not part of backups (rebuilt on the next search).
+* `roles` (migration 0022): `role_key` (unique; `users.role` refers to it), `name`, `perms` (JSON list), `builtin`.
+  Seeded with admin / editor / viewer / guest; unknown `users.role` values became viewer. `users.status` is `active`
+  or `pending` (self-registered, waiting for approval). `auth_attempts` (kind, hashed client address, unix time) backs
+  the sign-in and registration rate limits; rows older than a day are dropped. Not part of backups.
+* `item_photos.version` / `edited_at` (migration 0021): bumped each time a photo is cropped or rotated; the edited
+  image gets a new random file name (cache-safe) and the old file is removed.
+* `imports` (migration 0020): one row per uploaded CSV — `status` `uploaded` / `done`, `mapping` (JSON: column index →
+  field), `options` (`create`, `skip_errors`), `result` (counts and the locations/categories/tags it created), `actor`.
+  The file waits in `DATA_DIR/tmp/import-<id>.csv` until it is imported. Not part of backups.
 * `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
   random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
 * `items.favourite` is 0/1 (the ★ on cards). `recent_views` keeps the *recently viewed* list: one row per scope and item,
@@ -163,6 +184,11 @@ Notes:
   (`[["img", "…jpg"], ["att", "…pdf"]]`). Tokens live `undo_seconds`; expired ones are pruned (and their files deleted
   if nothing references them again) whenever a new token is created or */undo* is called. Not part of backups; a restore
   clears them.
+* `stocktakes` (migration 0017) is one check of a location (`location_name` keeps its path at the start; `status` is
+  `open`, `done` or `cancelled`; `summary` is JSON with the final counts). `stocktake_lines` has one row per item:
+  `expected = 1` for the snapshot of what was recorded in the location (and its sub-locations) at the start, `expected = 0`
+  for misplaced items found there; `found`, `found_at`, and `moved` once *Finish* moved it. `item_id` becomes NULL when
+  the item is deleted (`item_name` stays). Both tables are part of backups.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -187,6 +213,12 @@ Notes:
 | 0014 | `0014_attachments.php` | `item_attachments` (PDF/image files per item) + index |
 | 0015 | `0015_favourites_recent.php` | `items.favourite` + index, `recent_views` (recently viewed per device or install) |
 | 0016 | `0016_undo.php` | `undo_tokens` (short-lived undo snapshots) + index on `expires_at` |
+| 0017 | `0017_stocktake.php` | `stocktakes`, `stocktake_lines` (location checks and their results) |
+| 0018 | `0018_users.php` | `users` (accounts with roles; the old shared password becomes `admin`), `activity.actor` |
+| 0019 | `0019_search.php` | `search_docs`, `search_meta`; SQLite `search_fts` (FTS5) + `search_fts_v` (vocabulary), PostgreSQL `tsv` column + GIN, optional `pg_trgm` index |
+| 0020 | `0020_import.php` | `imports` (CSV import history: file, mapping, options, result) |
+| 0021 | `0021_photo_versions.php` | `item_photos.version`, `item_photos.edited_at` (crop/rotate versions) |
+| 0022 | `0022_roles.php` | `roles` (built-in + custom permission sets), `users.status`, `auth_attempts` (rate limits) |
 
 ## How migrations run
 

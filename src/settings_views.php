@@ -58,6 +58,10 @@ function setting_field_html(string $key, mixed $value, ?string $error): string
             $sel = '';
             foreach ($opts as $k => $l) $sel .= '<option value="' . h((string)$k) . '"' . ((string)$k === (string)$value ? ' selected' : '') . '>' . h((string)$l) . '</option>';
             return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><select name="' . $key . '" id="' . $id . '"' . $aria . '>' . $sel . '</select>' . $wrapD . $err . '</div>';
+        case 'role':
+            $sel = '';
+            foreach (account_roles() as $k => $r) if ($k !== 'admin') $sel .= '<option value="' . h($k) . '"' . ($k === $value ? ' selected' : '') . '>' . h($r['name']) . '</option>';
+            return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><select name="' . $key . '" id="' . $id . '"' . $aria . '>' . $sel . '</select>' . $wrapD . $err . '</div>';
         case 'int':
             return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="number" name="' . $key . '" id="' . $id . '" value="' . h($value === null ? '' : (string)$value)
                 . '" min="' . $o['min'] . '" max="' . $o['max'] . '" step="1" inputmode="numeric"' . (!empty($o['nullable']) ? ' placeholder="empty"' : ' required') . $aria . '>' . $wrapD . $err . '</div>';
@@ -169,29 +173,116 @@ function settings_appearance_extra(array $values, string $tok): string
 function settings_security_html(string $tok, array $errors): string
 {
     $on = auth_enabled();
-    $err = isset($errors['password']) ? '<div class="err" role="alert" id="pw-err">' . h($errors['password']) . '</div>' : '';
-    $cur = '<label class="field"><span>Current password</span><input type="password" name="current" id="pw-current" autocomplete="current-password" required></label>';
-    $new = '<label class="field"><span>New password <em>at least 8 characters</em></span><input type="password" name="new" id="pw-new" autocomplete="new-password" minlength="8" required></label>'
-        . '<label class="field"><span>Repeat new password</span><input type="password" name="confirm" id="pw-confirm" autocomplete="new-password" minlength="8" required></label>';
+    $me = current_user();
+    $err = fn(string $k, string $id) => isset($errors[$k]) ? '<div class="err" role="alert" id="' . $id . '">' . h($errors[$k]) . '</div>' : '';
+    $pw = fn(string $id, string $label = 'Password') => '<label class="field"><span>' . $label . ' <em>at least ' . PASSWORD_MIN . ' characters</em></span><input type="password" name="new" id="' . $id . '" autocomplete="new-password" minlength="' . PASSWORD_MIN . '" required></label>'
+        . '<label class="field"><span>Repeat ' . strtolower($label) . '</span><input type="password" name="confirm" id="' . $id . '-confirm" autocomplete="new-password" minlength="' . PASSWORD_MIN . '" required></label>';
+    $cur = '<label class="field"><span>Your current password</span><input type="password" name="current" id="pw-current" autocomplete="current-password" required></label>';
+    $roleSel = function (string $name, string $id, string $cur) {
+        $o = '<select name="' . $name . '" id="' . $id . '">';
+        foreach (account_roles() as $k => $r) $o .= '<option value="' . h($k) . '"' . ($k === $cur ? ' selected' : '') . '>' . h($r['name']) . ' – ' . h(role_summary($k)) . '</option>';
+        return $o . '</select>';
+    };
     $o = '<section class="set-card" id="pw-card"><p class="pw-state" id="pw-state">' . icon('lock') . ' '
-        . ($on ? 'A password is required to use Apotheke.' : 'No password: anyone who can reach this address can use Apotheke (fine on a private home network).') . '</p>' . $err;
+        . ($on ? 'Accounts are on: everybody signs in with their own user name and password' . (guest_browsing() ? '; visitors who are not signed in can look around as guests.' : '.') : 'Accounts are off: everyone is an anonymous guest with admin rights (fine on a private home network).') . '</p>' . $err('password', 'pw-err');
+    $admins = users_count('admin');
     if ($on) {
         $o .= '<form method="post" action="/settings/password" class="setform" id="pw-change"><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="change">'
-            . '<h2 class="set-h">Change password</h2>' . $cur . $new . '<button class="btn btn-primary btn-wide" id="pw-save">Change password</button></form>'
-            . '<form method="post" action="/settings/password" class="setform" id="pw-disable" data-confirm="Turn the password off? Anyone on the network can then use Apotheke."><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="disable">'
-            . '<h2 class="set-h">Turn the password off</h2>' . str_replace(['id="pw-current"'], ['id="pw-current-off"'], $cur) . '<button class="btn btn-danger btn-wide" id="pw-off">Turn password off</button></form>';
+            . '<h2 class="set-h">Change your password</h2><p class="hint">Signed in as <b id="me-name">' . h($me['username']) . '</b> (' . h(role_name($me['role'])) . ').</p>'
+            . $cur . str_replace(['name="new" id="pw-new"', 'id="pw-new-confirm"'], ['name="new" id="pw-new"', 'id="pw-confirm"'], $pw('pw-new', 'New password')) . '<button class="btn btn-primary btn-wide" id="pw-save">Change password</button></form>'
+            . '<form method="post" action="/settings/password" class="setform" id="pw-disable" data-confirm="Turn sign-in off? Anyone on the network can then use Apotheke with full rights. The accounts are kept."><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="disable">'
+            . '<h2 class="set-h">Turn sign-in off</h2>' . str_replace('id="pw-current"', 'id="pw-current-off"', $cur) . '<button class="btn btn-danger btn-wide" id="pw-off">Turn sign-in off</button></form>';
     } else {
+        $first = $admins === 0;
         $o .= '<form method="post" action="/settings/password" class="setform" id="pw-enable"><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="mode" value="change">'
-            . '<h2 class="set-h">Turn the password on</h2>' . $new . '<button class="btn btn-primary btn-wide" id="pw-save">Turn password on</button></form>';
+            . '<h2 class="set-h">Turn sign-in on</h2><p class="hint">' . ($first ? 'Create the first account – an admin. You are signed in with it right away.' : 'Accounts exist already: enter an admin’s user name and password to turn sign-in on again.') . '</p>'
+            . '<label class="field"><span>User name</span><input type="text" name="username" id="pw-user" value="admin" autocomplete="username" autocapitalize="off" spellcheck="false" maxlength="' . USERNAME_MAX . '" required></label>'
+            . ($first ? str_replace('id="pw-new-confirm"', 'id="pw-confirm"', $pw('pw-new')) : '<label class="field"><span>Password</span><input type="password" name="new" id="pw-new" autocomplete="current-password" required></label>')
+            . '<button class="btn btn-primary btn-wide" id="pw-save">Turn sign-in on</button></form>';
     }
-    return $o . '<p class="hint">Forgot the password? On the server run <code>php bin/settings.php password</code> to set a new one, or <code>php bin/settings.php password --off</code>.</p></section>';
+    $o .= '</section>';
+    // accounts
+    $users = users_list();
+    $o .= '<section class="set-card" id="users"><h2 class="set-h">Users <span class="muted-n">' . count($users) . '</span></h2>' . $err('users', 'users-err');
+    if (!$users) $o .= '<p class="hint">No accounts yet.</p>';
+    $o .= '<ul class="userlist" id="userlist">';
+    foreach ($users as $u) {
+        $self = !$me['guest'] && $me['id'] === $u['id'];
+        $id = $u['id'];
+        $o .= '<li class="user" id="user-' . $id . '"><details><summary><span class="user-ic">' . icon('lock') . '</span><span class="user-t"><b>' . h($u['username']) . '</b>' . ($self ? ' <em>(you)</em>' : '')
+            . '<span class="role role-' . h($u['role']) . '">' . h(role_name($u['role'])) . '</span>' . ($u['status'] === 'pending' ? '<span class="role role-pending" id="pending-' . $id . '">Waiting for approval</span>' : '') . '<small>' . ($u['last_login_at'] ? 'Last sign-in ' . h(fmt_time($u['last_login_at'])) : 'Never signed in') . '</small></span></summary>'
+            . '<div class="user-forms">'
+            . ($u['status'] === 'pending' ? '<form method="post" action="/settings/users/' . $id . '/approve" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '"><button class="btn btn-primary btn-wide" id="approve-' . $id . '">' . icon('check') . ' Approve account</button></form>' : '')
+            . '<form method="post" action="/settings/users/' . $id . '/role" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '"><label class="field"><span>Role</span>' . $roleSel('role', 'role-' . $id, $u['role']) . '</label><button class="btn" id="role-save-' . $id . '">Change role</button></form>'
+            . '<form method="post" action="/settings/users/' . $id . '/rename" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '"><label class="field"><span>User name</span><input type="text" name="username" id="uname-' . $id . '" value="' . h($u['username']) . '" maxlength="' . USERNAME_MAX . '" autocapitalize="off" spellcheck="false" required></label><button class="btn">Rename</button></form>'
+            . '<form method="post" action="/settings/users/' . $id . '/password" class="user-f"><input type="hidden" name="csrf" value="' . $tok . '">' . $pw('upw-' . $id, 'New password') . '<button class="btn" id="upw-save-' . $id . '">Set password</button></form>'
+            . (!$self ? '<form method="post" action="/settings/users/' . $id . '/delete" data-confirm="Delete the account “' . h($u['username']) . '”? Their history entries keep the name."><input type="hidden" name="csrf" value="' . $tok . '"><button class="btn btn-danger btn-wide" id="udel-' . $id . '">' . icon('trash') . ' Delete account</button></form>' : '')
+            . '</div></details></li>';
+    }
+    $o .= '</ul><form method="post" action="/settings/users" class="setform" id="user-add"><input type="hidden" name="csrf" value="' . $tok . '"><h2 class="set-h">Add a user</h2>'
+        . '<label class="field"><span>User name</span><input type="text" name="username" id="nu-name" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="' . USERNAME_MAX . '" required></label>'
+        . '<label class="field"><span>Role</span>' . $roleSel('role', 'nu-role', 'editor') . '</label>' . $pw('nu-pw')
+        . '<button class="btn btn-primary btn-wide" id="nu-save">' . icon('plus') . ' Add user</button></form>'
+        . ($on ? '' : '<p class="hint">Accounts only count while sign-in is on.</p>') . '</section>';
+    $o .= settings_roles_html($tok, $errors);
+    return $o . '<p class="hint">Locked out? On the server run <code>php bin/settings.php user password admin</code> to set a new password, <code>php bin/settings.php user role NAME admin</code> to make someone an admin, <code>php bin/settings.php roles reset</code> to restore the built-in roles, or <code>php bin/settings.php auth off</code> to turn accounts off.</p>';
+}
+
+/** "view, add items, edit …" */
+function role_summary(string $key): string
+{
+    if ($key === 'admin') return 'everything';
+    $p = role_get($key)['perms'] ?? [];
+    return $p ? implode(', ', array_map(fn($x) => mb_strtolower(PERMISSIONS[$x][0]), $p)) : 'nothing';
+}
+
+/** The roles editor: one card per role with a permission checklist; admin is shown read-only. */
+function settings_roles_html(string $tok, array $errors): string
+{
+    $o = '<section class="set-card" id="roles"><h2 class="set-h">Roles &amp; permissions <span class="muted-n">' . count(roles()) . '</span></h2>'
+        . (isset($errors['roles']) ? '<div class="err" role="alert" id="roles-err">' . h($errors['roles']) . '</div>' : '')
+        . '<p class="hint">A role is a set of permissions. Admin always has every permission. Guest is what visitors who are not signed in may do when guest browsing is on.</p><ul class="rolelist" id="rolelist">';
+    $checks = function (string $key, array $have, bool $locked) {
+        $c = '<fieldset class="perm-grid"><legend class="vh">Permissions</legend>';
+        foreach (PERMISSIONS as $p => [$label, $hint]) {
+            $dis = $locked || ($key === 'guest' && in_array($p, ['users', 'settings', 'backup'], true));
+            $c .= '<label class="perm"><input type="checkbox" name="perms[]" value="' . $p . '" id="perm-' . h($key) . '-' . $p . '"' . (in_array($p, $have, true) ? ' checked' : '') . ($dis ? ' disabled' : '') . '>'
+                . '<span><b>' . h($label) . '</b><small>' . h($hint) . '</small></span></label>';
+        }
+        return $c . '</fieldset>';
+    };
+    foreach (roles() as $k => $r) {
+        $ek = h($k);
+        $o .= '<li class="rolecard" id="rc-' . $ek . '"><details><summary><span class="user-t"><b>' . h($r['name']) . '</b>' . ($r['builtin'] ? ' <em>built-in</em>' : '')
+            . '<small>' . ($k === 'guest' ? 'visitors' : $r['users'] . ' ' . ($r['users'] === 1 ? 'account' : 'accounts')) . ' · ' . h(role_summary($k)) . '</small></span></summary>';
+        if ($k === 'admin') {
+            $o .= '<div class="user-forms">' . $checks($k, $r['perms'], true) . '<p class="hint">The admin role cannot be changed or deleted.</p></div></details></li>';
+            continue;
+        }
+        $o .= '<div class="user-forms"><form method="post" action="/settings/roles/' . $ek . '" class="user-f" id="role-form-' . $ek . '"><input type="hidden" name="csrf" value="' . $tok . '">'
+            . (!$r['builtin'] ? '<label class="field"><span>Name</span><input type="text" name="name" id="role-name-' . $ek . '" value="' . h($r['name']) . '" maxlength="60" required></label>' : '')
+            . $checks($k, $r['perms'], false) . '<button class="btn btn-primary btn-wide" id="role-save-perm-' . $ek . '">Save ' . h($r['name']) . '</button></form>';
+        if (!$r['builtin']) {
+            $sel = '';
+            foreach (account_roles() as $mk => $mr) if ($mk !== $k) $sel .= '<option value="' . h($mk) . '"' . ($mk === 'viewer' ? ' selected' : '') . '>' . h($mr['name']) . '</option>';
+            $o .= '<form method="post" action="/settings/roles/' . $ek . '/delete" class="user-f" data-confirm="Delete the role “' . h($r['name']) . '”?"><input type="hidden" name="csrf" value="' . $tok . '">'
+                . '<label class="field"><span>Move its accounts to</span><select name="move_to" id="role-move-' . $ek . '">' . $sel . '</select></label>'
+                . '<button class="btn btn-danger btn-wide" id="role-del-' . $ek . '">' . icon('trash') . ' Delete role</button></form>';
+        }
+        $o .= '</div></details></li>';
+    }
+    $o .= '</ul><form method="post" action="/settings/roles" class="setform" id="role-add"><input type="hidden" name="csrf" value="' . $tok . '"><h2 class="set-h">Add a role</h2>'
+        . '<label class="field"><span>Name</span><input type="text" name="name" id="nr-name" maxlength="60" required></label>'
+        . $checks('new', ['view'], false) . '<button class="btn btn-primary btn-wide" id="nr-save">' . icon('plus') . ' Add role</button></form></section>';
+    return $o;
 }
 
 function settings_data_html(string $tok): string
 {
     return '<section class="set-card"><h2 class="set-h">Your catalogue</h2><div class="set-links">'
         . '<a class="btn btn-wide" href="/backup" id="d-backup">' . icon('archive') . ' Backup &amp; restore</a>'
-        . '<a class="btn btn-wide" href="/export.csv" id="d-csv">' . icon('download') . ' Export CSV</a></div></section>'
+        . '<a class="btn btn-wide" href="/export.csv" id="d-csv">' . icon('download') . ' Export CSV</a>'
+        . '<a class="btn btn-wide" href="/import" id="d-import">' . icon('archive') . ' Import CSV…</a></div></section>'
         . '<section class="set-card"><h2 class="set-h">Settings file</h2>'
         . '<p class="hint">Download every setting as JSON (the password and the logo are not included), or load such a file. Invalid values in the file are skipped and listed.</p>'
         . '<a class="btn btn-wide" href="/settings/export.json" id="d-export" download>' . icon('download') . ' Export settings (JSON)</a>'
@@ -212,6 +303,7 @@ function settings_system_html(): string
         . 'See <code>docs/configuration.md</code>.</p>'
         . '<table class="systable" id="systable"><tbody>'
         . '<tr><th scope="row">Version</th><td><code id="app-version">' . h(app_version()) . '</code><small>VERSION · <a href="https://github.com/thordin9/apotheke/releases">release notes</a></small></td></tr>' . $rows
+        . '<tr><th scope="row">Search engine</th><td><code id="search-engine">' . h(search_engine()) . '</code><small>' . h(search_engine_label()) . '</small></td></tr>'
         . '<tr><th scope="row">Database schema</th><td><code>' . h((string)array_key_last($applied)) . '</code><small>' . count($applied) . ' migrations applied</small></td></tr>'
         . '</tbody></table>'
         . '<p class="hint">All other options (everything in the other sections) were copied from <code>config.php</code> / the environment when this database was created or upgraded, and are edited here from then on.</p></section>';

@@ -8,8 +8,18 @@ declare(strict_types=1);
  *   php bin/settings.php get KEY
  *   php bin/settings.php set KEY VALUE        validated like the web form
  *   php bin/settings.php reset SECTION        back to the config.php/env defaults
- *   php bin/settings.php password             set a new password (asks twice; or pass it as the next argument)
- *   php bin/settings.php password --off       turn the password off
+ *   php bin/settings.php users                list the accounts (name, role, last sign-in)
+ *   php bin/settings.php user add NAME ROLE [PASSWORD]   ROLE: admin, editor, viewer or a custom role key (asks for the password if not given)
+ *   php bin/settings.php user approve NAME    approve a self-registered account
+ *   php bin/settings.php user password NAME [PASSWORD]   set a new password (signs that user out everywhere)
+ *   php bin/settings.php user role NAME ROLE
+ *   php bin/settings.php user rename NAME NEWNAME
+ *   php bin/settings.php user delete NAME
+ *   php bin/settings.php roles                list the roles and their permissions
+ *   php bin/settings.php roles reset          restore the built-in roles' permissions (custom roles stay)
+ *   php bin/settings.php auth on|off          turn sign-in on (needs an admin account) or off
+ *   php bin/settings.php password [PASSWORD]  recovery shortcut: set the password of "admin" (created if missing) and turn sign-in on
+ *   php bin/settings.php password --off       turn sign-in off
  *   php bin/settings.php export > s.json      /  import s.json
  */
 
@@ -22,7 +32,8 @@ try {
     switch ($cmd) {
         case 'list':
             foreach (settings_export()['settings'] as $k => $v) printf("%-24s %s\n", $k, json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-            printf("%-24s %s\n", 'password', auth_enabled() ? 'on' : 'off');
+            printf("%-24s %s\n", 'sign-in', auth_enabled() ? 'on' : 'off');
+            printf("%-24s %d\n", 'users', users_count());
             break;
         case 'get':
             echo json_encode(setting((string)($argv[2] ?? '')), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "\n";
@@ -30,7 +41,7 @@ try {
         case 'set':
             $k = (string)($argv[2] ?? '');
             $d = settings_schema()[$k] ?? null;
-            if ($d === null || in_array($d[2], ['secret', 'internal'], true)) throw new UserError("Unknown setting “{$k}” (use `password` for the password).");
+            if ($d === null || in_array($d[2], ['secret', 'internal'], true)) throw new UserError("Unknown setting “{$k}” (use `user` / `auth` for accounts and sign-in).");
             $err = settings_save([$k => (string)($argv[3] ?? '')]);
             if ($err) throw new UserError($err[$k]);
             echo "$k = ", json_encode(setting($k), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "\n";
@@ -39,22 +50,70 @@ try {
             settings_reset_section((string)($argv[2] ?? ''));
             echo "reset\n";
             break;
+        case 'users':
+            if (!users_count()) echo "No accounts.\n";
+            foreach (users_list() as $u) printf("%-24s %-7s %s\n", $u['username'], $u['role'] . ($u['status'] === 'pending' ? ' (pending)' : ''), $u['last_login_at'] ? 'last sign-in ' . $u['last_login_at'] . ' UTC' : 'never signed in');
+            printf("sign-in is %s\n", auth_enabled() ? 'on' : 'off');
+            break;
+        case 'user':
+            $sub = (string)($argv[2] ?? '');
+            $name = (string)($argv[3] ?? '');
+            $find = fn() => user_by_name($name) ?? throw new UserError("No user “{$name}”. Run `php bin/settings.php users`.");
+            switch ($sub) {
+                case 'add':
+                    user_create($name, $argv[5] ?? cli_ask_password(), (string)($argv[4] ?? ''));
+                    echo "Added {$name}.\n";
+                    break;
+                case 'password':
+                    user_set_password($find()['id'], $argv[4] ?? cli_ask_password());
+                    echo "Password set; {$name} has to sign in again on every device.\n";
+                    break;
+                case 'role':
+                    user_set_role($find()['id'], (string)($argv[4] ?? ''));
+                    echo "{$name} is now " . ($argv[4] ?? '') . ".\n";
+                    break;
+                case 'approve':
+                    user_approve($find()['id']);
+                    echo "{$name} can sign in now.\n";
+                    break;
+                case 'rename':
+                    user_rename($find()['id'], (string)($argv[4] ?? ''));
+                    echo "Renamed.\n";
+                    break;
+                case 'delete':
+                    user_delete($find()['id']);
+                    echo "Deleted {$name}.\n";
+                    break;
+                default:
+                    throw new UserError('Use: user add|password|role|approve|rename|delete NAME …');
+            }
+            break;
+        case 'roles':
+            if (($argv[2] ?? '') === 'reset') { roles_reset_builtin(); echo "Built-in roles restored.\n"; break; }
+            foreach (roles() as $k => $r) printf("%-14s %-16s %s\n", $k, $r['name'], implode(',', $r['perms']));
+            break;
+        case 'auth':
+            if (($argv[2] ?? '') === 'on') { auth_turn_on(); echo "Sign-in turned on.\n"; }
+            elseif (($argv[2] ?? '') === 'off') { auth_turn_off(); echo "Sign-in turned off.\n"; }
+            else throw new UserError('Use: auth on|off');
+            break;
         case 'password':
             if (($argv[2] ?? '') === '--off') {
-                settings_store(['auth_enabled' => false, 'password_hash' => '']);
-                echo "Password turned off.\n";
+                auth_turn_off();
+                echo "Sign-in turned off.\n";
                 break;
             }
-            $pw = $argv[2] ?? null;
-            if ($pw === null) {
-                echo 'New password: ';
-                $pw = rtrim((string)fgets(STDIN), "\r\n");
-                echo 'Repeat: ';
-                if (rtrim((string)fgets(STDIN), "\r\n") !== $pw) throw new UserError('The passwords do not match.');
+            $pw = $argv[2] ?? cli_ask_password();
+            $u = user_by_name('admin');
+            if ($u) {
+                user_set_password($u['id'], $pw);
+                user_set_role($u['id'], 'admin');
+                user_approve($u['id']);
+            } else {
+                user_create('admin', $pw, 'admin');
             }
-            if (mb_strlen($pw) < 8) throw new UserError('Use at least 8 characters.');
-            settings_store(['auth_enabled' => true, 'password_hash' => password_hash($pw, PASSWORD_DEFAULT)]);
-            echo "Password set; other devices have to sign in again.\n";
+            auth_turn_on();
+            echo "The account “admin” has a new password set and sign-in is on; other devices have to sign in again.\n";
             break;
         case 'export':
             echo json_encode(settings_export(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";
@@ -71,4 +130,13 @@ try {
 } catch (UserError $e) {
     fwrite(STDERR, $e->getMessage() . "\n");
     exit(1);
+}
+
+function cli_ask_password(): string
+{
+    echo 'New password: ';
+    $pw = rtrim((string)fgets(STDIN), "\r\n");
+    echo 'Repeat: ';
+    if (rtrim((string)fgets(STDIN), "\r\n") !== $pw) throw new UserError('The passwords do not match.');
+    return $pw;
 }

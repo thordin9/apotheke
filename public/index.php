@@ -19,6 +19,9 @@ require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/views.php';
 require dirname(__DIR__) . '/src/backup.php';
 require dirname(__DIR__) . '/src/settings_views.php';
+require dirname(__DIR__) . '/src/stocktake_views.php';
+require dirname(__DIR__) . '/src/import_views.php';
+require dirname(__DIR__) . '/src/photo_views.php';
 
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
@@ -87,15 +90,44 @@ init_session();
 try {
     /* ---- auth ---- */
     if ($path === '/login') {
-        if (!auth_enabled() || is_authed()) redirect('/');
+        if (!auth_enabled() || signed_in()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
-            if (login((string)($_POST['password'] ?? ''))) redirect('/');
-            usleep(400000);
-            view_login('Wrong password.');
+            $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
+            try {
+                rate_limit('login');
+                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login'); redirect('/'); }
+                usleep(400000);
+                http_response_code(401);
+                view_login('Wrong user name or password.', $who);
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 403);
+                view_login($e->getMessage(), $who);
+            }
         } else {
-            view_login(null);
+            view_login(null, '', isset($_GET['registered']) ? (string)$_GET['registered'] : null);
         }
+        exit;
+    }
+    if ($path === '/register') {
+        if (!registration_open()) { view_error(404, 'Registration is closed – ask an admin for an account.'); exit; }
+        if (signed_in()) redirect('/');
+        if ($method === 'POST') {
+            check_csrf();
+            $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
+            try {
+                rate_limit('register');
+                $u = user_register($who, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 422);
+                view_register($e->getMessage(), $who);
+                exit;
+            }
+            if ($u['status'] === 'active') { login_session($u['id']); redirect('/?done=welcome'); }
+            redirect('/login?registered=pending');
+        }
+        no_store();
+        view_register(null, '');
         exit;
     }
     if ($path === '/logout' && $method === 'POST') {
@@ -103,10 +135,42 @@ try {
         logout();
         redirect('/login');
     }
-    if (!is_authed()) {
-        if (wants_json()) json_out(['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login'], 401);
-        if (str_starts_with($path, '/media/')) { http_response_code(401); exit; }
-        redirect('/login');
+    // every route needs a permission of the user's role (see route_perm() in roles.php)
+    $need = route_perm($method, $path, $_POST);
+    if (!user_can($need)) {
+        $me = current_user();
+        if ($me === null || $me['anon']) {
+            // not signed in: sign in first (a guest may look but not do this)
+            if (wants_json()) json_out(['ok' => false, 'error' => 'Not signed in', 'redirect' => '/login'], 401);
+            if (str_starts_with($path, '/media/')) { http_response_code(401); exit; }
+            redirect('/login');
+        }
+        $msg = 'Your role (' . role_name($me['role']) . ') does not allow this' . (isset(PERMISSIONS[$need]) ? ' – it needs the “' . PERMISSIONS[$need][0] . '” permission' : '') . '. Ask an admin.';
+        if (wants_json()) json_out(['ok' => false, 'error' => $msg], 403);
+        view_error(403, $msg);
+        exit;
+    }
+
+    /* ---- your account: own password ---- */
+    if ($path === '/account') {
+        $me = current_user();
+        if ($me['guest']) redirect(user_can('users') ? '/settings/security' : '/');
+        if ($method === 'POST') {
+            check_csrf();
+            try {
+                if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 422);
+                view_account($me, $e->getMessage(), null);
+                exit;
+            }
+            login_session($me['id']);
+            redirect('/account?done=pw');
+        }
+        no_store();
+        view_account($me, null, isset($_GET['done']) ? 'Password changed' : null);
+        exit;
     }
 
     /* ---- theme preference (Auto / Light / Dark) ---- */
@@ -139,7 +203,7 @@ try {
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
-                      'count' => count_text($res['total'], $q !== '' || filters_active($f)), 'more' => $res['more'], 'page' => $page,
+                      'count' => count_text($res['total'], $q !== '' || filters_active($f)) . search_fixed_note($res['fixed'] ?? []), 'more' => $res['more'], 'page' => $page,
                       'chips' => active_chips_html($f, $sort, locations(), categories()), 'nfilters' => active_filter_count($f, $sort), 'query' => saved_filter_query($_GET)]);
         }
         no_store();
@@ -179,6 +243,7 @@ try {
             if (!wants_json()) recent_track((int)$it['id']);
             $hist = activity_list((int)$it['id'], 1, 10);
             $toast = isset($_GET['undone']) ? 'Undone' : null;
+            $toast ??= isset($_GET['edited']) ? 'Photo saved as a new version' : (isset($_GET['reordered']) ? 'Photo order saved' : null);
             $toast ??= isset($_GET['merged']) ? 'Merged “' . clean_line((string)$_GET['merged'], 200) . '” into this item' : null;
             view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10, attachments_for((int)$it['id']), $toast);
         }
@@ -209,8 +274,13 @@ try {
             $col = tax($kind)['col'];
             $raw[$kind] = (string)($_POST[$col] ?? '');
             $vals[$col] = ctype_digit($raw[$kind]) ? (int)$raw[$kind] : null;
-            $vals['new_' . $kind] = clean_line((string)($_POST['new_' . $kind] ?? ''), 120);
+            // the quick-add box (JS) or, without JavaScript, the <noscript> field next to the dropdown (own name, no duplicates)
+            $vals['new_' . $kind] = clean_line((string)($_POST['new_' . $kind] ?? ''), 120)
+                ?: clean_line((string)($_POST['new_' . $kind . '_ns'] ?? ''), 120);
         }
+        // changing the location of an existing item (or adding a new location on the way) needs "move"
+        $locCol = tax('location')['col'];
+        if ($existing && ((isset($_POST[$locCol]) && ($vals[$locCol] ?? null) !== ($existing[$locCol] === null ? null : (int)$existing[$locCol])) || $vals['new_location'] !== '')) require_perm('move');
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
             if ($qty === false) throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
@@ -250,6 +320,37 @@ try {
             redirect('/new?' . http_build_query(array_filter($qs, fn($v) => $v !== null)));
         }
         redirect($existing ? '/item/' . $savedId . ($undo ? '?undo=' . $undo : '') : '/?saved=' . $savedId);
+    }
+
+    /* ---- photos: edit (crop / rotate) and order ---- */
+    if (preg_match('#^/item/(\d+)/photos/(\d+)/edit$#D', $path, $m)) {
+        $it = item_get((int)$m[1]) ?? throw new UserError('Item not found.', 404);
+        $ph = photo_find((int)$m[1], (int)$m[2]);
+        if ($method === 'POST') {
+            check_csrf();
+            $pct = fn(string $k, float $d) => is_numeric($_POST['crop_' . $k] ?? null) ? (float)$_POST['crop_' . $k] / 100 : $d;
+            try {
+                $r = photo_edit((int)$it['id'], $ph['id'], (int)($_POST['rotate'] ?? 0), [$pct('x', 0), $pct('y', 0), $pct('w', 1), $pct('h', 1)]);
+            } catch (UserError $e) {
+                if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+                http_response_code($e->getCode() ?: 422);
+                view_photo_edit($it, $ph, count(photos_for((int)$it['id'])), $e->getMessage());
+                exit;
+            }
+            if (wants_json()) json_out(['ok' => true] + $r);
+            redirect('/item/' . $it['id'] . '?p=' . $ph['index'] . '&edited=1#photos');
+        }
+        no_store();
+        view_photo_edit($it, $ph, count(photos_for((int)$it['id'])), null);
+        exit;
+    }
+    if (preg_match('#^/item/(\d+)/photos/order$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        if (!item_get((int)$m[1])) throw new UserError('Item not found.', 404);
+        $ids = is_array($_POST['ids'] ?? null) ? $_POST['ids'] : preg_split('/\s*,\s*/', (string)($_POST['ids'] ?? ''), -1, PREG_SPLIT_NO_EMPTY);
+        photo_reorder((int)$m[1], $ids ?: []);
+        if (wants_json()) json_out(['ok' => true]);
+        redirect('/item/' . (int)$m[1] . '?p=0#photos');
     }
 
     /* ---- photos: add / cover / reorder / delete ---- */
@@ -348,6 +449,7 @@ try {
         if (!preg_match('#^/\?[^\r\n]*$#D', $back)) $back = '/?select=1';
         $back   = preg_replace('/&?(?:bulk_(?:done|act)|undo|undone)=[^&]*/', '', $back);
         $taxId  = function (string $k): ?int { $v = (string)($_POST[$k] ?? ''); return ctype_digit($v) ? (int)$v : null; };
+        require_perm(bulk_perm($action));
         if ($action === 'labels') {
             $ids = array_values(array_unique(array_filter($ids, fn($i) => $i > 0)));
             if (!$ids) throw new UserError('Select at least one item.', 422);
@@ -481,18 +583,94 @@ try {
         brand_reset();
         redirect('/settings/appearance?done=logo-reset');
     }
+    /* ---- users & sign-in (admins only, see route_perm) ---- */
     if ($path === '/settings/password' && $method === 'POST') {
+        // turn sign-in on (creating the first admin when there is none) or off
         check_csrf();
         $mode = (string)($_POST['mode'] ?? '') === 'disable' ? 'disable' : 'change';
+        $me = current_user();
         try {
-            password_update($mode, (string)($_POST['current'] ?? ''), (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+            if ($mode === 'disable') {
+                if (!$me['guest'] && !user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                auth_turn_off();
+            } elseif (!$me['guest']) {
+                // signed in: change your own password
+                if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                login_session($me['id']);
+            } else {
+                $name = clean_line((string)($_POST['username'] ?? 'admin'), USERNAME_MAX * 2) ?: 'admin';
+                $u = user_by_name($name);
+                if ($u) {
+                    // an account exists already: sign in as that admin to turn sign-in back on
+                    if ($u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    $uid = $u['id'];
+                } else {
+                    $uid = db_tx(fn() => user_create($name, (string)($_POST['new'] ?? ''), 'admin', (string)($_POST['confirm'] ?? '')));
+                }
+                auth_turn_on();
+                login_session($uid);
+            }
         } catch (UserError $e) {
             http_response_code($e->getCode() ?: 422);
             view_settings_section('security', [], ['password' => $e->getMessage()], null);
             exit;
         }
-        if ($mode === 'change') login_session();
         redirect('/settings/security?done=' . ($mode === 'disable' ? 'pw-off' : 'pw'));
+    }
+    if (preg_match('#^/settings/users(?:/(\d+)(?:/(role|password|rename|delete|approve))?)?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $me = current_user();
+        $uid = isset($m[1]) && $m[1] !== '' ? (int)$m[1] : 0;
+        $act = $m[2] ?? '';
+        try {
+            if ($uid === 0) {
+                user_create((string)($_POST['username'] ?? ''), (string)($_POST['new'] ?? ''), (string)($_POST['role'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                $done = 'user-added';
+            } elseif ($act === 'role') {
+                user_set_role($uid, (string)($_POST['role'] ?? ''));
+                $done = 'user-role';
+            } elseif ($act === 'password') {
+                user_set_password($uid, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                if ($uid === $me['id']) login_session($uid);
+                $done = 'user-pw';
+            } elseif ($act === 'rename') {
+                user_rename($uid, (string)($_POST['username'] ?? ''));
+                $done = 'user-renamed';
+            } elseif ($act === 'approve') {
+                user_approve($uid);
+                $done = 'user-approved';
+            } elseif ($act === 'delete') {
+                if ($uid === $me['id']) throw new UserError('You cannot delete your own account while signed in with it.', 409);
+                user_delete($uid);
+                $done = 'user-deleted';
+            } else {
+                throw new UserError('Page not found.', 404);
+            }
+        } catch (UserError $e) {
+            http_response_code($e->getCode() ?: 422);
+            view_settings_section('security', [], ['users' => $e->getMessage()], null);
+            exit;
+        }
+        redirect('/settings/security?done=' . $done . '#users');
+    }
+    /* ---- roles & permissions (users permission, see route_perm) ---- */
+    if (preg_match('#^/settings/roles(?:/([a-z0-9-]+)(?:/(delete))?)?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $key = $m[1] ?? '';
+        $perms = array_values(array_filter((array)($_POST['perms'] ?? []), 'is_string'));
+        try {
+            if ($key === '') { $key = role_create((string)($_POST['name'] ?? ''), $perms); $done = 'role-added'; }
+            elseif (($m[2] ?? '') === 'delete') { role_delete($key, (string)($_POST['move_to'] ?? 'viewer')); $done = 'role-deleted'; $key = ''; }
+            else { role_update($key, isset($_POST['name']) ? (string)$_POST['name'] : null, $perms); $done = 'role-saved'; }
+        } catch (UserError $e) {
+            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+            http_response_code($e->getCode() ?: 422);
+            view_settings_section('security', [], ['roles' => $e->getMessage()], null);
+            exit;
+        }
+        if (wants_json()) json_out(['ok' => true, 'key' => $key]);
+        redirect('/settings/security?done=' . $done . '#' . ($key !== '' ? 'rc-' . $key : 'roles'));
     }
     if (preg_match('#^/settings/([a-z]+)(/reset)?$#D', $path, $m) && isset(SETTINGS_SECTIONS[$m[1]])) {
         $section = $m[1];
@@ -500,7 +678,9 @@ try {
             no_store();
             $toast = match ((string)($_GET['done'] ?? '')) {
                 'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
-                'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Password turned off', default => null,
+                'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Sign-in turned off',
+                'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', 'user-approved' => 'Account approved',
+                'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
             };
             view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
             exit;
@@ -679,6 +859,53 @@ try {
     }
 
     /* ---- QR labels ---- */
+    /* ---- stocktake ---- */
+    if ($path === '/stocktake') {
+        if ($method === 'POST') {
+            check_csrf();
+            $loc = (string)($_POST['location_id'] ?? '');
+            if (!ctype_digit($loc)) throw new UserError('Choose a location to check.', 422);
+            redirect('/stocktake/' . stocktake_start((int)$loc));
+        }
+        no_store();
+        $pre = ctype_digit((string)($_GET['loc'] ?? '')) ? (int)$_GET['loc'] : null;
+        view_stocktakes(stocktake_list(), $pre, match ((string)($_GET['done'] ?? '')) { 'cancelled' => 'Stocktake cancelled', default => null });
+        exit;
+    }
+    if (preg_match('#^/stocktake/(\d+)(?:/(check|report|finish|cancel))?$#D', $path, $m)) {
+        $s = stocktake_get((int)$m[1]);
+        if (!$s) throw new UserError('Stocktake not found.', 404);
+        $act = $m[2] ?? '';
+        if ($method === 'GET' && ($act === '' || $act === 'report')) {
+            no_store();
+            if ($act === '' && $s['status'] === 'open') view_stocktake($s);
+            else view_stocktake_report($s, isset($_GET['finished']) ? 'Stocktake finished' . ((int)$_GET['finished'] > 0 ? ' · ' . item_noun((int)$_GET['finished']) . ' moved' : '') : null);
+            exit;
+        }
+        if ($method !== 'POST' || $act === '' || $act === 'report') throw new UserError('Page not found.', 404);
+        check_csrf();
+        if ($act === 'cancel') { stocktake_cancel($s['id']); redirect('/stocktake?done=cancelled'); }
+        if ($act === 'finish') { if (($_POST['moves'] ?? '') === '1') require_perm('move'); $n = stocktake_finish($s['id'], ($_POST['moves'] ?? '') === '1'); redirect('/stocktake/' . $s['id'] . '/report?finished=' . $n); }
+        // check: by item id (tick in the list) or by a scanned / typed code
+        $found = ($_POST['found'] ?? '1') !== '0';
+        try {
+            $iid = ctype_digit((string)($_POST['item_id'] ?? '')) ? (int)$_POST['item_id'] : stocktake_resolve_code((string)($_POST['code'] ?? ''));
+            $r = stocktake_check($s['id'], $iid, $found);
+        } catch (UserError $e) {
+            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $e->getCode() ?: 422);
+            http_response_code($e->getCode() >= 400 ? $e->getCode() : 422);
+            view_stocktake($s, $e->getMessage());
+            exit;
+        }
+        $msg = match ($r['state']) {
+            'found' => 'Found “' . $r['name'] . '”', 'missing' => 'Unticked “' . $r['name'] . '”',
+            'misplaced' => '“' . $r['name'] . '” belongs in ' . ($r['home'] !== '' ? $r['home'] : 'no location') . ' – marked as misplaced',
+            default => 'Removed “' . $r['name'] . '”',
+        };
+        if (wants_json()) json_out(['ok' => true, 'state' => $r['state'], 'message' => $msg, 'html' => stocktake_body_html(stocktake_get($s['id']))]);
+        redirect('/stocktake/' . $s['id']);
+    }
+
     if ($path === '/labels' && $method === 'GET') {
         no_store();
         $locs = locations();
@@ -817,6 +1044,45 @@ try {
     }
 
     /* ---- CSV export ---- */
+    /* ---- CSV import ---- */
+    if ($path === '/import') {
+        if ($method === 'POST') {
+            check_csrf();
+            try {
+                $iid = import_upload($_FILES['csv'] ?? []);
+            } catch (UserError $e) {
+                http_response_code($e->getCode() ?: 422);
+                view_import_home($e->getMessage(), null);
+                exit;
+            }
+            redirect('/import/' . $iid);
+        }
+        no_store();
+        view_import_home(null, isset($_GET['done']) && ($d = import_get((int)$_GET['done'])) && $d['result'] ? 'Imported · ' . import_summary_text($d['result']) : null);
+        exit;
+    }
+    if (preg_match('#^/import/(\d+)(?:/(preview|commit))?$#D', $path, $m)) {
+        $imp = import_get((int)$m[1]) ?? throw new UserError('Import not found.', 404);
+        $act = $m[2] ?? '';
+        if ($imp['status'] === 'done') redirect('/import?done=' . $imp['id']);
+        [$header, $rows] = import_rows($imp);
+        if ($act === '' && $method === 'GET') { no_store(); view_import_map($imp, $header, $rows, null, null); exit; }
+        if ($act === '' || $method !== 'POST') throw new UserError('Page not found.', 404);
+        check_csrf();
+        try {
+            [$imp['mapping'], $imp['options']] = import_set_mapping($imp['id'], $header, $_POST);
+            if ($act === 'commit') {
+                import_commit($imp);
+                redirect('/import?done=' . $imp['id']);
+            }
+            view_import_map($imp, $header, $rows, import_run($imp, false), null);
+        } catch (UserError $e) {
+            http_response_code($e->getCode() ?: 422);
+            view_import_map($imp, $header, $rows, $act === 'commit' ? import_run($imp, false) : null, $e->getMessage());
+        }
+        exit;
+    }
+
     if ($path === '/export.csv' && $method === 'GET') {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="apotheke-' . date('Y-m-d', app_time()) . '.csv"');

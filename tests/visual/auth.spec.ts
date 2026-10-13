@@ -2,7 +2,7 @@ import { test, expect } from './fixtures';
 
 test.use({ appPassword: 'correct horse' });
 
-test.describe('password mode', () => {
+test.describe('sign-in (APP_PASSWORD = account admin)', () => {
   test('login screen shows the logo', async ({ page }) => {
     await page.goto('/login');
     const logo = page.locator('.login .brand-lg img.brand-logo');
@@ -13,11 +13,14 @@ test.describe('password mode', () => {
   test('login, wrong password, logout @smoke', async ({ app, page }) => {
     await page.goto('/item/1');
     await expect(page).toHaveURL(/\/login/);
-    await expect(page.locator('input[name=password]')).toBeFocused();
-    await page.locator('input[name=password]').fill('nope');
-    await page.locator('button.btn-primary').click();
-    await expect(page.locator('.err')).toBeVisible();
-    await page.locator('input[name=password]').fill('correct horse');
+    await expect(page.locator('#login-user')).toBeFocused();
+    await page.locator('#login-user').fill('admin');
+    await page.locator('#login-pw').fill('nope');
+    await page.locator('#login-go').click();
+    await expect(page.locator('.err')).toHaveText('Wrong user name or password.');
+    await expect(page.locator('#login-user')).toHaveValue('admin');
+    await expect(page.locator('#login-pw')).toBeFocused();
+    await page.locator('#login-pw').fill('correct horse');
     await page.locator('button.btn-primary').click();
     await expect(page.locator('#grid .card')).toHaveCount(8);
     await app.tapTargets();

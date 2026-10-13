@@ -130,6 +130,13 @@ $c->post('/categories/' . $ids['cat']['Tools'] . '/default', ['csrf' => $tok, 'o
 $c->post('/categories/' . $ids['cat']['Electronics'] . '/default', ['csrf' => $tok, 'on' => '0']);
 T::eq('Tools ★', selected_option($c->get('/new')['body'], 'category_id'), 'clearing a non-default category leaves the real default');
 
+$nf = $c->get('/new')['body'];
+T::ok(substr_count($nf, 'name="new_location"') === 1 && substr_count($nf, 'name="new_category"') === 1, '/new: one quick-add field per name (the noscript one is new_*_ns)');
+$r = $c->api('/save', ['csrf' => $tok, 'name' => 'NS probe', 'location_id' => '__new', 'new_location' => '', 'new_location_ns' => 'Shed NS', 'category_id' => '', 'quantity' => 1]);
+$nsId = $savedId($r);
+T::eq('Shed NS', $db->query("SELECT l.name FROM items i JOIN locations l ON l.id = i.location_id WHERE i.id = $nsId")->fetchColumn(), 'no-JS new location field saved');
+$c->post("/item/$nsId/delete", ['csrf' => $tok]);
+$c->post('/locations/' . (int)$db->query("SELECT id FROM locations WHERE name = 'Shed NS'")->fetchColumn() . '/delete', ['csrf' => $tok, 'action' => 'unassign']);
 T::section('Create items + uploads');
 $big = img_jpeg(4000, 3000);
 $r = $c->api('/save', ['csrf' => $tok, 'name' => 'Cordless drill', 'location_id' => $ids['loc']['box 1023'], 'category_id' => $ids['cat']['Tools'], 'quantity' => 1], ['photo' => jpg_file($big)]);
@@ -1007,14 +1014,18 @@ T::eq(303, $pc->get('/stats')['status'], 'stats fragment requires login');
 T::eq(303, $pc->get('/export.csv')['status'], 'CSV export requires login');
 T::eq(303, $pc->get('/backup.zip')['status'], 'backup zip requires login');
 $ptok = $pc->csrf();
-T::eq(419, $pc->post('/login', ['password' => 's3cret'])['status'], 'login without CSRF → 419');
-$r = $pc->post('/login', ['csrf' => $ptok, 'password' => '']);
-T::ok($r['status'] === 200 && str_contains($r['body'], 'Wrong password'), 'empty password refused');
-$r = $pc->post('/login', ['csrf' => $ptok, 'password' => 'wrong']);
-T::ok($r['status'] === 200 && str_contains($r['body'], 'Wrong password'), 'wrong password refused');
+T::eq(419, $pc->post('/login', ['username' => 'admin', 'password' => 's3cret'])['status'], 'login without CSRF → 419');
+$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'admin', 'password' => '']);
+T::ok($r['status'] === 401 && str_contains($r['body'], 'Wrong user name or password'), 'empty password refused');
+$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'admin', 'password' => 'wrong']);
+T::ok($r['status'] === 401 && str_contains($r['body'], 'Wrong user name or password'), 'wrong password refused');
+$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'nobody', 'password' => 's3cret']);
+T::ok($r['status'] === 401 && str_contains($r['body'], 'value="nobody"'), 'unknown user refused, name kept in the form');
+T::ok(str_contains($pc->get('/login')['body'], 'name="username"'), 'sign-in asks for a user name');
 $sidBefore = $pc->cookies['apothekesid'] ?? '';
-$r = $pc->post('/login', ['csrf' => $ptok, 'password' => 's3cret']);
-T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/', 'correct password → /');
+$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'Admin', 'password' => 's3cret']);
+T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/', 'correct password → / (APP_PASSWORD became the account admin; names ignore case)');
+T::eq(1, (int)testdb($pdir)->query("SELECT COUNT(*) FROM users WHERE username = 'admin' AND role = 'admin' AND last_login_at IS NOT NULL")->fetchColumn(), 'admin account created from APP_PASSWORD, last sign-in recorded');
 T::ok(($pc->cookies['apothekesid'] ?? '') !== $sidBefore, 'session id regenerated on login');
 T::eq(200, $pc->get('/')['status'], 'signed in');
 $ptok = $pc->csrf();
@@ -1069,12 +1080,12 @@ $secKeys = [
     'general' => ['app_name', 'app_tagline', 'public_url'],
     'appearance' => ['accent', 'theme_default', 'icon_background'],
     'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
-    'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'overview_open'],
+    'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'search_typos', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
-    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'max_photos'],
+    'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
-    'security' => [], 'data' => [], 'system' => [],
+    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
 $settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
@@ -1289,7 +1300,7 @@ T::ok(str_contains($other->get('/')['headers']['location'] ?? '', '/login'), 'ot
 T::ok(str_contains($other->get('/settings')['headers']['location'] ?? '', '/login'), 'Control Panel protected by the password');
 T::eq(200, $other->get('/theme.css')['status'], 'theme.css stays public (sign-in page)');
 $ot = $other->csrf();
-$other->post('/login', ['csrf' => $ot, 'password' => 'garage-secret']);
+$other->post('/login', ['csrf' => $ot, 'username' => 'admin', 'password' => 'garage-secret']);
 T::eq(200, $other->get('/settings')['status'], 'sign in with the new password');
 T::eq(403, $sc->post('/settings/password', ['csrf' => $st, 'mode' => 'change', 'current' => 'wrong', 'new' => 'another-one', 'confirm' => 'another-one'])['status'], 'wrong current password → 403');
 $sc->post('/settings/password', ['csrf' => $st, 'mode' => 'change', 'current' => 'garage-secret', 'new' => 'another-one', 'confirm' => 'another-one']);
@@ -1319,8 +1330,447 @@ $cli = fn(string $a) => shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implo
 T::ok(str_contains((string)$cli('set page_size 33'), 'page_size = 33'), 'CLI set');
 T::ok(str_contains((string)$cli('set page_size 0'), 'between 1 and 500'), 'CLI validates');
 T::eq('33', trim((string)$cli('get page_size')), 'CLI get');
-T::ok(str_contains((string)$cli('password locksmith1'), 'Password set') && auth_on_db($sdb), 'CLI recovery: set a password');
+T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI recovery: set a password');
 T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
+
+T::section('Users & roles');
+$ud = $newDir('users');
+$us = new Server($ud, ['SEED_DEFAULTS' => '0']);
+$udb = testdb($ud);
+$boss = $us->client();
+$bt = $boss->csrf();
+T::ok(str_contains($boss->get('/settings/security')['body'], 'id="pw-user"'), 'sign-in off: form to create the first admin');
+T::eq(422, $boss->post('/settings/password', ['csrf' => $bt, 'mode' => 'change', 'username' => 'has space', 'new' => 'boss-secret', 'confirm' => 'boss-secret'])['status'], 'invalid user name rejected');
+$r = $boss->post('/settings/password', ['csrf' => $bt, 'mode' => 'change', 'username' => 'Boss', 'new' => 'boss-secret', 'confirm' => 'boss-secret']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=pw') && auth_on_db($udb), 'first admin created, sign-in on');
+$bt = $boss->csrf();
+$sec = $boss->get('/settings/security')['body'];
+T::ok(str_contains($sec, 'id="me-name">Boss<') && str_contains($sec, 'id="user-add"'), 'signed in as the new admin; user management shown');
+T::eq(422, $boss->post('/settings/users', ['csrf' => $bt, 'username' => 'boss', 'role' => 'editor', 'new' => 'abcdefgh', 'confirm' => 'abcdefgh'])['status'], 'user names are unique (ignoring case)');
+T::eq(422, $boss->post('/settings/users', ['csrf' => $bt, 'username' => 'x', 'role' => 'owner', 'new' => 'abcdefgh', 'confirm' => 'abcdefgh'])['status'], 'unknown role rejected');
+T::eq(422, $boss->post('/settings/users', ['csrf' => $bt, 'username' => 'x', 'role' => 'viewer', 'new' => 'abcdefgh', 'confirm' => 'abcdefgX'])['status'], 'mismatching passwords rejected');
+foreach ([['eddie', 'editor'], ['vera', 'viewer']] as [$n, $role]) {
+    $r = $boss->post('/settings/users', ['csrf' => $bt, 'username' => $n, 'role' => $role, 'new' => "$n-password", 'confirm' => "$n-password"]);
+    T::ok(str_contains($r['headers']['location'] ?? '', 'done=user-added'), "user $n ($role) added");
+}
+$uid = fn(string $n): int => (int)$udb->query("SELECT id FROM users WHERE username = '$n'")->fetchColumn();
+T::ok(!str_contains($udb->query("SELECT password_hash FROM users WHERE username = 'vera'")->fetchColumn(), 'vera-password'), 'passwords stored hashed');
+$signin = function (string $n, string $pw) use ($us): Client {
+    $c = $us->client();
+    $c->post('/login', ['csrf' => $c->csrf(), 'username' => $n, 'password' => $pw]);
+    return $c;
+};
+$ed = $signin('eddie', 'eddie-password');
+$vi = $signin('vera', 'vera-password');
+$et = $ed->csrf();
+$vt = $vi->csrf();
+// viewer: look only
+foreach (['/', '/locations', '/categories', '/activity', '/export.csv', '/labels', '/stocktake', '/account'] as $p) T::eq(200, $vi->get($p)['status'], "viewer may open $p");
+foreach (['/new', '/settings', '/settings/security', '/backup', '/backup.zip'] as $p) T::eq(403, $vi->get($p)['status'], "viewer may not open $p");
+$r = $vi->api('/save', ['csrf' => $vt, 'name' => 'Sneaky']);
+T::ok($r['status'] === 403 && str_contains((string)($r['json']['error'] ?? ''), '“Add items” permission'), 'viewer cannot save items (JSON 403)');
+T::eq(403, $vi->post('/locations', ['csrf' => $vt, 'name' => 'Nope'])['status'], 'viewer cannot add locations');
+T::eq(303, $vi->post('/theme', ['csrf' => $vt, 'theme' => 'dark', 'back' => '/'])['status'], 'viewer may still pick a theme');
+$home = $vi->get('/')['body'];
+T::ok(str_contains($home, 'role-viewer') && !str_contains($home, 'id="menu-settings"') && str_contains($home, 'id="menu-account"'), 'viewer: read-only body class, no Control Panel link, account link');
+// editor: changes, but no Control Panel
+$r = $ed->api('/save', ['csrf' => $et, 'name' => 'Ladder', 'quantity' => 1]);
+$ladder = $savedId($r);
+T::ok($ladder > 0, 'editor saves an item');
+T::eq('eddie', $udb->query("SELECT actor FROM activity WHERE item_id = $ladder ORDER BY id DESC LIMIT 1")->fetchColumn(), 'history records the actor');
+T::ok(str_contains($vi->get("/item/$ladder")['body'], '· eddie'), 'history shows who made the change');
+T::eq(200, $ed->get("/item/$ladder/edit")['status'], 'editor may edit');
+T::eq(403, $vi->get("/item/$ladder/edit")['status'], 'viewer may not edit');
+T::eq(403, $ed->get('/settings')['status'], 'editor may not open the Control Panel');
+T::eq(403, $ed->post('/settings/users', ['csrf' => $et, 'username' => 'mallory', 'role' => 'admin', 'new' => 'abcdefgh', 'confirm' => 'abcdefgh'])['status'], 'editor cannot create users');
+T::eq(0, $uid('mallory'), '… and no user was created');
+// admin: roles, last-admin protection, passwords, deletion
+T::eq(409, $boss->post('/settings/users/' . $uid('Boss') . '/role', ['csrf' => $bt, 'role' => 'editor'])['status'], 'the only admin cannot be demoted');
+T::eq(409, $boss->post('/settings/users/' . $uid('Boss') . '/delete', ['csrf' => $bt])['status'], 'you cannot delete yourself');
+$boss->post('/settings/users/' . $uid('vera') . '/role', ['csrf' => $bt, 'role' => 'editor']);
+T::eq('editor', $udb->query("SELECT role FROM users WHERE username = 'vera'")->fetchColumn(), 'role changed');
+T::eq(200, $vi->get('/new')['status'], 'new role applies to the running session');
+$boss->post('/settings/users/' . $uid('vera') . '/password', ['csrf' => $bt, 'new' => 'vera-new-pass', 'confirm' => 'vera-new-pass']);
+T::ok(str_contains($vi->get('/')['headers']['location'] ?? '', '/login'), 'admin setting a password signs that user out');
+$vi = $signin('vera', 'vera-new-pass');
+T::eq(200, $vi->get('/')['status'], 'sign in with the new password');
+$boss->post('/settings/users/' . $uid('vera') . '/rename', ['csrf' => $bt, 'username' => 'Vera.K']);
+T::eq(1, (int)$udb->query("SELECT COUNT(*) FROM users WHERE username = 'Vera.K'")->fetchColumn(), 'user renamed');
+// your own password
+$at = $ed->csrf();
+T::eq(403, $ed->post('/account', ['csrf' => $at, 'current' => 'wrong', 'new' => 'eddie-new-1', 'confirm' => 'eddie-new-1'])['status'], 'account: wrong current password → 403');
+$r = $ed->post('/account', ['csrf' => $at, 'current' => 'eddie-password', 'new' => 'eddie-new-1', 'confirm' => 'eddie-new-1']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=pw') && $ed->get('/')['status'] === 200, 'account: own password changed, still signed in');
+T::ok(str_contains($boss->get('/settings/security')['body'], 'id="user-' . $uid('eddie') . '"'), 'users listed in the Control Panel');
+$r = $boss->post('/settings/users/' . $uid('eddie') . '/delete', ['csrf' => $bt]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=user-deleted') && $uid('eddie') === 0, 'user deleted');
+T::ok(str_contains($ed->get('/')['headers']['location'] ?? '', '/login'), 'a deleted user is signed out');
+T::eq('eddie', $udb->query("SELECT actor FROM activity WHERE item_id = $ladder ORDER BY id DESC LIMIT 1")->fetchColumn(), 'history keeps the name of a deleted user');
+// turn off (keeps the accounts) and on again with an existing admin
+$r = $boss->post('/settings/password', ['csrf' => $bt, 'mode' => 'disable', 'current' => 'boss-secret']);
+T::ok(!auth_on_db($udb) && (int)$udb->query('SELECT COUNT(*) FROM users')->fetchColumn() === 2, 'sign-in off; accounts kept');
+$anon = $us->client();
+T::eq(200, $anon->get('/settings')['status'], 'no-login mode: everybody is admin');
+$anT = $anon->csrf();
+T::eq(403, $anon->post('/settings/password', ['csrf' => $anT, 'mode' => 'change', 'username' => 'Vera.K', 'new' => 'vera-new-pass'])['status'], 'turning on again needs an admin account');
+$r = $anon->post('/settings/password', ['csrf' => $anT, 'mode' => 'change', 'username' => 'boss', 'new' => 'boss-secret']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=pw') && auth_on_db($udb) && $anon->get('/')['status'] === 200, 'turned on again by the admin, signed in');
+$us->stop();
+// CLI user management
+$ucli = fn(string $a) => (string)shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e = ['DATA_DIR' => $ud, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($ud)), $e)) . ' php bin/settings.php ' . $a . ' 2>&1');
+T::ok(str_contains($ucli('users'), 'Vera.K') && str_contains($ucli('users'), 'sign-in is on'), 'CLI lists users');
+T::ok(str_contains($ucli('user add kim viewer kim-password'), 'Added kim') && $uid('kim') > 0, 'CLI adds a user');
+T::ok(str_contains($ucli('user add kim2 boss kim-password'), 'Choose a role'), 'CLI validates the role');
+T::ok(str_contains($ucli('user role kim admin'), 'now admin'), 'CLI changes a role');
+T::ok(str_contains($ucli('user password boss boss-again1'), 'sign in again'), 'CLI resets a password');
+T::ok(str_contains($ucli('user delete nobody'), 'No user'), 'CLI: unknown user');
+T::ok(str_contains($ucli('user delete kim'), 'Deleted kim') && $uid('kim') === 0, 'CLI deletes a user');
+T::ok(str_contains($ucli('auth off'), 'turned off') && !auth_on_db($udb), 'CLI turns sign-in off');
+T::ok(str_contains($ucli('auth on'), 'turned on') && auth_on_db($udb), 'CLI turns sign-in on');
+
+T::section('Roles & permissions (matrix)');
+$rd = $newDir('roles');
+$rs = new Server($rd, ['SEED_DEFAULTS' => '0']);
+$rdb = testdb($rd);
+$root = $rs->client();
+$rt = $root->csrf();
+// accounts off: everybody is an anonymous admin
+T::eq(303, $root->get('/login')['status'], 'accounts off: /login goes home');
+T::eq(404, $root->get('/register')['status'], 'accounts off: no registration');
+T::eq(200, $root->get('/backup')['status'], 'accounts off: anonymous admin may open backups');
+
+$mk = fn(string $n) => $root->api('/locations', ['csrf' => $rt, 'name' => $n]);
+$mk('Shelf A'); $mk('Shelf B');
+$locs = array_map('intval', $rdb->query("SELECT id FROM locations WHERE name IN ('Shelf A', 'Shelf B') ORDER BY name")->fetchAll(PDO::FETCH_COLUMN));
+$r = $root->api('/save', ['csrf' => $rt, 'name' => 'Matrix item', 'quantity' => 1, 'location_id' => $locs[0]]);
+$iid = (int)($r['json']['id'] ?? $rdb->query("SELECT id FROM items WHERE name = 'Matrix item'")->fetchColumn());
+T::ok($iid > 0, 'item for the matrix');
+$root->post('/settings/password', ['csrf' => $rt, 'mode' => 'change', 'username' => 'root', 'new' => 'root-password', 'confirm' => 'root-password']);
+$rt = $root->csrf();
+T::ok(auth_on_db($rdb), 'accounts on');
+$anon = $rs->client();
+$r = $anon->get('/');
+T::ok($r['status'] === 303 && str_contains($r['headers']['location'] ?? '', '/login'), 'default: guest browsing disabled → sign in');
+T::eq(404, $anon->get('/register')['status'], 'default: registrations disabled');
+T::ok(!str_contains($anon->get('/login')['body'], 'id="login-register"') && !str_contains($anon->get('/login')['body'], 'id="login-guest"'), 'login page offers neither');
+
+// one role per permission (plus view), one account each
+$routes = [
+    // method, path, fields, permissions needed (all)
+    ['GET', '/', [], ['view']], ['GET', "/item/$iid", [], ['view']], ['GET', '/activity', [], ['view']], ['GET', '/stocktake', [], ['view']],
+    ['GET', '/new', [], ['create']], ['POST', '/item/999999/duplicate', [], ['create']], ['POST', '/save', ['name' => ''], ['create']],
+    ['GET', "/item/$iid/edit", [], ['edit']], ['POST', '/item/999999/qty', [], ['edit']], ['POST', '/item/999999/photos/order', [], ['edit']],
+    ['POST', '/locations/999999/rename', ['name' => 'x'], ['edit']], ['POST', '/undo', [], ['edit']], ['POST', '/save', ['id' => $iid, 'name' => ''], ['edit']],
+    ['POST', '/item/999999/delete', [], ['delete']], ['GET', '/item/999999/merge', [], ['delete']],
+    ['POST', '/bulk', ['action' => 'category'], ['bulk', 'edit']], ['POST', '/bulk', ['action' => 'delete', 'confirm' => '1'], ['bulk', 'delete']],
+    ['POST', '/bulk', ['action' => 'move'], ['bulk', 'move']], ['POST', '/bulk', ['action' => 'labels'], ['bulk', 'labels']],
+    ['POST', '/item/999999/lend', [], ['lend']], ['POST', '/item/999999/return', [], ['lend']],
+    ['GET', '/import', [], ['import']], ['GET', '/export.csv', [], ['export']],
+    ['POST', '/stocktake', ['location_id' => 999999], ['stocktake']], ['POST', '/stocktake/999999/check', [], ['stocktake']],
+    ['GET', '/labels', [], ['labels']], ['GET', "/item/$iid/label", [], ['labels']],
+    ['GET', '/settings', [], ['settings']], ['GET', '/settings/general', [], ['settings']], ['POST', '/settings/zzz', [], ['settings']], ['GET', '/settings/export.json', [], ['settings']],
+    ['GET', '/settings/security', [], ['users']], ['POST', '/settings/users/999999/role', ['role' => 'viewer'], ['users']], ['POST', '/settings/roles/zzz', [], ['users']],
+    ['GET', '/backup', [], ['backup']], ['POST', '/backup/restore', [], ['backup']],
+];
+$routes[] = ['MOVE', '', [], ['edit', 'move']];
+$denied = fn(array $r) => $r['status'] === 403 || $r['status'] === 401 || str_contains($r['headers']['location'] ?? '', '/login');
+$run = function (Client $c, string $tok, array $rt) use ($iid, $locs, $rdb) {
+    [$m, $p, $f] = $rt;
+    if ($m === 'MOVE') {
+        $cur = (int)$rdb->query("SELECT location_id FROM items WHERE id = $iid")->fetchColumn();
+        return $c->post('/save', ['csrf' => $tok, 'id' => $iid, 'name' => 'Matrix item', 'quantity' => 1, 'location_id' => $cur === $locs[0] ? $locs[1] : $locs[0]]);
+    }
+    return $m === 'GET' ? $c->get($p) : $c->post($p, ['csrf' => $tok] + $f);
+};
+$perms = ['view', 'create', 'edit', 'delete', 'move', 'bulk', 'lend', 'import', 'export', 'stocktake', 'labels', 'settings', 'users', 'backup'];
+$bad = [];
+$checked = 0;
+foreach ($perms as $p) {
+    $have = array_values(array_unique(['view', $p]));
+    $r = $root->post('/settings/roles', ['csrf' => $rt, 'name' => "Only $p", 'perms' => $have]);
+    T::ok(str_contains($r['headers']['location'] ?? '', 'done=role-added'), "role “Only $p” created");
+    $root->post('/settings/users', ['csrf' => $rt, 'username' => "u-$p", 'role' => "only-$p", 'new' => 'matrix-password', 'confirm' => 'matrix-password']);
+    $c = $rs->client();
+    $c->post('/login', ['csrf' => $c->csrf(), 'username' => "u-$p", 'password' => 'matrix-password']);
+    $tok = $c->csrf();
+    foreach ($routes as $rt2) {
+        $allowed = !array_diff($rt2[3], $have);
+        $res = $run($c, $tok, $rt2);
+        $checked++;
+        if ($denied($res) === $allowed) $bad[] = "only-$p {$rt2[0]} {$rt2[1]} " . json_encode($rt2[2]) . " → {$res['status']} (expected " . ($allowed ? 'allowed' : 'denied') . ')';
+    }
+}
+T::eq([], $bad, "every permission against every protected route ($checked requests)");
+// admin may do everything; the admin role is locked
+$adminBad = [];
+foreach ($routes as $rt2) if ($denied($run($root, $rt, $rt2))) $adminBad[] = "{$rt2[0]} {$rt2[1]}";
+T::eq([], $adminBad, 'admin passes every route');
+T::eq(409, $root->post('/settings/roles/admin', ['csrf' => $rt, 'perms' => ['view']])['status'], 'admin role cannot be changed');
+T::eq(409, $root->post('/settings/roles/viewer/delete', ['csrf' => $rt])['status'], 'built-in roles cannot be deleted');
+T::eq(422, $root->post('/settings/roles', ['csrf' => $rt, 'name' => 'Bad', 'perms' => ['fly']])['status'], 'unknown permission rejected');
+$rootId = (int)$rdb->query("SELECT id FROM users WHERE username = 'root'")->fetchColumn();
+T::eq(409, $root->post("/settings/users/$rootId/role", ['csrf' => $rt, 'role' => 'only-users'])['status'], 'lockout: the last admin keeps the role');
+$sec = $root->get('/settings/security')['body'];
+T::ok(str_contains($sec, 'id="rc-only-lend"') && str_contains($sec, 'id="perm-only-lend-lend" checked') && !str_contains($sec, 'id="perm-only-lend-edit" checked') && str_contains($sec, 'id="nr-name"'), 'roles editor lists the roles');
+// edit a custom role, delete it (accounts move)
+$r = $root->post('/settings/roles/only-lend', ['csrf' => $rt, 'name' => 'Lenders', 'perms' => ['view', 'lend', 'labels']]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=role-saved') && json_decode((string)$rdb->query("SELECT perms FROM roles WHERE role_key = 'only-lend'")->fetchColumn(), true) === ['view', 'lend', 'labels'], 'role saved');
+$lu = $rs->client(); $lu->post('/login', ['csrf' => $lu->csrf(), 'username' => 'u-lend', 'password' => 'matrix-password']);
+T::eq(200, $lu->get('/labels')['status'], 'new permission applies at once');
+$root->post('/settings/roles/only-lend/delete', ['csrf' => $rt, 'move_to' => 'editor']);
+T::eq('editor', $rdb->query("SELECT role FROM users WHERE username = 'u-lend'")->fetchColumn(), 'deleting a role moves its accounts');
+T::eq(200, $lu->get('/new')['status'], '… and they get the new role’s permissions');
+// UI follows the permissions
+$vb = $rs->client(); $vb->post('/login', ['csrf' => $vb->csrf(), 'username' => 'u-export', 'password' => 'matrix-password']);
+$home = $vb->get('/')['body'];
+T::ok(str_contains($home, 'no-create') && str_contains($home, 'no-edit') && !str_contains($home, ' no-export') && str_contains($home, 'id="menu-export"') && !str_contains($home, 'id="menu-labels"') && !str_contains($home, 'id="menu-import"'), 'body classes + menu follow the permissions');
+
+// guest browsing toggle
+T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0'])['status'], 'guest browsing allowed');
+$g = $rs->client();
+$gt = $g->csrf();
+T::eq(200, $g->get('/')['status'], 'guest may browse');
+T::ok(str_contains($g->get('/')['body'], 'is-guest') && str_contains($g->get('/')['body'], 'id="menu-login"'), 'guest: body class + sign-in link');
+$r = $g->post("/item/$iid/delete", ['csrf' => $gt]);
+T::ok(str_contains($r['headers']['location'] ?? '', '/login'), 'guest action → sign in');
+T::eq(401, $g->api('/item/999999/qty', ['csrf' => $gt, 'delta' => 1])['status'], 'guest JSON action → 401');
+T::ok(str_contains($g->get('/labels')['headers']['location'] ?? '', '/login'), 'guest: no labels by default');
+$root->post('/settings/roles/guest', ['csrf' => $rt, 'perms' => ['view', 'labels', 'backup']]);
+T::eq(200, $g->get('/labels')['status'], 'guest role permissions are configurable');
+T::ok(str_contains($g->get('/backup')['headers']['location'] ?? '', '/login'), 'guests never get backup');
+T::ok(str_contains($g->get('/login')['body'], 'id="login-guest"'), 'login page offers guest browsing');
+
+// registration: every combination of the toggles
+$n = 0;
+foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach ([false, true] as $approval) {
+    $n++;
+    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0']);
+    $tag = 'guest ' . ($guestOff ? 'off' : 'on') . ', registration ' . ($regOff ? 'off' : 'on') . ', approval ' . ($approval ? 'on' : 'off');
+    $a = $rs->client();
+    $home = $a->get('/');
+    T::eq($guestOff ? 303 : 200, $home['status'], "$tag: anonymous home");
+    $reg = $a->get('/register');
+    T::eq($regOff ? 404 : 200, $reg['status'], "$tag: /register");
+    $r = $a->post('/register', ['csrf' => $a->csrf(), 'username' => "reg$n", 'new' => 'register-pass', 'confirm' => 'register-pass']);
+    if ($regOff) { T::eq(404, $r['status'], "$tag: registration refused"); continue; }
+    $row = $rdb->query("SELECT role, status FROM users WHERE username = 'reg$n'")->fetch();
+    T::eq(['role' => 'editor', 'status' => $approval ? 'pending' : 'active'], $row, "$tag: account created with the configured role");
+    if ($approval) {
+        T::ok(str_contains($r['headers']['location'] ?? '', 'registered=pending'), "$tag: waits for approval");
+        $l = $rs->client();
+        $lr = $l->post('/login', ['csrf' => $l->csrf(), 'username' => "reg$n", 'password' => 'register-pass']);
+        T::ok($lr['status'] === 403 && str_contains($lr['body'], 'approval'), "$tag: pending account cannot sign in");
+        $pid = (int)$rdb->query("SELECT id FROM users WHERE username = 'reg$n'")->fetchColumn();
+        T::ok(str_contains($root->get('/settings/security')['body'], "id=\"approve-$pid\""), "$tag: approve button");
+        $root->post("/settings/users/$pid/approve", ['csrf' => $rt]);
+        $lr = $l->post('/login', ['csrf' => $l->csrf(), 'username' => "reg$n", 'password' => 'register-pass']);
+        T::eq(303, $lr['status'], "$tag: approved account signs in");
+        T::eq(200, $l->get('/new')['status'], "$tag: … with the editor role");
+    } else {
+        T::ok(str_contains($r['headers']['location'] ?? '', 'done=welcome'), "$tag: signed in right away");
+        T::eq(200, $a->get('/new')['status'], "$tag: … with the editor role");
+    }
+}
+T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0'])['status'], 'admin cannot be the registration role');
+$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0']);
+$x = $rs->client();
+T::eq(419, $x->post('/register', ['csrf' => 'wrong', 'username' => 'csrfless', 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'], 'registration needs the CSRF token');
+// rate limits (5 registrations per hour per address; earlier tests used some)
+$rdb->exec("DELETE FROM auth_attempts");
+$codes = [];
+for ($i = 0; $i < 6; $i++) $codes[] = ($x = $rs->client())->post('/register', ['csrf' => $x->csrf(), 'username' => "flood$i", 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'];
+T::eq(429, end($codes), 'registration is rate-limited');
+$rdb->exec("DELETE FROM auth_attempts");
+$codes = [];
+for ($i = 0; $i < 11; $i++) $codes[] = ($x = $rs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'])['status'];
+T::eq([401, 429], [$codes[0], end($codes)], 'sign-in is rate-limited');
+$rdb->exec("DELETE FROM auth_attempts");
+// CLI recovery
+$rcli = fn(string $a) => (string)shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e = ['DATA_DIR' => $rd, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($rd)), $e)) . ' php bin/settings.php ' . $a . ' 2>&1');
+$rdb->exec("UPDATE roles SET perms = '[]' WHERE role_key = 'editor'");
+T::ok(str_contains($rcli('roles'), 'only-view'), 'CLI lists roles');
+T::ok(str_contains($rcli('roles reset'), 'restored') && str_contains((string)$rdb->query("SELECT perms FROM roles WHERE role_key = 'editor'")->fetchColumn(), 'stocktake'), 'CLI restores the built-in roles');
+$rdb->exec("UPDATE users SET status = 'pending' WHERE username = 'u-view'");
+T::ok(str_contains($rcli('user approve u-view'), 'can sign in') && $rdb->query("SELECT status FROM users WHERE username = 'u-view'")->fetchColumn() === 'active', 'CLI approves accounts');
+T::ok(str_contains($rcli('user role u-view admin'), 'now admin'), 'CLI makes someone an admin');
+T::ok(str_contains($rcli('auth off'), 'turned off') && !auth_on_db($rdb), 'CLI turns accounts off');
+T::eq(200, $rs->client()->get('/backup')['status'], 'accounts off again: everyone is admin');
+$rs->stop();
+
+T::section('Full-text search');
+$sx = new Server($sxDir = $newDir('search'), ['SEED_DEFAULTS' => '0']);
+$xc = $sx->client();
+$xt = $xc->csrf();
+$xdb = testdb($sxDir);
+$mk = function (array $f) use ($xc, $xt, $savedId): int { return $savedId($xc->api('/save', ['csrf' => $xt, 'quantity' => 1] + $f)); };
+$a = $mk(['name' => 'Screwdriver set', 'location_id' => '__new', 'new_location' => 'Garage', 'tags' => 'tools, workshop']);
+$garage = (int)$xdb->query("SELECT id FROM locations WHERE name = 'Garage'")->fetchColumn();
+$b = $mk(['name' => 'Bit box', 'location_id' => '__new', 'new_location' => 'Shelf 2', 'notes' => 'Fits the screwdriver handle', 'serial' => 'SN-7731']);
+$shelf = (int)$xdb->query("SELECT id FROM locations WHERE name = 'Shelf 2'")->fetchColumn();
+$xc->post("/locations/$shelf/parent", ['csrf' => $xt, 'parent' => $garage]);
+$cc = $mk(['name' => 'Κατσαβίδι <b>', 'notes' => 'Ελληνικό <script>x</script>', 'barcode' => '4006381333931', 'category_id' => '__new', 'new_category' => 'Εργαλεία']);
+$xs = fn(string $q): array => titles($xc->json('/?q=' . rawurlencode($q)));
+T::eq(['Screwdriver set', 'Bit box'], $xs('screwdriver'), 'ranked: name match before a notes match');
+T::eq(['Bit box'], $xs('7731'), 'serial number (custom field), substring');
+T::eq(['Κατσαβίδι <b>'], $xs('4006381333931'), 'barcode');
+T::eq(['Screwdriver set'], $xs('workshop'), 'tags');
+T::eq(['Κατσαβίδι <b>'], $xs('εργαλεια'), 'category, Greek without accents');
+T::eq(['Bit box'], $xs('garage shelf'), 'location path: parent + child names');
+T::ok(in_array('Bit box', $xs('garage'), true), 'a parent location finds items in sub-locations');
+T::eq([], $xs('screwdriver nothinglikethis'), 'every word must match');
+$r = $xc->json('/?q=screwdrivr');
+T::ok(titles($r) === ['Screwdriver set', 'Bit box'] && str_contains((string)$r['json']['count'], 'showing “screwdriver” for “screwdrivr”'), 'typo tolerance, with a note', (string)($r['json']['count'] ?? ''));
+$r = $xc->json('/?q=fits');
+T::ok(str_contains((string)$r['json']['html'], '<p class="snip"><span class="snip-k">Notes</span> <mark>Fits</mark> the screwdriver handle</p>'), 'snippet of the matching field with highlight', (string)$r['json']['html']);
+T::ok(str_contains((string)$xc->json('/?q=set')['json']['html'], 'Screwdriver <mark>set</mark>'), 'name highlighted');
+$r = (string)$xc->json('/?q=' . rawurlencode('ελληνικο'))['json']['html'];
+T::ok(str_contains($r, 'Κατσαβίδι &lt;b&gt;') && str_contains($r, '<mark>Ελληνικό</mark> &lt;script&gt;') && !str_contains($r, '<script>'), 'highlighted text stays escaped');
+$r = $xc->json('/?q=' . rawurlencode('<b>'));
+T::ok(titles($r) === ['Κατσαβίδι <b>'] && str_contains((string)$r['json']['html'], '<mark>&lt;b&gt;</mark>'), 'markup in the query is just text', implode('|', titles($r)) . ' ' . substr((string)$r['json']['html'], 0, 600));
+$xc->api('/save', ['csrf' => $xt, 'id' => $a, 'name' => 'Torx set', 'quantity' => 1, 'location_id' => $garage]);
+T::eq(['Bit box'], $xs('screwdriver'), 'index follows edits');
+$xc->post("/locations/$garage/rename", ['csrf' => $xt, 'name' => 'Workshop']);
+T::ok(in_array('Bit box', $xs('workshop'), true), 'index follows location renames');
+$xc->post("/item/$b/delete", ['csrf' => $xt]);
+T::eq([], $xs('7731'), 'deleted items drop out');
+$save = fn(array $kv) => $xc->post('/settings/list', ['csrf' => $xt] + $kv + ['page_size' => '60', 'default_sort' => 'recent', 'list_view' => 'grid', 'recent_limit' => '8', 'recent_scope' => 'device', 'overview_open' => '1']);
+$save(['search_typos' => '0']);
+T::eq([], $xs('torxx'), 'typo tolerance can be turned off (Control Panel → List)');
+$save(['search_typos' => '1']);
+T::eq(['Torx set'], $xs('torxx'), '… and on');
+T::ok(str_contains($xc->get('/settings/system')['body'], 'Search engine'), 'System shows the search engine');
+T::eq(1, (int)$xdb->query("SELECT COUNT(*) FROM search_docs WHERE item_id = $cc")->fetchColumn(), 'documents stored');
+$sx->stop();
+
+T::section('CSV import');
+$ix = new Server($ixDir = $newDir('import'), ['SEED_DEFAULTS' => '0']);
+$ic = $ix->client();
+$it = $ic->csrf();
+$idb = testdb($ixDir);
+$up = fn(string $csv, string $n = 'stuff.csv') => $ic->post('/import', ['csrf' => $it], ['csv' => jpg_file($csv, $n, 'text/csv')]);
+T::eq(200, $ic->get('/import')['status'], 'import page');
+T::ok(str_contains($ic->get('/')['body'], 'id="menu-import"'), 'menu links to the import');
+T::eq(422, $up("name\n")['status'], 'a header without rows is refused');
+T::eq(422, $ic->post('/import', ['csrf' => $it])['status'], 'no file → 422');
+// semicolon, BOM, Greek, odd headers
+$csv = "\xEF\xBB\xBFItem;Where;Type;Qty;Price;Tags;Comment\n"
+    . "Drill;Garage › Shelf 1;Tools;2;49,90;power, garage;Makita\n"
+    . "Πρίζα;Κουτί 5;;3;;;\n"
+    . "Broken;Garage;Tools;lots;;;\n"
+    . ";Garage;;1;;;no name\n";
+$r = $up($csv);
+T::ok(preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm) === 1, 'upload → mapping page');
+$iid = (int)$mm[1];
+$page = $ic->get("/import/$iid")['body'];
+T::ok(str_contains($page, 'id="imp-col-0"') && preg_match('#name="col\[0\]".*?<option value="name" selected#s', $page) && preg_match('#name="col\[6\]".*?<option value="notes" selected#s', $page), 'columns mapped automatically from the header names');
+T::ok(str_contains($page, 'e.g. Drill · Πρίζα'), 'sample values shown');
+$cols = ['name', 'location', 'category', 'quantity', 'value', 'tags', 'notes'];
+$pv = $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => $cols, 'create' => '1']);
+T::ok($pv['status'] === 200 && str_contains($pv['body'], '<b>2</b> new') && str_contains($pv['body'], '<b>2</b> errors'), 'preview counts', substr(strip_tags($pv['body']), 0, 0));
+T::ok(str_contains($pv['body'], 'Row 4</b> “Broken”: Quantity “lots”') && str_contains($pv['body'], 'Row 5</b>: Name is empty.'), 'row errors with line numbers');
+T::ok(str_contains($pv['body'], 'locations: Garage, Shelf 1, Κουτί 5') && str_contains($pv['body'], 'categories: Tools'), 'lists what would be created');
+T::ok(preg_match('#id="imp-commit"[^>]*disabled#', $pv['body']) === 1, 'import blocked while rows have errors');
+T::eq(0, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn() + (int)$idb->query('SELECT COUNT(*) FROM locations')->fetchColumn(), 'dry run changed nothing');
+T::eq(422, $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols, 'create' => '1'])['status'], 'commit refused with errors');
+T::eq(0, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn(), '… nothing imported');
+T::eq(422, $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => ['', 'location']])['status'], 'a name column is required');
+T::eq(422, $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => ['name', 'name']])['status'], 'a field can be used once');
+$pv = $ic->post("/import/$iid/preview", ['csrf' => $it, 'col' => $cols]);
+T::ok(str_contains($pv['body'], 'Unknown tag “power”') && str_contains($pv['body'], 'Unknown location “Κουτί 5”'), 'without "create missing": unknown tags and locations are errors');
+$r = $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols, 'create' => '1', 'skip_errors' => '1']);
+T::ok(str_contains($r['headers']['location'] ?? '', '/import?done=' . $iid), 'import with skipped rows');
+T::ok(str_contains($ic->get('/import?done=' . $iid)['body'], 'Imported · 2 added · 0 updated · 2 skipped · 3 new locations · 1 new category · 2 new tags'), 'summary toast');
+$drill = $idb->query("SELECT i.id, i.quantity, i.value_cents, i.notes, l.name AS loc, c.name AS cat FROM items i JOIN locations l ON l.id = i.location_id JOIN categories c ON c.id = i.category_id WHERE i.name = 'Drill'")->fetch();
+T::ok($drill && (int)$drill['quantity'] === 2 && (int)$drill['value_cents'] === 4990 && $drill['loc'] === 'Shelf 1' && $drill['cat'] === 'Tools' && $drill['notes'] === 'Makita', 'values imported');
+T::eq('Garage', $idb->query("SELECT p.name FROM locations l JOIN locations p ON p.id = l.parent_id WHERE l.name = 'Shelf 1'")->fetchColumn(), 'location path creates nested locations');
+T::eq(['garage', 'power'], array_map('strtolower', $idb->query("SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = {$drill['id']} ORDER BY t.name")->fetchAll(PDO::FETCH_COLUMN)), 'tags imported');
+T::eq(2, (int)$idb->query("SELECT COUNT(*) FROM activity WHERE action = 'created'")->fetchColumn(), 'history records the new items');
+T::eq(303, $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols])['status'], 'a finished import cannot run twice');
+T::eq(2, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn(), '… still 2 items');
+T::ok(!is_file("$ixDir/tmp/import-$iid.csv"), 'uploaded file removed after the import');
+// round trip with the export
+$c2 = $ic->get('/export.csv')['body'];
+$r = $up($c2, 'export.csv');
+preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm);
+$eid = (int)$mm[1];
+$page = $ic->get("/import/$eid")['body'];
+$auto = [];
+preg_match_all('#name="col\[(\d+)\]".*?</select>#s', $page, $sel);
+foreach ($sel[0] as $k => $html) $auto[] = preg_match('#<option value="([a-z_]*)" selected#', $html, $o) ? $o[1] : '';
+T::ok(in_array('id', $auto, true) && in_array('barcode', $auto, true) && in_array('lent_to', $auto, true), 'export headers map automatically', implode(',', $auto));
+$pv = $ic->post("/import/$eid/preview", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
+T::ok(str_contains($pv['body'], '<b>0</b> new') && str_contains($pv['body'], '<b>0</b> updated') && str_contains($pv['body'], '<b>2</b> unchanged') && str_contains($pv['body'], '<b>0</b> errors'), 'own export: every row matches its item (unchanged)');
+$before = $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn();
+$ic->post("/import/$eid/commit", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
+T::eq($before, $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn(), 'unchanged rows leave no history');
+T::eq($c2, $ic->get('/export.csv')['body'], 'export → import → export is identical');
+// into an empty install
+$iy = new Server($iyDir = $newDir('import2'), ['SEED_DEFAULTS' => '0']);
+$yc = $iy->client();
+$yt = $yc->csrf();
+$r = $yc->post('/import', ['csrf' => $yt], ['csv' => jpg_file($c2, 'export.csv', 'text/csv')]);
+preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm);
+$yc->post("/import/{$mm[1]}/commit", ['csrf' => $yt, 'col' => $auto, 'create' => '1']);
+$ydb = testdb($iyDir);
+T::eq(['Drill', 'Πρίζα'], $ydb->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'export imports into a fresh install');
+T::eq('Shelf 1', $ydb->query("SELECT l.name FROM items i JOIN locations l ON l.id = i.location_id WHERE i.name = 'Drill'")->fetchColumn(), '… with its location');
+$iy->stop();
+// roles: viewers cannot import
+$ic->post('/settings/password', ['csrf' => $it, 'mode' => 'change', 'username' => 'admin', 'new' => 'import-admin', 'confirm' => 'import-admin']);
+$it = $ic->csrf();
+$ic->post('/settings/users', ['csrf' => $it, 'username' => 'viewer', 'role' => 'viewer', 'new' => 'viewer-pass', 'confirm' => 'viewer-pass']);
+$vc = $ix->client();
+$vc->post('/login', ['csrf' => $vc->csrf(), 'username' => 'viewer', 'password' => 'viewer-pass']);
+T::eq(403, $vc->get('/import')['status'], 'viewers cannot open the import');
+T::eq(403, $vc->post('/import', ['csrf' => $vc->csrf()], ['csv' => jpg_file("name\nX\n", 'x.csv', 'text/csv')])['status'], '… nor upload');
+T::ok(!str_contains($vc->get('/')['body'], 'id="menu-import"'), '… and see no menu entry');
+$ix->stop();
+
+T::section('Photo editing + order');
+$px = new Server($pxDir = $newDir('photoedit'), ['SEED_DEFAULTS' => '0']);
+$pc2 = $px->client();
+$ptk = $pc2->csrf();
+$pdb = testdb($pxDir);
+$pid0 = $savedId($pc2->api('/save', ['csrf' => $ptk, 'name' => 'Lamp', 'quantity' => 1], ['photo' => jpg_file(img_jpeg(1200, 800))]));
+$ph = $pdb->query("SELECT id, file, version FROM item_photos WHERE item_id = $pid0")->fetch();
+$ed = $pc2->get("/item/$pid0/photos/{$ph['id']}/edit");
+T::ok($ed['status'] === 200 && str_contains($ed['body'], 'id="pe-canvas"') && str_contains($ed['body'], '1200×800 px') && str_contains($ed['body'], 'name="crop_w"'), 'editor page (canvas + no-JS fields)');
+T::ok(str_contains($pc2->get("/item/$pid0")['body'], "/item/$pid0/photos/{$ph['id']}/edit"), 'item page links to the editor');
+$post = fn(array $f) => $pc2->post("/item/$pid0/photos/{$ph['id']}/edit", ['csrf' => $ptk] + $f);
+T::eq(422, $post(['rotate' => '45'])['status'], 'only 90° steps');
+T::eq(422, $post(['rotate' => '0', 'crop_x' => '0', 'crop_y' => '0', 'crop_w' => '100', 'crop_h' => '100'])['status'], 'nothing to change → 422');
+T::eq(422, $post(['rotate' => '0', 'crop_x' => '60', 'crop_y' => '0', 'crop_w' => '60', 'crop_h' => '100'])['status'], 'crop outside the photo → 422');
+T::eq(422, $post(['rotate' => '0', 'crop_x' => '0', 'crop_y' => '0', 'crop_w' => '1', 'crop_h' => '50'])['status'], 'crop too small → 422');
+T::eq(404, $pc2->get("/item/$pid0/photos/999999/edit")['status'], 'unknown photo → 404');
+$r = $post(['rotate' => '90', 'crop_x' => '0', 'crop_y' => '25', 'crop_w' => '100', 'crop_h' => '50']);
+T::ok(str_contains($r['headers']['location'] ?? '', "/item/$pid0?p=0&edited=1"), 'saved → item page');
+$ph2 = $pdb->query("SELECT id, file, version, edited_at FROM item_photos WHERE item_id = $pid0")->fetch();
+T::ok($ph2['file'] !== $ph['file'] && (int)$ph2['version'] === 2 && $ph2['edited_at'] !== null, 'new file name, version 2');
+[$w2, $h2] = getimagesize("$pxDir/images/{$ph2['file']}") ?: [0, 0];
+T::ok($w2 === 800 && $h2 === 600, "rotated (800×1200) then cropped to half the height ({$w2}×{$h2})");
+[$tw2] = getimagesize("$pxDir/thumbs/{$ph2['file']}") ?: [0];
+T::eq(480, $tw2, 'thumbnail regenerated');
+T::ok(!is_file("$pxDir/images/{$ph['file']}") && !is_file("$pxDir/thumbs/{$ph['file']}"), 'old version deleted');
+T::eq($ph2['file'], $pdb->query("SELECT image FROM items WHERE id = $pid0")->fetchColumn(), 'cover follows the new version');
+T::ok(str_contains($pc2->get("/item/$pid0")['body'], 'Edited a photo · rotated 90° · 800×600 px'), 'history entry');
+$r = $pc2->api("/item/$pid0/photos/{$ph['id']}/edit", ['csrf' => $ptk, 'rotate' => '180']);
+T::ok($r['status'] === 200 && ($r['json']['version'] ?? 0) === 3, 'JSON: rotate 180 → version 3');
+// order
+$pc2->post("/item/$pid0/photos", ['csrf' => $ptk], ['photos[]' => jpg_file(img_jpeg(300, 300))]);
+$pc2->post("/item/$pid0/photos", ['csrf' => $ptk], ['photos[]' => jpg_file(img_jpeg(300, 200))]);
+$ids = array_map('intval', $pdb->query("SELECT id FROM item_photos WHERE item_id = $pid0 ORDER BY position")->fetchAll(PDO::FETCH_COLUMN));
+T::eq(3, count($ids), 'three photos');
+T::ok(str_contains($pc2->get("/item/$pid0")['body'], 'class="pm-drag"'), 'drag handles shown');
+T::eq(422, $pc2->api("/item/$pid0/photos/order", ['csrf' => $ptk, 'ids' => $ids[0] . ',' . $ids[1]])['status'], 'order must list every photo');
+T::eq(422, $pc2->api("/item/$pid0/photos/order", ['csrf' => $ptk, 'ids' => $ids[0] . ',' . $ids[1] . ',' . $ids[1]])['status'], '… each once');
+$new = [$ids[2], $ids[0], $ids[1]];
+T::eq(200, $pc2->api("/item/$pid0/photos/order", ['csrf' => $ptk, 'ids' => implode(',', $new)])['status'], 'reorder');
+T::eq($new, array_map('intval', $pdb->query("SELECT id FROM item_photos WHERE item_id = $pid0 ORDER BY position")->fetchAll(PDO::FETCH_COLUMN)), 'new order stored');
+T::eq($pdb->query("SELECT file FROM item_photos WHERE id = {$ids[2]}")->fetchColumn(), $pdb->query("SELECT image FROM items WHERE id = $pid0")->fetchColumn(), 'first photo is the cover');
+T::ok(str_contains($pc2->get("/item/$pid0")['body'], 'Chose a new cover photo'), 'history: new cover');
+$r = $pc2->post("/item/$pid0/photos/order", ['csrf' => $ptk, 'ids' => implode(',', $new)]);
+T::eq(303, $r['status'], 'without JS: form post redirects');
+$px->stop();
 
 T::section('Notes (Markdown) + attachments');
 $fx = new Server($fxDir = $newDir('attach'), ['SEED_DEFAULTS' => '1']);
@@ -1602,6 +2052,74 @@ T::eq('/?deleted=1', $uc->post("/item/$u3/delete", ['csrf' => $ut])['headers']['
 T::eq(0, (int)$udb->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn(), 'no token stored');
 $ux->stop();
 T::ok(!$ux->logHas('[apotheke]'), 'no server-side exceptions logged');
+
+T::section('Stocktake');
+$sx = new Server($sxDir = $newDir('stocktake'), ['SEED_DEFAULTS' => '0']);
+$sk = $sx->client();
+$skt = $sk->csrf();
+$sdb2 = testdb($sxDir);
+$garage = (int)$sk->api('/locations', ['csrf' => $skt, 'name' => 'Garage'])['json']['id'];
+$shelf = (int)$sk->api('/locations', ['csrf' => $skt, 'name' => 'Shelf A'])['json']['id'];
+$attic = (int)$sk->api('/locations', ['csrf' => $skt, 'name' => 'Attic'])['json']['id'];
+$sk->api("/locations/$shelf/parent", ['csrf' => $skt, 'parent' => $garage]);
+$drill = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Drill', 'location_id' => $garage, 'quantity' => 1, 'barcode' => '4006381333931']));
+$saw = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Saw', 'location_id' => $shelf, 'quantity' => 1]));
+$tape = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Tape <b>', 'location_id' => $shelf, 'quantity' => 1]));
+$tent = $savedId($sk->api('/save', ['csrf' => $skt, 'name' => 'Tent', 'location_id' => $attic, 'quantity' => 1]));
+T::ok(str_contains($sk->get('/')['body'], 'href="/stocktake"'), 'menu links to stocktake');
+$pg = $sk->get("/stocktake?loc=$garage");
+T::ok($pg['status'] === 200 && str_contains($pg['body'], 'id="stk-start"') && str_contains($pg['body'], '<option value="' . $garage . '" selected'), 'start page preselects ?loc=');
+T::eq(419, $sk->post('/stocktake', ['location_id' => $garage])['status'], 'start needs CSRF');
+T::eq(422, $sk->post('/stocktake', ['csrf' => $skt, 'location_id' => ''])['status'], 'start needs a location');
+$r = $sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $garage]);
+T::ok($r['status'] === 303 && preg_match('#^/stocktake/(\d+)$#', $r['headers']['location'] ?? '', $sm) === 1, 'start redirects to the checking screen');
+$sid = (int)$sm[1];
+T::eq("/stocktake/$sid", $sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $garage])['headers']['location'] ?? '', 'starting again reopens the open stocktake');
+T::eq(3, (int)$sdb2->query("SELECT COUNT(*) FROM stocktake_lines WHERE stocktake_id = $sid AND expected = 1")->fetchColumn(), 'expected = items in the location and its sub-locations');
+$pg = $sk->get("/stocktake/$sid");
+T::ok($pg['status'] === 200 && str_contains($pg['body'], '0 of 3</b> found') && str_contains($pg['body'], 'Garage › Shelf A'), 'checking screen lists expected items with their path');
+T::ok(str_contains($pg['body'], 'Tape &lt;b&gt;') && !str_contains($pg['body'], 'Tape <b>'), 'names are escaped');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'item_id' => $saw, 'found' => '1']);
+T::ok(($r['json']['state'] ?? '') === 'found' && str_contains($r['json']['html'] ?? '', '1 of 3</b> found'), 'tick by id (JSON + fresh list)');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'code' => ' 4006381333931 ']);
+T::eq('found', $r['json']['state'] ?? '', 'scan a barcode');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'code' => 'http://inv.example/item/' . $tent]);
+T::ok(($r['json']['state'] ?? '') === 'misplaced' && str_contains($r['json']['message'] ?? '', 'belongs in Attic'), 'scan a QR label link: item from elsewhere is misplaced');
+T::eq(404, $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'code' => '999999999'])['status'], 'unknown barcode → 404');
+$e = $sk->post("/stocktake/$sid/check", ['csrf' => $skt, 'code' => '#999999']);
+T::ok($e['status'] === 404 && str_contains($e['body'], 'No item has that QR code') && str_contains($e['body'], 'aria-invalid="true"'), 'without JS: error shown on the checking screen');
+T::eq(303, $sk->post("/stocktake/$sid/check", ['csrf' => $skt, 'code' => "#$tape"])['status'], 'without JS: "#id" ticks and redirects back');
+$r = $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'item_id' => $tape, 'found' => '0']);
+T::eq('missing', $r['json']['state'] ?? '', 'untick');
+$rep = $sk->get("/stocktake/$sid/report");
+T::ok($rep['status'] === 200 && str_contains($rep['body'], 'id="stk-finish-form"') && str_contains($rep['body'], 'id="stk-moves" checked'), 'report before finishing: moves pre-ticked (setting)');
+T::ok(preg_match('#id="rep-missing".*Tape &lt;b&gt;.*id="rep-misplaced".*Tent.*belongs in Attic.*id="rep-found".*Drill#s', $rep['body']) === 1, 'report lists missing, misplaced, found');
+T::eq(419, $sk->post("/stocktake/$sid/finish", ['moves' => '1'])['status'], 'finish needs CSRF');
+$r = $sk->post("/stocktake/$sid/finish", ['csrf' => $skt, 'moves' => '1']);
+T::eq("/stocktake/$sid/report?finished=1", $r['headers']['location'] ?? '', 'finish → report');
+T::eq($garage, (int)$sdb2->query("SELECT location_id FROM items WHERE id = $tent")->fetchColumn(), 'misplaced item moved to the checked location');
+T::eq($shelf, (int)$sdb2->query("SELECT location_id FROM items WHERE id = $tape")->fetchColumn(), 'missing item not moved');
+T::ok(str_contains($sk->get("/item/$tent")['body'], 'Moved from <b>Attic</b> to <b>Garage</b> (stocktake)'), 'move recorded in the item history');
+$done = $sk->get("/stocktake/$sid/report?finished=1")['body'];
+T::ok(str_contains($done, 'Stocktake finished · 1 item moved') && str_contains($done, '2 of 3 found · 1 missing · 1 misplaced · 1 moved') && !str_contains($done, 'stk-finish-form'), 'finished report');
+T::eq(409, $sk->api("/stocktake/$sid/check", ['csrf' => $skt, 'item_id' => $tape])['status'], 'finished stocktake is read-only');
+T::eq(409, $sk->post("/stocktake/$sid/finish", ['csrf' => $skt])['status'], 'cannot finish twice');
+$hist = $sk->get('/stocktake')['body'];
+T::ok(str_contains($hist, 'id="stk-history"') && str_contains($hist, 'href="/stocktake/' . $sid . '"') && str_contains($hist, '2 of 3 found'), 'history lists finished stocktakes');
+// cancel; finishing without moves
+$s2 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $attic])['headers']['location'], 11);
+$sk->api("/stocktake/$s2/check", ['csrf' => $skt, 'item_id' => $drill]);
+$sk->post("/stocktake/$s2/finish", ['csrf' => $skt]);
+T::eq($garage, (int)$sdb2->query("SELECT location_id FROM items WHERE id = $drill")->fetchColumn(), 'without the moves box nothing moves');
+$s3 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $shelf])['headers']['location'], 11);
+T::eq('/stocktake?done=cancelled', $sk->post("/stocktake/$s3/cancel", ['csrf' => $skt])['headers']['location'] ?? '', 'cancel');
+T::ok(str_contains($sk->get('/stocktake')['body'], 'Cancelled'), 'cancelled shown in history');
+T::eq(404, $sk->get('/stocktake/999999')['status'], 'unknown stocktake → 404');
+T::eq(404, $sk->get("/stocktake/$sid/finish")['status'], 'GET on an action → 404');
+// the item vanishes meanwhile: name kept in the report
+$s4 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $attic])['headers']['location'], 11);
+T::ok(str_contains($sk->get('/backup')['body'], '<th scope="row">Stocktakes</th><td>4</td>'), 'backup counts stocktakes');
+$sx->stop();
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 

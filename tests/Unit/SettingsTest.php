@@ -92,7 +92,8 @@ final class SettingsTest extends DatabaseTestCase
     public function testExportImportRoundTrip(): void
     {
         settings_save(['app_name' => 'Garage', 'accent' => '#0F766E']);
-        password_update('change', '', 'longpassword', 'longpassword');
+        user_create('admin', 'longpassword', 'admin');
+        auth_turn_on();
         $ex = settings_export();
         $this->assertSame('apotheke-settings', $ex['format']);
         $this->assertArrayNotHasKey('password_hash', $ex['settings']);
@@ -142,20 +143,18 @@ final class SettingsTest extends DatabaseTestCase
         }
     }
 
-    public function testPassword(): void
+    public function testSignInMode(): void
     {
         $this->assertFalse(auth_enabled());
-        foreach ([['short', 'short'], ['longenough1', 'different1']] as [$a, $b]) {
-            try { password_update('change', '', $a, $b); $this->fail('accepted'); } catch (UserError) { $this->addToAssertionCount(1); }
-        }
-        password_update('change', '', 'correct horse', 'correct horse');
+        settings_store(['auth_enabled' => true]);
+        settings_cache(null, true);
+        $this->assertFalse(auth_enabled(), 'the switch alone does nothing without an account');
+        user_create('admin', 'correct horse', 'admin');
         $this->assertTrue(auth_enabled());
-        $epoch = auth_epoch();
-        try { password_update('disable', 'wrong'); $this->fail('disabled without the password'); } catch (UserError $e) { $this->assertSame(403, $e->getCode()); }
-        password_update('change', 'correct horse', 'battery staple', 'battery staple');
-        $this->assertNotSame($epoch, auth_epoch(), 'changing the password invalidates old sessions');
-        password_update('disable', 'battery staple');
+        auth_turn_off();
+        settings_cache(null, true);
         $this->assertFalse(auth_enabled());
+        $this->assertSame(1, users_count(), 'turning off keeps the accounts');
     }
 
     public function testFormattingHelpers(): void

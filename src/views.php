@@ -50,6 +50,20 @@ function icon(string $n): string
 
 /* ---------- layout ---------- */
 
+/**
+ * "no-<permission>" for every permission the current role lacks (plus "role-<key>", and "is-guest" for visitors who are
+ * not signed in): CSS hides the controls they may not use; the server checks every request anyway.
+ */
+function body_role_class(): string
+{
+    try { $u = current_user(); } catch (Throwable) { return ''; }
+    if (!$u || $u['role'] === 'admin') return '';
+    $c = ['role-' . preg_replace('/[^a-z0-9-]/', '', $u['role'])];
+    foreach (array_keys(PERMISSIONS) as $p) if (!user_can($p, $u)) $c[] = 'no-' . $p;
+    if ($u['anon']) $c[] = 'is-guest';
+    return implode(' ', $c);
+}
+
 function page_start(string $title, string $bodyClass = ''): void
 {
     $t = $title === '' ? app_name() . ' – ' . app_tagline() : $title . ' · ' . app_name();
@@ -85,7 +99,7 @@ function page_start(string $title, string $bodyClass = ''): void
 <script src="<?= h(asset('theme.js')) ?>"></script>
 <script src="<?= h(asset('app.js')) ?>" defer></script>
 </head>
-<body class="<?= h($bodyClass) ?>">
+<body class="<?= h(trim($bodyClass . ' ' . body_role_class())) ?>">
 <?php
 }
 
@@ -137,7 +151,8 @@ function card_html(array $it, bool $select = false, bool $checked = false): stri
         . '<a class="card-img" href="/item/' . $id . '" aria-label="' . h($it['name']) . '">' . $img . '</a>'
         . ($select ? '' : fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/'))
         . '<div class="card-body">'
-        . '<a class="card-title" href="/item/' . $id . '">' . h($it['name']) . '</a>'
+        . '<a class="card-title" href="/item/' . $id . '">' . ($it['hl'] ?? h($it['name'])) . '</a>'
+        . (!empty($it['snip']) ? '<p class="snip">' . $it['snip'] . '</p>' : '')
         . '<div class="chips">' . $chips . '</div>'
         . ($min !== null ? low_badge_html() : '')
         . lend_badge_html($it)
@@ -344,6 +359,13 @@ function view_bulk_delete(array $items, string $back): void
     page_end();
 }
 
+/** "· showing “drill” for “drlil”" when typo tolerance stepped in. */
+function search_fixed_note(array $fixed): string
+{
+    if (!$fixed) return '';
+    return ' · showing ' . implode(', ', array_map(fn($from, $to) => '“' . $to . '” for “' . $from . '”', array_keys($fixed), $fixed));
+}
+
 function count_text(int $total, bool $filtered): string
 {
     $s = item_noun($total);
@@ -367,13 +389,22 @@ function menu_html(): string
         . '<a class="menu-item" href="/locations" role="menuitem">' . icon('pin') . ' Locations</a>'
         . '<a class="menu-item" href="/categories" role="menuitem">' . icon('tag') . ' Categories</a>'
         . '<a class="menu-item" href="/barcode" role="menuitem">' . icon('search') . ' Find by barcode</a>'
-        . '<a class="menu-item" href="/labels" role="menuitem">' . icon('qr') . ' Print QR labels</a>'
-        . '<a class="menu-item" href="/export.csv" role="menuitem">' . icon('download') . ' Export CSV</a>'
+        . (user_can('labels') ? '<a class="menu-item" href="/labels" role="menuitem" id="menu-labels">' . icon('qr') . ' Print QR labels</a>' : '')
+        . (user_can('export') ? '<a class="menu-item" href="/export.csv" role="menuitem" id="menu-export">' . icon('download') . ' Export CSV</a>' : '')
+        . (user_can('import') ? '<a class="menu-item" href="/import" role="menuitem" id="menu-import">' . icon('archive') . ' Import CSV</a>' : '')
         . '<a class="menu-item" href="/lent" role="menuitem">' . icon('handoff') . ' Lent out</a>'
+        . (user_can('stocktake') ? '<a class="menu-item" href="/stocktake" role="menuitem" id="menu-stocktake">' . icon('check') . ' Stocktake</a>' : '')
         . '<a class="menu-item" href="/activity" role="menuitem">' . icon('clock') . ' Recent activity</a>'
-        . '<a class="menu-item" href="/backup" role="menuitem">' . icon('archive') . ' Backup &amp; restore</a>'
-        . '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>';
-    if (auth_enabled()) {
+        . (user_can('backup') ? '<a class="menu-item" href="/backup" role="menuitem" id="menu-backup">' . icon('archive') . ' Backup &amp; restore</a>' : '')
+        . (user_can('settings') ? '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . icon('sliders') . ' Settings</a>'
+            : (user_can('users') ? '<a class="menu-item" href="/settings/security" role="menuitem" id="menu-settings">' . icon('sliders') . ' Users &amp; sign-in</a>' : ''));
+    $me = current_user();
+    if ($me && !$me['guest']) {
+        $o .= '<a class="menu-item" href="/account" role="menuitem" id="menu-account">' . icon('lock') . ' <span>' . h($me['username']) . ' <small class="menu-role">' . h(role_name($me['role'])) . '</small></span></a>';
+    }
+    if ($me && $me['anon']) {
+        $o .= '<a class="menu-item" href="/login" role="menuitem" id="menu-login">' . icon('lock') . ' Sign in</a>';
+    } elseif (auth_enabled()) {
         $o .= '<form method="post" action="/logout"><input type="hidden" name="csrf" value="' . $tok . '"><button class="menu-item" role="menuitem">' . icon('logout') . ' Sign out</button></form>';
     }
     return $o . '</div></details>';
@@ -540,7 +571,7 @@ function filter_select(string $kind, array $list, string $cur, int $none): strin
 
 function view_list(string $q, array $f, string $sort, array $res, array $locs, array $cats, array $stats, ?string $toast, bool $statsOpen = true, bool $select = false, bool $all = false): void
 {
-    page_start('', $select ? 'page-select' : '');
+    page_start('', $select ? 'page-select' : 'page-list');
     $f = filters_norm($f);
     $qs = list_query($q, $f, $sort);
     $listHref = '/' . ($qs ? '?' . http_build_query($qs) : '');
@@ -559,7 +590,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
   <form class="filters" action="/" method="get" role="search" id="filters">
     <label class="search">
       <?= icon('search') ?>
-      <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search names, places, categories, notes" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" id="q">
+      <input type="search" name="q" value="<?= h($q) ?>" placeholder="Search items…" aria-label="Search names, places, categories, notes" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" id="q">
     </label>
     <div class="frow">
       <details class="fsheet" id="fsheet">
@@ -623,7 +654,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
 <main class="wrap">
   <?= !$select && !$filtered ? recent_html(recent_items()) : '' ?>
   <?= stats_section($stats, $statsOpen) ?>
-  <p class="count" id="count"><?= h(count_text($res['total'], $filtered)) ?></p>
+  <p class="count" id="count"><?= h(count_text($res['total'], $filtered) . search_fixed_note($res['fixed'] ?? [])) ?></p>
   <div class="grid<?= setting('list_view') === 'compact' ? ' is-compact' : '' ?>" id="grid" aria-live="polite"><?= cards_html($res['items'], $select, $all) ?></div>
   <div class="empty" id="empty"<?= $res['total'] ? ' hidden' : '' ?>>
     <?= icon('box') ?>
@@ -722,11 +753,13 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
     <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= max_photos() ?></span></summary>
     <?php if ($n): ?>
-    <ul class="pm-list">
+    <ul class="pm-list" id="pm-list" data-order="/item/<?= $id ?>/photos/order">
       <?php foreach ($photos as $i => $p): $act = '/item/' . $id . '/photos/' . $p['id'] . '/'; ?>
-      <li class="pm<?= $i === 0 ? ' is-cover' : '' ?>">
+      <li class="pm<?= $i === 0 ? ' is-cover' : '' ?>" data-id="<?= (int)$p['id'] ?>">
         <img src="/media/thumb/<?= h($p['file']) ?>" alt="Photo <?= $i + 1 ?>" loading="lazy">
         <?php if ($i === 0): ?><span class="pm-badge">Cover</span><?php endif; ?>
+        <?php if ($n > 1): ?><span class="pm-drag" role="img" aria-label="Drag to reorder photo <?= $i + 1 ?>" title="Drag to reorder"><?= icon('menu') ?></span><?php endif; ?>
+        <a class="pbtn pm-edit" href="/item/<?= $id ?>/photos/<?= (int)$p['id'] ?>/edit" id="pm-edit-<?= $i ?>" aria-label="Crop or rotate photo <?= $i + 1 ?>"><?= icon('edit') ?></a>
         <div class="pm-btns">
           <form method="post" action="<?= $act ?>left"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Move photo <?= $i + 1 ?> left"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('back') ?></button></form>
           <form method="post" action="<?= $act ?>cover"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="pbtn" aria-label="Make photo <?= $i + 1 ?> the cover"<?= $i === 0 ? ' disabled' : '' ?>><?= icon('star') ?></button></form>
@@ -799,7 +832,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
        . '<div class="newloc" id="new' . $p . '"' . ($newVal === '' ? ' hidden' : '') . '>'
        . '<input type="text" name="' . $newField . '" id="new' . $p . 'name" value="' . h($newVal) . '" maxlength="120" autocomplete="off" autocorrect="off" enterkeyhint="done" placeholder="New ' . h($t['one']) . ', e.g. ' . h($t['example']) . '" aria-label="New ' . h($t['one']) . ' name">'
        . '<button type="button" class="btn btn-primary" id="new' . $p . 'ok">Add</button></div>'
-       . '<noscript><input type="text" name="' . $newField . '" maxlength="120" placeholder="…or type a new ' . h($t['one']) . '" class="ns-newloc"></noscript>'
+       . '<noscript><input type="text" name="' . $newField . '_ns" maxlength="120" placeholder="…or type a new ' . h($t['one']) . '" class="ns-newloc"></noscript>'
        . '</div>';
     return $o;
 }
@@ -1203,20 +1236,74 @@ function brand_logo(int $size): string
     return '<img class="brand-logo" src="' . h(brand_logo_url()) . '" width="' . $size . '" height="' . $size . '" alt="" decoding="async">';
 }
 
-function view_login(?string $error): void
+function view_login(?string $error, string $username = '', ?string $note = null): void
 {
     page_start('Sign in', 'page-login');
     ?>
 <main class="wrap narrow login">
   <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(app_name()) ?></span></div>
   <p class="tagline"><?= h(ucfirst(app_tagline())) ?></p>
-  <form method="post" action="/login" class="itemform">
+  <form method="post" action="/login" class="itemform" id="login-form">
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if ($error): ?><div class="err" role="alert"><?= h($error) ?></div><?php endif; ?>
-    <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required autofocus enterkeyhint="go"></label>
-    <button class="btn btn-primary btn-wide">Sign in</button>
+    <label class="field"><span>User name</span><input type="text" name="username" id="login-user" value="<?= h($username) ?>" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="<?= USERNAME_MAX * 2 ?>" required<?= $username === '' ? ' autofocus' : '' ?>></label>
+    <label class="field"><span>Password</span><input type="password" name="password" id="login-pw" autocomplete="current-password" required enterkeyhint="go"<?= $username !== '' ? ' autofocus' : '' ?>></label>
+    <button class="btn btn-primary btn-wide" id="login-go">Sign in</button>
   </form>
+  <?php if ($note === 'pending'): ?><p class="okbox" role="status" id="login-pending">Account created. You can sign in once an admin has approved it.</p><?php endif; ?>
+  <?php if (registration_open()): ?><p class="login-alt"><a class="btn btn-wide" href="/register" id="login-register">Create an account</a></p><?php endif; ?>
+  <?php if (guest_browsing()): ?><p class="login-alt"><a class="btn btn-wide" href="/" id="login-guest">Look around as a guest</a></p><?php endif; ?>
 </main>
+<?php
+    page_end();
+}
+
+function view_register(?string $error, string $username = ''): void
+{
+    page_start('Create an account', 'page-login page-register');
+    $approval = (bool)setting('auth_register_approval');
+    ?>
+<main class="wrap narrow login">
+  <div class="brand brand-lg"><?= brand_logo(56) ?><span><?= h(app_name()) ?></span></div>
+  <h1 class="tagline">Create an account</h1>
+  <form method="post" action="/register" class="itemform" id="reg-form">
+    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+    <?php if ($error): ?><div class="err" role="alert" id="reg-err"><?= h($error) ?></div><?php endif; ?>
+    <label class="field"><span>User name <em>letters, digits, . _ @ -</em></span><input type="text" name="username" id="reg-user" value="<?= h($username) ?>" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="<?= USERNAME_MAX ?>" required></label>
+    <label class="field"><span>Password <em>at least <?= PASSWORD_MIN ?> characters</em></span><input type="password" name="new" id="reg-pw" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+    <label class="field"><span>Repeat password</span><input type="password" name="confirm" id="reg-confirm" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+    <p class="hint" id="reg-hint">New accounts get the role <b><?= h(role_name((string)setting('auth_register_role'))) ?></b><?= $approval ? ' and can sign in once an admin has approved them' : '' ?>.</p>
+    <button class="btn btn-primary btn-wide" id="reg-go">Create account</button>
+  </form>
+  <p class="login-alt"><a class="btn btn-wide" href="/login" id="reg-login">I have an account – sign in</a></p>
+</main>
+<?php
+    page_end();
+}
+
+function view_account(array $me, ?string $error, ?string $toast): void
+{
+    page_start('Your account', 'page-account');
+    echo settings_header('Your account', '/');
+    $tok = h(csrf_token());
+    ?>
+<main class="wrap narrow">
+  <section class="set-card" id="acct-card">
+    <p class="pw-state"><?= icon('lock') ?> Signed in as <b id="acct-name"><?= h($me['username']) ?></b> · <span class="role role-<?= h($me['role']) ?>" id="acct-role"><?= h(role_name($me['role'])) ?></span></p>
+    <p class="hint" id="acct-perms">You may: <?= h(implode(', ', array_map(fn($p) => mb_strtolower(PERMISSIONS[$p][0]), role_get($me['role'])['perms'] ?? []))) ?>.</p>
+    <?php if ($error): ?><div class="err" role="alert" id="acct-err"><?= h($error) ?></div><?php endif; ?>
+    <form method="post" action="/account" class="setform" id="acct-pw">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <h2 class="set-h">Change your password</h2>
+      <label class="field"><span>Current password</span><input type="password" name="current" id="acct-current" autocomplete="current-password" required></label>
+      <label class="field"><span>New password <em>at least <?= PASSWORD_MIN ?> characters</em></span><input type="password" name="new" id="acct-new" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+      <label class="field"><span>Repeat new password</span><input type="password" name="confirm" id="acct-confirm" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
+      <button class="btn btn-primary btn-wide" id="acct-save">Change password</button>
+    </form>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="btn btn-wide" id="acct-logout"><?= icon('logout') ?> Sign out</button></form>
+  </section>
+</main>
+<?php if ($toast): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <?php
     page_end();
 }
@@ -1270,7 +1357,8 @@ function activity_html(array $e): string
             break;
         case 'photo':
             $t = ['added' => 'Added a photo', 'removed' => 'Removed the cover photo', 'replaced' => 'Replaced the cover photo', 'cover' => 'Chose a new cover photo',
-                  'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo'][$d['change'] ?? ''] ?? 'Changed photos';
+                  'reordered' => 'Reordered photos', 'deleted' => 'Deleted a photo', 'edited' => 'Edited a photo'][$d['change'] ?? ''] ?? 'Changed photos';
+            if (($d['change'] ?? '') === 'edited') $t .= (!empty($d['rotate']) ? ' · rotated ' . (int)$d['rotate'] . '°' : '') . (isset($d['size']) ? ' · ' . h((string)$d['size']) . ' px' : '');
             if (isset($d['count'])) $t .= ' · ' . (int)$d['count'] . ' total';
             break;
         case 'lent':
@@ -1315,7 +1403,8 @@ function activity_items_html(array $entries, bool $withItem): string
                 ? '<a class="act-item" href="/item/' . (int)$e['item_id'] . '">' . h($e['item_name']) . '</a>'
                 : '<span class="act-item act-gone">' . h($e['item_name']) . '</span>';
         }
-        $o .= '<div class="act-text">' . activity_html($e) . '</div><time datetime="' . h(str_replace(' ', 'T', $e['created_at']) . 'Z') . '">' . h(fmt_time($e['created_at'])) . '</time></div></li>';
+        $o .= '<div class="act-text">' . activity_html($e) . '</div><time datetime="' . h(str_replace(' ', 'T', $e['created_at']) . 'Z') . '">' . h(fmt_time($e['created_at'])) . '</time>'
+            . (!empty($e['actor']) ? ' <span class="act-by">· ' . h($e['actor']) . '</span>' : '') . '</div></li>';
     }
     return $o . '</ol>';
 }
@@ -1350,7 +1439,7 @@ function view_activity(array $entries, int $page, bool $more, ?array $item = nul
 
 function backup_table_rows(array $current, ?array $incoming = null): string
 {
-    $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries'];
+    $labels = ['items' => 'Items', 'locations' => 'Locations', 'categories' => 'Categories', 'tags' => 'Tags', 'item_photos' => 'Photos', 'activity' => 'History entries', 'stocktakes' => 'Stocktakes'];
     $o = '<table class="btable"><thead><tr><th scope="col"></th><th scope="col">Now</th>' . ($incoming !== null ? '<th scope="col">In backup</th>' : '') . '</tr></thead><tbody>';
     foreach ($labels as $t => $l) {
         if (!isset($current[$t]) && !isset($incoming[$t])) continue;

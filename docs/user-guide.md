@@ -18,8 +18,9 @@ the Save / Edit bars sit at the bottom within thumb reach, and most screens also
 * [QR labels](#qr-labels)
 * [History](#history)
 * [Backup, restore and CSV](#backup-restore-and-csv)
+* [Importing a CSV file](#importing-a-csv-file)
 * [Dark mode](#dark-mode)
-* [Password](#password)
+* [Users and sign-in](#users-and-sign-in)
 * [Settings (Control Panel)](#settings-control-panel)
 * [Installing on the home screen](#installing-on-the-home-screen)
 * [iPhone tips](#iphone-tips)
@@ -35,8 +36,18 @@ Tap a location or category chip on a card to filter by it.
 
 ## Search, filters and sorting
 
-**Search** is instant (results update while you type) and matches the name, notes, serial number, tags, location and
-category. It ignores case and accents, Greek included ("πριζα" finds "Πρίζα").
+**Search** is instant (results update while you type) and matches the name, notes, tags, serial number, barcode,
+who it is lent to, the category and the whole location path ("garage" also finds the items on the garage's shelves).
+It ignores case and accents, Greek included ("πριζα" finds "Πρίζα"). Every word must match somewhere; parts of words
+count too ("rill" finds "drill").
+
+* **Best match first**: without a chosen sort, results are ranked — a hit in the name beats one in the tags, which beats
+  notes and the other fields; a word start beats the middle of a word. Pick a sort in the filter sheet to override.
+* **Highlighted**: the matching letters are marked in the name, and when the match is elsewhere a short line shows
+  where ("Notes … Fits the *screwdriver* handle").
+* **Typos**: a word that finds nothing is also looked up with one letter different (two for words of 8+ letters), and
+  the count says so ("showing “screwdriver” for “screwdrivr”"). Words under 4 letters must match exactly. Turn it off
+  under **Settings → List → Typo tolerance in search**.
 
 **Filter** opens a bottom sheet with:
 
@@ -115,6 +126,15 @@ Up to **12 photos** per item. In the form, *Take photo* opens the camera and *Li
 item page, open *Photos* to add more, reorder them (‹ ›), choose the **cover** (★, used as the card image) or delete
 one. Browse with the ‹ › arrows, the thumbnails or ← → on a keyboard; the position is in the URL (`?p=2`), so the
 gallery works without JavaScript too.
+
+**Reorder by dragging**: with two or more photos, drag a photo by its ☰ handle to a new place; the first photo becomes
+the cover. The ‹ › buttons still work (and without JavaScript).
+
+**Crop and rotate**: the ✎ button on a photo opens the editor. Rotate in 90° steps, drag on the photo to draw a crop
+(drag the corners to resize, drag inside to move; arrow keys nudge, Shift + arrows resize) or pick a fixed ratio
+(Free / 1:1 / 4:3). *Save* stores a **new version**: the server applies the edit with GD, regenerates the thumbnail,
+bumps the photo's version and deletes the old file (unless an undo still needs it). Without JavaScript, *Exact values*
+offers the same as a rotation menu and crop fields in percent. Edits are not reversible — the original is not kept.
 
 Photos are shrunk on the device before upload (max. 1600 px, JPEG ~80 %). The server checks every upload with
 `getimagesize`, re-encodes it with GD (which strips EXIF and GPS data), applies the EXIF orientation, writes a
@@ -283,6 +303,25 @@ happen before anything changes:
 
 *Merge* then does it all in one database transaction and removes the duplicate; if anything fails, nothing changes.
 
+## Stocktake
+
+☰ → *Stocktake* (`/stocktake`) checks a location against the catalog. Pick the location and *Start stocktake*: every
+item recorded there – including its sub-locations – is listed as *expected* (a snapshot taken at the start).
+
+* **Tick** an item in the list when you see it (tap again to untick), or **scan** it: the field takes a barcode, the link
+  in a QR label (`…/item/42`) or `#42`. *Scan* opens the camera where the browser supports `BarcodeDetector`; a USB
+  barcode scanner that types and presses Enter works everywhere.
+* An item that is **not** expected here (it belongs in another location, or has none) is added under *Found here,
+  belongs elsewhere* – it is **misplaced**. Tap it again to remove it.
+* A barcode several items share asks you to tick the right one in the list instead.
+
+*Finish* shows the report: **missing** (expected, not ticked), **misplaced** and **found**. With *Move the misplaced
+items to …* ticked (default: Control Panel → *Thresholds & limits* → *Stocktake: move misplaced items*), finishing moves
+them into the checked location and records “Moved … (stocktake)” in their history. Missing items are never changed.
+*Cancel* drops a stocktake without changing anything. Starting a stocktake for a location that already has an open one
+continues that one. The list at `/stocktake` keeps every finished and cancelled stocktake with its counts; its report
+stays readable even if items were deleted since. Stocktakes are included in backups.
+
 ## QR labels
 
 ☰ → *Print QR labels* prints one label per location; from a location you can also print one label per item in it, and
@@ -322,7 +361,7 @@ Every change is recorded in the same transaction as the change: created (includi
 values of name, category, notes, value, purchase date, serial, tags and low-stock level), moved, quantity, photos
 (added, reordered, deleted, new cover), lent, returned and deleted. Bulk actions log one entry per item. The item
 page shows the latest ten entries with a link to the full history; ☰ → *Recent activity* lists all items, newest first.
-Entries of deleted items are kept.
+Entries of deleted items are kept. With sign-in on, every entry also names the account that made the change.
 
 ## Backup, restore and CSV
 
@@ -341,16 +380,77 @@ serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
+## Importing a CSV file
+
+☰ → *Import CSV* (editors and admins) adds or updates many items at once:
+
+1. **Upload** a `.csv` file (max. 5 MB, 5,000 rows). Commas, semicolons and tabs work; a UTF-8 BOM or a Windows-1252
+   file (old Excel) is fine.
+2. **Map the columns**: every column of the file is a card with two sample values and a choice — *Name* (required),
+   *ID*, *Location*, *Category*, *Quantity*, *Notes*, *Tags*, *Value*, *Purchase date*, *Serial number*, *Barcode*,
+   *Low-stock level*, *Expires on*, *Lent to*, *Due back* or *Ignore*. Headers like “Qty”, “Where”, “Price” or the
+   export's own names are recognised automatically.
+3. **Preview (dry run)** runs the whole import and then undoes it, so it shows exactly what would happen: how many rows
+   are new, updated or unchanged, which locations/categories/tags would be created, and every problem with its row
+   number ("Row 3 “Rope”: Quantity “two” is not a whole number").
+4. **Import** applies it in one transaction: all rows or none. While a row has an error the button stays disabled —
+   fix the file, or tick *Skip rows with errors*.
+
+Options: *Create missing locations, categories and tags* (default from Settings → Backup & data); off means a name
+that doesn't exist is an error. A location can be a path — `Garage › Shelf 2`, `Garage > Shelf 2` or
+`Garage / Shelf 2` — and missing levels are created nested. Rows with an *ID* that exists update that item (columns
+you didn't map keep their values); other rows are added. Importing a file from *Export CSV* therefore changes nothing,
+and into an empty install it recreates the catalogue. Dates are `YYYY-MM-DD`; values like `49.90` or `49,90`. The
+history records every added or changed item; *Recent imports* lists who imported what.
+
 ## Dark mode
 
 ☰ → *Auto / Light / Dark*. The choice is stored in a cookie (and `localStorage`) and rendered by the server, so pages
 never flash the wrong theme. *Auto* follows the device setting.
 
-## Password
+## Users and sign-in
 
-When a password is set (**☰ → Settings → Password**, or `APP_PASSWORD` on the first start), Apotheke shows a sign-in
-page and *Sign out* appears in the menu and footer. There is one shared password, no user accounts. Sessions last up to
-180 days; changing the password signs every other device out. Forgot it? `php bin/settings.php password` on the server.
+Out of the box nobody has to sign in (fine on a trusted home network): every visitor may do everything. To require
+sign-in, open **☰ → Settings → Users & sign-in**, pick a user name (default `admin`) and a password and tap *Turn
+sign-in on*: that creates the first account, an **admin**, and signs you in with it. With `APP_PASSWORD` set on the first
+start the same happens automatically — the account is called `admin` and has that password. (Upgrading from a version
+with one shared password? It became the account `admin`; sign in with user name `admin` and the old password.)
+
+Then add an account for each person under **Add a user** and pick a role:
+
+| Role | May (default permissions) |
+|---|---|
+| **Viewer** | view, export CSV, print labels |
+| **Editor** | also add, edit, delete, move, bulk actions, lend, import, stocktake |
+| **Admin** | everything, including settings, users and backup & restore — always, it cannot be changed |
+| **Guest** | what visitors who are *not* signed in may do while guest browsing is on: view |
+
+**Roles & permissions** (same page) lists every role with a checklist of its permissions: *View, Add items, Edit,
+Delete, Move, Bulk actions, Lend, Import, Export, Stocktake, Labels, Settings, Users, Backup*. Change the built-in
+Editor, Viewer and Guest, or add your own (e.g. “Lender”: view + lend). Deleting a custom role moves its accounts to the
+role you choose. Guests can never get Settings, Users or Backup.
+
+The permissions are checked by the server on every page and action (a refused page says which permission it needs);
+the buttons a role can't use are hidden. Moving an item (changing its location in the form, a bulk move, stocktake
+moves) needs *Move* on top of *Edit*; bulk actions need *Bulk actions* plus the permission of the action.
+
+**Sign-in options** (same page):
+
+* **Disable guest browsing** (on by default): visitors must sign in first. Off: they can look around with the Guest
+  role (*Look around as a guest* on the sign-in page; *Sign in* in the menu).
+* **Disable registrations** (on by default). Off: *Create an account* on the sign-in page opens `/register`; new
+  accounts get the **Role for new registrations** (default Viewer; never Admin). With **Registrations need an admin’s
+  approval** they show up under Users as *Waiting for approval* and can sign in once an admin taps *Approve account*.
+  Sign-in is limited to 10 tries per 15 minutes and registration to 5 per hour per address.
+* Turning accounts off (*Turn sign-in off*) makes everyone an anonymous guest with admin rights again.
+Tap a user to change the role, rename the account, set a new password (signs that user out on every device) or delete it.
+The last admin can't be demoted or deleted, and you can't delete your own account. User names ignore upper/lower case.
+
+Everybody can change their own password under **☰ → (your name)**. The history records who made each change
+("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
+only needs an admin's user name and password. Sessions last up to 180 days. Locked out? On the server:
+`php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
+`roles reset` to restore the built-in roles, `auth off` to turn accounts off).
 
 ## Settings (Control Panel)
 

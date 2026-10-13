@@ -6,6 +6,10 @@ require_once __DIR__ . '/attachments.php';
 require_once __DIR__ . '/favourites.php';
 require_once __DIR__ . '/merge.php';
 require_once __DIR__ . '/undo.php';
+require_once __DIR__ . '/stocktake.php';
+require_once __DIR__ . '/search.php';
+require_once __DIR__ . '/import.php';
+require_once __DIR__ . '/photo_edit.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
@@ -509,13 +513,11 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
 {
     $where = [];
     $args  = [];
-    foreach (preg_split('/\s+/u', fold(trim($q)), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $tok) {
-        // every word must match the item (name/notes/serial/tags), its location or any location above it, or its category
-        $like = '%' . like_escape($tok) . '%';
-        $locIds = location_ids_matching($like);
-        $where[] = "(i.search LIKE ? ESCAPE '!' OR COALESCE(c.name_key, '') LIKE ? ESCAPE '!'"
-            . ($locIds ? ' OR i.location_id IN (' . implode(',', array_fill(0, count($locIds), '?')) . ')' : '') . ')';
-        array_push($args, $like, $like, ...$locIds);
+    $match = null;
+    if (search_tokens($q)) {
+        // full-text search (src/search.php): every word must match name, notes, tags, custom fields, category or location path
+        $match = search_match($q);
+        $where[] = $match['ids'] ? 'i.id IN (' . implode(',', array_map('intval', $match['ids'])) . ')' : '1 = 0';
     }
     foreach (['loc' => 'i.location_id', 'cat' => 'i.category_id'] as $k => $col) {
         $v = $f[$k] ?? '';
@@ -547,6 +549,11 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
         'value'    => 'CASE WHEN i.value_cents IS NULL THEN 1 ELSE 0 END, i.value_cents DESC, i.sort_key ASC, i.id DESC',
         default    => 'i.updated_at DESC, i.id DESC',
     };
+    if ($match && $match['ids'] && $sort === default_sort()) {
+        // searching without an explicit sort: best match first
+        $rank = array_slice($match['ids'], 0, 1000);
+        $order = 'CASE i.id ' . implode(' ', array_map(fn($id, $n) => 'WHEN ' . (int)$id . ' THEN ' . $n, $rank, array_keys($rank))) . ' ELSE ' . count($rank) . ' END, ' . $order;
+    }
     $st = db()->prepare('SELECT COUNT(*) ' . ITEM_FROM . " $w");
     $st->execute($args);
     $total = (int)$st->fetchColumn();
@@ -558,7 +565,14 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
         . ITEM_FROM . " $w ORDER BY $order LIMIT " . $pageSize . " OFFSET $offset");
     $st->execute($args);
     $items = $st->fetchAll();
-    return ['items' => $items, 'total' => $total, 'more' => $offset + count($items) < $total];
+    if ($match) {
+        foreach ($items as &$it) {
+            $it['hl'] = search_highlight((string)$it['name'], $match['terms']);
+            $it['snip'] = search_snippet((int)$it['id'], $match['terms']);
+        }
+        unset($it);
+    }
+    return ['items' => $items, 'total' => $total, 'more' => $offset + count($items) < $total, 'fixed' => $match['fixed'] ?? []];
 }
 
 function stats(): array
@@ -597,22 +611,22 @@ const ACTIVITY_PAGE = 50;
 
 function activity_log(int $itemId, string $itemName, string $action, array $details = []): void
 {
-    db_insert(db(), 'INSERT INTO activity (item_id, item_name, action, details, created_at) VALUES (?,?,?,?,?)',
-        [$itemId, $itemName, $action, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), now_utc()]);
+    db_insert(db(), 'INSERT INTO activity (item_id, item_name, action, details, created_at, actor) VALUES (?,?,?,?,?,?)',
+        [$itemId, $itemName, $action, json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), now_utc(), current_actor()]);
 }
 
 /** @return array<int,array{id:int,item_id:?int,item_name:string,action:string,details:array,created_at:string,exists:bool}> */
 function activity_list(?int $itemId = null, int $page = 1, int $per = ACTIVITY_PAGE): array
 {
     $page = max(1, $page);
-    $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
+    $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, a.actor, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
             FROM activity a LEFT JOIN items i ON i.id = a.item_id' . ($itemId !== null ? ' WHERE a.item_id = ?' : '')
          . ' ORDER BY a.id DESC LIMIT ' . ($per + 1) . ' OFFSET ' . (($page - 1) * $per);
     $st = db()->prepare($sql);
     $st->execute($itemId !== null ? [$itemId] : []);
     return array_map(fn($r) => ['id' => (int)$r['id'], 'item_id' => $r['item_id'] === null ? null : (int)$r['item_id'], 'item_name' => (string)$r['item_name'],
         'action' => (string)$r['action'], 'details' => json_decode((string)$r['details'], true) ?: [], 'created_at' => (string)$r['created_at'],
-        'exists' => (int)$r['item_exists'] === 1], $st->fetchAll());
+        'actor' => $r['actor'] === null ? null : (string)$r['actor'], 'exists' => (int)$r['item_exists'] === 1], $st->fetchAll());
 }
 
 function activity_short(?string $s): string

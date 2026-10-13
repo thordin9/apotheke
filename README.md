@@ -63,16 +63,18 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 * **Control Panel** (☰ → *Settings*): name, accent colour with presets and an automatic WCAG AA contrast check for light
   and dark mode, your own logo (SVG cleaned on upload; PNG/JPEG/WebP also become the favicon and home-screen icons),
   currency and number/date/time formats, time zone, page size, default sort, a compact list view, defaults for new items,
-  thresholds and limits, photo sizes and the password — stored in the database, exportable as JSON, resettable per
+  thresholds and limits, photo sizes, users and sign-in — stored in the database, exportable as JSON, resettable per
   section. Database and paths stay in `config.php` / env and are shown read-only. See [docs/control-panel.md](docs/control-panel.md).
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
-* **Instant search** across name, location, category, notes, tags and serial number, ignoring case and accents (Greek
-  included).
+* **Full-text search**, instant, across name, notes, tags, serial number, barcode, borrower, category and the whole
+  location path: ranked (name before tags before the rest), matches highlighted with a snippet of the field that
+  matched, typo-tolerant ("screwdrivr"), ignoring case and accents (Greek included). SQLite FTS5 or PostgreSQL
+  tsvector + pg_trgm, with a plain substring fallback when an extension is missing.
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
-* **Multiple photos** per item (up to 12): take one with the camera or pick from the library, reorder, choose the cover,
-  delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
+* **Multiple photos** per item (up to 12): take one with the camera or pick from the library, drag to reorder, choose the cover,
+  crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
   shrunk on the phone before upload (max 1600 px, JPEG ~80 %), then checked and re-encoded with GD on the server (which
   strips EXIF/GPS) with a 480 px thumbnail for the grid.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
@@ -126,9 +128,22 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   is not copied. The copy's history starts with "Created … copied from “Name”".
 * **Merge duplicates**: *Merge…* on the item page suggests likely duplicates, shows a confirm screen (combined quantity,
   photos, attachments, tags, filled-in fields, loan) and merges everything — history included — in one transaction.
+* **Stocktake**: ☰ → *Stocktake* checks one location and everything inside it. Tick items in the list or scan their
+  QR label / barcode (camera where `BarcodeDetector` exists, or a USB scanner / typing; `#42` means item 42). Items that
+  turn up but belong elsewhere are listed as *misplaced*. *Finish* shows a report (found / missing / misplaced) and can
+  move the misplaced items into the checked location (logged in their history, default in Control Panel → *Thresholds &
+  limits*). Finished and cancelled stocktakes stay in the history at `/stocktake`; they are part of backups.
 * **CSV export** of the whole catalogue (including `tags`, `value`, `currency`, `purchase_date`, `serial`, `min_qty`, `expires_on`, `barcode`,
   `lent_to`, `lent_at` and `lent_due` columns).
-* **Optional password**: set `APP_PASSWORD` to require a single shared password (sign-in page, sign out in the menu).
+* **CSV import**: upload a spreadsheet, map its columns (guessed from the headers), preview a dry run with every row's
+  errors, then import in one transaction — optionally creating missing locations (paths like `Garage › Shelf 2` become
+  nested), categories and tags. The CSV export imports unchanged (its `id` column updates those items).
+* **Users & roles** (optional): turn sign-in on and give everyone their own account — *admin* (everything), *editor*
+  (change the catalog), *viewer* (look only) or your own **custom roles** built from 14 granular permissions (view, add,
+  edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
+  every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
+  with a default role, admin approval and rate limiting — both off by default. The history shows who changed
+  what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   Empty means no login, fine on a trusted LAN.
 
 ### iPhone camera notes
@@ -160,6 +175,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Duplicate | Nested locations | Location path (dark) |
 |---|---|---|
 | ![Duplicate](docs/screenshots/duplicate-light.png) | ![Location tree](docs/screenshots/locations-tree-light.png) | ![Item in a nested location](docs/screenshots/item-nested-dark.png) |
+
+| Stocktake | CSV import preview | Photo editor (dark) | Roles & permissions | Registration |
+|---|---|---|---|---|
+| ![Stocktake](docs/screenshots/stocktake-light.png) | ![CSV import](docs/screenshots/import-light.png) | ![Photo editor](docs/screenshots/photo-editor-dark.png) | ![Roles](docs/screenshots/roles-light.png) | ![Register](docs/screenshots/register-light.png) |
 
 | Expiring soon + saved filters | Value (dark) | Saved filters | Barcode lookup (dark) | Item barcode |
 |---|---|---|---|---|
@@ -275,7 +294,7 @@ compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `APP_PASSWORD` | *(empty)* | Initial password (a single shared one); afterwards Settings → Password. Empty means no login (fine on a trusted LAN). |
+| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN). |
 | `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
 | `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
 | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
@@ -308,7 +327,8 @@ php bin/restore.php home.zip --dry-run   # validate and show what would be resto
 php bin/restore.php home.zip             # asks for confirmation, then REPLACES all data
 php bin/restore.php home.zip --yes       # no prompt (scripts)
 php bin/settings.php list                # Control Panel settings (get KEY / set KEY VALUE / reset SECTION / export / import FILE)
-php bin/settings.php password            # set a new password (locked out?) · --off to remove it
+php bin/settings.php users               # accounts · user add|password|role|approve|rename|delete NAME … · roles [reset] · auth on|off
+php bin/settings.php user password admin # locked out? new password for admin
 ```
 
 The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table. Pending
@@ -453,7 +473,7 @@ Release ([docs/releasing.md](docs/releasing.md)). The running version is shown i
 * Attachments are checked by their magic bytes, stored under random names in `data/files/` and served only as downloads
   with `Content-Disposition: attachment`, `nosniff` and a `sandbox` CSP.
 * The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
-* Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set a password (Settings → Password).
+* Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and turn sign-in on (Settings → Users & sign-in).
 * Uploaded SVG logos are sanitized (no scripts, handlers, external references or entities) and served with a sandbox CSP;
   the custom accent is a generated stylesheet, so the CSP keeps `style-src 'self'`.
 

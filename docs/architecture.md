@@ -50,7 +50,7 @@ sequenceDiagram
   R->>R: security headers (CSP, nosniff, frame options); HEAD → GET for routing
   R->>R: /healthz (no session needed)
   R->>R: init_session() → CSRF token, release session lock
-  R->>R: /login, /logout, then auth gate (APP_PASSWORD)
+  R->>R: /login, /logout, then sign-in gate + role check (users)
   R->>D: item_get(3), photos_for(3), activity_list(3)
   D->>D: db() connects and runs pending migrations on first use
   R->>V: view_item(...)
@@ -93,10 +93,13 @@ Important routes:
 `init_session()` opens the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
 `SameSite=Lax`, `Secure` on HTTPS), makes sure a CSRF token exists, and **closes the session right away** so parallel
 requests (photos, instant search) never wait for the session lock. Every state-changing route calls `check_csrf()`
-(form field `csrf` or header `X-CSRF-Token`). When the password is on (Settings → Password; seeded from `APP_PASSWORD`), everything except `/login`, `/healthz` and
-the branding routes (`/theme.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) requires a signed-in session whose
-fingerprint matches the current password hash (changing the password signs other devices out); unauthenticated JSON requests get a 401, media requests a bare
-401, pages a redirect to `/login`.
+(form field `csrf` or header `X-CSRF-Token`). When sign-in is on (Settings → Users & sign-in; `APP_PASSWORD` creates the account `admin`), everything except `/login`, `/healthz` and
+the branding routes (`/theme.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) requires a signed-in session (`uid`) whose
+fingerprint matches that user's current password hash (a new password signs the user's other devices out); unauthenticated JSON requests get a 401, media requests a bare
+401, pages a redirect to `/login`. With guest browsing on, a visitor who is not signed in is the anonymous user with the role `guest` instead.
+Then `route_perm()` (src/roles.php) names the permission the route needs (view, create, edit, delete, move, bulk, lend,
+import, export, stocktake, labels, settings, users, backup; `self` for /account, `public` for /login and /register) and
+`user_can()` checks it against the role's permissions — 403 for accounts, a redirect to `/login` (JSON 401) for guests.
 
 ## Database layer
 

@@ -25,7 +25,8 @@ test.describe('favourites and recently viewed', () => {
     await expect(s2).toHaveAttribute('aria-pressed', 'true');
     await s2.click();
     await expect(s2).toHaveAttribute('aria-pressed', 'false');
-    expect(app.sql<{ f: number }>('SELECT favourite AS f FROM items WHERE id = 2')[0].f).toBe(0);
+    // the star flips before the request finishes: wait for the database
+    await expect.poll(() => app.sql<{ f: number }>('SELECT favourite AS f FROM items WHERE id = 2')[0].f).toBe(0);
   });
 
   test('recently viewed strip on the list', async ({ app, page }) => {

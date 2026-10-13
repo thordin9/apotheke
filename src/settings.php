@@ -18,10 +18,10 @@ const SETTINGS_SECTIONS = [
     'locale'     => ['Currency, dates & time', 'Currency, number and date formats, time zone', 'clock'],
     'list'       => ['List', 'Items per page, default sort and view', 'filter'],
     'items'      => ['New item defaults', 'Values pre-filled when you add an item', 'plus'],
-    'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo', 'alert'],
+    'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo, stocktake', 'alert'],
     'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
     'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
-    'security'   => ['Password', 'Turn the password on or off, change it', 'lock'],
+    'security'   => ['Users & sign-in', 'Accounts, roles, passwords; sign-in on or off', 'lock'],
     'data'       => ['Backup & data', 'Backup, restore, CSV and settings export', 'archive'],
     'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
 ];
@@ -70,6 +70,7 @@ function settings_schema(): array
         'list_view'     => ['list', 'View', 'enum', 'grid', 'Photo cards, or compact rows that fit more items on the screen.', ['options' => ['grid' => 'Cards with photos', 'compact' => 'Compact rows']]],
         'recent_limit'  => ['list', 'Recently viewed', 'int', 8, 'How many recently opened items the list shows above the results. 0 = hide.', ['min' => 0, 'max' => 50]],
         'recent_scope'  => ['list', 'Recently viewed is kept', 'enum', 'device', '', ['options' => ['device' => 'Per device (a cookie)', 'install' => 'Shared by everyone']]],
+        'search_typos'  => ['list', 'Typo tolerance in search', 'bool', true, 'A word that matches nothing is also looked up with one or two letters different (“screwdrivr” finds “Screwdriver set”).', []],
         'overview_open' => ['list', 'Show the overview open', 'bool', true, 'Whether the statistics overview starts expanded (each device remembers its own choice afterwards).', []],
         // items
         'default_quantity' => ['items', 'Quantity', 'int', 1, '', ['min' => 0, 'max' => 1000000]],
@@ -91,6 +92,7 @@ function settings_schema(): array
         'lend_due_days'    => ['limits', 'Default loan period (days)', 'int', null, 'Pre-fill “due back” when lending an item. Empty = no due date.', ['min' => 1, 'max' => 3650, 'nullable' => true]],
         'saved_filters_max' => ['limits', 'Saved filters limit', 'int', 50, 'Maximum number of saved filters.', ['min' => 1, 'max' => 500]],
         'undo_seconds'     => ['limits', 'Undo window (seconds)', 'int', 30, 'How long “Undo” is offered after editing, moving or deleting. Deleted photos and attachments stay on disk this long. 0 = no undo.', ['min' => 0, 'max' => 3600]],
+        'stocktake_apply_moves' => ['limits', 'Stocktake: move misplaced items', 'bool', true, 'When finishing a stocktake, items found in the checked location but recorded elsewhere are moved there (you can untick it each time).', []],
         'max_photos'       => ['limits', 'Photos per item', 'int', 12, '', ['min' => 1, 'max' => 50]],
         // uploads
         'max_upload_mb'    => ['uploads', 'Maximum upload (MB)', 'int', 'cfg:uploads.max_mb', 'Per photo. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
@@ -101,8 +103,13 @@ function settings_schema(): array
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // security (own form)
-        'auth_enabled'     => ['security', 'Require a password', 'internal', 'cfg_auth', '', []],
-        'password_hash'    => ['security', 'Password', 'secret', 'cfg_hash', '', []],
+        'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
+        'auth_guest_disabled' => ['security', 'Disable guest browsing', 'bool', true, 'On: visitors must sign in before they see anything. Off: they can look around with the permissions of the Guest role.', []],
+        'auth_register_disabled' => ['security', 'Disable registrations', 'bool', true, 'Off: anyone who can reach this address can create an account at /register (limited to 5 per hour per address).', []],
+        'auth_register_role' => ['security', 'Role for new registrations', 'role', 'viewer', 'Admin cannot be chosen.', []],
+        'auth_register_approval' => ['security', 'Registrations need an admin’s approval', 'bool', false, 'New accounts can only sign in once an admin approves them under Users.', []],
+        'import_create_missing' => ['data', 'CSV import creates missing entries', 'bool', true, 'Pre-ticks “Create missing locations, categories and tags” on the import screen.', []],
+        'password_hash'    => ['security', 'Password (before accounts; moved to the user “admin” by migration 0018)', 'secret', 'cfg_hash', '', []],
     ];
     return $s;
 }
@@ -177,6 +184,9 @@ function setting_validate(string $key, mixed $raw): mixed
             $n = (int)$str;
             if ($n < $o['min'] || $n > $o['max']) throw new UserError("$label: between {$o['min']} and {$o['max']}.");
             return $n;
+        case 'role':
+            if ($str === null || !isset(account_roles()[$str]) || $str === 'admin') throw new UserError("$label: choose a role other than admin.");
+            return $str;
         case 'enum':
             if ($str === null || !array_key_exists($str, $o['options'])) throw new UserError("$label: choose one of the options.");
             return $str;
@@ -739,36 +749,4 @@ function manifest_data(): array
         'theme_color' => strcasecmp($accent, ACCENT_DEFAULT) === 0 ? '#C8502D' : accent_variants($accent)['light']['accent'],
         'icons' => $icons,
     ];
-}
-
-/* ---------- password ---------- */
-
-function auth_enabled(): bool
-{
-    return (bool)setting('auth_enabled') && (string)setting('password_hash') !== '';
-}
-
-/** Fingerprint of the current password hash; sessions signed in with an older password are no longer valid. */
-function auth_epoch(): string
-{
-    return substr(hash('sha256', (string)setting('password_hash')), 0, 16);
-}
-
-/**
- * Change the password settings. $current is required whenever a password is active.
- * $mode: 'change' (set a new password, turning it on), 'disable'.
- */
-function password_update(string $mode, string $current, string $new = '', string $confirm = ''): void
-{
-    if (auth_enabled() && !password_verify($current, (string)setting('password_hash'))) {
-        throw new UserError('The current password is not correct.', 403);
-    }
-    if ($mode === 'disable') {
-        settings_store(['auth_enabled' => false, 'password_hash' => '']);
-        return;
-    }
-    if (mb_strlen($new) < 8) throw new UserError('Use at least 8 characters for the password.');
-    if (strlen($new) > 200) throw new UserError('That password is too long.');
-    if (!hash_equals($new, $confirm)) throw new UserError('The two new passwords do not match.');
-    settings_store(['auth_enabled' => true, 'password_hash' => password_hash($new, PASSWORD_DEFAULT)]);
 }
