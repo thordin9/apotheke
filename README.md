@@ -176,6 +176,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 |---|---|---|
 | ![Duplicate](docs/screenshots/duplicate-light.png) | ![Location tree](docs/screenshots/locations-tree-light.png) | ![Item in a nested location](docs/screenshots/item-nested-dark.png) |
 
+| Stocktake | CSV import preview | Photo editor (dark) | Roles & permissions | Registration |
+|---|---|---|---|---|
+| ![Stocktake](docs/screenshots/stocktake-light.png) | ![CSV import](docs/screenshots/import-light.png) | ![Photo editor](docs/screenshots/photo-editor-dark.png) | ![Roles](docs/screenshots/roles-light.png) | ![Register](docs/screenshots/register-light.png) |
+
 | Expiring soon + saved filters | Value (dark) | Saved filters | Barcode lookup (dark) | Item barcode |
 |---|---|---|---|---|
 | ![Expiring soon with saved-filter chips](docs/screenshots/expiring-light.png) | ![Value totals](docs/screenshots/value-dark.png) | ![Saved filters](docs/screenshots/saved-filters-light.png) | ![Barcode lookup](docs/screenshots/barcode-dark.png) | ![Item with barcode](docs/screenshots/item-barcode-light.png) |
