@@ -19,7 +19,9 @@ src/
   legacy.php              one-time conversion of pre-migration SQLite installs (schema v1–v3)
   items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD),
                           activity log, low stock, bulk actions, lending, duplicating, the location tree
-  backup.php              portable backup zip (dump + photos) and restore
+  markdown.php            safe Markdown subset for notes (escape first, then a few constructs; http/https/mailto links)
+  attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
+  backup.php              portable backup zip (dump + photos + attachments) and restore
   qr.php                  pure-PHP QR code encoder (SVG)
   seed.php                starter locations/categories and demo data
   views.php               all HTML: page shell, partials (cards, chips, sheets), one view_* function per screen

@@ -1041,7 +1041,7 @@ $secKeys = [
     'list' => ['page_size', 'default_sort', 'list_view', 'overview_open'],
     'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'max_photos'],
-    'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality'],
+    'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
     'security' => [], 'data' => [], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
@@ -1277,6 +1277,68 @@ T::ok(str_contains((string)$cli('set page_size 0'), 'between 1 and 500'), 'CLI v
 T::eq('33', trim((string)$cli('get page_size')), 'CLI get');
 T::ok(str_contains((string)$cli('password locksmith1'), 'Password set') && auth_on_db($sdb), 'CLI recovery: set a password');
 T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
+
+T::section('Notes (Markdown) + attachments');
+$fx = new Server($fxDir = $newDir('attach'), ['SEED_DEFAULTS' => '1']);
+$fc = $fx->client();
+$ft = $fc->csrf();
+$fdb = testdb($fxDir);
+$pdf = "%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n";
+$md = "# Manual\nUse **care** and *love* <script>alert(1)</script>\n\n- step [docs](https://example.org/a?b=1&c=2)\n- [bad](javascript:alert(1))\n\n`<b>`";
+$ai = $savedId($fc->api('/save', ['csrf' => $ft, 'name' => 'Drill with docs', 'notes' => $md]));
+$ip = $fc->get("/item/$ai")['body'];
+T::ok(str_contains($ip, '<h3>Manual</h3>') && str_contains($ip, '<strong>care</strong>') && str_contains($ip, '<em>love</em>'), 'notes render headings, bold, italic');
+T::ok(str_contains($ip, '<li>step <a href="https://example.org/a?b=1&amp;c=2" rel="nofollow noopener noreferrer" target="_blank">docs</a></li>'), 'links and lists render, with rel=nofollow');
+T::ok(!str_contains($ip, '<script>alert(1)') && str_contains($ip, '&lt;script&gt;alert(1)&lt;/script&gt;'), 'raw HTML in notes is escaped');
+T::ok(!str_contains($ip, 'href="javascript'), 'javascript: links are not linked');
+T::ok(str_contains($ip, '<code>&lt;b&gt;</code>'), 'inline code is escaped');
+T::ok(str_contains($fc->get("/item/$ai/edit")['body'], 'id="notes-help"'), 'form explains the Markdown subset');
+T::ok(str_contains($ip, 'id="attachments"') && str_contains($ip, 'id="attadd"'), 'item page has the attachments card');
+$r = $fc->post("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'Receipt 2026<x>.pdf', 'type' => 'application/pdf', 'data' => $pdf], 'files[1]' => jpg_file(img_png(40, 40), 'scan.png', 'image/png')]);
+T::ok(str_contains($r['headers']['location'] ?? '', "/item/$ai#attachments"), 'upload PDF + image (no-JS form)');
+$rows = $fdb->query("SELECT id, file, name, mime, size FROM item_attachments WHERE item_id = $ai ORDER BY id")->fetchAll();
+T::eq(2, count($rows), 'two attachments stored');
+T::ok(preg_match('/^[a-f0-9]{32}\.pdf$/', $rows[0]['file']) === 1 && is_file("$fxDir/files/{$rows[0]['file']}"), 'stored under DATA_DIR/files with a random name');
+T::eq('Receipt 2026x.pdf', $rows[0]['name'], 'display name cleaned');
+T::eq('image/png', $rows[1]['mime'], 'type sniffed from content');
+$dl = $fc->get('/attachment/' . $rows[0]['id']);
+T::ok($dl['status'] === 200 && $dl['body'] === $pdf && str_contains($dl['headers']['content-disposition'] ?? '', 'attachment;') && ($dl['headers']['content-type'] ?? '') === 'application/pdf', 'download serves the file as an attachment');
+T::ok(str_contains($dl['headers']['content-security-policy'] ?? '', 'sandbox') && ($dl['headers']['x-content-type-options'] ?? '') === 'nosniff', 'download is sandboxed');
+T::eq(404, $fc->get('/attachment/999999')['status'], 'unknown attachment 404');
+$ip = $fc->get("/item/$ai")['body'];
+T::ok(str_contains($ip, 'Receipt 2026x.pdf') && str_contains($ip, 'href="/attachment/' . $rows[0]['id'] . '"'), 'item page lists the attachments');
+T::ok(str_contains($ip, 'Attached “Receipt 2026x.pdf”'), 'history records the upload');
+$bad = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'evil.pdf', 'type' => 'application/pdf', 'data' => '<html><script>x</script>']]);
+T::ok($bad['status'] === 422 && str_contains((string)($bad['json']['error'] ?? ''), 'Only PDF'), 'content that is not PDF/image is rejected');
+T::eq(419, $fc->post("/item/$ai/attachments", [], ['files[0]' => ['name' => 'a.pdf', 'type' => 'application/pdf', 'data' => $pdf]])['status'], 'upload needs CSRF');
+// panel limits
+$fc->post('/settings/uploads', ['csrf' => $ft, 'max_upload_mb' => '20', 'image_full_max' => '1600', 'image_thumb_max' => '480', 'jpeg_quality' => '82', 'attach_types' => 'pdf', 'attach_max_mb' => '1', 'attach_max_per_item' => '3']);
+$r = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => jpg_file(img_png(40, 40), 'x.png', 'image/png')]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'Only PDF files'), 'attachment types setting takes effect');
+$r = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'big.pdf', 'type' => 'application/pdf', 'data' => $pdf . str_repeat('0', 1100 * 1024)]]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'larger than 1 MB'), 'attachment size setting takes effect');
+$r = $fc->api("/item/$ai/attachments", ['csrf' => $ft], ['files[0]' => ['name' => 'a.pdf', 'type' => 'application/pdf', 'data' => $pdf], 'files[1]' => ['name' => 'b.pdf', 'type' => 'application/pdf', 'data' => $pdf]]);
+T::ok($r['status'] === 422 && str_contains((string)($r['json']['error'] ?? ''), 'at most 3'), 'attachments-per-item setting takes effect (all or nothing)');
+T::eq(2, (int)$fdb->query("SELECT COUNT(*) FROM item_attachments WHERE item_id = $ai")->fetchColumn(), 'nothing stored on a rejected batch');
+// backup + restore keep attachments
+$zf = sys_get_temp_dir() . '/apotheke-att-' . bin2hex(random_bytes(3)) . '.zip';
+file_put_contents($zf, $fc->get('/backup.zip')['body']);
+$z = new ZipArchive(); $z->open($zf);
+T::ok($z->locateName('files/' . $rows[0]['file']) !== false && $z->locateName('files/' . $rows[1]['file']) !== false, 'backup contains the attachment files');
+$z->close();
+$r = $fc->api("/item/$ai/attachments/{$rows[0]['id']}/delete", ['csrf' => $ft]);
+T::ok($r['status'] === 200 && !is_file("$fxDir/files/{$rows[0]['file']}"), 'delete removes row and file');
+T::ok(str_contains($fc->get("/item/$ai")['body'], 'Removed attachment “Receipt 2026x.pdf”'), 'history records the removal');
+$rs = $fc->post('/backup/restore', ['csrf' => $ft], ['backup' => ['name' => 'b.zip', 'type' => 'application/zip', 'data' => file_get_contents($zf)]]);
+preg_match('/name="token" value="([a-f0-9]{32})"/', $rs['body'], $tm);
+$fc->post('/backup/restore/confirm', ['csrf' => $ft, 'token' => $tm[1] ?? '', 'confirm' => '1']);
+@unlink($zf);
+T::ok((int)$fdb->query("SELECT COUNT(*) FROM item_attachments WHERE item_id = $ai")->fetchColumn() === 2 && is_file("$fxDir/files/{$rows[0]['file']}"), 'restore brings attachments and files back');
+T::eq($pdf, $fc->get('/attachment/' . $rows[0]['id'])['body'], 'restored attachment downloads');
+// deleting the item removes its files
+$fc->post("/item/$ai/delete", ['csrf' => $ft]);
+T::ok(!is_file("$fxDir/files/{$rows[0]['file']}") && (int)$fdb->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn() === 0, 'deleting the item removes its attachments');
+$fx->stop();
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 

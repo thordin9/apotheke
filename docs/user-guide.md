@@ -85,6 +85,19 @@ the value, purchase date and serial number. A new item gets the default location
 *Save & new* saves and opens an empty form that keeps the location and category you just used, which is handy when
 you are emptying a box. On the item page, *Edit* opens the same form and *Delete* asks for confirmation first.
 
+## Notes and attachments
+
+**Notes** understand a small, safe Markdown subset: `**bold**`, `*italic*`, `~~strike~~`, `` `code` ``, `# headings`,
+`- lists`, `1. numbered steps`, `> quotes`, ```` ``` ```` code blocks, `---` and links (`[text](https://…)`, plain
+`https://…` addresses become links too). Everything else, including HTML, is shown as plain text; links open in a new
+tab and only `http`, `https` and `mailto` are allowed.
+
+**Attachments** keep receipts, manuals and warranty cards with the item. On the item page open *Attachments*, pick one
+or more files and press *Upload*. Tap a file to download it, 🗑 removes it (after confirmation). By default PDFs and
+JPEG/PNG/WebP images up to 10 MB are accepted, at most 10 per item; the types and limits are in *Settings → Photos &
+uploads*. Files are checked by their content (not the name), stored under random names outside the web root and always
+downloaded, never opened inside the app. They are part of the backup and are deleted together with the item.
+
 ## Photos
 
 Up to **12 photos** per item. In the form, *Take photo* opens the camera and *Library* picks existing images. On the
@@ -261,7 +274,7 @@ Entries of deleted items are kept.
 ☰ → *Backup & restore*:
 
 * **Download backup** creates one zip with `backup.json` (every table: items with all their fields, locations,
-  categories, tags, photos, history, settings) plus all photo files and thumbnails. The format doesn't depend on the
+  categories, tags, photos, history, settings, attachments) plus all photo files, thumbnails and attached files. The format doesn't depend on the
   database, so you can move between SQLite and PostgreSQL.
 * **Restore** uploads such a zip and first shows a preview (counts in the file vs. your current data). Nothing changes
   until you tick the confirmation box and press *Restore*; then all data is **replaced** in one transaction.

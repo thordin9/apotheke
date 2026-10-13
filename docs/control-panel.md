@@ -28,7 +28,7 @@ database. Use the panel (or `bin/settings.php`) instead.
 | **List** | Items per page (1–500), default sort, view (photo cards or compact rows), whether the Overview starts open |
 | **New item defaults** | Quantity, running-low threshold, tags, notes, purchase date = today, expiry *N* months ahead, default location and category (the same ★ as on the Locations/Categories pages) |
 | **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, max photos per item |
-| **Photos & uploads** | Upload limit per photo (MB), stored photo size, thumbnail size, JPEG quality (thumbnails use quality − 6) |
+| **Photos & uploads** | Upload limit per photo (MB), stored photo size, thumbnail size, JPEG quality (thumbnails use quality − 6); attachments: allowed types (PDF + images / PDF only / images only), max size per file (MB), max files per item |
 | **Password** | Turn the shared password on/off, change it (min. 8 characters; the current password is required) |
 | **Backup & data** | Backup / restore, CSV export, settings export / import (JSON) |
 | **System** | Read-only bootstrap values, PHP version, schema version |

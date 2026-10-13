@@ -7,6 +7,10 @@ function icon(string $n): string
 {
     static $p = [
         'plus'   => '<path d="M12 5v14M5 12h14"/>',
+        'paperclip' => '<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>',
+        'file'   => '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+        'merge'  => '<path d="M7 4v4a5 5 0 0 0 5 5h0a5 5 0 0 1 5 5v2M17 4v4a5 5 0 0 1-2 4M4 7l3-3 3 3M14 7l3-3 3 3"/>',
+        'eye'    => '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
         'minus'  => '<path d="M5 12h14"/>',
         'search' => '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
         'camera' => '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
@@ -618,7 +622,7 @@ function view_list(string $q, array $f, string $sort, array $res, array $locs, a
     page_end();
 }
 
-function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false): void
+function view_item(array $it, array $photos = [], int $cur = 0, array $history = [], bool $historyMore = false, array $attachments = []): void
 {
     page_start($it['name'], 'page-item');
     $id = (int)$it['id'];
@@ -680,8 +684,9 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   </dl>
   <?php endif; ?>
   <?php if (trim($it['notes']) !== ''): ?>
-  <div class="notes"><?= nl2br(h($it['notes'])) ?></div>
+  <div class="notes md" id="notes"><?= md_render($it['notes']) ?></div>
   <?php endif; ?>
+  <?= attachments_html($id, $attachments) ?>
   <details class="photos-box" id="photos"<?= $n === 0 ? '' : '' ?>>
     <summary><?= icon('image') ?> Photos <span class="muted-n"><?= $n ?>/<?= max_photos() ?></span></summary>
     <?php if ($n): ?>
@@ -822,7 +827,8 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </label>
     <label class="field">
       <span>Notes <em>optional</em></span>
-      <textarea name="notes" rows="3" maxlength="5000" placeholder="Model, where you bought it…"><?= h($vals['notes']) ?></textarea>
+      <textarea name="notes" rows="4" maxlength="5000" placeholder="Model, where you bought it…" aria-describedby="notes-help"><?= h($vals['notes']) ?></textarea>
+      <small class="field-help" id="notes-help">Markdown: **bold**, *italic*, - lists, 1. steps, `code`, [link](https://…)</small>
     </label>
     <label class="field">
       <span>Tags <em>optional, comma-separated</em></span>
@@ -1240,6 +1246,9 @@ function activity_html(array $e): string
         case 'returned':
             $t = 'Returned by <b>' . h((string)($d['from'] ?? '')) . '</b>' . (isset($d['days']) ? ' after ' . (int)$d['days'] . ' day' . ((int)$d['days'] === 1 ? '' : 's') : '');
             break;
+        case 'attachment':
+            $t = (($d['change'] ?? '') === 'removed' ? 'Removed attachment ' : 'Attached ') . '“' . h((string)($d['file'] ?? '')) . '”';
+            break;
         case 'deleted':
             $t = 'Deleted' . (!empty($d['location']) ? ' from <b>' . h($d['location']) . '</b>' : '');
             break;
@@ -1249,7 +1258,7 @@ function activity_html(array $e): string
     return $t;
 }
 
-const ACTIVITY_ICONS = ['created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
+const ACTIVITY_ICONS = ['attachment' => 'paperclip', 'created' => 'plus', 'edited' => 'edit', 'moved' => 'pin', 'quantity' => 'box', 'photo' => 'camera', 'deleted' => 'trash', 'lent' => 'handoff', 'returned' => 'undo'];
 
 function activity_items_html(array $entries, bool $withItem): string
 {
@@ -1392,4 +1401,31 @@ function view_labels(string $heading, array $labels, string $back, array $option
 </main>
 <?php
     page_end();
+}
+
+/** Attachments card on the item page: list with download/delete, upload form (works without JS). */
+function attachments_html(int $id, array $list): string
+{
+    $tok = h(csrf_token());
+    $max = (int)setting('attach_max_per_item');
+    $accept = implode(',', array_map(fn($e) => ATTACH_TYPES[$e][0], attach_allowed()));
+    $types = implode(', ', array_map(fn($e) => ATTACH_TYPES[$e][1], attach_allowed()));
+    $o = '<details class="photos-box att-box" id="attachments"' . ($list ? ' open' : '') . '><summary>' . icon('paperclip') . ' Attachments <span class="muted-n">' . count($list) . '/' . $max . '</span></summary>';
+    if ($list) {
+        $o .= '<ul class="att-list">';
+        foreach ($list as $a) {
+            $o .= '<li class="att" data-id="' . (int)$a['id'] . '"><a class="att-dl" href="/attachment/' . (int)$a['id'] . '" download>'
+                . icon($a['mime'] === 'application/pdf' ? 'file' : 'image') . '<span class="att-name">' . h($a['name']) . '</span><small>' . h(fmt_bytes((int)$a['size'])) . '</small></a>'
+                . '<form method="post" action="/item/' . $id . '/attachments/' . (int)$a['id'] . '/delete" data-confirm="Delete “' . h($a['name']) . '”?"><input type="hidden" name="csrf" value="' . $tok . '">'
+                . '<button class="pbtn pbtn-del" aria-label="Delete ' . h($a['name']) . '">' . icon('trash') . '</button></form></li>';
+        }
+        $o .= '</ul>';
+    }
+    if (count($list) < $max) {
+        $o .= '<form method="post" action="/item/' . $id . '/attachments" enctype="multipart/form-data" class="att-add" id="attadd"><input type="hidden" name="csrf" value="' . $tok . '">'
+            . '<label class="btn"><input type="file" name="files[]" multiple accept="' . h($accept) . '" class="file" id="att-file">' . icon('paperclip') . ' Attach files</label>'
+            . '<button class="btn btn-primary" id="att-upload">' . icon('check') . ' Upload</button>'
+            . '<p class="hint">' . h($types) . ' · max ' . (int)setting('attach_max_mb') . ' MB each</p></form>';
+    }
+    return $o . '</details>';
 }

@@ -12,6 +12,7 @@ erDiagram
   categories ||--o{ items : "category_id (ON DELETE SET NULL)"
   items ||--o{ item_photos : "item_id (ON DELETE CASCADE)"
   items ||--o{ item_tags : "item_id (ON DELETE CASCADE)"
+  items ||--o{ item_attachments : "item_id (ON DELETE CASCADE)"
   tags ||--o{ item_tags : "tag_id (ON DELETE CASCADE)"
   items ||--o{ activity : "item_id (no FK, kept after delete)"
 
@@ -59,6 +60,15 @@ erDiagram
     int item_id FK
     text file "32 hex chars + .jpg"
     int position "0 = cover"
+    text created_at
+  }
+  item_attachments {
+    int id PK
+    int item_id FK
+    text file UK "32 hex chars + .pdf/.jpg/.png/.webp"
+    text name "original file name (cleaned)"
+    text mime
+    bigint size "bytes"
     text created_at
   }
   tags {
@@ -126,6 +136,8 @@ Notes:
 * `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
   `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins. The
   password is a `password_hash()` hash in `password_hash`. See [control-panel.md](control-panel.md).
+* `item_attachments` (migration 0014) lists the files attached to an item. The bytes live in `DATA_DIR/files/` under the
+  random `file` name; `name` is only shown and used as the download name. Deleting an item deletes its attachments.
 * `app_settings` holds internal flags (for example that the starter data was seeded once).
 * `saved_filters.query` is the list's query string normalised by `saved_filter_query()` (known parameters only, fixed order,
   e.g. `q=drill&loc=3&sort=name`), so the same combination always gives the same string and the active chip can be found.
@@ -147,6 +159,7 @@ Notes:
 | 0011 | `0011_saved_filters.php` | `saved_filters` (named list views) |
 | 0012 | `0012_barcode.php` | `items.barcode` + index |
 | 0013 | `0013_settings.php` | `settings` (Control Panel key/value), seeded from `config.php` / env |
+| 0014 | `0014_attachments.php` | `item_attachments` (PDF/image files per item) + index |
 
 ## How migrations run
 

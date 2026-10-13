@@ -164,7 +164,7 @@ try {
             isset($_GET['copied']) ? 'Copy created – edit it here' : null);
         else {
             $hist = activity_list((int)$it['id'], 1, 10);
-            view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10);
+            view_item($it, photos_for((int)$it['id']), max(0, (int)($_GET['p'] ?? 0)), array_slice($hist, 0, 10), count($hist) > 10, attachments_for((int)$it['id']));
         }
         exit;
     }
@@ -254,6 +254,25 @@ try {
         $idx = photo_action($iid, (int)$m[2], $m[3]);
         if (wants_json()) json_out(['ok' => true, 'index' => $idx, 'count' => count(photos_for($iid))]);
         redirect('/item/' . $iid . '?p=' . max(0, $idx) . '#photos');
+    }
+
+    /* ---- attachments: upload / delete / download ---- */
+    if (preg_match('#^/item/(\d+)/attachments(?:/(\d+)/delete)?$#D', $path, $m) && $method === 'POST') {
+        check_csrf();
+        $iid = (int)$m[1];
+        if (empty($m[2])) {
+            $n = attachments_add($iid, pick_uploads(['files', 'file']));
+            if (wants_json()) json_out(['ok' => true, 'added' => $n, 'count' => count(attachments_for($iid))]);
+        } else {
+            attachment_delete($iid, (int)$m[2]);
+            if (wants_json()) json_out(['ok' => true, 'count' => count(attachments_for($iid))]);
+        }
+        redirect('/item/' . $iid . '#attachments');
+    }
+    if (preg_match('#^/attachment/(\d+)$#D', $path, $m) && $method === 'GET') {
+        $a = attachment_get((int)$m[1]);
+        if (!$a) { http_response_code(404); exit('Not found'); }
+        attachment_serve($a);
     }
 
     /* ---- quantity +/- ---- */

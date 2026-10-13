@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/markdown.php';
+require_once __DIR__ . '/attachments.php';
+
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
 const KINDS = ['location', 'category'];
@@ -682,12 +685,14 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
 function item_delete(array $item): void
 {
     $files = array_column(photos_for((int)$item['id']), 'file');
+    $att = array_column(attachments_for((int)$item['id']), 'file');
     db_tx(function (PDO $pdo) use ($item): void {
         activity_log((int)$item['id'], (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], fn($v) => $v !== ''));
         $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$item['id']]);
         $pdo->exec('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
     });
     foreach (array_unique(array_merge($files, [$item['image']])) as $f) image_delete($f);
+    foreach ($att as $f) attachment_file_delete($f);
 }
 
 /* ---------- photos (many per item; position 0 = cover, mirrored in items.image) ---------- */
@@ -1107,7 +1112,8 @@ function items_bulk(array $ids, string $action, array $opt = []): int
     if ($action === 'category' && ($opt['category_id'] ?? null) !== null && !tax_get('category', (int)$opt['category_id'])) throw new UserError('That category no longer exists.');
     if ($action === 'tag_add' && !($opt['tags'] ?? [])) throw new UserError('Enter at least one tag to add.');
     $files = [];
-    $n = db_tx(function (PDO $pdo) use ($ids, $action, $opt, &$files): int {
+    $attFiles = [];
+    $n = db_tx(function (PDO $pdo) use ($ids, $action, $opt, &$files, &$attFiles): int {
         $n = 0;
         foreach ($ids as $id) {
             $it = item_get($id);
@@ -1122,6 +1128,7 @@ function items_bulk(array $ids, string $action, array $opt = []): int
                     break;
                 case 'delete':
                     $files = array_merge($files, array_column(photos_for($id), 'file'), [$it['image']]);
+                    $attFiles = array_merge($attFiles, array_column(attachments_for($id), 'file'));
                     activity_log($id, (string)$it['name'], 'deleted', array_filter(['location' => (string)$it['location'], 'quantity' => (int)$it['quantity'], 'bulk' => true], fn($v) => $v !== ''));
                     $pdo->prepare('DELETE FROM items WHERE id = ?')->execute([$id]);
                     $n++;
@@ -1134,6 +1141,7 @@ function items_bulk(array $ids, string $action, array $opt = []): int
         return $n;
     });
     foreach (array_unique(array_filter($files)) as $f) image_delete($f);
+    foreach ($attFiles as $f) attachment_file_delete($f);
     return $n;
 }
 

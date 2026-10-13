@@ -53,6 +53,9 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   items added (30 days by day or 12 months by month) and the top 5 locations and categories as bars (locations are rolled up to the top-level
   location, counting everything inside it). Tap a bar to filter.
   The panel is collapsible and remembers its state; while collapsed the charts are neither computed nor downloaded.
+* **Notes and attachments**: notes support a safe Markdown subset (bold, italic, lists, headings, code, links — rendered
+  on the server, everything else escaped). Attach receipts, manuals and warranty cards (PDF/JPEG/PNG/WebP; types, size and
+  count limits in the Control Panel); they are downloaded, never rendered inline, and included in backups.
 * **Control Panel** (☰ → *Settings*): name, accent colour with presets and an automatic WCAG AA contrast check for light
   and dark mode, your own logo (SVG cleaned on upload; PNG/JPEG/WebP also become the favicon and home-screen icons),
   currency and number/date/time formats, time zone, page size, default sort, a compact list view, defaults for new items,
@@ -395,6 +398,8 @@ A separate *Update visual snapshots* workflow renders new baselines when a PR ge
   friendly page and changes nothing.
 * Uploads are validated with `getimagesize`, decoded and re-encoded by GD and stored under random hex names **outside the
   web root**, served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed.
+* Attachments are checked by their magic bytes, stored under random names in `data/files/` and served only as downloads
+  with `Content-Disposition: attachment`, `nosniff` and a `sandbox` CSP.
 * The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
 * Meant for a trusted LAN. If you expose it to the internet, put it behind HTTPS and set a password (Settings → Password).
 * Uploaded SVG logos are sanitized (no scripts, handlers, external references or entities) and served with a sandbox CSP;

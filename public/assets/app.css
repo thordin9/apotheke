@@ -724,3 +724,29 @@ dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;bor
 .grid.is-compact .card{display:grid;grid-template-columns:64px 1fr;align-items:center;contain-intrinsic-size:auto 80px}
 .grid.is-compact .card-img{aspect-ratio:1;width:64px;height:64px}
 .grid.is-compact .card-body{padding:8px 12px}
+
+/* notes (Markdown subset) + attachments */
+.notes.md{white-space:normal}
+.notes.md>:first-child{margin-top:0}.notes.md>:last-child{margin-bottom:0}
+.notes.md p,.notes.md ul,.notes.md ol,.notes.md blockquote,.notes.md pre{margin:0 0 var(--s2)}
+.notes.md h3,.notes.md h4,.notes.md h5{margin:var(--s3) 0 var(--s1);line-height:1.25}
+.notes.md h3{font-size:18px}.notes.md h4{font-size:16px}.notes.md h5{font-size:15px}
+.notes.md ul,.notes.md ol{padding-left:1.4em}
+.notes.md li{margin:2px 0}
+.notes.md a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;word-break:break-word}
+.notes.md code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;background:var(--surface-2,rgba(127,127,127,.14));padding:1px 5px;border-radius:5px}
+.notes.md pre{overflow-x:auto;background:var(--surface-2,rgba(127,127,127,.14));padding:var(--s2);border-radius:var(--radius-sm)}
+.notes.md pre code{background:none;padding:0}
+.notes.md blockquote{border-left:3px solid var(--accent);padding-left:var(--s2);color:var(--muted)}
+.notes.md hr{border:0;border-top:1px solid var(--line);margin:var(--s3) 0}
+.att-list{list-style:none;margin:0 0 var(--s2);padding:0;display:grid;gap:6px}
+.att{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:2px 4px 2px 0}
+.att-dl{flex:1;min-width:0;min-height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;color:var(--text);text-decoration:none}
+.att-dl .i{flex:none;color:var(--accent)}
+.att-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.att-dl small{color:var(--muted);flex:none}
+.att .pbtn{width:44px;height:44px;min-width:44px;flex:none}
+.att form{margin:0;flex:none}
+.att-add{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.att-add label.btn{position:relative;overflow:hidden}
+.att-add .hint{flex-basis:100%;margin:0}
