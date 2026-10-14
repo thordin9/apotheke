@@ -564,6 +564,7 @@ try {
         $notes = [];
         foreach ($r['errors'] as $k => $msg) $notes[] = "Skipped $k: $msg";
         if ($r['ignored']) $notes[] = 'Ignored unknown or protected keys: ' . implode(', ', $r['ignored']);
+        if ($r['token_cleared']) $notes[] = 'The AI autofill token was cleared because the service address changed: enter it again under AI autofill.';
         view_settings_section('data', [], [], 'Imported ' . $r['applied'] . ' setting' . ($r['applied'] === 1 ? '' : 's'), $notes);
         exit;
     }
@@ -1036,7 +1037,7 @@ try {
     /* ---- backup & restore ---- */
     if ($path === '/backup' && $method === 'GET') {
         no_store();
-        view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? 'Backup restored' : null);
+        view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? (($_GET['restored'] === 'token-cleared') ? 'Backup restored. The AI autofill token was cleared because the service address changed: enter it again under AI autofill.' : 'Backup restored') : null);
         exit;
     }
     if ($path === '/backup.zip' && $method === 'GET') {
@@ -1096,7 +1097,7 @@ try {
         }
         @set_time_limit(300);
         try {
-            backup_restore(db(), db_driver(), DATA_DIR, $file);
+            $restored = backup_restore(db(), db_driver(), DATA_DIR, $file);
         } catch (UserError $e) {
             http_response_code(422);
             view_backup(backup_counts(db(), db_driver()), $e->getMessage());
@@ -1104,7 +1105,7 @@ try {
         } finally {
             @unlink($file);
         }
-        redirect('/backup?restored=1');
+        redirect('/backup?restored=' . (!empty($restored['token_cleared']) ? 'token-cleared' : '1'));
     }
 
     /* ---- CSV export ---- */

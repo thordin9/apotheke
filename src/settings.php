@@ -337,7 +337,8 @@ function settings_export(): array
 
 /**
  * Import an export. Valid known keys are applied together; invalid ones are reported and skipped, unknown ones ignored.
- * @return array{applied:int,errors:array<string,string>,ignored:string[]}
+ * If the import moves the AI autofill address, the stored token is cleared (it was meant for the old service).
+ * @return array{applied:int,errors:array<string,string>,ignored:string[],token_cleared:bool}
  */
 function settings_import(string $json): array
 {
@@ -353,8 +354,10 @@ function settings_import(string $json): array
         try { $ok[$k] = setting_validate($k, is_bool($v) ? $v : (is_scalar($v) || $v === null ? (string)$v : $v)); }
         catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
+    $oldAfUrl = (string)setting('autofill_url');
     settings_store($ok);
-    return ['applied' => count($ok), 'errors' => $err, 'ignored' => $ignored];
+    $cleared = autofill_drop_token_if_moved($oldAfUrl);
+    return ['applied' => count($ok), 'errors' => $err, 'ignored' => $ignored, 'token_cleared' => $cleared];
 }
 
 /* ---------- typed accessors used across the app ---------- */

@@ -158,6 +158,52 @@ T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && !str_contai
 // resetting the section to a different (default) address also drops the token
 $r = $af->post('/settings/autofill/reset', ['csrf' => $at]);
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=reset-token-cleared') && $afGet('autofill_token') === '', 'reset to another address clears the token');
+// settings import and backup restore go through settings_import(): moving the address there clears the token too
+$afCheckNoAuth = function (string $what) use ($af, $at, $stub2, $afGet, $png1): void {
+    T::eq('', $afGet('autofill_token'), "$what: the stored token is cleared in the DB");
+    $page = $af->get('/settings/autofill')['body'];
+    T::ok(str_contains($page, 'No token set.') && !str_contains($page, 'A token is <b>set</b>'), "$what: the page says no token is set");
+    $stub2->clear();
+    $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub2->base, 'autofill_timeout' => '5']);
+    T::eq(null, $stub2->lastInfoAuth(), "$what: Test connection sends no Authorization header to the new host");
+    $stub2->clear();
+    $af->api('/autofill/suggest', ['csrf' => $at], ['image' => ['name' => 'p.png', 'type' => 'image/png', 'data' => $png1]]);
+    T::ok($stub2->last() !== null && ($stub2->last()['auth'] ?? null) === null, "$what: suggest reaches the new host without an Authorization header");
+};
+$afImport = fn(string $url) => $af->post('/settings/import', ['csrf' => $at], ['file' => ['name' => 's.json', 'type' => 'application/json', 'data' => json_encode(['format' => 'apotheke-settings', 'settings' => ['autofill_enabled' => true, 'autofill_url' => $url]])]]);
+$afSet(['autofill_enabled' => true, 'autofill_url' => $stub->base, 'autofill_token' => $secret]);
+$r = $afImport(strtoupper(substr($stub->base, 0, 4)) . substr($stub->base, 4) . '/');
+T::ok($r['status'] === 200 && !str_contains($r['body'], 'token was cleared') && $afGet('autofill_token') === $secret, 'settings import of the same address (normalised) keeps the token');
+$r = $afImport($stub2->base);
+T::ok($r['status'] === 200 && str_contains($r['body'], 'AI autofill token was cleared because the service address changed'), 'settings import moving the address → notice on the result page', substr($r['body'], 0, 300));
+$afCheckNoAuth('settings import');
+if (class_exists('ZipArchive')) {
+    $afBackup = function (string $url) use ($af, $afSet, $stub, $secret): string {
+        $afSet(['autofill_url' => $stub->base, 'autofill_token' => $secret]);
+        $f = tempnam(sys_get_temp_dir(), 'afbk');
+        file_put_contents($f, $af->get('/backup.zip')['body']);
+        $z = new ZipArchive();
+        $z->open($f);
+        $d = json_decode((string)$z->getFromName('backup.json'), true);
+        $d['settings']['autofill_url'] = $url;
+        $z->addFromString('backup.json', json_encode($d));
+        $z->close();
+        $data = (string)file_get_contents($f);
+        unlink($f);
+        return $data;
+    };
+    $afRestore = function (string $zip) use ($af, $at): array {
+        $r = $af->post('/backup/restore', ['csrf' => $at], ['backup' => ['name' => 'b.zip', 'type' => 'application/zip', 'data' => $zip]]);
+        preg_match('/name="token" value="([a-f0-9]{32})"/', $r['body'], $m);
+        return $af->post('/backup/restore/confirm', ['csrf' => $at, 'token' => $m[1] ?? '', 'confirm' => '1']);
+    };
+    $r = $afRestore($afBackup($stub->base . '/'));
+    T::ok(($r['headers']['location'] ?? '') === '/backup?restored=1' && $afGet('autofill_token') === $secret, 'backup restore of the same address (normalised) keeps the token', $r['headers']['location'] ?? '');
+    $r = $afRestore($afBackup($stub2->base));
+    T::eq('/backup?restored=token-cleared', $r['headers']['location'] ?? '', 'backup restore moving the address → token-cleared redirect');
+    T::ok(str_contains($af->get('/backup?restored=token-cleared')['body'], 'AI autofill token was cleared because the service address changed'), '… and the restore result page says so');
+    $afCheckNoAuth('backup restore');
+}
 $stub2->stop();
 $afSet(['autofill_token' => '']);
 // upper-case scheme: accepted and normalised, like host case
