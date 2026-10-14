@@ -45,10 +45,13 @@ try {
             $err = settings_save([$k => (string)($argv[3] ?? '')]);
             if ($err) throw new UserError($err[$k]);
             echo "$k = ", json_encode(setting($k), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), "\n";
+            if (settings_token_cleared()) echo "The AI autofill token was cleared because the service address changed: enter it again under AI autofill.\n";
             break;
         case 'reset':
+            settings_token_cleared(false);
             settings_reset_section((string)($argv[2] ?? ''));
             echo "reset\n";
+            if (settings_token_cleared()) echo "The AI autofill token was cleared because the service address changed: enter it again under AI autofill.\n";
             break;
         case 'users':
             if (!users_count()) echo "No accounts.\n";

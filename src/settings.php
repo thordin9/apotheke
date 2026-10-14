@@ -270,9 +270,13 @@ function settings_section_keys(string $section): array
 }
 
 /** Store already-validated values (one transaction). */
-function settings_store(array $values): void
+function settings_store(array $values): bool
 {
-    if (!$values) return;
+    if (!$values) return false;
+    // Every writer (form, reset, import, restore, CLI) comes through here: when the AI autofill address moves and no
+    // new token is written in the same store, the old token is dropped so it can never follow the address elsewhere.
+    $afMoves = array_key_exists('autofill_url', $values) && !array_key_exists('autofill_token', $values);
+    $afOldUrl = $afMoves ? (string)setting('autofill_url') : '';
     db_tx(function (PDO $pdo) use ($values): void {
         $del = $pdo->prepare('DELETE FROM settings WHERE name = ?');
         $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
@@ -282,19 +286,31 @@ function settings_store(array $values): void
         }
     });
     settings_cache(null, true);
+    $cleared = $afMoves && autofill_drop_token_if_moved($afOldUrl);
+    settings_token_cleared($cleared);
+    return $cleared;
+}
+
+/** Whether the last settings_store() call cleared the AI autofill token (set by settings_store, read by callers). */
+function settings_token_cleared(?bool $set = null): bool
+{
+    static $v = false;
+    if ($set !== null) $v = $set;
+    return $v;
 }
 
 /**
  * Validate and save a set of raw values. Nothing is saved when any value is invalid.
  * @return array<string,string> errors by key (empty = saved)
  */
-function settings_save(array $raw): array
+function settings_save(array $raw, array $extra = []): array
 {
     $ok = $err = [];
+    settings_token_cleared(false);
     foreach ($raw as $k => $v) {
         try { $ok[$k] = setting_validate((string)$k, $v); } catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
-    if (!$err) settings_store($ok);
+    if (!$err) settings_store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
     return $err;
 }
 
@@ -309,7 +325,7 @@ function settings_reset_section(string $section): void
     }
     $vals = [];
     foreach ($keys as $k) $vals[$k] = setting_default($k);
-    settings_store($vals);
+    settings_store($vals);   // clears the autofill token if this moves the address (see settings_token_cleared())
 }
 
 /** Initial rows (migration 0013): every setting from config.php / env / built-in. */
@@ -354,9 +370,7 @@ function settings_import(string $json): array
         try { $ok[$k] = setting_validate($k, is_bool($v) ? $v : (is_scalar($v) || $v === null ? (string)$v : $v)); }
         catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
-    $oldAfUrl = (string)setting('autofill_url');
-    settings_store($ok);
-    $cleared = autofill_drop_token_if_moved($oldAfUrl);
+    $cleared = settings_store($ok);
     return ['applied' => count($ok), 'errors' => $err, 'ignored' => $ignored, 'token_cleared' => $cleared];
 }
 

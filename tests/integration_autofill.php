@@ -204,6 +204,24 @@ if (class_exists('ZipArchive')) {
     T::ok(str_contains($af->get('/backup?restored=token-cleared')['body'], 'AI autofill token was cleared because the service address changed'), '… and the restore result page says so');
     $afCheckNoAuth('backup restore');
 }
+// CLI: `php bin/settings.php set autofill_url …` and `reset autofill` share settings_store(), so they clear it too
+$afCli = fn(string $a) => (string)shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e = ['DATA_DIR' => $afd, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($afd)), $e)) . ' php bin/settings.php ' . $a . ' 2>&1');
+$afSet(['autofill_enabled' => true, 'autofill_url' => $stub->base, 'autofill_token' => $secret]);
+$o = $afCli('set autofill_url ' . escapeshellarg($stub->base . '/'));
+T::ok(!str_contains($o, 'token was cleared') && $afGet('autofill_token') === $secret, 'CLI set of the same address (normalised) keeps the token', $o);
+$o = $afCli('set autofill_timeout 20');
+T::ok(!str_contains($o, 'token was cleared') && $afGet('autofill_token') === $secret, 'CLI set of another autofill key keeps the token', $o);
+$o = $afCli('set autofill_url ' . escapeshellarg($stub2->base));
+T::ok(str_contains($o, 'AI autofill token was cleared because the service address changed'), 'CLI set moving the address prints a notice', $o);
+T::eq($stub2->base, $afGet('autofill_url'), '… new address stored');
+$afCheckNoAuth('CLI set');
+$afSet(['autofill_url' => $stub2->base, 'autofill_token' => $secret]);
+$o = $afCli('reset autofill');
+T::ok(str_contains($o, 'AI autofill token was cleared') && $afGet('autofill_token') === '', 'CLI reset moving the address clears the token with a notice', $o);
+$afSet(['autofill_url' => $stub->base, 'autofill_token' => $secret]);
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub2->base, 'autofill_timeout' => '5', 'autofill_token' => 'fresh-token']);
+T::ok(!str_contains($r['headers']['location'] ?? '', 'token-cleared') && $afGet('autofill_token') === 'fresh-token', 'form: new address + new token in one save stores the new token, no clear notice');
+$afSet(['autofill_token' => '']);
 $stub2->stop();
 $afSet(['autofill_token' => '']);
 // upper-case scheme: accepted and normalised, like host case
