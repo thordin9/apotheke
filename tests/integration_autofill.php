@@ -100,6 +100,10 @@ T::eq('bad_response', $test($stub->base . '/m/badinfo')['json']['code'] ?? null,
 T::eq('bad_response', $test($stub->base . '/m/malformed/v1')['json']['code'] ?? null, 'wrong path (404) → bad_response');
 T::eq('warming_up', $test($stub->base . '/m/warming')['json']['code'] ?? null, 'ready:false → warming_up');
 T::eq('not_configured', $test('')['json']['code'] ?? null, 'empty address → not_configured');
+foreach (['file:///etc/passwd', 'gopher://127.0.0.1:70/x', 'ftp://example.org', 'not a url'] as $bad) {
+    $r = $test($bad);
+    T::ok(($r['json']['code'] ?? null) === 'invalid_url' && str_contains($r['json']['message'] ?? '', 'Only http:// and https://') && !str_contains($r['json']['message'] ?? '', 'Enter the service address'), "Test connection with \"$bad\" → invalid address message", json_encode($r['json']));
+}
 T::eq(419, $af->api('/settings/autofill/test', ['csrf' => 'nope', 'autofill_url' => $stub->base])['status'], 'Test connection without CSRF → 419');
 $r = $af->post('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base, 'autofill_timeout' => '5', 'autofill_enabled' => '1']);
 T::ok($r['status'] === 200 && str_contains($r['body'], 'data-code="ok"') && str_contains($r['body'], 'value="' . $stub->base . '"'), 'no-JS Test connection renders the page with the result and the typed values');
