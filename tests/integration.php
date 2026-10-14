@@ -46,6 +46,26 @@ T::ok(str_contains($r['body'], '<title>Apotheke – the storehouse for your stuf
 T::ok(!str_contains($r['body'], 'stats-box'), 'Overview hidden while catalog is empty');
 T::ok(str_contains($r['body'], 'Your catalog is empty'), 'friendly empty state');
 T::ok(isset($c->cookies['apothekesid']), 'session cookie apothekesid set');
+T::section('Session cookie');
+$sidCookie = function (array $hdr) use ($c): string {
+    $r = (new Client($c->base))->get('/', $hdr);
+    foreach ($r['raw'] as $l) if (stripos($l, 'set-cookie: apothekesid=') === 0) return strtolower($l);
+    return '';
+};
+$setSetting = function (string $k, string $v) use ($db): void {
+    $db->prepare('DELETE FROM settings WHERE name = ?')->execute([$k]);
+    $db->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)')->execute([$k, $v, gmdate('Y-m-d H:i:s')]);
+};
+$ck = $sidCookie([]);
+T::ok($ck !== '' && str_contains($ck, 'httponly') && str_contains($ck, 'samesite=lax') && !str_contains($ck, 'secure'), 'plain HTTP: HttpOnly, SameSite=Lax, not Secure');
+T::ok(preg_match('/max-age=(\d+)/', $ck, $mm) && (int)$mm[1] === 30 * 86400, 'default lifetime is 30 days');
+T::ok(!str_contains($sidCookie(['X-Forwarded-Proto: https']), 'secure'), 'X-Forwarded-Proto ignored unless the proxy is trusted (spoofable)');
+$setSetting('trust_proxy', '1');
+T::ok(str_contains($sidCookie(['X-Forwarded-Proto: https']), '; secure'), 'trusted proxy + X-Forwarded-Proto: https → Secure');
+T::ok(!str_contains($sidCookie(['X-Forwarded-Proto: http']), 'secure'), 'trusted proxy + http → not Secure');
+$setSetting('session_days', '7');
+T::ok(preg_match('/max-age=(\d+)/', $sidCookie([]), $mm) && (int)$mm[1] === 7 * 86400, 'session lifetime follows the setting');
+$db->exec("DELETE FROM settings WHERE name IN ('trust_proxy', 'session_days')");
 foreach (['content-security-policy', 'x-content-type-options', 'x-frame-options'] as $hn) T::ok(isset($r['headers'][$hn]), "security header $hn");
 $tok = $c->csrf();
 T::ok(strlen($tok) === 64, 'CSRF token present in page');
@@ -1096,7 +1116,7 @@ $secKeys = [
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
-    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval'], 'data' => ['import_create_missing'], 'system' => [],
+    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
 $settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
@@ -1537,7 +1557,7 @@ $home = $vb->get('/')['body'];
 T::ok(str_contains($home, 'no-create') && str_contains($home, 'no-edit') && !str_contains($home, ' no-export') && str_contains($home, 'id="menu-export"') && !str_contains($home, 'id="menu-labels"') && !str_contains($home, 'id="menu-import"'), 'body classes + menu follow the permissions');
 
 // guest browsing toggle
-T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0'])['status'], 'guest browsing allowed');
+T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30'])['status'], 'guest browsing allowed');
 $g = $rs->client();
 $gt = $g->csrf();
 T::eq(200, $g->get('/')['status'], 'guest may browse');
@@ -1555,7 +1575,7 @@ T::ok(str_contains($g->get('/login')['body'], 'id="login-guest"'), 'login page o
 $n = 0;
 foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach ([false, true] as $approval) {
     $n++;
-    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0']);
+    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0', 'session_days' => '30']);
     $tag = 'guest ' . ($guestOff ? 'off' : 'on') . ', registration ' . ($regOff ? 'off' : 'on') . ', approval ' . ($approval ? 'on' : 'off');
     $a = $rs->client();
     $home = $a->get('/');
@@ -1582,8 +1602,8 @@ foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach 
         T::eq(200, $a->get('/new')['status'], "$tag: … with the editor role");
     }
 }
-T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0'])['status'], 'admin cannot be the registration role');
-$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0']);
+T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0', 'session_days' => '30'])['status'], 'admin cannot be the registration role');
+$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30']);
 $x = $rs->client();
 T::eq(419, $x->post('/register', ['csrf' => 'wrong', 'username' => 'csrfless', 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'], 'registration needs the CSRF token');
 // rate limits (5 registrations per hour per address; earlier tests used some)

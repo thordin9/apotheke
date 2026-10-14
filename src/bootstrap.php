@@ -32,10 +32,28 @@ final class UserError extends RuntimeException {}
 
 /* ---------- sessions ---------- */
 
+/** Was this request made over HTTPS? X-Forwarded-Proto counts only with “Trust the reverse proxy” on. */
+function request_is_https(): bool
+{
+    if (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off') return true;
+    if ((int)($_SERVER['SERVER_PORT'] ?? 0) === 443) return true;
+    try { $trust = (bool)setting('trust_proxy'); } catch (Throwable) { $trust = false; }
+    if (!$trust) return false;
+    $p = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+    return $p === 'https';
+}
+
+/** Session cookie lifetime in seconds (setting “session_days”, 1–365). */
+function session_lifetime(): int
+{
+    try { $d = (int)setting('session_days'); } catch (Throwable) { $d = 30; }
+    return 86400 * max(1, min(365, $d ?: 30));
+}
+
 function start_session(): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) return;
-    $life = 60 * 60 * 24 * 180;
+    $life = session_lifetime();
     ini_set('session.gc_maxlifetime', (string)$life);
     ini_set('session.use_strict_mode', '1');
     session_save_path(SESS_DIR);
@@ -45,7 +63,7 @@ function start_session(): void
         'path'     => '/',
         'httponly' => true,
         'samesite' => 'Lax',
-        'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'secure'   => request_is_https(),
     ]);
     session_start();
 }
@@ -262,7 +280,7 @@ function public_url(string $path): string
 {
     $base = (string)setting('public_url');
     if ($base === '') {
-        $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+        $https = request_is_https();
         $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
         if (!preg_match('/^[A-Za-z0-9.\-\[\]:]+$/', $host)) $host = 'localhost';
         $base = ($https ? 'https' : 'http') . '://' . $host;

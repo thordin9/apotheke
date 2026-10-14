@@ -451,7 +451,7 @@ The last admin can't be demoted or deleted, and you can't delete your own accoun
 
 Everybody can change their own password under **☰ → (your name)**. The history records who made each change
 ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
-only needs an admin's user name and password. Sessions last up to 180 days. Locked out? On the server:
+only needs an admin's user name and password. Sessions last 30 days by default (Control Panel → Users & sign-in → “Stay signed in for”). Locked out? On the server:
 `php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
 `roles reset` to restore the built-in roles, `auth off` to turn accounts off).
 
