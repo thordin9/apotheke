@@ -138,6 +138,12 @@ function autofill_test(string $url, int $timeout, ?string $token = null): array
     return ['ok' => true, 'code' => 'ok', 'message' => 'Connected to “' . $info['name'] . '”.', 'info' => $info];
 }
 
+/** Bytes as MiB for the image limit: 10485760 → "10 MiB", 1572864 → "1.5 MiB". */
+function autofill_mib(int $bytes): string
+{
+    return rtrim(rtrim(number_format($bytes / 1048576, 1, '.', ''), '0'), '.') . ' MiB';
+}
+
 /** Normalised service address for comparisons: trimmed, without trailing slashes, scheme and host lower-case. */
 function autofill_normalise_url(string $url): string
 {

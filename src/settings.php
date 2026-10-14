@@ -105,8 +105,8 @@ function settings_schema(): array
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // AI autofill (token: own form, write-only)
         'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: after you pick a photo for an item, empty fields are pre-filled with suggestions you can keep or clear.', []],
-        'autofill_url'     => ['autofill', 'Service address', 'url', '', 'Where your autofill service runs, e.g. http://192.168.1.20:8090 (without /v1). The photo is sent there, resized to about 1024 px.', []],
-        'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 30, 'How long to wait for suggestions. Saving an item never waits for them.', ['min' => 3, 'max' => 120]],
+        'autofill_url'     => ['autofill', 'Service address', 'url', '', 'Where your autofill service runs, e.g. http://192.168.1.10:8080 (without /v1). The photo is sent there, resized to about 1024 px.', ['placeholder' => 'http://192.168.1.10:8080']],
+        'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 30, 'How long to wait for suggestions. Saving an item never waits for them. The service gives up after about 25 s, so 30 is a good value.', ['min' => 3, 'max' => 60]],
         'autofill_token'   => ['autofill', 'Access token', 'secret', '', '', []],
         // security (own form)
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],

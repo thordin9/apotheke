@@ -14,22 +14,33 @@ Control Panel → **AI autofill** (`/settings/autofill`, needs the *Settings* pe
 | Setting | Default | Notes |
 |---|---|---|
 | Suggest details from the photo | off | Master switch. |
-| Service address | empty | Base URL without `/v1`, e.g. `http://192.168.1.20:8090`. Only `http://` and `https://`. |
-| Timeout (seconds) | 30 | 3–120. The service answers `504` itself after 25 s, so 30 s is a good value. |
+| Service address | empty | Base URL without `/v1`, e.g. `http://192.168.1.10:8080`. Only `http://` and `https://`. |
+| Timeout (seconds) | 30 | 3–60. The service answers `504` itself after 25 s, so 30 s is a good value. |
 | Access token | none | Only if the service runs with `AUTOFILL_TOKEN`. See below. |
 
 All values live in the `settings` table like every other Control Panel option.
 
 ### Test connection
 
-**Test connection** checks the address and timeout *as typed* (nothing is saved) and the stored token:
+**Test connection** checks the address and timeout *as typed* (nothing is saved):
 
 1. `GET /healthz` (no token) – is anything listening?
-2. `GET /v1/info` (with the token) – is it the autofill service, API v1, and does it accept the token?
+2. `GET /v1/info` (with a token) – is it the autofill service, API v1, and does it accept the token?
 
-Results: *Connected* (with name, API version, capabilities, backend and image limit), *could not connect*,
-*no answer within N seconds*, *the service refused the token (401)*, *not a valid /v1/info answer* or
-*still warming up* (`ready: false`).
+The stored token is only sent when the typed address is the **saved** address (compared after trimming
+trailing slashes and lower-casing scheme and host). For any other address no token is sent, unless one is
+typed into the request as `autofill_token`; the stored, write-only token never leaves for an unsaved host.
+
+Results: *Connected* (with name, API version, capabilities, backend and image limit in MiB), *could not
+connect* (also when the 3 s connect timeout runs out), *no answer within N seconds*, *the service requires a
+token* (401, none set), *the service refused the token* (401, wrong token), *not a valid address* (anything but
+`http://`/`https://`), *not a valid /v1/info answer* or *still warming up* (`ready: false`).
+
+**Probing internal hosts.** Test connection makes this server request any http(s) host and port an admin
+types in, and the messages tell "nothing listening", "no answer" and HTTP errors apart, so it can be used to
+map which internal hosts and ports are open. Only users with the *settings* permission can use it, redirects
+are not followed and only http(s) is allowed; for a home-network app that is acceptable, but grant the
+*settings* permission only to people you would trust with that.
 
 ### The access token is write-only
 
@@ -71,14 +82,21 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Situation | Status line |
 |---|---|
 | Autofill off | nothing: no status line, no request |
-| Service down / wrong address | *the autofill service is not reachable* |
+| Service down / wrong address / connect timeout (3 s) | *the autofill service is not reachable* |
 | Slower than the timeout | *did not answer within N seconds* (`504` from the service: *took too long*) |
-| Wrong or missing token (`401`) | *refused the access token* (an admin fixes it in the Control Panel) |
+| Wrong token (`401`) | *refused the access token* (an admin fixes it in the Control Panel) |
+| No token set, service wants one (`401`) | *requires an access token* |
 | Backend failed or not ready (`503`) | *busy or not ready* |
 | Not a JSON object (malformed) | *sent an unexpected answer* |
 | Photo too large (`413`, or larger than `max_image_bytes` from the last Test connection) | *larger than the service accepts* |
 | Image type not supported (`415`) | *cannot read this kind of image* |
+| Not an image at all (PDF, text, broken file) | *cannot be read as a photo* – checked locally, nothing is sent. Only HEIC/HEIF, which PHP cannot read, is passed through unchanged for the service to decide |
 | `200 {}` | *No suggestions for this photo.* |
+
+**Saving never waits for a suggestion** – the browser asks `/autofill/suggest` separately. But a pending
+suggestion does occupy one PHP worker for up to the timeout. The shipped Docker image runs nginx + php-fpm
+(`pm.max_children = 10`), so saves go through meanwhile. Only the single-worker `php -S` dev server is
+affected: there a save queues behind a pending suggestion (start it with `PHP_CLI_SERVER_WORKERS=4` to avoid that).
 
 Problems are logged as one short line (`apotheke autofill: …`) without the token or the response body.
 

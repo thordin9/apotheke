@@ -702,7 +702,7 @@ try {
         check_csrf();
         $url = (string)($_POST['autofill_url'] ?? setting('autofill_url'));
         $to = (string)($_POST['autofill_timeout'] ?? '');
-        $timeout = ctype_digit($to) ? max(3, min(120, (int)$to)) : (int)setting('autofill_timeout');
+        $timeout = ctype_digit($to) ? max(3, min(60, (int)$to)) : (int)setting('autofill_timeout');
         $badUrl = false;
         try { $url = (string)setting_validate('autofill_url', $url); } catch (UserError $e) { $badUrl = trim($url) !== ''; $url = ''; }
         // The stored token only ever goes to the stored address; a typed, unsaved address gets the token typed

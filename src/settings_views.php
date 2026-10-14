@@ -104,8 +104,8 @@ function view_settings_section(string $section, array $values, array $errors, ?s
       <?php if ($k === 'accent') echo accent_preview_html((string)($values[$k] ?? setting($k))); ?>
     <?php endforeach; ?>
     <?php if ($section === 'items') echo settings_items_defaults_html(); ?>
-    <?php if ($section === 'autofill') echo autofill_test_html($afTest); ?>
     <div class="set-actions"><button class="btn btn-primary btn-wide" id="set-save"><?= icon('check') ?> Save</button></div>
+    <?php if ($section === 'autofill') echo autofill_test_html($afTest); ?>
   </form>
   <?php if ($section === 'autofill') echo settings_autofill_token_html($tok, $errors['autofill_token'] ?? null); ?>
   <form method="post" action="/settings/<?= $section ?>/reset" class="set-reset" data-confirm="Reset “<?= h($label) ?>” to the defaults from config.php?">
@@ -329,7 +329,7 @@ function autofill_test_result_html(array $r): string
         $o .= '<dl class="af-info"><dt>Name</dt><dd id="af-name">' . h($i['name']) . '</dd><dt>API version</dt><dd id="af-version">' . h($i['version']) . '</dd>'
             . '<dt>Suggests</dt><dd id="af-caps">' . ($i['capabilities'] ? h(implode(', ', $i['capabilities'])) : 'nothing yet') . '</dd>'
             . ($i['backend'] !== null ? '<dt>Backend</dt><dd>' . h($i['backend']) . '</dd>' : '')
-            . ($i['max_image_bytes'] !== null ? '<dt>Image limit</dt><dd>' . h(number_format($i['max_image_bytes'] / 1048576, 1)) . ' MB</dd>' : '') . '</dl>';
+            . ($i['max_image_bytes'] !== null ? '<dt>Image limit</dt><dd>' . h(autofill_mib((int)$i['max_image_bytes'])) . '</dd>' : '') . '</dl>';
     }
     return $o . '</div>';
 }

@@ -37,7 +37,12 @@ foreach (['ftp://example.org', 'not a url', 'javascript:alert(1)'] as $bad) {
     T::eq(422, $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $bad, 'autofill_timeout' => '10'])['status'], "address \"$bad\" rejected");
 }
 T::eq(422, $af->post('/settings/autofill', ['csrf' => $at, 'autofill_url' => $stub->base, 'autofill_timeout' => '1'])['status'], 'timeout below 3 s rejected');
-T::eq(422, $af->post('/settings/autofill', ['csrf' => $at, 'autofill_url' => $stub->base, 'autofill_timeout' => '121'])['status'], 'timeout above 120 s rejected');
+T::eq(422, $af->post('/settings/autofill', ['csrf' => $at, 'autofill_url' => $stub->base, 'autofill_timeout' => '61'])['status'], 'timeout above 60 s rejected');
+T::eq(303, $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base, 'autofill_timeout' => '60'])['status'], 'timeout of 60 s accepted');
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base, 'autofill_timeout' => '10']);
+$page = $af->get('/settings/autofill')['body'];
+T::ok(str_contains($page, 'placeholder="http://192.168.1.10:8080"'), 'address placeholder is an example service address, not Apotheke\'s own');
+T::ok(strpos($page, 'id="set-save"') < strpos($page, 'id="af-test-result"'), 'Save comes before the Test connection result');
 T::eq(419, $af->post('/settings/autofill', ['csrf' => 'nope', 'autofill_url' => 'http://evil.example'])['status'], 'settings save without CSRF token → 419');
 T::eq($stub->base, $afGet('autofill_url'), '… and nothing changed');
 
@@ -63,6 +68,7 @@ $test = fn(string $url, string $timeout = '5') => $af->api('/settings/autofill/t
 $r = $test($stub->base);
 T::ok(($r['json']['ok'] ?? null) === true && ($r['json']['info']['name'] ?? '') === 'echo', 'Test connection: ok with the echo stub', json_encode($r['json']));
 T::eq(['name', 'category', 'tags', 'description'], $r['json']['info']['capabilities'] ?? null, '… reports capabilities');
+T::ok(str_contains($r['json']['html'] ?? '', '<dd>10 MiB</dd>'), '… image limit shown as 10 MiB');
 T::ok(str_contains($r['json']['html'] ?? '', 'id="af-name">echo<') && !str_contains($r['body'], $secret), '… rendered result, token not echoed');
 $tokUrl = $stub->base . '/t/' . $secret;
 $afSet(['autofill_url' => $tokUrl, 'autofill_token' => '']);

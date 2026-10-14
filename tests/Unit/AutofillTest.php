@@ -229,4 +229,11 @@ final class AutofillTest extends DatabaseTestCase
         settings_store(['autofill_url' => '']);
         $this->assertSame('', autofill_test_token(''), 'nothing saved: never the stored token');
     }
+
+    public function testImageLimitInMib(): void
+    {
+        $this->assertSame('10 MiB', autofill_mib(10485760));
+        $this->assertSame('1.5 MiB', autofill_mib(1572864));
+        $this->assertSame(60, settings_schema()['autofill_timeout'][5]['max']);
+    }
 }
