@@ -359,6 +359,9 @@ select{font-size:16px;height:48px;color:var(--text)}
 body>.actionbar{position:fixed;left:0;right:0;margin:0;padding-left:calc(var(--s4) + var(--sal));padding-right:calc(var(--s4) + var(--sar))}
 .actionbar-in{display:grid;grid-template-columns:1fr 1.4fr;gap:var(--s2);max-width:560px;margin:0 auto}
 .actionbar-in.one{grid-template-columns:1fr}
+.danger-zone{margin:var(--s6,32px) 0 var(--s4);padding-top:var(--s4);border-top:1px solid var(--line,#ddd);display:flex;justify-content:flex-end}
+.danger-zone form{margin:0}
+@media (max-width:600px){.danger-zone{justify-content:stretch}.danger-zone form,.danger-zone .btn{width:100%}}
 .actionbar-in form{margin:0;display:grid}
 .actionbar .btn{min-height:52px;font-size:16px}
 .page-form .wrap,.page-locs .wrap{padding-bottom:calc(24px + var(--sab))}
@@ -858,7 +861,7 @@ body:has(.undo-bar:not([hidden])) .toast,body:has(.undo-bar:not([hidden])) .fab{
 /* ---------- users & roles ---------- */
 /* body.no-<permission>: hide what the role may not use (the server refuses it anyway) */
 body.no-create .fab,body.no-create #dupform,body.no-edit .qty .qbtn,body.no-edit .needs-edit,body.no-edit.page-item .actionbar .btn-primary,
-body.no-delete.page-item .actionbar form,body.no-delete #merge-link,body.no-edit.no-delete.page-item .actionbar,
+body.no-delete.page-item .danger-zone,body.no-delete #merge-link,body.no-edit.page-item .actionbar,
 body.no-edit .photos-box form,body.no-edit .pm-btns,body.no-edit .pm-drag,body.no-edit .pm-edit,body.no-edit .pm-add,
 body.no-edit .att-box form,body.no-edit .tax-page form[method=post],body.no-edit #fav-form,body.no-edit .fav-form,
 body.no-edit:not(.page-account):not(.page-stocktake):not(.page-import):not(.page-settings) main form[method=post]:not(#lending form):not(.dupform),

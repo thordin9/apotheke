@@ -704,7 +704,6 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
     <h1 class="title-sm">Item</h1>
     <?= fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/item/' . $id) ?>
-    <a class="btn btn-ghost" href="/item/<?= $id ?>/edit" aria-label="Edit item"><?= icon('edit') ?><span class="hide-xs">Edit</span></a>
   </div>
 </header>
 <main class="wrap narrow">
@@ -805,15 +804,17 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   </section>
   <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
+  <section class="danger-zone" id="danger-zone" aria-label="Delete">
+    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”?<?= undo_enabled() ? ' You can undo this for ' . (int)setting('undo_seconds') . ' seconds.' : ' This cannot be undone.' ?>">
+      <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+      <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete item</button>
+    </form>
+  </section>
 </main>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <div class="actionbar">
-  <div class="actionbar-in">
-    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”?<?= undo_enabled() ? ' You can undo this for ' . (int)setting('undo_seconds') . ' seconds.' : ' This cannot be undone.' ?>">
-      <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
-      <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete</button>
-    </form>
-    <a class="btn btn-primary" href="/item/<?= $id ?>/edit"><?= icon('edit') ?> Edit</a>
+  <div class="actionbar-in one">
+    <a class="btn btn-primary" href="/item/<?= $id ?>/edit" id="item-edit"><?= icon('edit') ?> Edit</a>
   </div>
 </div>
 <?php

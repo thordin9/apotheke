@@ -74,7 +74,7 @@ test.describe('item page', () => {
 
   test('edit: change fields, replace and remove the cover photo', async ({ app, page }) => {
     await app.go('/item/3');
-    await page.locator('.bar a[href="/item/3/edit"]').click();
+    await page.locator('#item-edit').click();
     await expect(page.locator('#name')).toHaveValue('Camping stove');
     await expect(page.locator('#locsel')).toHaveValue('3');
     await expect(page.locator('#value')).toHaveValue('45.00');
@@ -122,3 +122,22 @@ test.describe('item page', () => {
     expect((await page.request.get('/item/7')).status()).toBe(404);
   });
 });
+
+test.describe('item actions', () => {
+  test('one Edit button; Delete kept apart on phones', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await page.locator('a[href^="/item/"]').first().click();
+    await expect(page.locator('a.btn[href$="/edit"]')).toHaveCount(1);
+    const edit = await page.locator('#item-edit').boundingBox();
+    const del = page.getByRole('button', { name: 'Delete item' });
+    await del.scrollIntoViewIfNeeded();
+    await expect(page.locator('.actionbar button')).toHaveCount(0);
+    const d = await del.boundingBox();
+    const e2 = await page.locator('#item-edit').boundingBox();
+    expect(edit && d && e2).toBeTruthy();
+    // not adjacent: at least 24px clear between the danger zone button and the Edit bar
+    expect(e2!.y - (d!.y + d!.height)).toBeGreaterThanOrEqual(24);
+  });
+});
+
