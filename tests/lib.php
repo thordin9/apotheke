@@ -168,7 +168,7 @@ final class Client
             $hdrs[$k] = $v;
         }
         $resp = (string)$resp;
-        return ['status' => $status, 'headers' => $hdrs, 'body' => $resp, 'json' => json_decode($resp, true)];
+        return ['status' => $status, 'headers' => $hdrs, 'body' => $resp, 'json' => json_decode($resp, true), 'raw' => $raw];
     }
 
     public function get(string $path, array $headers = []): array { return $this->req('GET', $path, [], [], $headers); }
