@@ -397,8 +397,8 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 <!-- coverage:start -->
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 97.1 % | 97.1 % |
-| Items, search, bulk, lending | 86.5 % | 94.7 % | 97.7 % |
+| Front controller & routes | – | 96.9 % | 96.9 % |
+| Items, search, bulk, lending | 87.2 % | 94.7 % | 97.7 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
 | Users & roles | 91.3 % | 93.8 % | 96.4 % |
@@ -406,25 +406,25 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 61.2 % | 91.8 % | 91.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 5.2 % | 99.8 % | 99.7 % |
-| Control Panel settings | 72.3 % | 96.8 % | 97.0 % |
-| Backup & restore | 87.2 % | 89.9 % | 98.9 % |
-| Database, migrations, legacy | 83.8 % | 89.7 % | 97.6 % |
-| Bootstrap, config, QR, seed | 71.9 % | 90.1 % | 91.5 % |
-| **All PHP** (5592 lines) | **58.4 %** | **95.6 %** | **97.2 %** |
+| Views (HTML) | 5.9 % | 99.8 % | 99.6 % |
+| Control Panel settings | 73.2 % | 97.1 % | 97.1 % |
+| Backup & restore | 87.3 % | 90.0 % | 98.9 % |
+| Database, migrations, legacy | 84.0 % | 89.8 % | 97.6 % |
+| Bootstrap, config, QR, seed | 71.8 % | 90.1 % | 91.5 % |
+| **All PHP** (5862 lines) | **59.8 %** | **95.7 %** | **97.3 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 90 | 22 |
+| `chromium-pixel` | 106 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 90 | 22 |
+| `desktop-chromium` | 106 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
-| `pgsql-smoke` | 30 | 0 |
-| `webkit-iphone-se` | 90 | 22 |
+| `pgsql-smoke` | 32 | 0 |
+| `webkit-iphone-se` | 106 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 90 | 22 |
+| `webkit-iphone13` | 106 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **398** | **176** |
+| **Total** | **464** | **176** |
 
 <sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->
