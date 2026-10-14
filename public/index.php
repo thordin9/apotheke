@@ -1101,7 +1101,7 @@ try {
                  'purchase_date' => (string)$r['purchase_date'], 'serial' => (string)$r['serial'],
                  'min_qty' => $r['min_qty'] === null ? '' : (string)(int)$r['min_qty'],
                  'lent_to' => (string)$r['lent_to'], 'lent_at' => (string)$r['lent_at'], 'lent_due' => (string)$r['lent_due'], 'expires_on' => (string)$r['expires_on'], 'barcode' => (string)$r['barcode']];
-            fputcsv($out, array_values($r), ',', '"', '\\');
+            fputcsv($out, array_map('csv_protect', array_values($r)), ',', '"', '\\');
         }
         exit;
     }

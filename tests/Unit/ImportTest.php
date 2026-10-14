@@ -36,6 +36,21 @@ final class ImportTest extends DatabaseTestCase
         import_parse("name\n");
     }
 
+    public function testFormulaCellsAreProtected(): void
+    {
+        foreach (['=1+1', '+49 30 1234', '-5', '@SUM(A1)', "\tTab", "\rCR", "'=already", "''@two"] as $v) {
+            $p = csv_protect($v);
+            $this->assertSame("'", $p[0], "protected: $v");
+            $this->assertSame($v, csv_unprotect($p), "round trip: $v");
+        }
+        foreach (['Drill', 'a=b', "'quoted", '', '12'] as $v) {
+            $this->assertSame($v, csv_protect($v), "unchanged: $v");
+            $this->assertSame($v, csv_unprotect($v));
+        }
+        [, $rows] = import_parse("name;serial\n'=Lamp;'-12\n");
+        $this->assertSame([['=Lamp', '-12']], $rows, 'import strips the protecting apostrophe');
+    }
+
     public function testDryRunThenCommit(): void
     {
         $imp = $this->imp("name,location,qty,tags\nSaw,Garage / Wall,1,tools\nBad,,x,\nTent,Attic,1,\n", ['name', 'location', 'quantity', 'tags']);
