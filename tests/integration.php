@@ -1119,10 +1119,11 @@ $secKeys = [
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
+    'autofill' => ['autofill_enabled', 'autofill_url', 'autofill_timeout'],
     'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
-$settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
+$settingsTotal = count($visible) + 4; // + logo, auth_enabled, password_hash, autofill_token
 T::eq($settingsTotal, (int)$sdb->query('SELECT COUNT(*) FROM settings')->fetchColumn(), 'migration seeds one row per setting');
 T::eq('"CHF"', $sdb->query("SELECT value FROM settings WHERE name = 'currency'")->fetchColumn(), 'config/env values are the initial defaults');
 T::eq('40', $sdb->query("SELECT value FROM settings WHERE name = 'page_size'")->fetchColumn(), 'PAGE_SIZE seeded');
@@ -2257,5 +2258,7 @@ $p = sqlite("$mr/catalog.sqlite");
 T::eq(2, (int)$p->query('PRAGMA user_version')->fetchColumn(), 'database left at v2');
 T::eq(0, (int)$p->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('categories', 'schema_migrations')")->fetchColumn(), 'partial changes rolled back (no categories, no schema_migrations)');
 T::eq(3, (int)$p->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'no items lost');
+
+require __DIR__ . '/integration_autofill.php';
 
 exit(T::summary());

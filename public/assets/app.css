@@ -964,3 +964,18 @@ select.imp-ignored{color:var(--muted)}
 .role-pending{background:var(--warn-bg,#fff4d6);color:var(--warn-ink,#7a4b00)}
 .login-alt{margin-top:var(--s3)}
 .page-photo-edit .wrap{padding-bottom:calc(110px + var(--sab))}
+/* AI autofill: test connection result + suggestion status */
+.af-test{display:grid;gap:8px}
+.af-res{border-radius:var(--radius-sm);padding:10px 12px;font-size:15px}
+.af-res p{display:flex;gap:8px;align-items:flex-start;margin:0}
+.af-res .i{flex:none}
+.af-res.okbox{background:var(--accent-soft, var(--badge-soft));color:var(--text)}
+.af-res.okbox .i{color:var(--accent)}
+.af-res.err{font-weight:400}
+.af-info{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0 0;font-size:14px}
+.af-info dt{color:var(--muted, inherit);font-weight:600}
+.af-info dd{margin:0;overflow-wrap:anywhere}
+.af-status{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--muted, inherit);margin:-4px 0 0;min-height:20px}
+.af-status .i{flex:none;color:var(--accent)}
+.af-status.af-fail .i{color:var(--danger)}
+.af-filled{box-shadow:0 0 0 2px var(--accent) inset}

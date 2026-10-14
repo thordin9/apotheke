@@ -672,6 +672,36 @@ try {
         if (wants_json()) json_out(['ok' => true, 'key' => $key]);
         redirect('/settings/security?done=' . $done . '#' . ($key !== '' ? 'rc-' . $key : 'roles'));
     }
+    if ($path === '/settings/autofill/token' && $method === 'POST') {
+        check_csrf();
+        if (($_POST['action'] ?? '') === 'clear') {
+            settings_store(['autofill_token' => '']);
+            redirect('/settings/autofill?done=token-cleared');
+        }
+        $t = trim((string)($_POST['token'] ?? ''));
+        if (!preg_match('/^[\x21-\x7E]{1,512}$/D', $t)) {
+            http_response_code(422);
+            view_settings_section('autofill', [], ['autofill_token' => 'Token: 1–512 printable characters, no spaces.'], null);
+            exit;
+        }
+        settings_store(['autofill_token' => $t]);
+        redirect('/settings/autofill?done=token-saved');
+    }
+    if ($path === '/settings/autofill/test' && $method === 'POST') {
+        check_csrf();
+        $url = (string)($_POST['autofill_url'] ?? setting('autofill_url'));
+        $to = (string)($_POST['autofill_timeout'] ?? '');
+        $timeout = ctype_digit($to) ? max(3, min(120, (int)$to)) : (int)setting('autofill_timeout');
+        try { $url = (string)setting_validate('autofill_url', $url); } catch (UserError $e) { $url = ''; }
+        $r = autofill_test($url, $timeout);
+        if (wants_json()) json_out($r + ['html' => autofill_test_result_html($r)]);
+        no_store();
+        $vals = [];
+        foreach (settings_section_keys('autofill') as $k) if (isset($_POST[$k])) $vals[$k] = $_POST[$k];
+        if (isset($vals['autofill_enabled']) && is_array($_POST['autofill_enabled'] ?? null)) unset($vals['autofill_enabled']);
+        view_settings_section('autofill', $vals, [], null, [], $r);
+        exit;
+    }
     if (preg_match('#^/settings/([a-z]+)(/reset)?$#D', $path, $m) && isset(SETTINGS_SECTIONS[$m[1]])) {
         $section = $m[1];
         if ($method === 'GET' && empty($m[2])) {
@@ -680,7 +710,7 @@ try {
                 'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
                 'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Sign-in turned off',
                 'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', 'user-approved' => 'Account approved',
-                'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
+                'token-saved' => 'Token saved', 'token-cleared' => 'Token cleared', 'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
             };
             view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
             exit;
