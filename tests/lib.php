@@ -149,12 +149,20 @@ final class StubServer
         return $s === '' ? null : json_decode($s, true);
     }
 
-    public function clear(): void { @file_put_contents($this->log, ''); }
+    /** The Authorization header of the last GET /v1/info (null: none sent; false: no /v1/info since clear()). */
+    public function lastInfoAuth(): string|null|false
+    {
+        $s = (string)@file_get_contents($this->log . '.info');
+        return $s === '' ? false : (json_decode($s, true)['auth'] ?? null);
+    }
+
+    public function clear(): void { @file_put_contents($this->log, ''); @file_put_contents($this->log . '.info', ''); }
 
     public function stop(): void
     {
         if (is_resource($this->proc)) { proc_terminate($this->proc); proc_close($this->proc); }
         @unlink($this->log);
+        @unlink($this->log . '.info');
     }
 
     public function __destruct() { $this->stop(); }

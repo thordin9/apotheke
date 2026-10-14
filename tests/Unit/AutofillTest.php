@@ -211,4 +211,17 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('create', route_perm('POST', '/autofill/suggest'));
         $this->assertNotContains('create', ROLE_DEFAULTS['viewer'][1]);
     }
+
+    public function testTestConnectionSendsTheStoredTokenOnlyToTheSavedAddress(): void
+    {
+        settings_store(['autofill_url' => 'http://10.0.0.2:8090', 'autofill_token' => 'stored']);
+        $this->assertSame('stored', autofill_test_token('http://10.0.0.2:8090'));
+        $this->assertSame('stored', autofill_test_token(' HTTP://10.0.0.2:8090/ '));
+        foreach (['http://10.0.0.3:8090', 'http://10.0.0.2:8091', 'https://10.0.0.2:8090', 'http://10.0.0.2:8090/x', 'http://evil.example', ''] as $u) {
+            $this->assertSame('', autofill_test_token($u), "no token for $u");
+        }
+        $this->assertSame('typed', autofill_test_token('http://evil.example', ' typed '));
+        settings_store(['autofill_url' => '']);
+        $this->assertSame('', autofill_test_token(''), 'nothing saved: never the stored token');
+    }
 }

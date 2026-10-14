@@ -13,6 +13,7 @@ declare(strict_types=1);
  *   http://127.0.0.1:8090/t/<token>            requires "Authorization: Bearer <token>" on everything but /healthz
  *   http://127.0.0.1:8090/m/slow/t/s3cret      both
  * STUB_LOG=<file>: the last /v1/suggest request is written there as JSON (headers, context, image type and size).
+ * Every GET /v1/info writes its Authorization header (or null) to <STUB_LOG>.info.
  * STUB_MAX_BYTES: upload limit (default 10 MiB, like the real service).
  */
 
@@ -37,6 +38,9 @@ function fail(int $status, string $code, string $msg, array $headers = []): neve
 }
 
 if ($path === '/healthz') out(200, ['status' => 'ok']);
+if ($path === '/v1/info' && $_SERVER['REQUEST_METHOD'] === 'GET' && ($log = getenv('STUB_LOG'))) {
+    file_put_contents($log . '.info', json_encode(['auth' => $_SERVER['HTTP_AUTHORIZATION'] ?? null]));
+}
 if ($token !== '' && ($_SERVER['HTTP_AUTHORIZATION'] ?? '') !== 'Bearer ' . $token) {
     fail(401, 'unauthorized', 'missing or invalid bearer token', ['WWW-Authenticate: Bearer']);
 }

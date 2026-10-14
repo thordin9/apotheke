@@ -131,6 +131,26 @@ function autofill_test(string $url, int $timeout, ?string $token = null): array
     return ['ok' => true, 'code' => 'ok', 'message' => 'Connected to “' . $info['name'] . '”.', 'info' => $info];
 }
 
+/** Normalised service address for comparisons: trimmed, without trailing slashes, scheme and host lower-case. */
+function autofill_normalise_url(string $url): string
+{
+    $url = rtrim(trim($url), '/');
+    return (string)preg_replace_callback('#^([a-z][a-z0-9+.-]*://)([^/?\#@]+)#i', fn($m) => strtolower($m[1] . $m[2]), $url);
+}
+
+/**
+ * Which token Test connection may send to $url: a token typed in the form wins; otherwise the stored token, but
+ * only if $url is the saved address (after normalisation); any other address gets no token at all.
+ */
+function autofill_test_token(string $url, string $typed = ''): string
+{
+    $typed = trim($typed);
+    if ($typed !== '') return $typed;
+    $saved = (string)setting('autofill_url');
+    if ($saved !== '' && autofill_normalise_url($url) === autofill_normalise_url($saved)) return autofill_token();
+    return '';
+}
+
 /** Remember the last good /v1/info (max_image_bytes) for an hour; get it with no argument. */
 function autofill_info_cache(?array $info = null): ?array
 {

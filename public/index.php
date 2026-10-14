@@ -704,7 +704,9 @@ try {
         $to = (string)($_POST['autofill_timeout'] ?? '');
         $timeout = ctype_digit($to) ? max(3, min(120, (int)$to)) : (int)setting('autofill_timeout');
         try { $url = (string)setting_validate('autofill_url', $url); } catch (UserError $e) { $url = ''; }
-        $r = autofill_test($url, $timeout);
+        // The stored token only ever goes to the stored address; a typed, unsaved address gets the token typed
+        // in the form (if any) or none, so the write-only token cannot be sent to a host of the caller's choice.
+        $r = autofill_test($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')));
         if (wants_json()) json_out($r + ['html' => autofill_test_result_html($r)]);
         no_store();
         $vals = [];

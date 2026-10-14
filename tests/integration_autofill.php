@@ -64,13 +64,30 @@ $r = $test($stub->base);
 T::ok(($r['json']['ok'] ?? null) === true && ($r['json']['info']['name'] ?? '') === 'echo', 'Test connection: ok with the echo stub', json_encode($r['json']));
 T::eq(['name', 'category', 'tags', 'description'], $r['json']['info']['capabilities'] ?? null, '… reports capabilities');
 T::ok(str_contains($r['json']['html'] ?? '', 'id="af-name">echo<') && !str_contains($r['body'], $secret), '… rendered result, token not echoed');
-$afSet(['autofill_token' => '']);
-$r = $test($stub->base . '/t/' . $secret);
+$tokUrl = $stub->base . '/t/' . $secret;
+$afSet(['autofill_url' => $tokUrl, 'autofill_token' => '']);
+$r = $test($tokUrl);
 T::eq('unauthorized', $r['json']['code'] ?? null, 'service wants a token, none set → unauthorized');
 $afSet(['autofill_token' => 'wrong']);
-T::eq('unauthorized', $test($stub->base . '/t/' . $secret)['json']['code'] ?? null, 'wrong token → unauthorized');
+$r = $test($tokUrl);
+T::ok(($r['json']['code'] ?? null) === 'unauthorized' && str_contains($r['json']['message'] ?? '', 'refused the token'), 'wrong token → unauthorized, "refused the token"');
 $afSet(['autofill_token' => $secret]);
-T::eq(true, $test($stub->base . '/t/' . $secret)['json']['ok'] ?? null, 'right token → ok');
+T::eq(true, $test($tokUrl)['json']['ok'] ?? null, 'right token → ok');
+// B1: the stored token only goes to the stored address
+$stub->clear();
+$test($tokUrl . '/');
+T::eq('Bearer ' . $secret, $stub->lastInfoAuth(), 'saved address (trailing slash normalised) → stored token sent');
+foreach ([$stub->base, $stub->base . '/t/other', str_replace('127.0.0.1', 'localhost', $tokUrl), $stub->base . '/m/ok/t/' . $secret] as $foreign) {
+    $stub->clear();
+    $r = $test($foreign);
+    T::eq(null, $stub->lastInfoAuth(), "typed address $foreign ≠ saved → no token sent");
+    T::ok(!str_contains($r['body'], $secret), '… and the token is not in the answer');
+}
+$stub->clear();
+$r = $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/t/typed', 'autofill_timeout' => '5', 'autofill_token' => 'typed']);
+T::ok(($r['json']['ok'] ?? null) === true && $stub->lastInfoAuth() === 'Bearer typed', 'foreign address with a token typed in the form → only the typed token is sent');
+T::eq($secret, $afGet('autofill_token'), '… and the stored token is unchanged');
+$afSet(['autofill_url' => $stub->base]);
 T::eq('unreachable', $test('http://127.0.0.1:1')['json']['code'] ?? null, 'nothing listening → unreachable');
 $t0 = microtime(true);
 T::eq('timeout', $test($stub->base . '/m/slow', '3')['json']['code'] ?? null, 'slow service → timeout');
