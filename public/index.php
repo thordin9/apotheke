@@ -726,7 +726,9 @@ try {
                 'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
                 'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Sign-in turned off',
                 'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', 'user-approved' => 'Account approved',
-                'token-saved' => 'Token saved', 'token-cleared' => 'Token cleared', 'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
+                'token-saved' => 'Token saved', 'token-cleared' => 'Token cleared',
+                'saved-token-cleared' => 'Settings saved. The token was cleared because the service address changed: enter it again.',
+                'reset-token-cleared' => 'Section reset to defaults. The token was cleared because the service address changed: enter it again.', 'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
             };
             view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
             exit;
@@ -734,12 +736,28 @@ try {
         if ($method === 'POST') {
             check_csrf();
             if (!empty($m[2])) {
+                $afOldUrl = (string)setting('autofill_url');
                 settings_reset_section($section);
-                redirect("/settings/$section?done=reset");
+                $afTokenCleared = $section === 'autofill' && autofill_drop_token_if_moved($afOldUrl);
+                redirect("/settings/$section?done=" . ($afTokenCleared ? 'reset-token-cleared' : 'reset'));
             }
             $raw = [];
             foreach (settings_section_keys($section) as $k) $raw[$k] = $_POST[$k] ?? '';
+            $afOldUrl = (string)setting('autofill_url');
+            $afNewToken = $section === 'autofill' ? trim((string)($_POST['autofill_token'] ?? '')) : '';
+            if ($afNewToken !== '' && !preg_match('/^[\x21-\x7E]{1,512}$/D', $afNewToken)) {
+                http_response_code(422);
+                view_settings_section($section, $raw, ['autofill_token' => 'Token: 1–512 printable characters, no spaces.'], null);
+                exit;
+            }
             $errors = settings_save($raw);
+            $afTokenCleared = false;
+            if (!$errors && $section === 'autofill') {
+                // The stored token belongs to the saved address: a new address drops it, so it can never follow
+                // the address to a host of the admin's choosing. A token entered in the same save replaces it.
+                if ($afNewToken !== '') settings_store(['autofill_token' => $afNewToken]);
+                else $afTokenCleared = autofill_drop_token_if_moved($afOldUrl);
+            }
             if (!$errors && $section === 'items') {
                 foreach (KINDS as $kind) {
                     $v = (string)($_POST['default_' . $kind] ?? '');
@@ -753,7 +771,7 @@ try {
                 view_settings_section($section, $raw, $errors, null);
                 exit;
             }
-            redirect("/settings/$section?done=saved");
+            redirect("/settings/$section?done=" . ($afTokenCleared ? 'saved-token-cleared' : 'saved'));
         }
     }
 

@@ -164,6 +164,19 @@ function autofill_test_token(string $url, string $typed = ''): string
     return '';
 }
 
+/**
+ * After the saved address changed from $oldUrl (normalised comparison, the same rule as autofill_test_token), clear the
+ * stored token: it was meant for the old service. Returns true when a token was actually cleared.
+ */
+function autofill_drop_token_if_moved(string $oldUrl): bool
+{
+    if (autofill_token() === '') return false;
+    if (autofill_normalise_url($oldUrl) === autofill_normalise_url((string)setting('autofill_url'))) return false;
+    settings_store(['autofill_token' => '']);
+    autofill_log('token cleared: the service address changed');
+    return true;
+}
+
 /** Remember the last good /v1/info (max_image_bytes) for an hour; get it with no argument. */
 function autofill_info_cache(?array $info = null): ?array
 {

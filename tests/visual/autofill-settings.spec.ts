@@ -84,6 +84,21 @@ test.describe('AI autofill settings', () => {
     await expect(page.locator('#af-token-state')).toHaveText('No token set.');
   });
 
+  test('changing the saved address clears the token and says so', async ({ page }) => {
+    await configure(page, stub.base);
+    await page.locator('#set-save').click();
+    await expect(page.locator('.toast')).toHaveText('Settings saved');
+    await page.locator('#af-token-input').fill('moving-token');
+    await page.locator('#af-token-save').click();
+    await expect(page.locator('#af-token-state')).toContainText('A token is set.');
+    await configure(page, stub.base.replace('127.0.0.1', 'localhost'));
+    await page.locator('#set-save').click();
+    await expect(page.locator('.toast')).toHaveText('Settings saved. The token was cleared because the service address changed: enter it again.');
+    await expect(page.locator('#af-token-state')).toHaveText('No token set.');
+    await page.goto('/settings/autofill');
+    await expect(page.locator('#af-token-state')).toHaveText('No token set.');
+  });
+
   test('service down, timeout and not an autofill service', async ({ page }) => {
     await configure(page, 'http://127.0.0.1:1');
     await page.locator('#af-test').click();

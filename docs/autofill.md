@@ -49,6 +49,9 @@ are not followed and only http(s) is allowed; for a home-network app that is acc
   never written to logs and never sent to the browser. Suggestions go through Apotheke's server, so the
   browser never talks to the service directly.
 - **Clear token** removes it.
+- Saving a **different service address** (same comparison as above) clears the stored token in the same
+  save, and the page says so: enter the token again for the new service. A token submitted with that same save
+  (`autofill_token`) is kept instead. Resetting the section to another address clears it too.
 
 All forms on the page need the CSRF token; viewers and editors get `403`.
 

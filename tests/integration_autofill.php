@@ -134,6 +134,33 @@ T::eq($secret, $afGet('autofill_token'), 'token unchanged after the attempts');
 $r = $af->post('/settings/autofill/token', ['csrf' => $at, 'action' => 'clear']);
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-cleared') && $afGet('autofill_token') === '', 'admin can clear the token');
 
+// B1 bypass: saving a new address drops the stored token, so it cannot be redirected to another host
+$stub2 = new StubServer();
+$afSet(['autofill_enabled' => true, 'autofill_url' => $stub->base, 'autofill_timeout' => 5, 'autofill_token' => '']);
+$af->post('/settings/autofill/token', ['csrf' => $at, 'token' => $secret]);
+T::eq($secret, $afGet('autofill_token'), 'token set for the saved address');
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/', 'autofill_timeout' => '5']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && !str_contains($r['headers']['location'] ?? '', 'token-cleared') && $afGet('autofill_token') === $secret, 'saving the same address (normalised) keeps the token');
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub2->base, 'autofill_timeout' => '5']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved-token-cleared'), 'saving a different address → token-cleared notice', $r['headers']['location'] ?? '');
+T::eq('', $afGet('autofill_token'), '… and the stored token is cleared in the same save');
+$page = $af->get('/settings/autofill?done=saved-token-cleared')['body'];
+T::ok(str_contains($page, 'token was cleared because the service address changed') && str_contains($page, 'No token set.') && !str_contains($page, 'A token is <b>set</b>'), '… the page says it was cleared and no longer says a token is set');
+$stub2->clear();
+$af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub2->base, 'autofill_timeout' => '5']);
+T::eq(null, $stub2->lastInfoAuth(), '… Test connection sends no Authorization header to the new host');
+$png1 = (function (): string { $im = imagecreatetruecolor(20, 20); ob_start(); imagepng($im); return (string)ob_get_clean(); })();
+$af->api('/autofill/suggest', ['csrf' => $at], ['image' => ['name' => 'p.png', 'type' => 'image/png', 'data' => $png1]]);
+T::ok($stub2->last() !== null && ($stub2->last()['auth'] ?? null) === null, '… and suggest sends no Authorization header to the new host');
+// a token entered in the same save as the new address is kept
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base, 'autofill_timeout' => '5', 'autofill_token' => 'fresh-token']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && !str_contains($r['headers']['location'] ?? '', 'token-cleared') && $afGet('autofill_token') === 'fresh-token', 'new address with a new token in the same save → the new token is stored');
+// resetting the section to a different (default) address also drops the token
+$r = $af->post('/settings/autofill/reset', ['csrf' => $at]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=reset-token-cleared') && $afGet('autofill_token') === '', 'reset to another address clears the token');
+$stub2->stop();
+$afSet(['autofill_token' => '']);
+
 T::section('AI autofill: suggestions after a photo');
 $png = function (int $w, int $h): string { $im = imagecreatetruecolor($w, $h); imagefill($im, 0, 0, imagecolorallocate($im, 200, 60, 40)); ob_start(); imagepng($im); return (string)ob_get_clean(); };
 $photo = ['image' => ['name' => 'p.png', 'type' => 'image/png', 'data' => $png(3000, 2000)]];
