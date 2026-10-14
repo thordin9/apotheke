@@ -120,11 +120,16 @@ function autofill_test(string $url, int $timeout, ?string $token = null): array
     if ($h['error'] === 'unavailable') return $fail('unavailable', 'This PHP has no curl extension, which autofill needs.');
     if ($h['status'] !== 200) return $fail('bad_response', 'The service answered /healthz with HTTP ' . $h['status'] . ' – is this the autofill service (API v1)?');
     // 2. GET /v1/info with the token
-    $r = autofill_http('GET', $url . '/v1/info', null, $token ?? autofill_token(), $timeout);
+    $token ??= autofill_token();
+    $r = autofill_http('GET', $url . '/v1/info', null, $token, $timeout);
     if ($r['error'] === 'timeout') return $fail('timeout', "No answer within $timeout seconds. Is the service busy or the timeout too short?");
     if ($r['error'] === 'unreachable') return $fail('unreachable', 'Could not connect. Check the address, that the service is running and that this server can reach it.');
     if ($r['error'] === 'unavailable') return $fail('unavailable', 'This PHP has no curl extension, which autofill needs.');
-    if ($r['status'] === 401 || $r['status'] === 403) return $fail('unauthorized', 'The service refused the token (401). Set the token the service expects, or clear it if the service has none.');
+    if ($r['status'] === 401 || $r['status'] === 403) {
+        return $token === ''
+            ? $fail('unauthorized', 'The service requires a token (401). Set the access token the service expects below.')
+            : $fail('unauthorized', 'The service refused the token (401). Set the token the service expects, or clear it if the service has none.');
+    }
     if ($r['error'] !== null || $r['status'] !== 200) return $fail('bad_response', 'The service answered with HTTP ' . $r['status'] . ' – is this the autofill service (API v1)?');
     $info = autofill_parse_info($r['body']);
     if ($info === null) return $fail('bad_response', 'The service answered, but not with a valid /v1/info response – is this the autofill service (API v1)?');
@@ -266,7 +271,9 @@ function autofill_suggest(string $imageBytes): array
     if ($r['error'] === 'too_large') return $fail('bad_response', 'No suggestions: the service sent an unexpected answer.');
     switch ($r['status']) {
         case 200: break;
-        case 401: case 403: autofill_log('suggest: token refused (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service refused the access token. An admin can fix it in Settings → AI autofill.');
+        case 401: case 403:
+            if (autofill_token() === '') { autofill_log('suggest: service requires a token (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service requires an access token. An admin can set it in Settings → AI autofill.'); }
+            autofill_log('suggest: token refused (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service refused the access token. An admin can fix it in Settings → AI autofill.');
         case 413: return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.');
         case 415: return $fail('unsupported', 'No suggestions: the service cannot read this kind of image.');
         case 503: return $fail('busy', 'No suggestions: the service is busy or not ready. Try again later.');

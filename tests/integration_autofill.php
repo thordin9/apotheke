@@ -68,6 +68,7 @@ $tokUrl = $stub->base . '/t/' . $secret;
 $afSet(['autofill_url' => $tokUrl, 'autofill_token' => '']);
 $r = $test($tokUrl);
 T::eq('unauthorized', $r['json']['code'] ?? null, 'service wants a token, none set → unauthorized');
+T::ok(str_contains($r['json']['message'] ?? '', 'requires a token') && !str_contains($r['json']['message'] ?? '', 'refused'), '… and says a token is required (not "refused")', $r['json']['message'] ?? '');
 $afSet(['autofill_token' => 'wrong']);
 $r = $test($tokUrl);
 T::ok(($r['json']['code'] ?? null) === 'unauthorized' && str_contains($r['json']['message'] ?? '', 'refused the token'), 'wrong token → unauthorized, "refused the token"');
@@ -163,7 +164,11 @@ $r = $suggest();
 T::ok(($r['json']['ok'] ?? false) === true && ($stub->last()['auth'] ?? '') === 'Bearer ' . $secret, 'token sent as a bearer token');
 T::ok(!str_contains($r['body'], $secret), 'token not in the answer to the browser');
 $afSet(['autofill_token' => 'wrong']);
-T::eq('unauthorized', $suggest()['json']['code'] ?? null, 'bad token → unauthorized, no suggestions');
+$r = $suggest();
+T::ok(($r['json']['code'] ?? null) === 'unauthorized' && str_contains($r['json']['message'] ?? '', 'refused'), 'bad token → unauthorized, "refused the access token"', $r['body']);
+$afSet(['autofill_token' => '']);
+$r = $suggest();
+T::ok(($r['json']['code'] ?? null) === 'unauthorized' && str_contains($r['json']['message'] ?? '', 'requires an access token') && !str_contains($r['json']['message'] ?? '', 'refused'), 'no token set, service wants one → "requires an access token"', $r['body']);
 $afSet(['autofill_url' => $stub->base, 'autofill_token' => '']);
 // failure modes: all soft (HTTP 200, ok:false, a message for the status line)
 foreach ([['http://127.0.0.1:1', 'unreachable', 'service down'], [$stub->base . '/m/error', 'busy', 'backend error (503)'],
