@@ -179,18 +179,18 @@ const AUTOFILL_MAX_TAGS = 8;
 
 /**
  * The photo as the service wants it: JPEG, about 1024 px on the long edge, EXIF orientation applied.
- * Anything GD cannot read (HEIC, broken files…) is passed through unchanged, so the service decides (415).
- * @return array{data:string,mime:string,converted:bool}
+ * HEIC/HEIF (which GD cannot read but the service may) is passed through unchanged; anything else GD cannot read
+ * (PDFs, broken or huge files…) is null: not sent at all.
+ * @return array{data:string,mime:string,converted:bool}|null
  */
-function autofill_prepare_image(string $bytes): array
+function autofill_prepare_image(string $bytes): ?array
 {
+    $pass = autofill_is_heic($bytes) ? ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false] : null;
     $info = @getimagesizefromstring($bytes);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
-    if (!$info || !in_array($info[2], $types, true) || $info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) {
-        return ['data' => $bytes, 'mime' => 'application/octet-stream', 'converted' => false];
-    }
+    if (!$info || !in_array($info[2], $types, true) || $info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) return $pass;
     $src = @imagecreatefromstring($bytes);
-    if (!$src) return ['data' => $bytes, 'mime' => 'application/octet-stream', 'converted' => false];
+    if (!$src) return $pass;
     if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
         $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($bytes));
         if (is_array($exif)) $src = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
@@ -199,6 +199,13 @@ function autofill_prepare_image(string $bytes): array
     ob_start();
     imagejpeg($im, null, AUTOFILL_IMAGE_QUALITY);
     return ['data' => (string)ob_get_clean(), 'mime' => 'image/jpeg', 'converted' => true];
+}
+
+/** HEIC/HEIF container (ISO BMFF "ftyp" box with a HEIF brand)? */
+function autofill_is_heic(string $bytes): bool
+{
+    return strlen($bytes) >= 12 && substr($bytes, 4, 4) === 'ftyp'
+        && in_array(substr($bytes, 8, 4), ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'], true);
 }
 
 /** What the backend may reuse: existing category and tag spellings, and the UI language. */
@@ -254,6 +261,7 @@ function autofill_suggest(string $imageBytes): array
     if (!autofill_enabled()) return $fail('off', 'AI autofill is off.');
     if ($imageBytes === '') return $fail('no_image', 'No photo.');
     $img = autofill_prepare_image($imageBytes);
+    if ($img === null) return $fail('unsupported', 'No suggestions: this kind of file cannot be read as a photo.');
     $info = autofill_info_cache();
     if ($info !== null && $info['max_image_bytes'] !== null && strlen($img['data']) > $info['max_image_bytes']) {
         return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.');

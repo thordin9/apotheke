@@ -193,6 +193,11 @@ $afSet(['autofill_url' => $stub->base, 'autofill_timeout' => 5]);
 $stub->clear();
 $r = $suggest(['image' => ['name' => 'x.heic', 'type' => 'image/heic', 'data' => "\x00\x00\x00\x18ftypheic" . str_repeat('x', 500)]]);
 T::ok(($r['json']['code'] ?? '') === 'unsupported' && ($stub->last()['bytes'] ?? 0) === 512, 'unreadable image (HEIC) passed through; service 415 → unsupported');
+foreach (['doc.pdf' => "%PDF-1.7\n" . str_repeat('x', 500), 'notes.txt' => 'hello'] as $fn => $data) {
+    $stub->clear();
+    $r = $suggest(['image' => ['name' => $fn, 'type' => 'application/octet-stream', 'data' => $data]]);
+    T::ok(($r['json']['code'] ?? '') === 'unsupported' && $stub->last() === null, "unreadable non-image ($fn) rejected locally, never sent to the service", $r['body']);
+}
 $r = $suggest(['image' => ['name' => 'tiny.png', 'type' => 'image/png', 'data' => $png(1, 1)]]);
 T::ok(($r['json']['ok'] ?? false) === true, '1×1 image is fine');
 T::eq('no_image', $suggest([])['json']['code'] ?? null, 'no image → no_image');

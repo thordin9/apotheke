@@ -155,6 +155,11 @@ final class AutofillTest extends DatabaseTestCase
         $odd = autofill_prepare_image("\x00\x00\x00\x18ftypheic....");
         $this->assertFalse($odd['converted'], 'unreadable images pass through unchanged');
         $this->assertSame("\x00\x00\x00\x18ftypheic....", $odd['data']);
+        $this->assertSame('image/heic', $odd['mime']);
+        $this->assertNull(autofill_prepare_image("%PDF-1.7\n%\xE2\xE3\n1 0 obj"), 'a PDF is not sent');
+        $this->assertNull(autofill_prepare_image('just some text'), 'random bytes are not sent');
+        $this->assertNull(autofill_prepare_image("\xFF\xD8\xFF\xE0broken jpeg"), 'a broken JPEG is not sent');
+        $this->assertNull(autofill_prepare_image("\x00\x00\x00\x18ftypisom...."), 'an MP4 (non-HEIF ftyp) is not sent');
     }
 
     public function testParseSuggestion(): void
