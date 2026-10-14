@@ -90,6 +90,10 @@ T::eq($secret, $afGet('autofill_token'), '… and the stored token is unchanged'
 $afSet(['autofill_url' => $stub->base]);
 T::eq('unreachable', $test('http://127.0.0.1:1')['json']['code'] ?? null, 'nothing listening → unreachable');
 $t0 = microtime(true);
+$r = $test('http://10.255.255.1:8080', '10');
+T::ok(($r['json']['code'] ?? null) === 'unreachable' && !str_contains($r['json']['message'] ?? '', 'within'), 'unroutable address (connect timeout) → unreachable, not "no answer within"', json_encode($r['json']));
+T::ok(microtime(true) - $t0 < 6, '… after the 3 s connect timeout, not the 10 s timeout');
+$t0 = microtime(true);
 T::eq('timeout', $test($stub->base . '/m/slow', '3')['json']['code'] ?? null, 'slow service → timeout');
 T::ok(microtime(true) - $t0 < 6, '… after the configured timeout (3 s)');
 T::eq('bad_response', $test($stub->base . '/m/badinfo')['json']['code'] ?? null, 'not an API v1 /v1/info → bad_response');
@@ -165,7 +169,10 @@ foreach ([['http://127.0.0.1:1', 'unreachable', 'service down'], [$stub->base . 
     $r = $suggest();
     T::ok($r['status'] === 200 && ($r['json']['ok'] ?? null) === false && ($r['json']['code'] ?? '') === $code && ($r['json']['message'] ?? '') !== '', "$what → $code", $r['body']);
 }
-$afSet(['autofill_url' => $stub->base . '/m/empty']);
+$afSet(['autofill_url' => 'http://10.255.255.1:8080', 'autofill_timeout' => 10]);
+$r = $suggest();
+T::ok(($r['json']['code'] ?? '') === 'unreachable' && str_contains($r['json']['message'] ?? '', 'not reachable'), 'suggest: connect timeout → "not reachable", not "did not answer within"', $r['body']);
+$afSet(['autofill_url' => $stub->base . '/m/empty', 'autofill_timeout' => 5]);
 $r = $suggest();
 T::ok(($r['json']['ok'] ?? null) === true && ($r['json']['code'] ?? '') === 'empty', 'empty answer {} → no suggestions, not an error');
 $afSet(['autofill_url' => $stub->base . '/m/slow', 'autofill_timeout' => 3]);

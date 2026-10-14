@@ -33,7 +33,7 @@ function autofill_log(string $msg): void
 /**
  * One HTTP request to the service. Never throws.
  * @param array<string,string|CURLStringFile>|null $multipart
- * @return array{status:int,body:string,error:?string} error: unreachable|timeout|unavailable|too_large|null
+ * @return array{status:int,body:string,error:?string} error: unreachable (incl. connect timeout)|timeout|unavailable|too_large|null
  */
 function autofill_http(string $method, string $url, ?array $multipart, string $token, int $timeout): array
 {
@@ -61,10 +61,12 @@ function autofill_http(string $method, string $url, ?array $multipart, string $t
     $ok = curl_exec($ch);
     $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
     $errno = curl_errno($ch);
+    $connected = (float)curl_getinfo($ch, CURLINFO_CONNECT_TIME) > 0;
     curl_close($ch);
     if ($tooLarge) return ['status' => $status, 'body' => '', 'error' => 'too_large'];
     if ($ok === false || $errno !== 0) {
-        $err = $errno === CURLE_OPERATION_TIMEDOUT ? 'timeout' : 'unreachable';
+        // a timeout before the connection was made (the 3 s connect timeout) means "not reachable", not "slow"
+        $err = $errno === CURLE_OPERATION_TIMEDOUT && $connected ? 'timeout' : 'unreachable';
         return ['status' => 0, 'body' => '', 'error' => $err];
     }
     return ['status' => $status, 'body' => $body, 'error' => null];
