@@ -160,6 +160,19 @@ $r = $af->post('/settings/autofill/reset', ['csrf' => $at]);
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=reset-token-cleared') && $afGet('autofill_token') === '', 'reset to another address clears the token');
 $stub2->stop();
 $afSet(['autofill_token' => '']);
+// upper-case scheme: accepted and normalised, like host case
+$afSet(['autofill_url' => $stub->base, 'autofill_token' => $secret]);
+$upper = 'HTTP://' . substr($stub->base, strlen('http://'));
+$stub->clear();
+$r = $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $upper, 'autofill_timeout' => '5']);
+T::ok(($r['json']['ok'] ?? null) === true && $stub->lastInfoAuth() === 'Bearer ' . $secret, 'Test connection: HTTP:// is the saved address (scheme case ignored)', json_encode($r['json']));
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $upper, 'autofill_timeout' => '5']);
+T::ok($r['status'] === 303 && !str_contains($r['headers']['location'] ?? '', 'token-cleared'), 'saving HTTP:// is accepted and keeps the token (same address)');
+T::eq($stub->base, $afGet('autofill_url'), '… stored with a lower-case scheme');
+T::eq($secret, $afGet('autofill_token'), '… token kept');
+T::eq(303, $af->post('/settings/autofill', ['csrf' => $at, 'autofill_url' => 'HtTpS://example.org', 'autofill_timeout' => '5'])['status'], 'mixed-case https:// accepted');
+T::eq('https://example.org', $afGet('autofill_url'), '… stored as https://');
+$afSet(['autofill_url' => $stub->base, 'autofill_token' => '']);
 
 T::section('AI autofill: suggestions after a photo');
 $png = function (int $w, int $h): string { $im = imagecreatetruecolor($w, $h); imagefill($im, 0, 0, imagecolorallocate($im, 200, 60, 40)); ob_start(); imagepng($im); return (string)ob_get_clean(); };

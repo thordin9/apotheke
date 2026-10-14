@@ -209,6 +209,8 @@ function setting_validate(string $key, mixed $raw): mixed
         case 'url':
             if ($str === null) throw new UserError("$label: invalid.");
             $str = rtrim($str, '/');
+            // schemes are case-insensitive (RFC 3986): HTTP:// is stored as http://, like the host-case handling
+            $str = (string)preg_replace_callback('#^(https?)://#i', fn($m) => strtolower($m[1]) . '://', $str);
             if ($str !== '' && (!preg_match('#^https?://[A-Za-z0-9.\-\[\]:]+(/[^\s]*)?$#D', $str) || strlen($str) > 200)) {
                 throw new UserError("$label: a full address starting with http:// or https://.");
             }
