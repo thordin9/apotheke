@@ -44,6 +44,12 @@ export class App {
   get mobile() { return !!this.info.project.use.isMobile; }
   /** Navigate and wait until the page is idle. */
   async go(p: string) { await this.page.goto(p, { waitUntil: 'networkidle' }); }
+  /** Expand the Overview (phones start with it collapsed) and wait for its content. */
+  async openOverview() {
+    const s = this.page.locator('#stats');
+    if ((await s.getAttribute('open')) === null) await s.locator('summary').click();
+    await expect(this.page.locator('#stats .tile').first()).toBeVisible();
+  }
   /** A small deterministic JPEG/PNG on disk, for file inputs. */
   image(name: string, rgb: [number, number, number], png = false): string {
     const out = path.join(this.server.filesDir, name);

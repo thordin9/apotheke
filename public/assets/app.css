@@ -471,6 +471,18 @@ a.tagchip{min-height:36px}
 .more-fields{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);margin:0 0 var(--s4)}
 .more-fields>summary{min-height:48px;display:flex;align-items:center;padding:0 14px;font-weight:600;cursor:pointer;color:var(--accent)}
 .more-grid{padding:0 12px 4px;display:grid;gap:0}
+.star-help{display:block;margin-top:6px}
+/* the sticky Save bar must never hide the field being typed in */
+html:has(.actionbar-form){scroll-padding-bottom:calc(96px + var(--sab))}
+.page-form .itemform{padding-bottom:var(--s4)}
+@media (min-width:900px){
+  .page-form .wrap.narrow{max-width:820px}
+  .page-form .itemform{grid-template-columns:1fr 1fr;column-gap:var(--s5)}
+  .page-form .itemform>*{grid-column:1/-1}
+  .page-form .itemform>.half{grid-column:auto}
+  .page-form .itemform>input[type=hidden],.page-form .itemform>datalist{display:none}
+  .page-form .more-fields[open] .more-grid{grid-template-columns:1fr 1fr}
+}
 @media (min-width:560px){.more-grid{grid-template-columns:1fr 1fr}.more-grid .field:last-child{grid-column:1/-1}}
 
 /* backup & restore */
@@ -860,7 +872,7 @@ body:has(.undo-bar:not([hidden])) .toast,body:has(.undo-bar:not([hidden])) .fab{
 
 /* ---------- users & roles ---------- */
 /* body.no-<permission>: hide what the role may not use (the server refuses it anyway) */
-body.no-create .fab,body.no-create #dupform,body.no-edit .qty .qbtn,body.no-edit .needs-edit,body.no-edit.page-item .actionbar .btn-primary,
+body.no-create .fab,body.no-create .stk-addhere,body.no-create #dupform,body.no-edit .qty .qbtn,body.no-edit .needs-edit,body.no-edit.page-item .actionbar .btn-primary,
 body.no-delete.page-item .danger-zone,body.no-delete #merge-link,body.no-edit.page-item .actionbar,
 body.no-edit .photos-box form,body.no-edit .pm-btns,body.no-edit .pm-drag,body.no-edit .pm-edit,body.no-edit .pm-add,
 body.no-edit .att-box form,body.no-edit .tax-page form[method=post],body.no-edit #fav-form,body.no-edit .fav-form,

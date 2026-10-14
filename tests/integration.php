@@ -381,6 +381,9 @@ $dz = preg_match('#<section class="danger-zone".*?</section>#s', $r['body'], $mm
 T::ok(str_contains($dz, 'action="/item/' . $nojs . '/delete"') && !str_contains($bar, '/delete"'), 'Delete sits in its own danger zone, away from Edit');
 $r = $c->get('/new');
 T::ok(str_contains($r['body'], 'actionbar actionbar-form') && str_contains($r['body'], 'id="save-another"'), 'form sticky action bar with both save buttons');
+T::ok(substr_count($r['body'], 'class="field picker half"') === 2 && substr_count($r['body'], 'class="field half"') === 2, 'new-item form marks the paired fields for the desktop two-column layout');
+$hasDef = (int)$db->query('SELECT COUNT(*) FROM locations WHERE is_default = 1')->fetchColumn() > 0;
+T::eq($hasDef, str_contains($r['body'], 'id="locstar"'), '★ is explained exactly when there is a default location');
 
 T::section('QR labels');
 $r = $c->get('/labels');

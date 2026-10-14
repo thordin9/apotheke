@@ -83,7 +83,8 @@ function stocktake_body_html(array $s): string
         $o .= '</ul>';
     }
     $o .= '<h2 class="set-h">Expected here</h2>';
-    if (!$lines) return $o . '<p class="hint" id="stk-none">No items are recorded in this location. Scan anything you find – it will be listed as misplaced.</p>';
+    if (!$lines) return $o . '<p class="hint" id="stk-none">No items are recorded in this location yet. Scan anything you find – it will be listed as misplaced – or add what is here as new items.</p>'
+        . ($s['location_id'] !== null ? '<p><a class="btn btn-sm stk-addhere" id="stk-addhere" href="/new?loc=' . (int)$s['location_id'] . '">' . icon('plus') . ' Add an item here</a></p>' : '');
     $o .= '<ul class="stk-list" id="stk-expected">';
     foreach ($lines as $l) if ($l['item_id'] !== null) $o .= $row($l, false);
     return $o . '</ul>';
