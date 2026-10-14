@@ -26,6 +26,7 @@ test.describe('low-stock alerts', () => {
     await expect(card).toHaveClass(/is-low/);
     await expect(card.locator('.lowbadge')).toBeVisible();
     await expect(page.locator('.card.is-low')).toHaveCount(1);
+    await app.openOverview();
     const tile = page.locator('#stats .tile-low');
     await expect(tile).toContainText('1');
     await tile.click();

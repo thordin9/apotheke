@@ -80,6 +80,7 @@ test.describe('nested locations', () => {
     await page.locator('#q').fill('');
     await expect(page.locator('#grid .card')).toHaveCount(8);
     // overview: Attic's bar includes box 2 and box 10, which are not listed on their own
+    await app.openOverview();
     await expect(page.locator(`#stats .st-location .hbars a[data-loc="${attic}"]`)).toBeVisible();
     const bar = page.locator('#stats .st-location .hbars li', { has: page.locator(`a[data-loc="${attic}"]`) });
     await expect(bar.locator('.hb-n')).toHaveText(String(expected));

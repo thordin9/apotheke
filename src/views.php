@@ -828,7 +828,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
     $p = $t['param'];
     $field = $t['col'];
     $newField = 'new_' . $kind;
-    $o = '<div class="field picker" data-kind="' . $kind . '" data-prefix="' . $p . '" data-endpoint="' . $t['path'] . '">'
+    $o = '<div class="field picker half" data-kind="' . $kind . '" data-prefix="' . $p . '" data-endpoint="' . $t['path'] . '">'
        . '<span class="field-head"><label for="' . $p . 'sel">' . h($t['One']) . '</label><a href="' . $t['path'] . '" class="field-link">Manage</a></span>'
        . '<div class="locrow"><select name="' . $field . '" id="' . $p . 'sel" class="locsel">'
        . '<option value="">— ' . h($t['none']) . ' —</option>';
@@ -841,6 +841,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
        . '<input type="text" name="' . $newField . '" id="new' . $p . 'name" value="' . h($newVal) . '" maxlength="120" autocomplete="off" autocorrect="off" enterkeyhint="done" placeholder="New ' . h($t['one']) . ', e.g. ' . h($t['example']) . '" aria-label="New ' . h($t['one']) . ' name">'
        . '<button type="button" class="btn btn-primary" id="new' . $p . 'ok">Add</button></div>'
        . '<noscript><input type="text" name="' . $newField . '_ns" maxlength="120" placeholder="…or type a new ' . h($t['one']) . '" class="ns-newloc"></noscript>'
+       . (array_filter($list, fn($l) => !empty($l['is_default'])) ? '<small class="field-help star-help" id="' . $p . 'star">★ marks the default ' . h($t['one']) . ', preselected for new items.</small>' : '')
        . '</div>';
     return $o;
 }
@@ -888,7 +889,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </label>
     <?= picker_html('location', $locs, $vals['location_id'], $vals['new_location']) ?>
     <?= picker_html('category', $cats, $vals['category_id'], $vals['new_category']) ?>
-    <div class="field">
+    <div class="field half">
       <span>Quantity</span>
       <div class="stepper">
         <button type="button" class="qbtn" data-step="-1" aria-label="Decrease"><?= icon('minus') ?></button>
@@ -896,7 +897,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
         <button type="button" class="qbtn" data-step="1" aria-label="Increase"><?= icon('plus') ?></button>
       </div>
     </div>
-    <label class="field">
+    <label class="field half">
       <span>Running low at <em>optional – alert when the quantity is this or less</em></span>
       <input type="number" name="min_qty" id="min_qty" value="<?= h((string)($vals['min_qty'] ?? '')) ?>" min="0" max="1000000" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 2">
     </label>

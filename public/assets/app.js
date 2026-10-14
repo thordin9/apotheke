@@ -286,8 +286,15 @@
     };
     const saved = read('statsOpen');
     if (saved !== null && (saved === '1') !== statsBox.open) statsBox.open = saved === '1';
+    // phones: start collapsed so the items are above the fold, until this device makes its own choice
+    let autoClosed = false;
+    if (saved === null && !/(^|; )stats_open=/.test(document.cookie) && statsBox.open && matchMedia('(max-width: 640px)').matches) {
+      autoClosed = true;
+      statsBox.open = false;
+    }
     applyRange();
     statsBox.addEventListener('toggle', () => {
+      if (autoClosed) { autoClosed = false; return; }
       const v = statsBox.open ? '1' : '0';
       store('statsOpen', v);
       document.cookie = 'stats_open=' + v + '; path=/; max-age=31536000; SameSite=Lax';

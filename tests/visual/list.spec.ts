@@ -34,6 +34,11 @@ test.describe('list, overview and search', () => {
   test('overview: tiles, range toggle, collapse persistence, tap to filter', async ({ app, page }) => {
     await app.go('/');
     const stats = page.locator('#stats');
+    if ((page.viewportSize()?.width ?? 1280) <= 640) {
+      // phones start collapsed so the items show above the fold
+      await expect(stats).not.toHaveAttribute('open', '');
+      await stats.locator('summary').click();
+    }
     await expect(stats).toHaveAttribute('open', '');
     const tiles = page.locator('#stats .tile');
     await expect(tiles).toHaveCount(9);
