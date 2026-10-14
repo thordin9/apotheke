@@ -354,7 +354,11 @@ T::ok(str_contains($r['body'], 'No location'), '"No location" chip label');
 $r = $c->get('/?q=zzzznomatch');
 T::ok(str_contains($r['body'], 'id="empty-clear" href="/">') && str_contains($r['body'], 'id="empty-add" href="/new" hidden'), 'filtered empty state offers "Clear", not "Add first"');
 $r = $c->get('/item/' . $nojs);
-T::ok(str_contains($r['body'], 'class="actionbar"') && str_contains($r['body'], 'href="/item/' . $nojs . '/edit"><svg'), 'item page sticky action bar with Edit');
+T::ok(str_contains($r['body'], 'class="actionbar"') && str_contains($r['body'], 'href="/item/' . $nojs . '/edit" id="item-edit"><svg'), 'item page sticky action bar with Edit');
+T::eq(1, preg_match_all('#<a class="btn[^"]*" href="/item/' . $nojs . '/edit"#', $r['body']), 'item page has a single Edit button');
+$bar = substr($r['body'], strpos($r['body'], '<div class="actionbar">'));
+$dz = preg_match('#<section class="danger-zone".*?</section>#s', $r['body'], $mm) ? $mm[0] : '';
+T::ok(str_contains($dz, 'action="/item/' . $nojs . '/delete"') && !str_contains($bar, '/delete"'), 'Delete sits in its own danger zone, away from Edit');
 $r = $c->get('/new');
 T::ok(str_contains($r['body'], 'actionbar actionbar-form') && str_contains($r['body'], 'id="save-another"'), 'form sticky action bar with both save buttons');
 
