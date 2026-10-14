@@ -7,6 +7,26 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-14
+
+### Added
+
+- **ui:** phone overview, ★ hint, two-column form, safe Save bar ([#19](https://github.com/thordin9/apotheke/pull/19))
+
+### Fixed
+
+- **ci:** avoid SIGPIPE in smoke.sh by grepping a saved page ([#19](https://github.com/thordin9/apotheke/pull/19))
+- **ci:** ignore comments in the pipefail grep lint ([#19](https://github.com/thordin9/apotheke/pull/19))
+- **export:** protect CSV cells against formula injection ([#19](https://github.com/thordin9/apotheke/pull/19))
+- **ui:** fixed-size chart labels; hide the chart with little history ([#19](https://github.com/thordin9/apotheke/pull/19))
+- **ui:** single Edit button; move Delete into a danger zone ([#19](https://github.com/thordin9/apotheke/pull/19))
+- **auth:** Secure cookie behind trusted proxies; configurable lifetime ([#19](https://github.com/thordin9/apotheke/pull/19))
+
+### Maintenance
+
+- **e2e:** test: update visual baselines ([#19](https://github.com/thordin9/apotheke/pull/19))
+- **e2e:** test: photo editor baselines with the new Save-bar padding ([#19](https://github.com/thordin9/apotheke/pull/19))
+
 ## [2.0.0] - 2026-10-13
 
 ### Breaking changes
@@ -107,7 +127,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/thordin9/apotheke/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/thordin9/apotheke/compare/v1.2.0...v2.0.0
 [1.2.0]: https://github.com/thordin9/apotheke/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/thordin9/apotheke/compare/v1.1.0...v1.1.1
