@@ -213,7 +213,9 @@ form.busy .btn{opacity:.6;pointer-events:none}
 #rg-d:checked~.st-head label[for=rg-d],#rg-m:checked~.st-head label[for=rg-m]{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 #rg-d:focus-visible~.st-head label[for=rg-d],#rg-m:focus-visible~.st-head label[for=rg-m]{outline:2px solid var(--accent)}
 #rg-m:checked~.chart-d,#rg-d:checked~.chart-m{display:none}
-.chart{display:block;width:100%;height:auto;overflow:visible}
+.chart{display:block;width:100%;height:84px;overflow:visible}
+.chart-axis{display:flex;justify-content:space-between;gap:4px;margin-top:4px;font-size:12px;line-height:1.3;color:var(--muted);font-variant-numeric:tabular-nums}
+.chart-axis .ax{white-space:nowrap}
 .chart .bar{fill:var(--accent)}
 .chart .bar-zero{fill:var(--line)}
 .chart .grid{stroke:var(--line);stroke-width:1;stroke-dasharray:3 3}

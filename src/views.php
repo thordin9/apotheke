@@ -452,14 +452,16 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
 /** Vertical bar chart as inline SVG (styled from app.css, so CSP-safe and dark/light aware). */
 function svg_bars(array $series, string $label): string
 {
-    $W = 320; $H = 84; $pad = 15; $n = max(1, count($series));
+    $W = 320; $H = 84; $n = max(1, count($series));
     $max = max(1, ...array_map(fn($p) => $p['n'], $series ?: [['n' => 0]]));
     $gap = $n > 20 ? 2 : 6;
     $bw = ($W - $gap * ($n - 1)) / $n;
-    $out = '<svg class="chart" viewBox="0 0 ' . $W . ' ' . ($H + $pad) . '" role="img" aria-label="' . h($label) . '">';
+    // the bars stretch to the card width (preserveAspectRatio none, fixed CSS height); the axis labels are HTML so
+    // their text stays at 12px instead of growing with the width
+    $out = '<div class="chart-wrap"><svg class="chart" viewBox="0 0 ' . $W . ' ' . $H . '" preserveAspectRatio="none" role="img" aria-label="' . h($label) . '">';
     foreach ([0.5, 1] as $g) {
         $y = round($H - ($H - 4) * $g, 1);
-        $out .= '<line class="grid" x1="0" x2="' . $W . '" y1="' . $y . '" y2="' . $y . '"/>';
+        $out .= '<line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="' . $W . '" y1="' . $y . '" y2="' . $y . '"/>';
     }
     foreach ($series as $i => $p) {
         $x = round($i * ($bw + $gap), 2);
@@ -467,13 +469,13 @@ function svg_bars(array $series, string $label): string
         $out .= '<rect class="' . ($p['n'] > 0 ? 'bar' : 'bar bar-zero') . '" x="' . $x . '" y="' . round($H - $h, 1) . '" width="' . round($bw, 2) . '" height="' . $h . '" rx="' . min(3, $bw / 3) . '">'
               . '<title>' . h($p['label']) . ': ' . $p['n'] . '</title></rect>';
     }
+    $out .= '</svg><div class="chart-axis" aria-hidden="true">';
     $ticks = $n > 12 ? [0, (int)floor(($n - 1) / 2), $n - 1] : range(0, $n - 1, $n > 6 ? 2 : 1);
     foreach ($ticks as $i) {
         $anchor = $i === 0 ? 'start' : ($i === $n - 1 && $n > 12 ? 'end' : 'middle');
-        $x = $anchor === 'start' ? 0 : ($anchor === 'end' ? $W : round($i * ($bw + $gap) + $bw / 2, 1));
-        $out .= '<text class="axis" x="' . $x . '" y="' . ($H + $pad - 2) . '" text-anchor="' . $anchor . '">' . h($series[$i]['label']) . '</text>';
+        $out .= '<span class="ax ax-' . $anchor . '">' . h($series[$i]['label']) . '</span>';
     }
-    return $out . '</svg>';
+    return $out . '</div></div>';
 }
 
 /** Horizontal "top N" bars (HTML rows + tiny SVG bar each); labels filter the list by $param. */
@@ -511,7 +513,12 @@ function stats_body_html(): string
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
-    $o .= '<section class="st-card st-wide">'
+    $busy = fn(array $s) => count(array_filter($s, fn($p) => $p['n'] > 0));
+    if ($busy($months) < 2 && $busy($days) < 2) {
+        // everything was added on one day: a chart with a single bar says nothing
+        $o .= '<section class="st-card st-wide" id="st-added"><div class="st-head"><h3>Items added</h3></div><p class="st-empty" id="chart-few">'
+            . 'The chart appears once items have been added on more than one day.</p></section>';
+    } else $o .= '<section class="st-card st-wide" id="st-added">'
         . '<input type="radio" class="vh" name="strange" id="rg-d" value="d" checked><input type="radio" class="vh" name="strange" id="rg-m" value="m">'
         . '<div class="st-head"><h3>Items added</h3>'
         . '<div class="seg" role="group" aria-label="Range"><label for="rg-d">30 days</label><label for="rg-m">12 months</label></div></div>'
