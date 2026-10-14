@@ -116,6 +116,58 @@ final class Server
     }
 }
 
+/** The autofill-service stand-in (tests/stubs/autofill-stub.php) on a free port. */
+final class StubServer
+{
+    public string $base;
+    public string $log;
+    /** @var resource */
+    private $proc;
+
+    public function __construct(array $env = [])
+    {
+        $sock = stream_socket_server('tcp://127.0.0.1:0');
+        $port = (int)substr(strrchr(stream_socket_get_name($sock, false), ':'), 1);
+        fclose($sock);
+        $this->base = "http://127.0.0.1:$port";
+        $this->log = tempnam(sys_get_temp_dir(), 'af-stub-');
+        $fullEnv = array_merge(getenv(), ['PHP_CLI_SERVER_WORKERS' => '4', 'STUB_LOG' => $this->log, 'STUB_SLOW_S' => '6'], $env);
+        $this->proc = proc_open([PHP_BINARY, '-S', "127.0.0.1:$port", ROOT . '/tests/stubs/autofill-stub.php'],
+            [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'a'], 2 => ['file', '/dev/null', 'a']], $pipes, ROOT, $fullEnv);
+        for ($i = 0; $i < 100; $i++) {
+            $c = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+            if ($c) { fclose($c); return; }
+            usleep(50000);
+        }
+        throw new RuntimeException('autofill stub did not come up');
+    }
+
+    /** The last /v1/suggest request the stub saw (null: none since clear()). */
+    public function last(): ?array
+    {
+        $s = (string)@file_get_contents($this->log);
+        return $s === '' ? null : json_decode($s, true);
+    }
+
+    /** The Authorization header of the last GET /v1/info (null: none sent; false: no /v1/info since clear()). */
+    public function lastInfoAuth(): string|null|false
+    {
+        $s = (string)@file_get_contents($this->log . '.info');
+        return $s === '' ? false : (json_decode($s, true)['auth'] ?? null);
+    }
+
+    public function clear(): void { @file_put_contents($this->log, ''); @file_put_contents($this->log . '.info', ''); }
+
+    public function stop(): void
+    {
+        if (is_resource($this->proc)) { proc_terminate($this->proc); proc_close($this->proc); }
+        @unlink($this->log);
+        @unlink($this->log . '.info');
+    }
+
+    public function __destruct() { $this->stop(); }
+}
+
 final class Client
 {
     public array $cookies = [];

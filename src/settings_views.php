@@ -69,7 +69,7 @@ function setting_field_html(string $key, mixed $value, ?string $error): string
             return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><div class="colorrow"><input type="color" id="' . $id . '-pick" value="' . h(strtolower((string)$value)) . '" aria-label="' . h($label) . ' picker" data-color-for="#' . $id . '">'
                 . '<input type="text" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="7" pattern="#?[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" autocomplete="off" spellcheck="false"' . $aria . '></div>' . $wrapD . $err . '</div>';
         case 'url':
-            return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="url" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="200" placeholder="' . h(public_url('')) . '" autocomplete="off"' . $aria . '>' . $wrapD . $err . '</div>';
+            return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="url" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="200" placeholder="' . h($o['placeholder'] ?? public_url('')) . '" autocomplete="off"' . $aria . '>' . $wrapD . $err . '</div>';
         default:
             return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="text" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="' . (int)($o['max'] ?? 200) . '"' . (!empty($o['required']) ? ' required' : '') . ' autocomplete="off"' . $aria . '>' . $wrapD . $err . '</div>';
     }
@@ -78,7 +78,7 @@ function setting_field_html(string $key, mixed $value, ?string $error): string
 /**
  * A section page. $values: current (or re-submitted) values, $errors by key, $notes: extra messages (warnings).
  */
-function view_settings_section(string $section, array $values, array $errors, ?string $toast, array $notes = []): void
+function view_settings_section(string $section, array $values, array $errors, ?string $toast, array $notes = [], ?array $afTest = null): void
 {
     [$label, $desc] = SETTINGS_SECTIONS[$section];
     page_start($label . ' · Settings', 'page-settings');
@@ -105,7 +105,9 @@ function view_settings_section(string $section, array $values, array $errors, ?s
     <?php endforeach; ?>
     <?php if ($section === 'items') echo settings_items_defaults_html(); ?>
     <div class="set-actions"><button class="btn btn-primary btn-wide" id="set-save"><?= icon('check') ?> Save</button></div>
+    <?php if ($section === 'autofill') echo autofill_test_html($afTest); ?>
   </form>
+  <?php if ($section === 'autofill') echo settings_autofill_token_html($tok, $errors['autofill_token'] ?? null); ?>
   <form method="post" action="/settings/<?= $section ?>/reset" class="set-reset" data-confirm="Reset “<?= h($label) ?>” to the defaults from config.php?">
     <input type="hidden" name="csrf" value="<?= $tok ?>">
     <button class="btn btn-wide" id="set-reset"><?= icon('undo') ?> Reset this section to defaults</button>
@@ -307,4 +309,45 @@ function settings_system_html(): string
         . '<tr><th scope="row">Database schema</th><td><code>' . h((string)array_key_last($applied)) . '</code><small>' . count($applied) . ' migrations applied</small></td></tr>'
         . '</tbody></table>'
         . '<p class="hint">All other options (everything in the other sections) were copied from <code>config.php</code> / the environment when this database was created or upgraded, and are edited here from then on.</p></section>';
+}
+
+/** "Test connection" (inside the settings form, so it tests the address and timeout as typed) and its result. */
+function autofill_test_html(?array $r): string
+{
+    $o = '<div class="af-test"><button class="btn btn-wide" id="af-test" formaction="/settings/autofill/test" formnovalidate>' . icon('sparkle') . ' Test connection</button>'
+       . '<div id="af-test-result" class="af-test-result" role="status" aria-live="polite">';
+    if ($r !== null) $o .= autofill_test_result_html($r);
+    return $o . '</div></div>';
+}
+
+function autofill_test_result_html(array $r): string
+{
+    $cls = $r['ok'] ? 'okbox' : ($r['code'] === 'warming_up' ? 'warnbox' : 'err');
+    $o = '<div class="af-res ' . $cls . '" data-code="' . h($r['code']) . '" id="af-res"><p>' . icon($r['ok'] ? 'check' : 'alert') . ' <span>' . h($r['message']) . '</span></p>';
+    if (!empty($r['info'])) {
+        $i = $r['info'];
+        $o .= '<dl class="af-info"><dt>Name</dt><dd id="af-name">' . h($i['name']) . '</dd><dt>API version</dt><dd id="af-version">' . h($i['version']) . '</dd>'
+            . '<dt>Suggests</dt><dd id="af-caps">' . ($i['capabilities'] ? h(implode(', ', $i['capabilities'])) : 'nothing yet') . '</dd>'
+            . ($i['backend'] !== null ? '<dt>Backend</dt><dd>' . h($i['backend']) . '</dd>' : '')
+            . ($i['max_image_bytes'] !== null ? '<dt>Image limit</dt><dd>' . h(autofill_mib((int)$i['max_image_bytes'])) . '</dd>' : '') . '</dl>';
+    }
+    return $o . '</div>';
+}
+
+/** The token is write-only: the page only says whether one is set. */
+function settings_autofill_token_html(string $tok, ?string $error): string
+{
+    $set = autofill_token() !== '';
+    $o = '<section class="set-card" id="af-token"><h2 class="set-h">' . icon('lock') . ' Access token</h2>'
+       . '<p class="hint">Only needed when the service was started with <code>AUTOFILL_TOKEN</code>. It is stored on this server and sent as a bearer token; it is never shown again and not included in exports or backups.</p>'
+       . '<p class="pw-state" id="af-token-state">' . ($set ? icon('check') . ' A token is <b>set</b>.' : 'No token set.') . '</p>'
+       . ($error !== null ? '<p class="field-err" id="af-token-err" role="alert">' . h($error) . '</p>' : '')
+       . '<form method="post" action="/settings/autofill/token" class="setform" id="af-token-form" autocomplete="off"><input type="hidden" name="csrf" value="' . $tok . '">'
+       . '<label class="field"><span>' . ($set ? 'Replace the token' : 'Token') . '</span><input type="password" name="token" id="af-token-input" maxlength="512" autocomplete="new-password" spellcheck="false" required' . ($error !== null ? ' aria-invalid="true" aria-describedby="af-token-err"' : '') . '></label>'
+       . '<button class="btn btn-primary btn-wide" name="action" value="set" id="af-token-save">' . icon('check') . ' Save token</button></form>';
+    if ($set) {
+        $o .= '<form method="post" action="/settings/autofill/token" data-confirm="Remove the stored token?"><input type="hidden" name="csrf" value="' . $tok . '">'
+            . '<button class="btn btn-danger btn-wide" name="action" value="clear" id="af-token-clear">' . icon('trash') . ' Clear token</button></form>';
+    }
+    return $o . '</section>';
 }

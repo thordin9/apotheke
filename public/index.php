@@ -564,6 +564,7 @@ try {
         $notes = [];
         foreach ($r['errors'] as $k => $msg) $notes[] = "Skipped $k: $msg";
         if ($r['ignored']) $notes[] = 'Ignored unknown or protected keys: ' . implode(', ', $r['ignored']);
+        if ($r['token_cleared']) $notes[] = 'The AI autofill token was cleared because the service address changed: enter it again under AI autofill.';
         view_settings_section('data', [], [], 'Imported ' . $r['applied'] . ' setting' . ($r['applied'] === 1 ? '' : 's'), $notes);
         exit;
     }
@@ -672,6 +673,52 @@ try {
         if (wants_json()) json_out(['ok' => true, 'key' => $key]);
         redirect('/settings/security?done=' . $done . '#' . ($key !== '' ? 'rc-' . $key : 'roles'));
     }
+    if ($path === '/autofill/suggest' && $method === 'POST') {
+        check_csrf();
+        no_store();
+        $f = $_FILES['image'] ?? null;
+        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
+            json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
+        }
+        if ((int)$f['size'] > max_upload()) json_out(['ok' => false, 'code' => 'too_large', 'message' => 'No suggestions: the photo is too large.']);
+        $r = autofill_suggest((string)file_get_contents((string)$f['tmp_name']));
+        json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
+    }
+    if ($path === '/settings/autofill/token' && $method === 'POST') {
+        check_csrf();
+        if (($_POST['action'] ?? '') === 'clear') {
+            settings_store(['autofill_token' => '']);
+            redirect('/settings/autofill?done=token-cleared');
+        }
+        $t = trim((string)($_POST['token'] ?? ''));
+        if (!preg_match('/^[\x21-\x7E]{1,512}$/D', $t)) {
+            http_response_code(422);
+            view_settings_section('autofill', [], ['autofill_token' => 'Token: 1–512 printable characters, no spaces.'], null);
+            exit;
+        }
+        settings_store(['autofill_token' => $t]);
+        redirect('/settings/autofill?done=token-saved');
+    }
+    if ($path === '/settings/autofill/test' && $method === 'POST') {
+        check_csrf();
+        $url = (string)($_POST['autofill_url'] ?? setting('autofill_url'));
+        $to = (string)($_POST['autofill_timeout'] ?? '');
+        $timeout = ctype_digit($to) ? max(3, min(60, (int)$to)) : (int)setting('autofill_timeout');
+        $badUrl = false;
+        try { $url = (string)setting_validate('autofill_url', $url); } catch (UserError $e) { $badUrl = trim($url) !== ''; $url = ''; }
+        // The stored token only ever goes to the stored address; a typed, unsaved address gets the token typed
+        // in the form (if any) or none, so the write-only token cannot be sent to a host of the caller's choice.
+        $r = $badUrl
+            ? ['ok' => false, 'code' => 'invalid_url', 'message' => 'That is not a valid service address. Only http:// and https:// addresses are supported, e.g. http://192.168.1.10:8080.']
+            : autofill_test($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')));
+        if (wants_json()) json_out($r + ['html' => autofill_test_result_html($r)]);
+        no_store();
+        $vals = [];
+        foreach (settings_section_keys('autofill') as $k) if (isset($_POST[$k])) $vals[$k] = $_POST[$k];
+        if (isset($vals['autofill_enabled']) && is_array($_POST['autofill_enabled'] ?? null)) unset($vals['autofill_enabled']);
+        view_settings_section('autofill', $vals, [], null, [], $r);
+        exit;
+    }
     if (preg_match('#^/settings/([a-z]+)(/reset)?$#D', $path, $m) && isset(SETTINGS_SECTIONS[$m[1]])) {
         $section = $m[1];
         if ($method === 'GET' && empty($m[2])) {
@@ -680,7 +727,9 @@ try {
                 'saved' => 'Settings saved', 'reset' => 'Section reset to defaults', 'logo' => 'Logo updated',
                 'logo-reset' => 'Default logo restored', 'pw' => 'Password saved', 'pw-off' => 'Sign-in turned off',
                 'user-added' => 'User added', 'user-role' => 'Role changed', 'user-pw' => 'Password set', 'user-renamed' => 'User renamed', 'user-deleted' => 'User deleted', 'user-approved' => 'Account approved',
-                'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
+                'token-saved' => 'Token saved', 'token-cleared' => 'Token cleared',
+                'saved-token-cleared' => 'Settings saved. The token was cleared because the service address changed: enter it again.',
+                'reset-token-cleared' => 'Section reset to defaults. The token was cleared because the service address changed: enter it again.', 'role-added' => 'Role added', 'role-saved' => 'Role saved', 'role-deleted' => 'Role deleted', default => null,
             };
             view_settings_section($section, [], [], $toast);   // accent warnings: shown in the preview box
             exit;
@@ -688,12 +737,23 @@ try {
         if ($method === 'POST') {
             check_csrf();
             if (!empty($m[2])) {
+                settings_token_cleared(false);
                 settings_reset_section($section);
-                redirect("/settings/$section?done=reset");
+                $afTokenCleared = settings_token_cleared();
+                redirect("/settings/$section?done=" . ($afTokenCleared ? 'reset-token-cleared' : 'reset'));
             }
             $raw = [];
             foreach (settings_section_keys($section) as $k) $raw[$k] = $_POST[$k] ?? '';
-            $errors = settings_save($raw);
+            $afNewToken = $section === 'autofill' ? trim((string)($_POST['autofill_token'] ?? '')) : '';
+            if ($afNewToken !== '' && !preg_match('/^[\x21-\x7E]{1,512}$/D', $afNewToken)) {
+                http_response_code(422);
+                view_settings_section($section, $raw, ['autofill_token' => 'Token: 1–512 printable characters, no spaces.'], null);
+                exit;
+            }
+            // The stored token belongs to the saved address: settings_store() drops it when the address moves, so it can
+            // never follow the address to a host of the admin's choosing. A token entered in the same save replaces it.
+            $errors = settings_save($raw, $afNewToken !== '' ? ['autofill_token' => $afNewToken] : []);
+            $afTokenCleared = !$errors && settings_token_cleared();
             if (!$errors && $section === 'items') {
                 foreach (KINDS as $kind) {
                     $v = (string)($_POST['default_' . $kind] ?? '');
@@ -707,7 +767,7 @@ try {
                 view_settings_section($section, $raw, $errors, null);
                 exit;
             }
-            redirect("/settings/$section?done=saved");
+            redirect("/settings/$section?done=" . ($afTokenCleared ? 'saved-token-cleared' : 'saved'));
         }
     }
 
@@ -972,7 +1032,7 @@ try {
     /* ---- backup & restore ---- */
     if ($path === '/backup' && $method === 'GET') {
         no_store();
-        view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? 'Backup restored' : null);
+        view_backup(backup_counts(db(), db_driver()), null, null, isset($_GET['restored']) ? (($_GET['restored'] === 'token-cleared') ? 'Backup restored. The AI autofill token was cleared because the service address changed: enter it again under AI autofill.' : 'Backup restored') : null);
         exit;
     }
     if ($path === '/backup.zip' && $method === 'GET') {
@@ -1032,7 +1092,7 @@ try {
         }
         @set_time_limit(300);
         try {
-            backup_restore(db(), db_driver(), DATA_DIR, $file);
+            $restored = backup_restore(db(), db_driver(), DATA_DIR, $file);
         } catch (UserError $e) {
             http_response_code(422);
             view_backup(backup_counts(db(), db_driver()), $e->getMessage());
@@ -1040,7 +1100,7 @@ try {
         } finally {
             @unlink($file);
         }
-        redirect('/backup?restored=1');
+        redirect('/backup?restored=' . (!empty($restored['token_cleared']) ? 'token-cleared' : '1'));
     }
 
     /* ---- CSV export ---- */

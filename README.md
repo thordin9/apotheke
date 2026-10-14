@@ -23,7 +23,7 @@ it works fully offline on your LAN.
 **Documentation:** the full manual lives in [`docs/`](docs/index.md): [getting started](docs/getting-started.md) ·
 [configuration](docs/configuration.md) · [user guide](docs/user-guide.md) · [architecture](docs/architecture.md) ·
 [database](docs/database.md) · [testing](docs/testing.md) · [CI](docs/ci.md) ·
-[deployment and operations](docs/deployment-and-operations.md) · [contributing](docs/contributing.md).
+[deployment and operations](docs/deployment-and-operations.md) · [AI autofill](docs/autofill.md) · [contributing](docs/contributing.md).
 Agents: see [`AGENTS.md`](AGENTS.md).
 
 ## Contents

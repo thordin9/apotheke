@@ -21,6 +21,7 @@ const SETTINGS_SECTIONS = [
     'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo, stocktake', 'alert'],
     'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
     'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
+    'autofill'   => ['AI autofill', 'Suggestions from a photo, by your own autofill service', 'sparkle'],
     'security'   => ['Users & sign-in', 'Accounts, roles, passwords; sign-in on or off', 'lock'],
     'data'       => ['Backup & data', 'Backup, restore, CSV and settings export', 'archive'],
     'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
@@ -102,6 +103,11 @@ function settings_schema(): array
         'attach_types'     => ['uploads', 'Attachment types', 'enum', 'pdf_images', 'Receipts, manuals and warranty cards attached to an item. The real file type is checked, not the name.', ['options' => ATTACH_TYPE_SETS]],
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
+        // AI autofill (token: own form, write-only)
+        'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: after you pick a photo for an item, empty fields are pre-filled with suggestions you can keep or clear.', []],
+        'autofill_url'     => ['autofill', 'Service address', 'url', '', 'Where your autofill service runs, e.g. http://192.168.1.10:8080 (without /v1). The photo is sent there, resized to about 1024 px.', ['placeholder' => 'http://192.168.1.10:8080']],
+        'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 30, 'How long to wait for suggestions. Saving an item never waits for them. The service gives up after about 25 s, so 30 is a good value.', ['min' => 3, 'max' => 60]],
+        'autofill_token'   => ['autofill', 'Access token', 'secret', '', '', []],
         // security (own form)
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
         'auth_guest_disabled' => ['security', 'Disable guest browsing', 'bool', true, 'On: visitors must sign in before they see anything. Off: they can look around with the permissions of the Guest role.', []],
@@ -203,6 +209,8 @@ function setting_validate(string $key, mixed $raw): mixed
         case 'url':
             if ($str === null) throw new UserError("$label: invalid.");
             $str = rtrim($str, '/');
+            // schemes are case-insensitive (RFC 3986): HTTP:// is stored as http://, like the host-case handling
+            $str = (string)preg_replace_callback('#^(https?)://#i', fn($m) => strtolower($m[1]) . '://', $str);
             if ($str !== '' && (!preg_match('#^https?://[A-Za-z0-9.\-\[\]:]+(/[^\s]*)?$#D', $str) || strlen($str) > 200)) {
                 throw new UserError("$label: a full address starting with http:// or https://.");
             }
@@ -262,9 +270,13 @@ function settings_section_keys(string $section): array
 }
 
 /** Store already-validated values (one transaction). */
-function settings_store(array $values): void
+function settings_store(array $values): bool
 {
-    if (!$values) return;
+    if (!$values) return false;
+    // Every writer (form, reset, import, restore, CLI) comes through here: when the AI autofill address moves and no
+    // new token is written in the same store, the old token is dropped so it can never follow the address elsewhere.
+    $afMoves = array_key_exists('autofill_url', $values) && !array_key_exists('autofill_token', $values);
+    $afOldUrl = $afMoves ? (string)setting('autofill_url') : '';
     db_tx(function (PDO $pdo) use ($values): void {
         $del = $pdo->prepare('DELETE FROM settings WHERE name = ?');
         $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
@@ -274,19 +286,31 @@ function settings_store(array $values): void
         }
     });
     settings_cache(null, true);
+    $cleared = $afMoves && autofill_drop_token_if_moved($afOldUrl);
+    settings_token_cleared($cleared);
+    return $cleared;
+}
+
+/** Whether the last settings_store() call cleared the AI autofill token (set by settings_store, read by callers). */
+function settings_token_cleared(?bool $set = null): bool
+{
+    static $v = false;
+    if ($set !== null) $v = $set;
+    return $v;
 }
 
 /**
  * Validate and save a set of raw values. Nothing is saved when any value is invalid.
  * @return array<string,string> errors by key (empty = saved)
  */
-function settings_save(array $raw): array
+function settings_save(array $raw, array $extra = []): array
 {
     $ok = $err = [];
+    settings_token_cleared(false);
     foreach ($raw as $k => $v) {
         try { $ok[$k] = setting_validate((string)$k, $v); } catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
-    if (!$err) settings_store($ok);
+    if (!$err) settings_store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
     return $err;
 }
 
@@ -301,7 +325,7 @@ function settings_reset_section(string $section): void
     }
     $vals = [];
     foreach ($keys as $k) $vals[$k] = setting_default($k);
-    settings_store($vals);
+    settings_store($vals);   // clears the autofill token if this moves the address (see settings_token_cleared())
 }
 
 /** Initial rows (migration 0013): every setting from config.php / env / built-in. */
@@ -329,7 +353,8 @@ function settings_export(): array
 
 /**
  * Import an export. Valid known keys are applied together; invalid ones are reported and skipped, unknown ones ignored.
- * @return array{applied:int,errors:array<string,string>,ignored:string[]}
+ * If the import moves the AI autofill address, the stored token is cleared (it was meant for the old service).
+ * @return array{applied:int,errors:array<string,string>,ignored:string[],token_cleared:bool}
  */
 function settings_import(string $json): array
 {
@@ -345,8 +370,8 @@ function settings_import(string $json): array
         try { $ok[$k] = setting_validate($k, is_bool($v) ? $v : (is_scalar($v) || $v === null ? (string)$v : $v)); }
         catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
-    settings_store($ok);
-    return ['applied' => count($ok), 'errors' => $err, 'ignored' => $ignored];
+    $cleared = settings_store($ok);
+    return ['applied' => count($ok), 'errors' => $err, 'ignored' => $ignored, 'token_cleared' => $cleared];
 }
 
 /* ---------- typed accessors used across the app ---------- */

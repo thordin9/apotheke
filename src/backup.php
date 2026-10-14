@@ -280,10 +280,11 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
     if (is_array($dump['settings'] ?? null)) {
         $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
         foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";
+        $tokenCleared = $r['token_cleared'];
     }
     // undo tokens refer to the data that was just replaced
     if (backup_table_exists($pdo, $driver, 'undo_tokens')) undo_prune(true);
-    return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $b['warnings']];
+    return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $b['warnings'], 'token_cleared' => $tokenCleared ?? false];
 }
 
 /** Human summary lines: "12 items, 3 locations, …". */

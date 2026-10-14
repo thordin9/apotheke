@@ -178,7 +178,7 @@ function route_perm(string $method, string $path, array $post = []): string
     if ($path === '/export.csv') return 'export';
     if (str_starts_with($path, '/stocktake')) return $get ? 'view' : 'stocktake';   // reports are for everyone who may look
     if ($path === '/labels' || preg_match('#^/item/\d+/label$#D', $path)) return 'labels';
-    if ($path === '/new') return 'create';
+    if ($path === '/new' || $path === '/autofill/suggest') return 'create';
     if (preg_match('#^/item/\d+/duplicate$#D', $path)) return 'create';
     if (preg_match('#^/item/\d+/(lend|return)$#D', $path) || $path === '/lent' && !$get) return 'lend';
     if ($path === '/bulk') return 'bulk';
