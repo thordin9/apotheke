@@ -1642,6 +1642,16 @@ T::ok(str_contains($xc->get('/settings/system')['body'], 'Search engine'), 'Syst
 T::eq(1, (int)$xdb->query("SELECT COUNT(*) FROM search_docs WHERE item_id = $cc")->fetchColumn(), 'documents stored');
 $sx->stop();
 
+/** CSV rows exactly as exported (no apostrophe stripping), multi-line cells kept. */
+function import_parse_raw(string $csv): array
+{
+    $fh = fopen('php://temp', 'r+');
+    fwrite($fh, ltrim($csv, "\xEF\xBB\xBF"));
+    rewind($fh);
+    $rows = [];
+    while (($r = fgetcsv($fh, null, ',', '"', '\\')) !== false) $rows[] = $r;
+    return [array_shift($rows), $rows];
+}
 T::section('CSV import');
 $ix = new Server($ixDir = $newDir('import'), ['SEED_DEFAULTS' => '0']);
 $ic = $ix->client();
@@ -1688,6 +1698,13 @@ T::eq(2, (int)$idb->query("SELECT COUNT(*) FROM activity WHERE action = 'created
 T::eq(303, $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols])['status'], 'a finished import cannot run twice');
 T::eq(2, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn(), '… still 2 items');
 T::ok(!is_file("$ixDir/tmp/import-$iid.csv"), 'uploaded file removed after the import');
+// formula injection: cells that a spreadsheet would run are exported as text ('…) and imported back unchanged
+$ic->api('/save', ['csrf' => $it, 'name' => '=HYPERLINK("http://evil.example","x")', 'quantity' => 1, 'notes' => "- first\n- second", 'serial' => '@SUM(A1)']);
+[, $fxRows] = import_parse_raw($ic->get('/export.csv')['body']);
+$fx = array_values(array_filter($fxRows, fn($r) => str_contains($r[1] ?? '', 'HYPERLINK')));
+T::ok(count($fx) === 1 && $fx[0][1] === "'=HYPERLINK(\"http://evil.example\",\"x\")" && $fx[0][13] === "'@SUM(A1)", 'export: formula cells start with an apostrophe');
+$fxNotes = $ic->get('/export.csv')['body'];
+T::ok(str_contains($fxNotes, "\"'- first"), 'export: a leading minus (Markdown list) is protected too');
 // round trip with the export
 $c2 = $ic->get('/export.csv')['body'];
 $r = $up($c2, 'export.csv');
@@ -1699,7 +1716,7 @@ preg_match_all('#name="col\[(\d+)\]".*?</select>#s', $page, $sel);
 foreach ($sel[0] as $k => $html) $auto[] = preg_match('#<option value="([a-z_]*)" selected#', $html, $o) ? $o[1] : '';
 T::ok(in_array('id', $auto, true) && in_array('barcode', $auto, true) && in_array('lent_to', $auto, true), 'export headers map automatically', implode(',', $auto));
 $pv = $ic->post("/import/$eid/preview", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
-T::ok(str_contains($pv['body'], '<b>0</b> new') && str_contains($pv['body'], '<b>0</b> updated') && str_contains($pv['body'], '<b>2</b> unchanged') && str_contains($pv['body'], '<b>0</b> errors'), 'own export: every row matches its item (unchanged)');
+T::ok(str_contains($pv['body'], '<b>0</b> new') && str_contains($pv['body'], '<b>0</b> updated') && str_contains($pv['body'], '<b>3</b> unchanged') && str_contains($pv['body'], '<b>0</b> errors'), 'own export: every row matches its item (unchanged)');
 $before = $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn();
 $ic->post("/import/$eid/commit", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
 T::eq($before, $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn(), 'unchanged rows leave no history');
@@ -1712,7 +1729,8 @@ $r = $yc->post('/import', ['csrf' => $yt], ['csv' => jpg_file($c2, 'export.csv',
 preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm);
 $yc->post("/import/{$mm[1]}/commit", ['csrf' => $yt, 'col' => $auto, 'create' => '1']);
 $ydb = testdb($iyDir);
-T::eq(['Drill', 'Πρίζα'], $ydb->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'export imports into a fresh install');
+T::eq(['Drill', 'Πρίζα', '=HYPERLINK("http://evil.example","x")'], $ydb->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'export imports into a fresh install');
+T::eq(["- first\n- second", '@SUM(A1)'], array_values($ydb->query("SELECT notes, serial FROM items WHERE name LIKE '=HYPERLINK%'")->fetch(PDO::FETCH_NUM)), '… formula-like values come back without the apostrophe');
 T::eq('Shelf 1', $ydb->query("SELECT l.name FROM items i JOIN locations l ON l.id = i.location_id WHERE i.name = 'Drill'")->fetchColumn(), '… with its location');
 $iy->stop();
 // roles: viewers cannot import

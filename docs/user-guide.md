@@ -380,6 +380,9 @@ serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
+Cells that a spreadsheet would treat as a formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) are
+exported with a leading apostrophe, so Excel and LibreOffice show them as text; the import removes it again.
+
 ## Importing a CSV file
 
 ☰ → *Import CSV* (editors and admins) adds or updates many items at once:
