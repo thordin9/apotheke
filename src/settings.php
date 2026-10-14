@@ -21,6 +21,7 @@ const SETTINGS_SECTIONS = [
     'limits'     => ['Thresholds & limits', 'Expiry window, loan period, saved filters, undo, stocktake', 'alert'],
     'labels'     => ['QR labels', 'Label size, grid and what is printed', 'qr'],
     'uploads'    => ['Photos & uploads', 'Upload size, photo and thumbnail sizes, quality, attachments', 'camera'],
+    'autofill'   => ['AI autofill', 'Suggestions from a photo, by your own autofill service', 'sparkle'],
     'security'   => ['Users & sign-in', 'Accounts, roles, passwords; sign-in on or off', 'lock'],
     'data'       => ['Backup & data', 'Backup, restore, CSV and settings export', 'archive'],
     'system'     => ['System', 'Database and storage (read-only)', 'sliders'],
@@ -102,6 +103,11 @@ function settings_schema(): array
         'attach_types'     => ['uploads', 'Attachment types', 'enum', 'pdf_images', 'Receipts, manuals and warranty cards attached to an item. The real file type is checked, not the name.', ['options' => ATTACH_TYPE_SETS]],
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
+        // AI autofill (token: own form, write-only)
+        'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: after you pick a photo for a new item, empty fields are pre-filled with suggestions you can keep or clear.', []],
+        'autofill_url'     => ['autofill', 'Service address', 'url', '', 'Where your autofill service runs, e.g. http://192.168.1.20:8090 (without /v1). The photo is sent there, resized to about 1024 px.', []],
+        'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 30, 'How long to wait for suggestions. Saving an item never waits for them.', ['min' => 3, 'max' => 120]],
+        'autofill_token'   => ['autofill', 'Access token', 'secret', '', '', []],
         // security (own form)
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
         'auth_guest_disabled' => ['security', 'Disable guest browsing', 'bool', true, 'On: visitors must sign in before they see anything. Off: they can look around with the permissions of the Guest role.', []],

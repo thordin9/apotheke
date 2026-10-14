@@ -11,6 +11,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/qr.php';
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/autofill.php';
 require_once __DIR__ . '/roles.php';
 require_once __DIR__ . '/users.php';
 define('DATA_DIR', cfg()['data_dir']);
