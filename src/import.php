@@ -40,6 +40,24 @@ function import_file(int $id): string
 }
 
 /** Read CSV text into [header, rows]; detects , ; or tab, strips a BOM, converts Windows-1252 to UTF-8. */
+/*
+ * CSV formula injection: spreadsheets run cells that start with = + - @ TAB or CR as formulas. Exported cells get a
+ * leading apostrophe (shown as text, never evaluated); cells that already start with apostrophes before such a
+ * character get one more, so csv_unprotect() on import restores every value exactly.
+ */
+const CSV_FORMULA_RE = "/^'*[=+\\-@\t\r]/";
+
+function csv_protect(mixed $v): string
+{
+    $s = (string)$v;
+    return preg_match(CSV_FORMULA_RE, $s) ? "'" . $s : $s;
+}
+
+function csv_unprotect(string $s): string
+{
+    return str_starts_with($s, "'") && preg_match(CSV_FORMULA_RE, $s) ? substr($s, 1) : $s;
+}
+
 function import_parse(string $csv): array
 {
     if (str_starts_with($csv, "\xEF\xBB\xBF")) $csv = substr($csv, 3);
@@ -55,7 +73,7 @@ function import_parse(string $csv): array
     $rows = [];
     while (($r = fgetcsv($fh, null, $delim, '"', '')) !== false) {
         if ($r === [null] || (count($r) === 1 && trim((string)$r[0]) === '')) continue;
-        $rows[] = array_map(fn($v) => (string)$v, $r);
+        $rows[] = array_map(fn($v) => csv_unprotect((string)$v), $r);
         if (count($rows) > IMPORT_MAX_ROWS + 1) throw new UserError('That file has more than ' . number_format(IMPORT_MAX_ROWS) . ' rows. Split it into smaller files.', 422);
     }
     fclose($fh);

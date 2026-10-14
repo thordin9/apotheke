@@ -46,6 +46,26 @@ T::ok(str_contains($r['body'], '<title>Apotheke – the storehouse for your stuf
 T::ok(!str_contains($r['body'], 'stats-box'), 'Overview hidden while catalog is empty');
 T::ok(str_contains($r['body'], 'Your catalog is empty'), 'friendly empty state');
 T::ok(isset($c->cookies['apothekesid']), 'session cookie apothekesid set');
+T::section('Session cookie');
+$sidCookie = function (array $hdr) use ($c): string {
+    $r = (new Client($c->base))->get('/', $hdr);
+    foreach ($r['raw'] as $l) if (stripos($l, 'set-cookie: apothekesid=') === 0) return strtolower($l);
+    return '';
+};
+$setSetting = function (string $k, string $v) use ($db): void {
+    $db->prepare('DELETE FROM settings WHERE name = ?')->execute([$k]);
+    $db->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)')->execute([$k, $v, gmdate('Y-m-d H:i:s')]);
+};
+$ck = $sidCookie([]);
+T::ok($ck !== '' && str_contains($ck, 'httponly') && str_contains($ck, 'samesite=lax') && !str_contains($ck, 'secure'), 'plain HTTP: HttpOnly, SameSite=Lax, not Secure');
+T::ok(preg_match('/max-age=(\d+)/', $ck, $mm) && (int)$mm[1] === 30 * 86400, 'default lifetime is 30 days');
+T::ok(!str_contains($sidCookie(['X-Forwarded-Proto: https']), 'secure'), 'X-Forwarded-Proto ignored unless the proxy is trusted (spoofable)');
+$setSetting('trust_proxy', '1');
+T::ok(str_contains($sidCookie(['X-Forwarded-Proto: https']), '; secure'), 'trusted proxy + X-Forwarded-Proto: https → Secure');
+T::ok(!str_contains($sidCookie(['X-Forwarded-Proto: http']), 'secure'), 'trusted proxy + http → not Secure');
+$setSetting('session_days', '7');
+T::ok(preg_match('/max-age=(\d+)/', $sidCookie([]), $mm) && (int)$mm[1] === 7 * 86400, 'session lifetime follows the setting');
+$db->exec("DELETE FROM settings WHERE name IN ('trust_proxy', 'session_days')");
 foreach (['content-security-policy', 'x-content-type-options', 'x-frame-options'] as $hn) T::ok(isset($r['headers'][$hn]), "security header $hn");
 $tok = $c->csrf();
 T::ok(strlen($tok) === 64, 'CSRF token present in page');
@@ -279,7 +299,14 @@ $tot = $db->query('SELECT COUNT(*) n, SUM(quantity) q FROM items')->fetch();
 T::ok($tiles['Items'] === (int)$tot['n'] && $tiles['Total qty'] === (int)$tot['q'], 'totals match DB (' . json_encode($tiles) . ')');
 T::ok($tiles['Locations'] === (int)$db->query('SELECT COUNT(*) FROM locations')->fetchColumn() && $tiles['Categories'] === (int)$db->query('SELECT COUNT(*) FROM categories')->fetchColumn(), 'location/category counts');
 T::ok($tiles['This week'] === (int)$tot['n'] && $tiles['This month'] === (int)$tot['n'], 'all items added this week/month');
-T::eq(42, preg_match_all('/<rect class="bar/', $r['body']), '30 daily + 12 monthly bars');
+T::ok(str_contains($r['body'], 'id="chart-few"') && preg_match_all('/<rect class="bar/', $r['body']) === 0, 'everything added on one day: hint instead of a one-bar chart');
+$oldId = (int)$db->query('SELECT MIN(id) FROM items')->fetchColumn();
+$wasAt = $db->query("SELECT created_at FROM items WHERE id = $oldId")->fetchColumn();
+$db->prepare('UPDATE items SET created_at = ? WHERE id = ?')->execute([gmdate('Y-m-d H:i:s', time() - 40 * 86400), $oldId]);
+$r2 = $c->get('/stats');
+T::eq(42, preg_match_all('/<rect class="bar/', $r2['body']), '30 daily + 12 monthly bars once there is history');
+T::ok(str_contains($r2['body'], 'preserveAspectRatio="none"') && substr_count($r2['body'], 'class="chart-axis"') === 2 && !str_contains($r2['body'], '<text class="axis"'), 'axis labels are HTML (fixed size), not scaled SVG text');
+$db->prepare('UPDATE items SET created_at = ? WHERE id = ?')->execute([$wasAt, $oldId]);
 T::ok(str_contains($r['body'], '<h3>By location</h3>') && str_contains($r['body'], '<h3>By category</h3>') && str_contains($r['body'], 'data-cat="' . $kitchen . '"'), 'by-location and by-category charts with filter links');
 $c->cookies['stats_open'] = '1';
 T::ok(str_contains($c->get('/')['body'], 'class="tiles"'), 'Overview open → rendered inline');
@@ -347,9 +374,16 @@ T::ok(str_contains($r['body'], 'No location'), '"No location" chip label');
 $r = $c->get('/?q=zzzznomatch');
 T::ok(str_contains($r['body'], 'id="empty-clear" href="/">') && str_contains($r['body'], 'id="empty-add" href="/new" hidden'), 'filtered empty state offers "Clear", not "Add first"');
 $r = $c->get('/item/' . $nojs);
-T::ok(str_contains($r['body'], 'class="actionbar"') && str_contains($r['body'], 'href="/item/' . $nojs . '/edit"><svg'), 'item page sticky action bar with Edit');
+T::ok(str_contains($r['body'], 'class="actionbar"') && str_contains($r['body'], 'href="/item/' . $nojs . '/edit" id="item-edit"><svg'), 'item page sticky action bar with Edit');
+T::eq(1, preg_match_all('#<a class="btn[^"]*" href="/item/' . $nojs . '/edit"#', $r['body']), 'item page has a single Edit button');
+$bar = substr($r['body'], strpos($r['body'], '<div class="actionbar">'));
+$dz = preg_match('#<section class="danger-zone".*?</section>#s', $r['body'], $mm) ? $mm[0] : '';
+T::ok(str_contains($dz, 'action="/item/' . $nojs . '/delete"') && !str_contains($bar, '/delete"'), 'Delete sits in its own danger zone, away from Edit');
 $r = $c->get('/new');
 T::ok(str_contains($r['body'], 'actionbar actionbar-form') && str_contains($r['body'], 'id="save-another"'), 'form sticky action bar with both save buttons');
+T::ok(substr_count($r['body'], 'class="field picker half"') === 2 && substr_count($r['body'], 'class="field half"') === 2, 'new-item form marks the paired fields for the desktop two-column layout');
+$hasDef = (int)$db->query('SELECT COUNT(*) FROM locations WHERE is_default = 1')->fetchColumn() > 0;
+T::eq($hasDef, str_contains($r['body'], 'id="locstar"'), '★ is explained exactly when there is a default location');
 
 T::section('QR labels');
 $r = $c->get('/labels');
@@ -1085,7 +1119,7 @@ $secKeys = [
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
-    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval'], 'data' => ['import_create_missing'], 'system' => [],
+    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
 $settingsTotal = count($visible) + 3; // + logo, auth_enabled, password_hash
@@ -1526,7 +1560,7 @@ $home = $vb->get('/')['body'];
 T::ok(str_contains($home, 'no-create') && str_contains($home, 'no-edit') && !str_contains($home, ' no-export') && str_contains($home, 'id="menu-export"') && !str_contains($home, 'id="menu-labels"') && !str_contains($home, 'id="menu-import"'), 'body classes + menu follow the permissions');
 
 // guest browsing toggle
-T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0'])['status'], 'guest browsing allowed');
+T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30'])['status'], 'guest browsing allowed');
 $g = $rs->client();
 $gt = $g->csrf();
 T::eq(200, $g->get('/')['status'], 'guest may browse');
@@ -1544,7 +1578,7 @@ T::ok(str_contains($g->get('/login')['body'], 'id="login-guest"'), 'login page o
 $n = 0;
 foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach ([false, true] as $approval) {
     $n++;
-    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0']);
+    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0', 'session_days' => '30']);
     $tag = 'guest ' . ($guestOff ? 'off' : 'on') . ', registration ' . ($regOff ? 'off' : 'on') . ', approval ' . ($approval ? 'on' : 'off');
     $a = $rs->client();
     $home = $a->get('/');
@@ -1571,8 +1605,8 @@ foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach 
         T::eq(200, $a->get('/new')['status'], "$tag: … with the editor role");
     }
 }
-T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0'])['status'], 'admin cannot be the registration role');
-$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0']);
+T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0', 'session_days' => '30'])['status'], 'admin cannot be the registration role');
+$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30']);
 $x = $rs->client();
 T::eq(419, $x->post('/register', ['csrf' => 'wrong', 'username' => 'csrfless', 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'], 'registration needs the CSRF token');
 // rate limits (5 registrations per hour per address; earlier tests used some)
@@ -1642,6 +1676,16 @@ T::ok(str_contains($xc->get('/settings/system')['body'], 'Search engine'), 'Syst
 T::eq(1, (int)$xdb->query("SELECT COUNT(*) FROM search_docs WHERE item_id = $cc")->fetchColumn(), 'documents stored');
 $sx->stop();
 
+/** CSV rows exactly as exported (no apostrophe stripping), multi-line cells kept. */
+function import_parse_raw(string $csv): array
+{
+    $fh = fopen('php://temp', 'r+');
+    fwrite($fh, ltrim($csv, "\xEF\xBB\xBF"));
+    rewind($fh);
+    $rows = [];
+    while (($r = fgetcsv($fh, null, ',', '"', '\\')) !== false) $rows[] = $r;
+    return [array_shift($rows), $rows];
+}
 T::section('CSV import');
 $ix = new Server($ixDir = $newDir('import'), ['SEED_DEFAULTS' => '0']);
 $ic = $ix->client();
@@ -1688,6 +1732,13 @@ T::eq(2, (int)$idb->query("SELECT COUNT(*) FROM activity WHERE action = 'created
 T::eq(303, $ic->post("/import/$iid/commit", ['csrf' => $it, 'col' => $cols])['status'], 'a finished import cannot run twice');
 T::eq(2, (int)$idb->query('SELECT COUNT(*) FROM items')->fetchColumn(), '… still 2 items');
 T::ok(!is_file("$ixDir/tmp/import-$iid.csv"), 'uploaded file removed after the import');
+// formula injection: cells that a spreadsheet would run are exported as text ('…) and imported back unchanged
+$ic->api('/save', ['csrf' => $it, 'name' => '=HYPERLINK("http://evil.example","x")', 'quantity' => 1, 'notes' => "- first\n- second", 'serial' => '@SUM(A1)']);
+[, $fxRows] = import_parse_raw($ic->get('/export.csv')['body']);
+$fx = array_values(array_filter($fxRows, fn($r) => str_contains($r[1] ?? '', 'HYPERLINK')));
+T::ok(count($fx) === 1 && $fx[0][1] === "'=HYPERLINK(\"http://evil.example\",\"x\")" && $fx[0][13] === "'@SUM(A1)", 'export: formula cells start with an apostrophe');
+$fxNotes = $ic->get('/export.csv')['body'];
+T::ok(str_contains($fxNotes, "\"'- first"), 'export: a leading minus (Markdown list) is protected too');
 // round trip with the export
 $c2 = $ic->get('/export.csv')['body'];
 $r = $up($c2, 'export.csv');
@@ -1699,7 +1750,7 @@ preg_match_all('#name="col\[(\d+)\]".*?</select>#s', $page, $sel);
 foreach ($sel[0] as $k => $html) $auto[] = preg_match('#<option value="([a-z_]*)" selected#', $html, $o) ? $o[1] : '';
 T::ok(in_array('id', $auto, true) && in_array('barcode', $auto, true) && in_array('lent_to', $auto, true), 'export headers map automatically', implode(',', $auto));
 $pv = $ic->post("/import/$eid/preview", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
-T::ok(str_contains($pv['body'], '<b>0</b> new') && str_contains($pv['body'], '<b>0</b> updated') && str_contains($pv['body'], '<b>2</b> unchanged') && str_contains($pv['body'], '<b>0</b> errors'), 'own export: every row matches its item (unchanged)');
+T::ok(str_contains($pv['body'], '<b>0</b> new') && str_contains($pv['body'], '<b>0</b> updated') && str_contains($pv['body'], '<b>3</b> unchanged') && str_contains($pv['body'], '<b>0</b> errors'), 'own export: every row matches its item (unchanged)');
 $before = $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn();
 $ic->post("/import/$eid/commit", ['csrf' => $it, 'col' => $auto, 'create' => '1']);
 T::eq($before, $idb->query('SELECT COUNT(*) FROM activity')->fetchColumn(), 'unchanged rows leave no history');
@@ -1712,7 +1763,8 @@ $r = $yc->post('/import', ['csrf' => $yt], ['csv' => jpg_file($c2, 'export.csv',
 preg_match('#/import/(\d+)$#', $r['headers']['location'] ?? '', $mm);
 $yc->post("/import/{$mm[1]}/commit", ['csrf' => $yt, 'col' => $auto, 'create' => '1']);
 $ydb = testdb($iyDir);
-T::eq(['Drill', 'Πρίζα'], $ydb->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'export imports into a fresh install');
+T::eq(['Drill', 'Πρίζα', '=HYPERLINK("http://evil.example","x")'], $ydb->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'export imports into a fresh install');
+T::eq(["- first\n- second", '@SUM(A1)'], array_values($ydb->query("SELECT notes, serial FROM items WHERE name LIKE '=HYPERLINK%'")->fetch(PDO::FETCH_NUM)), '… formula-like values come back without the apostrophe');
 T::eq('Shelf 1', $ydb->query("SELECT l.name FROM items i JOIN locations l ON l.id = i.location_id WHERE i.name = 'Drill'")->fetchColumn(), '… with its location');
 $iy->stop();
 // roles: viewers cannot import

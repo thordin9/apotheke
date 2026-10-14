@@ -452,14 +452,16 @@ function active_chips_html(array $f, string $sort, array $locs, array $cats, ?ar
 /** Vertical bar chart as inline SVG (styled from app.css, so CSP-safe and dark/light aware). */
 function svg_bars(array $series, string $label): string
 {
-    $W = 320; $H = 84; $pad = 15; $n = max(1, count($series));
+    $W = 320; $H = 84; $n = max(1, count($series));
     $max = max(1, ...array_map(fn($p) => $p['n'], $series ?: [['n' => 0]]));
     $gap = $n > 20 ? 2 : 6;
     $bw = ($W - $gap * ($n - 1)) / $n;
-    $out = '<svg class="chart" viewBox="0 0 ' . $W . ' ' . ($H + $pad) . '" role="img" aria-label="' . h($label) . '">';
+    // the bars stretch to the card width (preserveAspectRatio none, fixed CSS height); the axis labels are HTML so
+    // their text stays at 12px instead of growing with the width
+    $out = '<div class="chart-wrap"><svg class="chart" viewBox="0 0 ' . $W . ' ' . $H . '" preserveAspectRatio="none" role="img" aria-label="' . h($label) . '">';
     foreach ([0.5, 1] as $g) {
         $y = round($H - ($H - 4) * $g, 1);
-        $out .= '<line class="grid" x1="0" x2="' . $W . '" y1="' . $y . '" y2="' . $y . '"/>';
+        $out .= '<line class="grid" vector-effect="non-scaling-stroke" x1="0" x2="' . $W . '" y1="' . $y . '" y2="' . $y . '"/>';
     }
     foreach ($series as $i => $p) {
         $x = round($i * ($bw + $gap), 2);
@@ -467,13 +469,13 @@ function svg_bars(array $series, string $label): string
         $out .= '<rect class="' . ($p['n'] > 0 ? 'bar' : 'bar bar-zero') . '" x="' . $x . '" y="' . round($H - $h, 1) . '" width="' . round($bw, 2) . '" height="' . $h . '" rx="' . min(3, $bw / 3) . '">'
               . '<title>' . h($p['label']) . ': ' . $p['n'] . '</title></rect>';
     }
+    $out .= '</svg><div class="chart-axis" aria-hidden="true">';
     $ticks = $n > 12 ? [0, (int)floor(($n - 1) / 2), $n - 1] : range(0, $n - 1, $n > 6 ? 2 : 1);
     foreach ($ticks as $i) {
         $anchor = $i === 0 ? 'start' : ($i === $n - 1 && $n > 12 ? 'end' : 'middle');
-        $x = $anchor === 'start' ? 0 : ($anchor === 'end' ? $W : round($i * ($bw + $gap) + $bw / 2, 1));
-        $out .= '<text class="axis" x="' . $x . '" y="' . ($H + $pad - 2) . '" text-anchor="' . $anchor . '">' . h($series[$i]['label']) . '</text>';
+        $out .= '<span class="ax ax-' . $anchor . '">' . h($series[$i]['label']) . '</span>';
     }
-    return $out . '</svg>';
+    return $out . '</div></div>';
 }
 
 /** Horizontal "top N" bars (HTML rows + tiny SVG bar each); labels filter the list by $param. */
@@ -511,7 +513,12 @@ function stats_body_html(): string
     $o .= '</div>';
     $days = stats_added_series('day');
     $months = stats_added_series('month');
-    $o .= '<section class="st-card st-wide">'
+    $busy = fn(array $s) => count(array_filter($s, fn($p) => $p['n'] > 0));
+    if ($busy($months) < 2 && $busy($days) < 2) {
+        // everything was added on one day: a chart with a single bar says nothing
+        $o .= '<section class="st-card st-wide" id="st-added"><div class="st-head"><h3>Items added</h3></div><p class="st-empty" id="chart-few">'
+            . 'The chart appears once items have been added on more than one day.</p></section>';
+    } else $o .= '<section class="st-card st-wide" id="st-added">'
         . '<input type="radio" class="vh" name="strange" id="rg-d" value="d" checked><input type="radio" class="vh" name="strange" id="rg-m" value="m">'
         . '<div class="st-head"><h3>Items added</h3>'
         . '<div class="seg" role="group" aria-label="Range"><label for="rg-d">30 days</label><label for="rg-m">12 months</label></div></div>'
@@ -697,7 +704,6 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <a class="btn btn-ghost btn-round" href="/" data-back aria-label="Back"><?= icon('back') ?></a>
     <h1 class="title-sm">Item</h1>
     <?= fav_button_html($id, (string)$it['name'], !empty($it['favourite']), '/item/' . $id) ?>
-    <a class="btn btn-ghost" href="/item/<?= $id ?>/edit" aria-label="Edit item"><?= icon('edit') ?><span class="hide-xs">Edit</span></a>
   </div>
 </header>
 <main class="wrap narrow">
@@ -798,15 +804,17 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
   </section>
   <?php endif; ?>
   <p class="times">Added <?= h(fmt_time($it['created_at'])) ?><?php if ($it['updated_at'] !== $it['created_at']): ?> · Updated <?= h(fmt_time($it['updated_at'])) ?><?php endif; ?></p>
+  <section class="danger-zone" id="danger-zone" aria-label="Delete">
+    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”?<?= undo_enabled() ? ' You can undo this for ' . (int)setting('undo_seconds') . ' seconds.' : ' This cannot be undone.' ?>">
+      <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
+      <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete item</button>
+    </form>
+  </section>
 </main>
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= h($toast) ?></div><?php endif; ?>
 <div class="actionbar">
-  <div class="actionbar-in">
-    <form method="post" action="/item/<?= $id ?>/delete" data-confirm="Delete “<?= h($it['name']) ?>”?<?= undo_enabled() ? ' You can undo this for ' . (int)setting('undo_seconds') . ' seconds.' : ' This cannot be undone.' ?>">
-      <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
-      <button class="btn btn-danger" aria-label="Delete item"><?= icon('trash') ?> Delete</button>
-    </form>
-    <a class="btn btn-primary" href="/item/<?= $id ?>/edit"><?= icon('edit') ?> Edit</a>
+  <div class="actionbar-in one">
+    <a class="btn btn-primary" href="/item/<?= $id ?>/edit" id="item-edit"><?= icon('edit') ?> Edit</a>
   </div>
 </div>
 <?php
@@ -820,7 +828,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
     $p = $t['param'];
     $field = $t['col'];
     $newField = 'new_' . $kind;
-    $o = '<div class="field picker" data-kind="' . $kind . '" data-prefix="' . $p . '" data-endpoint="' . $t['path'] . '">'
+    $o = '<div class="field picker half" data-kind="' . $kind . '" data-prefix="' . $p . '" data-endpoint="' . $t['path'] . '">'
        . '<span class="field-head"><label for="' . $p . 'sel">' . h($t['One']) . '</label><a href="' . $t['path'] . '" class="field-link">Manage</a></span>'
        . '<div class="locrow"><select name="' . $field . '" id="' . $p . 'sel" class="locsel">'
        . '<option value="">— ' . h($t['none']) . ' —</option>';
@@ -833,6 +841,7 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
        . '<input type="text" name="' . $newField . '" id="new' . $p . 'name" value="' . h($newVal) . '" maxlength="120" autocomplete="off" autocorrect="off" enterkeyhint="done" placeholder="New ' . h($t['one']) . ', e.g. ' . h($t['example']) . '" aria-label="New ' . h($t['one']) . ' name">'
        . '<button type="button" class="btn btn-primary" id="new' . $p . 'ok">Add</button></div>'
        . '<noscript><input type="text" name="' . $newField . '_ns" maxlength="120" placeholder="…or type a new ' . h($t['one']) . '" class="ns-newloc"></noscript>'
+       . (array_filter($list, fn($l) => !empty($l['is_default'])) ? '<small class="field-help star-help" id="' . $p . 'star">★ marks the default ' . h($t['one']) . ', preselected for new items.</small>' : '')
        . '</div>';
     return $o;
 }
@@ -880,7 +889,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
     </label>
     <?= picker_html('location', $locs, $vals['location_id'], $vals['new_location']) ?>
     <?= picker_html('category', $cats, $vals['category_id'], $vals['new_category']) ?>
-    <div class="field">
+    <div class="field half">
       <span>Quantity</span>
       <div class="stepper">
         <button type="button" class="qbtn" data-step="-1" aria-label="Decrease"><?= icon('minus') ?></button>
@@ -888,7 +897,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
         <button type="button" class="qbtn" data-step="1" aria-label="Increase"><?= icon('plus') ?></button>
       </div>
     </div>
-    <label class="field">
+    <label class="field half">
       <span>Running low at <em>optional – alert when the quantity is this or less</em></span>
       <input type="number" name="min_qty" id="min_qty" value="<?= h((string)($vals['min_qty'] ?? '')) ?>" min="0" max="1000000" step="1" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 2">
     </label>

@@ -32,6 +32,7 @@ test.describe('QA fixes', () => {
       c.font = getComputedStyle(el).font;
       return c.measureText(el.placeholder).width <= el.clientWidth;
     })).toBe(true);
+    await app.openOverview();
     const spans = page.locator('#stats .tile span');
     await expect(spans).toHaveCount(9);
     const cut = await spans.evaluateAll(els => els.filter(e => e.scrollWidth > e.clientWidth + 1).map(e => e.textContent));

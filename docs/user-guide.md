@@ -380,6 +380,9 @@ serial, min_qty, lent_to, lent_at, lent_due, expires_on, barcode`.
 
 More about backups (CLI, cron, sizes) in [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
+Cells that a spreadsheet would treat as a formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) are
+exported with a leading apostrophe, so Excel and LibreOffice show them as text; the import removes it again.
+
 ## Importing a CSV file
 
 ☰ → *Import CSV* (editors and admins) adds or updates many items at once:
@@ -448,7 +451,7 @@ The last admin can't be demoted or deleted, and you can't delete your own accoun
 
 Everybody can change their own password under **☰ → (your name)**. The history records who made each change
 ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
-only needs an admin's user name and password. Sessions last up to 180 days. Locked out? On the server:
+only needs an admin's user name and password. Sessions last 30 days by default (Control Panel → Users & sign-in → “Stay signed in for”). Locked out? On the server:
 `php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
 `roles reset` to restore the built-in roles, `auth off` to turn accounts off).
 

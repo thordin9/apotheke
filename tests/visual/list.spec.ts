@@ -34,6 +34,11 @@ test.describe('list, overview and search', () => {
   test('overview: tiles, range toggle, collapse persistence, tap to filter', async ({ app, page }) => {
     await app.go('/');
     const stats = page.locator('#stats');
+    if ((page.viewportSize()?.width ?? 1280) <= 640) {
+      // phones start collapsed so the items show above the fold
+      await expect(stats).not.toHaveAttribute('open', '');
+      await stats.locator('summary').click();
+    }
     await expect(stats).toHaveAttribute('open', '');
     const tiles = page.locator('#stats .tile');
     await expect(tiles).toHaveCount(9);
@@ -41,6 +46,11 @@ test.describe('list, overview and search', () => {
     await expect(tiles.nth(1)).toContainText('19');
     await expect(page.locator('.chart-d')).toBeVisible();
     await expect(page.locator('.chart-d .st-sub')).toContainText('6 in the last 30 days');
+    // the axis text keeps its size however wide the chart is (QA: ~25px at 1280px)
+    const fs = await page.locator('.chart-d .chart-axis .ax').first().evaluate(e => parseFloat(getComputedStyle(e).fontSize));
+    expect(fs).toBe(12);
+    const ch = await page.locator('.chart-d svg.chart').evaluate(e => e.getBoundingClientRect().height);
+    expect(ch).toBeLessThanOrEqual(90);
     await page.locator('label[for=rg-m]').click();
     await expect(page.locator('.chart-m')).toBeVisible();
     await expect(page.locator('.chart-d')).toBeHidden();

@@ -21,6 +21,7 @@ test.describe('expiry / warranty', () => {
     await expect(page.locator('.card[data-id="3"] .expbadge')).toHaveText('Expires in 5 days');
     await expect(page.locator('.card[data-id="7"] .expbadge')).toHaveText('Expired');
     await expect(page.locator('.card[data-id="1"] .expbadge')).toHaveCount(0);
+    await app.openOverview();
     await expect(page.locator('#tile-expiring b')).toHaveText('1');
     await expect(page.locator('#tile-expired b')).toHaveText('1');
     await expect(page.locator('#tile-expired')).toHaveClass(/has-expired/);
