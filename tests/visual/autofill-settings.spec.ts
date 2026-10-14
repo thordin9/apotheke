@@ -8,6 +8,7 @@ test.beforeAll(async () => { await stub.start(); });
 test.afterAll(() => stub.stop());
 
 const shot = async (page: Page, name: string) => {
+  if (test.info().project.name.endsWith('-smoke')) return;   // smoke projects (Docker, PostgreSQL) have no baselines
   await page.evaluate(() => document.fonts.ready);
   await expect(page).toHaveScreenshot(name + '.png', { fullPage: true, mask: [page.locator('.app-version'), page.locator('#s-autofill_url')] });
 };

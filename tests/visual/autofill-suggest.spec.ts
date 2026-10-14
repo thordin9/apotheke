@@ -24,6 +24,7 @@ async function configure(page: Page, o: { on: boolean; url?: string; timeout?: s
 }
 const pick = (page: Page, file: string) => page.locator('#itemform .photo-lib input[type=file]').setInputFiles(file);
 const shot = async (page: Page, name: string) => {
+  if (test.info().project.name.endsWith('-smoke')) return;   // smoke projects (Docker, PostgreSQL) have no baselines
   await page.evaluate(() => document.fonts.ready);
   await expect(page).toHaveScreenshot(name + '.png', { mask: [page.locator('#preview'), page.locator('#pstatus'), page.locator('#name'), page.locator('textarea[name=notes]')] });
 };
