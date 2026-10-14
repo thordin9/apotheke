@@ -134,4 +134,81 @@ final class AutofillTest extends DatabaseTestCase
             $this->assertStringNotContainsString('tok-SECRET-123', autofill_test_result_html($r));
         }
     }
+
+    private function jpeg(int $w, int $h): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        ob_start();
+        imagejpeg($im);
+        return (string)ob_get_clean();
+    }
+
+    public function testPrepareImageDownscalesToJpeg1024(): void
+    {
+        $out = autofill_prepare_image($this->jpeg(2048, 1536));
+        $this->assertTrue($out['converted']);
+        $this->assertSame('image/jpeg', $out['mime']);
+        $i = getimagesizefromstring($out['data']);
+        $this->assertSame([1024, 768, IMAGETYPE_JPEG], [$i[0], $i[1], $i[2]]);
+        $small = getimagesizefromstring(autofill_prepare_image($this->jpeg(300, 500))['data']);
+        $this->assertSame([300, 500], [$small[0], $small[1]], 'small photos are not enlarged');
+        $odd = autofill_prepare_image("\x00\x00\x00\x18ftypheic....");
+        $this->assertFalse($odd['converted'], 'unreadable images pass through unchanged');
+        $this->assertSame("\x00\x00\x00\x18ftypheic....", $odd['data']);
+    }
+
+    public function testParseSuggestion(): void
+    {
+        $s = autofill_parse_suggestion('{"name":{"value":"Cordless drill","confidence":0.82},"category":{"value":"Tools"},"tags":[{"value":"bosch","confidence":0.6},{"value":"Bosch"},{"value":"red"}],"description":{"value":"Red Bosch\n18V drill","confidence":1},"colour":"red"}');
+        $this->assertSame(['name' => 'Cordless drill', 'category' => 'Tools', 'tags' => ['bosch', 'red'], 'description' => "Red Bosch\n18V drill"], $s);
+        $this->assertSame(['name' => null, 'category' => null, 'tags' => [], 'description' => null], autofill_parse_suggestion('{}'));
+        foreach (['{not json', '', '[]', '"x"', 'null'] as $bad) $this->assertNull(autofill_parse_suggestion($bad), "malformed: $bad");
+        // wrong-shaped fields are dropped one by one
+        $s = autofill_parse_suggestion('{"name":"plain string","category":{"value":"X","confidence":7},"tags":"a,b","description":{"value":"   "}}');
+        $this->assertSame(['name' => null, 'category' => null, 'tags' => [], 'description' => null], $s);
+        // caps: long values cut, at most 8 tags, control characters removed
+        $s = autofill_parse_suggestion(json_encode(['name' => ['value' => str_repeat('n', 500) . "\t"], 'tags' => array_map(fn($i) => ['value' => "t$i"], range(1, 20)),
+            'description' => ['value' => "a\x07b" . str_repeat('d', 3000)]]));
+        $this->assertSame(200, mb_strlen($s['name']));
+        $this->assertCount(8, $s['tags']);
+        $this->assertSame(2000, mb_strlen($s['description']));
+        $this->assertStringStartsWith('abd', $s['description']);
+    }
+
+    public function testSuggestIsOffWithoutTouchingTheNetwork(): void
+    {
+        settings_store(['autofill_url' => 'http://127.0.0.1:1']);
+        $this->assertSame('off', autofill_suggest($this->jpeg(10, 10))['code']);
+    }
+
+    public function testSuggestAgainstTheStub(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5]);
+        $r = autofill_suggest($this->jpeg(1600, 1200));
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame('Misc', $r['suggestions']['category'], 'no categories yet: the echo default');
+        $this->assertSame(['echo', 'sample'], $r['suggestions']['tags']);
+        $this->assertMatchesRegularExpression('/^JPEG image, \d+ bytes$/', $r['suggestions']['description']);
+        $map = ['/m/error' => 'busy', '/m/malformed' => 'bad_response', '/m/toolarge' => 'too_large', '/m/unsupported' => 'unsupported', '/t/x' => 'unauthorized', '/m/empty' => 'empty'];
+        foreach ($map as $p => $code) {
+            settings_store(['autofill_url' => self::$stubBase . $p]);
+            $this->assertSame($code, autofill_suggest($this->jpeg(20, 20))['code'], $p);
+        }
+        settings_store(['autofill_url' => 'http://127.0.0.1:1']);
+        $this->assertSame('unreachable', autofill_suggest($this->jpeg(20, 20))['code']);
+    }
+
+    public function testSuggestRespectsTheAdvertisedLimit(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase]);
+        autofill_info_cache(['name' => 'tiny', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10, 'ready' => true]);
+        $this->assertSame('too_large', autofill_suggest($this->jpeg(100, 100))['code']);
+        autofill_info_cache(['name' => 'big', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true]);
+    }
+
+    public function testSuggestRouteNeedsCreate(): void
+    {
+        $this->assertSame('create', route_perm('POST', '/autofill/suggest'));
+        $this->assertNotContains('create', ROLE_DEFAULTS['viewer'][1]);
+    }
 }

@@ -101,5 +101,81 @@ foreach (['vic' => 'viewer', 'eda' => 'editor'] as $n => $role) {
 T::eq($secret, $afGet('autofill_token'), 'token unchanged after the attempts');
 $r = $af->post('/settings/autofill/token', ['csrf' => $at, 'action' => 'clear']);
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-cleared') && $afGet('autofill_token') === '', 'admin can clear the token');
+
+T::section('AI autofill: suggestions after a photo');
+$png = function (int $w, int $h): string { $im = imagecreatetruecolor($w, $h); imagefill($im, 0, 0, imagecolorallocate($im, 200, 60, 40)); ob_start(); imagepng($im); return (string)ob_get_clean(); };
+$photo = ['image' => ['name' => 'p.png', 'type' => 'image/png', 'data' => $png(3000, 2000)]];
+$suggest = fn(array $files = null, ?Client $c = null, ?string $tok = null) => ($c ?? $af)->api('/autofill/suggest', ['csrf' => $tok ?? $at], $files ?? $photo);
+$afSet(['autofill_enabled' => false, 'autofill_url' => $stub->base, 'autofill_timeout' => 5, 'autofill_token' => '']);
+$stub->clear();
+$r = $suggest();
+T::ok($r['status'] === 200 && ($r['json']['code'] ?? '') === 'off' && $r['json']['ok'] === false, 'off: answers "off"', $r['body']);
+T::eq(null, $stub->last(), 'off: the service is never contacted');
+$form = $af->get('/new')['body'];
+T::ok(!str_contains($form, 'data-autofill') && !str_contains($form, 'id="af-status"'), 'off: the item form has no autofill hooks');
+$afSet(['autofill_enabled' => true]);
+$form = $af->get('/new')['body'];
+T::ok(str_contains($form, 'data-autofill="1"') && str_contains($form, 'id="af-status"'), 'on: the item form has the autofill hooks');
+T::ok(!str_contains($form, $stub->base), 'on: the service address is not exposed to the browser');
+// context: existing categories and tags
+$af->api('/categories', ['csrf' => $at, 'name' => 'Power tools']);
+$af->api('/save', ['csrf' => $at, 'name' => 'Old drill', 'tags' => 'garage, bosch']);
+$stub->clear();
+$r = $suggest();
+$s = $r['json']['suggestions'] ?? [];
+T::ok(($r['json']['ok'] ?? false) === true && str_starts_with((string)($s['name'] ?? ''), 'Echo item '), 'happy path: name suggested', $r['body']);
+T::eq('Power tools', $s['category'] ?? null, 'category reuses the existing spelling (from context)');
+T::eq(['bosch', 'garage'], $s['tags'] ?? null, 'tags from the context');
+T::ok(str_starts_with((string)($s['description'] ?? ''), 'JPEG image, '), 'description suggested');
+$last = $stub->last();
+T::eq(['categories' => ['Power tools'], 'tags' => ['bosch', 'garage'], 'locale' => 'en'], $last['context'] ?? null, 'context sent: categories, tags, locale');
+T::ok(($last['type'] ?? '') === 'JPEG' && ($last['width'] ?? 0) === 1024 && ($last['height'] ?? 0) === 683, 'a 3000×2000 PNG is sent as a 1024×683 JPEG', json_encode($last));
+T::eq(null, $last['auth'] ?? null, 'no token set → no Authorization header');
+// token
+$afSet(['autofill_url' => $stub->base . '/t/' . $secret, 'autofill_token' => $secret]);
+$stub->clear();
+$r = $suggest();
+T::ok(($r['json']['ok'] ?? false) === true && ($stub->last()['auth'] ?? '') === 'Bearer ' . $secret, 'token sent as a bearer token');
+T::ok(!str_contains($r['body'], $secret), 'token not in the answer to the browser');
+$afSet(['autofill_token' => 'wrong']);
+T::eq('unauthorized', $suggest()['json']['code'] ?? null, 'bad token → unauthorized, no suggestions');
+$afSet(['autofill_url' => $stub->base, 'autofill_token' => '']);
+// failure modes: all soft (HTTP 200, ok:false, a message for the status line)
+foreach ([['http://127.0.0.1:1', 'unreachable', 'service down'], [$stub->base . '/m/error', 'busy', 'backend error (503)'],
+          [$stub->base . '/m/malformed', 'bad_response', 'malformed response'], [$stub->base . '/m/toolarge', 'too_large', 'service says too large (413)'],
+          [$stub->base . '/m/unsupported', 'unsupported', 'service says unsupported type (415)'], [$stub->base . '/m/badinfo/nope', 'bad_response', 'unexpected HTTP status (404)']] as [$u, $code, $what]) {
+    $afSet(['autofill_url' => $u]);
+    $r = $suggest();
+    T::ok($r['status'] === 200 && ($r['json']['ok'] ?? null) === false && ($r['json']['code'] ?? '') === $code && ($r['json']['message'] ?? '') !== '', "$what → $code", $r['body']);
+}
+$afSet(['autofill_url' => $stub->base . '/m/empty']);
+$r = $suggest();
+T::ok(($r['json']['ok'] ?? null) === true && ($r['json']['code'] ?? '') === 'empty', 'empty answer {} → no suggestions, not an error');
+$afSet(['autofill_url' => $stub->base . '/m/slow', 'autofill_timeout' => 3]);
+$t0 = microtime(true);
+$r = $suggest();
+T::ok(($r['json']['code'] ?? '') === 'timeout' && microtime(true) - $t0 < 6, 'slow service → timeout after the configured 3 s');
+$afSet(['autofill_url' => $stub->base, 'autofill_timeout' => 5]);
+// odd images
+$stub->clear();
+$r = $suggest(['image' => ['name' => 'x.heic', 'type' => 'image/heic', 'data' => "\x00\x00\x00\x18ftypheic" . str_repeat('x', 500)]]);
+T::ok(($r['json']['code'] ?? '') === 'unsupported' && ($stub->last()['bytes'] ?? 0) === 512, 'unreadable image (HEIC) passed through; service 415 → unsupported');
+$r = $suggest(['image' => ['name' => 'tiny.png', 'type' => 'image/png', 'data' => $png(1, 1)]]);
+T::ok(($r['json']['ok'] ?? false) === true, '1×1 image is fine');
+T::eq('no_image', $suggest([])['json']['code'] ?? null, 'no image → no_image');
+// saving still works (suggest never blocks): plain save while the service is down
+$afSet(['autofill_url' => 'http://127.0.0.1:1']);
+$r = $af->api('/save', ['csrf' => $at, 'name' => 'Saved while down'], ['photo' => ['name' => 'p.png', 'type' => 'image/png', 'data' => $png(50, 50)]]);
+T::ok($r['status'] === 200 && ($r['json']['ok'] ?? false), 'saving an item with a photo works while the service is down');
+// security
+T::eq(419, $suggest(null, null, 'nope')['status'], 'suggest without CSRF → 419');
+$vi = $afs->client();
+$vi->post('/login', ['csrf' => $vi->csrf(), 'username' => 'vic', 'password' => 'vic-password']);
+T::eq(403, $suggest(null, $vi, $vi->csrf())['status'], 'viewer cannot ask for suggestions');
+T::ok(!str_contains($vi->get('/')['body'], 'data-autofill'), 'viewer pages have no autofill hooks');
+$anon = $afs->client();
+T::ok(in_array($anon->api('/autofill/suggest', ['csrf' => $anon->csrf()], $photo)['status'], [401, 403], true), 'signed-out visitor cannot ask for suggestions');
+
 T::ok(!$afs->logHas($secret), 'token never written to the server log');
 $afs->stop();
+$stub->stop();

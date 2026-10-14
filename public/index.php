@@ -672,6 +672,17 @@ try {
         if (wants_json()) json_out(['ok' => true, 'key' => $key]);
         redirect('/settings/security?done=' . $done . '#' . ($key !== '' ? 'rc-' . $key : 'roles'));
     }
+    if ($path === '/autofill/suggest' && $method === 'POST') {
+        check_csrf();
+        no_store();
+        $f = $_FILES['image'] ?? null;
+        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
+            json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
+        }
+        if ((int)$f['size'] > max_upload()) json_out(['ok' => false, 'code' => 'too_large', 'message' => 'No suggestions: the photo is too large.']);
+        $r = autofill_suggest((string)file_get_contents((string)$f['tmp_name']));
+        json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
+    }
     if ($path === '/settings/autofill/token' && $method === 'POST') {
         check_csrf();
         if (($_POST['action'] ?? '') === 'clear') {

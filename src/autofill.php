@@ -73,8 +73,9 @@ function autofill_http(string $method, string $url, ?array $multipart, string $t
 /** JSON object (assoc array) or null. */
 function autofill_json_object(string $body): ?array
 {
-    try { $d = json_decode($body, true, 16, JSON_THROW_ON_ERROR); } catch (JsonException) { return null; }
-    return is_array($d) && ($d === [] || !array_is_list($d)) ? $d : null;
+    try { $o = json_decode($body, false, 16, JSON_THROW_ON_ERROR); } catch (JsonException) { return null; }
+    if (!$o instanceof stdClass) return null;          // `[]`, strings, numbers, null: not an object
+    return json_decode($body, true, 16);
 }
 
 /**
@@ -141,4 +142,118 @@ function autofill_info_cache(?array $info = null): ?array
     $d = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;
     if (!is_array($d) || ($d['url'] ?? '') !== (string)setting('autofill_url') || time() - (int)($d['at'] ?? 0) > 3600) return null;
     return is_array($d['info'] ?? null) ? $d['info'] : null;
+}
+
+/* ---------------- suggestions (task 7) ---------------- */
+
+const AUTOFILL_IMAGE_SIDE = 1024;          // long edge of the JPEG we send (the service's recommendation)
+const AUTOFILL_IMAGE_QUALITY = 82;
+const AUTOFILL_MAX_TAGS = 8;
+
+/**
+ * The photo as the service wants it: JPEG, about 1024 px on the long edge, EXIF orientation applied.
+ * Anything GD cannot read (HEIC, broken files…) is passed through unchanged, so the service decides (415).
+ * @return array{data:string,mime:string,converted:bool}
+ */
+function autofill_prepare_image(string $bytes): array
+{
+    $info = @getimagesizefromstring($bytes);
+    $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
+    if (!$info || !in_array($info[2], $types, true) || $info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) {
+        return ['data' => $bytes, 'mime' => 'application/octet-stream', 'converted' => false];
+    }
+    $src = @imagecreatefromstring($bytes);
+    if (!$src) return ['data' => $bytes, 'mime' => 'application/octet-stream', 'converted' => false];
+    if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+        $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($bytes));
+        if (is_array($exif)) $src = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
+    }
+    $im = image_fit($src, AUTOFILL_IMAGE_SIDE);
+    ob_start();
+    imagejpeg($im, null, AUTOFILL_IMAGE_QUALITY);
+    return ['data' => (string)ob_get_clean(), 'mime' => 'image/jpeg', 'converted' => true];
+}
+
+/** What the backend may reuse: existing category and tag spellings, and the UI language. */
+function autofill_context(): array
+{
+    $cats = array_map(fn($c) => (string)$c['name'], db()->query('SELECT name FROM categories ORDER BY name')->fetchAll());
+    $tags = array_map(fn($t) => (string)$t['name'], tags_all());
+    return ['categories' => array_slice($cats, 0, 200), 'tags' => array_slice($tags, 0, 300), 'locale' => 'en'];
+}
+
+/**
+ * Validate a /v1/suggest answer. Every field is optional; unknown fields are ignored; a field of the wrong shape is
+ * dropped. null: not a JSON object at all (malformed).
+ * @return array{name:?string,category:?string,tags:string[],description:?string}|null
+ */
+function autofill_parse_suggestion(string $body): ?array
+{
+    $d = autofill_json_object($body);
+    if ($d === null) return null;
+    $shape = function (mixed $f): bool {
+        if (!is_array($f) || !is_string($f['value'] ?? null)) return false;
+        $c = $f['confidence'] ?? null;
+        return $c === null || ((is_int($c) || is_float($c)) && $c >= 0 && $c <= 1);
+    };
+    $val = function (mixed $f, int $max) use ($shape): ?string {
+        if (!$shape($f)) return null;
+        $v = clean_line($f['value'], $max);
+        return $v === '' ? null : $v;
+    };
+    $tags = [];
+    if (is_array($d['tags'] ?? null) && array_is_list($d['tags'])) {
+        foreach ($d['tags'] as $t) {
+            $v = $val($t, 40);
+            if ($v !== null && !in_array(mb_strtolower($v), array_map('mb_strtolower', $tags), true)) $tags[] = $v;
+            if (count($tags) >= AUTOFILL_MAX_TAGS) break;
+        }
+    }
+    $desc = null;
+    if ($shape($d['description'] ?? null)) {
+        $desc = trim(mb_substr(str_replace("\r", '', (string)preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $d['description']['value'])), 0, 2000));
+        if ($desc === '') $desc = null;
+    }
+    return ['name' => $val($d['name'] ?? null, 200), 'category' => $val($d['category'] ?? null, 120), 'tags' => $tags, 'description' => $desc];
+}
+
+/**
+ * Photo → suggestions. Never throws; any problem is "no suggestions" with a short reason for the status line.
+ * @return array{ok:bool,code:string,message:string,suggestions?:array}
+ */
+function autofill_suggest(string $imageBytes): array
+{
+    $fail = fn(string $code, string $msg) => ['ok' => false, 'code' => $code, 'message' => $msg];
+    if (!autofill_enabled()) return $fail('off', 'AI autofill is off.');
+    if ($imageBytes === '') return $fail('no_image', 'No photo.');
+    $img = autofill_prepare_image($imageBytes);
+    $info = autofill_info_cache();
+    if ($info !== null && $info['max_image_bytes'] !== null && strlen($img['data']) > $info['max_image_bytes']) {
+        return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.');
+    }
+    $timeout = (int)setting('autofill_timeout');
+    $url = rtrim((string)setting('autofill_url'), '/') . '/v1/suggest';
+    $parts = [
+        'image' => new CURLStringFile($img['data'], $img['converted'] ? 'photo.jpg' : 'photo', $img['mime']),
+        'context' => json_encode(autofill_context(), JSON_UNESCAPED_UNICODE),
+    ];
+    $r = autofill_http('POST', $url, $parts, autofill_token(), $timeout);
+    if ($r['error'] === 'timeout') return $fail('timeout', "No suggestions: the service did not answer within $timeout seconds.");
+    if ($r['error'] === 'unreachable') { autofill_log('suggest: service unreachable'); return $fail('unreachable', 'No suggestions: the autofill service is not reachable.'); }
+    if ($r['error'] === 'unavailable') return $fail('unavailable', 'No suggestions: this server has no curl extension.');
+    if ($r['error'] === 'too_large') return $fail('bad_response', 'No suggestions: the service sent an unexpected answer.');
+    switch ($r['status']) {
+        case 200: break;
+        case 401: case 403: autofill_log('suggest: token refused (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service refused the access token. An admin can fix it in Settings → AI autofill.');
+        case 413: return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.');
+        case 415: return $fail('unsupported', 'No suggestions: the service cannot read this kind of image.');
+        case 503: return $fail('busy', 'No suggestions: the service is busy or not ready. Try again later.');
+        case 504: return $fail('timeout', 'No suggestions: the service took too long.');
+        default: autofill_log('suggest: HTTP ' . $r['status']); return $fail('bad_response', 'No suggestions: the service answered with HTTP ' . $r['status'] . '.');
+    }
+    $s = autofill_parse_suggestion($r['body']);
+    if ($s === null) { autofill_log('suggest: malformed response'); return $fail('bad_response', 'No suggestions: the service sent an unexpected answer.'); }
+    $filled = array_keys(array_filter($s, fn($v) => $v !== null && $v !== []));
+    if (!$filled) return ['ok' => true, 'code' => 'empty', 'message' => 'No suggestions for this photo.', 'suggestions' => $s];
+    return ['ok' => true, 'code' => 'ok', 'message' => 'Suggestions from the photo', 'suggestions' => $s];
 }

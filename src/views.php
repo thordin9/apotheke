@@ -861,7 +861,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
   </div>
 </header>
 <main class="wrap narrow">
-  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate>
+  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= autofill_enabled() && user_can('create') ? ' data-autofill="1"' : '' ?>>
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int)$it['id'] ?>"><?php endif; ?>
     <input type="hidden" name="MAX_FILE_SIZE" value="<?= max_upload() ?>">
@@ -880,6 +880,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       </label>
       <span class="photo-status" id="pstatus" hidden></span>
     </div>
+    <?php if (autofill_enabled() && user_can('create')): ?><p class="af-status" id="af-status" role="status" aria-live="polite" hidden></p><?php endif; ?>
     <?php if ($hasImg): ?>
     <label class="check"><input type="checkbox" name="remove_image" value="1" id="rmimg"> <?= icon('trash') ?> Remove photo</label>
     <?php endif; ?>

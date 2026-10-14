@@ -159,6 +159,10 @@
     });
     entry.addEventListener('blur', () => { if (entry.value.trim()) add(entry.value); });
     const f = tagIn.form; if (f) f.addEventListener('submit', () => { if (entry.value.trim()) add(entry.value); }, true);
+    tagIn.addEventListener('af:render', render);   // AI autofill changed the value
+    // the user edited the tags (typing or removing a chip): AI autofill leaves them alone from now on
+    const touched = e => { if (e.isTrusted && (e.type === 'input' || e.target.closest('.tagchip-x'))) { tagIn.dataset.afTouched = '1'; wrap.classList.remove('af-filled'); tagIn.classList.remove('af-filled'); } };
+    entry.addEventListener('input', touched); wrap.addEventListener('click', touched, true);
     render();
   }
 
@@ -431,9 +435,9 @@
       img.src = u;
     });
   }
-  async function shrinkImage(file) {
+  async function shrinkImage(file, maxSide = MAX_SIDE) {
     const src = await decodeImage(file);
-    const w = src.width, h = src.height, s = Math.min(1, MAX_SIDE / Math.max(w, h));
+    const w = src.width, h = src.height, s = Math.min(1, maxSide / Math.max(w, h));
     const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
     const c = document.createElement('canvas');
     c.width = cw; c.height = ch;
@@ -481,7 +485,62 @@
       });
       const name = form.elements.name;
       if (name && !name.value) setTimeout(() => name.focus(), 50);
+      if (form.dataset.autofill === '1') autofill(file);
     }));
+
+    /* AI autofill: send a ~1024 px JPEG to /autofill/suggest (the server talks to the service) and pre-fill
+       only fields that are still empty and that the user has not touched. Never blocks saving. */
+    const afStatus = $('#af-status');
+    let afSeq = 0;
+    const afFields = () => ({ name: form.elements.name, tags: form.elements.tags, description: form.elements.notes,
+      category: $('#catsel', form), newcat: $('#newcatname', form) });
+    Object.values(afFields()).forEach(el => el && ['input', 'change'].forEach(ev => el.addEventListener(ev, e => {
+      if (!e.isTrusted) return;
+      el.dataset.afTouched = '1'; el.classList.remove('af-filled');
+    })));
+    const afSay = (msg, fail) => {
+      if (!afStatus) return;
+      afStatus.hidden = !msg; afStatus.classList.toggle('af-fail', !!fail);
+      afStatus.innerHTML = msg ? '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg> ' : '';
+      if (msg) afStatus.append(document.createTextNode(msg));
+    };
+    // free to fill: empty and never typed in, or filled by an earlier suggestion and not edited since
+    const afFree = el => el && !el.dataset.afTouched && (el.value.trim() === '' || el.classList.contains('af-filled'));
+    const afPut = (el, v) => { el.value = v; el.classList.add('af-filled'); };
+    async function autofill(file) {
+      const seq = ++afSeq;
+      afSay('Looking at the photo…');
+      form.classList.add('af-busy');
+      let j = null;
+      try {
+        let img;
+        try { img = await shrinkImage(file, 1024); } catch (_) { img = file; }
+        const fd = new FormData();
+        fd.append('image', img, 'photo.jpg');
+        fd.append('csrf', csrf());
+        const r = await fetch('/autofill/suggest', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch', Accept: 'application/json' } });
+        j = await r.json();
+      } catch (_) { j = null; }
+      if (seq !== afSeq) return;           // a newer photo was picked meanwhile
+      form.classList.remove('af-busy');
+      if (!j || !j.ok) { afSay((j && j.message) || 'No suggestions (autofill is not available right now).', true); return; }
+      const s = j.suggestions || {}, f = afFields(), done = [];
+      if (s.name && afFree(f.name)) { afPut(f.name, s.name); done.push('name'); }
+      if (s.category && f.category && (f.category.value === '' || f.category.classList.contains('af-filled')) && !f.category.dataset.afTouched && afFree(f.newcat || f.category)) {
+        const want = s.category.toLocaleLowerCase();
+        const opt = [...f.category.options].find(o => /^\d+$/.test(o.value) && o.textContent.replace(/ ★$/, '').trim().toLocaleLowerCase() === want);
+        if (opt) { afPut(f.category, opt.value); if (f.newcat) { f.newcat.value = ''; f.newcat.classList.remove('af-filled'); } }
+        else if (f.newcat) { afPut(f.category, '__new'); afPut(f.newcat, s.category); const row = $('#newcat', form); if (row) row.hidden = false; }
+        done.push('category');
+      }
+      if (s.tags && s.tags.length && afFree(f.tags)) {
+        afPut(f.tags, s.tags.join(', ')); f.tags.dispatchEvent(new Event('af:render'));
+        const tb = $('#tagbox', form); if (tb) tb.classList.add('af-filled');
+        done.push('tags');
+      }
+      if (s.description && afFree(f.description)) { afPut(f.description, s.description); done.push('description'); }
+      afSay(done.length ? 'Suggested from the photo: ' + done.join(', ') + '. Check before saving.' : j.code === 'empty' ? 'No suggestions for this photo.' : 'Nothing to fill in – your entries were kept.');
+    }
 
     // Location / category pickers with inline "＋ New …"
     const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
