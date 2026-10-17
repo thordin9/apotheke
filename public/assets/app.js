@@ -491,7 +491,7 @@
     /* AI autofill: send a ~1024 px JPEG to /autofill/suggest (the server talks to the service) and pre-fill
        only fields that are still empty and that the user has not touched. Never blocks saving or typing.
        Feedback: "Uploading…" (real upload progress), "Analyzing photo…" (an estimate from the service's
-       avg_latency_ms, eased and held at 95 % until the answer; a spinner when the service gives no average),
+       avg_latency_ms, linear and held at 95 % until the answer; a spinner when the service gives no average),
        then "Suggestions ready" / "No suggestions" / the reason. A 503 with Retry-After is retried once. */
     const afBox = $('#af-feedback'), afStatus = $('#af-status'), afProg = $('#af-progress');
     const afBar = $('#af-bar'), afPct = $('#af-pct');
@@ -528,7 +528,8 @@
       const seq = afSeq;
       setTimeout(() => { if (seq === afSeq) afHide(); }, 700);
     };
-    // "Analyzing": elapsed vs the expected time, ease-out, never above 95 % before the answer
+    // "Analyzing": elapsed vs the expected time, linear so percent and seconds agree (10 s of 20 = 50 %, 10 s left);
+    // capped at 95 % until the answer, then "still working…" once past the estimate
     const afAnalyze = seq => {
       clearInterval(afTick);
       afSay('Analyzing photo…');
@@ -537,9 +538,8 @@
       const t0 = performance.now();
       const step = () => {
         if (seq !== afSeq) { clearInterval(afTick); return; }
-        const t = performance.now() - t0, x = Math.min(1, t / ms);
-        const left = Math.ceil((ms - t) / 1000);
-        afShow(95 * (1 - Math.pow(1 - x, 3)), x < 1 ? (left > 1 ? 'about ' + left + ' s left' : 'almost done') : 'still working…');
+        const t = performance.now() - t0, left = Math.ceil((ms - t) / 1000);
+        afShow(Math.min(95, 100 * t / ms), t < ms ? (left > 1 ? 'about ' + left + ' s left' : 'almost done') : 'still working…');
       };
       step(); afTick = setInterval(step, 250);
     };

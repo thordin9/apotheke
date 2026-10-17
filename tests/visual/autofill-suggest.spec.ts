@@ -122,14 +122,16 @@ test.describe('AI autofill suggestions', () => {
     await expect(bar).toHaveAttribute('role', 'progressbar');
     await expect(bar).toHaveAttribute('aria-valuenow', '0');
     await expect(page.locator('#af-pct')).toHaveText('0 % · about 4 s left');
-    await page.clock.runFor(2_000);                     // half the expected time: ease-out → 83 %
-    await expect(bar).toHaveAttribute('aria-valuenow', '83');
-    await expect(page.locator('#af-pct')).toHaveText('83 % · about 2 s left');
-    await expect(bar).toHaveAttribute('aria-valuetext', '83 % · about 2 s left');
+    await page.clock.runFor(2_000);                     // half the expected time: half way, and the seconds agree
+    await expect(bar).toHaveAttribute('aria-valuenow', '50');
+    await expect(page.locator('#af-pct')).toHaveText('50 % · about 2 s left');
+    await expect(bar).toHaveAttribute('aria-valuetext', '50 % · about 2 s left');
     await expect(page.locator('#name'), 'the form stays usable').toBeEditable();
     await app.noOverflow();
     await shot(page, 'autofill-progress');
-    await page.clock.runFor(3_000);                     // over the estimate: held at 95 %
+    await page.clock.runFor(1_000);
+    await expect(page.locator('#af-pct')).toHaveText('75 % · almost done');
+    await page.clock.runFor(2_000);                     // over the estimate: held at 95 %
     await expect(bar).toHaveAttribute('aria-valuenow', '95');
     await expect(page.locator('#af-pct')).toHaveText('95 % · still working…');
     await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 10_000 });

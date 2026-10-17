@@ -105,8 +105,9 @@ stays usable the whole time:
 
 1. **Uploading…** with the real upload progress (an `XMLHttpRequest` upload event; usually a blink on a LAN).
 2. **Analyzing photo…** The service does one model call and cannot report progress, so the bar is an
-   **estimate**: elapsed time against `avg_latency_ms` from the cached `/v1/info`, eased out, with
-   *about N s left*. It stops at 95 % and says *still working…* when the photo takes longer than average;
+   **estimate**: elapsed time against `avg_latency_ms` from the cached `/v1/info`, filled linearly so the
+   percentage and *about N s left* agree (10 s into a 20 s average: 50 %, about 10 s left). It stops at 95 %
+   and says *still working…* when the photo takes longer than average;
    it never shows 100 % before the answer. Without `avg_latency_ms` it is an indeterminate spinner. The bar
    is a `role="progressbar"` with `aria-valuenow` and `aria-valuetext`; the stage text is a polite live
    region. With *reduce motion* the bar does not animate.
