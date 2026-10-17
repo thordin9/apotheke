@@ -36,8 +36,10 @@ connect* (also when the 3 s connect timeout runs out), *no answer within N secon
 token* (401, none set), *the service refused the token* (401, wrong token), *not a valid address* (anything but
 `http://`/`https://`), *not a valid /v1/info answer* or *still warming up* (`ready: false`).
 
-Each `/v1/info` answer is cached for an hour (refreshed after a successful suggestion when it is older than 10
-minutes). Apotheke reads these fields; unknown fields are ignored:
+Each `/v1/info` answer of the **saved** service is cached for an hour: when you save the section (one request,
+at most min(timeout, 5 s); a failure never stops the save), when Test connection or Test with a photo runs
+against the saved address (testing an unsaved address caches nothing), and after a successful suggestion
+when the copy is older than 10 minutes. Apotheke reads these fields; unknown fields are ignored:
 
 | Field | Required | Used for |
 |---|---|---|

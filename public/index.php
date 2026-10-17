@@ -770,6 +770,7 @@ try {
                 view_settings_section($section, $raw, $errors, null);
                 exit;
             }
+            if ($section === 'autofill') autofill_prime_info();   // never fails the save; at most 5 s
             redirect("/settings/$section?done=" . ($afTokenCleared ? 'saved-token-cleared' : 'saved'));
         }
     }

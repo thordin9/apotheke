@@ -334,6 +334,18 @@ T::ok(str_contains($form, 'id="af-progress"') && str_contains($form, 'role="prog
 $r = $suggest();
 T::ok(($r['json']['ok'] ?? false) === true && ($r['json']['avg_latency_ms'] ?? null) === 12500, 'suggest: the answer carries avg_latency_ms from /v1/info', $r['body']);
 T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'form: data-af-latency after a successful suggestion');
+// saving the section fetches /v1/info once, so the first photo has an estimate without a Test click
+@unlink($afd . '/autofill-info.json');
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'saving the section caches the service info (estimate on the first photo)');
+$t0 = microtime(true);
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => 'http://127.0.0.1:1', 'autofill_timeout' => '7']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && microtime(true) - $t0 < 5, 'saving with the service down still saves, quickly');
+$t0 = microtime(true);
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/m/slow', 'autofill_timeout' => '20']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && microtime(true) - $t0 < 7.5, 'saving with a slow service waits at most 5 s', (string)round(microtime(true) - $t0, 1));
+$afSet(['autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => 7]);
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
 // testing an unsaved address (either button) never replaces the saved service's cached info
 $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
 $af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);

@@ -155,6 +155,28 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame(8000, autofill_expected_ms(), 'the photo test of the saved address caches it');
     }
 
+    public function testPrimeInfoAfterSaving(): void
+    {
+        @unlink(DATA_DIR . '/autofill-info.json');
+        settings_store(['autofill_enabled' => false, 'autofill_url' => self::$stubBase . '/l/9000']);
+        $this->assertFalse(autofill_prime_info(), 'off: no request');
+        $this->assertNull(autofill_info_cache());
+        settings_store(['autofill_enabled' => true]);
+        $this->assertTrue(autofill_prime_info());
+        $this->assertSame(9000, autofill_expected_ms(), 'the first photo gets an estimate without a Test click');
+        // failures are silent and bounded: down, bad answer, wrong token, slow (min(timeout, 5 s))
+        foreach (['http://127.0.0.1:1', self::$stubBase . '/m/badinfo', self::$stubBase . '/t/x'] as $u) {
+            @unlink(DATA_DIR . '/autofill-info.json');
+            settings_store(['autofill_url' => $u]);
+            $this->assertFalse(autofill_prime_info(), $u);
+            $this->assertNull(autofill_info_cache(), $u);
+        }
+        settings_store(['autofill_url' => self::$stubBase . '/m/slow', 'autofill_timeout' => 3]);
+        $t = microtime(true);
+        $this->assertFalse(autofill_prime_info());
+        $this->assertLessThan(4.5, microtime(true) - $t, 'bounded by the timeout when it is under 5 s');
+    }
+
     public function testSuccessfulSuggestRefreshesAStaleInfo(): void
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/l/4200', 'autofill_timeout' => 5]);

@@ -341,13 +341,25 @@ function autofill_expected_ms(): ?int
     return is_int($v) && $v >= 0 ? $v : null;
 }
 
-/** GET /v1/info (3 s at most) and cache it; quietly does nothing when that fails. */
-function autofill_refresh_info(string $base, string $token): void
+/** GET /v1/info ($timeout s at most) and cache it; quietly does nothing when that fails. True when cached. */
+function autofill_refresh_info(string $base, string $token, int $timeout = 3): bool
 {
-    $r = autofill_http('GET', $base . '/v1/info', null, $token, 3);
-    if ($r['error'] !== null || $r['status'] !== 200) return;
+    $r = autofill_http('GET', rtrim($base, '/') . '/v1/info', null, $token, $timeout);
+    if ($r['error'] !== null || $r['status'] !== 200) return false;
     $info = autofill_parse_info($r['body']);
-    if ($info !== null) autofill_info_cache($info);
+    if ($info === null) return false;
+    autofill_info_cache($info);
+    return true;
+}
+
+/**
+ * After the autofill section was saved: fetch the saved service's /v1/info once, so the first photo already gets an
+ * estimate (and the size limit) without a Test click. Bounded by min(timeout, 5 s); failures are ignored.
+ */
+function autofill_prime_info(): bool
+{
+    if (!autofill_enabled()) return false;
+    return autofill_refresh_info((string)setting('autofill_url'), autofill_token(), min(5, max(1, (int)setting('autofill_timeout'))));
 }
 
 /**
