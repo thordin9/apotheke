@@ -7,6 +7,27 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-17
+
+### Added
+
+- **autofill:** progress bar, retry on busy, test with a photo ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **seed:** add Clothing, Shoes, Books and Lighting for new installs ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **autofill:** fetch the service info when the settings are saved ([#21](https://github.com/thordin9/apotheke/pull/21))
+
+### Fixed
+
+- **autofill:** keep the progress row so the form does not jump ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **autofill:** cache /v1/info only when testing the saved address ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **autofill:** say each photo-test check's state in words ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **autofill:** make the progress percentage match the time left ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **autofill:** own message for a 503 backend_error ([#21](https://github.com/thordin9/apotheke/pull/21))
+
+### Maintenance
+
+- **visual:** test: baselines for autofill progress and photo test ([#21](https://github.com/thordin9/apotheke/pull/21))
+- **visual:** test: rebaseline autofill form states after the layout fix ([#21](https://github.com/thordin9/apotheke/pull/21))
+
 ## [2.2.0] - 2026-10-14
 
 ### Added
@@ -153,7 +174,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/thordin9/apotheke/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/thordin9/apotheke/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/thordin9/apotheke/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/thordin9/apotheke/compare/v1.2.0...v2.0.0

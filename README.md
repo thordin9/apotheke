@@ -406,25 +406,25 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 61.2 % | 91.8 % | 91.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 5.9 % | 99.8 % | 99.6 % |
+| Views (HTML) | 7.4 % | 99.8 % | 99.6 % |
 | Control Panel settings | 73.2 % | 97.1 % | 97.1 % |
 | Backup & restore | 87.3 % | 90.0 % | 98.9 % |
-| Database, migrations, legacy | 84.0 % | 89.8 % | 97.6 % |
+| Database, migrations, legacy | 84.2 % | 89.9 % | 97.7 % |
 | Bootstrap, config, QR, seed | 71.8 % | 90.1 % | 91.5 % |
-| **All PHP** (5862 lines) | **59.8 %** | **95.7 %** | **97.3 %** |
+| **All PHP** (5964 lines) | **60.5 %** | **95.8 %** | **97.4 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 106 | 22 |
+| `chromium-pixel` | 113 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 106 | 22 |
+| `desktop-chromium` | 113 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
 | `pgsql-smoke` | 32 | 0 |
-| `webkit-iphone-se` | 106 | 22 |
+| `webkit-iphone-se` | 113 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 106 | 22 |
+| `webkit-iphone13` | 113 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **464** | **176** |
+| **Total** | **492** | **176** |
 
 <sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->
