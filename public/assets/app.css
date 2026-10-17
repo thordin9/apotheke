@@ -980,7 +980,8 @@ select.imp-ignored{color:var(--muted)}
 .af-feedback[hidden]{display:none}
 .af-status{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--muted, inherit);margin:0;min-height:20px}
 .af-progress{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--muted)}
-.af-progress[hidden]{display:none}
+/* keeps its row while the feedback shows: no layout jump (and no scroll-anchoring shift) when the bar comes and goes */
+.af-progress[hidden]{visibility:hidden}
 .af-track{position:relative;flex:1;height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden}
 .af-bar{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;background:var(--accent);transition:width .25s linear}
 .af-done .af-bar{transition-duration:.15s}

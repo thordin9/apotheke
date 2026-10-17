@@ -26,6 +26,7 @@ const pick = (page: Page, file: string) => page.locator('#itemform .photo-lib in
 const shot = async (page: Page, name: string) => {
   if (test.info().project.name.endsWith('-smoke')) return;   // smoke projects (Docker, PostgreSQL) have no baselines
   await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(() => window.scrollTo(0, 0));   // the name field takes focus after a photo; screenshot from the top
   await expect(page).toHaveScreenshot(name + '.png', { mask: [page.locator('#preview'), page.locator('#pstatus'), page.locator('#name'), page.locator('textarea[name=notes]')] });
 };
 
