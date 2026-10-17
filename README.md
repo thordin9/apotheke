@@ -340,7 +340,7 @@ php bin/settings.php user password admin # locked out? new password for admin
 The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table. Pending
 migrations also run **automatically on the first request** (one transaction, under a lock), so `bin/migrate.php` is
 optional. On a **brand-new** database Apotheke adds starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement,
-Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby) unless `SEED_DEFAULTS=false`; rename or
+Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby, Clothing, Shoes, Books, Lighting) unless `SEED_DEFAULTS=false`; rename or
 delete them freely.
 
 Backups from the CLI are handy for cron jobs and archives bigger than the web upload limit. Photo files that restored data

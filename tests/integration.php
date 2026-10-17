@@ -1093,7 +1093,7 @@ $ss = new Server($sd, ['SEED_DEFAULTS' => '1']);
 T::eq(200, $ss->client()->get('/')['status'], 'fresh install with seeding starts');
 $sp = testdb($sd);
 T::eq(['Attic', 'Basement', 'Box 1', 'Garage', 'Kitchen', 'Living room'], $sp->query('SELECT name FROM locations ORDER BY name')->fetchAll(PDO::FETCH_COLUMN), 'starter locations');
-T::eq(6, (int)$sp->query('SELECT COUNT(*) FROM categories')->fetchColumn(), 'starter categories');
+T::eq(['Books', 'Clothing', 'Documents', 'Electronics', 'General', 'Hobby', 'Kitchen', 'Lighting', 'Shoes', 'Tools'], $sp->query('SELECT name FROM categories ORDER BY name')->fetchAll(PDO::FETCH_COLUMN), 'starter categories (Clothing, Shoes, Books, Lighting new in 2.3)');
 T::eq('Box 1', $sp->query('SELECT name FROM locations WHERE is_default = 1')->fetchColumn(), 'one default location');
 T::eq('General', $sp->query('SELECT name FROM categories WHERE is_default = 1')->fetchColumn(), 'one default category');
 $sc = $ss->client(); $st = $sc->csrf();

@@ -4,7 +4,10 @@ declare(strict_types=1);
 /* Apotheke – first-use seeding (starter locations/categories) and optional demo items. All idempotent. */
 
 const SEED_LOCATIONS  = ['Box 1', 'Living room', 'Kitchen', 'Garage', 'Basement', 'Attic'];
-const SEED_CATEGORIES = ['General', 'Tools', 'Electronics', 'Kitchen', 'Documents', 'Hobby'];
+// New installs only: seed_defaults() runs once, on a brand-new database. Upgrades never add categories, so the four
+// added in 2.3 (Clothing, Shoes, Books, Lighting – what the autofill service's photos most often show) reach only new
+// databases; no migration may add them to an existing one.
+const SEED_CATEGORIES = ['General', 'Tools', 'Electronics', 'Kitchen', 'Documents', 'Hobby', 'Clothing', 'Shoes', 'Books', 'Lighting'];
 const SEED_DEFAULT_LOCATION = 'Box 1';
 const SEED_DEFAULT_CATEGORY = 'General';
 

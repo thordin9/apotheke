@@ -82,6 +82,42 @@ final class MigrationRunnerTest extends DatabaseTestCase
         $this->assertNotNull(setting_get($this->pdo, 'seeded_defaults'));
     }
 
+    public function testNewInstallGetsTheStarterCategories(): void
+    {
+        $this->migrateFresh(['seed' => true]);
+        $this->assertSame(['Books', 'Clothing', 'Documents', 'Electronics', 'General', 'Hobby', 'Kitchen', 'Lighting', 'Shoes', 'Tools'],
+            $this->pdo->query('SELECT name FROM categories ORDER BY name')->fetchAll(PDO::FETCH_COLUMN));
+        $this->assertSame('General', $this->pdo->query('SELECT name FROM categories WHERE is_default = 1')->fetchColumn());
+    }
+
+    /** A 2.2 database (migrations up to 0023, its own categories) upgraded to this version keeps its categories exactly. */
+    public function testUpgradeLeavesExistingCategoriesAlone(): void
+    {
+        $this->dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
+        mkdir($this->dir);
+        foreach (glob(migrations_dir() . '/*.php') as $f) if (substr(basename($f), 0, 4) <= '0023') copy($f, $this->dir . '/' . basename($f));
+        migrate($this->pdo, $this->driver, ['dir' => $this->dir, 'seed' => false, 'data_dir' => sys_get_temp_dir()]);
+        // as 2.2 left it: the old starter list (one renamed, one deleted), a custom category, the seeded flag
+        foreach (['General', 'Tools', 'Gadgets', 'Kitchen', 'Documents', 'Garden'] as $n) tax_create('category', $n);
+        setting_set($this->pdo, 'seeded_defaults', now_utc());
+        $before = $this->pdo->query('SELECT id, name, name_key, is_default FROM categories ORDER BY id')->fetchAll(PDO::FETCH_ASSOC);
+        $done = migrate($this->pdo, $this->driver, ['seed' => true, 'data_dir' => sys_get_temp_dir()]);
+        $this->assertContains('0024', $done, 'the upgrade ran the new migrations');
+        $this->assertSame($before, $this->pdo->query('SELECT id, name, name_key, is_default FROM categories ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+        $this->assertSame(0, seed_defaults($this->pdo), 'seeded before: never again');
+        $this->assertSame($before, $this->pdo->query('SELECT id, name, name_key, is_default FROM categories ORDER BY id')->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    public function testUpgradeOfAnUnseededDatabaseAddsNoCategories(): void
+    {
+        $this->dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
+        mkdir($this->dir);
+        foreach (glob(migrations_dir() . '/*.php') as $f) if (substr(basename($f), 0, 4) <= '0023') copy($f, $this->dir . '/' . basename($f));
+        migrate($this->pdo, $this->driver, ['dir' => $this->dir, 'seed' => false, 'data_dir' => sys_get_temp_dir()]);
+        migrate($this->pdo, $this->driver, ['seed' => true, 'data_dir' => sys_get_temp_dir()]);
+        $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM categories')->fetchColumn(), 'SEED_DEFAULTS on at upgrade time: still nothing added');
+    }
+
     public function testNoSeedWhenDisabled(): void
     {
         $this->migrateFresh(['seed' => false]);
@@ -94,7 +130,7 @@ final class MigrationRunnerTest extends DatabaseTestCase
         tax_create('location', 'GARAGE');
         tax_set_default('location', tax_create('location', 'Shed')['id'], true);
         $first = seed_defaults($this->pdo);
-        $this->assertSame(11, $first, '"Garage" already existed (case-insensitive)');
+        $this->assertSame(15, $first, '"Garage" already existed (case-insensitive)');
         $this->assertSame(0, seed_defaults($this->pdo), 'flagged: no second run');
         $this->assertSame(0, seed_defaults($this->pdo, true), 'forced run creates nothing new');
         $this->assertSame('Shed', $this->pdo->query('SELECT name FROM locations WHERE is_default = 1')->fetchColumn(), 'existing default kept');
