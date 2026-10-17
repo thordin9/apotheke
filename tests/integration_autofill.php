@@ -334,6 +334,10 @@ T::ok(str_contains($form, 'id="af-progress"') && str_contains($form, 'role="prog
 $r = $suggest();
 T::ok(($r['json']['ok'] ?? false) === true && ($r['json']['avg_latency_ms'] ?? null) === 12500, 'suggest: the answer carries avg_latency_ms from /v1/info', $r['body']);
 T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'form: data-af-latency after a successful suggestion');
+// testing an unsaved address (either button) never replaces the saved service's cached info
+$af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
+$af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
+T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'testing an unsaved address keeps the saved service\'s estimate');
 $afSet(['autofill_enabled' => false]);
 $form = $af->get('/new')['body'];
 T::ok(!str_contains($form, 'af-progress') && !str_contains($form, 'data-af-'), 'off: no progress bar, no hints');

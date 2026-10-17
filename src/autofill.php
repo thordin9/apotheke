@@ -154,7 +154,8 @@ function autofill_test(string $url, int $timeout, ?string $token = null): array
     if ($r['error'] !== null || $r['status'] !== 200) return $fail('bad_response', 'The service answered with HTTP ' . $r['status'] . ' – is this the autofill service (API v1)?');
     $info = autofill_parse_info($r['body']);
     if ($info === null) return $fail('bad_response', 'The service answered, but not with a valid /v1/info response – is this the autofill service (API v1)?');
-    autofill_info_cache($info);
+    // only the saved service's info may drive the item form (estimate, size limit): an unsaved address is just a test
+    if (autofill_is_saved_url($url)) autofill_info_cache($info);
     if (!$info['ready']) return ['ok' => false, 'code' => 'warming_up', 'message' => 'Connected to “' . $info['name'] . '”, but it is still warming up (loading its model). Try again in a minute.', 'info' => $info];
     return ['ok' => true, 'code' => 'ok', 'message' => 'Connected to “' . $info['name'] . '”.', 'info' => $info];
 }
@@ -172,6 +173,13 @@ function autofill_normalise_url(string $url): string
     return (string)preg_replace_callback('#^([a-z][a-z0-9+.-]*://)([^/?\#@]+)#i', fn($m) => strtolower($m[1] . $m[2]), $url);
 }
 
+/** Is $url the saved service address (same normalisation as autofill_test_token)? */
+function autofill_is_saved_url(string $url): bool
+{
+    $saved = (string)setting('autofill_url');
+    return $saved !== '' && autofill_normalise_url($url) === autofill_normalise_url($saved);
+}
+
 /**
  * Which token Test connection may send to $url: a token typed in the form wins; otherwise the stored token, but
  * only if $url is the saved address (after normalisation); any other address gets no token at all.
@@ -180,9 +188,7 @@ function autofill_test_token(string $url, string $typed = ''): string
 {
     $typed = trim($typed);
     if ($typed !== '') return $typed;
-    $saved = (string)setting('autofill_url');
-    if ($saved !== '' && autofill_normalise_url($url) === autofill_normalise_url($saved)) return autofill_token();
-    return '';
+    return autofill_is_saved_url($url) ? autofill_token() : '';
 }
 
 /**

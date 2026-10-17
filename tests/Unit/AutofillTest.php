@@ -138,6 +138,23 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertNull(autofill_expected_ms(), 'cached for another address: unknown');
     }
 
+    public function testTestingAnUnsavedAddressDoesNotTouchTheCache(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/l/8000']);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $this->assertTrue(autofill_test(self::$stubBase . '/l/8000/', 5, '')['ok'], 'saved address (normalised)');
+        $this->assertSame(8000, autofill_expected_ms());
+        foreach (['autofill_test', 'autofill_test_photo'] as $fn) {
+            $this->assertTrue($fn(self::$stubBase . '/l/20000', 5, '')['ok'], "$fn: unsaved address B");
+            $this->assertSame(8000, autofill_expected_ms(), "$fn: B's info is not cached under the saved address");
+        }
+        @unlink(DATA_DIR . '/autofill-info.json');
+        autofill_test_photo(self::$stubBase . '/l/20000', 5, '');
+        $this->assertNull(autofill_info_cache(), 'nothing cached for an unsaved address');
+        autofill_test_photo(strtoupper('http://') . substr(self::$stubBase, 7) . '/l/8000', 5, '');
+        $this->assertSame(8000, autofill_expected_ms(), 'the photo test of the saved address caches it');
+    }
+
     public function testSuccessfulSuggestRefreshesAStaleInfo(): void
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/l/4200', 'autofill_timeout' => 5]);
