@@ -128,10 +128,13 @@ test.describe('AI autofill settings', () => {
     await expect(page.locator('#af-checks [data-check="reachable"]')).toHaveAttribute('data-state', 'ok');
     await expect(page.locator('#af-checks [data-check="token"]')).toHaveAttribute('data-state', 'failed');
     await expect(page.locator('#af-checks [data-check="ready"]')).toHaveAttribute('data-state', 'skipped');
+    await expect(page.locator('#af-checks')).toHaveText(/Reachable\s*Token not accepted\s*Model: not checked/);
+    await expect(page.getByRole('list', { name: 'Checks' }).getByText('Token accepted', { exact: true })).toHaveCount(0);
     await configure(page, 'http://127.0.0.1:1');
     await page.locator('#af-test-photo').click();
     await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'unreachable');
     await expect(page.locator('#af-checks [data-check="reachable"]')).toHaveAttribute('data-state', 'failed');
+    await expect(page.locator('#af-checks')).toHaveText(/Not reachable\s*Token: not checked\s*Model: not checked/);
     await configure(page, stub.base + '/d/9000', '3');
     await page.locator('#af-test-photo').click();
     await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'timeout', { timeout: 8_000 });

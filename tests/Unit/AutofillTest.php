@@ -233,13 +233,19 @@ final class AutofillTest extends DatabaseTestCase
     {
         $r = autofill_test_photo('http://127.0.0.1:1', 3, '');
         $this->assertSame(['unreachable', ['reachable' => false, 'token' => null, 'ready' => null]], [$r['code'], $r['checks']]);
-        $this->assertStringContainsString('not checked', autofill_test_result_html($r));
+        $html = autofill_test_result_html($r);
+        foreach (['Not reachable', 'Token: not checked', 'Model: not checked'] as $t) $this->assertStringContainsString("<span>$t</span>", $html);
+        $this->assertStringNotContainsString('>Reachable<', $html);
         $r = autofill_test_photo(self::$stubBase . '/t/right', 5, 'wrong-SECRET-tok');
         $this->assertSame(['unauthorized', ['reachable' => true, 'token' => false, 'ready' => null]], [$r['code'], $r['checks']]);
         $this->assertStringNotContainsString('wrong-SECRET-tok', json_encode($r) . autofill_test_result_html($r), 'never echoes the token');
+        $html = autofill_test_result_html($r);
+        foreach (['Reachable', 'Token not accepted', 'Model: not checked'] as $t) $this->assertStringContainsString("<span>$t</span>", $html, 'the state is in the text');
+        $this->assertStringNotContainsString('<span>Token accepted</span>', $html, 'a refused token never reads as accepted');
         $this->assertTrue(autofill_test_photo(self::$stubBase . '/t/right', 5, 'right')['ok']);
         $r = autofill_test_photo(self::$stubBase . '/m/warming', 5, '');
         $this->assertSame(['warming_up', ['reachable' => true, 'token' => true, 'ready' => false]], [$r['code'], $r['checks']]);
+        $this->assertStringContainsString('<span>Model not ready</span>', autofill_test_result_html($r));
         $r = autofill_test_photo(self::$stubBase . '/m/busy/r/20', 5, '');
         $this->assertSame(['busy', false, 20], [$r['code'], $r['checks']['ready'], $r['retry_after'] ?? null]);
         $this->assertStringStartsWith('The sample photo got no suggestions:', $r['message']);

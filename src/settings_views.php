@@ -339,12 +339,15 @@ function autofill_test_result_html(array $r): string
             . (($i['avg_latency_ms'] ?? null) !== null ? '<dt>Typical answer</dt><dd id="af-latency">' . h(autofill_seconds((int)$i['avg_latency_ms'])) . '</dd>' : '') . '</dl>';
     }
     if (isset($r['checks'])) {
-        $labels = ['reachable' => 'Reachable', 'token' => 'Token accepted', 'ready' => 'Model ready'];
-        $o .= '<ul class="af-checks" id="af-checks">';
-        foreach ($labels as $k => $l) {
+        // the state is in the words, not only the icon (screen readers): [ok, failed, not checked]
+        $labels = ['reachable' => ['Reachable', 'Not reachable', 'Reachable: not checked'],
+                   'token' => ['Token accepted', 'Token not accepted', 'Token: not checked'],
+                   'ready' => ['Model ready', 'Model not ready', 'Model: not checked']];
+        $o .= '<ul class="af-checks" id="af-checks" aria-label="Checks">';
+        foreach ($labels as $k => [$yes, $no, $skip]) {
             $v = $r['checks'][$k] ?? null;
             $o .= '<li class="af-check ' . ($v === null ? 'skip' : ($v ? 'yes' : 'no')) . '" data-check="' . $k . '" data-state="' . ($v === null ? 'skipped' : ($v ? 'ok' : 'failed')) . '">'
-                . icon($v === null ? 'minus' : ($v ? 'check' : 'x')) . ' <span>' . h($l) . ($v === null ? ' – not checked' : '') . '</span></li>';
+                . icon($v === null ? 'minus' : ($v ? 'check' : 'x')) . ' <span>' . h($v === null ? $skip : ($v ? $yes : $no)) . '</span></li>';
         }
         $o .= '</ul>';
     }
