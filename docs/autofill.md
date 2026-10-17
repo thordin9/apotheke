@@ -141,7 +141,8 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Slower than the timeout | *did not answer within N seconds* (`504` from the service: *took too long*) |
 | Wrong token (`401`) | *refused the access token* (an admin fixes it in the Control Panel) |
 | No token set, service wants one (`401`) | *requires an access token* |
-| Backend failed or not ready (`503`) | *busy or not ready* |
+| Backend down or not ready (`503` `backend_unavailable`) | *busy or not ready* |
+| Backend failed on this photo (`503` `backend_error`) | *the service had a problem with this photo. Try again, or fill in the fields yourself* (no retry) |
 | Model loading / queue full (`503` + `Retry-After`) | *Model is warming up… retrying in N s*, one retry; then *warming up or busy. Try again in N s* if it is still busy |
 | Not a JSON object (malformed) | *sent an unexpected answer* |
 | Photo too large (`413`, or larger than `max_image_bytes` from the last Test connection) | *larger than the service accepts* |
@@ -176,7 +177,7 @@ CI does not need the Python service. `tests/stubs/autofill-stub.php` mimics the 
 started on a free port by the unit tests, the HTTP integration suite and Playwright
 (`tests/visual/autofill-stub.ts`). The mode and token are picked by a path prefix of the address, e.g.
 `http://127.0.0.1:PORT/m/slow/t/s3cret`: modes `ok`, `error` (503), `malformed`, `slow`, `toolarge` (413),
-`unsupported` (415), `empty`, `badinfo`, `warming`, `busy` (503 + `Retry-After`, always) and `cold` (the same
+`unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, always) and `cold` (the same
 503 on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-After` value), `/l/<ms>`
 (`avg_latency_ms` in `/v1/info`) and `/d/<ms>` (the suggestion waits that long).
 

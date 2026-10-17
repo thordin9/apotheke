@@ -189,7 +189,8 @@ test.describe('AI autofill suggestions', () => {
 
   for (const c of [
     { name: 'service down', url: 'http://127.0.0.1:1', msg: 'not reachable' },
-    { name: 'backend error (503)', url: () => stub.base + '/m/error', msg: 'busy or not ready' },
+    { name: 'backend unavailable (503)', url: () => stub.base + '/m/error', msg: 'busy or not ready' },
+    { name: 'backend error (503)', url: () => stub.base + '/m/fault', msg: 'had a problem with this photo. Try again, or fill in the fields yourself' },
     { name: 'malformed response', url: () => stub.base + '/m/malformed', msg: 'unexpected answer' },
     { name: 'photo too large (413)', url: () => stub.base + '/m/toolarge', msg: 'larger than the service accepts' },
     { name: 'unsupported image (415)', url: () => stub.base + '/m/unsupported', msg: 'cannot read this kind of image' },

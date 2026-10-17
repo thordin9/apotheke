@@ -395,6 +395,12 @@ function autofill_suggest_at(string $base, string $token, int $timeout, array $i
                 $n = max(1, $r['retry_after']);
                 return $fail('busy', "No suggestions: the model is warming up or busy. Try again in $n s.") + ['retry_after' => $n];
             }
+            // backend_unavailable (or no code): the backend is down or still starting; anything else (backend_error):
+            // the backend failed on this photo
+            if ($code !== null && $code !== 'backend_unavailable') {
+                autofill_log('suggest: backend error (HTTP 503)');
+                return $fail('backend_error', 'No suggestions: the service had a problem with this photo. Try again, or fill in the fields yourself.');
+            }
             return $fail('busy', 'No suggestions: the service is busy or not ready. Try again later.');
         case 504: return $fail('timeout', 'No suggestions: the service took too long.');
         default: autofill_log('suggest: HTTP ' . $r['status']); return $fail('bad_response', 'No suggestions: the service answered with HTTP ' . $r['status'] . '.');

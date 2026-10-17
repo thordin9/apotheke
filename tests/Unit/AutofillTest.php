@@ -205,6 +205,18 @@ final class AutofillTest extends DatabaseTestCase
         $r = autofill_suggest($this->jpeg(40, 40));
         $this->assertSame('busy', $r['code']);
         $this->assertArrayNotHasKey('retry_after', $r, 'a 503 without Retry-After is not worth a retry');
+        $this->assertStringContainsString('busy or not ready', $r['message'], 'backend_unavailable: busy or not ready');
+        // backend_error: the service failed on this photo – a matching message, no retry (even with Retry-After)
+        foreach (['/m/fault', '/m/fault/r/5'] as $p) {
+            settings_store(['autofill_url' => self::$stubBase . $p]);
+            $r = autofill_suggest($this->jpeg(40, 40));
+            $this->assertSame('backend_error', $r['code'], $p);
+            $this->assertSame('No suggestions: the service had a problem with this photo. Try again, or fill in the fields yourself.', $r['message'], $p);
+            $this->assertArrayNotHasKey('retry_after', $r, $p);
+        }
+        $r = autofill_test_photo(self::$stubBase . '/m/fault', 5, '');
+        $this->assertSame(['backend_error', true], [$r['code'], $r['checks']['ready']]);
+        $this->assertStringStartsWith('The sample photo got no suggestions: the service had a problem', $r['message']);
         // cold: the first call is refused with Retry-After, the next one is answered
         settings_store(['autofill_url' => self::$stubBase . '/m/cold/r/2']);
         @unlink(sys_get_temp_dir() . '/af-stub-' . parse_url(self::$stubBase, PHP_URL_PORT) . '.cold');
