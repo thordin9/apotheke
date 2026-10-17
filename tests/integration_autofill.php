@@ -386,6 +386,10 @@ T::ok(!str_contains($af->get('/new')['body'], 'af-progress'), 'on without an add
 $afSet(['autofill_url' => $stub->base . '/m/busy/r/16', 'autofill_timeout' => 5]);
 $r = $suggest();
 T::ok(($r['json']['code'] ?? '') === 'busy' && ($r['json']['retry_after'] ?? null) === 16 && ($r['json']['ok'] ?? null) === false, 'busy with Retry-After: 16 → retry_after 16', $r['body']);
+T::ok(($r['json']['retry_reason'] ?? '') === 'busy' && str_contains($r['json']['message'] ?? '', 'the service is busy'), '"backend busy, queue full" → retry_reason busy', $r['body']);
+$afSet(['autofill_url' => $stub->base . '/m/warmup/r/15']);
+$r = $suggest();
+T::ok(($r['json']['retry_reason'] ?? '') === 'warming' && str_contains($r['json']['message'] ?? '', 'the model is warming up'), '"model … is warming up" → retry_reason warming', $r['body']);
 $afSet(['autofill_url' => $stub->base . '/m/error']);
 T::ok(!array_key_exists('retry_after', $suggest()['json'] ?? []), 'busy without Retry-After → no retry_after');
 $afSet(['autofill_url' => $stub->base . '/m/fault']);

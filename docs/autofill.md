@@ -116,10 +116,11 @@ stays usable the whole time:
 3. **Suggestions ready** (and which fields were filled), **No suggestions for this photo**, or the reason it
    failed (table below). On success the bar jumps to 100 % and disappears.
 
-**Model warming up.** When the service answers `503` with `error.code` `backend_unavailable` and a
-`Retry-After` header (the model is loading, or its queue is full), Apotheke passes `retry_after` (seconds) on
-to the browser, which shows **Model is warming up… retrying in N s** with a countdown and then tries **once**
-more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
+**Warming up or busy.** When the service answers `503` with `error.code` `backend_unavailable` and a
+`Retry-After` header (the model is loading, or its queue is full), Apotheke passes `retry_after` (seconds) and
+`retry_reason` on to the browser. The reason comes from the service's `error.message`: *loading* or *warming
+up* means a cold model (`warming`), anything else is `busy`. The browser shows **Model is warming up…
+retrying in N s** or **Service is busy… retrying in N s** with a countdown and then tries **once** more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
 timeout; then, as when the retry fails too, the usual message is shown.
 
 **Only empty fields are filled, and never one you have touched.** Typing in a field (even if you then clear
@@ -146,7 +147,8 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | No token set, service wants one (`401`) | *requires an access token* |
 | Backend down or not ready (`503` `backend_unavailable`) | *busy or not ready* |
 | Backend failed on this photo (`503` `backend_error`) | *the service had a problem with this photo. Try again, or fill in the fields yourself* (no retry) |
-| Model loading / queue full (`503` + `Retry-After`) | *Model is warming up… retrying in N s*, one retry; then *warming up or busy. Try again in N s* if it is still busy |
+| Model loading (`503` + `Retry-After`, "model … is loading / warming up") | *Model is warming up… retrying in N s*, one retry; then *the model is warming up. Try again in N s* |
+| Queue full (`503` + `Retry-After`, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
 | Not a JSON object (malformed) | *sent an unexpected answer* |
 | Photo too large (`413`, or larger than `max_image_bytes` from the last Test connection) | *larger than the service accepts* |
 | Image type not supported (`415`) | *cannot read this kind of image* |
@@ -180,9 +182,11 @@ CI does not need the Python service. `tests/stubs/autofill-stub.php` mimics the 
 started on a free port by the unit tests, the HTTP integration suite and Playwright
 (`tests/visual/autofill-stub.ts`). The mode and token are picked by a path prefix of the address, e.g.
 `http://127.0.0.1:PORT/m/slow/t/s3cret`: modes `ok`, `error` (503), `malformed`, `slow`, `toolarge` (413),
-`unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, always) and `cold` (the same
-503 on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-After` value), `/l/<ms>`
-(`avg_latency_ms` in `/v1/info`) and `/d/<ms>` (the suggestion waits that long).
+`unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, "queue
+full", always), `warmup` (the same, "is warming up") and `cold` (503 "is loading" + `Retry-After`
+on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-After` value), `/l/<ms>`
+(`avg_latency_ms` in `/v1/info`), `/d/<ms>` (the suggestion waits that long) and `/s/<name>` (the suggested
+category).
 
 - `tests/Unit/AutofillTest.php`: settings, `/v1/info` and suggestion parsing (`avg_latency_ms`, `Retry-After`,
   confidence), image preparation, every failure code, Test with a photo, migration 0024.

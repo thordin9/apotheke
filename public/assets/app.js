@@ -563,14 +563,16 @@
       x.onerror = x.ontimeout = x.onabort = () => resolve(null);
       x.send(fd);
     });
-    // "Model is warming up… retrying in N s": resolves true when the wait ran out, false if another photo was picked
-    const afWait = (secs, seq) => new Promise(resolve => {
+    // "Model is warming up… / Service is busy… retrying in N s" (retry_reason from the service's message, busy by
+    // default): resolves true when the wait ran out, false if another photo was picked
+    const afWait = (secs, seq, why) => new Promise(resolve => {
+      const what = why === 'warming' ? 'Model is warming up…' : 'Service is busy…';
       clearInterval(afTick);
       let left = secs;
       const step = () => {
         if (seq !== afSeq) { clearInterval(afTick); resolve(false); return; }
         if (left <= 0) { clearInterval(afTick); resolve(true); return; }
-        afSay('Model is warming up… retrying in ' + left + ' s');
+        afSay(what + ' retrying in ' + left + ' s');
         afShow(null, ''); left--;
       };
       step(); afTick = setInterval(step, 1000);
@@ -599,7 +601,7 @@
       if (seq !== afSeq) return;           // a newer photo was picked meanwhile
       const cap = parseInt(form.dataset.afTimeout || '50', 10) || 30;
       if (j && !j.ok && j.retry_after > 0 && j.retry_after <= cap) {
-        if (!(await afWait(j.retry_after, seq))) return;
+        if (!(await afWait(j.retry_after, seq, j.retry_reason))) return;
         afSay('Uploading…'); afShow(0, '');
         j = await afSend(img, seq);
         if (seq !== afSeq) return;

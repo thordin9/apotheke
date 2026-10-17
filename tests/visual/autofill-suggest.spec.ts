@@ -165,6 +165,7 @@ test.describe('AI autofill suggestions', () => {
     await app.go('/new');
     await pick(page, app.image('af-cold.jpg', [30, 160, 120]));
     await expect(page.locator('#af-status')).toContainText('Model is warming up… retrying in', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).not.toContainText('busy');
     await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
     await expect(page.locator('#name')).toHaveValue(/^Echo item/);
   });
@@ -175,8 +176,8 @@ test.describe('AI autofill suggestions', () => {
     page.on('request', r => { if (r.url().includes('/autofill/suggest')) calls++; });
     await app.go('/new');
     await pick(page, app.image('af-busy.jpg', [160, 40, 120]));
-    await expect(page.locator('#af-status')).toContainText('Model is warming up… retrying in 1 s', { timeout: 5_000 });
-    await expect(page.locator('#af-status')).toContainText('warming up or busy. Try again in 1 s', { timeout: 8_000 });
+    await expect(page.locator('#af-status')).toContainText('Service is busy… retrying in 1 s', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('the service is busy. Try again in 1 s', { timeout: 8_000 });
     await expect(page.locator('#af-status')).toHaveClass(/af-fail/);
     expect(calls, 'exactly one retry').toBe(2);
     await configure(page, { on: true, url: stub.base + '/m/busy/r/30', timeout: '5' });

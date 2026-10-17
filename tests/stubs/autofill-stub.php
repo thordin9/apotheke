@@ -12,6 +12,7 @@ declare(strict_types=1);
  *                                              | toolarge (413) | unsupported (415) | empty (200 {})
  *                                              | busy (503 backend_unavailable + Retry-After, always)
  *                                              | fault (503 backend_error: the model failed on this photo)
+ *                                              | warmup (503 backend_unavailable "model … is warming up" + Retry-After)
  *                                              | cold (the same 503 on every other /v1/suggest, starting with the first)
  *   http://127.0.0.1:8090/t/<token>            requires "Authorization: Bearer <token>" on everything but /healthz
  *   http://127.0.0.1:8090/m/slow/t/s3cret      both
@@ -84,11 +85,12 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!is_array($ctx)) fail(400, 'bad_request', 'context must be a JSON object');
     if ($mode === 'error') fail(503, 'backend_unavailable', 'echo backend simulated failure');
     if ($mode === 'fault') fail(503, 'backend_error', 'model returned no usable answer', $opt['r'] > 1 ? ['Retry-After: ' . $opt['r']] : []);
+    if ($mode === 'warmup') fail(503, 'backend_unavailable', "model 'qwen2.5vl-jetson:3b' is warming up", ['Retry-After: ' . $opt['r']]);
     if ($mode === 'busy') fail(503, 'backend_unavailable', 'backend busy, queue full', ['Retry-After: ' . $opt['r']]);
     if ($mode === 'cold') {
         // every other call is "cold": the state lives next to the log (or in the temp dir), one file per stub port
         $state = (getenv('STUB_LOG') ?: sys_get_temp_dir() . '/af-stub-' . ($_SERVER['SERVER_PORT'] ?? '0')) . '.cold';
-        if (!@unlink($state)) { touch($state); fail(503, 'backend_unavailable', 'model is loading', ['Retry-After: ' . $opt['r']]); }
+        if (!@unlink($state)) { touch($state); fail(503, 'backend_unavailable', "model 'qwen2.5vl-jetson:3b' is loading", ['Retry-After: ' . $opt['r']]); }
     }
     if ($opt['d'] > 0) usleep($opt['d'] * 1000);
     if ($mode === 'malformed') out(200, '{not json');

@@ -199,8 +199,12 @@ final class AutofillTest extends DatabaseTestCase
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/busy/r/17', 'autofill_timeout' => 5]);
         $r = autofill_suggest($this->jpeg(40, 40));
-        $this->assertSame(['busy', 17], [$r['code'], $r['retry_after'] ?? null]);
-        $this->assertStringContainsString('warming up', $r['message']);
+        $this->assertSame(['busy', 17, 'busy'], [$r['code'], $r['retry_after'] ?? null, $r['retry_reason'] ?? null]);
+        $this->assertSame('No suggestions: the service is busy. Try again in 17 s.', $r['message'], 'a full queue is busy, not warming up');
+        settings_store(['autofill_url' => self::$stubBase . '/m/warmup/r/15']);
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertSame([15, 'warming'], [$r['retry_after'] ?? null, $r['retry_reason'] ?? null]);
+        $this->assertSame('No suggestions: the model is warming up. Try again in 15 s.', $r['message']);
         settings_store(['autofill_url' => self::$stubBase . '/m/error']);
         $r = autofill_suggest($this->jpeg(40, 40));
         $this->assertSame('busy', $r['code']);
@@ -222,6 +226,16 @@ final class AutofillTest extends DatabaseTestCase
         @unlink(sys_get_temp_dir() . '/af-stub-' . parse_url(self::$stubBase, PHP_URL_PORT) . '.cold');
         $this->assertSame(2, autofill_suggest($this->jpeg(40, 40))['retry_after'] ?? null);
         $this->assertTrue(autofill_suggest($this->jpeg(40, 40))['ok']);
+    }
+
+    public function testRetryReasonFromTheServiceMessage(): void
+    {
+        foreach (["model 'qwen2.5vl-jetson:3b' is loading", "model 'moondream' is warming up", 'Model loading', 'backend starting'] as $m) {
+            $this->assertSame('warming', autofill_retry_reason($m), $m);
+        }
+        foreach (['backend busy, queue full', 'backend busy, a queued request would time out', '', 'try later', 'unloaded'] as $m) {
+            $this->assertSame('busy', autofill_retry_reason($m), "busy by default: '$m'");
+        }
     }
 
     public function testParseRetryAfter(): void
@@ -281,7 +295,10 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame(['warming_up', ['reachable' => true, 'token' => true, 'ready' => false]], [$r['code'], $r['checks']]);
         $this->assertStringContainsString('<span>Model not ready</span>', autofill_test_result_html($r));
         $r = autofill_test_photo(self::$stubBase . '/m/busy/r/20', 5, '');
-        $this->assertSame(['busy', false, 20], [$r['code'], $r['checks']['ready'], $r['retry_after'] ?? null]);
+        $this->assertSame(['busy', true, 20], [$r['code'], $r['checks']['ready'], $r['retry_after'] ?? null], 'a full queue: the model is ready');
+        $r = autofill_test_photo(self::$stubBase . '/m/warmup/r/20', 5, '');
+        $this->assertSame(['busy', false], [$r['code'], $r['checks']['ready']], 'warming up: the model is not ready');
+        $this->assertStringContainsString('warming up', $r['message']);
         $this->assertStringStartsWith('The sample photo got no suggestions:', $r['message']);
         $r = autofill_test_photo(self::$stubBase . '/m/empty', 5, '');
         $this->assertSame('empty', $r['code']);
