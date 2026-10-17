@@ -350,6 +350,17 @@ $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'auto
 $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
 $af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
 T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'testing an unsaved address keeps the saved service\'s estimate');
+// preselected defaults on a new item are marked (autofill may replace them while untouched); never on an edit form
+$af->api('/categories', ['csrf' => $at, 'name' => 'General']);
+$afdb->exec("UPDATE categories SET is_default = CASE WHEN name = 'General' THEN 1 ELSE 0 END");
+$afSet(['default_tags' => 'home', 'default_notes' => '']);
+$form = $af->get('/new')['body'];
+T::ok(str_contains($form, 'data-af-defaults="category,tags"'), 'new item: the default category and default tags are marked as preselected');
+$gid = (int)$afdb->query("SELECT id FROM categories WHERE name = 'General'")->fetchColumn();
+T::ok(!str_contains($af->get('/new?cat=' . $gid)['body'], 'data-af-defaults="category'), 'new item with ?cat=: the category is the user\'s choice');
+$iid = (int)$afdb->query('SELECT id FROM items ORDER BY id LIMIT 1')->fetchColumn();
+T::ok(!str_contains($af->get("/item/$iid/edit")['body'], 'data-af-defaults'), 'edit form: stored values are the user\'s choice');
+$afSet(['default_tags' => '']);
 $afSet(['autofill_enabled' => false]);
 $form = $af->get('/new')['body'];
 T::ok(!str_contains($form, 'af-progress') && !str_contains($form, 'data-af-'), 'off: no progress bar, no hints');

@@ -575,8 +575,16 @@
       };
       step(); afTick = setInterval(step, 1000);
     });
-    // free to fill: empty and never typed in, or filled by an earlier suggestion and not edited since
-    const afFree = el => el && !el.dataset.afTouched && (el.value.trim() === '' || el.classList.contains('af-filled'));
+    // Preselected defaults on a new item (data-af-defaults: the default category, default tags/notes) count as empty
+    // while they still hold their initial value and the user has not touched them (afTouched: trusted events only).
+    const afInit = new Map();
+    {
+      const by = { category: $('#catsel', form), tags: form.elements.tags, notes: form.elements.notes };
+      (form.dataset.afDefaults || '').split(',').forEach(k => { const el = by[k]; if (el) afInit.set(el, el.value); });
+    }
+    const afBlank = el => el.value.trim() === '' || el.classList.contains('af-filled') || (afInit.has(el) && el.value === afInit.get(el));
+    // free to fill: empty (or an untouched preselected default) and never touched, or filled by an earlier suggestion
+    const afFree = el => el && !el.dataset.afTouched && afBlank(el);
     const afPut = (el, v) => { el.value = v; el.classList.add('af-filled'); };
     async function autofill(file) {
       const seq = ++afSeq;
@@ -602,7 +610,7 @@
       afDone();
       const s = j.suggestions || {}, f = afFields(), done = [];
       if (s.name && afFree(f.name)) { afPut(f.name, s.name); done.push('name'); }
-      if (s.category && f.category && (f.category.value === '' || f.category.classList.contains('af-filled')) && !f.category.dataset.afTouched && afFree(f.newcat || f.category)) {
+      if (s.category && f.category && afFree(f.category) && (!f.newcat || afFree(f.newcat))) {
         const want = s.category.toLocaleLowerCase();
         const opt = [...f.category.options].find(o => /^\d+$/.test(o.value) && o.textContent.replace(/ ★$/, '').trim().toLocaleLowerCase() === want);
         if (opt) { afPut(f.category, opt.value); if (f.newcat) { f.newcat.value = ''; f.newcat.classList.remove('af-filled'); } }

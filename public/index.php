@@ -227,6 +227,13 @@ try {
         };
         $vals = ['name' => '', 'location_id' => $pick('location'), 'new_location' => '', 'category_id' => $pick('category'), 'new_category' => '',
                  'serial' => '', 'barcode' => barcode_clean((string)($_GET['barcode'] ?? ''))] + new_item_defaults();
+        // fields that only hold a preselected default (not a value the user picked, e.g. via ?cat=): AI autofill may
+        // replace them as long as the user has not touched them
+        $vals['af_defaults'] = array_keys(array_filter([
+            'category' => !isset($_GET['cat']) && $vals['category_id'] !== null,
+            'tags' => $vals['tags'] !== '',
+            'notes' => $vals['notes'] !== '',
+        ]));
         $toast = isset($_GET['saved']) && ($s = item_get((int)$_GET['saved'])) ? 'Saved “' . $s['name'] . '”' : null;
         view_form(null, $vals, locations(), categories(), null, $toast);
         exit;
