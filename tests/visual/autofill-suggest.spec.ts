@@ -252,6 +252,21 @@ test.describe('AI autofill suggestions', () => {
     await expect(page.locator('textarea[name=notes]')).toHaveValue('Bought new. Mine.');
   });
 
+  test('saving the token of a token-protected service caches its info: the first photo gets the bar', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/l/6000/d/1500/t/bar-token' });
+    await app.go('/new');
+    await expect(page.locator('#itemform'), 'no token yet: /v1/info refused').not.toHaveAttribute('data-af-latency');
+    await page.goto('/settings/autofill');
+    await page.locator('#af-token-input').fill('bar-token');
+    await page.locator('#af-token-save').click();
+    await expect(page.locator('.toast')).toHaveText('Token saved');
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-latency', '6000');
+    await pick(page, app.image('af-token-bar.jpg', [120, 60, 200]));
+    await expect(page.locator('#af-progress')).toHaveAttribute('aria-valuenow', /\d+/, { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready');
+  });
+
   for (const c of [
     { name: 'service down', url: 'http://127.0.0.1:1', msg: 'not reachable' },
     { name: 'backend unavailable (503)', url: () => stub.base + '/m/error', msg: 'busy or not ready' },

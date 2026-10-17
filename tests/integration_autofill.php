@@ -346,6 +346,22 @@ $r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && microtime(true) - $t0 < 7.5, 'saving with a slow service waits at most 5 s', (string)round(microtime(true) - $t0, 1));
 $afSet(['autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => 7]);
 $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
+// saving the token primes the info too: a token-protected service only answers /v1/info with it
+$afSet(['autofill_enabled' => true, 'autofill_url' => $stub->base . '/l/11000/t/' . $secret, 'autofill_token' => '']);
+@unlink($afd . '/autofill-info.json');
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/11000/t/' . $secret, 'autofill_timeout' => '7']);
+T::ok(!str_contains($af->get('/new')['body'], 'data-af-latency'), 'token-protected service, no token yet: nothing cached on save');
+$r = $af->post('/settings/autofill/token', ['csrf' => $at, 'token' => $secret]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-saved') && str_contains($af->get('/new')['body'], 'data-af-latency="11000"'), 'saving the token caches /v1/info: the first photo gets the bar');
+@unlink($afd . '/autofill-info.json');
+$r = $af->post('/settings/autofill/token', ['csrf' => $at, 'token' => 'wrong-one']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-saved') && !str_contains($af->get('/new')['body'], 'data-af-latency'), 'a wrong token still saves; nothing cached');
+$afSet(['autofill_url' => $stub->base . '/m/slow/t/x', 'autofill_timeout' => 20]);
+$t0 = microtime(true);
+$r = $af->post('/settings/autofill/token', ['csrf' => $at, 'token' => 'x']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-saved') && microtime(true) - $t0 < 7.5, 'saving the token with a slow service waits at most 5 s');
+$afSet(['autofill_url' => $stub->base . '/l/12500', 'autofill_token' => '', 'autofill_timeout' => 7]);
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
 // testing an unsaved address (either button) never replaces the saved service's cached info
 $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
 $af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);

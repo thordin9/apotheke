@@ -704,6 +704,7 @@ try {
             exit;
         }
         settings_store(['autofill_token' => $t]);
+        autofill_prime_info();   // a token-protected service: cache its /v1/info now (at most 5 s, failures ignored)
         redirect('/settings/autofill?done=token-saved');
     }
     if (($path === '/settings/autofill/test' || $path === '/settings/autofill/test-photo') && $method === 'POST') {
