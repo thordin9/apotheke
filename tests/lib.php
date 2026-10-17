@@ -156,13 +156,14 @@ final class StubServer
         return $s === '' ? false : (json_decode($s, true)['auth'] ?? null);
     }
 
-    public function clear(): void { @file_put_contents($this->log, ''); @file_put_contents($this->log . '.info', ''); }
+    public function clear(): void { @file_put_contents($this->log, ''); @file_put_contents($this->log . '.info', ''); @unlink($this->log . '.cold'); }
 
     public function stop(): void
     {
         if (is_resource($this->proc)) { proc_terminate($this->proc); proc_close($this->proc); }
         @unlink($this->log);
         @unlink($this->log . '.info');
+        @unlink($this->log . '.cold');
     }
 
     public function __destruct() { $this->stop(); }

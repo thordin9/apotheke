@@ -28,6 +28,6 @@ export class AutofillStub {
   }
   /** The last /v1/suggest request (auth header, context, image type, size, width, height). */
   last(): any { try { const s = fs.readFileSync(this.log, 'utf8'); return s ? JSON.parse(s) : null; } catch { return null; } }
-  clear() { try { fs.writeFileSync(this.log, ''); } catch { /* ignore */ } }
+  clear() { try { fs.writeFileSync(this.log, ''); fs.rmSync(this.log + '.cold', { force: true }); } catch { /* ignore */ } }
   stop() { this.proc?.kill(); try { fs.unlinkSync(this.log); } catch { /* ignore */ } }
 }

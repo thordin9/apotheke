@@ -311,10 +311,16 @@ function settings_system_html(): string
         . '<p class="hint">All other options (everything in the other sections) were copied from <code>config.php</code> / the environment when this database was created or upgraded, and are edited here from then on.</p></section>';
 }
 
-/** "Test connection" (inside the settings form, so it tests the address and timeout as typed) and its result. */
+/**
+ * "Test connection" and "Test with a photo" (inside the settings form, so they test the address, timeout and token as
+ * typed) and the result. Plain form buttons: they work without JavaScript; app.js only adds a "Testing…" state.
+ */
 function autofill_test_html(?array $r): string
 {
-    $o = '<div class="af-test"><button class="btn btn-wide" id="af-test" formaction="/settings/autofill/test" formnovalidate>' . icon('sparkle') . ' Test connection</button>'
+    $o = '<div class="af-test"><div class="af-test-btns">'
+       . '<button class="btn btn-wide" id="af-test" formaction="/settings/autofill/test" formnovalidate>' . icon('sparkle') . ' Test connection</button>'
+       . '<button class="btn btn-wide" id="af-test-photo" formaction="/settings/autofill/test-photo" formnovalidate>' . icon('image') . ' Test with a photo</button></div>'
+       . '<p class="hint af-test-hint">Test with a photo sends a sample photo (a claw hammer) through the full suggestion step and shows what comes back. It can take as long as the timeout.</p>'
        . '<div id="af-test-result" class="af-test-result" role="status" aria-live="polite">';
     if ($r !== null) $o .= autofill_test_result_html($r);
     return $o . '</div></div>';
@@ -329,7 +335,32 @@ function autofill_test_result_html(array $r): string
         $o .= '<dl class="af-info"><dt>Name</dt><dd id="af-name">' . h($i['name']) . '</dd><dt>API version</dt><dd id="af-version">' . h($i['version']) . '</dd>'
             . '<dt>Suggests</dt><dd id="af-caps">' . ($i['capabilities'] ? h(implode(', ', $i['capabilities'])) : 'nothing yet') . '</dd>'
             . ($i['backend'] !== null ? '<dt>Backend</dt><dd>' . h($i['backend']) . '</dd>' : '')
-            . ($i['max_image_bytes'] !== null ? '<dt>Image limit</dt><dd>' . h(autofill_mib((int)$i['max_image_bytes'])) . '</dd>' : '') . '</dl>';
+            . ($i['max_image_bytes'] !== null ? '<dt>Image limit</dt><dd>' . h(autofill_mib((int)$i['max_image_bytes'])) . '</dd>' : '')
+            . (($i['avg_latency_ms'] ?? null) !== null ? '<dt>Typical answer</dt><dd id="af-latency">' . h(autofill_seconds((int)$i['avg_latency_ms'])) . '</dd>' : '') . '</dl>';
+    }
+    if (isset($r['checks'])) {
+        // the state is in the words, not only the icon (screen readers): [ok, failed, not checked]
+        $labels = ['reachable' => ['Reachable', 'Not reachable', 'Reachable: not checked'],
+                   'token' => ['Token accepted', 'Token not accepted', 'Token: not checked'],
+                   'ready' => ['Model ready', 'Model not ready', 'Model: not checked']];
+        $o .= '<ul class="af-checks" id="af-checks" aria-label="Checks">';
+        foreach ($labels as $k => [$yes, $no, $skip]) {
+            $v = $r['checks'][$k] ?? null;
+            $o .= '<li class="af-check ' . ($v === null ? 'skip' : ($v ? 'yes' : 'no')) . '" data-check="' . $k . '" data-state="' . ($v === null ? 'skipped' : ($v ? 'ok' : 'failed')) . '">'
+                . icon($v === null ? 'minus' : ($v ? 'check' : 'x')) . ' <span>' . h($v === null ? $skip : ($v ? $yes : $no)) . '</span></li>';
+        }
+        $o .= '</ul>';
+    }
+    if (isset($r['suggestions'])) {
+        $s = $r['suggestions'];
+        $c = $r['confidence'] ?? [];
+        $pct = fn(?float $v) => $v === null ? '' : ' <span class="af-conf">' . (int)round($v * 100) . ' %</span>';
+        $o .= '<div class="af-sample"><img src="/assets/autofill-sample.jpg" alt="The sample photo: a claw hammer" width="96" height="44" loading="lazy">'
+            . '<dl class="af-info" id="af-suggestion"><dt>Name</dt><dd id="af-s-name">' . ($s['name'] !== null ? h($s['name']) . $pct($c['name'] ?? null) : '–') . '</dd>'
+            . '<dt>Category</dt><dd id="af-s-category">' . ($s['category'] !== null ? h($s['category']) . $pct($c['category'] ?? null) : '–') . '</dd>'
+            . '<dt>Tags</dt><dd id="af-s-tags">' . ($s['tags'] ? h(implode(', ', $s['tags'])) : '–') . '</dd>'
+            . '<dt>Description</dt><dd id="af-s-description">' . ($s['description'] !== null ? h($s['description']) . $pct($c['description'] ?? null) : '–') . '</dd>'
+            . '<dt>Time</dt><dd id="af-s-elapsed">' . h(autofill_seconds((int)($r['elapsed_ms'] ?? 0))) . '</dd></dl></div>';
     }
     return $o . '</div>';
 }

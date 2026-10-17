@@ -861,7 +861,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
   </div>
 </header>
 <main class="wrap narrow">
-  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= autofill_enabled() && user_can('create') ? ' data-autofill="1"' : '' ?>>
+  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= autofill_enabled() && user_can('create') ? ' data-autofill="1" data-af-timeout="' . (int)setting('autofill_timeout') . '"' . (($afMs = autofill_expected_ms()) !== null ? ' data-af-latency="' . $afMs . '"' : '') : '' ?>>
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int)$it['id'] ?>"><?php endif; ?>
     <input type="hidden" name="MAX_FILE_SIZE" value="<?= max_upload() ?>">
@@ -880,7 +880,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       </label>
       <span class="photo-status" id="pstatus" hidden></span>
     </div>
-    <?php if (autofill_enabled() && user_can('create')): ?><p class="af-status" id="af-status" role="status" aria-live="polite" hidden></p><?php endif; ?>
+    <?php if (autofill_enabled() && user_can('create')): ?><div class="af-feedback" id="af-feedback" hidden><p class="af-status" id="af-status" role="status" aria-live="polite"></p><div class="af-progress" id="af-progress" role="progressbar" aria-label="Photo suggestions" aria-valuemin="0" aria-valuemax="100" hidden><span class="af-track"><span class="af-bar" id="af-bar"></span></span><span class="af-pct" id="af-pct" aria-hidden="true"></span></div></div><?php endif; ?>
     <?php if ($hasImg): ?>
     <label class="check"><input type="checkbox" name="remove_image" value="1" id="rmimg"> <?= icon('trash') ?> Remove photo</label>
     <?php endif; ?>

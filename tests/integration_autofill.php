@@ -324,6 +324,82 @@ T::ok(!str_contains($vi->get('/')['body'], 'data-autofill'), 'viewer pages have 
 $anon = $afs->client();
 T::ok(in_array($anon->api('/autofill/suggest', ['csrf' => $anon->csrf()], $photo)['status'], [401, 403], true), 'signed-out visitor cannot ask for suggestions');
 
+T::section('AI autofill: progress hints, retry on busy, Test with a photo');
+// the form carries the client timeout and (when the service advertised one) the expected time; nothing when off
+$afSet(['autofill_enabled' => true, 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => 7, 'autofill_token' => '']);
+@unlink($afd . '/autofill-info.json');
+$form = $af->get('/new')['body'];
+T::ok(str_contains($form, 'data-af-timeout="7"') && !str_contains($form, 'data-af-latency'), 'form: timeout hint; no expected time before the service advertised one');
+T::ok(str_contains($form, 'id="af-progress"') && str_contains($form, 'role="progressbar"'), 'form: an accessible progress bar is ready (hidden)');
+$r = $suggest();
+T::ok(($r['json']['ok'] ?? false) === true && ($r['json']['avg_latency_ms'] ?? null) === 12500, 'suggest: the answer carries avg_latency_ms from /v1/info', $r['body']);
+T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'form: data-af-latency after a successful suggestion');
+// saving the section fetches /v1/info once, so the first photo has an estimate without a Test click
+@unlink($afd . '/autofill-info.json');
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'saving the section caches the service info (estimate on the first photo)');
+$t0 = microtime(true);
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => 'http://127.0.0.1:1', 'autofill_timeout' => '7']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && microtime(true) - $t0 < 5, 'saving with the service down still saves, quickly');
+$t0 = microtime(true);
+$r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/m/slow', 'autofill_timeout' => '20']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && microtime(true) - $t0 < 7.5, 'saving with a slow service waits at most 5 s', (string)round(microtime(true) - $t0, 1));
+$afSet(['autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => 7]);
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
+// testing an unsaved address (either button) never replaces the saved service's cached info
+$af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
+$af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
+T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'testing an unsaved address keeps the saved service\'s estimate');
+$afSet(['autofill_enabled' => false]);
+$form = $af->get('/new')['body'];
+T::ok(!str_contains($form, 'af-progress') && !str_contains($form, 'data-af-'), 'off: no progress bar, no hints');
+$afSet(['autofill_enabled' => true, 'autofill_url' => '']);
+T::ok(!str_contains($af->get('/new')['body'], 'af-progress'), 'on without an address: no progress bar');
+// 503 backend_unavailable + Retry-After → retry_after in the JSON; the cold stub answers the second call
+$afSet(['autofill_url' => $stub->base . '/m/busy/r/16', 'autofill_timeout' => 5]);
+$r = $suggest();
+T::ok(($r['json']['code'] ?? '') === 'busy' && ($r['json']['retry_after'] ?? null) === 16 && ($r['json']['ok'] ?? null) === false, 'busy with Retry-After: 16 → retry_after 16', $r['body']);
+$afSet(['autofill_url' => $stub->base . '/m/error']);
+T::ok(!array_key_exists('retry_after', $suggest()['json'] ?? []), 'busy without Retry-After → no retry_after');
+$afSet(['autofill_url' => $stub->base . '/m/fault']);
+$r = $suggest();
+T::ok(($r['json']['code'] ?? '') === 'backend_error' && str_contains($r['json']['message'] ?? '', 'had a problem with this photo') && !str_contains($r['json']['message'] ?? '', 'busy'), '503 backend_error → "had a problem with this photo", not "busy"', $r['body']);
+$afSet(['autofill_url' => $stub->base . '/m/cold/r/1']);
+$stub->clear();
+$r1 = $suggest();
+$r2 = $suggest();
+T::ok(($r1['json']['retry_after'] ?? null) === 1 && ($r2['json']['ok'] ?? false) === true, 'cold model: refused once with Retry-After, then answered', $r1['body'] . ' / ' . $r2['body']);
+// Test with a photo: the typed address/timeout, the stored token only for the saved address, never echoed
+$photoTest = fn(array $p) => $af->api('/settings/autofill/test-photo', ['csrf' => $at] + $p);
+$afSet(['autofill_url' => $stub->base . '/t/' . $secret, 'autofill_token' => $secret]);
+$stub->clear();
+$r = $photoTest(['autofill_url' => $stub->base . '/t/' . $secret, 'autofill_timeout' => '5']);
+$j = $r['json'] ?? [];
+T::ok(($j['ok'] ?? false) === true && ($j['checks'] ?? null) === ['reachable' => true, 'token' => true, 'ready' => true], 'photo test: reachable, token OK, model ready', $r['body']);
+T::ok(str_starts_with((string)($j['suggestions']['name'] ?? ''), 'Echo item ') && is_int($j['elapsed_ms'] ?? null) && ($j['confidence']['name'] ?? null) === 0.5, 'photo test: suggestions, confidence and elapsed time');
+T::ok(($stub->last()['type'] ?? '') === 'JPEG' && ($stub->last()['auth'] ?? '') === 'Bearer ' . $secret, 'photo test: the sample JPEG went through POST /v1/suggest with the stored token');
+T::ok(str_contains($j['html'] ?? '', 'id="af-s-name"') && str_contains($j['html'] ?? '', 'data-check="token" data-state="ok"'), 'photo test: result HTML');
+T::ok(!str_contains(str_replace($stub->base . '/t/' . $secret, '', $r['body']), $secret), 'photo test: token never in the answer');
+$stub->clear();
+$r = $photoTest(['autofill_url' => $stub->base . '/l/1/t/' . $secret, 'autofill_timeout' => '5']);
+T::ok(($r['json']['code'] ?? '') === 'unauthorized' && ($r['json']['checks']['token'] ?? null) === false && $stub->last() === null, 'photo test: another address never gets the stored token, no photo sent', $r['body']);
+$r = $photoTest(['autofill_url' => 'http://127.0.0.1:1', 'autofill_timeout' => '3']);
+T::ok(($r['json']['code'] ?? '') === 'unreachable' && ($r['json']['checks']['reachable'] ?? null) === false, 'photo test: service down → unreachable');
+$t0 = microtime(true);
+$r = $photoTest(['autofill_url' => $stub->base . '/d/9000', 'autofill_timeout' => '3']);
+T::ok(($r['json']['code'] ?? '') === 'timeout' && microtime(true) - $t0 < 6, 'photo test: bounded by the typed timeout', $r['body']);
+$r = $photoTest(['autofill_url' => 'gopher://x', 'autofill_timeout' => '3']);
+T::eq('invalid_url', $r['json']['code'] ?? null, 'photo test: invalid address');
+// without JavaScript: a full page with the result, nothing saved
+$r = $af->post('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base, 'autofill_timeout' => '5', 'autofill_enabled' => '1']);
+T::ok($r['status'] === 200 && str_contains($r['body'], 'id="af-suggestion"') && str_contains($r['body'], 'id="af-test-photo"'), 'photo test without JS: the settings page with the result', substr($r['body'], 0, 200));
+T::eq($stub->base . '/t/' . $secret, $afGet('autofill_url'), 'photo test does not save anything');
+T::eq(419, $af->api('/settings/autofill/test-photo', ['csrf' => 'nope', 'autofill_url' => $stub->base])['status'], 'photo test without CSRF → 419 (api)');
+$ed = $afs->client();
+$ed->post('/login', ['csrf' => $ed->csrf(), 'username' => 'vic', 'password' => 'vic-password']);
+T::eq(403, $ed->api('/settings/autofill/test-photo', ['csrf' => $ed->csrf(), 'autofill_url' => $stub->base])['status'], 'viewer cannot run the photo test');
+$afSet(['autofill_url' => $stub->base, 'autofill_token' => '']);
+
 T::ok(!$afs->logHas($secret), 'token never written to the server log');
 $afs->stop();
 $stub->stop();
