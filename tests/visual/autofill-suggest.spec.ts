@@ -38,6 +38,7 @@ test.describe('AI autofill suggestions', () => {
     await app.go('/new');
     await expect(page.locator('#itemform')).not.toHaveAttribute('data-autofill', '1');
     await expect(page.locator('#af-status')).toHaveCount(0);
+    await expect(page.locator('#af-progress')).toHaveCount(0);
     await pick(page, app.image('af-off.jpg', [40, 120, 200]));
     await expect(page.locator('#pstatus')).toContainText('KB');
     await page.waitForTimeout(300);
@@ -51,7 +52,8 @@ test.describe('AI autofill suggestions', () => {
     stub.clear();
     await app.go('/new');
     await pick(page, app.image('af-ok.jpg', [200, 80, 40]));
-    await expect(page.locator('#af-status')).toContainText('Suggested from the photo: name');
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready: name');
+    await expect(page.locator('#af-progress')).toBeHidden();
     await expect(page.locator('#name')).toHaveValue(/^Echo item [0-9a-f]{8}$/);
     await expect(page.locator('#name')).toHaveClass(/af-filled/);
     await expect(page.locator('textarea[name=notes]')).toHaveValue(/^JPEG image, \d+ bytes$/);
@@ -83,7 +85,7 @@ test.describe('AI autofill suggestions', () => {
     await page.locator('#tag-entry').press('Enter');
     await page.locator('#tagbox .tagchip-x[data-tag="heirloom"]').click();   // typed and removed: still the user's choice
     await pick(page, app.image('af-typed.jpg', [90, 160, 60]));
-    await expect(page.locator('#af-status')).toContainText(/Suggested from the photo: .*description/);
+    await expect(page.locator('#af-status')).toContainText(/Suggestions ready: .*description/);
     await expect(page.locator('#af-status')).not.toContainText('name');
     await expect(page.locator('#af-status')).not.toContainText('tags');
     await expect(page.locator('#name')).toHaveValue('Grandpa’s hammer');
@@ -101,6 +103,85 @@ test.describe('AI autofill suggestions', () => {
     await expect(page.locator('#name')).toHaveValue(/^Echo item/);
     const last = stub.last();
     expect([last.type, last.width, last.height]).toEqual(['JPEG', 1024, 768]);
+  });
+
+  test('progress: uploading, then an estimate from avg_latency_ms, held below 100 % until the answer', async ({ app, page }) => {
+    // the service advertises 4 s per photo; this one takes 6 s. Test connection caches /v1/info (and so the 4 s).
+    await configure(page, { on: true, url: stub.base + '/l/4000/d/6000', timeout: '20' });
+    await page.locator('#af-test').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'ok');
+    await page.clock.install({ time: new Date('2026-06-15T09:00:00Z') });
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-latency', '4000');
+    await page.clock.pauseAt(new Date('2026-06-15T12:00:00Z'));
+    await pick(page, app.image('af-progress.jpg', [60, 130, 210]));
+    const bar = page.locator('#af-progress');
+    await expect(bar, 'feedback within a second').toBeVisible({ timeout: 1_000 });
+    await expect(page.locator('#af-status')).toHaveText('Analyzing photo…', { timeout: 5_000 });
+    await expect(bar).toHaveAttribute('role', 'progressbar');
+    await expect(bar).toHaveAttribute('aria-valuenow', '0');
+    await expect(page.locator('#af-pct')).toHaveText('0 % · about 4 s left');
+    await page.clock.runFor(2_000);                     // half the expected time: ease-out → 83 %
+    await expect(bar).toHaveAttribute('aria-valuenow', '83');
+    await expect(page.locator('#af-pct')).toHaveText('83 % · about 2 s left');
+    await expect(bar).toHaveAttribute('aria-valuetext', '83 % · about 2 s left');
+    await expect(page.locator('#name'), 'the form stays usable').toBeEditable();
+    await app.noOverflow();
+    await shot(page, 'autofill-progress');
+    await page.clock.runFor(3_000);                     // over the estimate: held at 95 %
+    await expect(bar).toHaveAttribute('aria-valuenow', '95');
+    await expect(page.locator('#af-pct')).toHaveText('95 % · still working…');
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 10_000 });
+    await expect(bar).toHaveAttribute('aria-valuenow', '100');
+    await page.clock.runFor(1_000);
+    await expect(bar).toBeHidden();
+    await expect(page.locator('#name')).toHaveValue(/^Echo item/);
+  });
+
+  test('progress: a spinner when the service gives no average; typing still wins', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/d/2500' });
+    await app.go('/new');
+    await expect(page.locator('#itemform')).not.toHaveAttribute('data-af-latency');
+    await pick(page, app.image('af-spin.jpg', [210, 130, 60]));
+    await expect(page.locator('#af-status')).toHaveText('Analyzing photo…', { timeout: 5_000 });
+    const bar = page.locator('#af-progress');
+    await expect(bar).toHaveClass(/af-indet/);
+    await expect(bar).not.toHaveAttribute('aria-valuenow');
+    await page.locator('#name').fill('Typed while waiting');
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
+    await expect(bar).toBeHidden();
+    await expect(page.locator('#name')).toHaveValue('Typed while waiting');
+    // the answer taught the page the service's average for the next photo? (none advertised: still unknown)
+    await expect(page.locator('#itemform')).not.toHaveAttribute('data-af-latency');
+  });
+
+  test('model warming up: waits for Retry-After, then retries once', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/cold/r/2' });
+    stub.clear();
+    await app.go('/new');
+    await pick(page, app.image('af-cold.jpg', [30, 160, 120]));
+    await expect(page.locator('#af-status')).toContainText('Model is warming up… retrying in', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
+    await expect(page.locator('#name')).toHaveValue(/^Echo item/);
+  });
+
+  test('busy: a retry that fails again, or a wait longer than the timeout, ends with a clear message', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/busy/r/1' });
+    let calls = 0;
+    page.on('request', r => { if (r.url().includes('/autofill/suggest')) calls++; });
+    await app.go('/new');
+    await pick(page, app.image('af-busy.jpg', [160, 40, 120]));
+    await expect(page.locator('#af-status')).toContainText('Model is warming up… retrying in 1 s', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('warming up or busy. Try again in 1 s', { timeout: 8_000 });
+    await expect(page.locator('#af-status')).toHaveClass(/af-fail/);
+    expect(calls, 'exactly one retry').toBe(2);
+    await configure(page, { on: true, url: stub.base + '/m/busy/r/30', timeout: '5' });
+    calls = 0;
+    await app.go('/new');
+    await pick(page, app.image('af-busy2.jpg', [40, 160, 120]));
+    await expect(page.locator('#af-status')).toContainText('Try again in 30 s', { timeout: 5_000 });
+    await expect(page.locator('#af-progress')).toBeHidden();
+    expect(calls, 'no retry past the timeout').toBe(1);
   });
 
   for (const c of [

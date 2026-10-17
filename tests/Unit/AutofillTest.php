@@ -47,9 +47,21 @@ final class AutofillTest extends DatabaseTestCase
     {
         $this->assertFalse(setting('autofill_enabled'));
         $this->assertSame('', setting('autofill_url'));
-        $this->assertSame(30, setting('autofill_timeout'));
+        $this->assertSame(50, setting('autofill_timeout'));
         $this->assertSame('', autofill_token());
         $this->assertFalse(autofill_enabled());
+    }
+
+    public function testMigration0024MovesOnlyTheOldDefaultTimeout(): void
+    {
+        $run = require migrations_dir() . '/0024_autofill_timeout.php';
+        foreach ([30 => 50, 20 => 20, 45 => 45, 60 => 60, 50 => 50] as $stored => $want) {
+            $this->pdo->prepare("UPDATE settings SET value = ? WHERE name = 'autofill_timeout'")->execute([json_encode($stored)]);
+            $run($this->pdo, $this->driver);
+            settings_cache(null, true);
+            $this->assertSame($want, setting('autofill_timeout'), "stored $stored");
+        }
+        $this->assertArrayHasKey('0024', migrations_applied($this->pdo, $this->driver), 'part of the normal migration run');
     }
 
     public function testEnabledNeedsAnAddress(): void
@@ -82,7 +94,7 @@ final class AutofillTest extends DatabaseTestCase
 
     public function testOnlySettingsPermissionReachesTheSection(): void
     {
-        foreach (['/settings/autofill', '/settings/autofill/token', '/settings/autofill/test'] as $p) $this->assertSame('settings', route_perm('POST', $p));
+        foreach (['/settings/autofill', '/settings/autofill/token', '/settings/autofill/test', '/settings/autofill/test-photo'] as $p) $this->assertSame('settings', route_perm('POST', $p));
         $this->assertNotContains('settings', ROLE_DEFAULTS['editor'][1]);
         $this->assertNotContains('settings', ROLE_DEFAULTS['viewer'][1]);
     }
@@ -90,7 +102,7 @@ final class AutofillTest extends DatabaseTestCase
     public function testParseInfo(): void
     {
         $ok = autofill_parse_info('{"name":"echo","version":"1","capabilities":["name","tags","category","description","colour"],"backend":"echo","max_image_bytes":10485760,"extra":1}');
-        $this->assertSame(['name' => 'echo', 'version' => '1', 'capabilities' => ['name', 'tags', 'category', 'description'], 'backend' => 'echo', 'max_image_bytes' => 10485760, 'ready' => true], $ok);
+        $this->assertSame(['name' => 'echo', 'version' => '1', 'capabilities' => ['name', 'tags', 'category', 'description'], 'backend' => 'echo', 'max_image_bytes' => 10485760, 'ready' => true, 'avg_latency_ms' => null], $ok);
         $this->assertSame([], autofill_parse_info('{"name":"x","version":"1","capabilities":[]}')['capabilities']);
         $this->assertFalse(autofill_parse_info('{"name":"x","version":"1","capabilities":[],"ready":false}')['ready']);
         foreach (['', '{not json', '[]', '"x"', '{"version":"1","capabilities":[]}', '{"name":"x","capabilities":[]}', '{"name":"x","version":"1"}',
@@ -98,6 +110,132 @@ final class AutofillTest extends DatabaseTestCase
                   '{"name":" ","version":"1","capabilities":[]}', '{"name":"x","version":"1","capabilities":[],"ready":"yes"}'] as $bad) {
             $this->assertNull(autofill_parse_info($bad), "rejects $bad");
         }
+    }
+
+    public function testParseInfoAvgLatencyIsOptional(): void
+    {
+        $base = '{"name":"x","version":"1","capabilities":[]';
+        $this->assertSame(13500, autofill_parse_info($base . ',"avg_latency_ms":13500}')['avg_latency_ms']);
+        $this->assertSame(0, autofill_parse_info($base . ',"avg_latency_ms":0}')['avg_latency_ms']);
+        foreach (['-1', '13.5', '"13500"', 'null', 'true', '[1]'] as $odd) {
+            $i = autofill_parse_info($base . ',"avg_latency_ms":' . $odd . '}');
+            $this->assertNotNull($i, "an odd avg_latency_ms ($odd) does not reject the answer");
+            $this->assertNull($i['avg_latency_ms'], "… it is ignored ($odd)");
+        }
+        $this->assertSame(3_600_000, autofill_parse_info($base . ',"avg_latency_ms":99999999}')['avg_latency_ms'], 'capped at an hour');
+    }
+
+    public function testExpectedTimeComesFromTheCachedInfo(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase]);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $this->assertNull(autofill_expected_ms(), 'nothing cached: unknown');
+        autofill_info_cache(['name' => 'x', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true, 'avg_latency_ms' => 13500]);
+        $this->assertSame(13500, autofill_expected_ms());
+        autofill_info_cache(['name' => 'x', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true]);
+        $this->assertNull(autofill_expected_ms(), 'an info without the field (older cache): unknown');
+        settings_store(['autofill_url' => self::$stubBase . '/x']);
+        $this->assertNull(autofill_expected_ms(), 'cached for another address: unknown');
+    }
+
+    public function testSuccessfulSuggestRefreshesAStaleInfo(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/l/4200', 'autofill_timeout' => 5]);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame(4200, $r['avg_latency_ms'], 'the answer carries the fresh average');
+        $this->assertSame(4200, autofill_expected_ms(), '… and it is cached for the next page');
+        $this->assertArrayNotHasKey('confidence', $r);
+        // a failed suggestion does not contact /v1/info
+        @unlink(DATA_DIR . '/autofill-info.json');
+        settings_store(['autofill_url' => self::$stubBase . '/m/error/l/4200']);
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertSame('busy', $r['code']);
+        $this->assertNull($r['avg_latency_ms']);
+        $this->assertNull(autofill_info_cache());
+    }
+
+    public function testRetryAfterIsPassedThrough(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/busy/r/17', 'autofill_timeout' => 5]);
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertSame(['busy', 17], [$r['code'], $r['retry_after'] ?? null]);
+        $this->assertStringContainsString('warming up', $r['message']);
+        settings_store(['autofill_url' => self::$stubBase . '/m/error']);
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertSame('busy', $r['code']);
+        $this->assertArrayNotHasKey('retry_after', $r, 'a 503 without Retry-After is not worth a retry');
+        // cold: the first call is refused with Retry-After, the next one is answered
+        settings_store(['autofill_url' => self::$stubBase . '/m/cold/r/2']);
+        @unlink(sys_get_temp_dir() . '/af-stub-' . parse_url(self::$stubBase, PHP_URL_PORT) . '.cold');
+        $this->assertSame(2, autofill_suggest($this->jpeg(40, 40))['retry_after'] ?? null);
+        $this->assertTrue(autofill_suggest($this->jpeg(40, 40))['ok']);
+    }
+
+    public function testParseRetryAfter(): void
+    {
+        $this->assertSame(15, autofill_parse_retry_after(" 15\r\n"));
+        $this->assertSame(0, autofill_parse_retry_after('0'));
+        $this->assertSame(86400, autofill_parse_retry_after('999999'));
+        $this->assertNull(autofill_parse_retry_after(''));
+        $this->assertNull(autofill_parse_retry_after('soon'));
+        $this->assertNull(autofill_parse_retry_after('-5'));
+        $in = autofill_parse_retry_after(gmdate('D, d M Y H:i:s', time() + 30) . ' GMT');
+        $this->assertGreaterThanOrEqual(28, $in);
+        $this->assertLessThanOrEqual(30, $in);
+        $this->assertSame(0, autofill_parse_retry_after(gmdate('D, d M Y H:i:s', time() - 60) . ' GMT'), 'a date in the past: now');
+    }
+
+    public function testParseConfidence(): void
+    {
+        $this->assertSame(['name' => 0.82, 'category' => null, 'description' => 1.0],
+            autofill_parse_confidence('{"name":{"value":"x","confidence":0.8234},"category":{"value":"y","confidence":7},"description":{"value":"z","confidence":1}}'));
+        $this->assertSame(['name' => null, 'category' => null, 'description' => null], autofill_parse_confidence('{not json'));
+    }
+
+    public function testPhotoTestAgainstTheStub(): void
+    {
+        $this->assertFileExists(autofill_sample_path());
+        $this->assertLessThan(100 * 1024, filesize(autofill_sample_path()), 'the sample photo stays small');
+        $r = autofill_test_photo(self::$stubBase . '/l/1500', 5, '');
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame(['reachable' => true, 'token' => true, 'ready' => true], $r['checks']);
+        $this->assertMatchesRegularExpression('/^Echo item [0-9a-f]{8}$/', $r['suggestions']['name']);
+        $this->assertStringStartsWith('JPEG image, ', $r['suggestions']['description']);
+        $this->assertSame(0.5, $r['confidence']['name']);
+        $this->assertIsInt($r['elapsed_ms']);
+        $this->assertSame(1500, $r['info']['avg_latency_ms']);
+        $html = autofill_test_result_html($r);
+        foreach (['id="af-checks"', 'data-check="ready" data-state="ok"', 'id="af-s-name"', '50 %', 'id="af-s-elapsed"', 'id="af-latency"', '1.5 s'] as $want) {
+            $this->assertStringContainsString($want, $html);
+        }
+    }
+
+    public function testPhotoTestFailures(): void
+    {
+        $r = autofill_test_photo('http://127.0.0.1:1', 3, '');
+        $this->assertSame(['unreachable', ['reachable' => false, 'token' => null, 'ready' => null]], [$r['code'], $r['checks']]);
+        $this->assertStringContainsString('not checked', autofill_test_result_html($r));
+        $r = autofill_test_photo(self::$stubBase . '/t/right', 5, 'wrong-SECRET-tok');
+        $this->assertSame(['unauthorized', ['reachable' => true, 'token' => false, 'ready' => null]], [$r['code'], $r['checks']]);
+        $this->assertStringNotContainsString('wrong-SECRET-tok', json_encode($r) . autofill_test_result_html($r), 'never echoes the token');
+        $this->assertTrue(autofill_test_photo(self::$stubBase . '/t/right', 5, 'right')['ok']);
+        $r = autofill_test_photo(self::$stubBase . '/m/warming', 5, '');
+        $this->assertSame(['warming_up', ['reachable' => true, 'token' => true, 'ready' => false]], [$r['code'], $r['checks']]);
+        $r = autofill_test_photo(self::$stubBase . '/m/busy/r/20', 5, '');
+        $this->assertSame(['busy', false, 20], [$r['code'], $r['checks']['ready'], $r['retry_after'] ?? null]);
+        $this->assertStringStartsWith('The sample photo got no suggestions:', $r['message']);
+        $r = autofill_test_photo(self::$stubBase . '/m/empty', 5, '');
+        $this->assertSame('empty', $r['code']);
+        $this->assertTrue($r['ok']);
+        // the whole run stays within the timeout: a slow model is cut off at the configured 3 s
+        $t = microtime(true);
+        $r = autofill_test_photo(self::$stubBase . '/d/8000', 3, '');
+        $this->assertSame('timeout', $r['code']);
+        $this->assertLessThan(4.5, microtime(true) - $t);
+        $this->assertTrue($r['checks']['ready'], 'the checks passed before the photo timed out');
+        $this->assertSame('not_configured', autofill_test_photo(' ', 3, '')['code']);
     }
 
     public function testParseInfoCleansHostileStrings(): void

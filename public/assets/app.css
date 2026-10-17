@@ -975,7 +975,32 @@ select.imp-ignored{color:var(--muted)}
 .af-info{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0 0;font-size:14px}
 .af-info dt{color:var(--muted, inherit);font-weight:600}
 .af-info dd{margin:0;overflow-wrap:anywhere}
-.af-status{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--muted, inherit);margin:-4px 0 0;min-height:20px}
+/* AI autofill feedback under the photo: status line + estimated progress bar */
+.af-feedback{display:grid;gap:6px;margin:-4px 0 0}
+.af-feedback[hidden]{display:none}
+.af-status{display:flex;gap:6px;align-items:center;font-size:14px;color:var(--muted, inherit);margin:0;min-height:20px}
+.af-progress{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--muted)}
+.af-progress[hidden]{display:none}
+.af-track{position:relative;flex:1;height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.af-bar{position:absolute;inset:0 auto 0 0;width:0;border-radius:3px;background:var(--accent);transition:width .25s linear}
+.af-done .af-bar{transition-duration:.15s}
+.af-pct{flex:none;min-width:0;font-variant-numeric:tabular-nums;white-space:nowrap}
+.af-indet .af-bar{width:35%;animation:af-indet 1.3s ease-in-out infinite}
+@keyframes af-indet{0%{left:-35%}100%{left:100%}}
+@media (prefers-reduced-motion:reduce){.af-bar{transition:none}.af-indet .af-bar{width:100%;left:0;opacity:.45;animation:none}}
+.af-test-btns{display:grid;gap:8px}
+@media (min-width:560px){.af-test-btns{grid-template-columns:1fr 1fr}}
+.af-test-hint{margin:0 2px}
+.af-checks{list-style:none;display:flex;flex-wrap:wrap;gap:4px 14px;margin:8px 0 0;padding:0;font-size:14px}
+.af-check{display:flex;gap:4px;align-items:center}
+.af-check .i{width:16px;height:16px}
+.af-check.yes .i{color:var(--ok)}
+.af-check.no .i{color:var(--danger)}
+.af-check.skip{color:var(--muted)}
+.af-sample{display:flex;gap:12px;align-items:flex-start;margin-top:10px}
+.af-sample img{flex:none;width:96px;height:auto;border-radius:8px;background:#fff}
+.af-sample .af-info{margin:0;flex:1;min-width:0}
+.af-conf{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 .af-status .i{flex:none;color:var(--accent)}
 .af-status.af-fail .i{color:var(--danger)}
 .af-filled{box-shadow:0 0 0 2px var(--accent) inset}

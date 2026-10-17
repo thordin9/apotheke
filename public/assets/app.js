@@ -489,9 +489,13 @@
     }));
 
     /* AI autofill: send a ~1024 px JPEG to /autofill/suggest (the server talks to the service) and pre-fill
-       only fields that are still empty and that the user has not touched. Never blocks saving. */
-    const afStatus = $('#af-status');
-    let afSeq = 0;
+       only fields that are still empty and that the user has not touched. Never blocks saving or typing.
+       Feedback: "Uploading…" (real upload progress), "Analyzing photo…" (an estimate from the service's
+       avg_latency_ms, eased and held at 95 % until the answer; a spinner when the service gives no average),
+       then "Suggestions ready" / "No suggestions" / the reason. A 503 with Retry-After is retried once. */
+    const afBox = $('#af-feedback'), afStatus = $('#af-status'), afProg = $('#af-progress');
+    const afBar = $('#af-bar'), afPct = $('#af-pct');
+    let afSeq = 0, afTick = 0;
     const afFields = () => ({ name: form.elements.name, tags: form.elements.tags, description: form.elements.notes,
       category: $('#catsel', form), newcat: $('#newcatname', form) });
     Object.values(afFields()).forEach(el => el && ['input', 'change'].forEach(ev => el.addEventListener(ev, e => {
@@ -500,30 +504,102 @@
     })));
     const afSay = (msg, fail) => {
       if (!afStatus) return;
-      afStatus.hidden = !msg; afStatus.classList.toggle('af-fail', !!fail);
+      if (afBox) afBox.hidden = !msg;
+      afStatus.classList.toggle('af-fail', !!fail);
       afStatus.innerHTML = msg ? '<svg class="i" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg> ' : '';
       if (msg) afStatus.append(document.createTextNode(msg));
     };
+    // the bar: pct null = indeterminate (spinner), a number = determinate; extra = "about 6 s left" etc.
+    const afShow = (pct, extra) => {
+      if (!afProg) return;
+      afProg.hidden = false;
+      afProg.classList.toggle('af-indet', pct === null);
+      if (pct === null) { afProg.removeAttribute('aria-valuenow'); afBar.style.width = ''; }
+      else { const p = Math.round(pct); afProg.setAttribute('aria-valuenow', String(p)); afBar.style.width = p + '%'; }
+      const txt = (pct === null ? '' : Math.round(pct) + ' %') + (extra ? (pct === null ? '' : ' · ') + extra : '');
+      afPct.textContent = txt;
+      if (txt) afProg.setAttribute('aria-valuetext', txt); else afProg.removeAttribute('aria-valuetext');
+    };
+    const afHide = () => { clearInterval(afTick); afTick = 0; if (afProg) { afProg.hidden = true; afProg.classList.remove('af-indet', 'af-done'); } };
+    const afDone = () => {           // jump to 100 %, then hide
+      clearInterval(afTick); afTick = 0;
+      if (!afProg || afProg.hidden || afProg.classList.contains('af-indet')) { afHide(); return; }
+      afShow(100, ''); afProg.classList.add('af-done');
+      const seq = afSeq;
+      setTimeout(() => { if (seq === afSeq) afHide(); }, 700);
+    };
+    // "Analyzing": elapsed vs the expected time, ease-out, never above 95 % before the answer
+    const afAnalyze = seq => {
+      clearInterval(afTick);
+      afSay('Analyzing photo…');
+      const ms = parseInt(form.dataset.afLatency || '', 10);
+      if (!(ms > 0)) { afShow(null, ''); return; }
+      const t0 = performance.now();
+      const step = () => {
+        if (seq !== afSeq) { clearInterval(afTick); return; }
+        const t = performance.now() - t0, x = Math.min(1, t / ms);
+        const left = Math.ceil((ms - t) / 1000);
+        afShow(95 * (1 - Math.pow(1 - x, 3)), x < 1 ? (left > 1 ? 'about ' + left + ' s left' : 'almost done') : 'still working…');
+      };
+      step(); afTick = setInterval(step, 250);
+    };
+    const afSend = (img, seq) => new Promise(resolve => {
+      const fd = new FormData();
+      fd.append('image', img, 'photo.jpg');
+      fd.append('csrf', csrf());
+      const x = new XMLHttpRequest();
+      x.open('POST', '/autofill/suggest');
+      x.setRequestHeader('X-Requested-With', 'fetch');
+      x.setRequestHeader('Accept', 'application/json');
+      x.timeout = ((parseInt(form.dataset.afTimeout || '50', 10) || 30) + 15) * 1000;
+      let analyzing = false;
+      const sent = () => { if (!analyzing && seq === afSeq) { analyzing = true; afAnalyze(seq); } };
+      x.upload.onprogress = e => {
+        if (seq !== afSeq || analyzing || !e.lengthComputable || !e.total) return;
+        if (e.loaded >= e.total) sent(); else afShow(100 * e.loaded / e.total, '');
+      };
+      x.upload.onload = sent;
+      x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch (_) { j = null; } resolve(j); };
+      x.onerror = x.ontimeout = x.onabort = () => resolve(null);
+      x.send(fd);
+    });
+    // "Model is warming up… retrying in N s": resolves true when the wait ran out, false if another photo was picked
+    const afWait = (secs, seq) => new Promise(resolve => {
+      clearInterval(afTick);
+      let left = secs;
+      const step = () => {
+        if (seq !== afSeq) { clearInterval(afTick); resolve(false); return; }
+        if (left <= 0) { clearInterval(afTick); resolve(true); return; }
+        afSay('Model is warming up… retrying in ' + left + ' s');
+        afShow(null, ''); left--;
+      };
+      step(); afTick = setInterval(step, 1000);
+    });
     // free to fill: empty and never typed in, or filled by an earlier suggestion and not edited since
     const afFree = el => el && !el.dataset.afTouched && (el.value.trim() === '' || el.classList.contains('af-filled'));
     const afPut = (el, v) => { el.value = v; el.classList.add('af-filled'); };
     async function autofill(file) {
       const seq = ++afSeq;
-      afSay('Looking at the photo…');
+      clearInterval(afTick);
+      afSay('Uploading…');
+      afShow(0, '');
       form.classList.add('af-busy');
-      let j = null;
-      try {
-        let img;
-        try { img = await shrinkImage(file, 1024); } catch (_) { img = file; }
-        const fd = new FormData();
-        fd.append('image', img, 'photo.jpg');
-        fd.append('csrf', csrf());
-        const r = await fetch('/autofill/suggest', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-Requested-With': 'fetch', Accept: 'application/json' } });
-        j = await r.json();
-      } catch (_) { j = null; }
+      let img;
+      try { img = await shrinkImage(file, 1024); } catch (_) { img = file; }
+      if (seq !== afSeq) return;
+      let j = await afSend(img, seq);
       if (seq !== afSeq) return;           // a newer photo was picked meanwhile
+      const cap = parseInt(form.dataset.afTimeout || '50', 10) || 30;
+      if (j && !j.ok && j.retry_after > 0 && j.retry_after <= cap) {
+        if (!(await afWait(j.retry_after, seq))) return;
+        afSay('Uploading…'); afShow(0, '');
+        j = await afSend(img, seq);
+        if (seq !== afSeq) return;
+      }
+      if (j && j.avg_latency_ms > 0) form.dataset.afLatency = String(j.avg_latency_ms);   // better estimate for the next photo
       form.classList.remove('af-busy');
-      if (!j || !j.ok) { afSay((j && j.message) || 'No suggestions (autofill is not available right now).', true); return; }
+      if (!j || !j.ok) { afHide(); afSay((j && j.message) || 'No suggestions (autofill is not available right now).', true); return; }
+      afDone();
       const s = j.suggestions || {}, f = afFields(), done = [];
       if (s.name && afFree(f.name)) { afPut(f.name, s.name); done.push('name'); }
       if (s.category && f.category && (f.category.value === '' || f.category.classList.contains('af-filled')) && !f.category.dataset.afTouched && afFree(f.newcat || f.category)) {
@@ -539,7 +615,7 @@
         done.push('tags');
       }
       if (s.description && afFree(f.description)) { afPut(f.description, s.description); done.push('description'); }
-      afSay(done.length ? 'Suggested from the photo: ' + done.join(', ') + '. Check before saving.' : j.code === 'empty' ? 'No suggestions for this photo.' : 'Nothing to fill in – your entries were kept.');
+      afSay(done.length ? 'Suggestions ready: ' + done.join(', ') + ' filled in. Check before saving.' : j.code === 'empty' ? 'No suggestions for this photo.' : 'Suggestions ready – nothing to fill in, your entries were kept.');
     }
 
     // Location / category pickers with inline "＋ New …"
@@ -921,6 +997,21 @@
         document.addEventListener('pointermove', move); document.addEventListener('pointerup', done); document.addEventListener('pointercancel', done);
         e.preventDefault();
       });
+    });
+  }
+
+  /* Settings → AI autofill: the test buttons are plain form submits (they work without JS); while the server
+     runs the test, say so, so a slow photo test does not look like nothing happened. */
+  const afRes = $('#af-test-result');
+  if (afRes) {
+    afRes.closest('form').addEventListener('submit', e => {
+      const b = e.submitter;
+      if (!b || (b.id !== 'af-test' && b.id !== 'af-test-photo')) return;
+      const to = $('#s-autofill_timeout');
+      afRes.innerHTML = '<p class="af-status af-testing" id="af-testing"></p>';
+      $('#af-testing').textContent = b.id === 'af-test-photo'
+        ? 'Sending the sample photo… this can take up to ' + ((to && to.value) || '50') + ' s.'
+        : 'Testing the connection…';
     });
   }
 })();

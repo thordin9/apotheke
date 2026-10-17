@@ -99,6 +99,45 @@ test.describe('AI autofill settings', () => {
     await expect(page.locator('#af-token-state')).toHaveText('No token set.');
   });
 
+  test('test with a photo: checks, suggestions, confidence and time', async ({ app, page }) => {
+    await configure(page, stub.base + '/l/13500');
+    await page.locator('#set-save').click();
+    await expect(page.locator('.toast')).toHaveText('Settings saved');
+    stub.clear();
+    await page.locator('#af-test-photo').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'ok', { timeout: 10_000 });
+    for (const k of ['reachable', 'token', 'ready']) await expect(page.locator(`#af-checks [data-check="${k}"]`)).toHaveAttribute('data-state', 'ok');
+    await expect(page.locator('#af-s-name')).toContainText(/^Echo item [0-9a-f]{8} 50 %$/);
+    await expect(page.locator('#af-s-description')).toContainText(/^JPEG image, \d+ bytes 50 %$/);
+    await expect(page.locator('#af-s-elapsed')).toHaveText(/^\d+\.\d s$/);
+    await expect(page.locator('#af-latency')).toHaveText('13.5 s');
+    expect(stub.last().type, 'the sample photo went through POST /v1/suggest').toBe('JPEG');
+    await app.noOverflow();
+    await page.locator('.toast').evaluateAll(t => t.forEach(e => e.remove()));
+    if (!test.info().project.name.endsWith('-smoke')) {
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page).toHaveScreenshot('autofill-test-photo.png', { fullPage: true,
+        mask: [page.locator('.app-version'), page.locator('#s-autofill_url'), page.locator('#af-s-name'), page.locator('#af-s-description'), page.locator('#af-s-elapsed')] });
+    }
+  });
+
+  test('test with a photo: bad token, service down and slow model end with a clear message', async ({ page }) => {
+    await configure(page, stub.base + '/t/photo-token');
+    await page.locator('#af-test-photo').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'unauthorized');
+    await expect(page.locator('#af-checks [data-check="reachable"]')).toHaveAttribute('data-state', 'ok');
+    await expect(page.locator('#af-checks [data-check="token"]')).toHaveAttribute('data-state', 'failed');
+    await expect(page.locator('#af-checks [data-check="ready"]')).toHaveAttribute('data-state', 'skipped');
+    await configure(page, 'http://127.0.0.1:1');
+    await page.locator('#af-test-photo').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'unreachable');
+    await expect(page.locator('#af-checks [data-check="reachable"]')).toHaveAttribute('data-state', 'failed');
+    await configure(page, stub.base + '/d/9000', '3');
+    await page.locator('#af-test-photo').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'timeout', { timeout: 8_000 });
+    await expect(page.locator('#af-res')).toContainText('3 s timeout');
+  });
+
   test('service down, timeout and not an autofill service', async ({ page }) => {
     await configure(page, 'http://127.0.0.1:1');
     await page.locator('#af-test').click();

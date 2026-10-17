@@ -15,7 +15,7 @@ Control Panel → **AI autofill** (`/settings/autofill`, needs the *Settings* pe
 |---|---|---|
 | Suggest details from the photo | off | Master switch. |
 | Service address | empty | Base URL without `/v1`, e.g. `http://192.168.1.10:8080`. Only `http://` and `https://`. |
-| Timeout (seconds) | 30 | 3–60. The service answers `504` itself after 25 s, so 30 s is a good value. |
+| Timeout (seconds) | 50 | 3–60. Set it about 5 s above the service's own timeout: 50 for the default Jetson setup, where the service gives up after 45 s (`BACKEND_TIMEOUT_S`). Also the longest Apotheke waits for a `Retry-After` before its one retry. Upgrading from 2.2 moves a stored 30 (the old default) to 50 (migration 0024); any other value is kept. |
 | Access token | none | Only if the service runs with `AUTOFILL_TOKEN`. See below. |
 
 All values live in the `settings` table like every other Control Panel option.
@@ -35,6 +35,33 @@ Results: *Connected* (with name, API version, capabilities, backend and image li
 connect* (also when the 3 s connect timeout runs out), *no answer within N seconds*, *the service requires a
 token* (401, none set), *the service refused the token* (401, wrong token), *not a valid address* (anything but
 `http://`/`https://`), *not a valid /v1/info answer* or *still warming up* (`ready: false`).
+
+Each `/v1/info` answer is cached for an hour (refreshed after a successful suggestion when it is older than 10
+minutes). Apotheke reads these fields; unknown fields are ignored:
+
+| Field | Required | Used for |
+|---|---|---|
+| `name`, `version`, `capabilities` | yes | Test connection |
+| `backend` | optional | shown by Test connection |
+| `max_image_bytes` | optional | photos larger than this are not sent |
+| `ready` | optional (default `true`) | *still warming up* |
+| `avg_latency_ms` | **optional, new in Apotheke 2.3** | the progress estimate on the item form (*Typical answer* in Test connection). A non-negative integer: the service's recent average time per suggestion in milliseconds. Anything else, or a service that does not send it, is ignored: the form then shows a spinner instead of a percentage. |
+
+### Test with a photo
+
+**Test with a photo** (next to Test connection, same rules for the address, timeout and token) runs the same
+checks and then sends a bundled sample photo (`public/assets/autofill-sample.jpg`, a claw hammer; public
+domain, by Evan-Amos on Wikimedia Commons) through `POST /v1/suggest` with your real categories and tags as
+context. It shows:
+
+- three checks: **Reachable**, **Token accepted**, **Model ready** (a check that could not run says *not checked*);
+- the suggested name, category, tags and description, with the confidence the service gave each field;
+- how long the suggestion took.
+
+The whole run, checks included, stays within the timeout as typed, so a service that is down, slow or
+refusing the token ends with a clear message instead of a hanging page. The token is never shown. Like Test
+connection it is a plain form button: it works without JavaScript (with JavaScript the result area says
+*Sending the sample photo…* while it runs) and nothing is saved.
 
 **Probing internal hosts.** Test connection makes this server request any http(s) host and port an admin
 types in, and the messages tell "nothing listening", "no answer" and HTTP errors apart, so it can be used to
@@ -57,8 +84,9 @@ All forms on the page need the CSRF token; viewers and editors get `403`.
 
 ## Suggestions after a photo
 
-With autofill on, the item form (new and edit; needs the *Add items* permission) shows a status line under
-the photo. Right after you take or pick a photo:
+With autofill on **and** a service address set, the item form (new and edit; needs the *Add items*
+permission) shows a status line and a progress bar under the photo. Nothing is shown otherwise. Right after
+you take or pick a photo:
 
 1. The browser makes a JPEG of about **1024 px** on the long edge and posts it to Apotheke's
    `POST /autofill/suggest` (same-origin, CSRF token).
@@ -69,6 +97,27 @@ the photo. Right after you take or pick a photo:
    your existing **categories** and **tags** (so the backend reuses your spelling) and `locale`.
 4. The answer is validated (unknown fields ignored, wrong-shaped fields dropped, name ≤ 200, category ≤ 120,
    at most 8 tags of ≤ 40 characters, description ≤ 2000) and returned to the browser.
+
+### Progress while the service works
+
+The status line goes through these stages; feedback appears at once (well within a second), and the form
+stays usable the whole time:
+
+1. **Uploading…** with the real upload progress (an `XMLHttpRequest` upload event; usually a blink on a LAN).
+2. **Analyzing photo…** The service does one model call and cannot report progress, so the bar is an
+   **estimate**: elapsed time against `avg_latency_ms` from the cached `/v1/info`, eased out, with
+   *about N s left*. It stops at 95 % and says *still working…* when the photo takes longer than average;
+   it never shows 100 % before the answer. Without `avg_latency_ms` it is an indeterminate spinner. The bar
+   is a `role="progressbar"` with `aria-valuenow` and `aria-valuetext`; the stage text is a polite live
+   region. With *reduce motion* the bar does not animate.
+3. **Suggestions ready** (and which fields were filled), **No suggestions for this photo**, or the reason it
+   failed (table below). On success the bar jumps to 100 % and disappears.
+
+**Model warming up.** When the service answers `503` with `error.code` `backend_unavailable` and a
+`Retry-After` header (the model is loading, or its queue is full), Apotheke passes `retry_after` (seconds) on
+to the browser, which shows **Model is warming up… retrying in N s** with a countdown and then tries **once**
+more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
+timeout; then, as when the retry fails too, the usual message is shown.
 
 **Only empty fields are filled, and never one you have touched.** Typing in a field (even if you then clear
 it) or removing a tag chip makes it yours. Filled fields are highlighted until you edit them; picking another
@@ -90,6 +139,7 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Wrong token (`401`) | *refused the access token* (an admin fixes it in the Control Panel) |
 | No token set, service wants one (`401`) | *requires an access token* |
 | Backend failed or not ready (`503`) | *busy or not ready* |
+| Model loading / queue full (`503` + `Retry-After`) | *Model is warming up… retrying in N s*, one retry; then *warming up or busy. Try again in N s* if it is still busy |
 | Not a JSON object (malformed) | *sent an unexpected answer* |
 | Photo too large (`413`, or larger than `max_image_bytes` from the last Test connection) | *larger than the service accepts* |
 | Image type not supported (`415`) | *cannot read this kind of image* |
@@ -123,9 +173,12 @@ CI does not need the Python service. `tests/stubs/autofill-stub.php` mimics the 
 started on a free port by the unit tests, the HTTP integration suite and Playwright
 (`tests/visual/autofill-stub.ts`). The mode and token are picked by a path prefix of the address, e.g.
 `http://127.0.0.1:PORT/m/slow/t/s3cret`: modes `ok`, `error` (503), `malformed`, `slow`, `toolarge` (413),
-`unsupported` (415), `empty`, `badinfo`, `warming`.
+`unsupported` (415), `empty`, `badinfo`, `warming`, `busy` (503 + `Retry-After`, always) and `cold` (the same
+503 on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-After` value), `/l/<ms>`
+(`avg_latency_ms` in `/v1/info`) and `/d/<ms>` (the suggestion waits that long).
 
-- `tests/Unit/AutofillTest.php`: settings, `/v1/info` and suggestion parsing, image preparation, every failure code.
+- `tests/Unit/AutofillTest.php`: settings, `/v1/info` and suggestion parsing (`avg_latency_ms`, `Retry-After`,
+  confidence), image preparation, every failure code, Test with a photo, migration 0024.
 - `tests/integration_autofill.php` (part of `tests/integration.php`): settings security (CSRF, viewers and
   editors, token never in pages, exports, backups or logs), Test connection, suggest end to end.
 - `tests/visual/autofill-settings.spec.ts` and `autofill-suggest.spec.ts`: the Control Panel section and

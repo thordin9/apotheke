@@ -104,9 +104,9 @@ function settings_schema(): array
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // AI autofill (token: own form, write-only)
-        'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: after you pick a photo for an item, empty fields are pre-filled with suggestions you can keep or clear.', []],
+        'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: after you pick a photo for an item, a progress line shows while the service looks at it, then empty fields are pre-filled with suggestions you can keep or clear.', []],
         'autofill_url'     => ['autofill', 'Service address', 'url', '', 'Where your autofill service runs, e.g. http://192.168.1.10:8080 (without /v1). The photo is sent there, resized to about 1024 px.', ['placeholder' => 'http://192.168.1.10:8080']],
-        'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 30, 'How long to wait for suggestions. Saving an item never waits for them. The service gives up after about 25 s, so 30 is a good value.', ['min' => 3, 'max' => 60]],
+        'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 50, 'How long to wait for suggestions. Saving an item never waits for them. Set it about 5 s above the service’s own timeout: 50 for the default Jetson setup (the service gives up after 45 s). When the service says its model is still loading, Apotheke waits as long as it asks (up to this timeout) and tries once more.', ['min' => 3, 'max' => 60]],
         'autofill_token'   => ['autofill', 'Access token', 'secret', '', '', []],
         // security (own form)
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],

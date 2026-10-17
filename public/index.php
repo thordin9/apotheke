@@ -699,8 +699,9 @@ try {
         settings_store(['autofill_token' => $t]);
         redirect('/settings/autofill?done=token-saved');
     }
-    if ($path === '/settings/autofill/test' && $method === 'POST') {
+    if (($path === '/settings/autofill/test' || $path === '/settings/autofill/test-photo') && $method === 'POST') {
         check_csrf();
+        $photoTest = $path === '/settings/autofill/test-photo';
         $url = (string)($_POST['autofill_url'] ?? setting('autofill_url'));
         $to = (string)($_POST['autofill_timeout'] ?? '');
         $timeout = ctype_digit($to) ? max(3, min(60, (int)$to)) : (int)setting('autofill_timeout');
@@ -710,7 +711,9 @@ try {
         // in the form (if any) or none, so the write-only token cannot be sent to a host of the caller's choice.
         $r = $badUrl
             ? ['ok' => false, 'code' => 'invalid_url', 'message' => 'That is not a valid service address. Only http:// and https:// addresses are supported, e.g. http://192.168.1.10:8080.']
-            : autofill_test($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')));
+            : ($photoTest
+                ? autofill_test_photo($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')))
+                : autofill_test($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? ''))));
         if (wants_json()) json_out($r + ['html' => autofill_test_result_html($r)]);
         no_store();
         $vals = [];
