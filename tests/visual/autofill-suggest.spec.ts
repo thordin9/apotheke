@@ -142,6 +142,31 @@ test.describe('AI autofill suggestions', () => {
     await expect(page.locator('#name')).toHaveValue(/^Echo item/);
   });
 
+  test('progress: held at 95 % for 5 s, the status line says the model may be loading or busy', async ({ app, page }) => {
+    // 2 s average, this photo takes 12 s (a cold model or a queued request): 95 % from 1.9 s, the hint from 6.9 s
+    await configure(page, { on: true, url: stub.base + '/l/2000/d/12000', timeout: '45' });
+    await page.locator('#af-test').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'ok');
+    await page.clock.install({ time: new Date('2026-06-15T09:00:00Z') });
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-latency', '2000');
+    await page.clock.pauseAt(new Date('2026-06-15T12:00:00Z'));
+    await pick(page, app.image('af-hint.jpg', [90, 60, 210]));
+    const status = page.locator('#af-status');
+    await expect(status).toHaveText('Analyzing photo…', { timeout: 5_000 });
+    await page.clock.runFor(2_000);
+    await expect(page.locator('#af-pct')).toHaveText('95 % · still working…');
+    await page.clock.runFor(4_500);                     // 6.5 s: 4.6 s at 95 %, no hint yet
+    await expect(status).toHaveText('Analyzing photo…');
+    await page.clock.runFor(500);                       // 7 s: over 5 s at 95 %
+    await expect(status).toHaveText('Analyzing photo… The model may be loading or busy – this can take up to 45 s.');
+    await expect(page.locator('#af-pct')).toHaveText('95 % · still working…');
+    await app.noOverflow();
+    await shot(page, 'autofill-progress-hint');
+    await expect(status).toContainText('Suggestions ready', { timeout: 20_000 });
+    await expect(status).not.toContainText('loading or busy');
+  });
+
   test('progress: a spinner when the service gives no average; typing still wins', async ({ app, page }) => {
     await configure(page, { on: true, url: stub.base + '/d/2500' });
     await app.go('/new');
@@ -219,6 +244,38 @@ test.describe('AI autofill suggestions', () => {
     await pick(page, app.image('af-link-cat.jpg', [70, 160, 70]));
     await expect(page.locator('#af-status')).toContainText('Suggestions ready');
     expect(await label()).toBe('Kitchen');
+  });
+
+  test('an untouched default only gives way to an existing category; an empty picker still offers a new one', async ({ app, page }) => {
+    // QA's C1: "Gadgets" is not in the list. With General ★ preselected and untouched, the default stays (saving must
+    // not create "Gadgets"); with nothing selected, "＋ New category…" is pre-filled with the name, as before.
+    await configure(page, { on: true, url: stub.base + '/s/Gadgets' });
+    const cat = page.locator('#catsel');
+    const label = () => cat.evaluate((s: HTMLSelectElement) => s.selectedOptions[0].textContent!.trim());
+    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; db()->exec('UPDATE categories SET is_default = 0');`]);
+    await app.go('/new');
+    await expect(page.locator('#itemform'), 'no default category').not.toHaveAttribute('data-af-defaults', /category/);
+    expect(await cat.inputValue()).toBe('');
+    await pick(page, app.image('af-empty-newcat.jpg', [70, 120, 160]));
+    await expect(page.locator('#af-status')).toContainText(/Suggestions ready: .*category/);
+    expect(await cat.inputValue()).toBe('__new');
+    await expect(page.locator('#newcat')).toBeVisible();
+    await expect(page.locator('#newcatname')).toHaveValue('Gadgets');
+    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; tax_set_default('category', tax_create('category', 'General')['id'], true);`]);
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-defaults', /category/);
+    expect(await label()).toBe('General ★');
+    await pick(page, app.image('af-default-newcat.jpg', [160, 120, 70]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready: name');
+    await expect(page.locator('#af-status')).not.toContainText('category');
+    expect(await label(), 'the untouched default is kept').toBe('General ★');
+    await expect(cat).not.toHaveClass(/af-filled/);
+    await expect(page.locator('#newcat')).toBeHidden();
+    await expect(page.locator('#newcatname')).toHaveValue('');
+    await page.locator('#save').click();
+    await page.waitForURL(/saved=\d+/);
+    expect(app.sql<{ n: number }>("SELECT COUNT(*) AS n FROM categories WHERE name = 'Gadgets'")[0].n, 'no category created').toBe(0);
+    expect(app.sql<{ name: string }>('SELECT c.name FROM items i JOIN categories c ON c.id = i.category_id ORDER BY i.id DESC LIMIT 1')[0].name).toBe('General');
   });
 
   test('the edit form treats the stored category as the user\'s choice', async ({ app, page }) => {

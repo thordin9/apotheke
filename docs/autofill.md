@@ -109,8 +109,10 @@ stays usable the whole time:
 2. **Analyzing photo…** The service does one model call and cannot report progress, so the bar is an
    **estimate**: elapsed time against `avg_latency_ms` from the cached `/v1/info`, filled linearly so the
    percentage and *about N s left* agree (10 s into a 20 s average: 50 %, about 10 s left). It stops at 95 %
-   and says *still working…* when the photo takes longer than average;
-   it never shows 100 % before the answer. Without `avg_latency_ms` it is an indeterminate spinner. The bar
+   and says *still working…* when the photo takes longer than average; after **5 s at 95 %** the status line
+   adds *The model may be loading or busy – this can take up to N s.* (N is the timeout from Control Panel →
+   AI autofill), since a cold model or a queued request can take several times the average. It never shows
+   100 % before the answer. Without `avg_latency_ms` it is an indeterminate spinner. The bar
    is a `role="progressbar"` with `aria-valuenow` and `aria-valuetext`; the stage text is a polite live
    region. With *reduce motion* the bar does not animate.
 3. **Suggestions ready** (and which fields were filled), **No suggestions for this photo**, or the reason it
@@ -129,8 +131,9 @@ preselected default counts as empty while you have not touched it: the default c
 the default tags and the default notes from Control Panel → Items. A category chosen by the link you came from
 (`/new?cat=…`) and everything on an existing item's edit form are your choices and are never replaced. Filled fields are highlighted until you edit them; picking another
 photo may replace earlier *suggestions*, never your input. The category is filled only when none is selected
-(or only the untouched default): an existing one is selected when the names match (ignoring case), otherwise "＋ New category" is
-pre-filled. Suggestions go to Name, Category, Tags and Notes (the service's `description`).
+(or only the untouched default): an existing one is selected when the names match (ignoring case). A name that
+is not in your list pre-fills "＋ New category" only when **no** category is selected; an untouched default
+such as *General ★* is kept instead, so saving never creates a category you did not ask for. Suggestions go to Name, Category, Tags and Notes (the service's `description`).
 
 Saving never waits for suggestions and works the same when the service is off, down or slow.
 

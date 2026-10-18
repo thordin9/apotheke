@@ -529,17 +529,24 @@
       setTimeout(() => { if (seq === afSeq) afHide(); }, 700);
     };
     // "Analyzing": elapsed vs the expected time, linear so percent and seconds agree (10 s of 20 = 50 %, 10 s left);
-    // capped at 95 % until the answer, then "still working…" once past the estimate
+    // capped at 95 % until the answer, then "still working…" once past the estimate. After AF_HINT_MS held at 95 %
+    // the status line explains the wait (a cold model loading, or a queued request) and its upper bound.
+    const AF_HINT_MS = 5000;
     const afAnalyze = seq => {
       clearInterval(afTick);
       afSay('Analyzing photo…');
       const ms = parseInt(form.dataset.afLatency || '', 10);
       if (!(ms > 0)) { afShow(null, ''); return; }
-      const t0 = performance.now();
+      const t0 = performance.now(), cap = parseInt(form.dataset.afTimeout || '', 10);
+      let hinted = false;
       const step = () => {
         if (seq !== afSeq) { clearInterval(afTick); return; }
         const t = performance.now() - t0, left = Math.ceil((ms - t) / 1000);
         afShow(Math.min(95, 100 * t / ms), t < ms ? (left > 1 ? 'about ' + left + ' s left' : 'almost done') : 'still working…');
+        if (!hinted && t >= 0.95 * ms + AF_HINT_MS) {
+          hinted = true;
+          afSay('Analyzing photo… The model may be loading or busy' + (cap > 0 ? ' – this can take up to ' + cap + ' s.' : '.'));
+        }
       };
       step(); afTick = setInterval(step, 250);
     };
@@ -615,9 +622,12 @@
       if (s.category && f.category && afFree(f.category) && (!f.newcat || afFree(f.newcat))) {
         const want = s.category.toLocaleLowerCase();
         const opt = [...f.category.options].find(o => /^\d+$/.test(o.value) && o.textContent.replace(/ ★$/, '').trim().toLocaleLowerCase() === want);
-        if (opt) { afPut(f.category, opt.value); if (f.newcat) { f.newcat.value = ''; f.newcat.classList.remove('af-filled'); } }
-        else if (f.newcat) { afPut(f.category, '__new'); afPut(f.newcat, s.category); const row = $('#newcat', form); if (row) row.hidden = false; }
-        done.push('category');
+        // an untouched preselected default (General ★) only gives way to an existing category: a name that is not in
+        // the list keeps the default instead of pre-filling "＋ New category…" (saving would create it). A picker
+        // with nothing selected still gets "＋ New category…" pre-filled, as before.
+        const heldDefault = afInit.has(f.category) && f.category.value === afInit.get(f.category);
+        if (opt) { afPut(f.category, opt.value); if (f.newcat) { f.newcat.value = ''; f.newcat.classList.remove('af-filled'); } done.push('category'); }
+        else if (f.newcat && !heldDefault) { afPut(f.category, '__new'); afPut(f.newcat, s.category); const row = $('#newcat', form); if (row) row.hidden = false; done.push('category'); }
       }
       if (s.tags && s.tags.length && afFree(f.tags)) {
         afPut(f.tags, s.tags.join(', ')); f.tags.dispatchEvent(new Event('af:render'));
