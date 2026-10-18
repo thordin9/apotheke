@@ -140,6 +140,46 @@ Photos are shrunk on the device before upload (max. 1600 px, JPEG ~80 %). The se
 `getimagesize`, re-encodes it with GD (which strips EXIF and GPS data), applies the EXIF orientation, writes a
 thumbnail and stores both under random file names outside the web root.
 
+## Suggestions from a photo (AI autofill)
+
+If an admin has set up [AI autofill](autofill-admin-guide.md), Apotheke can suggest an item's **name, category, tags
+and notes** from a photo. It is optional: you can always fill in the form yourself, and saving never waits for it.
+
+**The Analyze button.** Take or pick a photo on the item form, then tap **✨ Analyze photo** under it. Nothing is sent
+until you tap it (unless an admin turned on *Analyze photos automatically*; then a picked photo is analyzed right away).
+When you edit an item that already has photos, each of them has its own **Analyze** button in the row *Suggest details
+from a photo of this item*.
+
+- Only **one photo is analyzed at a time**. While it runs, the other Analyze buttons are greyed out; they come back
+  when it is done.
+- You can keep typing, choose a location or save while it works.
+- Picking another photo while the picked one is being analyzed stops that analysis; tap Analyze again for the new one.
+
+**The progress bar.** The line under the photo says what is happening:
+
+1. **Uploading…** with the real upload progress (usually a blink on a home network).
+2. **Analyzing photo…** with a bar and *about N s left*. The service cannot report its progress, so this is an
+   estimate from its typical time. It stops at 95 % (*still working…*) when a photo takes longer than usual, and after
+   5 s there it adds *The model may be loading or busy – this can take up to N s.*
+3. **Model is warming up… retrying in N s** or **Service is busy… retrying in N s**: the service asked Apotheke to
+   wait (for example after an admin switched models); it tries once more by itself.
+4. **Suggestions ready: name, category… filled in. Check before saving.**, **No suggestions for this photo**, or a
+   short reason why it did not work (for example *the autofill service is not reachable*). Nothing is filled in then.
+
+**What gets filled.** Suggestions only go into fields that are **empty**, and never into a field you have touched:
+
+- A field you typed in (even if you cleared it again), a category you picked (even the same one again) or a tag you
+  removed is yours and is never replaced.
+- On a new item, the preselected defaults (the default category with ★, default tags and notes) count as empty
+  until you touch them. A category chosen by the link you came from, and everything on an existing item's edit form,
+  count as yours.
+- The category is set only to one that already exists in your list (matching ignores upper/lower case). A new
+  category is only proposed (in *＋ New category*) when no category is selected at all, so saving never creates a
+  category you did not ask for.
+- **A second analysis** (another photo, or the same one again) only fills fields that are **still** empty: what the
+  first one filled in stays.
+- Filled fields are highlighted until you edit them. Check them before saving; you can change or clear anything.
+
 ## Quantities and low-stock alerts
 
 The −/+ buttons on cards and on the item page change the quantity immediately; quick taps are combined into one

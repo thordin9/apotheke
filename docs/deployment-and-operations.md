@@ -70,6 +70,9 @@ Notes:
 * Migrations `0006` (low-stock level), `0007` (lending), `0008` (parent location) and `0009` (expiry date) only
   add nullable columns (`0010` only an index); existing items have no alert, are not lent and have no expiry date, existing locations stay
   top-level.
+* Migration `0025` (2.4) turns AI autofill's *Analyze photos automatically* **off** on every install: photos are
+  only analyzed when someone taps *Analyze*. An admin can turn it back on under Control Panel → AI autofill (see
+  [Upgrading from 2.3](autofill.md#upgrading-from-23)).
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 
