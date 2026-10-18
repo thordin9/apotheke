@@ -122,7 +122,101 @@ function autofill_parse_info(string $body): ?array
     $lat = is_int($lat) && $lat >= 0 ? min($lat, 3_600_000) : null;
     return ['name' => clean_line($d['name'], 80), 'version' => clean_line($d['version'], 20), 'capabilities' => $caps,
             'backend' => $backend === null ? null : clean_line($backend, 40), 'max_image_bytes' => $max, 'ready' => $ready,
-            'avg_latency_ms' => $lat];
+            'avg_latency_ms' => $lat, 'models' => autofill_parse_models($d['models'] ?? null),
+            'image_sizes' => autofill_parse_image_sizes($d['image_sizes'] ?? null)];
+}
+
+const AUTOFILL_MAX_MODELS = 50;
+const AUTOFILL_SIDE_MIN = 64;              // smallest / largest long edge an admin can pick (px)
+const AUTOFILL_SIDE_MAX = 4096;
+
+/**
+ * /v1/info "models" (optional, API v1.2): [{id, default?, loaded?, avg_latency_ms?}]. Entries of the wrong shape are
+ * skipped, never a reason to reject the answer; duplicates keep the first. null: absent, not a list, or nothing usable
+ * (then the Model dropdown is hidden and no model is sent). At most one entry is the default (the first one marked).
+ * @return list<array{id:string,default:bool,loaded:?bool,avg_latency_ms:?int}>|null
+ */
+function autofill_parse_models(mixed $v): ?array
+{
+    if (!is_array($v) || !array_is_list($v)) return null;
+    $out = [];
+    $hasDefault = false;
+    foreach ($v as $m) {
+        if (!is_array($m) || !is_string($m['id'] ?? null)) continue;
+        $id = clean_line($m['id'], 120);
+        if ($id === '' || isset($out[$id])) continue;
+        $def = ($m['default'] ?? false) === true && !$hasDefault;
+        $hasDefault = $hasDefault || $def;
+        $loaded = $m['loaded'] ?? null;
+        $lat = $m['avg_latency_ms'] ?? null;
+        $out[$id] = ['id' => $id, 'default' => $def, 'loaded' => is_bool($loaded) ? $loaded : null,
+                     'avg_latency_ms' => is_int($lat) && $lat >= 0 ? min($lat, 3_600_000) : null];
+        if (count($out) >= AUTOFILL_MAX_MODELS) break;
+    }
+    return $out ? array_values($out) : null;
+}
+
+/**
+ * /v1/info "image_sizes" (optional, API v1.2): [{long_edge, recommended?}], long edges AUTOFILL_SIDE_MIN–MAX px.
+ * Wrong-shaped entries are skipped; sorted by size, duplicates merged; at most one is recommended. null: none usable.
+ * @return list<array{long_edge:int,recommended:bool}>|null
+ */
+function autofill_parse_image_sizes(mixed $v): ?array
+{
+    if (!is_array($v) || !array_is_list($v)) return null;
+    $out = [];
+    $rec = null;
+    foreach ($v as $s) {
+        $e = is_array($s) ? ($s['long_edge'] ?? null) : null;
+        if (!is_int($e) || $e < AUTOFILL_SIDE_MIN || $e > AUTOFILL_SIDE_MAX) continue;
+        $out[$e] = true;
+        if ($rec === null && ($s['recommended'] ?? false) === true) $rec = $e;
+        if (count($out) >= 20) break;
+    }
+    if (!$out) return null;
+    ksort($out);
+    return array_map(fn(int $e) => ['long_edge' => $e, 'recommended' => $e === $rec], array_keys($out));
+}
+
+/** The service's default model id from its info (the one marked default, else the first listed), or null. */
+function autofill_default_model(?array $info): ?string
+{
+    $models = $info['models'] ?? null;
+    if (!$models) return null;
+    foreach ($models as $m) if ($m['default']) return $m['id'];
+    return $models[0]['id'];
+}
+
+/**
+ * The model to ask for (context.model): the admin's choice, but only when the service lists models (API v1.2). An
+ * older service, or no choice ('' = the service's default), sends nothing, exactly as before.
+ */
+function autofill_chosen_model(?array $info, ?string $choice = null): ?string
+{
+    $choice = trim($choice ?? (string)setting('autofill_model'));
+    return $choice !== '' && !empty($info['models']) ? $choice : null;
+}
+
+/**
+ * Long edge of the image sent to the service. Without image_sizes in /v1/info: AUTOFILL_IMAGE_SIDE (1024, as before),
+ * whatever is stored. With them: the admin's choice (0 = the size the service recommends; else the largest listed
+ * size up to 1024, else the smallest).
+ */
+function autofill_image_side(?array $info, ?int $choice = null): int
+{
+    $sizes = $info['image_sizes'] ?? null;
+    if (!$sizes) return AUTOFILL_IMAGE_SIDE;
+    $choice ??= (int)setting('autofill_image_size');
+    if ($choice > 0) return max(AUTOFILL_SIDE_MIN, min(AUTOFILL_SIDE_MAX, $choice));
+    return autofill_recommended_side($sizes);
+}
+
+/** @param list<array{long_edge:int,recommended:bool}> $sizes */
+function autofill_recommended_side(array $sizes): int
+{
+    foreach ($sizes as $s) if ($s['recommended']) return $s['long_edge'];
+    $fit = array_filter(array_column($sizes, 'long_edge'), fn(int $e) => $e <= AUTOFILL_IMAGE_SIDE);
+    return $fit ? max($fit) : $sizes[0]['long_edge'];
 }
 
 /**
@@ -217,6 +311,16 @@ function autofill_info_cache(?array $info = null, int $maxAge = 3600): ?array
     return is_array($d['info'] ?? null) ? $d['info'] : null;
 }
 
+/**
+ * The saved service's last /v1/info, however old (null when there is none, or it belongs to another address). Used for
+ * what the service offers (models, image sizes): an expired copy still says which models and sizes exist, so a chosen
+ * model is not silently dropped an hour after the last Test connection.
+ */
+function autofill_known_info(): ?array
+{
+    return autofill_info_cache(null, PHP_INT_MAX);
+}
+
 /* ---------------- suggestions (task 7) ---------------- */
 
 const AUTOFILL_IMAGE_SIDE = 1024;          // long edge of the JPEG we send (the service's recommendation)
@@ -224,14 +328,16 @@ const AUTOFILL_IMAGE_QUALITY = 82;
 const AUTOFILL_MAX_TAGS = 8;
 
 /**
- * The photo as the service wants it: JPEG, about 1024 px on the long edge, EXIF orientation applied.
+ * The photo as the service wants it: about $side px on the long edge (never enlarged), EXIF orientation applied.
+ * A JPEG normally; a PNG when the photo has transparency (PNG with an alpha channel or tRNS, WebP with alpha, GIF with
+ * a transparent colour), so the alpha survives instead of being flattened onto white.
  * HEIC/HEIF (which GD cannot read but the service may) is passed through unchanged; anything else GD cannot read
  * (PDFs, broken or huge files…) is null: not sent at all.
- * @return array{data:string,mime:string,converted:bool}|null
+ * @return array{data:string,mime:string,converted:bool,width:?int,height:?int}|null
  */
-function autofill_prepare_image(string $bytes): ?array
+function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE): ?array
 {
-    $pass = autofill_is_heic($bytes) ? ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false] : null;
+    $pass = autofill_is_heic($bytes) ? ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false, 'width' => null, 'height' => null] : null;
     $info = @getimagesizefromstring($bytes);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
     if (!$info || !in_array($info[2], $types, true) || $info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) return $pass;
@@ -241,10 +347,57 @@ function autofill_prepare_image(string $bytes): ?array
         $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($bytes));
         if (is_array($exif)) $src = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
     }
-    $im = image_fit($src, AUTOFILL_IMAGE_SIDE);
+    $side = max(AUTOFILL_SIDE_MIN, min(AUTOFILL_SIDE_MAX, $side));
     ob_start();
-    imagejpeg($im, null, AUTOFILL_IMAGE_QUALITY);
-    return ['data' => (string)ob_get_clean(), 'mime' => 'image/jpeg', 'converted' => true];
+    if (autofill_has_alpha($bytes, $info[2], $src)) {
+        $im = autofill_fit_alpha($src, $side);
+        imagepng($im, null, 6);
+        $mime = 'image/png';
+    } else {
+        $im = image_fit($src, $side);
+        imagejpeg($im, null, AUTOFILL_IMAGE_QUALITY);
+        $mime = 'image/jpeg';
+    }
+    return ['data' => (string)ob_get_clean(), 'mime' => $mime, 'converted' => true, 'width' => imagesx($im), 'height' => imagesy($im)];
+}
+
+/** Does the image carry transparency? PNG: colour type 4/6 or a tRNS chunk; WebP: the VP8X alpha flag or lossless
+ *  alpha hint; GIF: a transparent colour index. */
+function autofill_has_alpha(string $bytes, int $type, GdImage $src): bool
+{
+    if ($type === IMAGETYPE_PNG) {
+        $ct = strlen($bytes) > 25 ? ord($bytes[25]) : 0;
+        if ($ct === 4 || $ct === 6) return true;
+        $idat = strpos($bytes, 'IDAT');
+        $trns = strpos($bytes, 'tRNS');
+        return $trns !== false && ($idat === false || $trns < $idat);
+    }
+    if ($type === IMAGETYPE_WEBP) {
+        $chunk = substr($bytes, 12, 4);
+        if ($chunk === 'VP8X') return (ord($bytes[20] ?? "\0") & 0x10) !== 0;
+        if ($chunk === 'VP8L') return (ord($bytes[24] ?? "\0") & 0x10) !== 0;
+        return false;
+    }
+    if ($type === IMAGETYPE_GIF) return imagecolortransparent($src) >= 0;
+    return false;
+}
+
+/** image_fit() that keeps the alpha channel (transparent canvas instead of white). Never enlarges. */
+function autofill_fit_alpha(GdImage $src, int $max): GdImage
+{
+    $w = imagesx($src);
+    $h = imagesy($src);
+    $s = min(1, $max / max($w, $h));
+    $nw = max(1, (int)round($w * $s));
+    $nh = max(1, (int)round($h * $s));
+    $dst = imagecreatetruecolor($nw, $nh);
+    imagealphablending($dst, false);
+    imagesavealpha($dst, true);
+    imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 0, 0, 0, 127));
+    if (!imageistruecolor($src)) imagepalettetotruecolor($src);
+    imagealphablending($src, false);
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $nw, $nh, $w, $h);
+    return $dst;
 }
 
 /** HEIC/HEIF container (ISO BMFF "ftyp" box with a HEIF brand)? */
@@ -255,11 +408,22 @@ function autofill_is_heic(string $bytes): bool
 }
 
 /** What the backend may reuse: existing category and tag spellings, and the UI language. */
-function autofill_context(): array
+function autofill_context(?string $model = null): array
 {
     $cats = array_map(fn($c) => (string)$c['name'], db()->query('SELECT name FROM categories ORDER BY name')->fetchAll());
     $tags = array_map(fn($t) => (string)$t['name'], tags_all());
-    return ['categories' => array_slice($cats, 0, 200), 'tags' => array_slice($tags, 0, 300), 'locale' => 'en'];
+    $ctx = ['categories' => array_slice($cats, 0, 200), 'tags' => array_slice($tags, 0, 300), 'locale' => 'en'];
+    if ($model !== null && $model !== '') $ctx['model'] = $model;   // API v1.2; only when the service lists models
+    return $ctx;
+}
+
+/** model_used from a /v1/suggest answer (API v1.2, optional): a short string, else null. */
+function autofill_parse_model_used(string $body): ?string
+{
+    $v = (autofill_json_object($body) ?? [])['model_used'] ?? null;
+    if (!is_string($v)) return null;
+    $v = clean_line($v, 120);
+    return $v === '' ? null : $v;
 }
 
 /**
@@ -319,33 +483,46 @@ function autofill_parse_confidence(string $body): array
 
 /**
  * Photo → suggestions. Never throws; any problem is "no suggestions" with a short reason for the status line.
- * A 503 backend_unavailable with Retry-After (model loading, queue full) also carries retry_after (seconds) so the
- * browser can wait and ask once more. avg_latency_ms: the service's last advertised time per suggestion (or null).
- * @return array{ok:bool,code:string,message:string,suggestions?:array,retry_after?:int,avg_latency_ms:?int}
+ * A 503 backend_unavailable with Retry-After (model loading, queue full, a model switch) also carries retry_after
+ * (seconds) so the browser can wait and ask once more. avg_latency_ms: the expected time per suggestion for the chosen
+ * model (or null). The chosen model (Settings → AI autofill) goes along as context.model when the service lists models;
+ * the image is resized to the chosen long edge. image: what was actually sent (type, bytes, width, height) – a debug
+ * hook the item form puts into data-af-sent.
+ * @return array{ok:bool,code:string,message:string,suggestions?:array,retry_after?:int,avg_latency_ms:?int,model_used?:?string,image?:array}
  */
 function autofill_suggest(string $imageBytes): array
 {
     $fail = fn(string $code, string $msg) => ['ok' => false, 'code' => $code, 'message' => $msg, 'avg_latency_ms' => autofill_expected_ms()];
     if (!autofill_enabled()) return ['ok' => false, 'code' => 'off', 'message' => 'AI autofill is off.'];
     if ($imageBytes === '') return $fail('no_image', 'No photo.');
-    $img = autofill_prepare_image($imageBytes);
+    $known = autofill_known_info();
+    $img = autofill_prepare_image($imageBytes, autofill_image_side($known));
     if ($img === null) return $fail('unsupported', 'No suggestions: this kind of file cannot be read as a photo.');
+    $sent = ['type' => $img['mime'], 'bytes' => strlen($img['data']), 'width' => $img['width'], 'height' => $img['height']];
     $info = autofill_info_cache();
     if ($info !== null && ($info['max_image_bytes'] ?? null) !== null && strlen($img['data']) > $info['max_image_bytes']) {
-        return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.');
+        return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.') + ['image' => $sent];
     }
     $base = rtrim((string)setting('autofill_url'), '/');
-    $r = autofill_suggest_at($base, autofill_token(), (int)setting('autofill_timeout'), $img, autofill_context());
+    $r = autofill_suggest_at($base, autofill_token(), (int)setting('autofill_timeout'), $img, autofill_context(autofill_chosen_model($known)));
     // the service answered: refresh its /v1/info (image limit, avg_latency_ms) when the copy is older than 10 minutes
     if ($r['ok'] && autofill_info_cache(null, 600) === null) autofill_refresh_info($base, autofill_token());
     unset($r['confidence'], $r['elapsed_ms']);
-    return $r + ['avg_latency_ms' => autofill_expected_ms()];
+    return $r + ['avg_latency_ms' => autofill_expected_ms(), 'image' => $sent];
 }
 
-/** The service's average time per suggestion from the cached /v1/info, or null (unknown: the browser shows a spinner). */
+/**
+ * The expected time per suggestion from the cached /v1/info, or null (unknown: the browser shows a spinner). With a
+ * models list: the chosen model's own avg_latency_ms (the default model's when none is chosen), else the service-wide one.
+ */
 function autofill_expected_ms(): ?int
 {
     $i = autofill_info_cache();
+    if ($i === null) return null;
+    $want = autofill_chosen_model($i) ?? autofill_default_model($i);
+    foreach ($i['models'] ?? [] as $m) {
+        if ($m['id'] === $want && $m['avg_latency_ms'] !== null) return $m['avg_latency_ms'];
+    }
     $v = $i['avg_latency_ms'] ?? null;
     return is_int($v) && $v >= 0 ? $v : null;
 }
@@ -420,7 +597,8 @@ function autofill_suggest_at(string $base, string $token, int $timeout, array $i
     }
     $s = autofill_parse_suggestion($r['body']);
     if ($s === null) { autofill_log('suggest: malformed response'); return $fail('bad_response', 'No suggestions: the service sent an unexpected answer.'); }
-    $out = ['suggestions' => $s, 'confidence' => autofill_parse_confidence($r['body']), 'elapsed_ms' => $ms];
+    $out = ['suggestions' => $s, 'confidence' => autofill_parse_confidence($r['body']), 'elapsed_ms' => $ms,
+            'model_used' => autofill_parse_model_used($r['body'])];
     $filled = array_keys(array_filter($s, fn($v) => $v !== null && $v !== []));
     if (!$filled) return ['ok' => true, 'code' => 'empty', 'message' => 'No suggestions for this photo.'] + $out;
     return ['ok' => true, 'code' => 'ok', 'message' => 'Suggestions from the photo'] + $out;
@@ -431,7 +609,7 @@ function autofill_suggest_at(string $base, string $token, int $timeout, array $i
  * photo through POST /v1/suggest. The whole run stays within $timeout seconds. Never contains the token.
  * @return array{ok:bool,code:string,message:string,checks:array<string,?bool>,info?:array,suggestions?:array,confidence?:array,elapsed_ms?:int,retry_after?:int}
  */
-function autofill_test_photo(string $url, int $timeout, string $token): array
+function autofill_test_photo(string $url, int $timeout, string $token, ?string $model = null, ?int $size = null): array
 {
     $t0 = microtime(true);
     $checks = ['reachable' => null, 'token' => null, 'ready' => null];
@@ -443,9 +621,13 @@ function autofill_test_photo(string $url, int $timeout, string $token): array
     $left = (int)floor($timeout - (microtime(true) - $t0));
     if ($left < 1) return ['ok' => false, 'code' => 'timeout', 'message' => "No answer within $timeout seconds. Is the service busy or the timeout too short?", 'checks' => $checks, 'info' => $c['info']];
     $bytes = (string)@file_get_contents(autofill_sample_path());
-    $img = autofill_prepare_image($bytes);
+    // the model and size as chosen in the form (or saved), offered by the service being tested
+    $side = autofill_image_side($c['info'], $size);
+    $chosen = autofill_chosen_model($c['info'], $model);
+    $img = autofill_prepare_image($bytes, $side);
     if ($img === null) return ['ok' => false, 'code' => 'unavailable', 'message' => 'The sample photo is missing from this installation.', 'checks' => $checks, 'info' => $c['info']];
-    $r = autofill_suggest_at(rtrim(trim($url), '/'), $token, $left, $img, autofill_context());
+    $r = autofill_suggest_at(rtrim(trim($url), '/'), $token, $left, $img, autofill_context($chosen));
+    $r += ['model_sent' => $chosen, 'image_side' => empty($c['info']['image_sizes']) ? null : $side];
     if ($r['ok']) {
         $msg = $r['code'] === 'empty'
             ? 'Connected to “' . $c['info']['name'] . '”, but it had no suggestions for the sample photo.'

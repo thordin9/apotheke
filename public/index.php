@@ -683,10 +683,23 @@ try {
     if ($path === '/autofill/suggest' && $method === 'POST') {
         check_csrf();
         no_store();
+        // either a photo picked on the form (image), or one of the item's stored photos (photo_id, the edit form)
+        $pid = (string)($_POST['photo_id'] ?? '');
+        if ($pid !== '') {
+            $st = db()->prepare('SELECT file FROM item_photos WHERE id = ?');
+            $st->execute([ctype_digit($pid) ? (int)$pid : 0]);
+            $file = (string)$st->fetchColumn();
+            if ($file === '' || !valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) {
+                json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No suggestions: that photo no longer exists.', 'error' => 'No suggestions: that photo no longer exists.']);
+            }
+            $r = autofill_suggest((string)file_get_contents(IMG_DIR . '/' . $file));
+            json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
+        }
         $f = $_FILES['image'] ?? null;
         if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
             json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
         }
+        // the browser already resized the photo to the chosen image size, so this is the limit after resizing
         if ((int)$f['size'] > max_upload()) json_out(['ok' => false, 'code' => 'too_large', 'message' => 'No suggestions: the photo is too large.']);
         $r = autofill_suggest((string)file_get_contents((string)$f['tmp_name']));
         json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
@@ -720,7 +733,9 @@ try {
         $r = $badUrl
             ? ['ok' => false, 'code' => 'invalid_url', 'message' => 'That is not a valid service address. Only http:// and https:// addresses are supported, e.g. http://192.168.1.10:8080.']
             : ($photoTest
-                ? autofill_test_photo($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')))
+                ? autofill_test_photo($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')),
+                    is_string($_POST['autofill_model'] ?? null) ? (string)$_POST['autofill_model'] : null,
+                    ctype_digit((string)($_POST['autofill_image_size'] ?? '')) ? (int)$_POST['autofill_image_size'] : null)
                 : autofill_test($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? ''))));
         if (wants_json()) json_out($r + ['html' => autofill_test_result_html($r)]);
         no_store();

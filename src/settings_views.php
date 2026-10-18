@@ -36,6 +36,7 @@ function setting_field_html(string $key, mixed $value, ?string $error): string
     $id = 's-' . $key;
     $err = $error !== null ? '<p class="field-err" id="' . $id . '-err">' . h($error) . '</p>' : '';
     $desc = ($help !== '' ? '<small class="field-help">' . h($help) . '</small>' : '');
+    if ($type === 'af_model' || $type === 'af_size') return autofill_choice_field_html($key, $value, $error);
     $def = setting_default($key);
     $defText = match (true) {
         $type === 'bool' => $def ? 'on' : 'off',
@@ -85,6 +86,7 @@ function view_settings_section(string $section, array $values, array $errors, ?s
     echo settings_header($label, '/settings');
     $tok = h(csrf_token());
     $keys = settings_section_keys($section);
+    if ($section === 'autofill') autofill_form_info(isset($afTest['info']) && is_array($afTest['info']) ? $afTest['info'] : null, true);
     ?>
 <main class="wrap narrow set-<?= $section ?>">
   <p class="hint"><?= h($desc) ?></p>
@@ -315,6 +317,59 @@ function settings_system_html(): string
  * "Test connection" and "Test with a photo" (inside the settings form, so they test the address, timeout and token as
  * typed) and the result. Plain form buttons: they work without JavaScript; app.js only adds a "Testing…" state.
  */
+/**
+ * The /v1/info the AI autofill form offers choices from: the one a Test just fetched (also for an address that is not
+ * saved yet), otherwise the saved service's last known info. Set by view_settings_section().
+ */
+function autofill_form_info(?array $set = null, bool $reset = false): ?array
+{
+    static $info = null;
+    if ($reset) $info = null;
+    if ($set !== null) $info = $set;
+    return $info ?? autofill_known_info();
+}
+
+/**
+ * Model / Image size dropdowns, filled from the service's /v1/info (API v1.2 `models`, `image_sizes`). When the
+ * service does not offer the list, the control is hidden: a hidden input keeps the stored value so saving the section
+ * never loses a choice, and nothing changes in what is sent (no model, 1024 px).
+ */
+function autofill_choice_field_html(string $key, mixed $value, ?string $error): string
+{
+    [, $label, $type, , $help] = settings_schema()[$key];
+    $info = autofill_form_info();
+    $id = 's-' . $key;
+    $opts = [];
+    if ($type === 'af_model') {
+        $value = (string)$value;
+        $list = $info['models'] ?? null;
+        if ($list) {
+            $def = autofill_default_model($info);
+            $opts[''] = 'Service default' . ($def !== null ? ' (' . $def . ')' : '');
+            foreach ($list as $m) {
+                $opts[$m['id']] = $m['id'] . ($m['loaded'] === true ? ' · loaded' : '') . ($m['avg_latency_ms'] !== null ? ' · about ' . autofill_seconds($m['avg_latency_ms']) : '');
+            }
+            if ($value !== '' && !isset($opts[$value])) $opts[$value] = $value . ' (not offered by the service: it uses its default)';
+        }
+    } else {
+        $value = (int)$value;
+        $list = $info['image_sizes'] ?? null;
+        if ($list) {
+            $opts['0'] = 'Recommended (' . autofill_recommended_side($list) . ' px)';
+            foreach ($list as $sz) $opts[(string)$sz['long_edge']] = $sz['long_edge'] . ' px' . ($sz['recommended'] ? ' (recommended)' : '');
+            if ($value > 0 && !isset($opts[(string)$value])) $opts[(string)$value] = $value . ' px (not offered by the service)';
+        }
+    }
+    if (!$opts) return '<input type="hidden" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" data-af-hidden="1">';
+    $sel = '';
+    foreach ($opts as $k => $l) $sel .= '<option value="' . h((string)$k) . '"' . ((string)$k === (string)$value ? ' selected' : '') . '>' . h($l) . '</option>';
+    $err = $error !== null ? '<p class="field-err" id="' . $id . '-err">' . h($error) . '</p>' : '';
+    $defText = $type === 'af_model' ? 'the service’s default model' : 'the size the service recommends';
+    return '<div class="field set-field' . ($error !== null ? ' has-err' : '') . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label>'
+        . '<select name="' . $key . '" id="' . $id . '" aria-describedby="' . $id . '-d"' . ($error !== null ? ' aria-invalid="true"' : '') . '>' . $sel . '</select>'
+        . '<div class="field-desc" id="' . $id . '-d"><small class="field-help">' . h($help) . '</small><small class="field-def">Default: ' . h($defText) . '</small></div>' . $err . '</div>';
+}
+
 function autofill_test_html(?array $r): string
 {
     $o = '<div class="af-test"><div class="af-test-btns">'
@@ -336,7 +391,9 @@ function autofill_test_result_html(array $r): string
             . '<dt>Suggests</dt><dd id="af-caps">' . ($i['capabilities'] ? h(implode(', ', $i['capabilities'])) : 'nothing yet') . '</dd>'
             . ($i['backend'] !== null ? '<dt>Backend</dt><dd>' . h($i['backend']) . '</dd>' : '')
             . ($i['max_image_bytes'] !== null ? '<dt>Image limit</dt><dd>' . h(autofill_mib((int)$i['max_image_bytes'])) . '</dd>' : '')
-            . (($i['avg_latency_ms'] ?? null) !== null ? '<dt>Typical answer</dt><dd id="af-latency">' . h(autofill_seconds((int)$i['avg_latency_ms'])) . '</dd>' : '') . '</dl>';
+            . (($i['avg_latency_ms'] ?? null) !== null ? '<dt>Typical answer</dt><dd id="af-latency">' . h(autofill_seconds((int)$i['avg_latency_ms'])) . '</dd>' : '')
+            . (!empty($i['models']) ? '<dt>Models</dt><dd id="af-models">' . h(implode(', ', array_map(fn($m) => $m['id'] . ($m['default'] ? ' (default)' : ''), $i['models']))) . '</dd>' : '')
+            . (!empty($i['image_sizes']) ? '<dt>Image sizes</dt><dd id="af-sizes">' . h(implode(', ', array_map(fn($z) => $z['long_edge'] . ' px' . ($z['recommended'] ? ' (recommended)' : ''), $i['image_sizes']))) . '</dd>' : '') . '</dl>';
     }
     if (isset($r['checks'])) {
         // the state is in the words, not only the icon (screen readers): [ok, failed, not checked]
@@ -360,6 +417,10 @@ function autofill_test_result_html(array $r): string
             . '<dt>Category</dt><dd id="af-s-category">' . ($s['category'] !== null ? h($s['category']) . $pct($c['category'] ?? null) : '–') . '</dd>'
             . '<dt>Tags</dt><dd id="af-s-tags">' . ($s['tags'] ? h(implode(', ', $s['tags'])) : '–') . '</dd>'
             . '<dt>Description</dt><dd id="af-s-description">' . ($s['description'] !== null ? h($s['description']) . $pct($c['description'] ?? null) : '–') . '</dd>'
+            . (($r['model_used'] ?? null) !== null || ($r['model_sent'] ?? null) !== null
+                ? '<dt>Model used</dt><dd id="af-s-model">' . h($r['model_used'] ?? 'not reported')
+                  . (($r['model_sent'] ?? null) !== null && ($r['model_used'] ?? null) !== $r['model_sent'] ? ' <span class="af-conf">(asked for ' . h($r['model_sent']) . ')</span>' : '') . '</dd>' : '')
+            . (($r['image_side'] ?? null) !== null ? '<dt>Image size</dt><dd id="af-s-size">' . (int)$r['image_side'] . ' px</dd>' : '')
             . '<dt>Time</dt><dd id="af-s-elapsed">' . h(autofill_seconds((int)($r['elapsed_ms'] ?? 0))) . '</dd></dl></div>';
     }
     return $o . '</div>';

@@ -847,11 +847,33 @@ function picker_html(string $kind, array $list, ?int $selected, string $newVal):
     return $o;
 }
 
+/**
+ * AI autofill on the item form: an Analyze button for the photo just picked (shown by app.js once there is one) and, on
+ * the edit form, one per stored photo. Buttons only work with JavaScript, so they start hidden; app.js shows them.
+ * @param array<int,array{id:int,file:string,position:int}> $photos
+ */
+function autofill_analyze_html(array $photos): string
+{
+    $o = '<div class="af-actions" id="af-actions" hidden>'
+       . '<button type="button" class="btn btn-sm af-analyze" id="af-analyze" data-af-src="picked" hidden>' . icon('sparkle') . ' <span>Analyze photo</span></button>';
+    if ($photos) {
+        $o .= '<div class="af-photos" id="af-photos"><p class="af-photos-h">Suggest details from a photo of this item</p><ul>';
+        foreach ($photos as $i => $p) {
+            $o .= '<li class="af-photo"><img src="/media/thumb/' . h($p['file']) . '" alt="" width="44" height="44" loading="lazy">'
+                . '<button type="button" class="btn btn-sm af-analyze" id="af-analyze-' . (int)$p['id'] . '" data-af-photo="' . (int)$p['id'] . '" aria-label="Analyze photo ' . ($i + 1) . '">'
+                . icon('sparkle') . ' <span>Analyze</span></button></li>';
+        }
+        $o .= '</ul></div>';
+    }
+    return $o . '</div>';
+}
+
 function view_form(?array $it, array $vals, array $locs, array $cats, ?string $error, ?string $toast = null): void
 {
     $isNew = $it === null;
     page_start($isNew ? 'Add item' : 'Edit ' . $it['name'], 'page-form');
     $hasImg = !$isNew && valid_image_name($it['image']);
+    $afOn = autofill_enabled() && user_can('create');
     ?>
 <header class="top top-simple">
   <div class="bar">
@@ -861,7 +883,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
   </div>
 </header>
 <main class="wrap narrow">
-  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= autofill_enabled() && user_can('create') ? ' data-autofill="1" data-af-timeout="' . (int)setting('autofill_timeout') . '"' . ($isNew && !empty($vals['af_defaults']) ? ' data-af-defaults="' . h(implode(',', $vals['af_defaults'])) . '"' : '') . (($afMs = autofill_expected_ms()) !== null ? ' data-af-latency="' . $afMs . '"' : '') : '' ?>>
+  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= $afOn ? ' data-autofill="1" data-af-timeout="' . (int)setting('autofill_timeout') . '" data-af-side="' . autofill_image_side(autofill_known_info()) . '"' . (setting('autofill_auto') ? ' data-af-auto="1"' : '') . ($isNew && !empty($vals['af_defaults']) ? ' data-af-defaults="' . h(implode(',', $vals['af_defaults'])) . '"' : '') . (($afMs = autofill_expected_ms()) !== null ? ' data-af-latency="' . $afMs . '"' : '') : '' ?>>
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int)$it['id'] ?>"><?php endif; ?>
     <input type="hidden" name="MAX_FILE_SIZE" value="<?= max_upload() ?>">
@@ -880,7 +902,8 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
       </label>
       <span class="photo-status" id="pstatus" hidden></span>
     </div>
-    <?php if (autofill_enabled() && user_can('create')): ?><div class="af-feedback" id="af-feedback" hidden><p class="af-status" id="af-status" role="status" aria-live="polite"></p><div class="af-progress" id="af-progress" role="progressbar" aria-label="Photo suggestions" aria-valuemin="0" aria-valuemax="100" hidden><span class="af-track"><span class="af-bar" id="af-bar"></span></span><span class="af-pct" id="af-pct" aria-hidden="true"></span></div></div><?php endif; ?>
+    <?php if ($afOn) echo autofill_analyze_html($isNew ? [] : photos_for((int)$it['id'])); ?>
+    <?php if ($afOn): ?><div class="af-feedback" id="af-feedback" hidden><p class="af-status" id="af-status" role="status" aria-live="polite"></p><div class="af-progress" id="af-progress" role="progressbar" aria-label="Photo suggestions" aria-valuemin="0" aria-valuemax="100" hidden><span class="af-track"><span class="af-bar" id="af-bar"></span></span><span class="af-pct" id="af-pct" aria-hidden="true"></span></div></div><?php endif; ?>
     <?php if ($hasImg): ?>
     <label class="check"><input type="checkbox" name="remove_image" value="1" id="rmimg"> <?= icon('trash') ?> Remove photo</label>
     <?php endif; ?>

@@ -485,14 +485,22 @@
       });
       const name = form.elements.name;
       if (name && !name.value) setTimeout(() => name.focus(), 50);
-      if (form.dataset.autofill === '1') autofill(file);
+      if (form.dataset.autofill === '1') afPicked(file);
     }));
 
-    /* AI autofill: send a ~1024 px JPEG to /autofill/suggest (the server talks to the service) and pre-fill
-       only fields that are still empty and that the user has not touched. Never blocks saving or typing.
+    /* AI autofill, on demand: each photo gets an Analyze button (the photo just picked; on the edit form also every
+       stored photo). Only one analysis runs at a time: while it runs, the other Analyze buttons are disabled. With
+       "Analyze photos automatically" (data-af-auto) a picked photo is analyzed right away, as in 2.3.
+       The picked photo is resized in the browser to the chosen long edge (data-af-side: JPEG, or PNG when it has
+       transparency; never enlarged; EXIF orientation applied) and posted to /autofill/suggest (the server talks to
+       the service); a stored photo is sent by id. Only fields that are still empty (or hold an untouched preselected
+       default) and that the user has not touched are filled; a second analysis never replaces what an earlier one
+       filled. Never blocks saving or typing.
        Feedback: "Uploading…" (real upload progress), "Analyzing photo…" (an estimate from the service's
        avg_latency_ms, linear and held at 95 % until the answer; a spinner when the service gives no average),
-       then "Suggestions ready" / "No suggestions" / the reason. A 503 with Retry-After is retried once. */
+       then "Suggestions ready" / "No suggestions" / the reason. A 503 with Retry-After is retried once.
+       Debug hook for QA: data-af-upload (what the browser uploaded) and data-af-sent (what the server sent to the
+       service), JSON {type, bytes, width, height}; data-af-model-used when the service reports it. */
     const afBox = $('#af-feedback'), afStatus = $('#af-status'), afProg = $('#af-progress');
     const afBar = $('#af-bar'), afPct = $('#af-pct');
     let afSeq = 0, afTick = 0;
@@ -550,9 +558,10 @@
       };
       step(); afTick = setInterval(step, 250);
     };
-    const afSend = (img, seq) => new Promise(resolve => {
+    const afSend = (src, img, seq) => new Promise(resolve => {
       const fd = new FormData();
-      fd.append('image', img, 'photo.jpg');
+      if (src.photoId) fd.append('photo_id', src.photoId);
+      else fd.append('image', img, img.type === 'image/png' ? 'photo.png' : 'photo.jpg');
       fd.append('csrf', csrf());
       const x = new XMLHttpRequest();
       x.open('POST', '/autofill/suggest');
@@ -591,30 +600,97 @@
       const by = { category: $('#catsel', form), tags: form.elements.tags, notes: form.elements.notes };
       (form.dataset.afDefaults || '').split(',').forEach(k => { const el = by[k]; if (el) afInit.set(el, el.value); });
     }
-    const afBlank = el => el.value.trim() === '' || el.classList.contains('af-filled') || (afInit.has(el) && el.value === afInit.get(el));
-    // free to fill: empty (or an untouched preselected default) and never touched, or filled by an earlier suggestion
+    const afBlank = el => el.value.trim() === '' || (afInit.has(el) && el.value === afInit.get(el));
+    // free to fill: empty (or an untouched preselected default) and never touched. What an earlier analysis filled in
+    // stays: a second analysis (another photo) only fills what is still empty.
     const afFree = el => el && !el.dataset.afTouched && afBlank(el);
     const afPut = (el, v) => { el.value = v; el.classList.add('af-filled'); };
-    async function autofill(file) {
+    // one analysis at a time: the running one's button says so, every other Analyze button is disabled
+    let afFile = null, afRunning = null;          // the photo picked on the form; {src: 'picked'|'stored'} while one runs
+    const afButtons = () => form.querySelectorAll('.af-analyze');
+    const afBegin = (btn, src) => {
+      afRunning = { src };
+      afButtons().forEach(b => { b.disabled = true; if (b === btn) b.setAttribute('aria-busy', 'true'); });
+      form.classList.add('af-busy');
+    };
+    const afEnd = () => {
+      afRunning = null;
+      afButtons().forEach(b => { b.disabled = false; b.removeAttribute('aria-busy'); });
+      form.classList.remove('af-busy');
+    };
+    if (form.dataset.autofill === '1') {
+      const acts = $('#af-actions', form);
+      if (acts && $('#af-photos', acts)) acts.hidden = false;
+      form.addEventListener('click', e => {
+        const b = e.target.closest('.af-analyze');
+        if (!b || b.disabled || afRunning) return;
+        if (b.dataset.afPhoto) autofill({ photoId: b.dataset.afPhoto }, b);
+        else if (afFile) autofill({ file: afFile }, b);
+      });
+    }
+    // a photo was picked: it gets the Analyze button (or is analyzed at once with auto-analyze). It replaces the photo
+    // an analysis may still be working on, so that one is dropped.
+    function afPicked(file) {
+      afFile = file;
+      const acts = $('#af-actions', form), btn = $('#af-analyze', form);
+      if (acts) acts.hidden = false;
+      if (btn) btn.hidden = false;
+      if (afRunning && afRunning.src === 'picked') { afSeq++; afEnd(); afHide(); afSay(''); }
+      if (form.dataset.afAuto === '1' && !afRunning) autofill({ file }, btn);
+    }
+    // The picked photo at the chosen long edge: never enlarged, EXIF orientation applied by the decoder, JPEG on white
+    // unless it has transparency (then PNG, alpha kept). A small JPEG that would only grow is sent as it is.
+    async function afShrink(file, side) {
+      const src = await decodeImage(file);
+      const w = src.width, h = src.height, s = Math.min(1, side / Math.max(w, h));
+      const cw = Math.max(1, Math.round(w * s)), ch = Math.max(1, Math.round(h * s));
+      const c = document.createElement('canvas');
+      c.width = cw; c.height = ch;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, cw, ch);
+      if (src.close) src.close();
+      let alpha = false;
+      if (file.type !== 'image/jpeg') {
+        const d = ctx.getImageData(0, 0, cw, ch).data;
+        for (let i = 3; i < d.length; i += 4) if (d[i] < 255) { alpha = true; break; }
+      }
+      if (!alpha) { ctx.globalCompositeOperation = 'destination-over'; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cw, ch); }
+      const out = await new Promise(r => c.toBlob(r, alpha ? 'image/png' : 'image/jpeg', QUALITY));
+      c.width = c.height = 0;
+      if (!out) throw new Error('encode');
+      const keep = s === 1 && file.type === 'image/jpeg' && file.size <= out.size;
+      return { blob: keep ? file : out, meta: { type: keep ? file.type : out.type, bytes: keep ? file.size : out.size, width: cw, height: ch } };
+    }
+    async function autofill(src, btn) {
       const seq = ++afSeq;
+      afBegin(btn, src.photoId ? 'stored' : 'picked');
       clearInterval(afTick);
       afSay('Uploading…');
       afShow(0, '');
-      form.classList.add('af-busy');
-      let img;
-      try { img = await shrinkImage(file, 1024); } catch (_) { img = file; }
+      let img = null;
+      if (src.file) {
+        const side = parseInt(form.dataset.afSide || '1024', 10) || 1024;
+        let r;
+        try { r = await afShrink(src.file, side); }
+        catch (_) { r = { blob: src.file, meta: { type: src.file.type || 'application/octet-stream', bytes: src.file.size, width: null, height: null } }; }   // e.g. HEIC outside Safari: the server/service decide
+        img = r.blob;
+        form.dataset.afUpload = JSON.stringify(r.meta);
+      }
       if (seq !== afSeq) return;
-      let j = await afSend(img, seq);
+      let j = await afSend(src, img, seq);
       if (seq !== afSeq) return;           // a newer photo was picked meanwhile
       const cap = parseInt(form.dataset.afTimeout || '50', 10) || 30;
       if (j && !j.ok && j.retry_after > 0 && j.retry_after <= cap) {
         if (!(await afWait(j.retry_after, seq, j.retry_reason))) return;
         afSay('Uploading…'); afShow(0, '');
-        j = await afSend(img, seq);
+        j = await afSend(src, img, seq);
         if (seq !== afSeq) return;
       }
       if (j && j.avg_latency_ms > 0) form.dataset.afLatency = String(j.avg_latency_ms);   // better estimate for the next photo
-      form.classList.remove('af-busy');
+      if (j && j.image) form.dataset.afSent = JSON.stringify(j.image);
+      if (j && j.model_used) form.dataset.afModelUsed = j.model_used;
+      afEnd();
       if (!j || !j.ok) { afHide(); afSay((j && j.message) || 'No suggestions (autofill is not available right now).', true); return; }
       afDone();
       const s = j.suggestions || {}, f = afFields(), done = [];
