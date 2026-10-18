@@ -36,8 +36,8 @@ connect* (also when the 3 s connect timeout runs out), *no answer within N secon
 token* (401, none set), *the service refused the token* (401, wrong token), *not a valid address* (anything but
 `http://`/`https://`), *not a valid /v1/info answer* or *still warming up* (`ready: false`).
 
-Each `/v1/info` answer of the **saved** service is cached for an hour: when you save the section (one request,
-at most min(timeout, 5 s); a failure never stops the save), when Test connection or Test with a photo runs
+Each `/v1/info` answer of the **saved** service is cached for an hour: when you save the section or the access
+token (one request, at most min(timeout, 5 s); a failure never stops the save), when Test connection or Test with a photo runs
 against the saved address (testing an unsaved address caches nothing), and after a successful suggestion
 when the copy is older than 10 minutes. Apotheke reads these fields; unknown fields are ignored:
 
@@ -116,16 +116,20 @@ stays usable the whole time:
 3. **Suggestions ready** (and which fields were filled), **No suggestions for this photo**, or the reason it
    failed (table below). On success the bar jumps to 100 % and disappears.
 
-**Model warming up.** When the service answers `503` with `error.code` `backend_unavailable` and a
-`Retry-After` header (the model is loading, or its queue is full), Apotheke passes `retry_after` (seconds) on
-to the browser, which shows **Model is warming up… retrying in N s** with a countdown and then tries **once**
-more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
+**Warming up or busy.** When the service answers `503` with `error.code` `backend_unavailable` and a
+`Retry-After` header (the model is loading, or its queue is full), Apotheke passes `retry_after` (seconds) and
+`retry_reason` on to the browser. The reason comes from the service's `error.message`: *loading* or *warming
+up* means a cold model (`warming`), anything else is `busy`. The browser shows **Model is warming up…
+retrying in N s** or **Service is busy… retrying in N s** with a countdown and then tries **once** more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
 timeout; then, as when the retry fails too, the usual message is shown.
 
 **Only empty fields are filled, and never one you have touched.** Typing in a field (even if you then clear
-it) or removing a tag chip makes it yours. Filled fields are highlighted until you edit them; picking another
-photo may replace earlier *suggestions*, never your input. The category is filled only when no category is
-selected: an existing one is selected when the names match (ignoring case), otherwise "＋ New category" is
+it), picking from a list (even the same value again) or removing a tag chip makes it yours. On a **new** item a
+preselected default counts as empty while you have not touched it: the default category (e.g. *General ★*),
+the default tags and the default notes from Control Panel → Items. A category chosen by the link you came from
+(`/new?cat=…`) and everything on an existing item's edit form are your choices and are never replaced. Filled fields are highlighted until you edit them; picking another
+photo may replace earlier *suggestions*, never your input. The category is filled only when none is selected
+(or only the untouched default): an existing one is selected when the names match (ignoring case), otherwise "＋ New category" is
 pre-filled. Suggestions go to Name, Category, Tags and Notes (the service's `description`).
 
 Saving never waits for suggestions and works the same when the service is off, down or slow.
@@ -143,7 +147,8 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | No token set, service wants one (`401`) | *requires an access token* |
 | Backend down or not ready (`503` `backend_unavailable`) | *busy or not ready* |
 | Backend failed on this photo (`503` `backend_error`) | *the service had a problem with this photo. Try again, or fill in the fields yourself* (no retry) |
-| Model loading / queue full (`503` + `Retry-After`) | *Model is warming up… retrying in N s*, one retry; then *warming up or busy. Try again in N s* if it is still busy |
+| Model loading (`503` + `Retry-After`, "model … is loading / warming up") | *Model is warming up… retrying in N s*, one retry; then *the model is warming up. Try again in N s* |
+| Queue full (`503` + `Retry-After`, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
 | Not a JSON object (malformed) | *sent an unexpected answer* |
 | Photo too large (`413`, or larger than `max_image_bytes` from the last Test connection) | *larger than the service accepts* |
 | Image type not supported (`415`) | *cannot read this kind of image* |
@@ -177,9 +182,11 @@ CI does not need the Python service. `tests/stubs/autofill-stub.php` mimics the 
 started on a free port by the unit tests, the HTTP integration suite and Playwright
 (`tests/visual/autofill-stub.ts`). The mode and token are picked by a path prefix of the address, e.g.
 `http://127.0.0.1:PORT/m/slow/t/s3cret`: modes `ok`, `error` (503), `malformed`, `slow`, `toolarge` (413),
-`unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, always) and `cold` (the same
-503 on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-After` value), `/l/<ms>`
-(`avg_latency_ms` in `/v1/info`) and `/d/<ms>` (the suggestion waits that long).
+`unsupported` (415), `empty`, `badinfo`, `warming`, `fault` (503 `backend_error`), `busy` (503 + `Retry-After`, "queue
+full", always), `warmup` (the same, "is warming up") and `cold` (503 "is loading" + `Retry-After`
+on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-After` value), `/l/<ms>`
+(`avg_latency_ms` in `/v1/info`), `/d/<ms>` (the suggestion waits that long) and `/s/<name>` (the suggested
+category).
 
 - `tests/Unit/AutofillTest.php`: settings, `/v1/info` and suggestion parsing (`avg_latency_ms`, `Retry-After`,
   confidence), image preparation, every failure code, Test with a photo, migration 0024.

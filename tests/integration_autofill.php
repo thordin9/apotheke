@@ -346,10 +346,37 @@ $r = $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 
 T::ok(str_contains($r['headers']['location'] ?? '', 'done=saved') && microtime(true) - $t0 < 7.5, 'saving with a slow service waits at most 5 s', (string)round(microtime(true) - $t0, 1));
 $afSet(['autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => 7]);
 $af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
+// saving the token primes the info too: a token-protected service only answers /v1/info with it
+$afSet(['autofill_enabled' => true, 'autofill_url' => $stub->base . '/l/11000/t/' . $secret, 'autofill_token' => '']);
+@unlink($afd . '/autofill-info.json');
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/11000/t/' . $secret, 'autofill_timeout' => '7']);
+T::ok(!str_contains($af->get('/new')['body'], 'data-af-latency'), 'token-protected service, no token yet: nothing cached on save');
+$r = $af->post('/settings/autofill/token', ['csrf' => $at, 'token' => $secret]);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-saved') && str_contains($af->get('/new')['body'], 'data-af-latency="11000"'), 'saving the token caches /v1/info: the first photo gets the bar');
+@unlink($afd . '/autofill-info.json');
+$r = $af->post('/settings/autofill/token', ['csrf' => $at, 'token' => 'wrong-one']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-saved') && !str_contains($af->get('/new')['body'], 'data-af-latency'), 'a wrong token still saves; nothing cached');
+$afSet(['autofill_url' => $stub->base . '/m/slow/t/x', 'autofill_timeout' => 20]);
+$t0 = microtime(true);
+$r = $af->post('/settings/autofill/token', ['csrf' => $at, 'token' => 'x']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=token-saved') && microtime(true) - $t0 < 7.5, 'saving the token with a slow service waits at most 5 s');
+$afSet(['autofill_url' => $stub->base . '/l/12500', 'autofill_token' => '', 'autofill_timeout' => 7]);
+$af->post('/settings/autofill', ['csrf' => $at, 'autofill_enabled' => '1', 'autofill_url' => $stub->base . '/l/12500', 'autofill_timeout' => '7']);
 // testing an unsaved address (either button) never replaces the saved service's cached info
 $af->api('/settings/autofill/test', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
 $af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/l/20000', 'autofill_timeout' => '5']);
 T::ok(str_contains($af->get('/new')['body'], 'data-af-latency="12500"'), 'testing an unsaved address keeps the saved service\'s estimate');
+// preselected defaults on a new item are marked (autofill may replace them while untouched); never on an edit form
+$af->api('/categories', ['csrf' => $at, 'name' => 'General']);
+$afdb->exec("UPDATE categories SET is_default = CASE WHEN name = 'General' THEN 1 ELSE 0 END");
+$afSet(['default_tags' => 'home', 'default_notes' => '']);
+$form = $af->get('/new')['body'];
+T::ok(str_contains($form, 'data-af-defaults="category,tags"'), 'new item: the default category and default tags are marked as preselected');
+$gid = (int)$afdb->query("SELECT id FROM categories WHERE name = 'General'")->fetchColumn();
+T::ok(!str_contains($af->get('/new?cat=' . $gid)['body'], 'data-af-defaults="category'), 'new item with ?cat=: the category is the user\'s choice');
+$iid = (int)$afdb->query('SELECT id FROM items ORDER BY id LIMIT 1')->fetchColumn();
+T::ok(!str_contains($af->get("/item/$iid/edit")['body'], 'data-af-defaults'), 'edit form: stored values are the user\'s choice');
+$afSet(['default_tags' => '']);
 $afSet(['autofill_enabled' => false]);
 $form = $af->get('/new')['body'];
 T::ok(!str_contains($form, 'af-progress') && !str_contains($form, 'data-af-'), 'off: no progress bar, no hints');
@@ -359,6 +386,10 @@ T::ok(!str_contains($af->get('/new')['body'], 'af-progress'), 'on without an add
 $afSet(['autofill_url' => $stub->base . '/m/busy/r/16', 'autofill_timeout' => 5]);
 $r = $suggest();
 T::ok(($r['json']['code'] ?? '') === 'busy' && ($r['json']['retry_after'] ?? null) === 16 && ($r['json']['ok'] ?? null) === false, 'busy with Retry-After: 16 → retry_after 16', $r['body']);
+T::ok(($r['json']['retry_reason'] ?? '') === 'busy' && str_contains($r['json']['message'] ?? '', 'the service is busy'), '"backend busy, queue full" → retry_reason busy', $r['body']);
+$afSet(['autofill_url' => $stub->base . '/m/warmup/r/15']);
+$r = $suggest();
+T::ok(($r['json']['retry_reason'] ?? '') === 'warming' && str_contains($r['json']['message'] ?? '', 'the model is warming up'), '"model … is warming up" → retry_reason warming', $r['body']);
 $afSet(['autofill_url' => $stub->base . '/m/error']);
 T::ok(!array_key_exists('retry_after', $suggest()['json'] ?? []), 'busy without Retry-After → no retry_after');
 $afSet(['autofill_url' => $stub->base . '/m/fault']);

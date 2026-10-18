@@ -297,6 +297,15 @@ function autofill_parse_suggestion(string $body): ?array
     return ['name' => $val($d['name'] ?? null, 200), 'category' => $val($d['category'] ?? null, 120), 'tags' => $tags, 'description' => $desc];
 }
 
+/**
+ * Why a 503 with Retry-After asks us to wait, from the service's error message: 'warming' for a cold model
+ * ("model 'x' is loading", "… is warming up"), otherwise 'busy' (e.g. "backend busy, queue full").
+ */
+function autofill_retry_reason(string $message): string
+{
+    return preg_match('/\b(loading|warming|warm-up|warmup|starting)\b/i', $message) ? 'warming' : 'busy';
+}
+
 /** Per-field confidence (0–1) from a /v1/suggest answer, for the Control Panel's photo test; null where absent. */
 function autofill_parse_confidence(string $body): array
 {
@@ -390,10 +399,14 @@ function autofill_suggest_at(string $base, string $token, int $timeout, array $i
         case 415: return $fail('unsupported', 'No suggestions: the service cannot read this kind of image.');
         case 503:
             // backend_unavailable + Retry-After: the model is loading or the queue is full; worth one more try later
-            $code = autofill_json_object($r['body'])['error']['code'] ?? null;
+            $err = autofill_json_object($r['body'])['error'] ?? null;
+            $code = is_array($err) && is_string($err['code'] ?? null) ? $err['code'] : null;
             if ($r['retry_after'] !== null && ($code === null || $code === 'backend_unavailable')) {
                 $n = max(1, $r['retry_after']);
-                return $fail('busy', "No suggestions: the model is warming up or busy. Try again in $n s.") + ['retry_after' => $n];
+                $why = autofill_retry_reason(is_array($err) && is_string($err['message'] ?? null) ? $err['message'] : '');
+                return $fail('busy', $why === 'warming'
+                    ? "No suggestions: the model is warming up. Try again in $n s."
+                    : "No suggestions: the service is busy. Try again in $n s.") + ['retry_after' => $n, 'retry_reason' => $why];
             }
             // backend_unavailable (or no code): the backend is down or still starting; anything else (backend_error):
             // the backend failed on this photo
@@ -440,7 +453,7 @@ function autofill_test_photo(string $url, int $timeout, string $token): array
         return ['ok' => true, 'code' => $r['code'], 'message' => $msg, 'checks' => $checks, 'info' => $c['info']] + $r;
     }
     if ($r['code'] === 'timeout' && $left < $timeout) $r['message'] = "No suggestions within the $timeout s timeout (the checks used " . ($timeout - $left) . ' s of it).';
-    if ($r['code'] === 'busy') $checks['ready'] = false;
+    if ($r['code'] === 'busy' && ($r['retry_reason'] ?? 'warming') === 'warming') $checks['ready'] = false;   // a full queue: the model is loaded
     $r['message'] = preg_replace('/^No suggestions: /', 'The sample photo got no suggestions: ', $r['message']);
     return $r + ['checks' => $checks, 'info' => $c['info']];
 }

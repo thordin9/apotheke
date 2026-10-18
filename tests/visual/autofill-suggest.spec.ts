@@ -2,6 +2,7 @@ import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import * as path from 'node:path';
 import { AutofillStub } from './autofill-stub';
+import { ROOT } from './fixtures';
 
 /* AI autofill: suggestions after picking a photo on the item form, against the PHP echo stub (QA's checklist). */
 const stub = new AutofillStub();
@@ -164,6 +165,7 @@ test.describe('AI autofill suggestions', () => {
     await app.go('/new');
     await pick(page, app.image('af-cold.jpg', [30, 160, 120]));
     await expect(page.locator('#af-status')).toContainText('Model is warming up… retrying in', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).not.toContainText('busy');
     await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
     await expect(page.locator('#name')).toHaveValue(/^Echo item/);
   });
@@ -174,8 +176,8 @@ test.describe('AI autofill suggestions', () => {
     page.on('request', r => { if (r.url().includes('/autofill/suggest')) calls++; });
     await app.go('/new');
     await pick(page, app.image('af-busy.jpg', [160, 40, 120]));
-    await expect(page.locator('#af-status')).toContainText('Model is warming up… retrying in 1 s', { timeout: 5_000 });
-    await expect(page.locator('#af-status')).toContainText('warming up or busy. Try again in 1 s', { timeout: 8_000 });
+    await expect(page.locator('#af-status')).toContainText('Service is busy… retrying in 1 s', { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('the service is busy. Try again in 1 s', { timeout: 8_000 });
     await expect(page.locator('#af-status')).toHaveClass(/af-fail/);
     expect(calls, 'exactly one retry').toBe(2);
     await configure(page, { on: true, url: stub.base + '/m/busy/r/30', timeout: '5' });
@@ -185,6 +187,85 @@ test.describe('AI autofill suggestions', () => {
     await expect(page.locator('#af-status')).toContainText('Try again in 30 s', { timeout: 5_000 });
     await expect(page.locator('#af-progress')).toBeHidden();
     expect(calls, 'no retry past the timeout').toBe(1);
+  });
+
+  test('a preselected default category is replaced; one the user picked (even back to the default) is kept', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/s/Tools' });
+    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; tax_set_default('category', tax_create('category', 'General')['id'], true);`]);
+    const cat = page.locator('#catsel');
+    const label = () => cat.evaluate((s: HTMLSelectElement) => s.selectedOptions[0].textContent!.trim());
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-defaults', /category/);
+    expect(await label()).toBe('General ★');
+    await pick(page, app.image('af-default-cat.jpg', [70, 70, 160]));
+    await expect(page.locator('#af-status')).toContainText(/Suggestions ready: .*category/);
+    expect(await label(), 'the untouched default is replaced').toBe('Tools');
+    await expect(cat).toHaveClass(/af-filled/);
+    // changed to Kitchen and back to General: the user's choice
+    await app.go('/new');
+    // with the keyboard: real (trusted) change events, like a person; selectOption() would dispatch synthetic ones
+    await cat.focus();
+    await page.keyboard.press('ArrowDown');
+    expect(await label()).toBe('Kitchen');
+    await page.keyboard.press('ArrowUp');
+    await pick(page, app.image('af-picked-cat.jpg', [160, 70, 70]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready');
+    await expect(page.locator('#af-status')).not.toContainText('category');
+    expect(await label(), 'a picked category is kept').toBe('General ★');
+    // a category chosen by the link (/new?cat=…) is not a default either
+    const kitchen = app.sql<{ id: number }>("SELECT id FROM categories WHERE name = 'Kitchen'")[0].id;
+    await app.go('/new?cat=' + kitchen);
+    await expect(page.locator('#itemform')).not.toHaveAttribute('data-af-defaults', /category/);
+    await pick(page, app.image('af-link-cat.jpg', [70, 160, 70]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready');
+    expect(await label()).toBe('Kitchen');
+  });
+
+  test('the edit form treats the stored category as the user\'s choice', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/s/Tools' });
+    const id = app.sql<{ id: number }>("SELECT i.id FROM items i JOIN categories c ON c.id = i.category_id WHERE c.name <> 'Tools' ORDER BY i.id LIMIT 1")[0].id;
+    const before = app.sql<{ name: string }>(`SELECT c.name FROM items i JOIN categories c ON c.id = i.category_id WHERE i.id = ${id}`)[0].name;
+    await app.go(`/item/${id}/edit`);
+    await expect(page.locator('#itemform')).not.toHaveAttribute('data-af-defaults');
+    await pick(page, app.image('af-edit-cat.jpg', [90, 90, 90]));
+    await expect(page.locator('#af-status')).toContainText(/Suggestions ready|nothing to fill in/);
+    expect(await page.locator('#catsel').evaluate((s: HTMLSelectElement) => s.selectedOptions[0].textContent!.replace(/ ★$/, '').trim())).toBe(before);
+  });
+
+  test('default tags and notes are replaced while untouched', async ({ app, page }) => {
+    await configure(page, { on: true });
+    await page.goto('/settings/items');
+    await page.locator('#s-default_tags').fill('home, new');
+    await page.locator('#s-default_notes').fill('Bought new.');
+    await page.locator('#set-save').click();
+    await expect(page.locator('.toast')).toHaveText('Settings saved');
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-defaults', 'category,tags,notes');
+    await pick(page, app.image('af-default-tags.jpg', [200, 200, 60]));
+    await expect(page.locator('#af-status')).toContainText(/Suggestions ready: .*tags.*description/);
+    await expect(page.locator('#tags')).not.toHaveValue('home, new');
+    await expect(page.locator('textarea[name=notes]')).toHaveValue(/^JPEG image/);
+    // typed into the notes first: kept, the default tags are still replaced
+    await app.go('/new');
+    await page.locator('textarea[name=notes]').fill('Bought new. Mine.');
+    await pick(page, app.image('af-typed-notes.jpg', [60, 200, 200]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready');
+    await expect(page.locator('textarea[name=notes]')).toHaveValue('Bought new. Mine.');
+  });
+
+  test('saving the token of a token-protected service caches its info: the first photo gets the bar', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/l/6000/d/1500/t/bar-token' });
+    await app.go('/new');
+    await expect(page.locator('#itemform'), 'no token yet: /v1/info refused').not.toHaveAttribute('data-af-latency');
+    await page.goto('/settings/autofill');
+    await page.locator('#af-token-input').fill('bar-token');
+    await page.locator('#af-token-save').click();
+    await expect(page.locator('.toast')).toHaveText('Token saved');
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-latency', '6000');
+    await pick(page, app.image('af-token-bar.jpg', [120, 60, 200]));
+    await expect(page.locator('#af-progress')).toHaveAttribute('aria-valuenow', /\d+/, { timeout: 5_000 });
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready');
   });
 
   for (const c of [

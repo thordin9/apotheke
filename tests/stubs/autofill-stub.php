@@ -12,6 +12,7 @@ declare(strict_types=1);
  *                                              | toolarge (413) | unsupported (415) | empty (200 {})
  *                                              | busy (503 backend_unavailable + Retry-After, always)
  *                                              | fault (503 backend_error: the model failed on this photo)
+ *                                              | warmup (503 backend_unavailable "model … is warming up" + Retry-After)
  *                                              | cold (the same 503 on every other /v1/suggest, starting with the first)
  *   http://127.0.0.1:8090/t/<token>            requires "Authorization: Bearer <token>" on everything but /healthz
  *   http://127.0.0.1:8090/m/slow/t/s3cret      both
@@ -19,6 +20,7 @@ declare(strict_types=1);
  *   /r/<s>     Retry-After seconds for busy/cold (default 1)
  *   /l/<ms>    GET /v1/info reports avg_latency_ms = <ms> (without it the field is left out, like an older service)
  *   /d/<ms>    POST /v1/suggest waits <ms> before answering (the model "thinking")
+ *   /s/<name>  suggest this category instead of the first one from the context
  * STUB_LOG=<file>: the last /v1/suggest request is written there as JSON (headers, context, image type and size).
  * Every GET /v1/info writes its Authorization header (or null) to <STUB_LOG>.info.
  * STUB_MAX_BYTES: upload limit (default 10 MiB, like the real service).
@@ -29,7 +31,12 @@ $mode = 'ok';
 $token = '';
 $opt = ['r' => 1, 'l' => null, 'd' => 0];
 if (preg_match('#^/m/([a-z]+)(/.*)?$#D', $path, $m)) { $mode = $m[1]; $path = $m[2] ?? '/'; }
-while (preg_match('#^/([rld])/(\d{1,7})(/.*)?$#D', $path, $m)) { $opt[$m[1]] = (int)$m[2]; $path = $m[3] ?? '/'; }
+$opt['s'] = null;
+while (true) {
+    if (preg_match('#^/([rld])/(\d{1,7})(/.*)?$#D', $path, $m)) { $opt[$m[1]] = (int)$m[2]; $path = $m[3] ?? '/'; }
+    elseif (preg_match('#^/s/([^/]+)(/.*)?$#D', $path, $m)) { $opt['s'] = rawurldecode($m[1]); $path = $m[2] ?? '/'; }
+    else break;
+}
 if (preg_match('#^/t/([^/]+)(/.*)?$#D', $path, $m)) { $token = rawurldecode($m[1]); $path = $m[2] ?? '/'; }
 $maxBytes = (int)(getenv('STUB_MAX_BYTES') ?: 10485760);
 
@@ -78,11 +85,12 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!is_array($ctx)) fail(400, 'bad_request', 'context must be a JSON object');
     if ($mode === 'error') fail(503, 'backend_unavailable', 'echo backend simulated failure');
     if ($mode === 'fault') fail(503, 'backend_error', 'model returned no usable answer', $opt['r'] > 1 ? ['Retry-After: ' . $opt['r']] : []);
+    if ($mode === 'warmup') fail(503, 'backend_unavailable', "model 'qwen2.5vl-jetson:3b' is warming up", ['Retry-After: ' . $opt['r']]);
     if ($mode === 'busy') fail(503, 'backend_unavailable', 'backend busy, queue full', ['Retry-After: ' . $opt['r']]);
     if ($mode === 'cold') {
         // every other call is "cold": the state lives next to the log (or in the temp dir), one file per stub port
         $state = (getenv('STUB_LOG') ?: sys_get_temp_dir() . '/af-stub-' . ($_SERVER['SERVER_PORT'] ?? '0')) . '.cold';
-        if (!@unlink($state)) { touch($state); fail(503, 'backend_unavailable', 'model is loading', ['Retry-After: ' . $opt['r']]); }
+        if (!@unlink($state)) { touch($state); fail(503, 'backend_unavailable', "model 'qwen2.5vl-jetson:3b' is loading", ['Retry-After: ' . $opt['r']]); }
     }
     if ($opt['d'] > 0) usleep($opt['d'] * 1000);
     if ($mode === 'malformed') out(200, '{not json');
@@ -91,7 +99,7 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $tags = array_slice(array_values(array_filter($ctx['tags'] ?? [], fn($t) => is_string($t) && trim($t) !== '')), 0, 3) ?: ['echo', 'sample'];
     out(200, [
         'name' => ['value' => 'Echo item ' . substr(hash('sha256', $data), 0, 8), 'confidence' => 0.5],
-        'category' => ['value' => $cats[0] ?? 'Misc', 'confidence' => 0.5],
+        'category' => ['value' => $opt['s'] ?? $cats[0] ?? 'Misc', 'confidence' => 0.5],
         'tags' => array_map(fn($t) => ['value' => $t, 'confidence' => 0.5], $tags),
         'description' => ['value' => "$kind image, " . strlen($data) . ' bytes', 'confidence' => 0.5],
     ]);

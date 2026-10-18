@@ -861,7 +861,7 @@ function view_form(?array $it, array $vals, array $locs, array $cats, ?string $e
   </div>
 </header>
 <main class="wrap narrow">
-  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= autofill_enabled() && user_can('create') ? ' data-autofill="1" data-af-timeout="' . (int)setting('autofill_timeout') . '"' . (($afMs = autofill_expected_ms()) !== null ? ' data-af-latency="' . $afMs . '"' : '') : '' ?>>
+  <form method="post" action="/save" enctype="multipart/form-data" id="itemform" class="itemform" novalidate<?= autofill_enabled() && user_can('create') ? ' data-autofill="1" data-af-timeout="' . (int)setting('autofill_timeout') . '"' . ($isNew && !empty($vals['af_defaults']) ? ' data-af-defaults="' . h(implode(',', $vals['af_defaults'])) . '"' : '') . (($afMs = autofill_expected_ms()) !== null ? ' data-af-latency="' . $afMs . '"' : '') : '' ?>>
     <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>">
     <?php if (!$isNew): ?><input type="hidden" name="id" value="<?= (int)$it['id'] ?>"><?php endif; ?>
     <input type="hidden" name="MAX_FILE_SIZE" value="<?= max_upload() ?>">
