@@ -415,16 +415,16 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 117 | 22 |
+| `chromium-pixel` | 119 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 117 | 22 |
+| `desktop-chromium` | 119 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
 | `pgsql-smoke` | 32 | 0 |
-| `webkit-iphone-se` | 117 | 22 |
+| `webkit-iphone-se` | 119 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 117 | 22 |
+| `webkit-iphone13` | 119 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **508** | **176** |
+| **Total** | **516** | **176** |
 
 <sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->

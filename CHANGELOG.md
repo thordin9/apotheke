@@ -7,6 +7,17 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-10-18
+
+### Fixed
+
+- **autofill:** keep an untouched default for an unknown category ([#23](https://github.com/thordin9/apotheke/pull/23))
+- **autofill:** explain a long wait at 95 % ([#23](https://github.com/thordin9/apotheke/pull/23))
+
+### Maintenance
+
+- **visual:** test: baseline the 95 % loading-or-busy hint ([#23](https://github.com/thordin9/apotheke/pull/23))
+
 ## [2.3.1] - 2026-10-18
 
 ### Fixed
@@ -187,7 +198,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.3.2...HEAD
+[2.3.2]: https://github.com/thordin9/apotheke/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/thordin9/apotheke/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/thordin9/apotheke/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/thordin9/apotheke/compare/v2.1.0...v2.2.0
