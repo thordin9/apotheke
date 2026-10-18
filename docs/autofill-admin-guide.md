@@ -35,8 +35,23 @@ service is not kept busy with photos nobody needed suggestions for.
 ## 3. Model and image size
 
 Both dropdowns appear only when the service offers a choice (API v1.2: `models` and `image_sizes` in its
-`/v1/info`). They are filled from the last answer of the saved service, or from a **Test** you just ran. With an
-older service they are hidden and nothing changes: no model is requested and photos go at 1024 px.
+`/v1/info`). They are filled from the last answer of the saved service, or from a **Test** you just ran.
+
+| The service's `/v1/info` | Model dropdown | Image size dropdown |
+|---|---|---|
+| no `models` / no `image_sizes` (older service) | hidden; no model is requested | hidden; photos go at **1024 px**, as in 2.3 |
+| `models` with **one** entry (`ALLOWED_MODELS` unset on the service) | shown with that model, **disabled**, with the hint *More models appear when ALLOWED_MODELS is set on the service.* | – |
+| `models` with two or more entries | enabled | – |
+| `image_sizes` listed | – | enabled; *Recommended* preselected |
+
+**Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge (in the browser and
+again on the server), so an older service gets exactly what it got before (never enlarged). A v1.2 service decides
+through its recommended size instead.
+
+**The Jetson setup** (from the service benchmarks): the service runs with `IMAGE_SIZES=448,560*,1024` and
+`ALLOWED_MODELS` unset, so Image size shows *Recommended (560 px)*, 448, 560 and 1024 px. The Model dropdown shows
+the one installed model, disabled, as long as the service lists it in `models` (the dropdown stays hidden if the
+service sends no `models` at all).
 
 - **Model**: *Service default (name)* lets the service decide (recommended until you have compared models), or pick
   one of the installed models it allows. Each entry shows *loaded* (in memory right now) and its typical time, when the

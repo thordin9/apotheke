@@ -211,6 +211,37 @@ test.describe('AI autofill on demand', () => {
     expect(app.sql<{ value: string }>("SELECT value FROM settings WHERE name = 'autofill_model'")[0].value).toBe('"qwen3-vl-2b"');
   });
 
+  test('Model dropdown: hidden without models, one model shown disabled with a hint, two or more enabled', async ({ app, page }) => {
+    const hint = 'More models appear when ALLOWED_MODELS is set on the service.';
+    // no models list (the Jetson with ALLOWED_MODELS unset and an older service): no dropdown, no hint
+    await configure(page, { url: stub.base + '/z/448,560*,1024' });
+    await expect(page.locator('select#s-autofill_model')).toHaveCount(0);
+    await expect(page.getByText(hint)).toHaveCount(0);
+    await expect(page.locator('#s-autofill_image_size option'), 'the Jetson sizes, 560 recommended').toHaveText(['Recommended (560 px)', '448 px', '560 px (recommended)', '1024 px']);
+    // exactly one model: shown, disabled, with the hint; saving keeps the stored value
+    await configure(page, { url: stub.base + '/n/' + encodeURIComponent('qwen2.5vl-jetson:3b') + '=4000/z/448,560*,1024' });
+    const sel = page.locator('select#s-autofill_model');
+    await expect(sel).toBeVisible();
+    await expect(sel).toBeDisabled();
+    await expect(sel.locator('option')).toHaveText(['qwen2.5vl-jetson:3b · loaded · about 4.0 s']);
+    await expect(page.locator('#s-autofill_model-one')).toHaveText(hint);
+    await expect(page.locator('#s-autofill_model-one')).toBeVisible();
+    await page.locator('#set-save').click();
+    await expect(page.locator('.toast')).toHaveText('Settings saved');
+    expect(app.sql<{ value: string }>("SELECT value FROM settings WHERE name = 'autofill_model'")[0].value).toBe('""');
+    stub.clear();
+    await page.locator('#af-test-photo').click();
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'ok', { timeout: 15_000 });
+    await expect(page.locator('#af-s-model')).toHaveText('qwen2.5vl-jetson:3b');
+    await expect(page.locator('#af-s-size')).toHaveText('560 px');
+    await app.noOverflow();
+    // two models: enabled, no hint
+    await configure(page, { url: v12() });
+    await expect(sel).toBeEnabled();
+    await expect(sel.locator('option')).toHaveCount(3);
+    await expect(page.getByText(hint)).toHaveCount(0);
+  });
+
   test('the chosen model is sent, the photo resized to the chosen size, model_used shown in the hooks', async ({ app, page }) => {
     await configure(page, { url: v12() });
     await page.locator('#s-autofill_model').selectOption('qwen3-vl-2b');

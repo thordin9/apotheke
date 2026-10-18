@@ -361,13 +361,19 @@ function autofill_choice_field_html(string $key, mixed $value, ?string $error): 
         }
     }
     if (!$opts) return '<input type="hidden" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" data-af-hidden="1">';
+    // One model only (ALLOWED_MODELS unset on the service): show it, disabled, and say how to get more.
+    // A disabled select is not submitted, so a hidden input keeps the stored value.
+    $single = $type === 'af_model' && count($info['models']) === 1;
+    if ($single) $opts = [$info['models'][0]['id'] => $opts[$info['models'][0]['id']]];
     $sel = '';
-    foreach ($opts as $k => $l) $sel .= '<option value="' . h((string)$k) . '"' . ((string)$k === (string)$value ? ' selected' : '') . '>' . h($l) . '</option>';
+    foreach ($opts as $k => $l) $sel .= '<option value="' . h((string)$k) . '"' . ($single || (string)$k === (string)$value ? ' selected' : '') . '>' . h($l) . '</option>';
     $err = $error !== null ? '<p class="field-err" id="' . $id . '-err">' . h($error) . '</p>' : '';
     $defText = $type === 'af_model' ? 'the service’s default model' : 'the size the service recommends';
+    $one = $single ? '<small class="field-help af-one-model" id="' . $id . '-one">More models appear when ALLOWED_MODELS is set on the service.</small>' : '';
     return '<div class="field set-field' . ($error !== null ? ' has-err' : '') . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label>'
-        . '<select name="' . $key . '" id="' . $id . '" aria-describedby="' . $id . '-d"' . ($error !== null ? ' aria-invalid="true"' : '') . '>' . $sel . '</select>'
-        . '<div class="field-desc" id="' . $id . '-d"><small class="field-help">' . h($help) . '</small><small class="field-def">Default: ' . h($defText) . '</small></div>' . $err . '</div>';
+        . ($single ? '<input type="hidden" name="' . $key . '" value="' . h((string)$value) . '">' : '')
+        . '<select ' . ($single ? 'disabled data-af-single="1"' : 'name="' . $key . '"') . ' id="' . $id . '" aria-describedby="' . $id . '-d"' . ($error !== null ? ' aria-invalid="true"' : '') . '>' . $sel . '</select>'
+        . '<div class="field-desc" id="' . $id . '-d">' . $one . '<small class="field-help">' . h($help) . '</small><small class="field-def">Default: ' . h($defText) . '</small></div>' . $err . '</div>';
 }
 
 function autofill_test_html(?array $r): string

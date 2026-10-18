@@ -704,6 +704,16 @@ final class AutofillTest extends DatabaseTestCase
             $this->assertStringContainsString($want, $z);
         }
         $this->assertStringContainsString('gone (not offered by the service: it uses its default)', setting_field_html('autofill_model', 'gone', null), 'a stored choice the service dropped stays visible');
+        $this->assertStringNotContainsString('ALLOWED_MODELS', $m, 'two models: no hint');
+        $this->assertStringNotContainsString('disabled', $m, 'two models: enabled');
+        // one model (ALLOWED_MODELS unset on the service): shown, disabled, with a hint; a hidden input keeps the value
+        autofill_info_cache(['name' => 'x', 'version' => '1.2', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true, 'avg_latency_ms' => null,
+            'models' => [['id' => 'a', 'default' => true, 'loaded' => true, 'avg_latency_ms' => null]], 'image_sizes' => []]);
+        $one = setting_field_html('autofill_model', '', null);
+        foreach (['<input type="hidden" name="autofill_model" value="">', '<select disabled data-af-single="1" id="s-autofill_model"', '<option value="a" selected>a · loaded</option>', 'More models appear when ALLOWED_MODELS is set on the service.'] as $want) {
+            $this->assertStringContainsString($want, $one);
+        }
+        $this->assertSame(1, substr_count($one, '<option'), 'only the single entry');
         @unlink(DATA_DIR . '/autofill-info.json');
     }
 
