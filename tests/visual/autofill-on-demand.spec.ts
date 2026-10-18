@@ -151,13 +151,9 @@ test.describe('AI autofill on demand', () => {
     await configure(page);
     await app.go('/new');
     // the first answer has a name and tags only; the second (the real stub) would suggest every field
-    let first = true;
-    await page.route('**/autofill/suggest', async route => {
-      if (!first) return route.continue();
-      first = false;
-      await route.fulfill({ json: { ok: true, code: 'ok', message: 'Suggestions from the photo', avg_latency_ms: null,
-        suggestions: { name: 'Red hammer', category: null, tags: ['red', 'tool'], description: null } } });
-    });
+    // times: 1 – later requests are not intercepted at all (WebKit can lose a multipart body on route.continue())
+    await page.route('**/autofill/suggest', route => route.fulfill({ json: { ok: true, code: 'ok', message: 'Suggestions from the photo', avg_latency_ms: null,
+      suggestions: { name: 'Red hammer', category: null, tags: ['red', 'tool'], description: null } } }), { times: 1 });
     await pick(page, app.image('af-second-1.jpg', [200, 30, 30]));
     await page.locator('#af-analyze').click();
     await expect(page.locator('#af-status')).toContainText('Suggestions ready: name, tags filled in');
