@@ -7,6 +7,19 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-10-18
+
+### Fixed
+
+- **autofill:** replace an untouched preselected default ([#22](https://github.com/thordin9/apotheke/pull/22))
+- **autofill:** fetch the service info when the token is saved ([#22](https://github.com/thordin9/apotheke/pull/22))
+- **autofill:** tell a busy service apart from a warming model ([#22](https://github.com/thordin9/apotheke/pull/22))
+
+### Maintenance
+
+- **visual:** test: rebaseline the progress state for the linear estimate ([#22](https://github.com/thordin9/apotheke/pull/22))
+- **visual:** test: rebaseline suggestions that now fill the category ([#22](https://github.com/thordin9/apotheke/pull/22))
+
 ## [2.3.0] - 2026-10-17
 
 ### Added
@@ -174,7 +187,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/thordin9/apotheke/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/thordin9/apotheke/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/thordin9/apotheke/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/thordin9/apotheke/compare/v2.0.0...v2.1.0
