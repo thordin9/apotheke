@@ -615,9 +615,12 @@
       if (s.category && f.category && afFree(f.category) && (!f.newcat || afFree(f.newcat))) {
         const want = s.category.toLocaleLowerCase();
         const opt = [...f.category.options].find(o => /^\d+$/.test(o.value) && o.textContent.replace(/ ★$/, '').trim().toLocaleLowerCase() === want);
-        if (opt) { afPut(f.category, opt.value); if (f.newcat) { f.newcat.value = ''; f.newcat.classList.remove('af-filled'); } }
-        else if (f.newcat) { afPut(f.category, '__new'); afPut(f.newcat, s.category); const row = $('#newcat', form); if (row) row.hidden = false; }
-        done.push('category');
+        // an untouched preselected default (General ★) only gives way to an existing category: a name that is not in
+        // the list keeps the default instead of pre-filling "＋ New category…" (saving would create it). A picker
+        // with nothing selected still gets "＋ New category…" pre-filled, as before.
+        const heldDefault = afInit.has(f.category) && f.category.value === afInit.get(f.category);
+        if (opt) { afPut(f.category, opt.value); if (f.newcat) { f.newcat.value = ''; f.newcat.classList.remove('af-filled'); } done.push('category'); }
+        else if (f.newcat && !heldDefault) { afPut(f.category, '__new'); afPut(f.newcat, s.category); const row = $('#newcat', form); if (row) row.hidden = false; done.push('category'); }
       }
       if (s.tags && s.tags.length && afFree(f.tags)) {
         afPut(f.tags, s.tags.join(', ')); f.tags.dispatchEvent(new Event('af:render'));

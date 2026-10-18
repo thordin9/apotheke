@@ -221,6 +221,38 @@ test.describe('AI autofill suggestions', () => {
     expect(await label()).toBe('Kitchen');
   });
 
+  test('an untouched default only gives way to an existing category; an empty picker still offers a new one', async ({ app, page }) => {
+    // QA's C1: "Gadgets" is not in the list. With General ★ preselected and untouched, the default stays (saving must
+    // not create "Gadgets"); with nothing selected, "＋ New category…" is pre-filled with the name, as before.
+    await configure(page, { on: true, url: stub.base + '/s/Gadgets' });
+    const cat = page.locator('#catsel');
+    const label = () => cat.evaluate((s: HTMLSelectElement) => s.selectedOptions[0].textContent!.trim());
+    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; db()->exec('UPDATE categories SET is_default = 0');`]);
+    await app.go('/new');
+    await expect(page.locator('#itemform'), 'no default category').not.toHaveAttribute('data-af-defaults', /category/);
+    expect(await cat.inputValue()).toBe('');
+    await pick(page, app.image('af-empty-newcat.jpg', [70, 120, 160]));
+    await expect(page.locator('#af-status')).toContainText(/Suggestions ready: .*category/);
+    expect(await cat.inputValue()).toBe('__new');
+    await expect(page.locator('#newcat')).toBeVisible();
+    await expect(page.locator('#newcatname')).toHaveValue('Gadgets');
+    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; tax_set_default('category', tax_create('category', 'General')['id'], true);`]);
+    await app.go('/new');
+    await expect(page.locator('#itemform')).toHaveAttribute('data-af-defaults', /category/);
+    expect(await label()).toBe('General ★');
+    await pick(page, app.image('af-default-newcat.jpg', [160, 120, 70]));
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready: name');
+    await expect(page.locator('#af-status')).not.toContainText('category');
+    expect(await label(), 'the untouched default is kept').toBe('General ★');
+    await expect(cat).not.toHaveClass(/af-filled/);
+    await expect(page.locator('#newcat')).toBeHidden();
+    await expect(page.locator('#newcatname')).toHaveValue('');
+    await page.locator('#save').click();
+    await page.waitForURL(/saved=\d+/);
+    expect(app.sql<{ n: number }>("SELECT COUNT(*) AS n FROM categories WHERE name = 'Gadgets'")[0].n, 'no category created').toBe(0);
+    expect(app.sql<{ name: string }>('SELECT c.name FROM items i JOIN categories c ON c.id = i.category_id ORDER BY i.id DESC LIMIT 1')[0].name).toBe('General');
+  });
+
   test('the edit form treats the stored category as the user\'s choice', async ({ app, page }) => {
     await configure(page, { on: true, url: stub.base + '/s/Tools' });
     const id = app.sql<{ id: number }>("SELECT i.id FROM items i JOIN categories c ON c.id = i.category_id WHERE c.name <> 'Tools' ORDER BY i.id LIMIT 1")[0].id;

@@ -129,8 +129,9 @@ preselected default counts as empty while you have not touched it: the default c
 the default tags and the default notes from Control Panel → Items. A category chosen by the link you came from
 (`/new?cat=…`) and everything on an existing item's edit form are your choices and are never replaced. Filled fields are highlighted until you edit them; picking another
 photo may replace earlier *suggestions*, never your input. The category is filled only when none is selected
-(or only the untouched default): an existing one is selected when the names match (ignoring case), otherwise "＋ New category" is
-pre-filled. Suggestions go to Name, Category, Tags and Notes (the service's `description`).
+(or only the untouched default): an existing one is selected when the names match (ignoring case). A name that
+is not in your list pre-fills "＋ New category" only when **no** category is selected; an untouched default
+such as *General ★* is kept instead, so saving never creates a category you did not ask for. Suggestions go to Name, Category, Tags and Notes (the service's `description`).
 
 Saving never waits for suggestions and works the same when the service is off, down or slow.
 
