@@ -1119,7 +1119,7 @@ $secKeys = [
     'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
-    'autofill' => ['autofill_enabled', 'autofill_url', 'autofill_timeout'],
+    'autofill' => ['autofill_enabled', 'autofill_auto', 'autofill_url', 'autofill_timeout', 'autofill_model', 'autofill_image_size'],
     'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));

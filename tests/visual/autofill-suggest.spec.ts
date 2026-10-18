@@ -4,15 +4,19 @@ import * as path from 'node:path';
 import { AutofillStub } from './autofill-stub';
 import { ROOT } from './fixtures';
 
-/* AI autofill: suggestions after picking a photo on the item form, against the PHP echo stub (QA's checklist). */
+/* AI autofill: suggestions after picking a photo on the item form, against the PHP echo stub (QA's checklist).
+   These run with "Analyze photos automatically" on (the 2.3 behaviour, still an admin option), so picking a photo
+   starts the analysis; the on-demand default (an Analyze button per photo) is covered in autofill-on-demand.spec.ts. */
 const stub = new AutofillStub();
 test.beforeAll(async () => { await stub.start(); });
 test.afterAll(() => stub.stop());
 
-async function configure(page: Page, o: { on: boolean; url?: string; timeout?: string; token?: string }) {
+async function configure(page: Page, o: { on: boolean; url?: string; timeout?: string; token?: string; auto?: boolean }) {
   await page.goto('/settings/autofill');
   const sw = page.locator('#s-autofill_enabled');
   if ((await sw.isChecked()) !== o.on) await page.locator('label[for="s-autofill_enabled"]').click();
+  const auto = page.locator('#s-autofill_auto');
+  if ((await auto.isChecked()) !== (o.auto ?? true)) await page.locator('label[for="s-autofill_auto"]').click();
   await page.locator('#s-autofill_url').fill(o.url ?? stub.base);
   await page.locator('#s-autofill_timeout').fill(o.timeout ?? '5');
   await page.locator('#set-save').click();

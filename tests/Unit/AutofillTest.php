@@ -75,7 +75,7 @@ final class AutofillTest extends DatabaseTestCase
     public function testTokenIsSecretAndNotInTheGenericForm(): void
     {
         $this->assertSame('secret', settings_schema()['autofill_token'][2]);
-        $this->assertSame(['autofill_enabled', 'autofill_url', 'autofill_timeout'], settings_section_keys('autofill'));
+        $this->assertSame(['autofill_enabled', 'autofill_auto', 'autofill_url', 'autofill_timeout', 'autofill_model', 'autofill_image_size'], settings_section_keys('autofill'));
         settings_store(['autofill_token' => 'abc123']);
         $this->assertArrayNotHasKey('autofill_token', settings_export()['settings']);
         $this->assertStringNotContainsString('abc123', json_encode(settings_export()));
@@ -102,7 +102,7 @@ final class AutofillTest extends DatabaseTestCase
     public function testParseInfo(): void
     {
         $ok = autofill_parse_info('{"name":"echo","version":"1","capabilities":["name","tags","category","description","colour"],"backend":"echo","max_image_bytes":10485760,"extra":1}');
-        $this->assertSame(['name' => 'echo', 'version' => '1', 'capabilities' => ['name', 'tags', 'category', 'description'], 'backend' => 'echo', 'max_image_bytes' => 10485760, 'ready' => true, 'avg_latency_ms' => null], $ok);
+        $this->assertSame(['name' => 'echo', 'version' => '1', 'capabilities' => ['name', 'tags', 'category', 'description'], 'backend' => 'echo', 'max_image_bytes' => 10485760, 'ready' => true, 'avg_latency_ms' => null, 'models' => null, 'image_sizes' => null], $ok);
         $this->assertSame([], autofill_parse_info('{"name":"x","version":"1","capabilities":[]}')['capabilities']);
         $this->assertFalse(autofill_parse_info('{"name":"x","version":"1","capabilities":[],"ready":false}')['ready']);
         foreach (['', '{not json', '[]', '"x"', '{"version":"1","capabilities":[]}', '{"name":"x","capabilities":[]}', '{"name":"x","version":"1"}',
@@ -440,6 +440,271 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('typed', autofill_test_token('http://evil.example', ' typed '));
         settings_store(['autofill_url' => '']);
         $this->assertSame('', autofill_test_token(''), 'nothing saved: never the stored token');
+    }
+
+    /* ---------------- 2.4: on demand, model and image size ---------------- */
+
+    public function testOnDemandDefaults(): void
+    {
+        $this->assertFalse(setting('autofill_auto'), 'auto-analyze is off on a new install');
+        $this->assertSame('', setting('autofill_model'), 'no model chosen: the service default');
+        $this->assertSame(0, setting('autofill_image_size'), 'no size chosen: the recommended one');
+        $this->assertArrayHasKey('autofill_auto', settings_export()['settings'], 'the new settings are exported like the others');
+        $this->assertArrayHasKey('autofill_model', settings_export()['settings']);
+    }
+
+    public function testModelAndSizeValidation(): void
+    {
+        $this->assertSame(0, setting_validate('autofill_image_size', ''));
+        $this->assertSame(0, setting_validate('autofill_image_size', '0'));
+        $this->assertSame(672, setting_validate('autofill_image_size', ' 672 '));
+        foreach (['10', '63', '4097', 'abc', '-448', '1e3'] as $bad) {
+            try { setting_validate('autofill_image_size', $bad); $this->fail("size $bad accepted"); } catch (UserError) { $this->addToAssertionCount(1); }
+        }
+        $this->assertSame('qwen2.5vl-jetson:3b', setting_validate('autofill_model', " qwen2.5vl-jetson:3b\n"));
+        $this->assertSame('', setting_validate('autofill_model', ''));
+        try { setting_validate('autofill_model', str_repeat('m', 121)); $this->fail('a 121-character model accepted'); } catch (UserError) { $this->addToAssertionCount(1); }
+        $this->assertSame([], settings_save(['autofill_auto' => '1', 'autofill_model' => 'b', 'autofill_image_size' => '448']));
+        $this->assertSame([true, 'b', 448], [setting('autofill_auto'), setting('autofill_model'), setting('autofill_image_size')]);
+    }
+
+    /** A 2.3 install (autofill on, analyzing every photo on upload) upgraded to 2.4: auto-analyze is off afterwards. */
+    public function testMigration0025TurnsAutoAnalyzeOffOnExistingInstalls(): void
+    {
+        $run = require migrations_dir() . '/0025_autofill_on_demand.php';
+        // as 2.3 left it: autofill switched on, none of the 2.4 rows
+        $this->pdo->exec("DELETE FROM settings WHERE name IN ('autofill_auto', 'autofill_model', 'autofill_image_size')");
+        settings_store(['autofill_enabled' => true, 'autofill_url' => 'http://10.0.0.9:8080', 'autofill_timeout' => 45]);
+        $run($this->pdo, $this->driver);
+        settings_cache(null, true);
+        $rows = $this->pdo->query("SELECT name, value FROM settings WHERE name IN ('autofill_auto', 'autofill_model', 'autofill_image_size') ORDER BY name")->fetchAll(PDO::FETCH_KEY_PAIR);
+        $this->assertSame(['autofill_auto' => 'false', 'autofill_image_size' => '0', 'autofill_model' => '""'], $rows, 'rows written, auto-analyze off');
+        $this->assertSame([true, 'http://10.0.0.9:8080', 45], [setting('autofill_enabled'), setting('autofill_url'), setting('autofill_timeout')], 'the rest is kept');
+        // even a stray "on" (e.g. a pre-release) is turned off: off on every install
+        settings_store(['autofill_auto' => true]);
+        $run($this->pdo, $this->driver);
+        settings_cache(null, true);
+        $this->assertFalse(setting('autofill_auto'));
+        $this->assertArrayHasKey('0025', migrations_applied($this->pdo, $this->driver), 'part of the normal migration run');
+    }
+
+    public function testParseInfoModelsAndImageSizes(): void
+    {
+        $base = '{"name":"x","version":"1.2","capabilities":[]';
+        $i = autofill_parse_info($base . ',"models":[{"id":"qwen2.5vl-jetson:3b","default":true,"loaded":true,"avg_latency_ms":14000},{"id":"qwen3-vl:2b"},'
+            . '{"id":"qwen2.5vl-jetson:3b"},{"id":""},{"name":"no id"},"plain",{"id":"c","default":true,"loaded":"yes","avg_latency_ms":-5}],'
+            . '"image_sizes":[{"long_edge":1024},{"long_edge":448},{"long_edge":672,"recommended":true},{"long_edge":672},{"long_edge":32},{"long_edge":"448"},{"long_edge":9000},{"long_edge":1024,"recommended":true}]}');
+        $this->assertSame([
+            ['id' => 'qwen2.5vl-jetson:3b', 'default' => true, 'loaded' => true, 'avg_latency_ms' => 14000],
+            ['id' => 'qwen3-vl:2b', 'default' => false, 'loaded' => null, 'avg_latency_ms' => null],
+            ['id' => 'c', 'default' => false, 'loaded' => null, 'avg_latency_ms' => null],
+        ], $i['models'], 'bad entries skipped, duplicates merged, one default');
+        $this->assertSame([['long_edge' => 448, 'recommended' => false], ['long_edge' => 672, 'recommended' => true], ['long_edge' => 1024, 'recommended' => false]],
+            $i['image_sizes'], 'sorted, deduplicated, in range, one recommended');
+        foreach (['"models":[]', '"models":{"a":1}', '"models":"qwen"', '"models":[{"id":5}]', '"image_sizes":[]', '"image_sizes":[{"long_edge":1}]', '"image_sizes":"448"'] as $odd) {
+            $j = autofill_parse_info($base . ',' . $odd . '}');
+            $this->assertNotNull($j, "an odd field ($odd) never rejects the answer");
+            $this->assertNull(str_contains($odd, 'models') ? $j['models'] : $j['image_sizes'], "… it is ignored ($odd)");
+        }
+        $this->assertNull(autofill_parse_info($base . '}')['models'], 'an older service: no models');
+    }
+
+    public function testChosenModelAndImageSide(): void
+    {
+        $v12 = ['models' => [['id' => 'a', 'default' => false, 'loaded' => null, 'avg_latency_ms' => null], ['id' => 'b', 'default' => true, 'loaded' => null, 'avg_latency_ms' => null]],
+                'image_sizes' => [['long_edge' => 448, 'recommended' => false], ['long_edge' => 672, 'recommended' => true], ['long_edge' => 1024, 'recommended' => false]]];
+        $old = ['name' => 'x', 'avg_latency_ms' => 5000];
+        $this->assertSame('b', autofill_default_model($v12));
+        $this->assertNull(autofill_default_model($old));
+        $this->assertSame('a', autofill_chosen_model($v12, 'a'));
+        $this->assertSame('zzz', autofill_chosen_model($v12, 'zzz'), 'an unlisted model is still asked for: the service falls back to its default');
+        $this->assertNull(autofill_chosen_model($v12, ''), 'no choice: nothing sent, the service uses its default');
+        $this->assertNull(autofill_chosen_model($old, 'a'), 'a service without models never gets a model');
+        $this->assertNull(autofill_chosen_model(null, 'a'), 'nothing known about the service: nothing sent');
+        $this->assertSame(672, autofill_image_side($v12, 0), 'no choice: the recommended size');
+        $this->assertSame(448, autofill_image_side($v12, 448));
+        $this->assertSame(1024, autofill_image_side($old, 448), 'a service without image_sizes: 1024 px as before, whatever is stored');
+        $this->assertSame(1024, autofill_image_side(null, 448));
+        $this->assertSame(1024, autofill_recommended_side([['long_edge' => 448, 'recommended' => false], ['long_edge' => 1024, 'recommended' => false], ['long_edge' => 1536, 'recommended' => false]]), 'none marked: the largest up to 1024');
+        $this->assertSame(1536, autofill_recommended_side([['long_edge' => 1536, 'recommended' => false]]), '… else the smallest');
+    }
+
+    public function testExpectedTimeIsPerModel(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/per-model']);
+        $info = ['name' => 'x', 'version' => '1.2', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true, 'avg_latency_ms' => 9000,
+                 'models' => [['id' => 'a', 'default' => true, 'loaded' => true, 'avg_latency_ms' => 14000], ['id' => 'b', 'default' => false, 'loaded' => false, 'avg_latency_ms' => 6000],
+                              ['id' => 'c', 'default' => false, 'loaded' => false, 'avg_latency_ms' => null]], 'image_sizes' => null];
+        autofill_info_cache($info);
+        $this->assertSame(14000, autofill_expected_ms(), 'no choice: the default model\'s own average');
+        settings_store(['autofill_model' => 'b']);
+        $this->assertSame(6000, autofill_expected_ms(), 'the chosen model\'s average');
+        settings_store(['autofill_model' => 'c']);
+        $this->assertSame(9000, autofill_expected_ms(), 'a model without its own average: the service-wide one');
+        settings_store(['autofill_model' => 'zzz']);
+        $this->assertSame(9000, autofill_expected_ms(), 'an unknown model: the service-wide one');
+    }
+
+    /** @return list<array> what the stub received, oldest first (GET /_stub/uploads) */
+    private function uploads(): array
+    {
+        return json_decode((string)file_get_contents(self::$stubBase . '/_stub/uploads'), true);
+    }
+
+    private function clearUploads(): void
+    {
+        file_get_contents(self::$stubBase . '/_stub/uploads', false, stream_context_create(['http' => ['method' => 'DELETE']]));
+    }
+
+    public function testSuggestSendsTheChosenModelAndSize(): void
+    {
+        $url = self::$stubBase . '/n/a*=3000,b=8000/z/448,672*,1024';
+        settings_store(['autofill_enabled' => true, 'autofill_url' => $url, 'autofill_timeout' => 5]);
+        $this->assertTrue(autofill_test($url, 5)['ok'], 'Test connection caches the info');
+        $this->clearUploads();
+        $r = autofill_suggest($this->jpeg(2000, 1500));
+        $this->assertTrue($r['ok'], $r['message']);
+        $u = $this->uploads();
+        $this->assertArrayNotHasKey('model', $u[0]['context'], 'no choice: no model sent');
+        $this->assertSame([672, 504], [$u[0]['width'], $u[0]['height']], 'the recommended size');
+        $this->assertSame('a', $r['model_used']);
+        $this->assertSame(['type' => 'image/jpeg', 'bytes' => $u[0]['bytes'], 'width' => 672, 'height' => 504], $r['image'], 'what was sent (the debug hook)');
+        $this->assertSame(3000, $r['avg_latency_ms']);
+        settings_store(['autofill_model' => 'b', 'autofill_image_size' => 448]);
+        $r = autofill_suggest($this->jpeg(2000, 1500));
+        $u = $this->uploads();
+        $this->assertSame('b', end($u)['context']['model'], 'the chosen model goes along as context.model');
+        $this->assertSame([448, 336], [end($u)['width'], end($u)['height']]);
+        $this->assertSame(['b', 8000], [$r['model_used'], $r['avg_latency_ms']], 'model_used and that model\'s average');
+        // an unknown model falls back to the default on the service side
+        settings_store(['autofill_model' => 'zzz']);
+        $this->assertSame('a', autofill_suggest($this->jpeg(20, 20))['model_used']);
+        // the info cache expires after an hour: a known service still gets its chosen model and size
+        $f = DATA_DIR . '/autofill-info.json';
+        $d = json_decode((string)file_get_contents($f), true);
+        $d['at'] = time() - 7200;
+        file_put_contents($f, json_encode($d));
+        settings_store(['autofill_model' => 'b']);
+        $this->clearUploads();
+        autofill_suggest($this->jpeg(2000, 1500));
+        $this->assertSame(['b', 448], [$this->uploads()[0]['context']['model'] ?? null, $this->uploads()[0]['width']]);
+    }
+
+    public function testAnOlderServiceGetsWhatItGotBefore(): void
+    {
+        // the plain stub is an API v1.0 service: no models, no image sizes in /v1/info, no model_used
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5, 'autofill_model' => 'b', 'autofill_image_size' => 448]);
+        $this->assertTrue(autofill_test(self::$stubBase, 5)['ok']);
+        $this->clearUploads();
+        $r = autofill_suggest($this->jpeg(2000, 1500));
+        $u = $this->uploads()[0];
+        $this->assertArrayNotHasKey('model', $u['context'], 'no models listed: no model sent, even with one stored');
+        $this->assertSame([1024, 768], [$u['width'], $u['height']], 'no sizes listed: 1024 px as before');
+        $this->assertArrayNotHasKey('model_used', array_filter($r, fn($v) => $v !== null), 'nothing reported');
+    }
+
+    public function testAModelSwitchIsAColdStart(): void
+    {
+        $url = self::$stubBase . '/m/switch/r/1/n/a*,b';
+        settings_store(['autofill_enabled' => true, 'autofill_url' => $url, 'autofill_timeout' => 5, 'autofill_model' => 'b']);
+        $this->clearUploads();
+        $this->assertTrue(autofill_test($url, 5)['ok']);
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertSame(['busy', 1, 'warming'], [$r['code'], $r['retry_after'] ?? null, $r['retry_reason'] ?? null], 'the switch answers 503 + Retry-After: the browser waits and retries once');
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame('b', $r['model_used'], 'the retry gets the switched model');
+        $this->assertTrue(autofill_suggest($this->jpeg(40, 40))['ok'], 'loaded now: no more cold start');
+        settings_store(['autofill_model' => '']);
+        $this->assertSame('busy', autofill_suggest($this->jpeg(40, 40))['code'], 'back to the default: another switch');
+        $this->clearUploads();
+    }
+
+    private function exifJpeg(int $w, int $h, int $orientation): string
+    {
+        $jpeg = $this->jpeg($w, $h);
+        $tiff = "MM\x00\x2A\x00\x00\x00\x08" . "\x00\x01" . "\x01\x12\x00\x03\x00\x00\x00\x01" . pack('n', $orientation) . "\x00\x00" . "\x00\x00\x00\x00";
+        $app1 = "Exif\x00\x00" . $tiff;
+        return "\xFF\xD8" . "\xFF\xE1" . pack('n', strlen($app1) + 2) . $app1 . substr($jpeg, 2);
+    }
+
+    public function testPrepareImageAtTheChosenSize(): void
+    {
+        $i = getimagesizefromstring(autofill_prepare_image($this->jpeg(2000, 1000), 448)['data']);
+        $this->assertSame([448, 224], [$i[0], $i[1]]);
+        $out = autofill_prepare_image($this->jpeg(300, 200), 672);
+        $this->assertSame([300, 200], [$out['width'], $out['height']], 'never enlarged');
+        if (function_exists('exif_read_data')) {
+            $out = autofill_prepare_image($this->exifJpeg(800, 400, 6), 448);
+            $this->assertSame([224, 448], [$out['width'], $out['height']], 'EXIF orientation 6: a sideways phone photo is sent upright');
+        }
+    }
+
+    public function testPrepareImageKeepsTransparency(): void
+    {
+        $im = imagecreatetruecolor(1600, 800);
+        imagesavealpha($im, true);
+        imagealphablending($im, false);
+        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
+        imagefilledrectangle($im, 400, 200, 1200, 600, imagecolorallocatealpha($im, 200, 20, 20, 0));
+        ob_start(); imagepng($im); $png = (string)ob_get_clean();
+        $out = autofill_prepare_image($png, 448);
+        $this->assertSame('image/png', $out['mime'], 'a transparent PNG stays a PNG');
+        $back = imagecreatefromstring($out['data']);
+        $this->assertSame([448, 224], [imagesx($back), imagesy($back)]);
+        $this->assertSame(127, (imagecolorat($back, 2, 2) >> 24) & 0x7F, 'the transparent corner is still transparent');
+        $this->assertSame(0, (imagecolorat($back, 224, 112) >> 24) & 0x7F, 'the opaque middle is opaque');
+        $opaque = imagecreatetruecolor(100, 100);
+        ob_start(); imagepng($opaque); $flat = (string)ob_get_clean();
+        $this->assertSame('image/jpeg', autofill_prepare_image($flat)['mime'], 'a PNG without transparency is sent as JPEG');
+    }
+
+    public function testPhotoTestUsesTheChosenModelAndSize(): void
+    {
+        $url = self::$stubBase . '/n/a*,b/z/448*,672';
+        $this->clearUploads();
+        $r = autofill_test_photo($url, 5, '', 'b', 672);
+        $this->assertTrue($r['ok'], $r['message']);
+        $u = $this->uploads()[0];
+        $this->assertSame('b', $u['context']['model']);
+        $this->assertLessThanOrEqual(672, max($u['width'], $u['height']), 'at most the chosen size (never enlarged)');
+        $this->assertSame(['b', 'b', 672], [$r['model_used'], $r['model_sent'], $r['image_side']]);
+        $html = autofill_test_result_html($r);
+        foreach (['id="af-s-model"', '>b<', 'id="af-s-size"', '672 px', 'id="af-models"', 'a (default), b', 'id="af-sizes"', '448 px (recommended)'] as $want) {
+            $this->assertStringContainsString($want, $html);
+        }
+        $r = autofill_test_photo($url, 5, '', 'zzz', 0);
+        $this->assertStringContainsString('(asked for zzz)', autofill_test_result_html($r), 'a fallback is visible');
+        $r = autofill_test_photo(self::$stubBase, 5, '', 'b', 448);
+        $this->assertNull($r['model_sent'], 'an older service: no model, no size row');
+        $this->assertStringNotContainsString('af-s-model', autofill_test_result_html($r));
+        $this->clearUploads();
+    }
+
+    public function testDropdownsOnlyWhenTheServiceOffersThem(): void
+    {
+        settings_store(['autofill_url' => 'http://10.0.0.5:8080', 'autofill_model' => 'b', 'autofill_image_size' => 448]);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        autofill_form_info(null, true);
+        foreach (['autofill_model' => 'value="b"', 'autofill_image_size' => 'value="448"'] as $k => $v) {
+            $html = setting_field_html($k, setting($k), null);
+            $this->assertStringNotContainsString('<select', $html, "$k hidden without the list");
+            $this->assertStringContainsString('type="hidden"', $html, "… but the stored value is kept on save ($k)");
+            $this->assertStringContainsString($v, $html);
+        }
+        autofill_info_cache(['name' => 'x', 'version' => '1.2', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true, 'avg_latency_ms' => null,
+            'models' => [['id' => 'a', 'default' => true, 'loaded' => true, 'avg_latency_ms' => 4000], ['id' => 'b', 'default' => false, 'loaded' => false, 'avg_latency_ms' => null]],
+            'image_sizes' => [['long_edge' => 448, 'recommended' => false], ['long_edge' => 672, 'recommended' => true]]]);
+        $m = setting_field_html('autofill_model', 'b', null);
+        foreach (['<select name="autofill_model" id="s-autofill_model"', '<option value="">Service default (a)</option>', 'a · loaded · about 4.0 s', '<option value="b" selected>b</option>'] as $want) {
+            $this->assertStringContainsString($want, $m);
+        }
+        $z = setting_field_html('autofill_image_size', 0, null);
+        foreach (['<select name="autofill_image_size"', '<option value="0" selected>Recommended (672 px)</option>', '448 px', '672 px (recommended)'] as $want) {
+            $this->assertStringContainsString($want, $z);
+        }
+        $this->assertStringContainsString('gone (not offered by the service: it uses its default)', setting_field_html('autofill_model', 'gone', null), 'a stored choice the service dropped stays visible');
+        @unlink(DATA_DIR . '/autofill-info.json');
     }
 
     public function testImageLimitInMib(): void
