@@ -266,3 +266,32 @@ jobs:
           fetch-depth: 0
       - name: Check every PR commit
         run: bash scripts/check-commits.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
+  # Pinned gitleaks CLI (not the org-licensed GitHub Action). No token or license.
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks 8.30.1
+        run: |
+          set -euo pipefail
+          if [ "$(uname -m)" != "x86_64" ]; then
+            echo "pinned gitleaks build is linux x64; this runner is $(uname -m)" >&2
+            exit 1
+          fi
+          version=8.30.1
+          file="gitleaks_${version}_linux_x64.tar.gz"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${file}"
+          expected="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+          tmp="$RUNNER_TEMP/gitleaks-install"
+          mkdir -p "$tmp"
+          curl -fsSL --retry 3 --retry-delay 2 -o "$tmp/$file" "$url"
+          echo "${expected}  $tmp/$file" | sha256sum -c -
+          tar -xzf "$tmp/$file" -C "$tmp" gitleaks
+          install -m 0755 "$tmp/gitleaks" "$RUNNER_TEMP/gitleaks"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Scan full git history
+        run: gitleaks detect --source . --redact --no-banner --exit-code 1

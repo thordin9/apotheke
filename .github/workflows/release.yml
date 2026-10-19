@@ -11,8 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  actions: read
+  contents: read
 
 concurrency:
   group: release
@@ -21,6 +20,11 @@ concurrency:
 jobs:
   release:
     name: Version, changelog, tag and GitHub Release
+    # contents: write — push the version commit and tag, and create the GitHub Release.
+    # actions: read — download the coverage-sqlite artifact from the CI workflow.
+    permissions:
+      contents: write
+      actions: read
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')

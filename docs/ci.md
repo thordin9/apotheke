@@ -10,6 +10,7 @@ Runs with `permissions: contents: read`; a newer push to the same ref cancels th
 ```mermaid
 flowchart LR
   push["PR / push to main"] --> lint["Lint"]
+  push --> secrets["Secret scan"]
   push --> test["Tests<br/>SQLite · PostgreSQL"]
   push --> mobile["Headless mobile checks"]
   push --> e2e["Visual E2E<br/>3 shards"]
@@ -27,12 +28,14 @@ The jobs are independent and run in parallel.
 | **Visual E2E (shard N/3)** | Runs inside `mcr.microsoft.com/playwright:v1.64.0-noble` with a PostgreSQL service; `scripts/e2e-container-setup.sh` installs PHP 8.3, then `npx playwright test --shard=N/3` (`retries=1` in CI). On failure the HTML report, traces and screenshot diffs are uploaded as `playwright-report-shard-N`. |
 | **Docker build + smoke test** | Builds the image with Buildx (GitHub Actions cache), writes its size to the job summary, then: container on SQLite → `scripts/smoke.sh` and `scripts/docker-checks.sh` (routing, blocked paths, headers, gzip, body limits); a second container on PostgreSQL (`--network host`, `PORT=8081`) → `scripts/smoke.sh`; a graceful-stop check (`docker stop` must exit 0 within 20 s); the Playwright `@smoke` subset against the image (`E2E_DOCKER_IMAGE=apotheke:ci`, project `docker-smoke`). Container logs are always printed. |
 | **Conventional Commits** | Pull requests only: `scripts/check-commits.sh <base sha> <head sha>` checks every commit subject in the PR (merge commits and `chore(release): vX.Y.Z` commits are skipped). |
+| **Secret scan** | Full git history (`actions/checkout` with `fetch-depth: 0`) with the gitleaks CLI, pinned by version and checksum in the workflow. The job fails when gitleaks reports a finding. It does not use the gitleaks GitHub Action and needs no token or license. See [Secret scan](#secret-scan). |
 
 ## `release.yml`: versions, changelog and GitHub Releases
 
 Runs when CI finishes successfully for a push to `main` (`workflow_run`), or by hand (`workflow_dispatch`).
-`permissions: contents: write` (push the release commit and tag, create the release) and `actions: read` (download the
-CI coverage artifact); `concurrency: release`, never cancelled. It skips when `main` has moved past the commit CI tested.
+The workflow token is `contents: read`. The release job raises that to `contents: write` (push the release commit and
+tag, create the GitHub Release) and `actions: read` (download the CI coverage artifact). `concurrency: release`, never
+cancelled. It skips when `main` has moved past the commit CI tested.
 `scripts/release.php plan` computes the bump from the Conventional Commits since the last `v*` tag; if there is one, the
 README coverage table is regenerated from `coverage-sqlite`, `release.php apply` updates `VERSION` and `CHANGELOG.md`,
 and the job pushes `chore(release): vX.Y.Z [skip ci]` plus the tag atomically and runs `gh release create`.
@@ -54,6 +57,20 @@ same Playwright image as the `e2e` job, with a PostgreSQL service, it runs
 artifact **`snapshots`** (14 days). Fetch it with `scripts/update-snapshots.sh --from-ci <run id>` and commit the
 result; see [Testing](testing.md#screenshot-baselines). `=all` re-renders every baseline (not only failing ones), so
 shots that drifted within the tolerance are refreshed too. The workflow never pushes anything itself.
+
+## Secret scan
+
+The **Secret scan** job in `ci.yml` checks every commit reachable from the checkout, not only the latest tree. The
+checkout uses `fetch-depth: 0` so the history is complete. gitleaks is the official CLI binary from its GitHub release
+(version **8.30.1**, linux x64, SHA-256 pinned in the workflow). The organization-licensed `gitleaks-action` is not used.
+
+The job fails on any finding (`--exit-code 1`) and redacts secrets in the log (`--redact`). No `.gitleaks.toml`
+allowlist is committed: the current history is clean. If a later scan flags a known placeholder or test fixture, add
+the smallest possible allowlist in `.gitleaks.toml` with a comment saying why. Do not allowlist a real-looking secret;
+remove it from history instead.
+
+Workflow tokens stay `contents: read` everywhere. The only extra grant is on the release job (`contents: write` and
+`actions: read`), because that job pushes the version commit and tag and downloads the coverage artifact.
 
 ## Commit rules
 
