@@ -139,7 +139,7 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // PNG colour type 4/6 (grey/RGB + alpha) or a tRNS chunk: the upload kept its transparency
     $alpha = $kind === 'PNG' ? (in_array(ord($data[25] ?? "\0"), [4, 6], true) || str_contains(substr($data, 0, (int)strpos($data, 'IDAT') ?: 4096), 'tRNS')) : false;
     $entry = json_encode(['auth' => $_SERVER['HTTP_AUTHORIZATION'] ?? null, 'context' => $ctx, 'type' => $kind,
-        'bytes' => strlen($data), 'width' => $dims[0] ?? null, 'height' => $dims[1] ?? null, 'alpha' => $alpha, 'mode' => $mode,
+        'bytes' => strlen($data), 'sha256' => hash('sha256', $data), 'width' => $dims[0] ?? null, 'height' => $dims[1] ?? null, 'alpha' => $alpha, 'mode' => $mode,
         'filename' => $f['name'] ?? null, 'mime' => $f['type'] ?? null, 'content_length' => (int)($_SERVER['CONTENT_LENGTH'] ?? 0)]);
     if ($log = getenv('STUB_LOG')) file_put_contents($log, $entry);
     file_put_contents($stateBase . '.jsonl', $entry . "\n", FILE_APPEND | LOCK_EX);

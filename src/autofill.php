@@ -15,6 +15,7 @@ const AUTOFILL_MAX_BODY = 262144;          // bytes we accept from the service
 const AUTOFILL_CONNECT_TIMEOUT = 3;        // seconds
 const AUTOFILL_SERVICE_IMAGE_BYTES = 983040; // 1 MiB − 64 KiB, until /v1/info has cached max_image_bytes
 const AUTOFILL_UPLOAD_MAX_SIDE = 1600;     // long edge of the temporary analysis JPEG (env AUTOFILL_UPLOAD_MAX_SIDE)
+const AUTOFILL_RETRY_AFTER_MAX = 60;       // one retry only when Retry-After is at most this many seconds
 const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 70, then 60 if the multipart body is still over the limit
 
 function autofill_enabled(): bool
@@ -896,10 +897,16 @@ function autofill_suggest_at(string $base, string $token, int $timeout, string $
             $code = $api['code'];
             if ($r['retry_after'] !== null && ($code === null || $code === 'backend_unavailable')) {
                 $n = max(1, $r['retry_after']);
-                $why = autofill_retry_reason($api['message']);
-                return $fail('busy', $why === 'warming'
-                    ? "No suggestions: the model is warming up. Try again in $n s."
-                    : "No suggestions: the service is busy. Try again in $n s.") + ['retry_after' => $n, 'retry_reason' => $why];
+                // A warming/busy wait (30 s on the current worker) may be retried once. A daily cap counts
+                // down to 00:00 UTC and is longer than a minute: show busy and do not retry.
+                if ($n <= AUTOFILL_RETRY_AFTER_MAX) {
+                    $why = autofill_retry_reason($api['message']);
+                    return $fail('busy', $why === 'warming'
+                        ? "No suggestions: the model is warming up. Try again in $n s."
+                        : "No suggestions: the service is busy. Try again in $n s.") + ['retry_after' => $n, 'retry_reason' => $why];
+                }
+                autofill_log('suggest: Retry-After ' . $n . 's is over ' . AUTOFILL_RETRY_AFTER_MAX . 's');
+                return $fail('busy', 'No suggestions: the service is busy or not ready. Try again later.');
             }
             if ($code !== null && $code !== 'backend_unavailable') {
                 autofill_log('suggest: backend error (HTTP 503)');
@@ -965,7 +972,7 @@ function autofill_test_photo(string $url, int $timeout, string $token, ?string $
         $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type']);
         // one retry, same rule as the item form: 503 + Retry-After, and only when that wait is within the timeout
         $wait = (int)($r['retry_after'] ?? 0);
-        if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= $timeout) {
+        if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= AUTOFILL_RETRY_AFTER_MAX && $wait <= $timeout) {
             sleep($wait);
             $left = max(1, (int)floor($timeout - (microtime(true) - $t0)));
             $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type']);

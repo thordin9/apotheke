@@ -856,6 +856,38 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('empty', $r['code']);
     }
 
+    public function testRetryAfterOverAMinuteIsBusyAndDoesNotRetry(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/busy/r/90', 'autofill_timeout' => 60]);
+        $this->clearUploads();
+        $t = microtime(true);
+        $r = autofill_suggest($this->jpeg(40, 30));
+        $this->assertLessThan(5, microtime(true) - $t);
+        $this->assertSame('busy', $r['code']);
+        $this->assertStringContainsString('busy', $r['message']);
+        $this->assertArrayNotHasKey('retry_after', $r);
+        $this->assertArrayNotHasKey('suggestions', $r);
+        $this->assertSame(1, $this->suggestCount());
+        $name = $this->storePhoto($this->jpeg(40, 30));
+        $id = item_save(null, ['name' => 'Saved while busy', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $name, false);
+        $this->assertSame('Saved while busy', item_get($id)['name']);
+        $this->assertSame('', (string)item_get($id)['notes']);
+    }
+
+    public function testShortRetryResendsTheAnalysisCopyNotTheOriginal(): void
+    {
+        $this->clearUploads();
+        $sample = hash_file('sha256', autofill_sample_path());
+        $r = autofill_test_photo(self::$stubBase . '/m/cold/r/1', 10, '');
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $ups = $this->uploads();
+        $this->assertCount(2, $ups);
+        $this->assertSame($ups[0]['sha256'], $ups[1]['sha256']);
+        $this->assertNotSame($sample, $ups[0]['sha256']);
+        $this->assertSame('JPEG', $ups[0]['type']);
+        $this->assertSame('JPEG', $ups[1]['type']);
+    }
+
     public function testBadServiceAnswersSaveTheItemWithoutSuggestions(): void
     {
         $cases = [
@@ -873,7 +905,6 @@ final class AutofillTest extends DatabaseTestCase
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . $path, 'autofill_timeout' => $timeout]);
         $name = $this->storePhoto($this->jpeg(48, 36));
-        $id = item_save(null, ['name' => 'Kept ' . $label, 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $name, false);
         $this->clearUploads();
         $t = microtime(true);
         $r = autofill_suggest_path((string)image_original_path($name));
@@ -882,7 +913,12 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('unavailable', $r['code'], $label . ' ' . ($r['message'] ?? ''));
         $this->assertStringContainsString('unavailable', $r['message'], $label);
         $this->assertArrayNotHasKey('retry_after', $r, $label);
-        $this->assertSame('Kept ' . $label, item_get($id)['name'], $label);
+        $this->assertArrayNotHasKey('suggestions', $r, $label);
+        $id = item_save(null, ['name' => 'Saved after ' . $label, 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $name, false);
+        $item = item_get($id);
+        $this->assertSame('Saved after ' . $label, $item['name'], $label);
+        $this->assertSame('', (string)$item['notes'], $label);
+        $this->assertSame([], tags_for($id), $label);
         $this->assertSame(1, $this->suggestCount(), $label);
         $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: [], $label);
         $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-src-*') ?: [], $label);
