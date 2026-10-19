@@ -180,6 +180,8 @@ $full = $c->get("/media/full/$img");
 T::eq(hash('sha256', $full['body']), hash('sha256', $servedBody), 'media/full returns the stripped copy');
 T::ok(hash('sha256', $full['body']) !== hash('sha256', $big), 'media/full is not the original bytes');
 T::eq(404, $c->get('/originals/' . basename((string)$orig))['status'], 'a direct originals URL is 404');
+T::eq(404, $c->get('/Originals/' . basename((string)$orig))['status'], 'Originals with a capital O is 404');
+T::eq(404, $c->get('/ORIGINALS/' . basename((string)$orig))['status'], 'ORIGINALS in capitals is 404');
 T::eq(404, $c->get('/media/full/' . basename((string)$orig))['status'], 'the serve route rejects the original file name');
 $legacy = bin2hex(random_bytes(16)) . '.jpg';
 copy("$dir/images/$img", "$dir/images/$legacy");
