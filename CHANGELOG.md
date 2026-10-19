@@ -17,6 +17,17 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **docs:** `loaded` is the service's report; a photo can still be a cold start
 
+## [2.4.1] - 2026-10-19
+
+### Fixed
+
+- **autofill:** focus, cold photo-test retry, and size limit ([#26](https://github.com/thordin9/apotheke/pull/26))
+
+### Maintenance
+
+- **qa:** docs: add Apotheke 2.4.1 QA results ([#26](https://github.com/thordin9/apotheke/pull/26))
+- chore: align VERSION with v2.4.0 and backfill changelog ([#26](https://github.com/thordin9/apotheke/pull/26))
+
 ## [2.4.0] - 2026-10-19
 
 ### Added
@@ -220,7 +231,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/thordin9/apotheke/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/thordin9/apotheke/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/thordin9/apotheke/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/thordin9/apotheke/compare/v2.3.0...v2.3.1
