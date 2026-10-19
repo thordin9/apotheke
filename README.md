@@ -472,6 +472,11 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
 | Docker build + smoke test | builds the image, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
+| Secret scan | pinned gitleaks CLI over the full git history; the job fails if it finds a secret |
+
+The secret scan downloads the [gitleaks](https://github.com/gitleaks/gitleaks) CLI (version and checksum pinned in
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)) and runs it on a full checkout (`fetch-depth: 0`). It does not
+use the gitleaks GitHub Action and needs no token or license. See [CI](docs/ci.md#secret-scan).
 
 A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
 After CI passes on `main`, the *Release* workflow bumps the [SemVer](https://semver.org/) version from the Conventional

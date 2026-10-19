@@ -1,5 +1,11 @@
 data/
 .env
+service.env
+*.env
+*.pem
+*.key
+# Tracked examples stay committable. .env is not tracked, so it stays ignored.
+!.env.example
 /screenshots/
 *.zip
 tests/e2e/node_modules/

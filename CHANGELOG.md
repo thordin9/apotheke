@@ -17,6 +17,11 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **docs:** `loaded` is the service's report; a photo can still be a cold start
 
+### Security
+
+- **ci:** scan the full git history with gitleaks on pull requests and pushes to main
+- **git:** ignore `service.env`, `*.env`, `*.pem` and `*.key`; a tracked `.env.example` stays committable
+
 ## [2.4.1] - 2026-10-19
 
 ### Fixed
