@@ -150,8 +150,8 @@ until you tap it (unless an admin turned on *Analyze photos automatically*; then
 When you edit an item that already has photos, each of them has its own **Analyze** button in the row *Suggest details
 from a photo of this item*.
 
-- Only **one photo is analyzed at a time**. While it runs, the other Analyze buttons are greyed out; they come back
-  when it is done.
+- Only **one photo is analyzed at a time**. While it runs, the Analyze buttons are greyed out and ignore another
+  press; keyboard focus stays on the one you pressed. They come back when it is done.
 - You can keep typing, choose a location or save while it works.
 - Picking another photo while the picked one is being analyzed stops that analysis; tap Analyze again for the new one.
 

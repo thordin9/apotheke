@@ -419,8 +419,20 @@ final class AutofillTest extends DatabaseTestCase
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase]);
         autofill_info_cache(['name' => 'tiny', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10, 'ready' => true]);
-        $this->assertSame('too_large', autofill_suggest($this->jpeg(100, 100))['code']);
+        $r = autofill_suggest($this->jpeg(100, 100));
+        $this->assertSame('too_large', $r['code']);
+        $this->assertStringContainsString('10 bytes', $r['message'], 'the message states the advertised limit');
         autofill_info_cache(['name' => 'big', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'ready' => true]);
+    }
+
+    public function testTooLargeMessageStatesTheShippedServiceLimit(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/toolarge', 'autofill_timeout' => 5]);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $r = autofill_suggest($this->jpeg(40, 40));
+        $this->assertSame('too_large', $r['code']);
+        $this->assertStringContainsString('10 MiB', $r['message'], 'MiB, matching the service');
+        $this->assertStringContainsString('10485760', $r['message'], 'the same limit in bytes');
     }
 
     public function testSuggestRouteNeedsCreate(): void
@@ -617,6 +629,33 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertTrue(autofill_suggest($this->jpeg(40, 40))['ok'], 'loaded now: no more cold start');
         settings_store(['autofill_model' => '']);
         $this->assertSame('busy', autofill_suggest($this->jpeg(40, 40))['code'], 'back to the default: another switch');
+        $this->clearUploads();
+    }
+
+    public function testPhotoTestRetriesAColdModelOnce(): void
+    {
+        $this->clearUploads();
+        $t = microtime(true);
+        $r = autofill_test_photo(self::$stubBase . '/m/switch/r/1/n/a*,b', 5, '', 'b');
+        $this->assertLessThan(4.5, microtime(true) - $t, 'the one-second wait stays well inside the timeout');
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $this->assertSame('b', $r['model_used'] ?? null, 'the retry gets the model that was loading');
+        $this->assertCount(2, $this->uploads(), 'exactly one retry');
+
+        $this->clearUploads();
+        $t = microtime(true);
+        $r = autofill_test_photo(self::$stubBase . '/m/warmup/r/1', 5, '');
+        $this->assertSame('busy', $r['code'], 'a second warming answer is not retried again');
+        $this->assertFalse($r['checks']['ready']);
+        $this->assertCount(2, $this->uploads(), 'still exactly one retry when the second try fails');
+        $this->assertGreaterThan(0.8, microtime(true) - $t);
+
+        $this->clearUploads();
+        $t = microtime(true);
+        $r = autofill_test_photo(self::$stubBase . '/m/busy/r/40', 5, '');
+        $this->assertSame(['busy', true, 40], [$r['code'], $r['checks']['ready'], $r['retry_after'] ?? null]);
+        $this->assertCount(1, $this->uploads(), 'Retry-After longer than the timeout: no retry');
+        $this->assertLessThan(3.0, microtime(true) - $t, 'does not sleep out a wait past the timeout');
         $this->clearUploads();
     }
 

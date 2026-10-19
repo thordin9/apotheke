@@ -7,6 +7,16 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **autofill:** keep keyboard focus on Analyze while a photo is analyzed
+- **autofill:** retry Test with a photo once when the model is warming up
+- **autofill:** state the image limit when a photo is rejected as too large (10 MiB / 10485760 bytes on the shipped service)
+
+### Changed
+
+- **docs:** `loaded` is the service's report; a photo can still be a cold start
+
 ## [2.3.2] - 2026-10-18
 
 ### Fixed

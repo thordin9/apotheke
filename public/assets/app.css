@@ -1010,7 +1010,7 @@ select.imp-ignored{color:var(--muted)}
 .af-actions[hidden],.af-analyze[hidden]{display:none}
 .af-analyze{justify-self:start;gap:6px}
 .af-analyze .i{color:var(--accent)}
-.af-analyze:disabled{opacity:.55;cursor:default}
+.af-analyze:disabled,.af-analyze[aria-disabled="true"]{opacity:.55;cursor:default}
 .af-analyze[aria-busy="true"]{opacity:1}
 .af-photos-h{margin:0 0 4px;font-size:14px;color:var(--muted)}
 .af-photos ul{list-style:none;display:flex;flex-wrap:wrap;gap:8px 12px;margin:0;padding:0}
