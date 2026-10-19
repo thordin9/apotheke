@@ -68,7 +68,9 @@ try {
     // photos: add two from the library on an item without photos, then use the arrows
     {
       const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
-      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Hu5wAAAAAASUVORK5CYII=', 'base64');
+      // A PNG GD can decode. The previous 74-byte fixture was a PNG the browser could draw and GD could not,
+      // which only uploaded while the client re-encoded every photo before sending it.
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAFElEQVQImWM8oaHBgA0wYRUdtBIA4DgBKG5t34gAAAAASUVORK5CYII=', 'base64');
       const f1 = path.join(os.tmpdir(), 'e2e-a.png'), f2 = path.join(os.tmpdir(), 'e2e-b.png');
       fs.writeFileSync(f1, png); fs.writeFileSync(f2, png);
       await p.goto(base + '/new', { waitUntil: 'networkidle0' });
