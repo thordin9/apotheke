@@ -359,7 +359,10 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
         if ($data === false) { $warnings[] = "Original $base is missing from the archive."; continue; }
         $dest = ORIGINALS_DIR . '/' . $base;
         if (!is_file($dest)) file_put_contents($dest, $data, LOCK_EX);
-        file_put_contents(ORIGINALS_DIR . '/map/' . substr($served, 0, 32), $base, LOCK_EX);
+        originals_chmod_file($dest);
+        $map = ORIGINALS_DIR . '/map/' . substr($served, 0, 32);
+        file_put_contents($map, $base, LOCK_EX);
+        originals_chmod_file($map);
     }
 }
 

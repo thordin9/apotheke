@@ -929,11 +929,13 @@ function image_bytes_heic(string $head): bool
 /** Create originals/ and map/, and a deny file so Apache refuses the directory if it is ever under the docroot. */
 function image_originals_prepare(): bool
 {
+    if (originals_dir_in_web_root(ORIGINALS_DIR, dirname(__DIR__) . '/public')) return false;
     foreach ([ORIGINALS_DIR, ORIGINALS_DIR . '/map'] as $dir) {
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) return false;
+        if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) return false;
+        originals_chmod_dir($dir);
     }
-    $ht = ORIGINALS_DIR . '/.htaccess';
-    if (!is_file($ht)) @file_put_contents($ht, "Require all denied\nDeny from all\n");
+    originals_htaccess_write(ORIGINALS_DIR . '/.htaccess');
+    originals_chmod_file(ORIGINALS_DIR . '/.htaccess');
     return true;
 }
 
@@ -960,11 +962,13 @@ function image_original_save(string $name, string $src, string $ext): bool
     $base = bin2hex(random_bytes(32)) . '.' . $ext;
     $dest = ORIGINALS_DIR . '/' . $base;
     if (!@copy($src, $dest)) return false;
+    originals_chmod_file($dest);
     $map = image_original_map_path($name);
     if ($map === null || file_put_contents($map, $base, LOCK_EX) === false) {
         @unlink($dest);
         return false;
     }
+    originals_chmod_file($map);
     return true;
 }
 

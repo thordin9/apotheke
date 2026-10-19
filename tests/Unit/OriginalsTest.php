@@ -27,8 +27,77 @@ final class OriginalsTest extends DatabaseTestCase
         $this->assertNotSame(hash('sha256', $bytes), hash('sha256', $served));
         $this->assertFileExists(THUMB_DIR . '/' . $name);
         $this->assertFileExists(ORIGINALS_DIR . '/.htaccess');
-        $this->assertStringContainsString('Require all denied', (string)file_get_contents(ORIGINALS_DIR . '/.htaccess'));
+        $ht = (string)file_get_contents(ORIGINALS_DIR . '/.htaccess');
+        $this->assertSame(originals_htaccess(), $ht);
+        $this->assertStringContainsString("<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>", $ht);
+        $this->assertStringContainsString("<IfModule !mod_authz_core.c>\n    Deny from all\n</IfModule>", $ht);
         $this->assertFalse(valid_image_name(basename($orig)));
+    }
+
+    public function testOriginalsArePrivateOnDisk(): void
+    {
+        $name = $this->store($this->plainJpeg(40, 30));
+        $orig = image_original_path($name);
+        $this->assertNotNull($orig);
+        $map = ORIGINALS_DIR . '/map/' . substr($name, 0, 32);
+        $this->assertSame(0750, fileperms(ORIGINALS_DIR) & 0777);
+        $this->assertSame(0750, fileperms(ORIGINALS_DIR . '/map') & 0777);
+        $this->assertSame(0640, fileperms((string)$orig) & 0777);
+        $this->assertSame(0640, fileperms($map) & 0777);
+        $this->assertSame(0640, fileperms(ORIGINALS_DIR . '/.htaccess') & 0777);
+    }
+
+    public function testOriginalsDirInsideTheWebRootIsRefused(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $web = $root . '/public';
+        $this->assertTrue(originals_dir_in_web_root($web . '/camera-private', $web));
+        $this->assertTrue(originals_dir_in_web_root($web, $web));
+        $this->assertFalse(originals_dir_in_web_root($root . '/public-files/x', $web));
+        $this->assertFalse(originals_dir_in_web_root($web . '/../data/originals', $web));
+        $this->assertTrue(image_originals_prepare(), 'the test originals directory is outside public/');
+
+        $link = sys_get_temp_dir() . '/apotheke-orig-via-' . bin2hex(random_bytes(4));
+        mkdir($web . '/camera-private-probe', 0750, true);
+        try {
+            symlink($web . '/camera-private-probe', $link);
+            $this->assertTrue(originals_dir_in_web_root($link, $web), 'a path outside public/ that points inside it');
+        } finally {
+            @unlink($link);
+            @rmdir($web . '/camera-private-probe');
+        }
+
+        $bad = $web . '/camera-private';
+        if (is_dir($bad)) @rmdir($bad);
+        $this->assertDirectoryDoesNotExist($bad);
+        $data = sys_get_temp_dir() . '/apotheke-webroot-' . bin2hex(random_bytes(4));
+        $spec = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $env = [
+            'PATH' => (string)getenv('PATH'),
+            'DATA_DIR' => $data,
+            'ORIGINALS_DIR' => $bad,
+            'APOTHEKE_CONFIG' => '/nonexistent',
+            'SEED_DEFAULTS' => '0',
+        ];
+        $proc = proc_open(
+            [PHP_BINARY, '-r', 'require ' . var_export($root . '/src/bootstrap.php', true) . ';'],
+            $spec,
+            $pipes,
+            $root,
+            $env
+        );
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+        $out = stream_get_contents($pipes[1]);
+        $err = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $code = proc_close($proc);
+        $this->assertSame(1, $code, $out . $err);
+        $this->assertStringContainsString('web root', $err . $out);
+        $this->assertStringContainsString($web, $err . $out);
+        $this->assertDirectoryDoesNotExist($bad);
+        $this->assertDirectoryDoesNotExist($data);
     }
 
     public function testLegacyPhotoWithoutAnOriginalIsLeftAlone(): void
