@@ -22,10 +22,10 @@ Control Panel → **AI autofill** (`/settings/autofill`, needs the *Settings* pe
 |---|---|---|
 | Suggest details from the photo | off | Master switch. |
 | Analyze photos automatically | off | **New in 2.4.** Off: the item form shows an *Analyze* button per photo and nothing is sent until someone taps it. On: a photo picked on the form is analyzed right away (the 2.3 behaviour); the buttons stay for another try. Migration 0025 writes *off* on every install, new and existing. |
-| Service address | empty | Base URL without `/v1`, e.g. `http://192.168.1.10:8080`. Only `http://` and `https://`. |
-| Timeout (seconds) | 50 | 3–60. Set it about 5 s above the service's own timeout: 50 for the default Jetson setup, where the service gives up after 45 s (`BACKEND_TIMEOUT_S`). Also the longest Apotheke waits for a `Retry-After` before its one retry. Upgrading from 2.2 moves a stored 30 (the old default) to 50 (migration 0024); any other value is kept. |
+| Service address | empty | Your Worker URL, without `/v1`, for example `https://autofill.example`. Deploy steps: [Worker deploy doc](https://github.com/thordin9/apotheke-autofill-service/blob/main/docs/cloudflare-workers-deploy.md). Only `http://` and `https://`. |
+| Timeout (seconds) | 50 | 3–60. Set it about 5 s above the service's own timeout: 50 for the default Jetson setup, where the service gives up after 45 s (`BACKEND_TIMEOUT_S`). A `Retry-After` is honoured only when it is at most 60 s and no longer than this timeout. Upgrading from 2.2 moves a stored 30 (the old default) to 50 (migration 0024); any other value is kept. |
 | Model | service default | **New in 2.4.** A dropdown of the service's `models` from `/v1/info` (API v1.2): *Service default (…)* or one model, with *loaded* and its typical time when the service says so. *loaded* is what the service reports; Apotheke does not rely on it, and any photo can still be a cold start, so the progress bar and its hint always allow for the full timeout. Sent as `context.model`. Hidden when the service lists no models; then no model is sent. With exactly **one** model (`ALLOWED_MODELS` unset on the service) it is shown with that model, disabled, with the hint *More models appear when ALLOWED_MODELS is set on the service.*; two or more models make it selectable. |
-| Image size | recommended | **New in 2.4.** A dropdown of the service's `image_sizes` (long edge in px): *Recommended (N px)* or one size. Photos are resized to it before upload and never enlarged. Hidden when the service lists no sizes; then photos go at 1024 px as before (2.3 already resized every photo to 1024 px, so an older service gets what it got before). The Jetson runs with `IMAGE_SIZES=448,560*,1024`, so *Recommended* is 560 px there. |
+| Image size | recommended | **New in 2.4.** A dropdown of the service's `image_sizes` (long edge in px): *Recommended (N px)* or one size. The suggestion copy is resized to it and never enlarged. The stored upload is the file you picked, unless that file is over the upload limit. Hidden when the service lists no sizes; then the suggestion copy goes at 1024 px as before (2.3 already resized every photo to 1024 px, so an older service gets what it got before). The Jetson runs with `IMAGE_SIZES=448,560*,1024`, so *Recommended* is 560 px there. |
 | Access token | none | Only if the service runs with `AUTOFILL_TOKEN`. See below. |
 
 All values live in the `settings` table like every other Control Panel option (`autofill_auto`, `autofill_model`
@@ -105,9 +105,9 @@ context. It shows:
 It uses the **Model** and **Image size** as currently chosen in the form, saved or not, so you can try a model before
 saving it.
 
-Each request stays within the time still left of the timeout as typed. A `503` with `Retry-After` no longer than
-that timeout is retried once after the wait (a cold model, including the first photo after a model switch), so the
-test can take as long as the timeout. A service that is down, slow or refusing the token ends with a clear message
+Each request stays within the time still left of the timeout as typed. A `503` with `Retry-After` of at most 60
+seconds, and no longer than that timeout, is retried once after the wait (a cold model, including the first photo
+after a model switch), so the test can take as long as the timeout. A longer `Retry-After` is not waited out. A service that is down, slow or refusing the token ends with a clear message
 instead of a hanging page. The token is never shown. Like Test connection it is a plain form button: it works
 without JavaScript (with JavaScript the result area says *Sending the sample photo…* while it runs) and nothing
 is saved.
@@ -152,15 +152,15 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
 
 ### What is sent
 
-1. The browser resizes the picked photo to the chosen **long edge** (`data-af-side` on the form: the Image size, or
-   1024 px for a service without `image_sizes`). It is **never enlarged**. The browser's decoder applies the EXIF
-   orientation, so a phone photo stored sideways is sent upright. It is a JPEG (on white), or a **PNG when the
-   photo has transparency** (a PNG/WebP/GIF whose pixels are not all opaque), so the alpha channel survives. A
-   small JPEG that would only grow by re-encoding is sent as it is. It is posted to Apotheke's
-   `POST /autofill/suggest` (same-origin, CSRF token). The upload limit (*Photos & uploads → Maximum upload*) and the
-   service's `max_image_bytes` apply to this **resized** file, so a 15 MB phone photo
-   is fine. Until `/v1/info` is cached, Apotheke uses 983040 bytes (0.9 MiB) for that check; a cached
-   `max_image_bytes` replaces it.
+1. **Analyze** resizes the picked photo in the browser to the chosen **long edge** (`data-af-side` on the form: the
+   Image size, or 1024 px for a service without `image_sizes`). It is **never enlarged**. The browser's decoder
+   applies the EXIF orientation, so a phone photo stored sideways is sent upright. It is a JPEG (on white), or a
+   **PNG when the photo has transparency** (a PNG/WebP/GIF whose pixels are not all opaque), so the alpha channel
+   survives. A small JPEG that would only grow by re-encoding is sent as it is. That copy is posted to Apotheke's
+   `POST /autofill/suggest` (same-origin, CSRF token). It is the suggestion request only. Saving the item uploads
+   the picked file unchanged when it fits *Photos & uploads → Maximum upload* (default 20 MB). Over that limit the
+   browser saves a smaller JPEG and the form says the original is not kept. Until `/v1/info` is cached, Apotheke
+   uses 983040 bytes (0.9 MiB) when checking the suggestion body; a cached `max_image_bytes` replaces it.
 2. The server does not send that upload on. It builds a **separate** JPEG from the camera file when one exists,
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
    enlarged, quality about 80 (then 70, then 60 if the full multipart body is still over the limit), metadata
@@ -198,11 +198,15 @@ stays usable the whole time:
    failed (table below). On success the bar jumps to 100 % and disappears.
 
 **Warming up or busy.** When the service answers `503` with `error.code` `backend_unavailable` and a
-`Retry-After` header (the model is loading, or its queue is full), Apotheke passes `retry_after` (seconds) and
+`Retry-After` header (the model is loading, or its queue is full), and that wait is **at most 60 seconds**,
+Apotheke passes `retry_after` (seconds) and
 `retry_reason` on to the browser. The reason comes from the service's `error.message`: *loading* or *warming
 up* means a cold model (`warming`), anything else is `busy`. The browser shows **Model is warming up…
-retrying in N s** or **Service is busy… retrying in N s** with a countdown and then tries **once** more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
-timeout; then, as when the retry fails too, the usual message is shown.
+retrying in N s** or **Service is busy… retrying in N s** with a countdown and then tries **once** more, resending
+the same analysis JPEG, not the camera file. Saving the item stays available during the wait. It does not retry when you picked another photo meanwhile, when `Retry-After` is longer than the
+timeout, or when `Retry-After` is over 60 seconds (a daily cap that counts down to 00:00 UTC). That last case is
+*the service is busy or not ready*, with no countdown, so the item can be saved at once. When the one short retry
+fails too, the usual message is shown.
 
 **Only empty fields are filled, never one you have touched, and never one an earlier analysis filled.** Typing in a field (even if you then clear
 it), picking from a list (even the same value again) or removing a tag chip makes it yours. On a **new** item a
@@ -233,7 +237,8 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Backend down or not ready (`503` `backend_unavailable`) | *busy or not ready* |
 | Backend failed on this photo (`503` `backend_error`) | *the service had a problem with this photo. Try again, or fill in the fields yourself* (no retry) |
 | Model loading (`503` + `Retry-After`, "model … is loading / warming up") | *Model is warming up… retrying in N s*, one retry; then *the model is warming up. Try again in N s* |
-| Queue full (`503` + `Retry-After`, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
+| Queue full (`503` + `Retry-After` ≤ 60 s, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
+| `Retry-After` over 60 s (a daily cap) | *the service is busy or not ready*, no retry, save at once |
 | Photo too large (`413`, larger than `max_image_bytes` from the last Test connection, or over the upload cap) | *the photo is too large (max N MiB / N bytes)* — the cached service limit, or 0.9 MiB / 983040 bytes when `/v1/info` has not been cached, or the upload cap when that is smaller |
 | Image type not supported (`415`) | *cannot read this kind of image* |
 | Not an image, or a photo that cannot be turned into a stripped JPEG (no GD/Imagick, HEIC without libheif, broken file) | *cannot be read as a photo* – checked locally, nothing is sent |

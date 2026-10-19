@@ -21,7 +21,7 @@ data/
   catalog.sqlite      SQLite database (created on first start)
   images/             served photos (JPEG, longest side ≤ IMAGE_FULL_MAX, 32-hex names, metadata stripped)
   thumbs/             thumbnails (longest side ≤ IMAGE_THUMB_MAX)
-  originals/          camera uploads, byte-identical, 64-hex names (not served)
+  originals/          camera uploads, byte-identical when they fit the upload limit, 64-hex names (not served)
   sessions/           PHP session files
   tmp/                short-lived files for backup downloads and restore uploads
   postgres/           only when the postgres profile is used

@@ -87,9 +87,14 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 
 ## PHP and web server limits
 
-Photos are shrunk on the phone before upload (max. 1600 px, JPEG ~80 %), so the defaults are plenty. Backups uploaded
-through the web restore can be much larger: the Docker image allows up to 512 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
-in `docker/nginx.conf`; every other route keeps the 22 MB body limit); otherwise use `bin/restore.php`.
+A picked photo is uploaded unchanged when it fits **Maximum upload** (`uploads.max_mb`, default 20). Above that, the
+browser saves a smaller JPEG and says the original file is not kept. The shipped limits already cover a typical
+10–20 MB camera photo: `docker/php.ini` sets `upload_max_filesize=20M` and `post_max_size=22M`, and `docker/nginx.conf`
+sets `client_max_body_size 22m`. Raise all three together with `uploads.max_mb` (the Control Panel allows up to 200);
+`post_max_size` and `client_max_body_size` need to sit a little above `upload_max_filesize`. What the catalog shows
+is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
+through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
+in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
 ## Examples
 

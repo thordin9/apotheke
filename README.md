@@ -66,8 +66,9 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   thresholds and limits, photo sizes, users and sign-in — stored in the database, exportable as JSON, resettable per
   section. Database and paths stay in `config.php` / env and are shown read-only. See [docs/control-panel.md](docs/control-panel.md).
 * **AI autofill (optional)**: an [autofill service](https://github.com/thordin9/apotheke-autofill-service) suggests
-  name, category, tags and notes from a photo. The hosted worker is `https://apotheke-autofill-service.webapp.gr`
-  (a self-hosted service uses the same API; `https://autofill.example` is the placeholder). Apotheke sends a small
+  name, category, tags and notes from a photo. The service address is your Worker URL, for example
+  `https://autofill.example` ([how to deploy the Worker](https://github.com/thordin9/apotheke-autofill-service/blob/main/docs/cloudflare-workers-deploy.md)).
+  A service you run yourself uses the same API. Apotheke sends a small
   stripped JPEG, not the camera file. **On demand**: each photo on the item form has an *Analyze* button and
   nothing is sent until you tap it (auto-analyze is an admin option, off by default). Only empty fields are filled,
   never what you typed; one analysis at a time with a progress estimate. The admin picks the model and image size from
@@ -81,9 +82,9 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, drag to reorder, choose the cover,
-  crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
-  shrunk on the phone before upload (max 1600 px, JPEG ~80 %). The server keeps that upload byte for byte and serves a
-  separate JPEG (EXIF/GPS stripped) plus a 480 px thumbnail. Deleting or replacing a photo removes the camera file, the
+  crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). The file you pick is
+  uploaded unchanged when it fits the upload limit (20 MB by default). A larger file is reduced in the browser, and the page says the original is not kept. The server stores whatever it received byte for byte and serves a
+  separate JPEG (EXIF/GPS stripped, longest side at most 1600 px) plus a 480 px thumbnail. Deleting or replacing a photo removes the camera file, the
   JPEG and the thumbnail.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
   list), plus purchase price (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.

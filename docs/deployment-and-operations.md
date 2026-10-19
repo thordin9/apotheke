@@ -35,7 +35,13 @@ afterwards). *Restore* uploads a zip, validates it and shows a dry-run compariso
 confirmation and press *Restore* is **all data replaced**, in one transaction. Uploaded restore files wait in
 `DATA_DIR/tmp` under a random token until confirmed.
 
-**From the command line** (cron, archives larger than the upload limit):
+**From the command line** (cron, and any archive larger than the browser upload limit):
+
+A backup that includes camera files is often bigger than 22 MB. On a non-Docker install, and on every Docker route
+except `/backup/restore`, the body limit is about 22 MB (`upload_max_filesize` 20M, `post_max_size` 22M,
+`client_max_body_size 22m`), so a browser restore answers **413**. Docker allows 520 MB on `/backup/restore` only.
+Raise those three together if you restore large zips in the browser (`post_max_size` and `client_max_body_size` a
+little above `upload_max_filesize`). Otherwise use the command line, which does not pass through that limit:
 
 ```bash
 php bin/backup.php                        # ./apotheke-backup-<date>.zip
@@ -85,9 +91,10 @@ Notes:
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 * **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
-  under `originals/`. New uploads are stored twice: the camera file (about the size of the upload) and the stripped
-  JPEG you already had. Set `ORIGINALS_DIR` only if that directory should not be `<data_dir>/originals`. It must not
-  be inside `public/`. Backups taken after the upgrade include the camera files; older zips restore as before.
+  under `originals/`. New uploads are stored twice: the camera file (about the size of the file that was sent) and the
+  stripped JPEG you already had. A file over the upload limit is reduced in the browser first, and that smaller copy
+  is what is kept. Set `ORIGINALS_DIR` only if that directory should not be `<data_dir>/originals`. It must not
+  be inside `public/` (Apotheke refuses to start if it is). Backups taken after the upgrade include the camera files; older zips restore as before.
 
 ## Behind a web server or reverse proxy
 
@@ -96,8 +103,8 @@ Rules for any web server in front of PHP-FPM:
 * the document root is `public/`;
 * every request that is not an existing file in `public/` goes to `public/index.php`;
 * no other PHP file is ever executed, and `src/`, `data/`, `migrations/`, `bin/`, `config.php` and any URL path
-  containing `/originals` are not reachable (Docker nginx: `location ^~ /originals { return 404; }`; Apache:
-  `public/.htaccess` `RedirectMatch`, plus `Require all denied` inside the originals directory);
+  containing `/originals` are not reachable, in any spelling (Docker nginx: `location ~* ^/originals(/|$) { return 404; }`; Apache:
+  `public/.htaccess` `RedirectMatch` with `(?i)`, plus `Require all denied` and `Deny from all` inside the originals directory);
 * allow a request body of ~22 MB normally and more on `/backup/restore` if you restore through the browser.
 
 [`docker/nginx.conf`](../docker/nginx.conf) and [`docker/fastcgi.conf`](../docker/fastcgi.conf) are a complete,
@@ -164,8 +171,9 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
   allow-lists.
 * **Output:** every value is HTML-escaped (`h()`).
 * **Uploads:** the camera file is kept byte-identical under `originals/` with a 64-hex name that is not the served
-  name. The copy everyone sees is re-encoded by GD (EXIF/GPS dropped, orientation applied) and served only through
-  `/media/(full|thumb)/[a-f0-9]{32}.jpg`. A guessed `/originals/…` URL is 404. HEIC that cannot be converted is stored
+  name, when the picked file fits the upload limit. A larger file is reduced in the browser, and the form says the
+  original is not kept. The copy everyone sees is re-encoded by GD (EXIF/GPS dropped, orientation applied) and served only through
+  `/media/(full|thumb)/[a-f0-9]{32}.jpg`. A guessed `/originals/…` URL, including `/Originals/` and `/ORIGINALS/`, is 404. HEIC that cannot be converted is stored
   as the camera file and shown as a plain placeholder, never as the HEIC bytes.
 * **Backups:** strict entry-name, size and schema validation before anything is written (see above).
 * **Password:** `APP_PASSWORD` is compared in constant time; a wrong password costs 0.4 s; the session id is
@@ -179,4 +187,5 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
 * `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
   are logged as `[apotheke] …` and shown to the user as a generic error page.
-* Disk usage is almost entirely `data/images` and `data/thumbs`.
+* Disk usage is mostly `data/originals` (about the size of each camera file), plus the smaller stripped JPEG in
+  `data/images` and the thumbnail in `data/thumbs`.
