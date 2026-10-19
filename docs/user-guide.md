@@ -133,12 +133,19 @@ the cover. The ‹ › buttons still work (and without JavaScript).
 **Crop and rotate**: the ✎ button on a photo opens the editor. Rotate in 90° steps, drag on the photo to draw a crop
 (drag the corners to resize, drag inside to move; arrow keys nudge, Shift + arrows resize) or pick a fixed ratio
 (Free / 1:1 / 4:3). *Save* stores a **new version**: the server applies the edit with GD, regenerates the thumbnail,
-bumps the photo's version and deletes the old file (unless an undo still needs it). Without JavaScript, *Exact values*
-offers the same as a rotation menu and crop fields in percent. Edits are not reversible — the original is not kept.
+bumps the photo's version and deletes the previous served file (unless an undo still needs it). The camera file is kept
+and copied onto the new version; the editor shows the stripped JPEG, not that camera file. Without JavaScript, *Exact values*
+offers the same as a rotation menu and crop fields in percent.
 
-Photos are shrunk on the device before upload (max. 1600 px, JPEG ~80 %). The server checks every upload with
-`getimagesize`, re-encodes it with GD (which strips EXIF and GPS data), applies the EXIF orientation, writes a
-thumbnail and stores both under random file names outside the web root.
+Photos are shrunk on the device before upload (max. 1600 px, JPEG ~80 %). The server keeps that upload byte for byte
+(about as much disk again as the file you sent) under a name that is not the one in the page, outside the web root.
+What you see and what a thumbnail shows is a separate JPEG: EXIF orientation applied, longest side at most 1600 px,
+GPS and camera details removed. A backup stores that camera file together with the JPEG, and restoring puts both
+back. CSV export only names the served photo and does not include the camera file. Deleting a photo, replacing it,
+or deleting the item (after undo expires) removes the camera file, the JPEG and the thumbnail. Nothing from that
+photo is left in `images/`, `thumbs/` or `originals/`. A HEIC photo that this
+server cannot convert is kept, and the page shows a plain grey placeholder instead of the HEIC file. Photos already
+in the catalog before this version stay as they are and have no separate camera file.
 
 ## Suggestions from a photo (AI autofill)
 
@@ -164,7 +171,9 @@ from a photo of this item*.
 3. **Model is warming up… retrying in N s** or **Service is busy… retrying in N s**: the service asked Apotheke to
    wait (for example after an admin switched models); it tries once more by itself.
 4. **Suggestions ready: name, category… filled in. Check before saving.**, **No suggestions for this photo**, or a
-   short reason why it did not work (for example *the autofill service is not reachable*). Nothing is filled in then.
+   short reason why it did not work. If the service is down, answers with a web page, or does not answer in time, the
+   line says *autofill is unavailable right now* and you can save the item and fill it in yourself. Nothing is filled
+   in then, and Apotheke does not keep retrying that failure. A busy or warming model can still ask for one retry.
 
 **What gets filled.** Suggestions only go into fields that are **empty**, and never into a field you have touched:
 
@@ -408,8 +417,10 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
 ☰ → *Backup & restore*:
 
 * **Download backup** creates one zip with `backup.json` (every table: items with all their fields, locations,
-  categories, tags, photos, history, settings, attachments) plus all photo files, thumbnails and attached files. The format doesn't depend on the
-  database, so you can move between SQLite and PostgreSQL.
+  categories, tags, photos, history, settings, attachments) plus the served photo files, their thumbnails, the camera
+  files those photos were uploaded as, and attached files. The format doesn't depend on the
+  database, so you can move between SQLite and PostgreSQL. Restoring brings back both the camera file and the
+  stripped JPEG. **Export CSV** is for sharing: it names the served photo and does not include the camera file.
 * **Restore** uploads such a zip and first shows a preview (counts in the file vs. your current data). Nothing changes
   until you tick the confirmation box and press *Restore*; then all data is **replaced** in one transaction.
   Backups from older versions can be restored (columns added later are simply empty).

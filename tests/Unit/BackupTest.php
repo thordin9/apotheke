@@ -225,6 +225,46 @@ final class BackupTest extends DatabaseTestCase
         $this->assertSame($this->strip($before), $this->strip(backup_dump($this->pdo, $this->driver)));
     }
 
+    public function testBackupRestoresTheCameraFileAndTheStrippedCopy(): void
+    {
+        $bytes = $this->markedJpeg();
+        $tmp = $this->tmp('.jpg');
+        file_put_contents($tmp, $bytes);
+        $name = image_store(['error' => UPLOAD_ERR_OK, 'tmp_name' => $tmp, 'size' => strlen($bytes), 'name' => 'lamp.jpg']);
+        $id = item_save(null, ['name' => 'Lamp', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $name, false);
+        $orig = image_original_path($name);
+        $this->assertNotNull($orig);
+        $origHash = hash_file('sha256', $orig);
+        $derivHash = hash_file('sha256', IMG_DIR . '/' . $name);
+        $this->assertNotSame($origHash, $derivHash, 'the served copy is not the camera file');
+        $this->assertSame(hash('sha256', $bytes), $origHash);
+        $zip = $this->tmp('.zip');
+        backup_create($this->pdo, $this->driver, DATA_DIR, $zip);
+        item_delete(item_get($id));
+        $this->assertFileDoesNotExist($orig);
+        $this->assertFileDoesNotExist(IMG_DIR . '/' . $name);
+        $this->assertFileDoesNotExist(THUMB_DIR . '/' . $name);
+        $res = backup_restore($this->pdo, $this->driver, DATA_DIR, $zip);
+        $this->assertGreaterThanOrEqual(1, $res['photos']);
+        $back = image_original_path($name);
+        $this->assertNotNull($back);
+        $this->assertSame($origHash, hash_file('sha256', $back), 'restored original is the same bytes');
+        $this->assertSame($derivHash, hash_file('sha256', IMG_DIR . '/' . $name), 'restored derivative is the stripped copy');
+        $this->assertFileExists(THUMB_DIR . '/' . $name);
+        $this->assertStringNotContainsString("\xFF\xE1", (string)file_get_contents(IMG_DIR . '/' . $name));
+    }
+
+    private function markedJpeg(): string
+    {
+        $im = imagecreatetruecolor(80, 40);
+        imagefill($im, 0, 0, imagecolorallocate($im, 10, 20, 30));
+        ob_start();
+        imagejpeg($im, null, 90);
+        $jpeg = (string)ob_get_clean();
+        $payload = "Exif\x00\x00GPSLatitude Make Model SerialNumber";
+        return "\xFF\xD8\xFF\xE1" . pack('n', strlen($payload) + 2) . $payload . substr($jpeg, 2);
+    }
+
     public function testMissingThumbnailIsRegeneratedAndNonJpegSkipped(): void
     {
         $src = $this->dataDir();

@@ -40,7 +40,8 @@ return [
 
 | `config.php` key | Environment variable | Default | Where | Meaning |
 |---|---|---|---|---|
-| `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | bootstrap | Photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file. Created if missing. |
+| `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | bootstrap | Served photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file and the camera uploads (`originals/`). Created if missing. |
+| `originals_dir` | `ORIGINALS_DIR` | *(empty → `<data_dir>/originals`)* | bootstrap | Byte-identical camera uploads. Empty, or a relative path, stays outside `public/`. An absolute path is used as given. Not served over HTTP. |
 | `timezone` | `TZ` | `UTC` (`Europe/Athens` in `docker-compose.yml`) | DB — Currency, dates & time → Time zone | Time zone for displayed times, the statistics buckets and "today" (lending due dates). |
 | `app_password` | `APP_PASSWORD` | *(empty)* | DB — Users | Password of the first account `admin` (stored as a hash when the database is created; sign-in on). Empty means no login. Later: Settings → Users & sign-in or `php bin/settings.php user password admin`. |
 | `db.driver` | `DB_DRIVER` | `sqlite` | bootstrap | `sqlite` or `pgsql`; anything else is an error. |
@@ -73,6 +74,8 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 
 | Variable | Used by | Meaning |
 |---|---|---|
+| `AUTOFILL_UPLOAD_MAX_SIDE` | autofill | Longest side of the JPEG sent to the autofill service. Default `1600`, clamped to 64–4096. Never enlarges a smaller photo. The model’s image size, when the service lists one, is still the cap when it is smaller. |
+| `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the multipart body is still over the service limit, Apotheke tries 70 and then 60. |
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |

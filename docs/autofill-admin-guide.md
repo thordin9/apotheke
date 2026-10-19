@@ -10,8 +10,12 @@ You need the *Settings* permission (admins by default).
 ## 1. Connect the service
 
 1. Switch on **Suggest details from the photo**.
-2. **Service address**: where the service runs, without `/v1`, e.g. `http://192.168.1.10:8080`. If Apotheke runs in
-   Docker, `localhost` is the container itself: use the machine's LAN address.
+2. **Service address**: where the service runs, without `/v1`. The hosted worker is
+   `https://apotheke-autofill-service.webapp.gr`. A service you run yourself is an `https://` address such as
+   `https://autofill.example`. The older Jetson/GPU build speaks the same API and still works if you host it.
+   If Apotheke runs in Docker, `localhost` is the container itself: use an address the container can reach.
+   The access token is the service's `AUTOFILL_TOKEN` (Control Panel → AI autofill → Access token). Never put a
+   real token in a file you commit.
 3. **Timeout (seconds)**: about 5 s more than the service's own timeout. The default 50 fits the shipped Jetson
    setup (the service gives up after 45 s).
 4. Press **Test connection** (nothing is saved). *Connected* lists the service's name, API version, what it
@@ -44,9 +48,12 @@ Both dropdowns appear only when the service offers a choice (API v1.2: `models` 
 | `models` with two or more entries | enabled | – |
 | `image_sizes` listed | – | enabled; *Recommended* preselected |
 
-**Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge (in the browser and
-again on the server), so an older service gets exactly what it got before (never enlarged). A v1.2 service decides
-through its recommended size instead.
+**Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge, so an older service
+gets that size when it lists no `image_sizes` (never enlarged). A v1.2 service decides through its recommended size
+instead. Either way the copy that leaves Apotheke is capped at 1600 px (`AUTOFILL_UPLOAD_MAX_SIDE`) and is a JPEG
+at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that multipart body is
+still larger than the service's `max_image_bytes`, Apotheke tries quality 70 and then 60. Until `/v1/info` has been
+cached, the limit used for that check is 983040 bytes (0.9 MiB). The original upload is never sent.
 
 **The Jetson setup** (from the service benchmarks): the service runs with `IMAGE_SIZES=448,560*,1024` and
 `ALLOWED_MODELS` unset, so Image size shows *Recommended (560 px)*, 448, 560 and 1024 px. The Model dropdown shows
@@ -104,6 +111,29 @@ Typical results and what to do:
   **Test connection** (or Save) to see the dropdowns.
 - A second analysis of an item (another photo) no longer replaces what an earlier one filled in; it only fills
   fields that are still empty.
+
+## Camera files and what autofill reads
+
+New uploads are stored twice. `images/` and `thumbs/` are the stripped JPEGs the app shows. `originals/` (or
+`ORIGINALS_DIR`, default `<data_dir>/originals`, outside `public/`) keeps the upload byte for byte under a 64-hex
+name. The only pointer is a file in `originals/map/`, which is not a URL. `/originals/…` is 404 in the app, in
+`public/.htaccess`, and in the Docker nginx config (`location ^~ /originals`).
+
+Autofill builds a temporary JPEG from that camera file (or from the served JPEG if the photo predates this version),
+sends only that, and deletes the temp file even when the request fails. HEIC needs Imagick with libheif. Without it,
+or if the conversion fails, autofill is skipped with *cannot be read as a photo*, the camera file stays, and a grey
+placeholder is what the page shows. The HEIC itself is never served or sent.
+
+An HTML error page (including a Cloudflare 1102), a 200 that is not JSON, truncated JSON, a JSON 5xx that is not the
+API's own error object, and a timeout or network error on suggest are all *autofill is unavailable right now*. The
+item saves with no suggestions and Apotheke does not retry. A well-formed API 503 (`backend_unavailable` or
+`backend_error`) is unchanged, including the single warming/busy retry.
+
+**Upgrade.** Photos already on disk are not migrated. They keep working and have no camera file. New uploads get
+one. Backups from this version include `originals/`; older backups still restore. Deleting or replacing a photo
+removes the served JPEG, the thumbnail and the camera file.
+
+Disk use is about the size of each new upload, on top of the stripped JPEG.
 
 ## Security notes
 

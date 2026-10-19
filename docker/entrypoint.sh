@@ -6,7 +6,7 @@
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 set -eu
 DATA_DIR="${DATA_DIR:-/data}"
-mkdir -p "$DATA_DIR/images" "$DATA_DIR/thumbs" "$DATA_DIR/sessions"
+mkdir -p "$DATA_DIR/images" "$DATA_DIR/thumbs" "$DATA_DIR/originals/map" "$DATA_DIR/sessions"
 find "$DATA_DIR" \! -user www-data -exec chown www-data:www-data {} + 2>/dev/null || true
 chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 

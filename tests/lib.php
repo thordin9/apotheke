@@ -280,6 +280,17 @@ function img_png(int $w, int $h): string
     return (string)ob_get_clean();
 }
 
+/** Kept camera file for a served photo in an integration data dir, or null. */
+function test_original(string $dir, string $served): ?string
+{
+    $map = $dir . '/originals/map/' . substr($served, 0, 32);
+    if (!is_file($map)) return null;
+    $base = trim((string)file_get_contents($map));
+    if (!preg_match('/^[a-f0-9]{64}\.(jpg|png|webp|gif|heic)$/D', $base)) return null;
+    $p = $dir . '/originals/' . $base;
+    return is_file($p) ? $p : null;
+}
+
 function jpg_file(string $data, string $name = 'photo.jpg', string $type = 'image/jpeg'): array
 {
     return ['name' => $name, 'type' => $type, 'data' => $data];

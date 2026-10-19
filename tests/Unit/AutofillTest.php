@@ -306,7 +306,8 @@ final class AutofillTest extends DatabaseTestCase
         // the whole run stays within the timeout: a slow model is cut off at the configured 3 s
         $t = microtime(true);
         $r = autofill_test_photo(self::$stubBase . '/d/8000', 3, '');
-        $this->assertSame('timeout', $r['code']);
+        $this->assertSame('unavailable', $r['code']);
+        $this->assertStringContainsString('unavailable', $r['message']);
         $this->assertLessThan(4.5, microtime(true) - $t);
         $this->assertTrue($r['checks']['ready'], 'the checks passed before the photo timed out');
         $this->assertSame('not_configured', autofill_test_photo(' ', 3, '')['code']);
@@ -406,13 +407,16 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('Misc', $r['suggestions']['category'], 'no categories yet: the echo default');
         $this->assertSame(['echo', 'sample'], $r['suggestions']['tags']);
         $this->assertMatchesRegularExpression('/^JPEG image, \d+ bytes$/', $r['suggestions']['description']);
-        $map = ['/m/error' => 'busy', '/m/malformed' => 'bad_response', '/m/toolarge' => 'too_large', '/m/unsupported' => 'unsupported', '/t/x' => 'unauthorized', '/m/empty' => 'empty'];
+        $map = ['/m/error' => 'busy', '/m/malformed' => 'unavailable', '/m/toolarge' => 'too_large', '/m/unsupported' => 'unsupported', '/t/x' => 'unauthorized', '/m/empty' => 'empty'];
         foreach ($map as $p => $code) {
             settings_store(['autofill_url' => self::$stubBase . $p]);
             $this->assertSame($code, autofill_suggest($this->jpeg(20, 20))['code'], $p);
         }
         settings_store(['autofill_url' => 'http://127.0.0.1:1']);
-        $this->assertSame('unreachable', autofill_suggest($this->jpeg(20, 20))['code']);
+        $r = autofill_suggest($this->jpeg(20, 20));
+        $this->assertSame('unavailable', $r['code']);
+        $this->assertStringContainsString('unavailable', $r['message']);
+        $this->assertArrayNotHasKey('retry_after', $r);
     }
 
     public function testSuggestRespectsTheAdvertisedLimit(): void
@@ -431,8 +435,8 @@ final class AutofillTest extends DatabaseTestCase
         @unlink(DATA_DIR . '/autofill-info.json');
         $r = autofill_suggest($this->jpeg(40, 40));
         $this->assertSame('too_large', $r['code']);
-        $this->assertStringContainsString('10 MiB', $r['message'], 'MiB, matching the service');
-        $this->assertStringContainsString('10485760', $r['message'], 'the same limit in bytes');
+        $this->assertStringContainsString('0.9 MiB', $r['message'], 'MiB, the fallback until /v1/info is cached');
+        $this->assertStringContainsString('983040', $r['message'], 'the same limit in bytes');
     }
 
     public function testSuggestRouteNeedsCreate(): void
@@ -759,7 +763,193 @@ final class AutofillTest extends DatabaseTestCase
     public function testImageLimitInMib(): void
     {
         $this->assertSame('10 MiB', autofill_mib(10485760));
+        $this->assertSame('0.9 MiB', autofill_mib(983040));
         $this->assertSame('1.5 MiB', autofill_mib(1572864));
         $this->assertSame(60, settings_schema()['autofill_timeout'][5]['max']);
+        $this->assertSame(983040, AUTOFILL_SERVICE_IMAGE_BYTES);
+    }
+
+    public function testAnalysisCopyIsAStrippedJpeg(): void
+    {
+        $plain = $this->scene(4000, 3000, false);
+        $out = autofill_analysis_jpeg($plain);
+        $this->assertNotNull($out);
+        $info = getimagesizefromstring($out);
+        $this->assertSame([1600, 1200, IMAGETYPE_JPEG], [$info[0], $info[1], $info[2]]);
+        $this->assertLessThanOrEqual(983040, strlen($out));
+        $this->assertSame($this->jpegDqt($this->referenceJpeg(80)), $this->jpegDqt($out), 'JPEG quality about 80');
+        $this->assertStringNotContainsString('GPSLatitude', $out);
+        $this->assertStringNotContainsString("\xFF\xE1", $out);
+
+        $png = $this->png(4000, 3000);
+        $asJpeg = autofill_analysis_jpeg($png);
+        $this->assertNotNull($asJpeg);
+        $pi = getimagesizefromstring($asJpeg);
+        $this->assertSame([1600, 1200, IMAGETYPE_JPEG], [$pi[0], $pi[1], $pi[2]]);
+        $part = autofill_multipart_body($asJpeg, '{}');
+        $this->assertLessThanOrEqual(983040, strlen($part['body']));
+        $this->assertGreaterThan(strlen($asJpeg), strlen($part['body']));
+
+        $small = getimagesizefromstring(autofill_analysis_jpeg($this->jpeg(300, 200)));
+        $this->assertSame([300, 200], [$small[0], $small[1]], 'never enlarged');
+
+        if (function_exists('exif_read_data')) {
+            $turned = autofill_analysis_jpeg($this->scene(4000, 3000, true));
+            $ti = getimagesizefromstring($turned);
+            $this->assertSame([1200, 1600], [$ti[0], $ti[1]], 'orientation 6 is applied before the resize');
+            $im = imagecreatefromstring($turned);
+            $top = imagecolorat($im, 600, 8);
+            $this->assertGreaterThan(150, ($top >> 16) & 255, 'the red left edge becomes the top edge');
+            $this->assertLessThan(80, $top & 255);
+        }
+    }
+
+    public function testFallbackLimitIsUsedUntilInfoIsCached(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5]);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $this->assertSame(983040, autofill_service_image_limit());
+        autofill_info_cache(['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'ready' => true]);
+        $this->assertSame(10485760, autofill_service_image_limit());
+    }
+
+    public function testResizeFailureSendsNothingAndLeavesTheStoredPhoto(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5]);
+        $bytes = $this->jpeg(80, 60);
+        $name = $this->storePhoto($bytes);
+        $orig = image_original_path($name);
+        $origHash = hash_file('sha256', $orig);
+        $servedHash = hash_file('sha256', IMG_DIR . '/' . $name);
+        $this->clearUploads();
+        $r = autofill_suggest_path($orig, []);
+        $this->assertSame('unsupported', $r['code']);
+        $this->assertStringContainsString('cannot be read as a photo', $r['message']);
+        $this->assertSame([], $this->uploads());
+        $this->assertSame($origHash, hash_file('sha256', image_original_path($name)));
+        $this->assertSame($servedHash, hash_file('sha256', IMG_DIR . '/' . $name));
+        $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: []);
+        $heic = "\x00\x00\x00\x18ftypheic" . str_repeat('x', 300);
+        $this->clearUploads();
+        $r = autofill_suggest($heic, ['gd']);
+        $this->assertSame('unsupported', $r['code']);
+        $this->assertSame([], $this->uploads());
+        $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: []);
+    }
+
+    public function testOverLimitBodyIsNotSent(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5]);
+        autofill_info_cache(['name' => 'tiny', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 200, 'ready' => true]);
+        $this->clearUploads();
+        $r = autofill_suggest($this->jpeg(400, 300));
+        $this->assertSame('too_large', $r['code']);
+        $this->assertSame([], $this->uploads(), 'no HTTP request once every quality is still over the limit');
+        $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: []);
+    }
+
+    public function testUnknownJsonObjectIsEmptyNotUnavailable(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/hello', 'autofill_timeout' => 5]);
+        $r = autofill_suggest($this->jpeg(30, 20));
+        $this->assertTrue($r['ok'], $r['message']);
+        $this->assertSame('empty', $r['code']);
+    }
+
+    public function testBadServiceAnswersSaveTheItemWithoutSuggestions(): void
+    {
+        $cases = [
+            '/m/html' => 'html 502',
+            '/m/htmlfail' => 'html 503',
+            '/m/text' => 'plain text 200',
+            '/m/truncated' => 'truncated json',
+            '/m/jsonerr' => 'json 5xx',
+        ];
+        foreach ($cases as $path => $label) $this->assertUnavailableSuggest($path, $label, 5);
+        $this->assertUnavailableSuggest('/d/8000', 'suggest timeout', 3);
+    }
+
+    private function assertUnavailableSuggest(string $path, string $label, int $timeout): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . $path, 'autofill_timeout' => $timeout]);
+        $name = $this->storePhoto($this->jpeg(48, 36));
+        $id = item_save(null, ['name' => 'Kept ' . $label, 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $name, false);
+        $this->clearUploads();
+        $t = microtime(true);
+        $r = autofill_suggest_path((string)image_original_path($name));
+        $this->assertLessThan($timeout + 3, microtime(true) - $t, $label);
+        $this->assertFalse($r['ok'], $label);
+        $this->assertSame('unavailable', $r['code'], $label . ' ' . ($r['message'] ?? ''));
+        $this->assertStringContainsString('unavailable', $r['message'], $label);
+        $this->assertArrayNotHasKey('retry_after', $r, $label);
+        $this->assertSame('Kept ' . $label, item_get($id)['name'], $label);
+        $this->assertSame(1, $this->suggestCount(), $label);
+        $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: [], $label);
+        $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-src-*') ?: [], $label);
+    }
+
+    private function suggestCount(): int
+    {
+        $n = json_decode((string)file_get_contents(self::$stubBase . '/_stub/count'), true);
+        return (int)($n['n'] ?? 0);
+    }
+
+    private function storePhoto(string $bytes): string
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'af');
+        file_put_contents($tmp, $bytes);
+        try {
+            return image_store(['error' => UPLOAD_ERR_OK, 'tmp_name' => $tmp, 'size' => strlen($bytes), 'name' => 'p.jpg']);
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
+    /** Solid blocks so a 4000×3000 frame stays small. $turned adds EXIF orientation 6 and a red left edge. */
+    private function scene(int $w, int $h, bool $turned): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        imagefill($im, 0, 0, imagecolorallocate($im, 0, 0, 200));
+        if ($turned) imagefilledrectangle($im, 0, 0, 200, $h - 1, imagecolorallocate($im, 220, 0, 0));
+        ob_start();
+        imagejpeg($im, null, 85);
+        $jpeg = (string)ob_get_clean();
+        if (!$turned) return $jpeg;
+        $tiff = "MM\x00\x2A\x00\x00\x00\x08" . "\x00\x01" . "\x01\x12\x00\x03\x00\x00\x00\x01" . pack('n', 6) . "\x00\x00" . "\x00\x00\x00\x00";
+        $app1 = "Exif\x00\x00" . $tiff . 'GPSLatitude';
+        return "\xFF\xD8\xFF\xE1" . pack('n', strlen($app1) + 2) . $app1 . substr($jpeg, 2);
+    }
+
+    private function png(int $w, int $h): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        imagefill($im, 0, 0, imagecolorallocate($im, 20, 160, 40));
+        ob_start();
+        imagepng($im);
+        return (string)ob_get_clean();
+    }
+
+    private function referenceJpeg(int $quality): string
+    {
+        $im = imagecreatetruecolor(8, 8);
+        ob_start();
+        imagejpeg($im, null, $quality);
+        return (string)ob_get_clean();
+    }
+
+    private function jpegDqt(string $jpeg): string
+    {
+        $out = '';
+        $i = 2;
+        $n = strlen($jpeg);
+        while ($i + 4 < $n && $jpeg[$i] === "\xFF") {
+            $marker = ord($jpeg[$i + 1]);
+            if ($marker === 0xD8 || $marker === 0xD9 || $marker === 0x01 || ($marker >= 0xD0 && $marker <= 0xD7)) { $i += 2; continue; }
+            $len = unpack('n', substr($jpeg, $i + 2, 2))[1];
+            if ($marker === 0xDB) $out .= substr($jpeg, $i + 4, $len - 2);
+            if ($marker === 0xDA) break;
+            $i += 2 + $len;
+        }
+        return $out;
     }
 }

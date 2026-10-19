@@ -19,6 +19,7 @@ check "/index.php reaches the app"    1 "$(curl -s "$base/index.php" | grep -c '
 r=$(code "$base/assets/../../src/bootstrap.php" --path-as-is)
 check "path traversal never executes" 1 "$([[ $r == 400 || $r == 404 ]] && echo 1 || echo "$r")"
 check "src/ blocked"                  404 "$(code "$base/src/bootstrap.php")"
+check "originals/ blocked"            404 "$(code "$base/originals/guess.jpg")"
 check "migrations/ blocked"           404 "$(code "$base/migrations/0001_initial_schema.php")"
 check "config.php blocked"            404 "$(code "$base/config.php")"
 check "dotfiles blocked"              404 "$(code "$base/.git/config")"

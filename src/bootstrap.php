@@ -17,16 +17,27 @@ require_once __DIR__ . '/users.php';
 define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
 define('THUMB_DIR', DATA_DIR . '/thumbs');
+$originalsDir = trim((string)(cfg()['originals_dir'] ?? ''));
+if ($originalsDir === '') {
+    $originalsDir = DATA_DIR . '/originals';
+} elseif ($originalsDir[0] !== '/') {
+    $originalsDir = dirname(__DIR__) . '/' . $originalsDir;
+}
+define('ORIGINALS_DIR', rtrim($originalsDir, '/')); // camera uploads; never served. Default is outside public/.
+unset($originalsDir);
 define('SESS_DIR', DATA_DIR . '/sessions');
 
 date_default_timezone_set(cfg()['timezone']);
 mb_internal_encoding('UTF-8');
 
-foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, SESS_DIR] as $dir) {
+foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, ORIGINALS_DIR, ORIGINALS_DIR . '/map', SESS_DIR] as $dir) {
     if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
         http_response_code(500);
         exit('Data directory ' . $dir . ' is not writable.');
     }
+}
+if (!is_file(ORIGINALS_DIR . '/.htaccess')) {
+    @file_put_contents(ORIGINALS_DIR . '/.htaccess', "Require all denied\nDeny from all\n");
 }
 
 final class UserError extends RuntimeException {}

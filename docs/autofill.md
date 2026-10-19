@@ -158,20 +158,24 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
    photo has transparency** (a PNG/WebP/GIF whose pixels are not all opaque), so the alpha channel survives. A
    small JPEG that would only grow by re-encoding is sent as it is. It is posted to Apotheke's
    `POST /autofill/suggest` (same-origin, CSRF token). The upload limit (*Photos & uploads → Maximum upload*) and the
-   service's `max_image_bytes` (10 MiB for the shipped service) apply to this **resized** file, so a 15 MB phone photo
-   is fine.
-2. The server decodes it again with GD, applies the EXIF orientation and re-encodes at most the same long edge
-   (JPEG; PNG with alpha for a transparent image), so the service always gets a format it reads. A stored photo
-   (`photo_id`) goes through the same step.
+   service's `max_image_bytes` apply to this **resized** file, so a 15 MB phone photo
+   is fine. Until `/v1/info` is cached, Apotheke uses 983040 bytes (0.9 MiB) for that check; a cached
+   `max_image_bytes` replaces it.
+2. The server does not send that upload on. It builds a **separate** JPEG from the camera file when one exists,
+   otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
+   enlarged, quality about 80 (then 70, then 60 if the full multipart body is still over the limit), metadata
+   stripped. GD is used first, Imagick if GD cannot read the file. The temp file is `DATA_DIR/tmp/autofill-*.jpg`
+   and is deleted when the call ends, including on errors. The stored photo is not rewritten. Only that stripped
+   JPEG leaves Apotheke. If it cannot be built, nothing is sent.
 3. It calls the service's `POST /v1/suggest` with the image, the bearer token and a `context`: the names of
    your existing **categories** and **tags** (so the backend reuses your spelling), `locale`, and `model` when a
    model is chosen and the service lists models.
 
 **HEIC/HEIF.** Where the browser can decode HEIC (Safari on iPhone, iPad and Mac — where HEIC photos come from), it
-is converted to JPEG in step 1 like any photo, at the chosen size. Where it cannot (Chrome, Firefox and others
-without HEIC support), the file is posted unchanged, GD cannot read it either, and it is passed through to the
-service, which answers `415`: the status line says *the service cannot read this kind of image* (a clean failure,
-nothing else happens). Apotheke does not bundle a HEIC decoder (no extra dependencies).
+is converted to JPEG in step 1 like any photo, at the chosen size. Where it cannot, the server converts it with
+Imagick only when that build has libheif (`Imagick::queryFormats('HEIC')` or `HEIF`). Otherwise autofill is skipped
+locally (*cannot be read as a photo*) and the original HEIC is not sent. The camera file is still stored; the page
+shows a placeholder rather than the HEIC.
 4. The answer is validated (unknown fields ignored, wrong-shaped fields dropped, name ≤ 200, category ≤ 120,
    at most 8 tags of ≤ 40 characters, description ≤ 2000) and returned to the browser.
 
@@ -222,18 +226,17 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Situation | Status line |
 |---|---|
 | Autofill off | nothing: no status line, no request |
-| Service down / wrong address / connect timeout (3 s) | *the autofill service is not reachable* |
-| Slower than the timeout | *did not answer within N seconds* (`504` from the service: *took too long*) |
+| Service down, connect failure, or suggest timeout | *autofill is unavailable right now* (no retry). Test connection still reports *not reachable* or *timeout* on its own checks |
+| HTML 5xx (including a Cloudflare 1102 page), 200 that is not JSON, truncated JSON, or a JSON 5xx that is not the API error object | *autofill is unavailable right now* (no retry). The item can still be saved |
 | Wrong token (`401`) | *refused the access token* (an admin fixes it in the Control Panel) |
 | No token set, service wants one (`401`) | *requires an access token* |
 | Backend down or not ready (`503` `backend_unavailable`) | *busy or not ready* |
 | Backend failed on this photo (`503` `backend_error`) | *the service had a problem with this photo. Try again, or fill in the fields yourself* (no retry) |
 | Model loading (`503` + `Retry-After`, "model … is loading / warming up") | *Model is warming up… retrying in N s*, one retry; then *the model is warming up. Try again in N s* |
 | Queue full (`503` + `Retry-After`, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
-| Not a JSON object (malformed) | *sent an unexpected answer* |
-| Photo too large (`413`, larger than `max_image_bytes` from the last Test connection, or over the upload cap) | *the photo is too large (max N MiB / N bytes)* — the service's limit (10 MiB / 10485760 bytes on the shipped service), or the upload cap when that is smaller |
+| Photo too large (`413`, larger than `max_image_bytes` from the last Test connection, or over the upload cap) | *the photo is too large (max N MiB / N bytes)* — the cached service limit, or 0.9 MiB / 983040 bytes when `/v1/info` has not been cached, or the upload cap when that is smaller |
 | Image type not supported (`415`) | *cannot read this kind of image* |
-| Not an image at all (PDF, text, broken file) | *cannot be read as a photo* – checked locally, nothing is sent. Only HEIC/HEIF, which PHP cannot read, is passed through unchanged for the service to decide |
+| Not an image, or a photo that cannot be turned into a stripped JPEG (no GD/Imagick, HEIC without libheif, broken file) | *cannot be read as a photo* – checked locally, nothing is sent |
 | `200 {}` | *No suggestions for this photo.* |
 
 **Saving never waits for a suggestion** – the browser asks `/autofill/suggest` separately. But a pending

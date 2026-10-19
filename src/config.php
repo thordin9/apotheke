@@ -30,6 +30,7 @@ const CONFIG_ENV_MAP = [
     'CURRENCY'        => 'currency',
     'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
     'SEED_DEFAULTS'   => 'seed_defaults',
+    'ORIGINALS_DIR'   => 'originals_dir',
 ];
 
 function config_defaults(string $root): array
@@ -59,6 +60,7 @@ function config_defaults(string $root): array
         'expiry_soon_days' => 30,          // "Expiring soon" = expires within this many days
         'public_url'    => '',             // base URL printed in QR labels; default: from the request
         'seed_defaults' => true,         // starter locations/categories on a brand-new database
+        'originals_dir' => '',           // camera uploads; empty = <data_dir>/originals (outside public/)
     ];
 }
 
@@ -81,6 +83,7 @@ function config_load(string $root, ?string $file, array $env): array
     }
     // normalise
     $cfg['data_dir'] = rtrim((string)$cfg['data_dir'], '/');
+    $cfg['originals_dir'] = rtrim((string)($cfg['originals_dir'] ?? ''), '/');
     $cfg['db']['driver'] = strtolower((string)$cfg['db']['driver']);
     if (!in_array($cfg['db']['driver'], ['sqlite', 'pgsql'], true)) {
         throw new RuntimeException('Unsupported db.driver "' . $cfg['db']['driver'] . '" (use sqlite or pgsql).');

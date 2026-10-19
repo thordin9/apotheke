@@ -8,6 +8,13 @@ declare(strict_types=1);
 
 $path = rawurldecode((string)(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'));
 
+// Camera originals are never a URL, even if a mis-set path lands inside the document root.
+if (preg_match('#(?:^|/)originals(?:/|$)#i', $path)) {
+    http_response_code(404);
+    header('Content-Type: text/plain; charset=UTF-8');
+    exit('Not found');
+}
+
 // Built-in dev server: serve real static files under public/ only (never ../ outside the docroot).
 require_once dirname(__DIR__) . '/src/dev_server.php';
 if (PHP_SAPI === 'cli-server' && dev_server_static_file(__DIR__, $path)) {
@@ -692,19 +699,20 @@ try {
             if ($file === '' || !valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) {
                 json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No suggestions: that photo no longer exists.', 'error' => 'No suggestions: that photo no longer exists.']);
             }
-            $r = autofill_suggest((string)file_get_contents(IMG_DIR . '/' . $file));
+            // Analyze the kept upload when there is one. The file under images/ is only the stripped copy and is not rewritten.
+            $r = autofill_suggest_path(image_original_path($file) ?? (IMG_DIR . '/' . $file));
             json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
         }
         $f = $_FILES['image'] ?? null;
         if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
             json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
         }
-        // the browser already resized the photo to the chosen image size, so this is the limit after resizing.
-        // State the tighter of the upload cap and the service's image limit (10 MiB / 10485760 on the shipped service).
+        // the browser already resized the photo. State the tighter of the upload cap and the service image limit
+        // (max_image_bytes from /v1/info, otherwise 983040). The stored photo is saved later, by the item form.
         if ((int)$f['size'] > max_upload()) {
             json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
         }
-        $r = autofill_suggest((string)file_get_contents((string)$f['tmp_name']));
+        $r = autofill_suggest_path((string)$f['tmp_name']);
         json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
     }
     if ($path === '/settings/autofill/token' && $method === 'POST') {
@@ -734,7 +742,7 @@ try {
         // The stored token only ever goes to the stored address; a typed, unsaved address gets the token typed
         // in the form (if any) or none, so the write-only token cannot be sent to a host of the caller's choice.
         $r = $badUrl
-            ? ['ok' => false, 'code' => 'invalid_url', 'message' => 'That is not a valid service address. Only http:// and https:// addresses are supported, e.g. http://192.168.1.10:8080.']
+            ? ['ok' => false, 'code' => 'invalid_url', 'message' => 'That is not a valid service address. Only http:// and https:// addresses are supported, e.g. https://autofill.example.']
             : ($photoTest
                 ? autofill_test_photo($url, $timeout, autofill_test_token($url, (string)($_POST['autofill_token'] ?? '')),
                     is_string($_POST['autofill_model'] ?? null) ? (string)$_POST['autofill_model'] : null,

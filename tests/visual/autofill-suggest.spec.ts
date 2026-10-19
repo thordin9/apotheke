@@ -330,14 +330,14 @@ test.describe('AI autofill suggestions', () => {
   });
 
   for (const c of [
-    { name: 'service down', url: 'http://127.0.0.1:1', msg: 'not reachable' },
+    { name: 'service down', url: 'http://127.0.0.1:1', msg: 'unavailable' },
     { name: 'backend unavailable (503)', url: () => stub.base + '/m/error', msg: 'busy or not ready' },
     { name: 'backend error (503)', url: () => stub.base + '/m/fault', msg: 'had a problem with this photo. Try again, or fill in the fields yourself' },
-    { name: 'malformed response', url: () => stub.base + '/m/malformed', msg: 'unexpected answer' },
+    { name: 'malformed response', url: () => stub.base + '/m/malformed', msg: 'unavailable' },
     { name: 'photo too large (413)', url: () => stub.base + '/m/toolarge', msg: 'too large (max 10 MiB / 10485760 bytes)' },
     { name: 'unsupported image (415)', url: () => stub.base + '/m/unsupported', msg: 'cannot read this kind of image' },
     { name: 'bad token (401)', url: () => stub.base + '/t/right-token', token: 'wrong-token', msg: 'refused the access token' },
-    { name: 'timeout', url: () => stub.base + '/m/slow', timeout: '3', msg: 'did not answer within 3 seconds' },
+    { name: 'timeout', url: () => stub.base + '/m/slow', timeout: '3', msg: 'unavailable' },
   ]) {
     test(`fails soft: ${c.name}`, async ({ app, page }) => {
       await configure(page, { on: true, url: typeof c.url === 'function' ? c.url() : c.url, timeout: c.timeout, token: c.token });

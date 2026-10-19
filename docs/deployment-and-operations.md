@@ -14,9 +14,17 @@ A backup is one zip file:
 ```
 backup.json      format "apotheke-backup": schema versions, source driver, creation time and every table
                  (locations, categories, tags, items, item_photos, item_tags, app_settings, activity) as columns + rows
-images/<hex>.jpg full-size photos
-thumbs/<hex>.jpg thumbnails
+images/<hex>.jpg            served photos (stripped JPEG, 32 hex characters)
+thumbs/<hex>.jpg            thumbnails
+originals/index.json        served name → camera-file name, when one was kept
+originals/<64 hex>.<ext>    that camera file, byte for byte (jpg, png, webp, gif or heic)
 ```
+
+A backup from an older Apotheke has no `originals/` entries and still restores. CSV export and the settings JSON stay
+sharing copies: they name the served photo, not the camera file, and they do not contain its bytes.
+
+Deleting an item (once undo has expired) or deleting or replacing a photo removes the served JPEG, the thumbnail and
+the camera file. Nothing from that photo is left in `images/`, `thumbs/` or `originals/`.
 
 The dump is database-independent, so a backup taken on SQLite restores on PostgreSQL and the other way round. Every
 column is exported automatically, which is why newer fields (low-stock level, lending) are included without any extra
@@ -47,8 +55,9 @@ A nightly cron example on the host:
 
 (create `data/backups/` first and prune old files yourself).
 
-What the restore checks: that the file is a zip with only `backup.json`, `images/*.jpg` and `thumbs/*.jpg` entries
-(names must be 32 hex characters), the entry count and unpacked size limits, the format and version, that every table
+What the restore checks: that the file is a zip with only `backup.json`, `images/*.jpg`, `thumbs/*.jpg`,
+`files/<hex>.<pdf|jpg|png|webp>`, `originals/index.json` and `originals/<64 hex>.<ext>` entries, the entry count and
+unpacked size limits, the format and version, that every table
 and column is known to this version (a backup from a **newer** schema is refused), and that rows are well-formed.
 Missing photo files produce a warning. Photos in `data/images` that the restored data doesn't reference are left on
 disk.
@@ -75,6 +84,10 @@ Notes:
   [Upgrading from 2.3](autofill.md#upgrading-from-23)).
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
+* **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
+  under `originals/`. New uploads are stored twice: the camera file (about the size of the upload) and the stripped
+  JPEG you already had. Set `ORIGINALS_DIR` only if that directory should not be `<data_dir>/originals`. It must not
+  be inside `public/`. Backups taken after the upgrade include the camera files; older zips restore as before.
 
 ## Behind a web server or reverse proxy
 
@@ -82,7 +95,9 @@ Rules for any web server in front of PHP-FPM:
 
 * the document root is `public/`;
 * every request that is not an existing file in `public/` goes to `public/index.php`;
-* no other PHP file is ever executed, and `src/`, `data/`, `migrations/`, `bin/`, `config.php` are not reachable;
+* no other PHP file is ever executed, and `src/`, `data/`, `migrations/`, `bin/`, `config.php` and any URL path
+  containing `/originals` are not reachable (Docker nginx: `location ^~ /originals { return 404; }`; Apache:
+  `public/.htaccess` `RedirectMatch`, plus `Require all denied` inside the originals directory);
 * allow a request body of ~22 MB normally and more on `/backup/restore` if you restore through the browser.
 
 [`docker/nginx.conf`](../docker/nginx.conf) and [`docker/fastcgi.conf`](../docker/fastcgi.conf) are a complete,
@@ -148,8 +163,10 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
 * **SQL:** prepared statements everywhere; dynamic parts (sort columns, table names in backups) come from fixed
   allow-lists.
 * **Output:** every value is HTML-escaped (`h()`).
-* **Uploads:** checked with `getimagesize`, decoded and re-encoded by GD (dropping EXIF/GPS), stored with random hex
-  names outside the web root and served only through the `/media/(full|thumb)/[a-f0-9]{32}.jpg` route.
+* **Uploads:** the camera file is kept byte-identical under `originals/` with a 64-hex name that is not the served
+  name. The copy everyone sees is re-encoded by GD (EXIF/GPS dropped, orientation applied) and served only through
+  `/media/(full|thumb)/[a-f0-9]{32}.jpg`. A guessed `/originals/…` URL is 404. HEIC that cannot be converted is stored
+  as the camera file and shown as a plain placeholder, never as the HEIC bytes.
 * **Backups:** strict entry-name, size and schema validation before anything is written (see above).
 * **Password:** `APP_PASSWORD` is compared in constant time; a wrong password costs 0.4 s; the session id is
   regenerated on sign-in and sign-out.

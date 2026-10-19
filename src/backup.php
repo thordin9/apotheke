@@ -7,7 +7,9 @@ declare(strict_types=1);
  * A backup is a zip with
  *   backup.json   {"format":"apotheke-backup","version":1,"created_at":…,"app":…,"driver":…,"schema":[migration versions],
  *                  "tables":{"<table>":{"columns":[…],"rows":[[…],…]}, …}}
- *   images/<hex>.jpg, thumbs/<hex>.jpg   every photo referenced by the data
+ *   images/<hex>.jpg, thumbs/<hex>.jpg   every served photo (stripped JPEG)
+ *   originals/index.json                 served name → original basename, when a camera file was kept
+ *   originals/<64 hex>.<ext>             that camera file, byte-identical (not a sharing export)
  *   files/<hex>.<pdf|jpg|png|webp>       every attachment referenced by the data
  * The JSON dump is driver-neutral, so a backup taken on SQLite restores into PostgreSQL and vice versa.
  * Restore replaces ALL catalog data in one transaction; photo files are written first (random names, so
@@ -85,6 +87,25 @@ function backup_photo_files(array $dump): array
     return array_keys($files);
 }
 
+/**
+ * Served photo name → original basename, for photos that still have a camera file.
+ * @param string[] $photoNames
+ * @return array<string,string>
+ */
+function backup_original_index(array $photoNames): array
+{
+    $index = [];
+    foreach ($photoNames as $f) {
+        $path = image_original_path($f);
+        if ($path === null) continue;
+        $base = basename($path);
+        if (!image_original_basename_ok($base)) continue;
+        $index[$f] = $base;
+    }
+    ksort($index);
+    return $index;
+}
+
 /** Attachment file names referenced by a dump. */
 function backup_attachment_files(array $dump): array
 {
@@ -121,6 +142,16 @@ function backup_create(PDO $pdo, string $driver, string $dataDir, string $zipPat
         }
         $n++;
     }
+    $index = backup_original_index(backup_photo_files($dump));
+    if ($index) {
+        $zip->addFromString('originals/index.json', json_encode($index, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        foreach ($index as $base) {
+            $full = ORIGINALS_DIR . '/' . $base;
+            if (!is_file($full)) { $missing[] = $base; continue; }
+            $zip->addFile($full, "originals/$base");
+            $zip->setCompressionName("originals/$base", ZipArchive::CM_STORE);
+        }
+    }
     foreach (backup_attachment_files($dump) as $f) {
         $full = "$dataDir/files/$f";
         if (!is_file($full)) { $missing[] = $f; continue; }
@@ -144,8 +175,10 @@ function backup_open(string $zipPath, PDO $pdo, string $driver): array
         $s = $zip->statIndex($i);
         $total += (int)($s['size'] ?? 0);
         $name = (string)($s['name'] ?? '');
-        if ($name !== 'backup.json' && !preg_match('#^(images|thumbs)/[a-f0-9]{32}\.jpg$#D', $name) && !preg_match('#^(images|thumbs|files)/$#D', $name)
-            && !preg_match('#^files/[a-f0-9]{32}\.(pdf|jpg|png|webp)$#D', $name)) {
+        if ($name !== 'backup.json' && $name !== 'originals/index.json'
+            && !preg_match('#^(images|thumbs)/[a-f0-9]{32}\.jpg$#D', $name) && !preg_match('#^(images|thumbs|files|originals)/$#D', $name)
+            && !preg_match('#^files/[a-f0-9]{32}\.(pdf|jpg|png|webp)$#D', $name)
+            && !preg_match('#^originals/[a-f0-9]{64}\.(jpg|png|webp|gif|heic)$#D', $name)) {
             throw new UserError('Unexpected file in backup: ' . mb_substr($name, 0, 80));
         }
     }
@@ -239,6 +272,7 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
         if (attach_sniff($tmp) !== pathinfo($f, PATHINFO_EXTENSION)) { @unlink($tmp); $b['warnings'][] = "Attachment $f does not match its type and was skipped."; continue; }
         rename($tmp, "$dataDir/files/$f");
     }
+    backup_restore_originals($zip, $dump, $b['warnings']);
     $zip->close();
 
     // 2) data: one transaction, children deleted first, parents inserted first
@@ -295,6 +329,38 @@ function backup_summary_text(array $counts, int $photos): string
     foreach ($labels as $t => $l) if (isset($counts[$t])) $parts[] = $counts[$t] . ' ' . $l;
     $parts[] = $photos . ' photos';
     return implode(', ', $parts);
+}
+
+/**
+ * Put camera files back next to the served photos. Bytes are written only when missing (names are random).
+ * The map entry is rewritten so the served name points at the file from this zip. A backup with no index is unchanged.
+ * @param list<string> $warnings
+ */
+function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings): void
+{
+    $raw = $zip->getFromName('originals/index.json');
+    if (!is_string($raw) || $raw === '') return;
+    try {
+        $index = json_decode($raw, true, 8, JSON_THROW_ON_ERROR);
+    } catch (JsonException) {
+        $warnings[] = 'originals/index.json was skipped.';
+        return;
+    }
+    if (!is_array($index)) return;
+    if (!image_originals_prepare()) {
+        $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+        return;
+    }
+    $photos = array_flip(backup_photo_files($dump));
+    foreach ($index as $served => $base) {
+        if (!is_string($served) || !valid_image_name($served) || !isset($photos[$served])) continue;
+        if (!is_string($base) || !image_original_basename_ok($base)) continue;
+        $data = $zip->getFromName('originals/' . $base);
+        if ($data === false) { $warnings[] = "Original $base is missing from the archive."; continue; }
+        $dest = ORIGINALS_DIR . '/' . $base;
+        if (!is_file($dest)) file_put_contents($dest, $data, LOCK_EX);
+        file_put_contents(ORIGINALS_DIR . '/map/' . substr($served, 0, 32), $base, LOCK_EX);
+    }
 }
 
 /** Old restore uploads are removed after an hour. */

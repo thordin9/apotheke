@@ -19,8 +19,9 @@ container and mounts `./data` as `/data`:
 ```
 data/
   catalog.sqlite      SQLite database (created on first start)
-  images/             full-size photos (JPEG, longest side ≤ IMAGE_FULL_MAX, random hex names)
+  images/             served photos (JPEG, longest side ≤ IMAGE_FULL_MAX, 32-hex names, metadata stripped)
   thumbs/             thumbnails (longest side ≤ IMAGE_THUMB_MAX)
+  originals/          camera uploads, byte-identical, 64-hex names (not served)
   sessions/           PHP session files
   tmp/                short-lived files for backup downloads and restore uploads
   postgres/           only when the postgres profile is used
@@ -41,7 +42,7 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). `tini` is PID 1 and `docker/entrypoint.sh`:
 
 1. renders `docker/nginx.conf` with the port from `PORT` (default `80`),
-2. creates `images/`, `thumbs/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`,
+2. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`,
 3. starts php-fpm (unix socket `/run/php-fpm.sock`), waits for the socket, then starts nginx,
 4. forwards `SIGTERM` to both on `docker stop` and exits if either process dies.
 
