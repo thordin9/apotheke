@@ -699,8 +699,11 @@ try {
         if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
             json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
         }
-        // the browser already resized the photo to the chosen image size, so this is the limit after resizing
-        if ((int)$f['size'] > max_upload()) json_out(['ok' => false, 'code' => 'too_large', 'message' => 'No suggestions: the photo is too large.']);
+        // the browser already resized the photo to the chosen image size, so this is the limit after resizing.
+        // State the tighter of the upload cap and the service's image limit (10 MiB / 10485760 on the shipped service).
+        if ((int)$f['size'] > max_upload()) {
+            json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
+        }
         $r = autofill_suggest((string)file_get_contents((string)$f['tmp_name']));
         json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
     }

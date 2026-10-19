@@ -497,6 +497,37 @@ $afSet(['autofill_enabled' => false]);
 T::ok(!str_contains($af->get('/item/' . $iid . '/edit')['body'], 'af-analyze'), 'autofill off: no Analyze buttons');
 $afSet(['autofill_enabled' => true]);
 
+// over the upload cap, still under PHP's upload_max_filesize: the status line states the tighter limit,
+// which is the shipped service's 10 MiB when the cap is higher than that
+$afSet(['max_upload_mb' => 15]);
+$big = str_repeat('x', 16 * 1024 * 1024);
+$r = $af->api('/autofill/suggest', ['csrf' => $at], ['image' => ['name' => 'big.bin', 'type' => 'application/octet-stream', 'data' => $big]]);
+unset($big);
+T::ok(($r['json']['code'] ?? '') === 'too_large'
+    && str_contains((string)($r['json']['message'] ?? ''), '10 MiB')
+    && str_contains((string)($r['json']['message'] ?? ''), '10485760'),
+    'a photo over the upload cap says 10 MiB / 10485760 bytes', $r['json']['message'] ?? $r['body']);
+$afSet(['max_upload_mb' => 1]);
+$mid = str_repeat('y', 2 * 1024 * 1024);
+$r = $af->api('/autofill/suggest', ['csrf' => $at], ['image' => ['name' => 'mid.bin', 'type' => 'application/octet-stream', 'data' => $mid]]);
+unset($mid);
+T::ok(($r['json']['code'] ?? '') === 'too_large'
+    && str_contains((string)($r['json']['message'] ?? ''), '1 MiB')
+    && str_contains((string)($r['json']['message'] ?? ''), '1048576'),
+    'when the upload cap is tighter than the service, the message states that cap', $r['json']['message'] ?? $r['body']);
+$afSet(['max_upload_mb' => 20]);
+
+// Test with a photo: one retry when Retry-After is within the timeout, none when it is longer
+file_get_contents($stub->base . '/_stub/uploads', false, stream_context_create(['http' => ['method' => 'DELETE']]));
+$r = $af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/m/switch/r/1/n/a*,b', 'autofill_timeout' => '5', 'autofill_model' => 'b']);
+$ups = json_decode((string)file_get_contents($stub->base . '/_stub/uploads'), true);
+T::ok(($r['json']['ok'] ?? false) === true && ($r['json']['model_used'] ?? '') === 'b' && count($ups) === 2, 'photo test retries a cold model once', $r['body'] . ' uploads=' . count((array)$ups));
+file_get_contents($stub->base . '/_stub/uploads', false, stream_context_create(['http' => ['method' => 'DELETE']]));
+$t0 = microtime(true);
+$r = $af->api('/settings/autofill/test-photo', ['csrf' => $at, 'autofill_url' => $stub->base . '/m/warmup/r/40', 'autofill_timeout' => '5']);
+$ups = json_decode((string)file_get_contents($stub->base . '/_stub/uploads'), true);
+T::ok(($r['json']['code'] ?? '') === 'busy' && count($ups) === 1 && microtime(true) - $t0 < 4, 'photo test does not retry when Retry-After exceeds the timeout', $r['body']);
+
 T::ok(!$afs->logHas($secret), 'token never written to the server log');
 $afs->stop();
 $stub->stop();

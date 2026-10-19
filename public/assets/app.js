@@ -489,7 +489,8 @@
     }));
 
     /* AI autofill, on demand: each photo gets an Analyze button (the photo just picked; on the edit form also every
-       stored photo). Only one analysis runs at a time: while it runs, the other Analyze buttons are disabled. With
+       stored photo). Only one analysis runs at a time: while it runs, every Analyze button is aria-disabled (still
+       focusable, so keyboard focus is not dropped on body) and a click or keypress is ignored. With
        "Analyze photos automatically" (data-af-auto) a picked photo is analyzed right away, as in 2.3.
        The picked photo is resized in the browser to the chosen long edge (data-af-side: JPEG, or PNG when it has
        transparency; never enlarged; EXIF orientation applied) and posted to /autofill/suggest (the server talks to
@@ -605,25 +606,31 @@
     // stays: a second analysis (another photo) only fills what is still empty.
     const afFree = el => el && !el.dataset.afTouched && afBlank(el);
     const afPut = (el, v) => { el.value = v; el.classList.add('af-filled'); };
-    // one analysis at a time: the running one's button says so, every other Analyze button is disabled
-    let afFile = null, afRunning = null;          // the photo picked on the form; {src: 'picked'|'stored'} while one runs
+    // one analysis at a time: aria-disabled (not disabled) so the focused button stays in the tab order.
+    // a click or Enter/Space while one runs is ignored. If focus did fall to body, it is put back when the run ends.
+    let afFile = null, afRunning = null;          // the photo picked on the form; {src, btn} while one runs
     const afButtons = () => form.querySelectorAll('.af-analyze');
     const afBegin = (btn, src) => {
-      afRunning = { src };
-      afButtons().forEach(b => { b.disabled = true; if (b === btn) b.setAttribute('aria-busy', 'true'); });
+      afRunning = { src, btn };
+      afButtons().forEach(b => {
+        b.setAttribute('aria-disabled', 'true');
+        if (b === btn) b.setAttribute('aria-busy', 'true');
+      });
       form.classList.add('af-busy');
     };
     const afEnd = () => {
+      const btn = afRunning && afRunning.btn;
       afRunning = null;
-      afButtons().forEach(b => { b.disabled = false; b.removeAttribute('aria-busy'); });
+      afButtons().forEach(b => { b.removeAttribute('aria-disabled'); b.removeAttribute('aria-busy'); });
       form.classList.remove('af-busy');
+      if (btn && document.activeElement === document.body) btn.focus();
     };
     if (form.dataset.autofill === '1') {
       const acts = $('#af-actions', form);
       if (acts && $('#af-photos', acts)) acts.hidden = false;
       form.addEventListener('click', e => {
         const b = e.target.closest('.af-analyze');
-        if (!b || b.disabled || afRunning) return;
+        if (!b || b.getAttribute('aria-disabled') === 'true' || afRunning) return;
         if (b.dataset.afPhoto) autofill({ photoId: b.dataset.afPhoto }, b);
         else if (afFile) autofill({ file: afFile }, b);
       });

@@ -260,6 +260,24 @@ test.describe('AI autofill on demand', () => {
     await expect(page.locator('#itemform')).toHaveAttribute('data-af-model-used', 'qwen3-vl-2b');
   });
 
+  test('Analyze keeps keyboard focus: it is not left on body when the run finishes', async ({ app, page }) => {
+    await configure(page, { url: stub.base + '/d/1200' });
+    await app.go('/new');
+    await pick(page, app.image('af-focus.jpg', [40, 90, 140]));
+    const btn = page.locator('#af-analyze');
+    await expect(btn).toBeVisible();
+    await expect(page.locator('#name')).toBeFocused();   // picking an empty form focuses the name; then we tab to Analyze
+    await btn.focus();
+    await page.keyboard.press('Enter');
+    await expect(btn).toHaveAttribute('aria-disabled', 'true');
+    await expect(btn).toHaveAttribute('aria-busy', 'true');
+    expect(await page.evaluate(() => document.activeElement?.tagName), 'focus stays on a control while it runs').not.toBe('BODY');
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 8_000 });
+    expect(await page.evaluate(() => document.activeElement?.tagName), 'focus is not left on body').not.toBe('BODY');
+    await expect(btn).toBeFocused();
+    await expect(btn).toBeEnabled();
+  });
+
   test('a model switch is a cold start: warming up, one retry, then the answer', async ({ app, page }) => {
     await configure(page, { url: stub.base + '/m/switch/r/1/n/a*,b' });
     await page.locator('#s-autofill_model').selectOption('b');

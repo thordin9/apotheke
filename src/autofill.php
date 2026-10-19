@@ -13,6 +13,7 @@ declare(strict_types=1);
 const AUTOFILL_CAPABILITIES = ['name', 'category', 'tags', 'description'];
 const AUTOFILL_MAX_BODY = 262144;          // bytes we accept from the service
 const AUTOFILL_CONNECT_TIMEOUT = 3;        // seconds
+const AUTOFILL_SERVICE_IMAGE_BYTES = 10485760; // shipped service max_image_bytes, when /v1/info has not been cached yet
 
 function autofill_enabled(): bool
 {
@@ -260,6 +261,24 @@ function autofill_mib(int $bytes): string
     return rtrim(rtrim(number_format($bytes / 1048576, 1, '.', ''), '0'), '.') . ' MiB';
 }
 
+/**
+ * The image limit to tell the user: the service's max_image_bytes when we have seen one, otherwise the shipped 10 MiB.
+ */
+function autofill_service_image_limit(): int
+{
+    foreach ([autofill_info_cache(), autofill_known_info()] as $info) {
+        $n = is_array($info) ? ($info['max_image_bytes'] ?? null) : null;
+        if (is_int($n) && $n > 0) return $n;
+    }
+    return AUTOFILL_SERVICE_IMAGE_BYTES;
+}
+
+/** Status line when a photo is rejected as too large. $bytes is the limit that applies. */
+function autofill_too_large_message(int $bytes): string
+{
+    return 'No suggestions: the photo is too large (max ' . autofill_mib($bytes) . ' / ' . $bytes . ' bytes).';
+}
+
 /** Normalised service address for comparisons: trimmed, without trailing slashes, scheme and host lower-case. */
 function autofill_normalise_url(string $url): string
 {
@@ -501,7 +520,7 @@ function autofill_suggest(string $imageBytes): array
     $sent = ['type' => $img['mime'], 'bytes' => strlen($img['data']), 'width' => $img['width'], 'height' => $img['height']];
     $info = autofill_info_cache();
     if ($info !== null && ($info['max_image_bytes'] ?? null) !== null && strlen($img['data']) > $info['max_image_bytes']) {
-        return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.') + ['image' => $sent];
+        return $fail('too_large', autofill_too_large_message((int)$info['max_image_bytes'])) + ['image' => $sent];
     }
     $base = rtrim((string)setting('autofill_url'), '/');
     $r = autofill_suggest_at($base, autofill_token(), (int)setting('autofill_timeout'), $img, autofill_context(autofill_chosen_model($known)));
@@ -572,7 +591,7 @@ function autofill_suggest_at(string $base, string $token, int $timeout, array $i
         case 401: case 403:
             if ($token === '') { autofill_log('suggest: service requires a token (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service requires an access token. An admin can set it in Settings → AI autofill.'); }
             autofill_log('suggest: token refused (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service refused the access token. An admin can fix it in Settings → AI autofill.');
-        case 413: return $fail('too_large', 'No suggestions: the photo is larger than the service accepts.');
+        case 413: return $fail('too_large', autofill_too_large_message(autofill_service_image_limit()));
         case 415: return $fail('unsupported', 'No suggestions: the service cannot read this kind of image.');
         case 503:
             // backend_unavailable + Retry-After: the model is loading or the queue is full; worth one more try later
@@ -606,7 +625,9 @@ function autofill_suggest_at(string $base, string $token, int $timeout, array $i
 
 /**
  * "Test with a photo": the same checks as Test connection (reachable, token, model ready), then the bundled sample
- * photo through POST /v1/suggest. The whole run stays within $timeout seconds. Never contains the token.
+ * photo through POST /v1/suggest. A 503 with Retry-After no longer than $timeout is retried once after that wait
+ * (a cold or switched model), the same single retry as the item form. Each request stays within the time still
+ * left. Never contains the token.
  * @return array{ok:bool,code:string,message:string,checks:array<string,?bool>,info?:array,suggestions?:array,confidence?:array,elapsed_ms?:int,retry_after?:int}
  */
 function autofill_test_photo(string $url, int $timeout, string $token, ?string $model = null, ?int $size = null): array
@@ -626,7 +647,17 @@ function autofill_test_photo(string $url, int $timeout, string $token, ?string $
     $chosen = autofill_chosen_model($c['info'], $model);
     $img = autofill_prepare_image($bytes, $side);
     if ($img === null) return ['ok' => false, 'code' => 'unavailable', 'message' => 'The sample photo is missing from this installation.', 'checks' => $checks, 'info' => $c['info']];
-    $r = autofill_suggest_at(rtrim(trim($url), '/'), $token, $left, $img, autofill_context($chosen));
+    $base = rtrim(trim($url), '/');
+    $ctx = autofill_context($chosen);
+    $afterChecks = $left;
+    $r = autofill_suggest_at($base, $token, $left, $img, $ctx);
+    // one retry, same rule as the item form: 503 + Retry-After, and only when that wait is within the timeout
+    $wait = (int)($r['retry_after'] ?? 0);
+    if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= $timeout) {
+        sleep($wait);
+        $left = max(1, (int)floor($timeout - (microtime(true) - $t0)));
+        $r = autofill_suggest_at($base, $token, $left, $img, $ctx);
+    }
     $r += ['model_sent' => $chosen, 'image_side' => empty($c['info']['image_sizes']) ? null : $side];
     if ($r['ok']) {
         $msg = $r['code'] === 'empty'
@@ -634,7 +665,7 @@ function autofill_test_photo(string $url, int $timeout, string $token, ?string $
             : 'Connected to “' . $c['info']['name'] . '”: it suggested these details for the sample photo.';
         return ['ok' => true, 'code' => $r['code'], 'message' => $msg, 'checks' => $checks, 'info' => $c['info']] + $r;
     }
-    if ($r['code'] === 'timeout' && $left < $timeout) $r['message'] = "No suggestions within the $timeout s timeout (the checks used " . ($timeout - $left) . ' s of it).';
+    if ($r['code'] === 'timeout' && $afterChecks < $timeout) $r['message'] = "No suggestions within the $timeout s timeout (the checks used " . ($timeout - $afterChecks) . ' s of it).';
     if ($r['code'] === 'busy' && ($r['retry_reason'] ?? 'warming') === 'warming') $checks['ready'] = false;   // a full queue: the model is loaded
     $r['message'] = preg_replace('/^No suggestions: /', 'The sample photo got no suggestions: ', $r['message']);
     return $r + ['checks' => $checks, 'info' => $c['info']];

@@ -54,10 +54,11 @@ the one installed model, disabled, as long as the service lists it in `models` (
 service sends no `models` at all).
 
 - **Model**: *Service default (name)* lets the service decide (recommended until you have compared models), or pick
-  one of the installed models it allows. Each entry shows *loaded* (in memory right now) and its typical time, when the
-  service reports them. Switching to a model that is not loaded makes the **next** photo slow (the service loads it
-  first; the form says *Model is warming up… retrying in N s* and retries once). A model the service does not know
-  falls back to its default; Test with a photo then shows *Model used: X (asked for Y)*.
+  one of the installed models it allows. Each entry shows *loaded* and its typical time when the service reports them.
+  *loaded* is what the service reports; Apotheke does not rely on it, and any photo can still be a cold start, so the
+  progress bar and its hint always allow for the full timeout. A cold start (including a model switch) makes the form
+  say *Model is warming up… retrying in N s* and retries once. A model the service does not know falls back to its
+  default; Test with a photo then shows *Model used: X (asked for Y)*.
 - **Image size**: *Recommended (N px)* uses the size the service recommends, or pick a long edge. Smaller images are
   analyzed faster; larger ones can read small print better. Photos are resized on the phone or computer before upload
   and are **never enlarged**.
@@ -79,7 +80,9 @@ model or a new address before saving.
 - **Test with a photo**: the same checks, then a bundled sample photo (a claw hammer) through the full suggestion
   step, with your real categories and tags. Shows three checks (*Reachable*, *Token accepted*, *Model ready*), the
   suggested name, category, tags and description with their confidence, **Model used**, the **Image size** sent and
-  how long it took. It can take as long as the timeout, e.g. on the first photo after a model switch.
+  how long it took. It can take as long as the timeout, e.g. on the first photo after a model switch: if the model is
+  warming up and the service's Retry-After is no longer than the timeout, the test waits and tries once more, the same
+  single retry as Analyze.
 
 Typical results and what to do:
 
