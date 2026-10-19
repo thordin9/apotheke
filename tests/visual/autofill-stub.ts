@@ -28,6 +28,12 @@ export class AutofillStub {
   }
   /** The last /v1/suggest request (auth header, context, image type, size, width, height). */
   last(): any { try { const s = fs.readFileSync(this.log, 'utf8'); return s ? JSON.parse(s) : null; } catch { return null; } }
-  clear() { try { fs.writeFileSync(this.log, ''); fs.rmSync(this.log + '.cold', { force: true }); } catch { /* ignore */ } }
-  stop() { this.proc?.kill(); try { fs.unlinkSync(this.log); } catch { /* ignore */ } }
+  /** Every /v1/suggest since clear(), oldest first (the stub's <log>.jsonl; also served at GET /_stub/uploads). */
+  uploads(): any[] {
+    try { return fs.readFileSync(this.log + '.jsonl', 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)); } catch { return []; }
+  }
+  clear() {
+    try { fs.writeFileSync(this.log, ''); for (const x of ['.cold', '.jsonl', '.loaded']) fs.rmSync(this.log + x, { force: true }); } catch { /* ignore */ }
+  }
+  stop() { this.proc?.kill(); for (const x of ['', '.cold', '.jsonl', '.loaded', '.info']) { try { fs.unlinkSync(this.log + x); } catch { /* ignore */ } } }
 }

@@ -104,9 +104,12 @@ function settings_schema(): array
         'attach_max_mb'    => ['uploads', 'Attachment size limit (MB)', 'int', 10, 'Per file. PHP’s upload_max_filesize / post_max_size must be at least this large.', ['min' => 1, 'max' => 200]],
         'attach_max_per_item' => ['uploads', 'Attachments per item', 'int', 10, '', ['min' => 1, 'max' => 100]],
         // AI autofill (token: own form, write-only)
-        'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: after you pick a photo for an item, a progress line shows while the service looks at it, then empty fields are pre-filled with suggestions you can keep or clear.', []],
+        'autofill_enabled' => ['autofill', 'Suggest details from the photo', 'bool', false, 'Off: Apotheke never contacts the service. On: each photo on the item form gets an Analyze button; tap it and a progress line shows while the service looks at the photo, then empty fields are pre-filled with suggestions you can keep or clear.', []],
+        'autofill_auto'    => ['autofill', 'Analyze photos automatically', 'bool', false, 'Off (recommended): nothing is sent until someone taps Analyze on a photo. On: every photo picked on the item form is sent to the service right away, as in Apotheke 2.3.', []],
         'autofill_url'     => ['autofill', 'Service address', 'url', '', 'Where your autofill service runs, e.g. http://192.168.1.10:8080 (without /v1). The photo is sent there, resized to about 1024 px.', ['placeholder' => 'http://192.168.1.10:8080']],
         'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 50, 'How long to wait for suggestions. Saving an item never waits for them. Set it about 5 s above the service’s own timeout: 50 for the default Jetson setup (the service gives up after 45 s). When the service says its model is still loading, Apotheke waits as long as it asks (up to this timeout) and tries once more.', ['min' => 3, 'max' => 60]],
+        'autofill_model'   => ['autofill', 'Model', 'af_model', '', 'Which of the service’s models looks at the photos. Switching models makes the next photo slower while the service loads it.', ['max' => 120]],
+        'autofill_image_size' => ['autofill', 'Image size', 'af_size', 0, 'Long edge of the photo sent to the service. Smaller is faster; larger can read small print. Photos are never enlarged.', ['min' => 0, 'max' => 4096]],
         'autofill_token'   => ['autofill', 'Access token', 'secret', '', '', []],
         // security (own form)
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
@@ -192,6 +195,17 @@ function setting_validate(string $key, mixed $raw): mixed
             $n = (int)$str;
             if ($n < $o['min'] || $n > $o['max']) throw new UserError("$label: between {$o['min']} and {$o['max']}.");
             return $n;
+        case 'af_model':   // a model id offered by the service's /v1/info ('' = the service's default)
+            if ($str === null) throw new UserError("$label: invalid.");
+            $str = clean_line($str, 1000);
+            if (mb_strlen($str) > $o['max']) throw new UserError("$label: at most {$o['max']} characters.");
+            return $str;
+        case 'af_size':    // long edge in px offered by the service's /v1/info (0 or empty = the recommended size)
+            if ($str === '' || $str === null || $str === '0') return 0;
+            if (!preg_match('/^\d{1,5}$/D', $str) || (int)$str < AUTOFILL_SIDE_MIN || (int)$str > $o['max']) {
+                throw new UserError("$label: between " . AUTOFILL_SIDE_MIN . " and {$o['max']} px.");
+            }
+            return (int)$str;
         case 'role':
             if ($str === null || !isset(account_roles()[$str]) || $str === 'admin') throw new UserError("$label: choose a role other than admin.");
             return $str;

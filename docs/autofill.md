@@ -2,10 +2,17 @@
 
 Apotheke can ask a separate **autofill service** to suggest an item's name, category, tags and
 description from its photo. The service is its own project
-([thordin9/apotheke-autofill-service](https://github.com/thordin9/apotheke-autofill-service), API v1)
-and runs wherever you like: on the same box, a Jetson or a GPU machine on your network.
+([thordin9/apotheke-autofill-service](https://github.com/thordin9/apotheke-autofill-service), API v1; the
+optional model and image-size fields are API v1.2) and runs wherever you like: on the same box, a Jetson or a GPU
+machine on your network.
 
-Autofill is **off by default**. While it is off, Apotheke never contacts the service.
+Autofill is **off by default**. While it is off, Apotheke never contacts the service. Since Apotheke 2.4 it also
+works **on demand**: even with autofill on, nothing is sent when a photo is picked; each photo gets an **Analyze**
+button. *Analyze photos automatically* (off by default, on new and upgraded installs) brings back the 2.3 behaviour.
+
+This page is the technical reference. For a task-oriented walk-through see the
+[admin guide](autofill-admin-guide.md) (settings, test buttons, upgrade notes) and the
+[user guide](user-guide.md#suggestions-from-a-photo-ai-autofill) (the Analyze button, the progress bar, what gets filled).
 
 ## Setting it up
 
@@ -14,11 +21,39 @@ Control Panel → **AI autofill** (`/settings/autofill`, needs the *Settings* pe
 | Setting | Default | Notes |
 |---|---|---|
 | Suggest details from the photo | off | Master switch. |
+| Analyze photos automatically | off | **New in 2.4.** Off: the item form shows an *Analyze* button per photo and nothing is sent until someone taps it. On: a photo picked on the form is analyzed right away (the 2.3 behaviour); the buttons stay for another try. Migration 0025 writes *off* on every install, new and existing. |
 | Service address | empty | Base URL without `/v1`, e.g. `http://192.168.1.10:8080`. Only `http://` and `https://`. |
 | Timeout (seconds) | 50 | 3–60. Set it about 5 s above the service's own timeout: 50 for the default Jetson setup, where the service gives up after 45 s (`BACKEND_TIMEOUT_S`). Also the longest Apotheke waits for a `Retry-After` before its one retry. Upgrading from 2.2 moves a stored 30 (the old default) to 50 (migration 0024); any other value is kept. |
+| Model | service default | **New in 2.4.** A dropdown of the service's `models` from `/v1/info` (API v1.2): *Service default (…)* or one model, with *loaded* and its typical time when the service says so. Sent as `context.model`. Hidden when the service lists no models; then no model is sent. With exactly **one** model (`ALLOWED_MODELS` unset on the service) it is shown with that model, disabled, with the hint *More models appear when ALLOWED_MODELS is set on the service.*; two or more models make it selectable. |
+| Image size | recommended | **New in 2.4.** A dropdown of the service's `image_sizes` (long edge in px): *Recommended (N px)* or one size. Photos are resized to it before upload and never enlarged. Hidden when the service lists no sizes; then photos go at 1024 px as before (2.3 already resized every photo to 1024 px, so an older service gets what it got before). The Jetson runs with `IMAGE_SIZES=448,560*,1024`, so *Recommended* is 560 px there. |
 | Access token | none | Only if the service runs with `AUTOFILL_TOKEN`. See below. |
 
-All values live in the `settings` table like every other Control Panel option.
+All values live in the `settings` table like every other Control Panel option (`autofill_auto`, `autofill_model`
+— `''` = the service's default —, `autofill_image_size` — `0` = the recommended size). Model and image size are
+exported and imported with the other settings.
+
+### Model and image size (API v1.2)
+
+The dropdowns are filled from the saved service's **last known** `/v1/info` (the cache below, however old, as long
+as it belongs to the saved address), or from the `/v1/info` a **Test** just fetched, also for an address that is not
+saved yet. While the service does not offer the lists, the dropdowns are not shown and a hidden field keeps the stored
+choice, so saving the section never loses it. A stored choice that the service no longer lists stays selectable,
+marked *not offered by the service*.
+
+What is sent:
+
+| Service lists… | Model sent (`context.model`) | Long edge of the image |
+|---|---|---|
+| nothing (API v1.0/v1.1) | none, whatever is stored | 1024 px, whatever is stored (unchanged from 2.3) |
+| `models` | the chosen model; none for *Service default* | – |
+| `image_sizes` | – | the chosen size; for *Recommended* the size marked `recommended`, else the largest size up to 1024 px, else the smallest |
+
+The service decides what an unknown model means: per contract v1.2 it falls back to its default and says so in
+`model_used`. Switching models is a **cold start** on the service (it loads the other model): it may answer `503`
+with `Retry-After`, which Apotheke handles like any warming-up model (wait, one retry; see below).
+
+The progress estimate uses the chosen model's own `avg_latency_ms` from `models` (the default model's for *Service
+default*), falling back to the service-wide `avg_latency_ms`.
 
 ### Test connection
 
@@ -48,6 +83,11 @@ when the copy is older than 10 minutes. Apotheke reads these fields; unknown fie
 | `max_image_bytes` | optional | photos larger than this are not sent |
 | `ready` | optional (default `true`) | *still warming up* |
 | `avg_latency_ms` | **optional, new in Apotheke 2.3** | the progress estimate on the item form (*Typical answer* in Test connection). A non-negative integer: the service's recent average time per suggestion in milliseconds. Anything else, or a service that does not send it, is ignored: the form then shows a spinner instead of a percentage. |
+| `models` | **optional, API v1.2, new in Apotheke 2.4** | the Model dropdown and per-model estimates. A list of `{id, default?, loaded?, avg_latency_ms?}`: `id` a non-empty string (≤ 120 characters), `default`/`loaded` booleans, `avg_latency_ms` as above. Entries of the wrong shape are skipped, duplicates merged, at most one default (the first marked; none marked: the first listed), at most 50. A list with nothing usable counts as absent. |
+| `image_sizes` | **optional, API v1.2, new in Apotheke 2.4** | the Image size dropdown. A list of `{long_edge, recommended?}`, `long_edge` an integer 64–4096. Wrong entries are skipped; sorted, duplicates merged, at most one recommended. |
+
+A `/v1/suggest` answer may carry `model_used` (API v1.2, a string ≤ 120 characters): Apotheke passes it to the
+browser (`data-af-model-used`, see *Debug hooks*) and shows it as **Model used** in Test with a photo.
 
 ### Test with a photo
 
@@ -58,7 +98,12 @@ context. It shows:
 
 - three checks: **Reachable**, **Token accepted**, **Model ready** (a check that could not run says *not checked*);
 - the suggested name, category, tags and description, with the confidence the service gave each field;
+- **Model used** (`model_used`, with *asked for X* when the service fell back to another model) and the **Image
+  size** sent, when the service offers models / sizes;
 - how long the suggestion took.
+
+It uses the **Model** and **Image size** as currently chosen in the form, saved or not, so you can try a model before
+saving it.
 
 The whole run, checks included, stays within the timeout as typed, so a service that is down, slow or
 refusing the token ends with a clear message instead of a hanging page. The token is never shown. Like Test
@@ -84,19 +129,46 @@ are not followed and only http(s) is allowed; for a home-network app that is acc
 
 All forms on the page need the CSRF token; viewers and editors get `403`.
 
-## Suggestions after a photo
+## Suggestions from a photo
 
 With autofill on **and** a service address set, the item form (new and edit; needs the *Add items*
-permission) shows a status line and a progress bar under the photo. Nothing is shown otherwise. Right after
-you take or pick a photo:
+permission) gets **Analyze** buttons, a status line and a progress bar under the photo. Nothing is shown otherwise.
 
-1. The browser makes a JPEG of about **1024 px** on the long edge and posts it to Apotheke's
-   `POST /autofill/suggest` (same-origin, CSRF token).
-2. The server decodes it again with GD, applies the EXIF orientation and re-encodes a ≤ 1024 px JPEG, so
-   the service always gets the recommended format. Images GD cannot read (e.g. HEIC from an old browser)
-   are passed through and the service decides (`415`).
+### Analyze buttons (on demand, new in 2.4)
+
+- **The photo you just picked** gets *Analyze photo* as soon as it is on the form (take a photo or pick one from the
+  library). Picking another photo replaces it; an analysis still working on the replaced photo is dropped.
+- **On the edit form**, every photo the item already has gets its own *Analyze* button (a thumbnail row
+  *Suggest details from a photo of this item*). These are sent by id (`photo_id`); the server reads the stored file.
+- **One analysis at a time.** While one runs, its button is marked busy (`aria-busy`) and every other Analyze button
+  is disabled; they come back when it ends (answer, failure or a dropped analysis). Picking a new photo while a stored
+  photo is being analyzed does not interrupt it.
+- With **Analyze photos automatically** on, a picked photo starts its analysis at once (as in 2.3), unless another
+  analysis is running.
+- The buttons need JavaScript; without it the form works as always, with no suggestions.
+
+### What is sent
+
+1. The browser resizes the picked photo to the chosen **long edge** (`data-af-side` on the form: the Image size, or
+   1024 px for a service without `image_sizes`). It is **never enlarged**. The browser's decoder applies the EXIF
+   orientation, so a phone photo stored sideways is sent upright. It is a JPEG (on white), or a **PNG when the
+   photo has transparency** (a PNG/WebP/GIF whose pixels are not all opaque), so the alpha channel survives. A
+   small JPEG that would only grow by re-encoding is sent as it is. It is posted to Apotheke's
+   `POST /autofill/suggest` (same-origin, CSRF token). The upload limit (*Photos & uploads → Maximum upload*) and the
+   service's `max_image_bytes` (10 MiB for the shipped service) apply to this **resized** file, so a 15 MB phone photo
+   is fine.
+2. The server decodes it again with GD, applies the EXIF orientation and re-encodes at most the same long edge
+   (JPEG; PNG with alpha for a transparent image), so the service always gets a format it reads. A stored photo
+   (`photo_id`) goes through the same step.
 3. It calls the service's `POST /v1/suggest` with the image, the bearer token and a `context`: the names of
-   your existing **categories** and **tags** (so the backend reuses your spelling) and `locale`.
+   your existing **categories** and **tags** (so the backend reuses your spelling), `locale`, and `model` when a
+   model is chosen and the service lists models.
+
+**HEIC/HEIF.** Where the browser can decode HEIC (Safari on iPhone, iPad and Mac — where HEIC photos come from), it
+is converted to JPEG in step 1 like any photo, at the chosen size. Where it cannot (Chrome, Firefox and others
+without HEIC support), the file is posted unchanged, GD cannot read it either, and it is passed through to the
+service, which answers `415`: the status line says *the service cannot read this kind of image* (a clean failure,
+nothing else happens). Apotheke does not bundle a HEIC decoder (no extra dependencies).
 4. The answer is validated (unknown fields ignored, wrong-shaped fields dropped, name ≤ 200, category ≤ 120,
    at most 8 tags of ≤ 40 characters, description ≤ 2000) and returned to the browser.
 
@@ -125,12 +197,15 @@ up* means a cold model (`warming`), anything else is `busy`. The browser shows *
 retrying in N s** or **Service is busy… retrying in N s** with a countdown and then tries **once** more. It does not retry when you picked another photo meanwhile, or when `Retry-After` is longer than the
 timeout; then, as when the retry fails too, the usual message is shown.
 
-**Only empty fields are filled, and never one you have touched.** Typing in a field (even if you then clear
+**Only empty fields are filled, never one you have touched, and never one an earlier analysis filled.** Typing in a field (even if you then clear
 it), picking from a list (even the same value again) or removing a tag chip makes it yours. On a **new** item a
 preselected default counts as empty while you have not touched it: the default category (e.g. *General ★*),
 the default tags and the default notes from Control Panel → Items. A category chosen by the link you came from
-(`/new?cat=…`) and everything on an existing item's edit form are your choices and are never replaced. Filled fields are highlighted until you edit them; picking another
-photo may replace earlier *suggestions*, never your input. The category is filled only when none is selected
+(`/new?cat=…`) and everything on an existing item's edit form are your choices and are never replaced. Filled fields are highlighted until you edit them. **A second
+analysis** (another photo, or the same one again) only fills fields that are **still** empty or hold an untouched
+default: what an earlier analysis filled in stays, as does your input (changed in 2.4: before, a new photo could
+replace earlier suggestions). A field you clear yourself counts as yours and stays empty; to start over with fresh
+suggestions, reload the form. The category is filled only when none is selected
 (or only the untouched default): an existing one is selected when the names match (ignoring case). A name that
 is not in your list pre-fills "＋ New category" only when **no** category is selected; an untouched default
 such as *General ★* is kept instead, so saving never creates a category you did not ask for. Suggestions go to Name, Category, Tags and Notes (the service's `description`).
@@ -165,6 +240,33 @@ affected: there a save queues behind a pending suggestion (start it with `PHP_CL
 
 Problems are logged as one short line (`apotheke autofill: …`) without the token or the response body.
 
+### Debug hooks (for QA)
+
+After each analysis the item form (`#itemform`) carries what was sent, readable in the browser's dev tools or by a
+test (`getAttribute`):
+
+| Attribute | Content |
+|---|---|
+| `data-af-upload` | JSON `{type, bytes, width, height}` of the file the **browser** uploaded to `/autofill/suggest` (after the resize; `width`/`height` null when it could not decode the photo, e.g. HEIC outside Safari). Not set for a stored photo. |
+| `data-af-sent` | JSON `{type, bytes, width, height}` of the image the **server** sent to the service (the `image` field of the `/autofill/suggest` answer). |
+| `data-af-model-used` | the service's `model_used`, when it reports one. |
+| `data-af-side`, `data-af-latency`, `data-af-auto` | the long edge the browser resizes to, the expected time per photo (ms) and whether auto-analyze is on (rendered by the server). |
+
+The test stub also logs every upload (type, bytes, width, height, `alpha` for PNG, `context`) and serves the last 50
+at `GET /_stub/uploads` (see *Tests*).
+
+## Upgrading from 2.3
+
+- **Analysis is now on demand.** Migration **0025** sets *Analyze photos automatically* to **off** on every install,
+  including installs that had autofill on: after the upgrade nothing is sent when a photo is picked. Each photo on the
+  item form has an **Analyze** button instead.
+- **To get the 2.3 behaviour back**, an admin turns on Control Panel → AI autofill → **Analyze photos
+  automatically** and saves. Picked photos are then analyzed right away again; the Analyze buttons stay.
+- Model and image size start at *Service default* and *Recommended*. With a service older than API v1.2 nothing
+  changes: no model is sent and photos go at 1024 px.
+- A second analysis no longer replaces what an earlier one filled in (see above).
+- No other setting changes; no schema change.
+
 ## Trying it locally
 
 Run the real service's echo backend (no model needed):
@@ -176,8 +278,10 @@ BACKEND=echo uvicorn app.main:app --port 8080          # add AUTOFILL_TOKEN=… 
 
 Then in Apotheke: Control Panel → AI autofill → switch on, address `http://localhost:8080`
 (or the machine's LAN address if Apotheke runs in Docker: `localhost` there is the container),
-**Test connection**, save, and add an item with a photo. `ECHO_MODE=error|malformed|slow` on the service
-simulates failures.
+**Test connection**, save, and add an item with a photo, then tap **Analyze photo**. `ECHO_MODE=error|malformed|slow`
+on the service simulates failures. The service's own echo backend reports `models` and `image_sizes` from its
+`ALLOWED_MODELS` / `IMAGE_SIZES` environment (service API v1.2), so the Model and Image size dropdowns appear after
+a Test.
 
 ## Tests
 
@@ -191,9 +295,30 @@ on every other suggestion). More prefixes before `/t/`: `/r/<s>` (the `Retry-Aft
 (`avg_latency_ms` in `/v1/info`), `/d/<ms>` (the suggestion waits that long) and `/s/<name>` (the suggested
 category).
 
+API v1.2 additions (new in 2.4):
+
+| Prefix / mode | Effect |
+|---|---|
+| `/n/<models>` | `/v1/info` lists these `models`, comma-separated (URL-encode ids with `:`); `*` after an id marks the default (else the first), `=<ms>` its `avg_latency_ms`. Example: `/n/qwen2.5vl-jetson%3A3b*=14000,qwen3-vl-2b=6000`. `/v1/suggest` answers with `model_used`: `context.model` when listed, otherwise the default (an unknown model falls back). |
+| `/z/<sizes>` | `/v1/info` lists these `image_sizes`; `*` marks the recommended one. Example: `/z/448,672*,1024`. |
+| `/m/switch` (with `/n/`) | the stub remembers the *loaded* model (the default at first; `/v1/info` marks it `loaded`). A suggestion for another model answers `503 backend_unavailable` "model '…' is loading" + `Retry-After` (`/r/`) once and loads it, so Apotheke's one retry gets the answer: a model switch is a cold start. |
+| `GET /_stub/uploads` | the last 50 `/v1/suggest` requests (no token needed): `type`, `bytes`, `width`, `height`, `alpha` (PNG with transparency), `context`, `mode`, `filename`, `mime`. `DELETE /_stub/uploads` clears the log and the loaded model. With `STUB_LOG=<file>` the log is `<file>.jsonl`, otherwise `af-stub-<port>.jsonl` in the temp dir. |
+
+A full v1.2 address for manual QA: `http://127.0.0.1:8090/m/switch/r/3/l/4000/n/qwen2.5vl-jetson%3A3b*=4000,qwen3-vl-2b=2500/z/448,672*,1024`.
+
 - `tests/Unit/AutofillTest.php`: settings, `/v1/info` and suggestion parsing (`avg_latency_ms`, `Retry-After`,
   confidence), image preparation, every failure code, Test with a photo, migration 0024.
 - `tests/integration_autofill.php` (part of `tests/integration.php`): settings security (CSRF, viewers and
   editors, token never in pages, exports, backups or logs), Test connection, suggest end to end.
 - `tests/visual/autofill-settings.spec.ts` and `autofill-suggest.spec.ts`: the Control Panel section and
-  the form on every device, with visual baselines.
+  the form on every device, with visual baselines (`autofill-suggest` runs with auto-analyze on, the 2.3 path).
+- `tests/visual/autofill-on-demand.spec.ts` (2.4): nothing sent on upload, the Analyze button per photo (picked and
+  stored), one analysis at a time, a second analysis only filling empty fields, auto-analyze as an option, the
+  upgrade (migration 0025) not analyzing on upload, the Model / Image size dropdowns shown and hidden, the chosen model
+  sent, a model switch as a cold start, and the resize (EXIF orientation, no upscaling, PNG alpha, the size limit
+  after resizing, HEIC).
+- `tests/Unit/AutofillTest.php` (2.4 additions): the new settings and their validation, migration 0025, parsing
+  `models` / `image_sizes`, which model and size are sent, per-model estimates, a model switch, an older service
+  unchanged, image preparation at a chosen size (orientation, transparency), Test with a photo with a model and size,
+  the dropdowns shown and hidden. `tests/integration_autofill.php` covers the same end to end over HTTP, plus stored
+  photos (`photo_id`).
