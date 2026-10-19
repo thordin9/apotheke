@@ -4,7 +4,8 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
   const csrf = () => ($('meta[name=csrf]') || {}).content || '';
-  const MAX_SIDE = 1600, QUALITY = 0.8;
+  const MAX_SIDE = 1600, QUALITY = 0.8, RETRY_AFTER_MAX = 60;
+  const LIMIT_NOTE = 'This photo is over the upload limit, so a smaller copy will be saved. The original file is not kept.';
 
   async function post(url, data) {
     const fd = data instanceof FormData ? data : new FormData();
@@ -93,7 +94,7 @@
     });
   }
 
-  /* ---------- photo manager: add photos (downscaled on the device, uploaded one by one) ---------- */
+  /* ---------- photo manager: add photos one by one (the file as picked, unless it is over the limit) ---------- */
   const padd = $('#photoadd');
   if (padd) {
     const st = $('#photoadd-status');
@@ -101,12 +102,14 @@
       const files = [...(inp.files || [])];
       if (!files.length) return;
       st.hidden = false;
+      st.classList.remove('warn');
       try {
         for (let k = 0; k < files.length; k++) {
-          st.textContent = 'Uploading ' + (k + 1) + ' of ' + files.length + '…';
-          let blob = files[k];
-          try { blob = await shrinkImage(files[k]); } catch (_) { /* server validates */ }
-          const fd = new FormData(); fd.append('photos[]', blob, 'photo.jpg');
+          if (files[k].size > maxUploadBytes(padd)) { st.textContent = LIMIT_NOTE; st.classList.add('warn'); }
+          else st.textContent = 'Uploading ' + (k + 1) + ' of ' + files.length + '…';
+          const up = await photoForUpload(files[k], padd);
+          if (up.shrunk) { st.textContent = LIMIT_NOTE; st.classList.add('warn'); }
+          const fd = new FormData(); fd.append('photos[]', up.blob, up.name);
           await post(padd.action, fd);
         }
         location.href = location.pathname + '?p=999#photos';
@@ -435,6 +438,31 @@
       img.src = u;
     });
   }
+  /** Bytes the server will accept for one photo (the form's MAX_FILE_SIZE, else the 20 MB default). */
+  function maxUploadBytes(root) {
+    const el = root && root.querySelector('input[name="MAX_FILE_SIZE"]');
+    const n = el ? parseInt(el.value, 10) : 0;
+    return n > 0 ? n : 20 * 1024 * 1024;
+  }
+  /** The picked file, or a JPEG from shrinkImage when it is over the upload limit. */
+  async function photoForUpload(file, root) {
+    const name = file.name || 'photo.jpg';
+    if (file.size <= maxUploadBytes(root)) return { blob: file, name, shrunk: false };
+    try {
+      return { blob: await shrinkImage(file), name: 'photo.jpg', shrunk: true };
+    } catch (_) {
+      return { blob: file, name, shrunk: false };
+    }
+  }
+  function limitNote(form, on) {
+    let n = $('#photo-limit', form);
+    if (!on) { if (n) n.remove(); return; }
+    if (n) return;
+    n = document.createElement('p');
+    n.id = 'photo-limit'; n.className = 'warnbox'; n.setAttribute('role', 'status');
+    n.textContent = LIMIT_NOTE;
+    $('#photo', form).after(n);
+  }
   async function shrinkImage(file, maxSide = MAX_SIDE) {
     const src = await decodeImage(file);
     const w = src.width, h = src.height, s = Math.min(1, maxSide / Math.max(w, h));
@@ -452,16 +480,14 @@
     return out.size < file.size || file.type !== 'image/jpeg' ? out : file;
   }
 
-  /* ---------- add/edit form: photo capture, client-side downscale, async upload ---------- */
+  /* ---------- add/edit form: photo capture. The upload is the picked file; shrink only previews, Analyze, and files over the limit. ---------- */
   const form = $('#itemform');
   if (form) {
     const preview = $('#preview'), status = $('#pstatus'), photo = $('#photo'), err = $('#err');
     const inputs = form.querySelectorAll('input[type=file]');
-    let blob = null, working = null, objUrl = null;
+    let upload = null, working = null, objUrl = null;
 
     const showErr = m => { err.textContent = m; err.hidden = !m; if (m) err.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
-
-    const shrink = shrinkImage;
 
     inputs.forEach(inp => inp.addEventListener('change', () => {
       const file = inp.files && inp.files[0];
@@ -474,13 +500,17 @@
       photo.classList.add('has-img');
       const tk = $('.photo-take span', form); if (tk) tk.textContent = 'Retake photo';
       const rm = $('#rmimg'); if (rm) rm.checked = false;
-      status.hidden = false; status.textContent = 'Optimizing…';
-      blob = null;
-      working = shrink(file).then(b => {
-        blob = b.size < file.size || file.type !== 'image/jpeg' ? b : file;
-        status.textContent = Math.max(1, Math.round(blob.size / 1024)) + ' KB';
+      status.hidden = false;
+      const over = file.size > maxUploadBytes(form);
+      limitNote(form, over);
+      status.textContent = over ? 'Preparing a smaller copy…' : (Math.max(1, Math.round(file.size / 1024)) + ' KB');
+      upload = null;
+      working = photoForUpload(file, form).then(u => {
+        upload = u;
+        if (u.shrunk) status.textContent = Math.max(1, Math.round(u.blob.size / 1024)) + ' KB';
       }).catch(() => {
-        blob = file; // let the server try (it validates)
+        upload = { blob: file, name: file.name || 'photo.jpg', shrunk: false };
+        limitNote(form, false);
         status.textContent = Math.round(file.size / 1024) + ' KB';
       });
       const name = form.elements.name;
@@ -688,7 +718,9 @@
       let j = await afSend(src, img, seq);
       if (seq !== afSeq) return;           // a newer photo was picked meanwhile
       const cap = parseInt(form.dataset.afTimeout || '50', 10) || 30;
-      if (j && !j.ok && j.retry_after > 0 && j.retry_after <= cap) {
+      // One retry, and only for a short Retry-After. A daily cap (until 00:00 UTC) is longer than a minute:
+      // show the busy message and leave Save usable. The wait never disables the form.
+      if (j && !j.ok && j.code === 'busy' && j.retry_after > 0 && j.retry_after <= RETRY_AFTER_MAX && j.retry_after <= cap) {
         if (!(await afWait(j.retry_after, seq, j.retry_reason))) return;
         afSay('Uploading…'); afShow(0, '');
         j = await afSend(src, img, seq);
@@ -783,7 +815,7 @@
         if (working) await working;
         const fd = new FormData(form);
         fd.delete('photo'); fd.delete('photo2');
-        if (blob) fd.append('photo', blob, 'photo.jpg');
+        if (upload) fd.append('photo', upload.blob, upload.name);
         if (submitter.name) fd.set(submitter.name, submitter.value);
         const j = await post(form.action, fd);
         location.href = j.redirect || '/';
