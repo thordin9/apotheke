@@ -96,7 +96,8 @@ Typical results and what to do:
 | Result | Fix |
 |---|---|
 | *Could not connect* | Wrong address or port, the service is not running, or a firewall is in the way. |
-| *No answer within N seconds* | The service is overloaded, or the timeout is too short. |
+| *No answer within N seconds* | Test connection: the service is overloaded, or the timeout is too short. |
+| *autofill is unavailable right now* | Test with a photo: the suggestion step timed out, the network failed, or the answer was not the API. Analyze shows the same message and does not retry. |
 | *The service requires a token* / *refused the token* | Save the token the service expects, or clear it. |
 | *Still warming up* / *Model not ready* | The service is loading its model; try again in a minute. |
 | *Model used: X (asked for Y)* | Model Y is not allowed or not installed on the service; pick another or ask whoever runs the service. |
