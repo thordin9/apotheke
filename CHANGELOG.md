@@ -17,6 +17,18 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **docs:** `loaded` is the service's report; a photo can still be a cold start
 
+## [2.4.0] - 2026-10-19
+
+### Added
+
+- **autofill:** on-demand Analyze (Feature 8); auto-analyze is off by default (migration 0025) ([#25](https://github.com/thordin9/apotheke/pull/25))
+- **autofill:** Model and Image size dropdowns from `/v1/info` ([#25](https://github.com/thordin9/apotheke/pull/25))
+- **autofill:** one analysis at a time; a second analysis only fills empty or untouched fields ([#25](https://github.com/thordin9/apotheke/pull/25))
+
+### Maintenance
+
+- **docs:** admin and user guides, upgrade notes, and the 2.4.0 QA pass ([#25](https://github.com/thordin9/apotheke/pull/25))
+
 ## [2.3.2] - 2026-10-18
 
 ### Fixed
@@ -208,7 +220,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.3.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/thordin9/apotheke/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/thordin9/apotheke/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/thordin9/apotheke/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/thordin9/apotheke/compare/v2.2.0...v2.3.0
