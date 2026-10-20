@@ -39,7 +39,7 @@ git push -u origin feat/my-change               # open a PR against main
 ```
 
 * Legacy changes open a pull request against `main`, as in the commands above. CI4 work branches from `feature/ci4` and opens the pull request against that branch.
-* **CI on `feature/ci4`.** Pushes to that branch, and every pull request into it, run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The PHP 8.4 matrix is `legacy` and `ci4`, each on SQLite and PostgreSQL. legacy@8.3 stays the upgrade/rollback reference. Lint, headless mobile checks, Playwright and Docker build + smoke run on PHP 8.3 and PHP 8.4. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule run with empty configs until modules exist. Nothing is released from this branch. Details: [CI](ci.md#php-84-legs).
+* **CI on `feature/ci4`.** Pushes to that branch, and every pull request into it, run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The PHP 8.4 matrix is `legacy` and `ci4`, each on SQLite and PostgreSQL. legacy@8.3 stays the upgrade/rollback reference. Lint, headless mobile checks, Playwright and Docker build + smoke run on PHP 8.3 and PHP 8.4. The ci4 leg runs PHPUnit against `ci4/public/router.php`. deptrac and the DI rule check Core and DevServer. Nothing is released from this branch. Details: [CI](ci.md#php-84-legs).
 * Each commit should pass lint and tests on its own.
 * Commit messages follow Conventional Commits, subject ≤ 72 characters (details in [CI](ci.md#commit-rules)).
 * If the UI changed, add the `update-snapshots` label to the PR, fetch the artifact with

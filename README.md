@@ -487,9 +487,9 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Job | What it does |
 |---|---|
 | Lint | `scripts/lint.sh` (PHP, JS, shell, workflow lint) on PHP 8.3 and PHP 8.4. Markdown links cover every file under `docs/` |
-| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. The legacy cells also run the parity recorder (install, `/healthz`, settings). The coverage artifact is uploaded from legacy@8.3 SQLite only |
-| deptrac | empty module-graph config until CI4 modules exist |
-| DI rule | empty PHPStan config until CI4 paths exist |
+| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg runs PHPUnit with `APOTHEKE_APP=ci4` (the catalog HTTP suite stays on legacy until those routes exist). The legacy cells also run the parity recorder (install, `/healthz`, settings), and PHP 8.4 cells compare legacy and CI4 health bytes. The coverage artifact is uploaded from legacy@8.3 SQLite only |
+| deptrac | Core depends on nothing; DevServer may depend on Core |
+| DI rule | PHPStan level 6. `service()` only in controllers and `Config/Services.php`. `composer audit` on `ci4/` is a deliberate gate |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px, on PHP 8.3 and PHP 8.4 |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, on PHP 8.3 and PHP 8.4, `retries=1`; report, traces and screenshot diffs uploaded on failure |
 | Docker build + smoke test | builds the image (shipped default PHP 8.3, plus a PHP 8.4 test build), checks Imagick lists HEIC (`scripts/docker-heic.sh`) on both, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |

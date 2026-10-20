@@ -17,11 +17,16 @@
         "ext-imagick": "HEIC/HEIF photos. The Docker image includes Imagick with libheif; without it a HEIC upload is kept and shown as a placeholder"
     },
     "require-dev": {
+        "deptrac/deptrac": "^2.0",
+        "phpstan/phpstan": "^2.1",
         "phpunit/phpcov": "^10.0",
         "phpunit/phpunit": "^11.5"
     },
     "autoload-dev": {
-        "classmap": ["tests/Unit/", "tests/Integration/"]
+        "classmap": ["tests/Unit/", "tests/Integration/"],
+        "psr-4": {
+            "Apotheke\\Tools\\PhpStan\\": "ci4/tools/PhpStan/"
+        }
     },
     "scripts": {
         "test": "phpunit",

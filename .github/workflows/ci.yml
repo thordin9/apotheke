@@ -45,8 +45,10 @@ jobs:
         with:
           php-version: '8.4'
           coverage: none
-          tools: none
-      - name: Module graph (empty config until CI4 modules exist)
+          tools: composer:v2
+      - name: Install dev dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Module graph
         run: php scripts/ci4-arch.php deptrac
 
   di-rule:
@@ -58,8 +60,15 @@ jobs:
         with:
           php-version: '8.4'
           coverage: none
-          tools: none
-      - name: Constructor injection (empty config until CI4 code exists)
+          extensions: intl, mbstring, sqlite3
+          tools: composer:v2
+      - name: Install dev dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Install CI4 dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+      - name: Audit CI4 dependencies
+        run: composer audit --no-interaction --working-dir=ci4
+      - name: Constructor injection
         run: php scripts/ci4-arch.php di
 
   test:
@@ -68,9 +77,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # PHP 8.4 × both apps. The ci4 cells skip PHPUnit while ci4/public/index.php
-        # is absent (scripts/ci4-leg.sh). legacy@8.4 runs the same PHPUnit suite as
-        # legacy@8.3. Lint, mobile, Playwright and Docker also run on 8.3 and 8.4.
+        # PHP 8.4 × both apps. scripts/ci4-leg.sh accepts only legacy and ci4.
+        # legacy@8.4 runs the same PHPUnit suite as legacy@8.3.
+        # Lint, mobile, Playwright and Docker also run on 8.3 and 8.4.
         app: [legacy, ci4]
         php: ['8.4']
         db: [sqlite, pgsql]
@@ -88,7 +97,8 @@ jobs:
         env:
           POSTGRES_DB: apotheke
           POSTGRES_USER: apotheke
-          POSTGRES_PASSWORD: apotheke
+          # Test-only password. The backslash is what the CI4 /healthz check connects with.
+          POSTGRES_PASSWORD: 'apotheke\test'
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
@@ -98,14 +108,15 @@ jobs:
       TEST_PG_PORT: '5432'
       TEST_PG_DB: apotheke
       TEST_PG_USER: apotheke
-      TEST_PG_PASSWORD: apotheke
+      TEST_PG_PASSWORD: 'apotheke\test'
       APOTHEKE_APP: ${{ matrix.app }}
+      APOTHEKE_TEST_DB: ${{ matrix.db }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, pdo_pgsql, exif, mbstring, dom, zip, imagick
+          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, dom, zip, imagick
           coverage: pcov
           tools: composer:v2
       - name: Decide whether this leg runs the suite
@@ -119,7 +130,7 @@ jobs:
         if: steps.suite.outputs.run == 'true'
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'ci4/composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests)
         if: steps.suite.outputs.run == 'true'
@@ -127,10 +138,14 @@ jobs:
       - name: Install dev dependencies
         if: steps.suite.outputs.run == 'true'
         run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Install CI4 dependencies
+        if: steps.suite.outputs.run == 'true' && matrix.php == '8.4'
+        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
         if: steps.suite.outputs.run == 'true'
         run: |
-          export DATA_DIR="$RUNNER_TEMP/cli-data" DB_HOST=127.0.0.1 DB_PASSWORD=apotheke DB_SCHEMA=ci_cli
+          export DATA_DIR="$RUNNER_TEMP/cli-data" DB_HOST=127.0.0.1 DB_SCHEMA=ci_cli
+          export DB_PASSWORD="$TEST_PG_PASSWORD"
           php bin/migrate.php
           php bin/migrate.php | grep -q 'Already up to date'
           php bin/seed.php --demo
@@ -139,6 +154,9 @@ jobs:
       - name: PHPUnit (unit + HTTP integration)
         if: steps.suite.outputs.run == 'true'
         run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
+      - name: Prove CI4 used PostgreSQL
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
+        run: php scripts/ci4-pgsql-proof.php
       - uses: actions/setup-node@v4
         if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
         with:

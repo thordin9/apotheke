@@ -1,8 +1,17 @@
-# Empty until CI4 modules exist (Feature 12, PR 4 onward).
-# scripts/ci4-arch.php treats this exact shape as a pass and does not run deptrac.
-# Replace paths, layers and ruleset with the graph in AGENTS.md when modules land;
-# the deptrac job then runs `deptrac analyse` and fails if the tool is missing.
+# Core depends on nothing. DevServer may depend on Core. Other modules land in later PRs.
 deptrac:
-  paths: []
-  layers: []
-  ruleset: {}
+  paths:
+    - ci4/modules
+  layers:
+    - name: Core
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Core\\
+    - name: DevServer
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\DevServer\\
+  ruleset:
+    Core: []
+    DevServer:
+      - Core

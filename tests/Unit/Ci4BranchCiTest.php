@@ -34,7 +34,115 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString("php: '8.3'", $yml);
         $this->assertStringContainsString('db: [sqlite, pgsql]', $yml);
         $this->assertStringContainsString('APOTHEKE_APP: ${{ matrix.app }}', $yml);
+        $this->assertStringContainsString('APOTHEKE_TEST_DB: ${{ matrix.db }}', $yml);
+        $this->assertStringContainsString('php scripts/ci4-pgsql-proof.php', $yml);
+        $this->assertStringContainsString("matrix.app == 'ci4' && matrix.db == 'pgsql'", $yml);
+        $proof = (string)file_get_contents($this->root() . '/scripts/ci4-pgsql-proof.php');
+        $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $proof);
+        $this->assertStringContainsString('apotheke_ci4_pgsql_probe rows=', $proof);
+        $this->assertStringContainsString("=== '42P01'", $proof);
+        $this->assertStringNotContainsString('getMessage()', $proof);
+        $wiring = (string)file_get_contents($this->root() . '/ci4/modules/Core/Boot/FrameworkWiring.php');
+        $this->assertStringNotContainsString('apotheke_ci4_pgsql_probe', $wiring);
+        $harness = (string)file_get_contents($this->root() . '/tests/ci4-router.php');
+        $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $harness);
+        $this->assertStringContainsString("ROOT . '/tests/ci4-router.php'", (string)file_get_contents($this->root() . '/tests/lib.php'));
         $this->assertStringContainsString("matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'", $yml);
+    }
+
+    public function testPgsqlProofSeparatesMissingTableFromOtherFailures(): void
+    {
+        $password = 'proof-should-not-leak';
+        [$code, $out, $err] = $this->runProof([
+            'TEST_PG_HOST' => '127.0.0.1',
+            'TEST_PG_PORT' => '1',
+            'TEST_PG_DB' => 'apotheke',
+            'TEST_PG_USER' => 'apotheke',
+            'TEST_PG_PASSWORD' => $password,
+        ]);
+        $this->assertSame(1, $code);
+        $this->assertMatchesRegularExpression('/connection or query failed \(SQLSTATE [^)]+\)/', $err);
+        $this->assertStringNotContainsString('is missing', $err);
+        $this->assertStringNotContainsString($password, $err . $out);
+        $this->assertStringNotContainsString('pgsql:', $err . $out);
+
+        $real = getenv('TEST_PG_PASSWORD');
+        if ($real === false || $real === '') {
+            $real = 'apotheke';
+        }
+        try {
+            $pdo = new PDO(
+                'pgsql:host=' . (getenv('TEST_PG_HOST') ?: '127.0.0.1') . ';port=' . (getenv('TEST_PG_PORT') ?: '5432') . ';dbname=' . (getenv('TEST_PG_DB') ?: 'apotheke') . ';connect_timeout=3',
+                getenv('TEST_PG_USER') ?: 'apotheke',
+                $real,
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+        } catch (PDOException) {
+            $this->markTestIncomplete('PostgreSQL is not reachable, so the auth and missing-table cases were not run');
+        }
+
+        $bogus = 'proof-auth-should-not-leak';
+        [$code, $out, $err] = $this->runProof([
+            'TEST_PG_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
+            'TEST_PG_PORT' => getenv('TEST_PG_PORT') ?: '5432',
+            'TEST_PG_DB' => getenv('TEST_PG_DB') ?: 'apotheke',
+            'TEST_PG_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
+            'TEST_PG_PASSWORD' => $bogus,
+        ]);
+        $this->assertSame(1, $code);
+        $this->assertMatchesRegularExpression('/connection or query failed \(SQLSTATE [^)]+\)/', $err);
+        $this->assertStringNotContainsString('is missing', $err);
+        $this->assertStringNotContainsString($bogus, $err . $out);
+        $this->assertStringNotContainsString($real, $err . $out);
+        $this->assertStringNotContainsString('pgsql:', $err . $out);
+
+        $existed = $pdo->query("SELECT to_regclass('public.apotheke_ci4_pgsql_probe')")->fetchColumn();
+        $rows = ($existed !== false && $existed !== null)
+            ? (int)$pdo->query('SELECT count(*) FROM public.apotheke_ci4_pgsql_probe')->fetchColumn()
+            : 0;
+        $pdo->exec('DROP TABLE IF EXISTS public.apotheke_ci4_pgsql_probe');
+        try {
+            [$code, $out, $err] = $this->runProof([
+                'TEST_PG_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
+                'TEST_PG_PORT' => getenv('TEST_PG_PORT') ?: '5432',
+                'TEST_PG_DB' => getenv('TEST_PG_DB') ?: 'apotheke',
+                'TEST_PG_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
+                'TEST_PG_PASSWORD' => $real,
+            ]);
+            $this->assertSame(1, $code);
+            $this->assertStringContainsString('apotheke_ci4_pgsql_probe is missing (SQLSTATE 42P01)', $err);
+            $this->assertStringNotContainsString('connection or query failed', $err);
+            $this->assertStringNotContainsString($real, $err . $out);
+            $this->assertStringNotContainsString('pgsql:', $err . $out);
+        } finally {
+            if ($existed !== false && $existed !== null) {
+                $pdo->exec('CREATE TABLE public.apotheke_ci4_pgsql_probe (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)');
+                for ($i = 0; $i < $rows; $i++) {
+                    $pdo->exec('INSERT INTO public.apotheke_ci4_pgsql_probe DEFAULT VALUES');
+                }
+            }
+        }
+    }
+
+    /** @param array<string, string> $env @return array{0: int, 1: string, 2: string} */
+    private function runProof(array $env): array
+    {
+        $cmd = [PHP_BINARY, $this->root() . '/scripts/ci4-pgsql-proof.php'];
+        $proc = proc_open(
+            $cmd,
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $this->root(),
+            array_merge(getenv() ?: [], $env)
+        );
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+        $stdout = (string)stream_get_contents($pipes[1]);
+        $stderr = (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return [proc_close($proc), $stdout, $stderr];
     }
 
     public function testDeptracAndDiJobsCallTheEmptyConfigScript(): void
@@ -107,17 +215,25 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertMatchesRegularExpression('/ref: main\\n/', $yml);
     }
 
-    public function testCi4LegSkipsWhenTheAppIsAbsent(): void
+    public function testCi4LegFailsWhenTheFrontControllerIsMissing(): void
     {
-        $root = $this->root();
+        $dir = $this->fixture();
         $out = [];
         $code = 0;
-        exec('bash ' . escapeshellarg($root . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($root) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
-        $this->assertSame(0, $code);
-        $this->assertSame(['run=false'], $out);
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
+        $this->assertSame(1, $code);
+        $this->assertNotContains('run=false', $out);
         $err = (string)file_get_contents($this->stderrFile());
-        $this->assertStringContainsString('ci4/public/index.php is not in this tree.', $err);
-        $this->assertStringContainsString('The job stays green', $err);
+        $this->assertStringContainsString('ci4/public/index.php is missing.', $err);
+    }
+
+    public function testCi4LegRejectsAnUnknownApp(): void
+    {
+        $out = [];
+        $code = 0;
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' other ' . escapeshellarg($this->root()) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
+        $this->assertSame(2, $code);
+        $this->assertStringContainsString('must be legacy or ci4', (string)file_get_contents($this->stderrFile()));
     }
 
     public function testLegacyLegRuns(): void
@@ -152,20 +268,91 @@ final class Ci4BranchCiTest extends TestCase
         file_put_contents($dir . '/tests/lib.php', "<?php\n// APOTHEKE_APP picks the server\n");
         $out = [];
         $code = 0;
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
+        $this->assertSame(1, $code);
+        $this->assertStringContainsString('does not switch servers on APOTHEKE_APP', (string)file_get_contents($this->stderrFile()));
+    }
+
+    public function testServerEnvPassesApothekeTestDbExplicitly(): void
+    {
+        require_once dirname(__DIR__) . '/lib.php';
+        $keys = ['APOTHEKE_TEST_DB', 'TEST_DB_DRIVER', 'DB_DRIVER', 'TEST_PG_HOST', 'TEST_PG_PORT', 'TEST_PG_DB', 'TEST_PG_USER', 'TEST_PG_PASSWORD'];
+        $prev = [];
+        foreach ($keys as $key) {
+            $prev[$key] = getenv($key);
+        }
+        putenv('APOTHEKE_TEST_DB=pgsql');
+        putenv('TEST_DB_DRIVER=sqlite');
+        putenv('DB_DRIVER=sqlite');
+        putenv('TEST_PG_HOST=10.1.2.3');
+        putenv('TEST_PG_PORT=5432');
+        putenv('TEST_PG_DB=apotheke');
+        putenv('TEST_PG_USER=apotheke');
+        putenv('TEST_PG_PASSWORD=apotheke\\test');
+        try {
+            $env = test_server_env('/tmp/apo-pgsql-leg');
+            $this->assertSame('pgsql', $env['APOTHEKE_TEST_DB']);
+            $this->assertSame('pgsql', $env['DB_DRIVER']);
+            $this->assertSame('10.1.2.3', $env['DB_HOST']);
+            $this->assertSame('5432', $env['DB_PORT']);
+            $this->assertSame('apotheke', $env['DB_NAME']);
+            $this->assertSame('apotheke', $env['DB_USER']);
+            $this->assertSame('apotheke\\test', $env['DB_PASSWORD']);
+            $this->assertNotSame('', $env['DB_SCHEMA']);
+            $this->assertStringStartsWith('t_', $env['DB_SCHEMA']);
+
+            putenv('APOTHEKE_TEST_DB=sqlite');
+            putenv('DB_DRIVER=pgsql');
+            $sqlite = test_server_env('/tmp/apo-sqlite-leg');
+            $this->assertSame('sqlite', $sqlite['APOTHEKE_TEST_DB']);
+            $this->assertSame('sqlite', $sqlite['DB_DRIVER']);
+            $this->assertArrayNotHasKey('DB_SCHEMA', $sqlite);
+            $this->assertArrayNotHasKey('DB_PASSWORD', $sqlite);
+        } finally {
+            foreach ($prev as $key => $value) {
+                if ($value === false) {
+                    putenv($key);
+                } else {
+                    putenv($key . '=' . $value);
+                }
+            }
+        }
+    }
+
+    public function testCi4LegRunsWhenTheHarnessSelectsCi4(): void
+    {
+        $dir = $this->fixture();
+        mkdir($dir . '/ci4/public', 0775, true);
+        mkdir($dir . '/tests', 0775, true);
+        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
+        file_put_contents($dir . '/tests/lib.php', <<<'PHP'
+<?php
+const ROOT = __DIR__ . '/..';
+function apotheke_app(): string { return getenv('APOTHEKE_APP') === 'ci4' ? 'ci4' : 'legacy'; }
+function apotheke_front_controller(?string $app = null): string {
+    $app ??= apotheke_app();
+    return $app === 'ci4' ? ROOT . '/ci4/public/router.php' : ROOT . '/public/index.php';
+}
+PHP);
+        $out = [];
+        $code = 0;
         exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir), $out, $code);
         $this->assertSame(0, $code);
         $this->assertSame(['run=true'], $out);
     }
 
-    public function testCommittedArchitectureConfigsAreEmptyPasses(): void
+    public function testCommittedArchitectureConfigsRunTheTools(): void
     {
         $root = $this->root();
+        $this->assertFalse(ci4_deptrac_is_empty((string)file_get_contents($root . '/deptrac.yaml')));
+        $this->assertFalse(ci4_di_is_empty((string)file_get_contents($root . '/phpstan-di.neon')));
+        if (PHP_VERSION_ID < 80400 || !is_file($root . '/ci4/vendor/autoload.php') || !is_file($root . '/vendor/bin/deptrac') || !is_file($root . '/vendor/bin/phpstan')) {
+            $this->markTestSkipped('deptrac, phpstan and the CI4 vendor tree are installed on PHP 8.4');
+        }
         [$depCode, $depMsg] = ci4_arch_check('deptrac', $root . '/deptrac.yaml');
         [$diCode, $diMsg] = ci4_arch_check('di', $root . '/phpstan-di.neon');
         $this->assertSame(0, $depCode, $depMsg);
         $this->assertSame(0, $diCode, $diMsg);
-        $this->assertStringContainsString('empty config', $depMsg);
-        $this->assertStringContainsString('empty PHPStan config', $diMsg);
     }
 
     public function testFilledConfigFailsClosedWithoutTheTool(): void

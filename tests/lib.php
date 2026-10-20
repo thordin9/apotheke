@@ -64,24 +64,57 @@ function rrmdir(string $dir): void
     rmdir($dir);
 }
 
+function apotheke_app(): string
+{
+    return getenv('APOTHEKE_APP') === 'ci4' ? 'ci4' : 'legacy';
+}
+
+function apotheke_front_controller(?string $app = null): string
+{
+    $app ??= apotheke_app();
+    if ($app === 'ci4') return ROOT . '/ci4/public/router.php';
+    return ROOT . '/public/index.php';
+}
+
 final class Server
 {
     public string $base;
     public string $log;
+    public string $app;
     /** @var resource */
     private $proc;
 
-    public function __construct(public string $dataDir, array $env = [])
+    /**
+     * @param array<string, string|null> $env null removes that variable from the child
+     * @param ?string $router CI4 entry. Null starts tests/ci4-router.php. Pass ci4/public/router.php for a shipped boot.
+     */
+    public function __construct(public string $dataDir, array $env = [], ?string $app = null, ?string $router = null)
     {
+        $this->app = $app ?? apotheke_app();
         $sock = stream_socket_server('tcp://127.0.0.1:0');
         $port = (int)substr(strrchr(stream_socket_get_name($sock, false), ':'), 1);
         fclose($sock);
         $this->base = "http://127.0.0.1:$port";
         $this->log = $dataDir . '.server.log';
-        $cov = getenv('APOTHEKE_COVERAGE_DIR') ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        $cov = ($this->app !== 'ci4' && getenv('APOTHEKE_COVERAGE_DIR')) ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        if ($this->app === 'ci4') {
+            $front = $router ?? ROOT . '/tests/ci4-router.php';
+            $docroot = ROOT . '/ci4/public';
+        } else {
+            $front = $router ?? ($cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php');
+            $docroot = ROOT . '/public';
+        }
         $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M', ...$cov,
-                '-S', "127.0.0.1:$port", '-t', ROOT . '/public', $cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php'];
-        $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'], test_db_env($dataDir), $env);
+                '-S', "127.0.0.1:$port", '-t', $docroot, $front];
+        $harness = $this->app === 'ci4' ? ['APOTHEKE_HARNESS' => '1'] : [];
+        $overrides = [];
+        $drop = [];
+        foreach ($env as $key => $value) {
+            if ($value === null) $drop[] = $key;
+            else $overrides[$key] = $value;
+        }
+        $fullEnv = array_merge(getenv(), test_server_env($dataDir), $harness, $overrides);
+        foreach ($drop as $key) unset($fullEnv[$key]);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');
         for ($i = 0; $i < 100; $i++) {
@@ -296,11 +329,30 @@ function jpg_file(string $data, string $name = 'photo.jpg', string $type = 'imag
     return ['name' => $name, 'type' => $type, 'data' => $data];
 }
 
-/* ---------- database under test: SQLite (default) or PostgreSQL (TEST_DB_DRIVER=pgsql) ---------- */
+/* ---------- database under test: SQLite (default) or PostgreSQL ---------- */
 
 function test_driver(): string
 {
-    return getenv('TEST_DB_DRIVER') === 'pgsql' ? 'pgsql' : 'sqlite';
+    foreach ([getenv('APOTHEKE_TEST_DB'), getenv('TEST_DB_DRIVER'), getenv('DB_DRIVER')] as $named) {
+        if ($named === 'pgsql' || $named === 'sqlite') return $named;
+    }
+    return 'sqlite';
+}
+
+/**
+ * Env passed to every php -S the harness starts.
+ * APOTHEKE_TEST_DB and the DB_* keys are set here. The child does not
+ * infer its database from whatever the PHPUnit process happened to inherit.
+ *
+ * @param array<string,string> $env
+ * @return array<string,string>
+ */
+function test_server_env(string $dataDir, array $env = []): array
+{
+    $base = ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'];
+    $db = test_db_env($dataDir);
+    $db['APOTHEKE_TEST_DB'] = test_driver();
+    return array_merge($base, $db, $env);
 }
 
 /** Env for the app server: on pgsql every data dir gets its own throwaway schema. */

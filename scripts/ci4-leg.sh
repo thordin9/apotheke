@@ -9,23 +9,52 @@ root=${2:-.}
 
 say() { echo "$*" >&2; }
 
-if [ "$app" != "ci4" ]; then
-  echo "run=true"
-  exit 0
-fi
+case "$app" in
+  legacy)
+    echo "run=true"
+    exit 0
+    ;;
+  ci4)
+    ;;
+  *)
+    say "APOTHEKE_APP must be legacy or ci4 (got ${app})."
+    exit 2
+    ;;
+esac
 
 if [ ! -f "$root/ci4/public/index.php" ]; then
-  say "ci4/public/index.php is not in this tree."
-  say "The CI4 leg skips PHPUnit until the skeleton exists (Feature 12 PR 4)."
-  say "The job stays green so feature/ci4 is not blocked before any CI4 code."
-  echo "run=false"
-  exit 0
-fi
-
-if [ ! -f "$root/tests/lib.php" ] || ! grep -q 'APOTHEKE_APP' "$root/tests/lib.php"; then
-  say "ci4/public/index.php exists, but tests/lib.php does not switch servers on APOTHEKE_APP yet."
-  say "Refusing to run the legacy suite and report it as the CI4 leg."
+  say "ci4/public/index.php is missing."
+  say "The CI4 leg cannot pass without the front controller."
   exit 1
 fi
+
+# shellcheck disable=SC2016
+php -r '
+require $argv[1];
+if (!function_exists("apotheke_app") || !function_exists("apotheke_front_controller")) {
+    fwrite(STDERR, "tests/lib.php does not switch servers on APOTHEKE_APP.\n");
+    exit(1);
+}
+putenv("APOTHEKE_APP=ci4");
+if (apotheke_app() !== "ci4") {
+    fwrite(STDERR, "apotheke_app() did not select ci4.\n");
+    exit(1);
+}
+$front = str_replace("\\\\", "/", apotheke_front_controller());
+if (!str_ends_with($front, "/ci4/public/router.php")) {
+    fwrite(STDERR, "front controller does not point at ci4/public/router.php.\n");
+    exit(1);
+}
+putenv("APOTHEKE_APP=legacy");
+if (apotheke_app() !== "legacy") {
+    fwrite(STDERR, "apotheke_app() did not select legacy.\n");
+    exit(1);
+}
+$legacy = str_replace("\\\\", "/", apotheke_front_controller());
+if (str_ends_with($legacy, "/ci4/public/router.php")) {
+    fwrite(STDERR, "legacy front controller still points at ci4/public/router.php.\n");
+    exit(1);
+}
+' "$root/tests/lib.php"
 
 echo "run=true"

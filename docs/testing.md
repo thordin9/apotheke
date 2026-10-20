@@ -18,10 +18,12 @@ KEEP_TEST_DATA=1 php tests/integration.php   # keep the temp data dirs for inspe
 ```
 
 CI runs that suite on legacy@8.3 (the upgrade/rollback reference) and on legacy@8.4, on SQLite and PostgreSQL.
-The ci4 cells of the same matrix skip PHPUnit until `ci4/public/index.php` exists. Lint, the headless mobile checks,
-Playwright and Docker build + smoke also run on both PHP 8.3 and PHP 8.4. deptrac and the DI rule have empty
-configs until CI4 modules exist. See [CI](ci.md#php-84-legs). The legacy comparison is
-[php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).
+The ci4 cells run PHPUnit too. `APOTHEKE_APP=ci4` selects the CI4 app. The harness starts `tests/ci4-router.php`
+(the shipped dev server remains `ci4/public/router.php`), and `APOTHEKE_TEST_DB` tells
+`tests/lib.php` which database to pass to those servers. The catalog HTTP suite is
+skipped there until those routes exist. Lint, the headless mobile checks, Playwright and Docker build + smoke also
+run on both PHP 8.3 and PHP 8.4. deptrac and the DI rule check Core and DevServer. See [CI](ci.md#php-84-legs). The
+legacy comparison is [php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).
 
 The integration suite starts PHP's built-in server on temporary data directories and exercises the app over HTTP with
 a small client (`tests/lib.php`: cookies, CSRF, multipart uploads, JSON). It covers uploads (images generated with
@@ -35,6 +37,8 @@ HEAD-on-read-routes (the router treats `HEAD` like `GET`), singular stats/`item_
 
 `tests/parity/` compares two fresh legacy installs on the PHP that is running the job. The first steps are a fresh
 install (home page, migration list, settings rows, file modes), `/healthz` and `/health`, and saving General settings.
+On PHP 8.4 it also compares a legacy server with the CI4 server for those health bytes, the three `/originals` URLs
+and the originals directory modes. The database dump is not part of that comparison.
 CSRF tokens, the `Host` header, `Date`, `Set-Cookie` and `Content-Length` are not part of the comparison. A difference
 fails the test. On the legacy@8.4 CI cell this is legacy@8.4 versus legacy@8.4.
 
