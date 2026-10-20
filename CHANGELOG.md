@@ -11,7 +11,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Fixed
 
-- **images:** flatten Imagick alpha and convert CMYK to sRGB ([#37](https://github.com/thordin9/apotheke/pull/37))
+- **images:** flatten Imagick transparency onto white and convert CMYK to sRGB ([#33](https://github.com/thordin9/apotheke/issues/33))
 
 ### Changed
 
