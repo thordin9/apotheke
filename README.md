@@ -486,13 +486,13 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 
 | Job | What it does |
 |---|---|
-| Lint | `scripts/lint.sh` (PHP, JS, shell, workflow lint) |
-| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. The coverage artifact is uploaded from legacy@8.3 SQLite only |
+| Lint | `scripts/lint.sh` (PHP, JS, shell, workflow lint) on PHP 8.3 and PHP 8.4. Markdown links cover every file under `docs/` |
+| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. The legacy cells also run the parity recorder (install, `/healthz`, settings). The coverage artifact is uploaded from legacy@8.3 SQLite only |
 | deptrac | empty module-graph config until CI4 modules exist |
 | DI rule | empty PHPStan config until CI4 paths exist |
-| Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
-| Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
-| Docker build + smoke test | builds the image, checks Imagick lists HEIC (`scripts/docker-heic.sh`), runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
+| Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px, on PHP 8.3 and PHP 8.4 |
+| Visual E2E | Playwright suite in 3 shards inside the Playwright image, on PHP 8.3 and PHP 8.4, `retries=1`; report, traces and screenshot diffs uploaded on failure |
+| Docker build + smoke test | builds the image (shipped default PHP 8.3, plus a PHP 8.4 test build), checks Imagick lists HEIC (`scripts/docker-heic.sh`) on both, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 | Secret scan | pinned gitleaks CLI (`gitleaks git --log-opts=--all`) over every ref in the full git history; the job fails if it finds a secret |
 
@@ -525,7 +525,7 @@ Release ([docs/releasing.md](docs/releasing.md)). A green CI run on `feature/ci4
 ## Project layout
 
 ```
-Dockerfile                    php:8.3-fpm-alpine + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
+Dockerfile                    php:8.3-fpm-alpine by default (build arg PHP_VERSION) + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
 docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)
@@ -538,7 +538,8 @@ src/db.php                    PDO connection (SQLite/PostgreSQL), dialect helper
 src/legacy.php                one-time upgrade of pre-migration SQLite installs (v1–v3)
 src/items.php                 items, locations, categories, search, statistics, images (GD)
 src/backup.php                portable backup zip and restore
-src/qr.php                    pure-PHP QR encoder (SVG)
+src/qr.php                    loads the QR encoder after the PHP 8.4 function-JIT guard
+src/qr-encode.php             pure-PHP QR encoder (SVG)
 src/seed.php                  idempotent starter/demo seeding
 src/bootstrap.php             sessions, auth, CSRF, helpers
 src/views.php                 HTML templates

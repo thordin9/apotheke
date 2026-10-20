@@ -21,7 +21,7 @@ or the behaviour users already rely on.
 4. **Docker-only after cutover.** From 3.0.0 the supported install is the Docker image. There is no
    non-Docker install and no vendored zip.
 5. **One re-login.** Sessions are not migrated. Users sign in again once at upgrade.
-6. **PHP 8.4.** The CI4 image and the CI4 leg on `feature/ci4` run PHP 8.4 (legacy@8.3 also runs on that branch). The legacy 2.5.x image stays on PHP 8.3.
+6. **PHP 8.4.** The CI4 image and the CI4 leg on `feature/ci4` run PHP 8.4 (legacy@8.3 and legacy@8.4 PHPUnit also run on that branch). The legacy 2.5.x image stays on PHP 8.3.
 7. **Unchanged constraints.** CI4 keeps the same constraints: no CDN, no JavaScript build step, works fully offline
    on a LAN. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 

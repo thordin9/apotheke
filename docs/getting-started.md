@@ -39,7 +39,8 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 [Configuration](configuration.md), add it under `environment:`.
 
 **What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
-`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). Installs without Docker
+`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). That default is the shipped 2.5.x image.
+`docker build --build-arg PHP_VERSION=8.4` builds the CI test image from the same Dockerfile, including Imagick. Compose and the published image keep the default. Installs without Docker
 stay on GD. `tini` is PID 1 and `docker/entrypoint.sh`:
 
 1. renders `docker/nginx.conf` with the port from `PORT` (default `80`),

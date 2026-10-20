@@ -16,13 +16,17 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint
+    name: Lint (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: ${{ matrix.php }}
           tools: none
       - uses: actions/setup-node@v4
         with:
@@ -66,7 +70,7 @@ jobs:
       matrix:
         # PHP 8.4 × both apps. The ci4 cells skip PHPUnit while ci4/public/index.php
         # is absent (scripts/ci4-leg.sh). legacy@8.4 runs the same PHPUnit suite as
-        # legacy@8.3. Lint, mobile, Playwright and Docker stay on 8.3 until PR 3.
+        # legacy@8.3. Lint, mobile, Playwright and Docker also run on 8.3 and 8.4.
         app: [legacy, ci4]
         php: ['8.4']
         db: [sqlite, pgsql]
@@ -159,13 +163,17 @@ jobs:
           if-no-files-found: error
 
   mobile-checks:
-    name: Headless mobile checks
+    name: Headless mobile checks (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: ${{ matrix.php }}
           extensions: gd, pdo_sqlite, exif, mbstring, zip
           coverage: none
           tools: none
@@ -189,7 +197,7 @@ jobs:
         run: cat /tmp/e2e-server.log || true
 
   e2e:
-    name: Visual E2E (Playwright, shard ${{ matrix.shard }}/3)
+    name: Visual E2E (Playwright, PHP ${{ matrix.php }}, shard ${{ matrix.shard }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Same image as scripts/update-snapshots.sh, so screenshots match the committed baselines pixel for pixel.
@@ -199,6 +207,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        php: ['8.3', '8.4']
         shard: [1, 2, 3]
     services:
       postgres:
@@ -216,8 +225,8 @@ jobs:
       TEST_PG_PASSWORD: apotheke
     steps:
       - uses: actions/checkout@v4
-      - name: Install PHP 8.3 (same packages as scripts/update-snapshots.sh)
-        run: scripts/e2e-container-setup.sh
+      - name: Install PHP ${{ matrix.php }}
+        run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
         run: npm ci --no-audit --no-fund
       - name: Run Playwright
@@ -226,16 +235,20 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-shard-${{ matrix.shard }}
+          name: playwright-report-php-${{ matrix.php }}-shard-${{ matrix.shard }}
           path: |
             tests/visual/report/
             tests/visual/results/
           retention-days: 14
 
   docker:
-    name: Docker build + smoke test
+    name: Docker build + smoke test (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.4']
     services:
       postgres:
         image: postgres:17
@@ -255,8 +268,10 @@ jobs:
           context: .
           load: true
           tags: apotheke:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            PHP_VERSION=${{ matrix.php }}
+          cache-from: type=gha,scope=php${{ matrix.php }}
+          cache-to: type=gha,mode=max,scope=php${{ matrix.php }}
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: HEIC (Imagick lists HEIC) and startup refusal
@@ -297,7 +312,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-docker
+          name: playwright-report-docker-php-${{ matrix.php }}
           path: |
             tests/visual/report/
             tests/visual/results/

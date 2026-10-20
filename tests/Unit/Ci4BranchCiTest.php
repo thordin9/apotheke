@@ -47,6 +47,55 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertSame(2, substr_count($yml, "php-version: '8.4'"));
     }
 
+    public function testLintMobilePlaywrightAndDockerRunOnPhp83AndPhp84(): void
+    {
+        $yml = $this->ci();
+        foreach (['lint:', 'mobile-checks:', 'e2e:', 'docker:'] as $job) {
+            $this->assertMatchesRegularExpression(
+                '/' . preg_quote($job, '/') . "\\n(?:    .*\\n)*?    strategy:\\n      fail-fast: false\\n      matrix:\\n        php: \\['8\\.3', '8\\.4'\\]/",
+                $yml,
+                $job . ' keeps PHP 8.3 and adds PHP 8.4'
+            );
+        }
+        $this->assertStringContainsString('name: Lint (PHP ${{ matrix.php }})', $yml);
+        $this->assertStringContainsString('name: Headless mobile checks (PHP ${{ matrix.php }})', $yml);
+        $this->assertStringContainsString('name: Visual E2E (Playwright, PHP ${{ matrix.php }}, shard ${{ matrix.shard }}/3)', $yml);
+        $this->assertStringContainsString('name: Docker build + smoke test (PHP ${{ matrix.php }})', $yml);
+        $this->assertStringContainsString('scripts/e2e-container-setup.sh "${{ matrix.php }}"', $yml);
+        $this->assertStringContainsString('PHP_VERSION=${{ matrix.php }}', $yml);
+        $this->assertStringContainsString("shard: [1, 2, 3]", $yml);
+        $this->assertStringNotContainsString('stay on 8.3 until PR 3', $yml);
+
+        $docker = (string)file_get_contents($this->root() . '/Dockerfile');
+        $this->assertStringContainsString('ARG PHP_VERSION=8.3', $docker);
+        $this->assertStringContainsString('FROM php:${PHP_VERSION}-fpm-alpine', $docker);
+        $this->assertStringNotContainsString('FROM php:8.4', $docker);
+
+        $setup = (string)file_get_contents($this->root() . '/scripts/e2e-container-setup.sh');
+        $this->assertStringContainsString('version="${1:-8.3}"', $setup);
+        $this->assertStringContainsString('ppa:ondrej/php', $setup);
+
+        $out = [];
+        $code = 0;
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/e2e-container-setup.sh') . ' 9.9 2>&1', $out, $code);
+        $this->assertSame(2, $code, implode("\n", $out));
+        $this->assertStringContainsString('is not supported', implode("\n", $out));
+    }
+
+    public function testN4WordingNamesLegacyPhp84PhpunitAndDockerSmoke(): void
+    {
+        foreach (['AGENTS.md', 'docs/adr/001-codeigniter4.md'] as $rel) {
+            $text = (string)file_get_contents($this->root() . '/' . $rel);
+            $this->assertStringContainsString('legacy@8.3 and legacy@8.4 PHPUnit also run', $text, $rel);
+        }
+        $plan = (string)file_get_contents($this->root() . '/docs/plans/feature12-ci4/PLAN.md');
+        $this->assertStringContainsString('Docker build + smoke on a `php:8.4` test image', $plan);
+        $this->assertStringContainsString(
+            'PR 2 runs only the CI4 leg plus legacy@8.3, and the legacy@8.4 runs move to PR 3',
+            $plan
+        );
+    }
+
     public function testReleaseWorkflowStaysOnMain(): void
     {
         $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');

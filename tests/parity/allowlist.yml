@@ -1,0 +1,16 @@
+# Quirks ported identically and fixed after the 3.0.0 cutover.
+# An entry does not excuse a difference. Each one requires the CI4 leg to match legacy.
+version: 1
+entries:
+  - id: N-2
+    behaviour: Imagick build — a corrupt JPEG that GD rejects is still analysed as a stripped recovered re-encode
+    expect: identical to legacy (original never sent)
+  - id: QA L-2
+    behaviour: broken JPEG or over 60 MP returns 422 and the item is not saved; broken HEIC is saved with a placeholder
+    expect: identical to legacy
+  - id: N-4
+    behaviour: a deleted item's originals stay on disk until the next undoable action prunes the token
+    expect: identical to legacy
+  - id: I-3
+    behaviour: edits apply to the served copy; autofill analyses the unedited original
+    expect: identical to legacy

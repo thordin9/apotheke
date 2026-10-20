@@ -1,4 +1,6 @@
-FROM php:8.3-fpm-alpine
+# Default stays the shipped 2.5.x image. CI passes PHP_VERSION=8.4 for the test image.
+ARG PHP_VERSION=8.3
+FROM php:${PHP_VERSION}-fpm-alpine
 
 LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.description="Apotheke, the storehouse for your stuff: a self-hosted PHP catalog for your belongings (nginx + php-fpm)" \
