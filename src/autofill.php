@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/image-color.php';
+
 /*
  * Apotheke – AI autofill client (optional).
  *
