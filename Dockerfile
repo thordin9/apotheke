@@ -7,17 +7,22 @@ LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.authors="Stathis Papandreou"
 
-# GD (JPEG/PNG/WebP), EXIF (photo orientation), OPcache, pdo_pgsql (PostgreSQL), zip (backups).
+# GD (JPEG/PNG/WebP), Imagick with HEIC/HEIF (libheif), EXIF, OPcache, pdo_pgsql, zip.
 # pdo_sqlite ships with the official image. nginx serves public/, tini is PID 1 (signals, zombies).
+# Installs without this image stay on GD: HEIC is kept and shown as a placeholder.
 RUN set -eux; \
-    apk add --no-cache nginx tini libjpeg-turbo libpng libwebp libzip libpq; \
-    apk add --no-cache --virtual .build-deps $PHPIZE_DEPS libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev postgresql-dev; \
+    apk add --no-cache nginx tini libjpeg-turbo libpng libwebp libzip libpq imagemagick libheif libgomp; \
+    apk add --no-cache --virtual .build-deps $PHPIZE_DEPS libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev postgresql-dev imagemagick-dev libheif-dev; \
     docker-php-ext-configure gd --with-jpeg --with-webp; \
     docker-php-ext-install -j"$(nproc)" gd exif opcache pdo_pgsql zip; \
+    pecl install imagick-3.8.0; \
+    docker-php-ext-enable imagick; \
     apk del --no-network .build-deps; \
     rm -rf /tmp/pear /usr/local/etc/php-fpm.d/www.conf.default; \
     php -m | grep -qi pdo_sqlite; \
-    php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'
+    php -m | grep -qi imagick; \
+    php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'; \
+    php -r 'exit(in_array("HEIC", array_map("strtoupper", Imagick::queryFormats()), true) ? 0 : 1);'
 
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-apotheke.ini
 COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zzz-apotheke.conf
