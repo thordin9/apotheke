@@ -851,6 +851,7 @@ final class AutofillTest extends DatabaseTestCase
     /**
      * A service that advertises max_image_bytes 524288 and no image_sizes. The analysis copy is still built with the
      * existing q80, then q70, then q60 step-down. The whole multipart body has to land on or under that limit.
+     * A miss fails the test. Absence of Imagick is not a size skip: that engine is simply not in the list.
      */
     public function testNoisy1024AnalysisMultipartFitsHalfMebibyte(): void
     {
@@ -886,7 +887,6 @@ final class AutofillTest extends DatabaseTestCase
             $this->assertNotSame([], $engines, 'GD or Imagick is required');
 
             $reports = [];
-            $over = [];
             foreach ($engines as $engine) {
                 $sizes = [];
                 foreach ([80, 70, 60] as $q) {
@@ -896,10 +896,7 @@ final class AutofillTest extends DatabaseTestCase
                     $sizes[$q] = strlen(autofill_multipart_body($out, $ctx)['body']);
                 }
                 $reports[] = $engine . ' q80=' . $sizes[80] . ' q70=' . $sizes[70] . ' q60=' . $sizes[60];
-                if ($sizes[60] > 524288) {
-                    $over[] = $engine;
-                    continue;
-                }
+                $this->assertLessThanOrEqual(524288, $sizes[60], $engine . ' analysis multipart is still over 524288 at q60 (' . implode('; ', $reports) . ')');
                 $opened = autofill_open_analysis($jpeg, $side, $ctx, [$engine]);
                 if (!empty($opened['path'])) $paths[] = $opened['path'];
                 $this->assertTrue($opened['ok'], $engine . ' ' . ($opened['message'] ?? '') . ' (' . implode('; ', $reports) . ')');
@@ -914,11 +911,64 @@ final class AutofillTest extends DatabaseTestCase
                 $built = getimagesizefromstring($opened['jpeg']);
                 $this->assertSame([1024, 1024, IMAGETYPE_JPEG], [$built[0], $built[1], $built[2]]);
             }
-            if ($over !== []) {
-                $this->markTestIncomplete(
-                    'expected failure: analysis multipart still over 524288 at q60 (' . implode('; ', $reports) . ')'
-                );
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+            if ($prevQuality === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prevQuality);
+            if ($prevSide === false) putenv('AUTOFILL_UPLOAD_MAX_SIDE');
+            else putenv('AUTOFILL_UPLOAD_MAX_SIDE=' . $prevSide);
+            @unlink(DATA_DIR . '/autofill-info.json');
+        }
+    }
+
+    /**
+     * Imagick must not keep a 4:4:4 JPEG's chroma. The analysis copy is 4:2:0 and the multipart body fits 524288.
+     * Skip only when the Imagick extension is not loaded. A size miss or a 4:4:4 result fails.
+     */
+    public function testImagickEncodes444JpegAs420WithinAnalysisLimit(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        $prevQuality = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        $prevSide = getenv('AUTOFILL_UPLOAD_MAX_SIDE');
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_MAX_SIDE');
+        $paths = [];
+        try {
+            $source = $this->jpegForcedChroma($this->noisyJpeg1024(), '1x1,1x1,1x1', 95);
+            $this->assertSame('4:4:4', $this->jpegChroma($source), 'the fixture must be a 4:4:4 JPEG');
+            $dim = getimagesizefromstring($source);
+            $this->assertSame([1024, 1024, IMAGETYPE_JPEG], [$dim[0], $dim[1], $dim[2]]);
+
+            $parsed = autofill_parse_info('{"name":"limit","version":"1","capabilities":[],"max_image_bytes":524288,"ready":true}');
+            $this->assertIsArray($parsed);
+            autofill_info_cache($parsed);
+            $known = autofill_known_info();
+            $side = min(autofill_image_side($known), autofill_upload_max_side());
+            $ctx = json_encode(autofill_context(autofill_chosen_model($known)), JSON_UNESCAPED_UNICODE);
+            $this->assertIsString($ctx);
+
+            foreach ([80, 70, 60] as $q) {
+                $out = autofill_analysis_jpeg($source, $side, $q, ['imagick']);
+                $this->assertNotNull($out, "imagick quality $q produced no JPEG");
+                $this->assertSame('4:2:0', $this->jpegChroma($out), "imagick quality $q kept 4:4:4");
             }
+            if (function_exists('imagejpeg')) {
+                $gd = autofill_analysis_jpeg($source, $side, 80, ['gd']);
+                $this->assertNotNull($gd);
+                $plain = imagecreatetruecolor(8, 8);
+                ob_start();
+                imagejpeg($plain, null, 80);
+                $native = (string)ob_get_clean();
+                $this->assertSame($this->jpegChroma($native), $this->jpegChroma($gd), 'GD analysis chroma stays on the GD encoder');
+            }
+            $opened = autofill_open_analysis($source, $side, $ctx, ['imagick']);
+            if (!empty($opened['path'])) $paths[] = $opened['path'];
+            $this->assertTrue($opened['ok'] ?? false, $opened['message'] ?? 'analysis copy was not built');
+            $this->assertNotSame('too_large', $opened['code'] ?? null);
+            $this->assertLessThanOrEqual(524288, strlen($opened['body']));
+            $this->assertSame('4:2:0', $this->jpegChroma($opened['jpeg']));
+            $built = getimagesizefromstring($opened['jpeg']);
+            $this->assertSame([1024, 1024, IMAGETYPE_JPEG], [$built[0], $built[1], $built[2]]);
         } finally {
             foreach ($paths as $path) autofill_unlink_analysis($path);
             if ($prevQuality === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
@@ -1074,6 +1124,64 @@ final class AutofillTest extends DatabaseTestCase
         ob_start();
         imagejpeg($im, null, $quality);
         return (string)ob_get_clean();
+    }
+
+    /** Re-encode with Imagick at an explicit jpeg:sampling-factor (for example 1x1,1x1,1x1). */
+    private function jpegForcedChroma(string $jpeg, string $factors, int $quality): string
+    {
+        $im = new Imagick();
+        $im->readImageBlob($jpeg);
+        $im->setImageFormat('jpeg');
+        $im->setOption('jpeg:sampling-factor', $factors);
+        if (method_exists($im, 'setImageProperty')) $im->setImageProperty('jpeg:sampling-factor', $factors);
+        $im->setImageCompressionQuality($quality);
+        $im->stripImage();
+        $out = $im->getImageBlob();
+        $im->clear();
+        $this->assertIsString($out);
+        $this->assertStringStartsWith("\xFF\xD8", $out);
+        return $out;
+    }
+
+    /** 4:2:0 / 4:4:4 / 4:2:2 from the SOF component sampling factors, or the raw factor list. */
+    private function jpegChroma(string $jpeg): string
+    {
+        return match ($this->jpegSamplingFactors($jpeg)) {
+            '2x2,1x1,1x1' => '4:2:0',
+            '1x1,1x1,1x1' => '4:4:4',
+            '2x1,1x1,1x1' => '4:2:2',
+            default => $this->jpegSamplingFactors($jpeg),
+        };
+    }
+
+    private function jpegSamplingFactors(string $jpeg): string
+    {
+        $i = 2;
+        $n = strlen($jpeg);
+        while ($i + 3 < $n) {
+            if ($jpeg[$i] !== "\xFF") { $i++; continue; }
+            $marker = ord($jpeg[$i + 1]);
+            while ($marker === 0xFF && $i + 2 < $n) { $i++; $marker = ord($jpeg[$i + 1]); }
+            if ($marker === 0xD8 || $marker === 0xD9 || $marker === 0x01 || ($marker >= 0xD0 && $marker <= 0xD7)) { $i += 2; continue; }
+            if ($i + 4 > $n) break;
+            $len = unpack('n', substr($jpeg, $i + 2, 2))[1];
+            if ($len < 2) break;
+            if (in_array($marker, [0xC0, 0xC1, 0xC2], true)) {
+                $comps = ord($jpeg[$i + 9]);
+                $parts = [];
+                $p = $i + 10;
+                for ($c = 0; $c < $comps; $c++) {
+                    if ($p + 1 >= $n) break;
+                    $sf = ord($jpeg[$p + 1]);
+                    $parts[] = ($sf >> 4) . 'x' . ($sf & 0x0F);
+                    $p += 3;
+                }
+                return implode(',', $parts);
+            }
+            if ($marker === 0xDA) break;
+            $i += 2 + $len;
+        }
+        return '';
     }
 
     private function jpegDqt(string $jpeg): string
