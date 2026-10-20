@@ -82,15 +82,16 @@ final class QrCodeTest extends TestCase
         $this->assertFalse(qr_php84_jit_is_tracing('1205', 0));
         $this->assertFalse(qr_php84_jit_is_tracing('1215', 1));
         $this->assertFalse(qr_php84_jit_is_tracing('1225', 2));
+        $this->assertFalse(qr_php84_jit_is_tracing('0205', 0));
     }
 
     /**
-     * PHP 8.4 function JIT miscompiles the finder loops, which count up from a negative index.
+     * Function JIT miscompiles the finder loops, which count up from a negative index.
+     * On PHP 8.2, 8.3 and 8.4 the matrix can be silently wrong; on PHP 8.4 the same mode can hang.
      * Every function-JIT mode is disabled before the encoder loads. Tracing JIT stays on.
      */
     public function testFunctionJitMatchesInterpreter(): void
     {
-        if (PHP_VERSION_ID < 80400) $this->markTestSkipped('the function-JIT hang is PHP 8.4');
         if (!function_exists('opcache_get_status')) $this->markTestSkipped('opcache not loaded');
         $payloads = [
             ['http://127.0.0.1:9091/?loc=1', 'M'],

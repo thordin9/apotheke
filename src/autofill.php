@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/image-color.php';
+
 /*
  * Apotheke – AI autofill client (optional).
  *
@@ -485,6 +487,7 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
         $w = $im->getImageWidth();
         $h = $im->getImageHeight();
         if ($w < 1 || $h < 1 || $w * $h > 60_000_000) { $im->clear(); return null; }
+        imagick_match_gd($im);
         $long = max($w, $h);
         if ($long > $maxSide) {
             $s = $maxSide / $long;
