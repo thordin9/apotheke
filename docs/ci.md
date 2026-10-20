@@ -42,6 +42,8 @@ The test matrix is `app: [legacy, ci4]` × PHP 8.4 × SQLite and PostgreSQL. Two
 
 The legacy PHPUnit cells also run the parity recorder (`tests/parity/`). Its first steps are a fresh install, `/healthz` and `/health`, and a General settings save, compared across two processes on that job's PHP. On the legacy@8.4 cell that is legacy@8.4 versus legacy@8.4, and a difference fails the job. [`tests/parity/allowlist.yml`](../tests/parity/allowlist.yml) names the four quirks that must stay identical (N-2, QA L-2, N-4, I-3). It does not hide a diff. The legacy 8.3↔8.4 note is [php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).
 
+`src/qr.php` loads on every request. On PHP 8.4, when opcache function JIT is on, that file sets `opcache.jit=disable` for the whole PHP worker from its first request, not only while a QR code is encoded. The cost is negligible. `opcache_jit_blacklist()` does not help.
+
 **While no CI4 app exists, the ci4 leg passes without running PHPUnit.** `scripts/ci4-leg.sh` checks for `ci4/public/index.php`. If the file is missing it prints the reason to the log and writes `run=false`, and every suite step is skipped. The job itself succeeds, so `feature/ci4` stays green before the skeleton lands. PHP 8.4 is still installed on that job, so the leg proves the runtime comes up.
 
 When `ci4/public/index.php` exists, the same script requires `tests/lib.php` to mention `APOTHEKE_APP` (the switch that selects the CI4 server). If the tree has an app but the harness does not switch, the job fails instead of running the legacy suite under a ci4 label. The legacy cells always run the suite. `APOTHEKE_APP` is set to `legacy` or `ci4` for every cell; the legacy app ignores it.
