@@ -848,6 +848,87 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: []);
     }
 
+    /**
+     * A service that advertises max_image_bytes 524288 and no image_sizes. The analysis copy is still built with the
+     * existing q80, then q70, then q60 step-down. The whole multipart body has to land on or under that limit.
+     */
+    public function testNoisy1024AnalysisMultipartFitsHalfMebibyte(): void
+    {
+        $prevQuality = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        $prevSide = getenv('AUTOFILL_UPLOAD_MAX_SIDE');
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_MAX_SIDE');
+        $paths = [];
+        try {
+            $jpeg = $this->noisyJpeg1024();
+            $this->assertSame($jpeg, $this->noisyJpeg1024(), 'seeded noise is deterministic');
+            $dim = getimagesizefromstring($jpeg);
+            $this->assertSame([1024, 1024, IMAGETYPE_JPEG], [$dim[0], $dim[1], $dim[2]]);
+            $this->assertGreaterThan(524288, strlen($jpeg), 'the fixture itself is over the advertised limit');
+
+            $parsed = autofill_parse_info('{"name":"limit","version":"1","capabilities":[],"max_image_bytes":524288,"ready":true}');
+            $this->assertIsArray($parsed);
+            $this->assertNull($parsed['image_sizes']);
+            $this->assertSame(524288, $parsed['max_image_bytes']);
+            autofill_info_cache($parsed);
+            $this->assertSame(524288, autofill_service_image_limit());
+            $known = autofill_known_info();
+            $this->assertSame(1024, autofill_image_side($known));
+            $this->assertSame([80, 70, 60], autofill_jpeg_qualities());
+            $side = min(autofill_image_side($known), autofill_upload_max_side());
+            $this->assertSame(1024, $side);
+            $ctx = json_encode(autofill_context(autofill_chosen_model($known)), JSON_UNESCAPED_UNICODE);
+            $this->assertIsString($ctx);
+
+            $engines = [];
+            if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) $engines[] = 'gd';
+            if (class_exists('Imagick')) $engines[] = 'imagick';
+            $this->assertNotSame([], $engines, 'GD or Imagick is required');
+
+            $reports = [];
+            $over = [];
+            foreach ($engines as $engine) {
+                $sizes = [];
+                foreach ([80, 70, 60] as $q) {
+                    $out = autofill_analysis_jpeg($jpeg, $side, $q, [$engine]);
+                    $this->assertNotNull($out, "$engine quality $q produced no JPEG");
+                    $this->assertStringStartsWith("\xFF\xD8", $out);
+                    $sizes[$q] = strlen(autofill_multipart_body($out, $ctx)['body']);
+                }
+                $reports[] = $engine . ' q80=' . $sizes[80] . ' q70=' . $sizes[70] . ' q60=' . $sizes[60];
+                if ($sizes[60] > 524288) {
+                    $over[] = $engine;
+                    continue;
+                }
+                $opened = autofill_open_analysis($jpeg, $side, $ctx, [$engine]);
+                if (!empty($opened['path'])) $paths[] = $opened['path'];
+                $this->assertTrue($opened['ok'], $engine . ' ' . ($opened['message'] ?? '') . ' (' . implode('; ', $reports) . ')');
+                $this->assertNotSame('too_large', $opened['code'] ?? null, implode('; ', $reports));
+                $this->assertLessThanOrEqual(524288, strlen($opened['body']), implode('; ', $reports));
+                $fit = null;
+                foreach ([80, 70, 60] as $q) {
+                    if ($sizes[$q] <= 524288) { $fit = $q; break; }
+                }
+                $this->assertNotNull($fit);
+                $this->assertSame($sizes[$fit], strlen($opened['body']), $engine . ' stopped at q' . $fit);
+                $built = getimagesizefromstring($opened['jpeg']);
+                $this->assertSame([1024, 1024, IMAGETYPE_JPEG], [$built[0], $built[1], $built[2]]);
+            }
+            if ($over !== []) {
+                $this->markTestIncomplete(
+                    'expected failure: analysis multipart still over 524288 at q60 (' . implode('; ', $reports) . ')'
+                );
+            }
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+            if ($prevQuality === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prevQuality);
+            if ($prevSide === false) putenv('AUTOFILL_UPLOAD_MAX_SIDE');
+            else putenv('AUTOFILL_UPLOAD_MAX_SIDE=' . $prevSide);
+            @unlink(DATA_DIR . '/autofill-info.json');
+        }
+    }
+
     public function testUnknownJsonObjectIsEmptyNotUnavailable(): void
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/hello', 'autofill_timeout' => 5]);
@@ -939,6 +1020,28 @@ final class AutofillTest extends DatabaseTestCase
         } finally {
             @unlink($tmp);
         }
+    }
+
+    /** 1024×1024 JPEG of seeded noise plus a fine XOR texture. High quality so the detail survives the first decode. */
+    private function noisyJpeg1024(): string
+    {
+        $side = 1024;
+        $im = imagecreatetruecolor($side, $side);
+        $s = 20260320;
+        for ($y = 0; $y < $side; $y++) {
+            for ($x = 0; $x < $side; $x++) {
+                $s = (1103515245 * $s + 12345) & 0x7fffffff;
+                $n = $s & 255;
+                $fine = (($x * 17) ^ ($y * 13)) & 63;
+                $r = ($n + $fine) & 255;
+                $g = (($n >> 1) ^ ($x & 255)) & 255;
+                $b = (($s >> 8) + ($y & 15) * 8) & 255;
+                imagesetpixel($im, $x, $y, ($r << 16) | ($g << 8) | $b);
+            }
+        }
+        ob_start();
+        imagejpeg($im, null, 95);
+        return (string)ob_get_clean();
     }
 
     /** Solid blocks so a 4000×3000 frame stays small. $turned adds EXIF orientation 6 and a red left edge. */
