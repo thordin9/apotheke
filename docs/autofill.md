@@ -164,7 +164,10 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
 2. The server does not send that upload on. It builds a **separate** JPEG from the camera file when one exists,
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
    enlarged, quality about 80 (then 70, then 60 if the full multipart body is still over the limit), metadata
-   stripped. GD is used first, Imagick if GD cannot read the file. The temp file is `DATA_DIR/tmp/autofill-*.jpg`
+   stripped. GD is used first, Imagick if GD cannot read the file. That analysis JPEG forces 4:2:0 chroma subsampling
+   (`jpeg:sampling-factor` `2x2,1x1,1x1`), so a 4:4:4 source is not copied through. GD's encoder is left as it is.
+   The JPEG the catalog shows does not get this override.
+   The temp file is `DATA_DIR/tmp/autofill-*.jpg`
    and is deleted when the call ends, including on errors. The stored photo is not rewritten. Only that stripped
    JPEG leaves Apotheke. If it cannot be built, nothing is sent.
 3. It calls the service's `POST /v1/suggest` with the image, the bearer token and a `context`: the names of
@@ -174,7 +177,8 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
 **HEIC/HEIF.** Saving a photo uploads the file untouched when it fits the upload limit. The browser shrinks it only
 when it is over that limit, and the form says the original is not kept. The server keeps those bytes and, when it
 can read them, builds two JPEGs: the stripped copy the catalog shows, and a separate analysis copy (long side at
-most 1600 px, metadata removed). HEIC is read with Imagick when `Imagick::queryFormats()` includes `HEIC` or `HEIF`.
+most 1600 px, metadata removed, 4:2:0 only when Imagick builds that analysis copy). HEIC is read with Imagick
+when `Imagick::queryFormats()` includes `HEIC` or `HEIF`.
 The Docker image is built that way (`libheif`). A GD-only install keeps the HEIC and shows a grey placeholder;
 autofill is skipped and the HEIC is not sent. Where the browser can decode HEIC it may still make a smaller copy
 for the Analyze request only. That copy is not what is stored.
