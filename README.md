@@ -412,7 +412,7 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
 | Front controller & routes | – | 97.0 % | 97.0 % |
-| Items, search, bulk, lending | 88.2 % | 91.4 % | 95.3 % |
+| Items, search, bulk, lending | 89.9 % | 93.5 % | 96.9 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
 | Users & roles | 91.3 % | 93.8 % | 96.4 % |
@@ -424,8 +424,8 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
 | Database, migrations, legacy | 84.7 % | 90.3 % | 97.7 % |
-| Bootstrap, config, QR, seed | 69.8 % | 88.9 % | 90.5 % |
-| **All PHP** (6534 lines) | **62.8 %** | **93.8 %** | **96.3 %** |
+| Bootstrap, config, QR, seed | 70.2 % | 88.6 % | 90.8 % |
+| **All PHP** (6536 lines) | **63.4 %** | **94.0 %** | **96.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

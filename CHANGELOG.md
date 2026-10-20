@@ -32,6 +32,19 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **ci:** scan the full git history with gitleaks on pull requests and pushes to main (`gitleaks git --log-opts=--all`; `actions/checkout` pinned to v4.4.0 on that job)
 - **git:** ignore `service.env`, `*.env`, `*.pem` and `*.key`; a tracked `.env.example` stays committable
 
+## [2.5.1] - 2026-10-20
+
+### Fixed
+
+- **bootstrap:** hide the originals path from the browser
+- **photos:** decode HEIC uploads in the Docker image
+
+### Maintenance
+
+- docs: describe untouched uploads and server-side HEIC
+- **autofill:** test: cover a 524288 analysis-copy limit
+- **qa:** docs: add QA report for L-4 Imagick and HEIC
+
 ## [2.5.0] - 2026-10-20
 
 ### Added
@@ -269,7 +282,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/thordin9/apotheke/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/thordin9/apotheke/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/thordin9/apotheke/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/thordin9/apotheke/compare/v2.3.2...v2.4.0
