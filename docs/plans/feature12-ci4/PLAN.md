@@ -1,6 +1,6 @@
 # Feature 12 — Migrating Apotheke to CodeIgniter 4: plan (rev. 3)
 
-*Status: local draft by ITAdvisor. Nothing has been posted, pushed or opened.*
+*Status: approved rev. 3 (PM + QA), committed in PR 1.*
 *Base: **`v2.5.0`** = **`87850e379d85d6690e232ba107373208f9b7ffbd`** (tag object `85a1a3f`, 2026-10-20 10:11 EEST),
 `chore(release): v2.5.0` on top of `5633472` (merge of PR #28; its tree equals PR head `56f5b08`). **The v2.5.0 tag check is verified** (QA PASS at 10:15 EEST, 87850e3, only VERSION, CHANGELOG and README coverage tables changed). The diff
 from 56f5b08/5633472 is those files (`VERSION`, `CHANGELOG.md`, `README.md`), as reported by Coder,
@@ -437,7 +437,7 @@ upload rejection corpus; token-leak grep; gitleaks; `composer audit`.
 | Doc | Change |
 |---|---|
 | `AGENTS.md`, `README.md`, `docs/contributing.md` | **PR 1**: rule change; module and dependency rules (graph, constructor injection) |
-| `docs/ci4/PLAN.md`, `docs/ci4/adr/*` | this plan; ADRs (framework, layout + deptrac graph, PDO runner + LegacyFunctions, sessions, CSRF, storage contract, PHP 8.4, release/2.5) |
+| `docs/plans/feature12-ci4/PLAN.md`, `docs/adr/*` | this plan; ADRs (framework, layout + deptrac graph, PDO runner + LegacyFunctions, sessions, CSRF, storage contract, PHP 8.4, release/2.5) |
 | `docs/architecture.md` | CI4 request flow, module map, Media storage, Autofill pipeline, Migrations module |
 | `docs/database.md` | same schema; storage outside the DB; LegacyFunctions; the PM L-2 migration rule |
 | `docs/getting-started.md`, `docs/deployment-and-operations.md` | Docker-only; 3.0 upgrade guide with §3.6, re-login, `ORIGINALS_DIR` rules, PHP 8.4 image |
