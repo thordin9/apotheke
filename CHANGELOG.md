@@ -7,6 +7,26 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.5.4] - 2026-10-20
+
+### Fixed
+
+- **images:** flatten Imagick alpha and convert CMYK to sRGB ([#37](https://github.com/thordin9/apotheke/pull/37))
+
+### Changed
+
+- **images:** share Imagick colour helpers ([#37](https://github.com/thordin9/apotheke/pull/37))
+
+### Maintenance
+
+- **images:** test: lock Imagick fallback fixtures and original sha256 ([#37](https://github.com/thordin9/apotheke/pull/37))
+- docs: drop the hand-written Unreleased changelog note ([#37](https://github.com/thordin9/apotheke/pull/37))
+- **changelog:** docs: add the QR function-JIT note to 2.5.3 ([#39](https://github.com/thordin9/apotheke/pull/39))
+- docs: note Imagick grayscale JPEG is one channel ([#37](https://github.com/thordin9/apotheke/pull/37))
+- test: count the HEIC writer as a fourth Imagick test ([#37](https://github.com/thordin9/apotheke/pull/37))
+- **qa:** docs: add the v2.5.3 release QA report ([#39](https://github.com/thordin9/apotheke/pull/39))
+- **qa:** docs: add QA report for the Imagick colour fix ([#37](https://github.com/thordin9/apotheke/pull/37))
+
 ## [2.5.3] - 2026-10-20
 
 ### Fixed
@@ -285,7 +305,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.3...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.4...HEAD
+[2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/thordin9/apotheke/compare/v2.5.0...v2.5.1
