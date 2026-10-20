@@ -2,12 +2,14 @@
 declare(strict_types=1);
 
 /**
- * Imagick fallback, one test per case. Fixtures: tests/fixtures/transparent.png (32×32, red corner,
+ * Imagick fallback: four tests. Fixtures: tests/fixtures/transparent.png (32×32, red corner,
  * the rest fully transparent) and tests/fixtures/cmyk.jpg (16×16 CMYK). Skips when Imagick is absent.
+ * The fourth test covers the HEIC display writer and skips when HEIC/HEIF is unavailable.
  *
  * testTransparentPngDerivedImageHasNoBlack
  * testCmykJpegDerivedImageIsSrgb
  * testStoredOriginalSha256UnchangedAfterImagickFallback
+ * testHeicWriterFlattensTransparencyOntoWhite
  */
 final class ImagickColorTest extends DatabaseTestCase
 {
