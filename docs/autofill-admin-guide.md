@@ -135,8 +135,8 @@ large zip use `php bin/restore.php`.
 
 Autofill builds a temporary JPEG from that camera file (or from the served JPEG if the photo predates this version),
 sends only that, and deletes the temp file even when the request fails. When Imagick encodes that JPEG it uses
-4:2:0 chroma subsampling, so a 4:4:4 source cannot blow the size limit. GD's encoder is unchanged. HEIC needs
-Imagick with libheif. The Docker
+4:2:0 chroma subsampling, so a 4:4:4 source no longer inflates the analysis copy. GD's encoder is unchanged, and
+the JPEG the catalog shows does not get this override. HEIC needs Imagick with libheif. The Docker
 image includes that. Without it, or if the conversion fails, autofill is skipped with *cannot be read as a photo*,
 the camera file stays, and a grey placeholder is what the page shows. The HEIC itself is never served or sent.
 

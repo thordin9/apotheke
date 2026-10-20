@@ -7,17 +7,6 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
-### Fixed
-
-- **autofill:** keep keyboard focus on Analyze while a photo is analyzed
-- **autofill:** retry Test with a photo once when the model is warming up
-- **autofill:** state the image limit when a photo is rejected as too large. Until `/v1/info` is cached the fallback is 0.9 MiB / 983040 bytes; a cached `max_image_bytes` still wins (the echo stub used in tests advertises 10 MiB).
-- **autofill:** an HTML error page, a non-JSON or truncated body, an unknown JSON 5xx, or a suggest timeout is “autofill is unavailable”. The item still saves, nothing is filled in, and that failure is not retried.
-
-### Changed
-
-- **docs:** `loaded` is the service's report; a photo can still be a cold start
-
 ## [2.5.1] - 2026-10-20
 
 ### Fixed

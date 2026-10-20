@@ -59,6 +59,115 @@ final class HeicTest extends DatabaseTestCase
         }
     }
 
+    /**
+     * The served HEIC JPEG is GD's re-encode of an Imagick intermediate that does not force 4:2:0.
+     * A 4:4:4 source at jpeg_quality 95 must not come out as 2x2.
+     */
+    public function testHeicDisplayAtHighQualityKeepsSampling(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        if (!autofill_heic_supported()) $this->markTestSkipped('Imagick HEIC support is not available');
+        settings_store(['jpeg_quality' => 95]);
+        $source = $this->jpeg444();
+        $this->assertSame('1x1,1x1,1x1', $this->jpegSampling($source), 'the source JPEG is 4:4:4');
+        $reference = $this->servedWithoutForcedSampling($source);
+        $this->assertNotSame('2x2,1x1,1x1', $this->jpegSampling($reference), 'high jpeg_quality does not write 2x2 on its own');
+        $name = bin2hex(random_bytes(16)) . '.jpg';
+        $tmp = tempnam(sys_get_temp_dir(), 'disp');
+        file_put_contents($tmp, $source);
+        try {
+            $this->assertTrue(image_store_heic($tmp, $name));
+        } finally {
+            @unlink($tmp);
+        }
+        $served = (string)file_get_contents(IMG_DIR . '/' . $name);
+        $this->assertNotSame('2x2,1x1,1x1', $this->jpegSampling($served), 'the HEIC display copy must not be forced to 2x2');
+        $this->assertSame($this->jpegSampling($reference), $this->jpegSampling($served));
+        $this->assertSame($reference, $served, 'the display copy matches the encode that does not force 4:2:0');
+    }
+
+    /** Imagick JPEG at 4:4:4, the sampling a high-quality encode used to keep. */
+    private function jpeg444(): string
+    {
+        $side = 48;
+        $im = imagecreatetruecolor($side, $side);
+        for ($y = 0; $y < $side; $y++) {
+            for ($x = 0; $x < $side; $x++) {
+                imagesetpixel($im, $x, $y, (($x * 13) & 255) << 16 | (($y * 17) & 255) << 8 | (($x ^ $y) & 255));
+            }
+        }
+        ob_start();
+        imagejpeg($im, null, 95);
+        $jpeg = (string)ob_get_clean();
+        $magick = new Imagick();
+        $magick->readImageBlob($jpeg);
+        $magick->setImageFormat('jpeg');
+        $magick->setOption('jpeg:sampling-factor', '1x1,1x1,1x1');
+        if (method_exists($magick, 'setImageProperty')) $magick->setImageProperty('jpeg:sampling-factor', '1x1,1x1,1x1');
+        $magick->setImageCompressionQuality(95);
+        $magick->stripImage();
+        $out = $magick->getImageBlob();
+        $magick->clear();
+        $this->assertIsString($out);
+        return $out;
+    }
+
+    /** v2.5.1 display encode: Imagick JPEG with no sampling override, then GD writes the served file. */
+    private function servedWithoutForcedSampling(string $bytes): string
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'ref');
+        file_put_contents($tmp, $bytes);
+        try {
+            $im = new Imagick();
+            $im->readImage($tmp);
+            if (method_exists($im, 'autoOrient')) $im->autoOrient();
+            elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
+            $im->setImageFormat('jpeg');
+            $im->setImageCompressionQuality((int)setting('jpeg_quality'));
+            $im->stripImage();
+            $blob = $im->getImageBlob();
+            $im->clear();
+        } finally {
+            @unlink($tmp);
+        }
+        $this->assertIsString($blob);
+        $gd = @imagecreatefromstring($blob);
+        $this->assertNotFalse($gd);
+        $name = bin2hex(random_bytes(16)) . '.jpg';
+        $this->assertTrue(image_write_pair($gd, $name));
+        return (string)file_get_contents(IMG_DIR . '/' . $name);
+    }
+
+    private function jpegSampling(string $jpeg): string
+    {
+        $i = 2;
+        $n = strlen($jpeg);
+        while ($i + 3 < $n) {
+            if ($jpeg[$i] !== "\xFF") { $i++; continue; }
+            $marker = ord($jpeg[$i + 1]);
+            while ($marker === 0xFF && $i + 2 < $n) { $i++; $marker = ord($jpeg[$i + 1]); }
+            if ($marker === 0xD8 || $marker === 0xD9 || $marker === 0x01 || ($marker >= 0xD0 && $marker <= 0xD7)) { $i += 2; continue; }
+            if ($i + 4 > $n) break;
+            $len = unpack('n', substr($jpeg, $i + 2, 2))[1];
+            if ($len < 2) break;
+            if (in_array($marker, [0xC0, 0xC1, 0xC2], true)) {
+                $comps = ord($jpeg[$i + 9]);
+                $parts = [];
+                $p = $i + 10;
+                for ($c = 0; $c < $comps; $c++) {
+                    if ($p + 1 >= $n) break;
+                    $sf = ord($jpeg[$p + 1]);
+                    $parts[] = ($sf >> 4) . 'x' . ($sf & 0x0F);
+                    $p += 3;
+                }
+                return implode(',', $parts);
+            }
+            if ($marker === 0xDA) break;
+            $i += 2 + $len;
+        }
+        return '';
+    }
+
     private function assertJpegStripped(string $jpeg): void
     {
         $this->assertStringNotContainsString('GPSLatitude', $jpeg);
