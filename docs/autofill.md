@@ -165,7 +165,8 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
    enlarged, quality about 80 (then 70, then 60 if the full multipart body is still over the limit), metadata
    stripped. GD is used first, Imagick if GD cannot read the file. Imagick flattens transparency onto white and
-   converts CMYK to sRGB, then strips colour profiles, so that JPEG matches what GD would have written. GD's encoder
+   converts CMYK to sRGB, then strips colour profiles, so that JPEG matches what GD would have written. For a
+   grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. GD's encoder
    is left as it is. That analysis JPEG forces 4:2:0 chroma subsampling (`jpeg:sampling-factor` `2x2,1x1,1x1`), so a
    4:4:4 source is not copied through. The JPEG the catalog shows does not get this override.
    The temp file is `DATA_DIR/tmp/autofill-*.jpg`

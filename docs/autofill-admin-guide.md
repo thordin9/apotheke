@@ -137,6 +137,7 @@ Autofill builds a temporary JPEG from that camera file (or from the served JPEG 
 sends only that, and deletes the temp file even when the request fails. When Imagick encodes that JPEG it uses
 4:2:0 chroma subsampling, so a 4:4:4 source no longer inflates the analysis copy. It also flattens transparent
 pixels onto white and converts a CMYK photo to sRGB, then strips colour profiles, the same way GD writes a JPEG.
+For a grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate.
 GD's encoder is unchanged, and the JPEG the catalog shows does not get the 4:2:0 override. HEIC needs Imagick with
 libheif. The Docker
 image includes that. Without it, or if the conversion fails, autofill is skipped with *cannot be read as a photo*,

@@ -212,7 +212,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   Function JIT can miscompile QR labels on PHP 8.2, 8.3 and 8.4, so `src/qr.php` turns it off for the whole worker on the first request
   (tracing JIT stays on; the Docker image never enables JIT). `opcache_jit_blacklist()` does not help.
   The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Imagick flattens transparent areas onto
-  white and converts CMYK to sRGB, matching GD. Other installs stay on GD: a HEIC upload is kept byte for byte and
+  white and converts CMYK to sRGB, matching GD. For a grayscale photo, Imagick writes a 1-channel JPEG, so that
+  match is approximate. Other installs stay on GD: a HEIC upload is kept byte for byte and
   shown as a placeholder until Imagick can decode it.
 * SQLite (built in) or PostgreSQL (tested with 17).
 * No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.

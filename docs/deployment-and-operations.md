@@ -176,8 +176,9 @@ internal CA, trusted on your phones), or a real domain with a DNS-01 certificate
   `/media/(full|thumb)/[a-f0-9]{32}.jpg`. GD does that for JPEG, PNG, WebP and GIF: transparent pixels are flattened
   onto white, and a CMYK JPEG is written as sRGB with no colour profile. The Docker image also has Imagick
   with libheif, so a HEIC upload gets the same stripped JPEG (GD still writes the file everyone sees) and autofill
-  can build an analysis JPEG from it. Imagick does the same white background and sRGB conversion before encoding;
-  the GD path is unchanged. Only that analysis JPEG forces 4:2:0 chroma subsampling. A
+  can build an analysis JPEG from it. Imagick does the same white background and sRGB conversion before encoding.
+  For a grayscale photo, Imagick writes a 1-channel JPEG, so a match with GD is approximate there.
+  The GD path is unchanged. Only that analysis JPEG forces 4:2:0 chroma subsampling. A
   GD-only install stores the HEIC and shows a plain placeholder, never the HEIC bytes. A guessed `/originals/…` URL,
   including `/Originals/` and `/ORIGINALS/`, is 404.
 * **Backups:** strict entry-name, size and schema validation before anything is written (see above).
