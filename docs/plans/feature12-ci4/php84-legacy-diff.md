@@ -23,11 +23,17 @@ Run on 2026-10-20, SQLite, no PostgreSQL server in the environment:
 
 The skips sit at the same points in the run on both versions (optional tools such as zbar, absent here). Assertion counts match. PR 2 already recorded legacy PHPUnit green on PostgreSQL for both versions (281 tests before this PR's recorder and CI tests).
 
+`QrCodeTest::testFunctionJitMatchesInterpreter` is the later `fix(php84)` check. It runs on PHP 8.4 when function JIT can be turned on, and it is skipped on PHP 8.3.
+
 The parity recorder (`vendor/bin/phpunit --filter ParityRecorderTest`) reports zero diffs on 8.3.6 and on 8.4.26. Each run compares two fresh installs on that one PHP: home page, migration rows, settings, file modes, `/healthz`, `/health`, and a General settings save.
 
 ## Difference
 
-No legacy behaviour change, and no `fix(php84)` commit. PHP 8.4 did not change the install, health or settings responses the recorder checks.
+`fix(php84): keep QR labels working under JIT 1235` leaves the encoder in `src/qr-encode.php` unchanged. `src/qr.php` loads it only after turning PHP 8.4 function JIT off.
+
+PHP 8.4's function JIT miscompiles the finder loops, which count down from a negative index. `opcache.jit=1235` (the default `shivammathur/setup-php` writes, and the setting on the headless mobile job, which runs with `coverage: none`) never returned from `GET /labels`, so the mobile check hit `max_execution_time` of 30 seconds in `src/qr.php`. `opcache.jit=1205` returned a different matrix. Tracing JIT already matched the interpreter. The switch is `opcache.jit=disable` before `qr-encode.php` is compiled, and it sticks for that process. PHP 8.3 is left alone. PHPUnit cells load PCOV, which turns JIT off, so they did not see the hang. The regression test is `QrCodeTest::testFunctionJitMatchesInterpreter`.
+
+Nothing else in the legacy app changed. PHP 8.4 did not change the install, health or settings responses the recorder checks.
 
 PDO on PHP 8.4 no longer treats a backslash as a placeholder escape. SQL in this tree already avoids that form (see [CONTRIBUTING.md](../../../CONTRIBUTING.md)).
 

@@ -535,7 +535,8 @@ src/db.php                    PDO connection (SQLite/PostgreSQL), dialect helper
 src/legacy.php                one-time upgrade of pre-migration SQLite installs (v1–v3)
 src/items.php                 items, locations, categories, search, statistics, images (GD)
 src/backup.php                portable backup zip and restore
-src/qr.php                    pure-PHP QR encoder (SVG)
+src/qr.php                    loads the QR encoder after the PHP 8.4 function-JIT guard
+src/qr-encode.php             pure-PHP QR encoder (SVG)
 src/seed.php                  idempotent starter/demo seeding
 src/bootstrap.php             sessions, auth, CSRF, helpers
 src/views.php                 HTML templates
