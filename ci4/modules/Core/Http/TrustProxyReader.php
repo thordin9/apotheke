@@ -66,7 +66,9 @@ final class TrustProxyReader
         if ($dsn === '') {
             return false;
         }
-        $conn = @pg_connect($dsn);
+        // A new connection. pg_connect() otherwise returns CI4's open one, which
+        // already has search_path set, and pg_close() would close that connection.
+        $conn = @pg_connect($dsn, PGSQL_CONNECT_FORCE_NEW);
         if ($conn === false) {
             return false;
         }

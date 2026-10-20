@@ -185,6 +185,8 @@ final class Ci4HttpTest extends TestCase
             $right = (new Client($ci4->base))->get('/', $header);
             $this->assertStringContainsString('secure', strtolower($this->cookieLine($left)));
             $this->assertStringContainsString('secure', strtolower($this->cookieLine($right)));
+            $health = $ci4->client()->get('/healthz');
+            $this->assertSame(200, $health['status'], (string)@file_get_contents($ci4->log));
         } finally {
             $legacy->stop();
             $ci4->stop();

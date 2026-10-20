@@ -52,7 +52,7 @@ return [
 | `db.name` | `DB_NAME` | `apotheke` | bootstrap | PostgreSQL database. |
 | `db.user` | `DB_USER` | `apotheke` | bootstrap | PostgreSQL user. |
 | `db.password` | `DB_PASSWORD` | *(empty)* | bootstrap | PostgreSQL password. |
-| `db.schema` | `DB_SCHEMA` | *(empty)* | bootstrap | Optional PostgreSQL schema (`search_path`); created if missing. `trust_proxy` is read from `settings` in that schema. |
+| `db.schema` | `DB_SCHEMA` | *(empty)* | bootstrap | Optional PostgreSQL schema (`search_path`); created if missing. `trust_proxy` is read from `settings` in that schema, on a separate connection so the app connection stays open. |
 | `uploads.max_mb` | `MAX_UPLOAD_MB` | `20` | DB — Photos & uploads | Server-side upload limit per photo in MB. Also raise PHP's `upload_max_filesize` / `post_max_size` (and the web server's body limit) if you increase it. |
 | `uploads.full_max` | `IMAGE_FULL_MAX` | `1600` | DB — Photos & uploads | Longest side in px of stored photos. |
 | `uploads.thumb_max` | `IMAGE_THUMB_MAX` | `480` | DB — Photos & uploads | Longest side in px of thumbnails. |

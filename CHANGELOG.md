@@ -14,7 +14,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Fixed
 
 - **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects.
-- **ci4:** read `trust_proxy` from the `DB_SCHEMA` search path, the same way the legacy connection does.
+- **ci4:** read `trust_proxy` from the `DB_SCHEMA` search path, on its own PostgreSQL connection, so closing that connection leaves CI4's connection open.
 
 ### Maintenance
 
