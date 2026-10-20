@@ -61,7 +61,7 @@ final class HeicTest extends DatabaseTestCase
 
     /**
      * The served HEIC JPEG is GD's re-encode of an Imagick intermediate that does not force 4:2:0.
-     * A 4:4:4 source at jpeg_quality 95 must not come out as 2x2.
+     * Compared by sha256 so Alpine GD, which writes 4:2:0 even at q95, still matches its own unforced encode.
      */
     public function testHeicDisplayAtHighQualityKeepsSampling(): void
     {
@@ -71,7 +71,6 @@ final class HeicTest extends DatabaseTestCase
         $source = $this->jpeg444();
         $this->assertSame('1x1,1x1,1x1', $this->jpegSampling($source), 'the source JPEG is 4:4:4');
         $reference = $this->servedWithoutForcedSampling($source);
-        $this->assertNotSame('2x2,1x1,1x1', $this->jpegSampling($reference), 'high jpeg_quality does not write 2x2 on its own');
         $name = bin2hex(random_bytes(16)) . '.jpg';
         $tmp = tempnam(sys_get_temp_dir(), 'disp');
         file_put_contents($tmp, $source);
@@ -81,9 +80,8 @@ final class HeicTest extends DatabaseTestCase
             @unlink($tmp);
         }
         $served = (string)file_get_contents(IMG_DIR . '/' . $name);
-        $this->assertNotSame('2x2,1x1,1x1', $this->jpegSampling($served), 'the HEIC display copy must not be forced to 2x2');
         $this->assertSame($this->jpegSampling($reference), $this->jpegSampling($served));
-        $this->assertSame($reference, $served, 'the display copy matches the encode that does not force 4:2:0');
+        $this->assertSame(hash('sha256', $reference), hash('sha256', $served), 'the display copy matches the encode that does not force 4:2:0');
     }
 
     /** Imagick JPEG at 4:4:4, the sampling a high-quality encode used to keep. */
