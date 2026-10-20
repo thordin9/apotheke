@@ -3,13 +3,13 @@ declare(strict_types=1);
 
 /*
  * Function JIT miscompiles the finder loops in the encoder. Those loops
- * count up from a negative index. On PHP 8.3, opcache.jit=1235 (which
- * shivammathur/setup-php enables) can emit a wrong matrix; on PHP 8.4 the
- * same mode can hang GET /labels. Any other function-JIT mode (CRTO trigger
- * digit other than 5, or the string "function") can emit a different matrix.
- * Tracing JIT (trigger digit 5, or "tracing" / "on") matches the interpreter.
- * Turn function JIT off before the encoder file is compiled. The guard is not
- * limited to PHP 8.4: it runs whenever function JIT is active.
+ * count up from a negative index. On PHP 8.2, 8.3 and 8.4, opcache.jit=1235
+ * (which shivammathur/setup-php enables) can emit a wrong matrix; on PHP 8.4
+ * the same mode can also hang GET /labels. Any other function-JIT mode (CRTO
+ * trigger digit other than 5, or the string "function") can emit a different
+ * matrix. Tracing JIT (trigger digit 5, or "tracing" / "on") matches the
+ * interpreter. Turn function JIT off before the encoder file is compiled.
+ * The guard runs on PHP 8.2, 8.3 and 8.4 whenever function JIT is active.
  */
 
 /** True when opcache.jit is tracing JIT. $kind is opcache_get_status()["jit"]["kind"] (the CRTO trigger digit). */

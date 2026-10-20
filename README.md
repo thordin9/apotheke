@@ -209,7 +209,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
   `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
-  Function JIT can miscompile QR labels, so `src/qr.php` turns it off for the whole worker on the first request
+  Function JIT can miscompile QR labels on PHP 8.2, 8.3 and 8.4, so `src/qr.php` turns it off for the whole worker on the first request
   (tracing JIT stays on; the Docker image never enables JIT). `opcache_jit_blacklist()` does not help.
   The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Other installs stay on GD: a HEIC upload is
   kept byte for byte and shown as a placeholder until Imagick can decode it.

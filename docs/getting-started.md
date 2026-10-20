@@ -98,7 +98,7 @@ recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed
 the guard: when a function-JIT mode is active (`1235`, `function`, or any four-digit CRTO value whose trigger digit is
 not 5), `src/qr.php` sets `opcache.jit=disable` for the whole PHP worker on the first request. Tracing JIT (`tracing`,
 `on`, trigger digit 5) stays on. The cost is negligible, and `opcache_jit_blacklist()` does not help. On 2.5.x, before
-that guard, function JIT could print a wrong QR code.
+that guard, function JIT on PHP 8.2, 8.3 and 8.4 could print a wrong QR code.
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke

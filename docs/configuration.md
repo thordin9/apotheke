@@ -98,8 +98,8 @@ in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big z
 
 `docker/php.ini` enables opcache and leaves JIT off. Installs that turn function JIT on are covered by `src/qr.php`:
 the first request sets `opcache.jit=disable` for the whole worker. Tracing JIT stays on. The cost is negligible, and
-`opcache_jit_blacklist()` does not help. On 2.5.x, function JIT could write a wrong QR code on installs outside Docker
-that enabled it.
+`opcache_jit_blacklist()` does not help. On 2.5.x, function JIT on PHP 8.2, 8.3 and 8.4 could write a wrong QR code
+on installs outside Docker that enabled it.
 
 ## Examples
 

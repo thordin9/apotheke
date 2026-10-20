@@ -87,7 +87,7 @@ final class QrCodeTest extends TestCase
 
     /**
      * Function JIT miscompiles the finder loops, which count up from a negative index.
-     * On PHP 8.3 the matrix can be silently wrong; on PHP 8.4 the same mode can hang.
+     * On PHP 8.2, 8.3 and 8.4 the matrix can be silently wrong; on PHP 8.4 the same mode can hang.
      * Every function-JIT mode is disabled before the encoder loads. Tracing JIT stays on.
      */
     public function testFunctionJitMatchesInterpreter(): void
