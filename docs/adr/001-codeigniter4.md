@@ -22,6 +22,8 @@ or the behaviour users already rely on.
    non-Docker install and no vendored zip.
 5. **One re-login.** Sessions are not migrated. Users sign in again once at upgrade.
 6. **PHP 8.4.** The CI4 image and CI on `feature/ci4` run PHP 8.4. The legacy 2.5.x image stays on PHP 8.3.
+7. **Unchanged constraints.** CI4 keeps the same constraints: no CDN, no JavaScript build step, works fully offline
+   on a LAN. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 
 Module boundaries for the port (dependency graph enforced by deptrac, constructor injection, `service()`
 only in controllers) are in [AGENTS.md](../../AGENTS.md#ci4-module-rules).

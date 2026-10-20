@@ -216,6 +216,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 **CodeIgniter 4 port** (replaces the no-framework rule). It is built side by side in `ci4/` and does not replace this tree until 3.0.0. [ADR-001](docs/adr/001-codeigniter4.md) records the decision; the plan is [Feature 12](docs/plans/feature12-ci4/PLAN.md).
 
 * **CodeIgniter 4** with pinned dependencies, on **PHP 8.4**.
+* Unchanged: no CDN, no JavaScript build step, works fully offline on a LAN; the only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 * **No schema change.** The 25 migrations stay byte-identical and run through a PDO runner plus a `LegacyFunctions` shim.
 * **Docker-only after the 3.0.0 cutover** (no non-Docker install and no vendored zip). Until then, [Install without Docker](#install-without-docker) still applies to the legacy app.
 * **One re-login** at upgrade. Sessions are not kept; users sign in again once.

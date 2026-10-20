@@ -1,6 +1,6 @@
 # AGENTS.md — working on Apotheke
 
-Apotheke is a small self-hosted catalog for belongings. The legacy app on `main` is plain PHP 8.2+ (CI and the Docker image use 8.3), PDO (SQLite or PostgreSQL), and GD, with no JavaScript build step and no CDNs. It must work fully offline on a LAN. That legacy tree stays as it is until the 3.0.0 cutover.
+Apotheke is a small self-hosted catalog for belongings. The legacy app on `main` is plain PHP 8.2+ (CI and the Docker image use 8.3), PDO (SQLite or PostgreSQL), and GD. That legacy tree stays as it is until the 3.0.0 cutover. Both the legacy app and CodeIgniter 4 work fully offline on a LAN, with no CDN and no JavaScript build step. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 
 **CodeIgniter 4 replaces the no-framework rule.** The port is built side by side in `ci4/` with pinned Composer dependencies, on PHP 8.4. Do not add any other framework. Decision record: [ADR-001](docs/adr/001-codeigniter4.md). Plan: [Feature 12](docs/plans/feature12-ci4/PLAN.md).
 
@@ -16,9 +16,9 @@ Human docs: [README](README.md) and [`docs/`](docs/index.md). Feature workflow: 
 * **No schema change.** The 25 migrations stay byte-identical. They run through a PDO runner plus a `LegacyFunctions` shim (kept after cutover). Do not add a `0026+` migration on 3.0.x unless the same file is backported to 2.5.x during the 90-day window.
 * **Docker-only after cutover.** The 3.0.0 install is the Docker image (no non-Docker install and no vendored zip). Until then, the legacy run below still works.
 * **One re-login.** Sessions are not migrated. Users sign in again once at upgrade.
-* **PHP 8.4** for the CI4 image and for CI on `feature/ci4`. The legacy 2.5.x image stays on PHP 8.3.
+* **PHP 8.4** for the CI4 image. The CI4 leg on `feature/ci4` runs PHP 8.4 (legacy@8.3 also runs on that branch). The legacy 2.5.x image stays on PHP 8.3.
 * **2.5.x security fixes** land on `release/2.5` and continue for 90 days after 3.0.0. `main` stays the legacy app until the cutover.
-* No CDNs and no JavaScript build step. CI4's Composer dependencies are pinned. Do not add any other runtime package.
+* No CDN and no JavaScript build step, for the legacy app and for CI4. Both work fully offline on a LAN. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 
 ## Layout
 
