@@ -70,6 +70,11 @@ final class TrustProxyReader
         if ($conn === false) {
             return false;
         }
+        if (!$this->applySchema($conn)) {
+            pg_close($conn);
+
+            return false;
+        }
         $result = @pg_query_params($conn, 'SELECT value FROM settings WHERE name = $1', ['trust_proxy']);
         if ($result === false) {
             pg_close($conn);
@@ -83,6 +88,17 @@ final class TrustProxyReader
         }
 
         return $this->truthy((string)$row['value']);
+    }
+
+    private function applySchema(\PgSql\Connection $conn): bool
+    {
+        $schema = (string)($this->group['schema'] ?? '');
+        if ($schema === '') {
+            return true;
+        }
+        $quoted = '"' . str_replace('"', '""', $schema) . '"';
+
+        return @pg_query($conn, 'SET search_path TO ' . $quoted) !== false;
     }
 
     private function truthy(string $raw): bool

@@ -81,6 +81,41 @@ final class Ci4HttpTest extends TestCase
         }
     }
 
+    public function testTrustProxyFollowsTheSchemaOnPostgres(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        if (test_driver() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL leg only');
+        }
+        $legacyDir = tmpdir('ci4-trust-leg');
+        $ci4Dir = tmpdir('ci4-trust');
+        $legacy = new Server($legacyDir, [], 'legacy');
+        $ci4 = new Server($ci4Dir, [], 'ci4');
+        try {
+            $this->assertNotSame('', test_db_env($ci4Dir)['DB_SCHEMA']);
+            $this->assertNotSame('public', test_db_env($ci4Dir)['DB_SCHEMA']);
+            $legacy->client()->get('/');
+            $this->seedTrust($legacyDir);
+            $this->seedTrust($ci4Dir);
+            $header = ['X-Forwarded-Proto: https'];
+            $left = (new Client($legacy->base))->get('/', $header);
+            $right = (new Client($ci4->base))->get('/', $header);
+            $this->assertStringContainsString('secure', strtolower($this->cookieLine($left)));
+            $this->assertStringContainsString('secure', strtolower($this->cookieLine($right)));
+        } finally {
+            $legacy->stop();
+            $ci4->stop();
+            testdb_drop($legacyDir);
+            testdb_drop($ci4Dir);
+            rrmdir($legacyDir);
+            rrmdir($ci4Dir);
+            @unlink($legacyDir . '.server.log');
+            @unlink($ci4Dir . '.server.log');
+        }
+    }
+
     public function testHealthzAcceptsABackslashPasswordOnPostgres(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -165,6 +200,14 @@ final class Ci4HttpTest extends TestCase
             $this->assertSame($left['headers']['content-type'], $right['headers']['content-type'], $path);
             $this->assertArrayNotHasKey('content-security-policy', $right['headers'], $path);
         }
+    }
+
+    private function seedTrust(string $dir): void
+    {
+        $pdo = testdb($dir);
+        $pdo->exec('CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
+        $pdo->exec("DELETE FROM settings WHERE name = 'trust_proxy'");
+        $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('trust_proxy', 'true', '2026-01-01')");
     }
 
     private function probeRows(): int
