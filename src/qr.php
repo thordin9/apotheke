@@ -3,17 +3,17 @@ declare(strict_types=1);
 
 /*
  * Function JIT miscompiles the finder loops in the encoder. Those loops
- * count up from a negative index. On PHP 8.2, 8.3 and 8.4, opcache.jit=1235
+ * count up from a negative index. On PHP 8.2 and 8.3, opcache.jit=1235
  * (which shivammathur/setup-php enables) can emit a wrong matrix; on PHP 8.4
- * the same mode can also hang GET /labels. Any other function-JIT mode (CRTO
+ * that mode can hang GET /labels. Any other function-JIT mode (CRTO
  * trigger digit other than 5, or the string "function") can emit a different
  * matrix. Tracing JIT (trigger digit 5, or "tracing" / "on") matches the
  * interpreter. Turn function JIT off before the encoder file is compiled.
- * The guard runs on PHP 8.2, 8.3 and 8.4 whenever function JIT is active.
+ * The guard runs on every PHP version (affected: 8.2–8.4) whenever function JIT is active.
  */
 
 /** True when opcache.jit is tracing JIT. $kind is opcache_get_status()["jit"]["kind"] (the CRTO trigger digit). */
-function qr_php84_jit_is_tracing(string $jit, int $kind): bool
+function qr_jit_is_tracing(string $jit, int $kind): bool
 {
     $jit = strtolower(trim($jit));
     if ($jit === 'tracing' || $jit === 'on') return true;
@@ -31,7 +31,7 @@ function qr_php84_jit_is_tracing(string $jit, int $kind): bool
     if (!is_array($st) || empty($st['jit']['on'])) return;
     $jit = (string)ini_get('opcache.jit');
     $kind = (int)($st['jit']['kind'] ?? -1);
-    if (qr_php84_jit_is_tracing($jit, $kind)) return;
+    if (qr_jit_is_tracing($jit, $kind)) return;
     ini_set('opcache.jit', 'disable');
 })();
 
