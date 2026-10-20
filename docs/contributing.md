@@ -5,8 +5,10 @@ ground rules and walks through adding a feature end to end. AI agents should als
 
 ## Ground rules
 
-* **Stay small.** Plain PHP 8.2+, PDO (SQLite and PostgreSQL), GD. No framework, no Composer packages at runtime
-  (PHPUnit is dev-only), no JavaScript build step, no CDNs or other external runtime dependencies.
+* **Stay small.** The legacy app is plain PHP 8.2+, PDO (SQLite and PostgreSQL) and GD, with no JavaScript build step
+  and no CDNs. **CodeIgniter 4 replaces the no-framework rule** for the 3.0 port: pinned Composer dependencies, built
+  side by side in `ci4/`, on PHP 8.4. See [ADR-001](adr/001-codeigniter4.md) and the
+  [Feature 12 plan](plans/feature12-ci4/PLAN.md). Do not add any other framework or CDN.
 * **Both databases.** Every query must work on SQLite and PostgreSQL; follow the portability rules in
   [Database](database.md#writing-a-migration).
 * **Mobile first.** Tap targets ≥ 44 px, no horizontal overflow at 320 px, controls within thumb reach, light and dark
@@ -16,6 +18,14 @@ ground rules and walks through adding a feature end to end. AI agents should als
 * **Works without JavaScript** where reasonable: real forms and links first, `app.js` enhances them.
 * **Safe by default:** escape output with `h()`, prepared statements, `check_csrf()` on every state change, history
   entries (`activity_log()`) in the same transaction as the change.
+* **No schema change on the port.** The 25 migrations stay byte-identical and run through a PDO runner plus a
+  `LegacyFunctions` shim. Docker is the only install after the 3.0.0 cutover. Users sign in again once at upgrade.
+* **Lines of development.** Legacy `main` stays as it is until the 3.0.0 cutover. After that, 2.5.x gets security
+  fixes only, on `release/2.5`, for 90 days. CI4 pull requests target `feature/ci4`.
+* **CI4 module rules** (code under `ci4/`): deptrac enforces the module dependency graph (every module may depend on
+  Core, Core depends on nothing, no cycles). Use constructor injection. `service()` and `Services::` are allowed only
+  in controllers and in `Config/Services.php` factories. The allowed edges are in
+  [AGENTS.md](../AGENTS.md#ci4-module-rules).
 
 ## Workflow
 
@@ -28,6 +38,7 @@ scripts/check-commits.sh origin/main
 git push -u origin feat/my-change               # open a PR against main
 ```
 
+* Legacy changes open a pull request against `main`, as in the commands above. CI4 work branches from `feature/ci4` and opens the pull request against that branch.
 * Each commit should pass lint and tests on its own.
 * Commit messages follow Conventional Commits, subject ≤ 72 characters (details in [CI](ci.md#commit-rules)).
 * If the UI changed, add the `update-snapshots` label to the PR, fetch the artifact with
@@ -36,6 +47,8 @@ git push -u origin feat/my-change               # open a PR against main
 * Fix CI failures with new commits; never force-push a branch others may have fetched.
 
 ## Adding a feature, step by step
+
+These steps are a legacy change on `main`. A CI4 change goes in `ci4/` and targets `feature/ci4`.
 
 Using a new item field as the example:
 
@@ -65,4 +78,4 @@ Using a new item field as the example:
 * User-facing errors are `UserError`; anything else is a bug and ends up in the log.
 * Dates: store UTC `Y-m-d H:i:s` for timestamps (`now_utc()`), local `Y-m-d` for calendar dates; use `app_time()` /
   `app_now()` instead of `time()` so tests can freeze the clock.
-* No new runtime dependencies. If something seems to need one, open an issue first.
+* No new runtime dependencies on the legacy app. CI4 dependencies are the pinned CodeIgniter 4 set; anything else needs an issue first.

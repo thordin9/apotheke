@@ -1,7 +1,8 @@
 # Architecture
 
-Apotheke is deliberately small: one front controller, a handful of PHP files with plain functions, server-rendered
+The legacy app is deliberately small: one front controller, a handful of PHP files with plain functions, server-rendered
 HTML, one stylesheet and one script. There is no framework, no autoloader, no template engine and no build step.
+The 3.0 port adopts CodeIgniter 4; see [ADR-001](adr/001-codeigniter4.md).
 
 ## Directory layout
 
