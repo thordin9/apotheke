@@ -96,6 +96,11 @@ is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
 through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
 in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
+`docker/php.ini` enables opcache and leaves JIT off. Installs that turn function JIT on are covered by `src/qr.php`:
+the first request sets `opcache.jit=disable` for the whole worker. Tracing JIT stays on. The cost is negligible, and
+`opcache_jit_blacklist()` does not help. On 2.5.x, function JIT could write a wrong QR code on installs outside Docker
+that enabled it.
+
 ## Examples
 
 SQLite with a password (`.env` for Docker Compose; the password, zone and currency are copied into the database on the first start and edited in the Control Panel afterwards):

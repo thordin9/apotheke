@@ -7,6 +7,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **qr:** On 2.5.x, function JIT could produce a wrong QR code on installs outside Docker that enable it (PHP 8.3 with `opcache.jit=1235` miscompiled 1 of 240 codes; PHP 8.4 can also hang `GET /labels`). `src/qr.php` now turns JIT off for the whole worker from the first request when function JIT is active. The cost is negligible. `opcache_jit_blacklist()` does not help. Tracing JIT stays on. The Docker image leaves JIT off, so its behaviour is unchanged.
+
 ## [2.5.2] - 2026-10-20
 
 ### Fixed
