@@ -109,7 +109,8 @@ directly, everything else goes through the app. For Apache or nginx see
 ## Local development
 
 ```bash
-php -S 127.0.0.1:9091 -t public public/index.php       # app on http://127.0.0.1:9091, data in ./data
+php -S 127.0.0.1:9091 -t public public/index.php       # legacy app on http://127.0.0.1:9091, data in ./data
+php -S 127.0.0.1:9091 -t ci4/public ci4/public/router.php # CI4 skeleton (health endpoints; needs PHP 8.4 and ci4/vendor)
 php bin/seed.php --demo                                 # optional demo items with generated photos
 tests/run.sh                                            # lint + HTTP integration suite (no Composer needed)
 composer install && vendor/bin/phpunit                  # PHPUnit (dev only)

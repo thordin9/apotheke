@@ -487,7 +487,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Job | What it does |
 |---|---|
 | Lint | `scripts/lint.sh` (PHP, JS, shell, workflow lint) on PHP 8.3 and PHP 8.4. Markdown links cover every file under `docs/` |
-| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. The legacy cells also run the parity recorder (install, `/healthz`, settings). The coverage artifact is uploaded from legacy@8.3 SQLite only |
+| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg runs PHPUnit with `APOTHEKE_APP=ci4` (the catalog HTTP suite stays on legacy until those routes exist). The legacy cells also run the parity recorder (install, `/healthz`, settings), and PHP 8.4 cells compare legacy and CI4 health bytes. The coverage artifact is uploaded from legacy@8.3 SQLite only |
 | deptrac | empty module-graph config until CI4 modules exist |
 | DI rule | empty PHPStan config until CI4 paths exist |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px, on PHP 8.3 and PHP 8.4 |

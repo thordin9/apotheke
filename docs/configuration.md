@@ -46,7 +46,7 @@ return [
 | `app_password` | `APP_PASSWORD` | *(empty)* | DB — Users | Password of the first account `admin` (stored as a hash when the database is created; sign-in on). Empty means no login. Later: Settings → Users & sign-in or `php bin/settings.php user password admin`. |
 | `db.driver` | `DB_DRIVER` | `sqlite` | bootstrap | `sqlite` or `pgsql`; anything else is an error. |
 | `db.sqlite_path` | `SQLITE_PATH` | `<data_dir>/catalog.sqlite` | bootstrap | SQLite database file. |
-| `db.dsn` | `DB_DSN` | *(empty)* | bootstrap | Full PDO DSN for PostgreSQL; overrides host, port and name. |
+| `db.dsn` | `DB_DSN` | *(empty)* | bootstrap | Full PDO DSN for PostgreSQL; overrides host, port and name. CI4's `DsnTranslator` accepts `sqlite:<path>` (including `:memory:`) and `pgsql:host=…;port=…;dbname=…` with optional `sslmode`, `connect_timeout`, `options` and `service`. Anything else stops boot. A password in the message is redacted. |
 | `db.host` | `DB_HOST` | `127.0.0.1` | bootstrap | PostgreSQL host. |
 | `db.port` | `DB_PORT` | `5432` | bootstrap | PostgreSQL port. |
 | `db.name` | `DB_NAME` | `apotheke` | bootstrap | PostgreSQL database. |
