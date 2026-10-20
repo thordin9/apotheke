@@ -7,29 +7,6 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
-### Added
-
-- **photos:** keep each new upload byte-identical under `originals/` (or `ORIGINALS_DIR`), with a non-guessable name, when it fits the upload limit. A larger file is reduced in the browser and the form says the original is not kept. What the app shows, thumbnails, prints and shares is still a stripped JPEG. Backups include both files; deleting or replacing a photo removes both, plus the thumbnail. `originals/` is mode 0750 and the camera files mode 0640.
-- **autofill:** send the service a separate stripped JPEG (EXIF applied, long side at most 1600 px and never enlarged, quality about 80, then 70 and 60 if the multipart body is still too big). The stored photo is not rewritten. HEIC is converted only when Imagick has libheif; otherwise autofill is skipped and the original is never sent. The service address in the docs is your Worker URL (`https://autofill.example`); deploy steps are in the service repository.
-
-### Fixed
-
-- **autofill:** keep keyboard focus on Analyze while a photo is analyzed
-- **autofill:** retry Test with a photo once when the model is warming up
-- **autofill:** state the image limit when a photo is rejected as too large. Until `/v1/info` is cached the fallback is 0.9 MiB / 983040 bytes; a cached `max_image_bytes` still wins (the echo stub used in tests advertises 10 MiB).
-- **autofill:** an HTML error page, a non-JSON or truncated body, an unknown JSON 5xx, or a suggest timeout is “autofill is unavailable”. The item still saves, nothing is filled in, and that failure is not retried. A well-formed 503 is retried once only when Retry-After is at most 60 seconds (and within the timeout). A longer wait is busy and is not retried.
-- **photos:** refuse to start when `ORIGINALS_DIR` is inside the web root. `/originals` is blocked in any spelling.
-
-### Changed
-
-- **docs:** `loaded` is the service's report; a photo can still be a cold start
-
-### Security
-
-- **photos:** originals are outside the document root by default. `/originals` is refused in any spelling by the front controller, `public/.htaccess`, and the Docker nginx config. The originals directory itself carries `Require all denied` and `Deny from all`. Startup refuses an `ORIGINALS_DIR` inside `public/`.
-- **ci:** scan the full git history with gitleaks on pull requests and pushes to main (`gitleaks git --log-opts=--all`; `actions/checkout` pinned to v4.4.0 on that job)
-- **git:** ignore `service.env`, `*.env`, `*.pem` and `*.key`; a tracked `.env.example` stays committable
-
 ### Maintenance
 
 - **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule run on empty configs. Releases stay on `main` only.
