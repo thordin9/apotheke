@@ -26,7 +26,7 @@ const COV_AREAS = [
     'Control Panel settings' => ['src/settings.php'],
     'Backup & restore' => ['src/backup.php'],
     'Database, migrations, legacy' => ['src/db.php', 'src/legacy.php', 'migrations/'],
-    'Bootstrap, config, QR, seed' => ['src/bootstrap.php', 'src/config.php', 'src/qr.php', 'src/seed.php'],
+    'Bootstrap, config, QR, seed' => ['src/bootstrap.php', 'src/config.php', 'src/qr.php', 'src/qr-encode.php', 'src/seed.php'],
 ];
 
 /** @return array<string,array{0:int,1:int}> relative file => [executable lines, covered lines] */
