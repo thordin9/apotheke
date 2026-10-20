@@ -9,7 +9,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Added
 
-- **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, camera originals stay unserved, and a bad DSN or photo storage inside the web root stops boot with the same messages. The dev server router is `ci4/public/router.php`.
+- **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, and camera originals stay unserved. Photo storage inside the web root stops boot with the same message as the legacy app. A bad DSN stops boot and redacts the password. The dev server router is `ci4/public/router.php`.
 
 ### Fixed
 
