@@ -425,7 +425,7 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
 | Database, migrations, legacy | 84.7 % | 90.3 % | 97.7 % |
 | Bootstrap, config, QR, seed | 70.2 % | 88.6 % | 90.8 % |
-| **All PHP** (6536 lines) | **63.4 %** | **94.0 %** | **96.7 %** |
+| **All PHP** (6538 lines) | **63.4 %** | **94.0 %** | **96.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

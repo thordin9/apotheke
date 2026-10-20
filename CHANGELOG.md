@@ -7,6 +7,22 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-10-20
+
+### Fixed
+
+- **photos:** force 4:2:0 in Imagick JPEG encodes ([#32](https://github.com/thordin9/apotheke/pull/32))
+- limit 4:2:0 to analysis copy, tidy docs, CI ([#32](https://github.com/thordin9/apotheke/pull/32))
+
+### Maintenance
+
+- **photos:** test: fail a size miss and cover Imagick 4:4:4 ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **photos:** docs: describe Imagick JPEG 4:2:0 subsampling ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **changelog:** docs: drop notes already listed in 2.5.0 and 2.5.1 ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **qa:** docs: add QA report for PR 32 ([#32](https://github.com/thordin9/apotheke/pull/32))
+- test: make HEIC display test portable to Alpine GD ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **qa:** docs: add PR 32 recheck report ([#32](https://github.com/thordin9/apotheke/pull/32))
+
 ## [2.5.1] - 2026-10-20
 
 ### Fixed
@@ -257,7 +273,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.2...HEAD
+[2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/thordin9/apotheke/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/thordin9/apotheke/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/thordin9/apotheke/compare/v2.4.0...v2.4.1
