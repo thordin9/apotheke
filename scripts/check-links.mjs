@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 // Check relative links (files and #anchors) in Markdown: README.md, CONTRIBUTING.md,
-// AGENTS.md, docs/*.md, docs/adr/ and docs/plans/ (nested). External http(s)/mailto
-// links are not fetched. Usage: node scripts/check-links.mjs [--list]
+// AGENTS.md, and every .md file under docs/ (nested, including qa and superpowers).
+// External http(s)/mailto links are not fetched. Usage: node scripts/check-links.mjs [--list]
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = process.env.APOTHEKE_LINK_ROOT
+  ? path.resolve(process.env.APOTHEKE_LINK_ROOT)
+  : path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
 function markdownUnder(relDir) {
   const abs = path.join(root, relDir);
@@ -27,9 +29,7 @@ const files = [
   'README.md',
   'CONTRIBUTING.md',
   'AGENTS.md',
-  ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).sort().map(f => 'docs/' + f),
-  ...markdownUnder('docs/adr'),
-  ...markdownUnder('docs/plans'),
+  ...markdownUnder('docs'),
 ];
 
 // GitHub-style heading anchors: lowercase, drop punctuation (keep letters, digits, spaces, - and _), spaces → -.
