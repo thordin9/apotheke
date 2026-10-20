@@ -209,6 +209,8 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: HEIC (Imagick lists HEIC) and startup refusal
+        run: bash scripts/docker-heic.sh apotheke:ci
       - name: Run container (SQLite)
         run: docker run -d --name apotheke -p 9091:9091 apotheke:ci
       - name: Smoke test SQLite (front page + upload)
