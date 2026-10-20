@@ -304,8 +304,8 @@ at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 | # | PR | Scope | Acceptance criteria |
 |---|---|---|---|
 | 1 | `docs!: allow CodeIgniter 4 (AGENTS.md, README)` — **first** | rule change in `AGENTS.md`, README requirements, `docs/contributing.md`; ADR-001 (CI4, side by side, no schema change, Docker-only, re-login, PHP 8.4) | wording matches Stathis's decision; link check green |
-| 2 | `ci(ci4): branch wiring, PHP 8.4` | `ci.yml` push trigger adds `feature/ci4`; PR 2 runs only the CI4 leg (PHP 8.4) plus legacy@8.3 (the upgrade/rollback reference); the legacy@8.4 runs move to PR 3; deptrac + DI rule jobs (empty config); release.yml untouched | CI runs on PRs into and pushes to the branch; nothing is released from it |
-| 3 | `test: legacy suite on PHP 8.4; parity recorder + allowlist` | legacy@8.4 runs (moved from PR 2): all legacy suites (lint, PHPUnit, HTTP, Playwright, mobile, Docker smoke on a `php:8.4` test image) on 8.4; fix 8.4 breakage in **separate `fix(php84)` commits** (8.3-compatible, no behaviour change); add `tests/parity/` recorder with the first steps (install, healthz, settings) and `tests/parity/allowlist.yml` pre-filled with N-2, QA L-2, N-4, I-3 (§5.2) (M-6) | legacy@8.4 passes everything legacy@8.3 passes; the 8.3↔8.4 legacy diff is recorded and explained; the recorder runs legacy@8.4 vs legacy@8.4 with zero diffs |
+| 2 | `ci(ci4): branch wiring, PHP 8.4` | `ci.yml` push trigger adds `feature/ci4`; PR 2 runs the CI4 leg (PHP 8.4), legacy@8.3 (the upgrade/rollback reference), and the legacy PHPUnit suite on PHP 8.4 (SQLite and PostgreSQL), accepted by the PM on 2026-10-20 for earlier warning; deptrac + DI rule jobs (empty config); release.yml untouched | CI runs on PRs into and pushes to the branch; legacy PHPUnit on PHP 8.4 is green on both databases; nothing is released from it |
+| 3 | `test: legacy suite on PHP 8.4; parity recorder + allowlist` | remaining PHP 8.4 suites only (lint, headless mobile checks, Playwright, Docker build on a `php:8.4` test image); does not add legacy PHPUnit on 8.4 (that runs in PR 2); fix 8.4 breakage in **separate `fix(php84)` commits** (8.3-compatible, no behaviour change); add `tests/parity/` recorder with the first steps (install, healthz, settings) and `tests/parity/allowlist.yml` pre-filled with N-2, QA L-2, N-4, I-3 (§5.2) (M-6) | the remaining legacy@8.4 suites pass everything legacy@8.3 passes; the 8.3↔8.4 legacy diff is recorded and explained; the recorder runs legacy@8.4 vs legacy@8.4 with zero diffs |
 | 4 | `feat(ci4): skeleton + Core` | appstarter 4.7.5, `ApothekeConfig`, **`DsnTranslator`**, `DatabaseFactory`, **`RequestScheme`**, `OriginalsGuard`, security filters, `StoragePreflight`, **DevServer router**, `/healthz`, `/health` | endpoints byte-identical; `/originals` ×3 → 404; refusal cases incl. symlink (generic page N-6, `error_log` N-7); 0750/0640; DSN table test (sqlite paths, pgsql host/port/dbname/sslmode, bad DSN → boot error); Secure cookie matrix (direct HTTP/HTTPS, proxy header with trust on/off, comma list); router rejects `..`, `*.php`, serves assets; `composer audit` clean |
 | 5 | `feat(ci4): Migrations module (PDO runner + LegacyFunctions)` | `PdoMigrationRunner`, `LegacyFunctions.php`, `apotheke:migrate`, `bin/migrate.php` | **all six tests in §3.4**, under 8.4 on SQLite and PG |
 | 6 | `feat(ci4): settings, branding, settings CLI` | SettingsService, Control Panel, export/import, branding, `SettingsCommand` | 62 keys validate identically; export identical; sanitizer corpus; **CLI goldens: all 19 forms + 4 error paths, comparing argv → stdout, stderr and exit code between legacy and CI4** (and `migrate`, `seed`, `backup`, `restore` goldens added in their PRs) (M-3) |
@@ -393,7 +393,7 @@ clear before PR 16.
 
 ### 5.2 Parity
 
-* **Runtime pairing (M-1):** **parity runs compare legacy@8.4 with CI4@8.4** (legacy@8.4 exists from PR 3). Legacy@8.3,
+* **Runtime pairing (M-1):** **parity runs compare legacy@8.4 with CI4@8.4** (legacy PHPUnit on 8.4 from PR 2; the remaining 8.4 suites from PR 3). Legacy@8.3,
   the 2.5.x image, is the **reference only for upgrade and rollback** (§3.6), never for parity diffs.
 * **Black-box HTTP and E2E parity:** identical pass lists on both DBs.
 * **Differential recorder (`tests/parity/`, from PR 3, M-6):** each PR adds the steps for its area. By PR 16 there are
@@ -466,7 +466,7 @@ upload rejection corpus; token-leak grep; gitleaks; `composer audit`.
 | R10 | Image size | **~60 MB growth accepted (PM)**; multi-stage build; the cutover PR records before (2.5.x+L-4) and after |
 | R11 | Re-login surprises users | release notes, upgrade guide, clean sign-in for old cookies |
 | R12 | Scope creep / branch rot; legacy quirks | parity first; quirks (N-2, QA L-2, N-4, I-3) ported identically and **fixed in follow-ups after 3.0.0**; rehearsal merge in a throwaway clone |
-| R13 | **PHP 8.4 deprecations/behaviour** mistaken for port bugs | PR 3 runs legacy on 8.4 first; parity is legacy@8.4 vs CI4@8.4; legacy@8.3 only for upgrade/rollback |
+| R13 | **PHP 8.4 deprecations/behaviour** mistaken for port bugs | PR 2 runs legacy PHPUnit on 8.4 (both databases) for earlier warning; PR 3 adds the remaining 8.4 suites; parity is legacy@8.4 vs CI4@8.4; legacy@8.3 only for upgrade/rollback |
 | R14 | Two maintained lines (2.5.x and 3.0.x) diverge | `release/2.5` security-only, patch-only guard, 90-day end date, PM L-2 migration rule |
 | R15 | Module coupling creeps back | deptrac graph + DI rule in CI (L-1) |
 
@@ -481,7 +481,8 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
 
 ## Changelog of this plan
 
-* **Reviewer fixes (2026-10-20):** (L-a) 19 CI4 PRs (1–10, 11a, 11b, 12–18), plus the main-side `release/2.5` PR and L-4; (L-b) PR 2 runs only the CI4 leg plus legacy@8.3, and the legacy@8.4 runs move to PR 3; (QA) "PM L-2" is the migration-backport rule (§3.4, §6, R14) and "QA L-2" is the broken-JPEG/over-60-MP 422 quirk (allowlist, R12, PR 10); the base note says the v2.5.0 tag check is verified (QA PASS at 10:15 EEST, 87850e3, only VERSION, CHANGELOG and README coverage tables changed).
+* **PM (2026-10-20):** PR 2 keeps the legacy PHPUnit suite on PHP 8.4 (SQLite and PostgreSQL) for earlier warning, with the CI4 leg and legacy@8.3. PR 3 adds only the remaining 8.4 suites (lint, headless mobile checks, Playwright, Docker build), plus `fix(php84)` commits, the parity recorder and the allowlist. This replaces L-b's move of those PHPUnit runs to PR 3.
+* **Reviewer fixes (2026-10-20):** (L-a) 19 CI4 PRs (1–10, 11a, 11b, 12–18), plus the main-side `release/2.5` PR and L-4; (L-b) PR 2 runs the CI4 leg, legacy@8.3, and the legacy PHPUnit suite on PHP 8.4 (both databases), accepted by the PM on 2026-10-20 for earlier warning (replaces moving those PHPUnit runs to PR 3); (QA) "PM L-2" is the migration-backport rule (§3.4, §6, R14) and "QA L-2" is the broken-JPEG/over-60-MP 422 quirk (allowlist, R12, PR 10); the base note says the v2.5.0 tag check is verified (QA PASS at 10:15 EEST, 87850e3, only VERSION, CHANGELOG and README coverage tables changed).
 
 **rev. 3 (2026-10-20, base v2.5.0 = 87850e3, verified by QA's tag check and the PM's re-scan)**
 * Re-based on the v2.5.0 tag: the diff from 5633472 is VERSION, CHANGELOG.md, README coverage tables only, so no code reference changed.
@@ -493,7 +494,7 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
   sites verified. Tests: fresh migrate with `src/` removed and upgrade from every version 0001–0025, **under PHP 8.4 on
   SQLite and PG**. Also: PDO closed before SQLite3 opens, concurrent mixed-connection migration (WAL / advisory lock),
   and goldens.
-* **PHP 8.4:** CI4 image and branch CI on 8.4. New **PR 3** runs legacy on 8.4 with separate `fix(php84)` commits.
+* **PHP 8.4:** CI4 image and branch CI on 8.4. Legacy PHPUnit on 8.4 runs in PR 2 (PM, 2026-10-20). **PR 3** adds the remaining 8.4 suites and separate `fix(php84)` commits.
   **Parity = legacy@8.4 vs CI4@8.4**; legacy@8.3 = upgrade/rollback reference (M-1). 19 CI4 PRs (1–10, 11a, 11b, 12–18), plus the main-side `release/2.5` PR and L-4.
 * **M-2:** `DsnTranslator`, `RequestScheme` (trust_proxy + X-Forwarded-Proto, not proxyIPs), **Notes** module,
   **ActivityController**, **DevServer** router. **M-3:** `bin/settings.php` counted at **11 commands / 19 forms** + error
