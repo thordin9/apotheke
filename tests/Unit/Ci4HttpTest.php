@@ -38,7 +38,7 @@ final class Ci4HttpTest extends TestCase
         if (!$admin instanceof PDO) {
             return;
         }
-        $before = $this->probeSnapshot();
+        $before = $this->probeSnapshot($admin);
         $role = 'apo_nocreate_' . bin2hex(random_bytes(4));
         $password = 'nocreatepass';
         $publicCreate = $this->publicCanCreate($admin);
@@ -72,7 +72,7 @@ final class Ci4HttpTest extends TestCase
                 $this->assertSame(200, $response['status'], (string)@file_get_contents($server->log));
                 $this->assertSame('ok', $response['body']);
                 $this->assertFalse($server->logHas('apotheke_ci4_pgsql_probe'));
-                $this->assertSame($before, $this->probeSnapshot());
+                $this->assertSame($before, $this->probeSnapshot($admin));
             }
         } finally {
             $without->stop();
@@ -357,15 +357,20 @@ final class Ci4HttpTest extends TestCase
     }
 
     /** Null when the probe table does not exist. */
-    private function probeSnapshot(): ?int
+    private function probeSnapshot(?PDO $pdo = null): ?int
     {
-        $env = test_db_env(sys_get_temp_dir());
-        $pdo = new PDO(
-            "pgsql:host={$env['DB_HOST']};port={$env['DB_PORT']};dbname={$env['DB_NAME']}",
-            $env['DB_USER'],
-            $env['DB_PASSWORD'],
-            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
-        );
+        if (!$pdo instanceof PDO) {
+            $env = test_db_env(sys_get_temp_dir());
+            if (($env['DB_DRIVER'] ?? '') !== 'pgsql') {
+                return null;
+            }
+            $pdo = new PDO(
+                "pgsql:host={$env['DB_HOST']};port={$env['DB_PORT']};dbname={$env['DB_NAME']}",
+                $env['DB_USER'],
+                $env['DB_PASSWORD'],
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+        }
         $reg = $pdo->query("SELECT to_regclass('public.apotheke_ci4_pgsql_probe')")->fetchColumn();
         if ($reg === false || $reg === null) {
             return null;
