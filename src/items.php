@@ -10,6 +10,7 @@ require_once __DIR__ . '/stocktake.php';
 require_once __DIR__ . '/search.php';
 require_once __DIR__ . '/import.php';
 require_once __DIR__ . '/photo_edit.php';
+require_once __DIR__ . '/image-color.php';
 
 /* ---------- taxonomies: locations & categories (same shape, managed lists) ---------- */
 
@@ -1025,6 +1026,7 @@ function image_store_heic(string $path, string $name): bool
         $w = $im->getImageWidth();
         $h = $im->getImageHeight();
         if ($w < 1 || $h < 1 || $w * $h > 60_000_000) { $im->clear(); return false; }
+        imagick_match_gd($im);
         $max = image_full_max();
         if (max($w, $h) > $max) {
             $s = $max / max($w, $h);

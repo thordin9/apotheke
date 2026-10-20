@@ -145,8 +145,10 @@ orientation applied, longest side at most 1600 px, GPS and camera details remove
 together with the JPEG, and restoring puts both back. CSV export only names the served photo and does not include
 the camera file. Deleting a photo, replacing it, or deleting the item (after undo expires) removes the camera file,
 the JPEG and the thumbnail. Nothing from that photo is left in `images/`, `thumbs/` or `originals/`. A HEIC photo
-is turned into that JPEG when this server has Imagick with HEIC support (the Docker image does). Otherwise the HEIC
-file is kept, and the page shows a plain grey placeholder instead of the HEIC file.
+is turned into that JPEG when this server has Imagick with HEIC support (the Docker image does). Transparent areas
+are placed on white, and a CMYK photo is saved as an ordinary sRGB JPEG, the same as a photo GD reads itself.
+A grayscale photo is the exception: Imagick writes a 1-channel JPEG, so that match is approximate.
+When Imagick cannot decode the HEIC, the file is kept and the page shows a plain grey placeholder instead.
 Photos already in the catalog before this version stay as they are and have no separate camera file.
 
 ## Suggestions from a photo (AI autofill)
@@ -540,7 +542,7 @@ is no service worker and no offline mode.
 * The file you pick is uploaded as it is when it fits the upload limit. Above that limit the browser makes a smaller
   copy and the form says the original is not kept. The server stores what it received and shows a stripped JPEG.
   HEIC is decoded on the server when Imagick can read it (the Docker image); otherwise the page shows a placeholder
-  and the HEIC file is still kept.
+  and the HEIC file is still kept. Transparent areas sit on white, and CMYK is saved as sRGB.
 * *Add to Home Screen* gives you a full-screen app with the safe areas (notch, home indicator) respected.
 * The bottom bars (Save, Edit, the bulk bar) stay above the home indicator; the filter and action sheets slide up from
   the bottom.

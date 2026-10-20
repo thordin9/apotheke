@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# HEIC support of a built Apotheke image, plus the php-fpm startup refusal.
+# HEIC support of a built Apotheke image, Imagick colour handling, plus the php-fpm startup refusal.
 #   scripts/docker-heic.sh [image]     (default apotheke:ci)
 set -euo pipefail
 image=${1:-apotheke:ci}
@@ -31,6 +31,15 @@ docker run --rm --entrypoint php \
   -v "$root/tests/fixtures/tiny-gps.heic:/fixture.heic:ro" \
   -v "$root/tests/heic_image_check.php:/heic_image_check.php:ro" \
   "$image" /heic_image_check.php /fixture.heic
+
+echo "== Imagick transparency on white, CMYK as sRGB"
+docker run --rm --entrypoint php \
+  -e DATA_DIR=/tmp/imagick-color \
+  -e SEED_DEFAULTS=0 \
+  -e APOTHEKE_CONFIG=/nonexistent \
+  -e TZ=UTC \
+  -v "$root/tests/imagick_color_check.php:/imagick_color_check.php:ro" \
+  "$image" /imagick_color_check.php
 
 echo "== php-fpm refusal hides the filesystem path"
 docker run -d --name "$name" -p "127.0.0.1:${port}:9091" \

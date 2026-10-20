@@ -14,7 +14,7 @@
         "ext-pdo_pgsql": "PostgreSQL storage",
         "ext-exif": "Honour photo orientation",
         "ext-dom": "SVG logo uploads in the Control Panel (sanitizer)",
-        "ext-imagick": "HEIC/HEIF photos. The Docker image includes Imagick with libheif; without it a HEIC upload is kept and shown as a placeholder"
+        "ext-imagick": "HEIC/HEIF photos, and files GD cannot read. Transparent areas are flattened onto white and CMYK is converted to sRGB, matching GD. For a grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. The Docker image includes Imagick with libheif; without it a HEIC upload is kept and shown as a placeholder"
     },
     "require-dev": {
         "phpunit/phpcov": "^10.0",
