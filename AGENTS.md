@@ -1,6 +1,6 @@
 # AGENTS.md — working on Apotheke
 
-Apotheke is a small self-hosted catalog for belongings. The legacy app on `main` is plain PHP 8.2+ (CI and the Docker image use 8.3), PDO (SQLite or PostgreSQL), and GD. That legacy tree stays as it is until the 3.0.0 cutover. Both the legacy app and CodeIgniter 4 work fully offline on a LAN, with no CDN and no JavaScript build step. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
+Apotheke is a small self-hosted catalog for belongings. The legacy app on `main` is plain PHP 8.2+ (CI and the Docker image use 8.3), PDO (SQLite or PostgreSQL), and GD. That legacy tree stays as it is until the 3.0.0 cutover.
 
 **CodeIgniter 4 replaces the no-framework rule.** The port is built side by side in `ci4/` with pinned Composer dependencies, on PHP 8.4. Do not add any other framework. Decision record: [ADR-001](docs/adr/001-codeigniter4.md). Plan: [Feature 12](docs/plans/feature12-ci4/PLAN.md).
 
