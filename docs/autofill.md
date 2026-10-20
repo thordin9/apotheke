@@ -171,11 +171,13 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
    your existing **categories** and **tags** (so the backend reuses your spelling), `locale`, and `model` when a
    model is chosen and the service lists models.
 
-**HEIC/HEIF.** Where the browser can decode HEIC (Safari on iPhone, iPad and Mac — where HEIC photos come from), it
-is converted to JPEG in step 1 like any photo, at the chosen size. Where it cannot, the server converts it with
-Imagick only when that build has libheif (`Imagick::queryFormats('HEIC')` or `HEIF`). Otherwise autofill is skipped
-locally (*cannot be read as a photo*) and the original HEIC is not sent. The camera file is still stored; the page
-shows a placeholder rather than the HEIC.
+**HEIC/HEIF.** Saving a photo uploads the file untouched when it fits the upload limit. The browser shrinks it only
+when it is over that limit, and the form says the original is not kept. The server keeps those bytes and, when it
+can read them, builds two JPEGs: the stripped copy the catalog shows, and a separate analysis copy (long side at
+most 1600 px, metadata removed). HEIC is read with Imagick when `Imagick::queryFormats()` includes `HEIC` or `HEIF`.
+The Docker image is built that way (`libheif`). A GD-only install keeps the HEIC and shows a grey placeholder;
+autofill is skipped and the HEIC is not sent. Where the browser can decode HEIC it may still make a smaller copy
+for the Analyze request only. That copy is not what is stored.
 4. The answer is validated (unknown fields ignored, wrong-shaped fields dropped, name ≤ 200, category ≤ 120,
    at most 8 tags of ≤ 40 characters, description ≤ 2000) and returned to the browser.
 

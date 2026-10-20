@@ -14,6 +14,8 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Fixed
 
+- **photos:** the Docker image decodes HEIC/HEIF with Imagick and libheif. The upload stays byte-identical; the served copy and the autofill analysis copy are stripped JPEGs. Without Imagick the camera file is still kept and the page shows a placeholder.
+- **startup:** when photo storage is inside the web root, the browser sees a generic message. The filesystem path is written only to the server log, through `error_log`, which works under php-fpm.
 - **autofill:** keep keyboard focus on Analyze while a photo is analyzed
 - **autofill:** retry Test with a photo once when the model is warming up
 - **autofill:** state the image limit when a photo is rejected as too large. Until `/v1/info` is cached the fallback is 0.9 MiB / 983040 bytes; a cached `max_image_bytes` still wins (the echo stub used in tests advertises 10 MiB).

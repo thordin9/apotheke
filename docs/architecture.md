@@ -17,7 +17,7 @@ src/
   settings_views.php      Control Panel pages (/settings/…)
   db.php                  PDO connection, dialect helpers, migration runner
   legacy.php              one-time conversion of pre-migration SQLite installs (schema v1–v3)
-  items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD),
+  items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD; Imagick for HEIC),
                           activity log, low stock, bulk actions, lending, duplicating, the location tree
   markdown.php            safe Markdown subset for notes (escape first, then a few constructs; http/https/mailto links)
   attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
