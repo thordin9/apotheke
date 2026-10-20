@@ -11,6 +11,10 @@ final class HttpSuiteTest extends TestCase
 {
     public function testHttpSuitePasses(): void
     {
+        require_once dirname(__DIR__) . '/lib.php';
+        if (apotheke_app() === 'ci4') {
+            $this->markTestSkipped('The catalog HTTP suite stays on the legacy server until those routes exist in CI4.');
+        }
         $env = getenv();
         $env['TEST_DB_DRIVER'] = db_driver();
         if (db_driver() === 'pgsql') {

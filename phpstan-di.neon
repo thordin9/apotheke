@@ -1,7 +1,22 @@
-# Empty until CI4 code exists.
-# The DI rule (service() and Services:: only in controllers and Config/Services.php)
-# is attached by listing paths and a PHPStan rule. PHPStan rejects an empty path
-# list, so the DI job does not invoke it while this file stays in the shape below.
 parameters:
     level: 6
-    paths: []
+    dynamicConstantNames:
+        - ENVIRONMENT
+        - CI_DEBUG
+        - APPPATH
+        - ROOTPATH
+        - FCPATH
+        - APP_NAMESPACE
+    paths:
+        - ci4/modules
+        - ci4/app/Config/Services.php
+        - ci4/app/Config/Filters.php
+        - ci4/app/Config/Routes.php
+        - ci4/app/Config/Events.php
+        - ci4/app/Config/Exceptions.php
+        - ci4/app/Config/App.php
+        - ci4/public
+    bootstrapFiles:
+        - ci4/tools/PhpStan/bootstrap.php
+rules:
+    - Apotheke\Tools\PhpStan\NoServiceRule

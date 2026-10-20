@@ -107,17 +107,25 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertMatchesRegularExpression('/ref: main\\n/', $yml);
     }
 
-    public function testCi4LegSkipsWhenTheAppIsAbsent(): void
+    public function testCi4LegFailsWhenTheFrontControllerIsMissing(): void
     {
-        $root = $this->root();
+        $dir = $this->fixture();
         $out = [];
         $code = 0;
-        exec('bash ' . escapeshellarg($root . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($root) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
-        $this->assertSame(0, $code);
-        $this->assertSame(['run=false'], $out);
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
+        $this->assertSame(1, $code);
+        $this->assertNotContains('run=false', $out);
         $err = (string)file_get_contents($this->stderrFile());
-        $this->assertStringContainsString('ci4/public/index.php is not in this tree.', $err);
-        $this->assertStringContainsString('The job stays green', $err);
+        $this->assertStringContainsString('ci4/public/index.php is missing.', $err);
+    }
+
+    public function testCi4LegRejectsAnUnknownApp(): void
+    {
+        $out = [];
+        $code = 0;
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' other ' . escapeshellarg($this->root()) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
+        $this->assertSame(2, $code);
+        $this->assertStringContainsString('must be legacy or ci4', (string)file_get_contents($this->stderrFile()));
     }
 
     public function testLegacyLegRuns(): void
@@ -152,20 +160,45 @@ final class Ci4BranchCiTest extends TestCase
         file_put_contents($dir . '/tests/lib.php', "<?php\n// APOTHEKE_APP picks the server\n");
         $out = [];
         $code = 0;
+        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
+        $this->assertSame(1, $code);
+        $this->assertStringContainsString('does not switch servers on APOTHEKE_APP', (string)file_get_contents($this->stderrFile()));
+    }
+
+    public function testCi4LegRunsWhenTheHarnessSelectsCi4(): void
+    {
+        $dir = $this->fixture();
+        mkdir($dir . '/ci4/public', 0775, true);
+        mkdir($dir . '/tests', 0775, true);
+        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
+        file_put_contents($dir . '/tests/lib.php', <<<'PHP'
+<?php
+const ROOT = __DIR__ . '/..';
+function apotheke_app(): string { return getenv('APOTHEKE_APP') === 'ci4' ? 'ci4' : 'legacy'; }
+function apotheke_front_controller(?string $app = null): string {
+    $app ??= apotheke_app();
+    return $app === 'ci4' ? ROOT . '/ci4/public/router.php' : ROOT . '/public/index.php';
+}
+PHP);
+        $out = [];
+        $code = 0;
         exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir), $out, $code);
         $this->assertSame(0, $code);
         $this->assertSame(['run=true'], $out);
     }
 
-    public function testCommittedArchitectureConfigsAreEmptyPasses(): void
+    public function testCommittedArchitectureConfigsRunTheTools(): void
     {
         $root = $this->root();
+        $this->assertFalse(ci4_deptrac_is_empty((string)file_get_contents($root . '/deptrac.yaml')));
+        $this->assertFalse(ci4_di_is_empty((string)file_get_contents($root . '/phpstan-di.neon')));
+        if (PHP_VERSION_ID < 80400 || !is_file($root . '/ci4/vendor/autoload.php') || !is_file($root . '/vendor/bin/deptrac') || !is_file($root . '/vendor/bin/phpstan')) {
+            $this->markTestSkipped('deptrac, phpstan and the CI4 vendor tree are installed on PHP 8.4');
+        }
         [$depCode, $depMsg] = ci4_arch_check('deptrac', $root . '/deptrac.yaml');
         [$diCode, $diMsg] = ci4_arch_check('di', $root . '/phpstan-di.neon');
         $this->assertSame(0, $depCode, $depMsg);
         $this->assertSame(0, $diCode, $diMsg);
-        $this->assertStringContainsString('empty config', $depMsg);
-        $this->assertStringContainsString('empty PHPStan config', $diMsg);
     }
 
     public function testFilledConfigFailsClosedWithoutTheTool(): void

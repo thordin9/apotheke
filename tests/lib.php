@@ -64,24 +64,46 @@ function rrmdir(string $dir): void
     rmdir($dir);
 }
 
+function apotheke_app(): string
+{
+    return getenv('APOTHEKE_APP') === 'ci4' ? 'ci4' : 'legacy';
+}
+
+function apotheke_front_controller(?string $app = null): string
+{
+    $app ??= apotheke_app();
+    if ($app === 'ci4') return ROOT . '/ci4/public/router.php';
+    return ROOT . '/public/index.php';
+}
+
 final class Server
 {
     public string $base;
     public string $log;
+    public string $app;
     /** @var resource */
     private $proc;
 
-    public function __construct(public string $dataDir, array $env = [])
+    public function __construct(public string $dataDir, array $env = [], ?string $app = null)
     {
+        $this->app = $app ?? apotheke_app();
         $sock = stream_socket_server('tcp://127.0.0.1:0');
         $port = (int)substr(strrchr(stream_socket_get_name($sock, false), ':'), 1);
         fclose($sock);
         $this->base = "http://127.0.0.1:$port";
         $this->log = $dataDir . '.server.log';
-        $cov = getenv('APOTHEKE_COVERAGE_DIR') ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        $cov = ($this->app !== 'ci4' && getenv('APOTHEKE_COVERAGE_DIR')) ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        if ($this->app === 'ci4') {
+            $front = ROOT . '/ci4/public/router.php';
+            $docroot = ROOT . '/ci4/public';
+        } else {
+            $front = $cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php';
+            $docroot = ROOT . '/public';
+        }
         $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M', ...$cov,
-                '-S', "127.0.0.1:$port", '-t', ROOT . '/public', $cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php'];
-        $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'], test_db_env($dataDir), $env);
+                '-S', "127.0.0.1:$port", '-t', $docroot, $front];
+        $harness = $this->app === 'ci4' ? ['APOTHEKE_HARNESS' => '1'] : [];
+        $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'], test_db_env($dataDir), $harness, $env);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');
         for ($i = 0; $i < 100; $i++) {

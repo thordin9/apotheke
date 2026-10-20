@@ -58,6 +58,15 @@ final class ParityRecorderTest extends TestCase
         $this->assertSame([], $diff, json_encode($diff, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     }
 
+    public function testCorePairAgreesOnHealthAndOriginals(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $diff = parity_core_pair();
+        $this->assertSame([], $diff, json_encode($diff, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
     private function allowlistCopy(): string
     {
         $path = tempnam(sys_get_temp_dir(), 'allow');

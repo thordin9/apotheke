@@ -101,7 +101,7 @@ function parity_legacy_pair(): array
     $dirs = [tmpdir('parity-a'), tmpdir('parity-b')];
     $servers = [];
     try {
-        foreach ($dirs as $i => $dir) $servers[$i] = new Server($dir, $env);
+        foreach ($dirs as $i => $dir) $servers[$i] = new Server($dir, $env, 'legacy');
         return parity_diff(
             parity_capture($servers[0]->client(), $dirs[0]),
             parity_capture($servers[1]->client(), $dirs[1])
@@ -200,6 +200,76 @@ function parity_files(string $dir): array
     }
     ksort($out);
     return $out;
+}
+
+/**
+ * Legacy versus CI4 on the health bytes, the three originals URLs and the originals file modes.
+ * Skips when the CI4 tree is not installed or PHP is older than 8.4.
+ * @return array<string,array{left:mixed,right:mixed}>
+ */
+function parity_core_pair(): array
+{
+    if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        throw new RuntimeException('skip');
+    }
+    require_once dirname(__DIR__) . '/lib.php';
+    $env = ['APOTHEKE_CLOCK' => '2026-06-15 09:00:00', 'PUBLIC_URL' => 'http://catalog.example/'];
+    $dirs = [tmpdir('parity-leg'), tmpdir('parity-ci4')];
+    $servers = [];
+    try {
+        $servers[0] = new Server($dirs[0], $env, 'legacy');
+        $servers[1] = new Server($dirs[1], $env, 'ci4');
+        return parity_diff(parity_core_capture($servers[0]), parity_core_capture($servers[1]));
+    } finally {
+        foreach ($servers as $server) $server->stop();
+        foreach ($dirs as $dir) {
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
+    }
+}
+
+/** @return array<string,mixed> */
+function parity_core_capture(Server $server): array
+{
+    $client = $server->client();
+    $healthz = $client->get('/healthz');
+    $health = $client->get('/health');
+    $keep = ['content-type', 'x-apotheke-version', 'x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'];
+    $pick = static function (array $headers) use ($keep): array {
+        $out = [];
+        foreach ($keep as $name) $out[$name] = $headers[$name] ?? null;
+        return $out;
+    };
+    $originals = [];
+    foreach (['/originals/guess.jpg', '/Originals/guess.jpg', '/ORIGINALS/guess.jpg'] as $path) {
+        $response = $client->get($path);
+        $originals[$path] = [
+            'status' => $response['status'],
+            'body' => $response['body'],
+            'type' => $response['headers']['content-type'] ?? '',
+        ];
+    }
+    $dir = $server->dataDir . '/originals';
+    return [
+        'healthz' => [
+            'status' => $healthz['status'],
+            'body' => $healthz['body'],
+            'headers' => $pick($healthz['headers']),
+        ],
+        'health' => [
+            'status' => $health['status'],
+            'body' => $health['body'],
+            'type' => $health['headers']['content-type'] ?? '',
+            'cache' => $health['headers']['cache-control'] ?? '',
+        ],
+        'originals' => $originals,
+        'modes' => [
+            'dir' => is_dir($dir) ? (fileperms($dir) & 0777) : null,
+            'htaccess' => is_file($dir . '/.htaccess') ? (fileperms($dir . '/.htaccess') & 0777) : null,
+        ],
+    ];
 }
 
 /** Row contents of every application table, sorted so two fresh installs can be compared. */
