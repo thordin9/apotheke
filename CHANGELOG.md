@@ -30,6 +30,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **ci:** scan the full git history with gitleaks on pull requests and pushes to main (`gitleaks git --log-opts=--all`; `actions/checkout` pinned to v4.4.0 on that job)
 - **git:** ignore `service.env`, `*.env`, `*.pem` and `*.key`; a tracked `.env.example` stays committable
 
+### Maintenance
+
+- **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule run on empty configs. Releases stay on `main` only.
+
 ## [2.5.0] - 2026-10-20
 
 ### Added

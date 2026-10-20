@@ -1,0 +1,7 @@
+# Empty until CI4 code exists.
+# The DI rule (service() and Services:: only in controllers and Config/Services.php)
+# is attached by listing paths and a PHPStan rule. PHPStan rejects an empty path
+# list, so the DI job does not invoke it while this file stays in the shape below.
+parameters:
+    level: 6
+    paths: []

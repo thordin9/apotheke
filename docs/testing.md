@@ -2,7 +2,7 @@
 
 | Layer | Where | Runs on | Needs |
 |---|---|---|---|
-| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/` and `src/`, relative Markdown links (`scripts/check-links.mjs`), `shellcheck` | PHP, Node, shellcheck |
+| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/` and `src/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, `docs/*.md`, `docs/adr/`, `docs/plans/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
 | HTTP integration suite | `tests/integration.php` (+ `tests/lib.php`) | `php -S` on throwaway data dirs, SQLite or PostgreSQL | PHP only |
 | PHPUnit | `tests/Unit/`, `tests/Integration/HttpSuiteTest.php` | SQLite or PostgreSQL | `composer install` |
 | Headless mobile checks | `tests/e2e/mobile.mjs` | Chrome via puppeteer-core at 375×667 and 390×844 | Node, Chrome |
@@ -16,6 +16,10 @@ DB_DRIVER=pgsql tests/run.sh      # the integration suite against PostgreSQL (TE
 php tests/integration.php         # integration suite only
 KEEP_TEST_DATA=1 php tests/integration.php   # keep the temp data dirs for inspection
 ```
+
+CI runs that suite on legacy@8.3 (the upgrade/rollback reference) and on legacy@8.4, on SQLite and PostgreSQL.
+The ci4 cells of the same matrix skip PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule have empty
+configs until CI4 modules exist. See [CI](ci.md#php-84-legs).
 
 The integration suite starts PHP's built-in server on temporary data directories and exercises the app over HTTP with
 a small client (`tests/lib.php`: cookies, CSRF, multipart uploads, JSON). It covers uploads (images generated with

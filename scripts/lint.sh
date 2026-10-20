@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lint everything: php -l on all PHP files, node --check on JS, Markdown links, shellcheck on shell scripts.
+# Lint everything: php -l on all PHP files, node --check on JS, Markdown links, shellcheck on shell scripts, actionlint on workflows.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 echo "== PHP lint"
@@ -20,6 +20,17 @@ if command -v shellcheck >/dev/null 2>&1; then
   echo "   ok"
 else
   echo "== shellcheck: skipped (not installed)"
+fi
+if ! command -v actionlint >/dev/null 2>&1 && [ "${CI:-}" = "true" ]; then
+  bash scripts/install-actionlint.sh "${RUNNER_TEMP:-/tmp}"
+  export PATH="${RUNNER_TEMP:-/tmp}:$PATH"
+fi
+if command -v actionlint >/dev/null 2>&1; then
+  echo "== actionlint"
+  actionlint -no-color
+  echo "   ok"
+else
+  echo "== actionlint: skipped (not installed)"
 fi
 echo "== pipefail-safe greps"
 # `curl … | grep -q` under pipefail fails at random: grep -q exits at the first match and curl gets SIGPIPE (exit 23)

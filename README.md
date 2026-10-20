@@ -480,12 +480,14 @@ and fetch the result with `scripts/update-snapshots.sh --from-ci <run id>`. Deta
 
 ## CI
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every pull request and on pushes to `main`:
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every pull request and on pushes to `main` and `feature/ci4`:
 
 | Job | What it does |
 |---|---|
-| Lint | `scripts/lint.sh` (PHP, JS, shell) |
-| Tests | PHP 8.3 × SQLite / PostgreSQL 17 service: migrations + seeding via the CLI, PHPUnit with a coverage artifact |
+| Lint | `scripts/lint.sh` (PHP, JS, shell, workflow lint) |
+| Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. The coverage artifact is uploaded from legacy@8.3 SQLite only |
+| deptrac | empty module-graph config until CI4 modules exist |
+| DI rule | empty PHPStan config until CI4 paths exist |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
 | Docker build + smoke test | builds the image, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
@@ -498,9 +500,9 @@ The secret scan downloads the [gitleaks](https://github.com/gitleaks/gitleaks) C
 or license. See [CI](docs/ci.md#secret-scan).
 
 A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
-After CI passes on `main`, the *Release* workflow bumps the [SemVer](https://semver.org/) version from the Conventional
+After CI passes on a push to `main`, the *Release* workflow bumps the [SemVer](https://semver.org/) version from the Conventional
 Commits, updates [`VERSION`](VERSION), [`CHANGELOG.md`](CHANGELOG.md) and the coverage table, tags and publishes a GitHub
-Release ([docs/releasing.md](docs/releasing.md)). The running version is shown in the footer, under Control Panel →
+Release ([docs/releasing.md](docs/releasing.md)). A green CI run on `feature/ci4` does not release: `release.yml` still listens only to `main`. The running version is shown in the footer, under Control Panel →
 *System*, in `GET /health` (`{"status":"ok","version":"…"}`) and in the `X-Apotheke-Version` header of `/healthz`.
 
 ## Security notes

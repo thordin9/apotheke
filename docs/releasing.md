@@ -32,7 +32,8 @@ updated.
 
 ## The release workflow
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs after a successful CI run for a push to `main`:
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs after a successful CI run for a push to `main`.
+A green CI run on `feature/ci4` does not start it: `workflow_run.branches` is `[main]` only, and a manual run checks out `main`.
 
 1. check out `main` with full history; stop if `main` is no longer the commit CI tested (that newer commit's CI run
    releases it);

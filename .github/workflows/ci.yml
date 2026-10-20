@@ -1,9 +1,11 @@
 name: CI
 
+# pull_request has no branch filter, so pull requests into feature/ci4 run this
+# workflow. Pushes run it for main and, once this file is on the branch, feature/ci4.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, feature/ci4]
 
 permissions:
   contents: read
@@ -30,14 +32,52 @@ jobs:
       - name: Lint PHP, JS and shell scripts
         run: bash scripts/lint.sh
 
+  deptrac:
+    name: deptrac
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: none
+      - name: Module graph (empty config until CI4 modules exist)
+        run: php scripts/ci4-arch.php deptrac
+
+  di-rule:
+    name: DI rule
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: none
+      - name: Constructor injection (empty config until CI4 code exists)
+        run: php scripts/ci4-arch.php di
+
   test:
-    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.db }})
+    name: Tests (${{ matrix.app }} @ PHP ${{ matrix.php }}, ${{ matrix.db }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3']
+        # PHP 8.4 × both apps. The ci4 cells skip PHPUnit while ci4/public/index.php
+        # is absent (scripts/ci4-leg.sh). legacy@8.4 runs the same PHPUnit suite as
+        # legacy@8.3. Lint, mobile, Playwright and Docker stay on 8.3 until PR 3.
+        app: [legacy, ci4]
+        php: ['8.4']
         db: [sqlite, pgsql]
+        include:
+          # legacy@8.3 is the shipped 2.5.x image: the upgrade/rollback reference.
+          - app: legacy
+            php: '8.3'
+            db: sqlite
+          - app: legacy
+            php: '8.3'
+            db: pgsql
     services:
       postgres:
         image: postgres:17
@@ -55,6 +95,7 @@ jobs:
       TEST_PG_DB: apotheke
       TEST_PG_USER: apotheke
       TEST_PG_PASSWORD: apotheke
+      APOTHEKE_APP: ${{ matrix.app }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -63,19 +104,27 @@ jobs:
           extensions: gd, pdo_sqlite, pdo_pgsql, exif, mbstring, dom, zip
           coverage: pcov
           tools: composer:v2
+      - name: Decide whether this leg runs the suite
+        id: suite
+        run: bash scripts/ci4-leg.sh "${{ matrix.app }}" . >> "$GITHUB_OUTPUT"
       - name: Composer cache dir
         id: composer-cache
+        if: steps.suite.outputs.run == 'true'
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
+        if: steps.suite.outputs.run == 'true'
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests)
+        if: steps.suite.outputs.run == 'true'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq zbar-tools
       - name: Install dev dependencies
+        if: steps.suite.outputs.run == 'true'
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
+        if: steps.suite.outputs.run == 'true'
         run: |
           export DATA_DIR="$RUNNER_TEMP/cli-data" DB_HOST=127.0.0.1 DB_PASSWORD=apotheke DB_SCHEMA=ci_cli
           php bin/migrate.php
@@ -84,20 +133,21 @@ jobs:
           php bin/seed.php --demo | grep -q 'Demo items created: 0'
           php bin/migrate.php --status
       - name: PHPUnit (unit + HTTP integration)
+        if: steps.suite.outputs.run == 'true'
         run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
       - uses: actions/setup-node@v4
-        if: matrix.db == 'sqlite'
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
         with:
           node-version: '20'
           cache: npm
       - name: Coverage (unit + HTTP suites merged, Playwright test counts)
-        if: matrix.db == 'sqlite'
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
         run: |
           npm ci --no-audit --no-fund
           bash scripts/coverage.sh --no-readme
           php scripts/coverage-readme.php coverage --print >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report (clover XML + HTML; used by the release workflow)
-        if: matrix.db == 'sqlite'
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-sqlite

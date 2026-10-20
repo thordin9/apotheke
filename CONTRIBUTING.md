@@ -7,7 +7,7 @@ with no JavaScript build step. It stays that way on `main` until the 3.0.0 cutov
 
 ## Running the tests
 
-Requirements: PHP 8.2+ (8.3 is what CI and the Docker image use) with `pdo_sqlite`, `gd`, `mbstring`,
+Requirements: PHP 8.2+ (the Docker image and the legacy@8.3 CI leg use 8.3; the CI4 leg uses 8.4) with `pdo_sqlite`, `gd`, `mbstring`,
 `zip` (and `exif` for the orientation test). Optional: `node` (JS syntax check), `shellcheck` and
 `zbar-tools` (QR round-trip tests; skipped when missing). PHPUnit needs `composer install`.
 
