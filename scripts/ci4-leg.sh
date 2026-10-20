@@ -28,6 +28,7 @@ if [ ! -f "$root/ci4/public/index.php" ]; then
   exit 1
 fi
 
+# shellcheck disable=SC2016
 php -r '
 require $argv[1];
 if (!function_exists("apotheke_app") || !function_exists("apotheke_front_controller")) {
