@@ -33,6 +33,8 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Maintenance
 
 - **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule run on empty configs. Releases stay on `main` only.
+- **ci:** run lint, headless mobile checks, Playwright and the Docker build + smoke test on PHP 8.4 as well as PHP 8.3. The shipped image stays PHP 8.3. `PHP_VERSION=8.4` builds the test image from the same Dockerfile. Markdown link checks walk all of `docs/`.
+- **test:** compare two legacy installs (fresh install, `/healthz`, a settings save) and record the four parity quirks (N-2, QA L-2, N-4, I-3).
 
 ## [2.5.0] - 2026-10-20
 

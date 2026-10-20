@@ -11,14 +11,14 @@ Runs with `permissions: contents: read`; a newer push to the same ref cancels th
 
 ```mermaid
 flowchart LR
-  push["PR / push to main or feature/ci4"] --> lint["Lint"]
+  push["PR / push to main or feature/ci4"] --> lint["Lint<br/>PHP 8.3 · PHP 8.4"]
   push --> deptrac["deptrac"]
   push --> di["DI rule"]
   push --> secrets["Secret scan"]
   push --> test["Tests<br/>legacy@8.3 · PHP 8.4 legacy · PHP 8.4 ci4<br/>SQLite · PostgreSQL"]
-  push --> mobile["Headless mobile checks"]
-  push --> e2e["Visual E2E<br/>3 shards"]
-  push --> docker["Docker build + smoke test"]
+  push --> mobile["Headless mobile checks<br/>PHP 8.3 · PHP 8.4"]
+  push --> e2e["Visual E2E<br/>PHP 8.3 · PHP 8.4 · 3 shards"]
+  push --> docker["Docker build + smoke test<br/>PHP 8.3 image · PHP 8.4 test image"]
   push --> commits["Conventional Commits<br/>(PRs only)"]
 ```
 
@@ -26,21 +26,21 @@ The jobs are independent and run in parallel.
 
 | Job | Steps |
 |---|---|
-| **Lint** | PHP 8.3 and Node 20, installs `shellcheck`, runs `scripts/lint.sh` (`php -l`, `node --check`, Markdown link check, `shellcheck`, `actionlint`). In CI, `actionlint` 1.7.7 is installed by `scripts/install-actionlint.sh` (version and checksum pinned). |
+| **Lint (PHP 8.3 and PHP 8.4)** | Node 20, installs `shellcheck`, runs `scripts/lint.sh` (`php -l` on that job's PHP, `node --check`, Markdown link check, `shellcheck`, `actionlint`). The link check walks README, CONTRIBUTING, `AGENTS.md` and every Markdown file under `docs/`. In CI, `actionlint` 1.7.7 is installed by `scripts/install-actionlint.sh` (version and checksum pinned). |
 | **deptrac** | PHP 8.4. Runs `php scripts/ci4-arch.php deptrac` against [`deptrac.yaml`](../deptrac.yaml). See [PHP 8.4 legs](#php-84-legs). |
 | **DI rule** | PHP 8.4. Runs `php scripts/ci4-arch.php di` against [`phpstan-di.neon`](../phpstan-di.neon). See [PHP 8.4 legs](#php-84-legs). |
 | **Tests (`app` @ PHP `version`, sqlite / pgsql)** | Matrix `app: [legacy, ci4]` × `php: ['8.4']` × `db: [sqlite, pgsql]`, plus legacy@8.3 on both databases (the upgrade/rollback reference: the shipped 2.5.x image). PostgreSQL 17 service. `scripts/ci4-leg.sh` decides whether the cell runs the suite. When it does: `zbar-tools`, Composer dev dependencies, migrations through the CLI on a fresh database (`bin/migrate.php`, an idempotent second run, `bin/seed.php --demo` twice, `--status`), and PHPUnit (unit tests + the HTTP suite) with `APOTHEKE_APP` set to the matrix app. Only legacy@8.3 SQLite then runs `scripts/coverage.sh --no-readme` (pcov: unit suite with `--coverage-php`, every `php -S` request of the HTTP suite through the `tests/coverage/prepend.php` collector, merged with phpcov; plus `playwright test --list` for the test counts), writes the coverage table to the job summary and uploads `coverage-sqlite` (clover XML for unit / HTTP / combined, HTML report, `playwright-list.json`). The [release workflow](#releaseyml-versions-changelog-and-github-releases) reads that artifact, and only from a push to `main`. |
-| **Headless mobile checks** | Starts `php -S` with demo data and runs `tests/e2e/mobile.mjs` (puppeteer-core + Chrome) at 375×667 and 390×844: filter sheet, theme switch, overflow, sticky bars, photos. |
-| **Visual E2E (shard N/3)** | Runs inside `mcr.microsoft.com/playwright:v1.64.0-noble` with a PostgreSQL service; `scripts/e2e-container-setup.sh` installs PHP 8.3, then `npx playwright test --shard=N/3` (`retries=1` in CI). On failure the HTML report, traces and screenshot diffs are uploaded as `playwright-report-shard-N`. |
-| **Docker build + smoke test** | Builds the image with Buildx (GitHub Actions cache), writes its size to the job summary, then: container on SQLite → `scripts/smoke.sh` and `scripts/docker-checks.sh` (routing, blocked paths, headers, gzip, body limits); a second container on PostgreSQL (`--network host`, `PORT=8081`) → `scripts/smoke.sh`; a graceful-stop check (`docker stop` must exit 0 within 20 s); the Playwright `@smoke` subset against the image (`E2E_DOCKER_IMAGE=apotheke:ci`, project `docker-smoke`). Container logs are always printed. |
+| **Headless mobile checks (PHP 8.3 and PHP 8.4)** | Starts `php -S` with demo data and runs `tests/e2e/mobile.mjs` (puppeteer-core + Chrome) at 375×667 and 390×844: filter sheet, theme switch, overflow, sticky bars, photos. |
+| **Visual E2E (PHP, shard N/3)** | Runs inside `mcr.microsoft.com/playwright:v1.64.0-noble` with a PostgreSQL service. The matrix is PHP 8.3 and PHP 8.4, three shards each. `scripts/e2e-container-setup.sh` installs that PHP (8.3 from Ubuntu, 8.4 from `ppa:ondrej/php`), then `npx playwright test --shard=N/3` (`retries=1` in CI). On failure the HTML report, traces and screenshot diffs are uploaded as `playwright-report-php-<version>-shard-N`. Snapshot updates still call the script with no argument, so they stay on PHP 8.3. |
+| **Docker build + smoke test (PHP 8.3 and PHP 8.4)** | Builds the image with Buildx (GitHub Actions cache, one scope per PHP version). The Dockerfile default is `PHP_VERSION=8.3` (the shipped 2.5.x image). The 8.4 cell passes `PHP_VERSION=8.4` and is a test image only. Then, for each cell: container on SQLite → `scripts/smoke.sh` and `scripts/docker-checks.sh` (routing, blocked paths, headers, gzip, body limits); a second container on PostgreSQL (`--network host`, `PORT=8081`) → `scripts/smoke.sh`; a graceful-stop check (`docker stop` must exit 0 within 20 s); the Playwright `@smoke` subset against the image (`E2E_DOCKER_IMAGE=apotheke:ci`, project `docker-smoke`). Container logs are always printed. |
 | **Conventional Commits** | Pull requests only: `scripts/check-commits.sh <base sha> <head sha>` checks every commit subject in the PR (merge commits and `chore(release): vX.Y.Z` commits are skipped). |
 | **Secret scan** | Full git history (`actions/checkout` with `fetch-depth: 0`) with the gitleaks CLI, pinned by version and checksum in the workflow. The job fails when gitleaks reports a finding. It does not use the gitleaks GitHub Action and needs no token or license. See [Secret scan](#secret-scan). |
 
-Lint, headless mobile checks, Playwright and the Docker smoke test stay on PHP 8.3. Moving those suites to PHP 8.4 is the next CI4 pull request.
-
 ## PHP 8.4 legs
 
-The test matrix is `app: [legacy, ci4]` × PHP 8.4 × SQLite and PostgreSQL. Two extra cells, legacy@8.3 on each database, are the upgrade/rollback reference (the 2.5.x image). Parity work later compares legacy@8.4 with CI4@8.4; legacy@8.3 is not that comparison.
+The test matrix is `app: [legacy, ci4]` × PHP 8.4 × SQLite and PostgreSQL. Two extra cells, legacy@8.3 on each database, are the upgrade/rollback reference (the 2.5.x image). Legacy PHPUnit on 8.4 has run since PR 2. Lint, headless mobile checks, Playwright and Docker build + smoke run on PHP 8.3 and PHP 8.4. Parity compares legacy@8.4 with CI4@8.4; legacy@8.3 is not that comparison.
+
+The legacy PHPUnit cells also run the parity recorder (`tests/parity/`). Its first steps are a fresh install, `/healthz` and `/health`, and a General settings save, compared across two processes on that job's PHP. On the legacy@8.4 cell that is legacy@8.4 versus legacy@8.4, and a difference fails the job. [`tests/parity/allowlist.yml`](../tests/parity/allowlist.yml) names the four quirks that must stay identical (N-2, QA L-2, N-4, I-3). It does not hide a diff. The legacy 8.3↔8.4 note is [php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).
 
 **While no CI4 app exists, the ci4 leg passes without running PHPUnit.** `scripts/ci4-leg.sh` checks for `ci4/public/index.php`. If the file is missing it prints the reason to the log and writes `run=false`, and every suite step is skipped. The job itself succeeds, so `feature/ci4` stays green before the skeleton lands. PHP 8.4 is still installed on that job, so the leg proves the runtime comes up.
 

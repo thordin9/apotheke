@@ -7,7 +7,7 @@ with no JavaScript build step. It stays that way on `main` until the 3.0.0 cutov
 
 ## Running the tests
 
-Requirements: PHP 8.2+ (the Docker image and the legacy@8.3 CI leg use 8.3; the CI4 leg uses 8.4) with `pdo_sqlite`, `gd`, `mbstring`,
+Requirements: PHP 8.2+ (the Docker image and the legacy@8.3 CI leg use 8.3; legacy PHPUnit and the CI4 leg use 8.4; lint, mobile checks, Playwright and Docker build + smoke run on both 8.3 and 8.4) with `pdo_sqlite`, `gd`, `mbstring`,
 `zip` (and `exif` for the orientation test). Optional: `node` (JS syntax check), `shellcheck` and
 `zbar-tools` (QR round-trip tests; skipped when missing). PHPUnit needs `composer install`.
 
@@ -108,9 +108,9 @@ scripts/check-commits.sh origin/main
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main`:
-lint, PHPUnit (unit + HTTP integration) on PHP 8.3 against SQLite and PostgreSQL, the headless
-mobile checks, the Playwright visual E2E suite (`e2e`, 3 shards, inside the Playwright image,
-`retries=1`), Docker build (nginx + php-fpm) + smoke test (SQLite and PostgreSQL), web server checks, graceful stop
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and on pushes to `main` and `feature/ci4`:
+lint on PHP 8.3 and 8.4, PHPUnit (unit + HTTP integration) on legacy@8.3 and on PHP 8.4 (`legacy` and `ci4`) against SQLite and PostgreSQL, the headless
+mobile checks on PHP 8.3 and 8.4, the Playwright visual E2E suite (`e2e`, PHP 8.3 and 8.4, 3 shards, inside the Playwright image,
+`retries=1`), Docker build + smoke test on the PHP 8.3 image and a PHP 8.4 test image (SQLite and PostgreSQL), web server checks, graceful stop
 and the `@smoke` E2E subset against the image, and (on PRs) the commit check.
 See the README's [CI](README.md#ci) table.

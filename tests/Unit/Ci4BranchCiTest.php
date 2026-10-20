@@ -82,6 +82,20 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('is not supported', implode("\n", $out));
     }
 
+    public function testN4WordingNamesLegacyPhp84PhpunitAndDockerSmoke(): void
+    {
+        foreach (['AGENTS.md', 'docs/adr/001-codeigniter4.md'] as $rel) {
+            $text = (string)file_get_contents($this->root() . '/' . $rel);
+            $this->assertStringContainsString('legacy@8.3 and legacy@8.4 PHPUnit also run', $text, $rel);
+        }
+        $plan = (string)file_get_contents($this->root() . '/docs/plans/feature12-ci4/PLAN.md');
+        $this->assertStringContainsString('Docker build + smoke on a `php:8.4` test image', $plan);
+        $this->assertStringContainsString(
+            'PR 2 runs only the CI4 leg plus legacy@8.3, and the legacy@8.4 runs move to PR 3',
+            $plan
+        );
+    }
+
     public function testReleaseWorkflowStaysOnMain(): void
     {
         $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');

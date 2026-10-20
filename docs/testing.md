@@ -2,7 +2,7 @@
 
 | Layer | Where | Runs on | Needs |
 |---|---|---|---|
-| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/` and `src/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, `docs/*.md`, `docs/adr/`, `docs/plans/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
+| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/` and `src/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, and every Markdown file under `docs/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
 | HTTP integration suite | `tests/integration.php` (+ `tests/lib.php`) | `php -S` on throwaway data dirs, SQLite or PostgreSQL | PHP only |
 | PHPUnit | `tests/Unit/`, `tests/Integration/HttpSuiteTest.php` | SQLite or PostgreSQL | `composer install` |
 | Headless mobile checks | `tests/e2e/mobile.mjs` | Chrome via puppeteer-core at 375×667 and 390×844 | Node, Chrome |
@@ -18,8 +18,10 @@ KEEP_TEST_DATA=1 php tests/integration.php   # keep the temp data dirs for inspe
 ```
 
 CI runs that suite on legacy@8.3 (the upgrade/rollback reference) and on legacy@8.4, on SQLite and PostgreSQL.
-The ci4 cells of the same matrix skip PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule have empty
-configs until CI4 modules exist. See [CI](ci.md#php-84-legs).
+The ci4 cells of the same matrix skip PHPUnit until `ci4/public/index.php` exists. Lint, the headless mobile checks,
+Playwright and Docker build + smoke also run on both PHP 8.3 and PHP 8.4. deptrac and the DI rule have empty
+configs until CI4 modules exist. See [CI](ci.md#php-84-legs). The legacy comparison is
+[php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).
 
 The integration suite starts PHP's built-in server on temporary data directories and exercises the app over HTTP with
 a small client (`tests/lib.php`: cookies, CSRF, multipart uploads, JSON). It covers uploads (images generated with
@@ -28,6 +30,20 @@ duplicating, nested locations, QR labels, CSV, backup/restore, migrations from l
 and upload rejection, password mode (including gated CSV/backup downloads and login CSRF), statistics,
 HEAD-on-read-routes (the router treats `HEAD` like `GET`), singular stats/`item_noun` copy, list pagination
 (`PAGE_SIZE`), and the HTTP photo limit. It prints one line per assertion and exits non-zero on failure.
+
+## Parity recorder
+
+`tests/parity/` compares two fresh legacy installs on the PHP that is running the job. The first steps are a fresh
+install (home page, migration list, settings rows, file modes), `/healthz` and `/health`, and saving General settings.
+CSRF tokens, the `Host` header, `Date`, `Set-Cookie` and `Content-Length` are not part of the comparison. A difference
+fails the test. On the legacy@8.4 CI cell this is legacy@8.4 versus legacy@8.4.
+
+[`tests/parity/allowlist.yml`](../tests/parity/allowlist.yml) lists the four quirks that must stay identical to legacy
+(N-2, QA L-2, N-4, I-3). An entry does not excuse a diff.
+
+```bash
+vendor/bin/phpunit --filter ParityRecorderTest
+```
 
 ## PHPUnit
 
