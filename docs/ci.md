@@ -2,16 +2,20 @@
 
 Three GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
 
-## `ci.yml`: on every pull request and on pushes to `main`
+## `ci.yml`: on every pull request and on pushes to `main` and `feature/ci4`
 
+`pull_request` has no branch filter, so a pull request into `feature/ci4` runs this workflow.
+`push` is limited to `main` and `feature/ci4` (a push to `feature/ci4` uses the workflow file on that branch).
 Runs with `permissions: contents: read`; a newer push to the same ref cancels the running one
 (`concurrency: ci-<ref>`).
 
 ```mermaid
 flowchart LR
-  push["PR / push to main"] --> lint["Lint"]
+  push["PR / push to main or feature/ci4"] --> lint["Lint"]
+  push --> deptrac["deptrac"]
+  push --> di["DI rule"]
   push --> secrets["Secret scan"]
-  push --> test["Tests<br/>SQLite · PostgreSQL"]
+  push --> test["Tests<br/>legacy@8.3 · PHP 8.4 legacy · PHP 8.4 ci4<br/>SQLite · PostgreSQL"]
   push --> mobile["Headless mobile checks"]
   push --> e2e["Visual E2E<br/>3 shards"]
   push --> docker["Docker build + smoke test"]
@@ -22,17 +26,37 @@ The jobs are independent and run in parallel.
 
 | Job | Steps |
 |---|---|
-| **Lint** | PHP 8.3 and Node 20, installs `shellcheck`, runs `scripts/lint.sh` (`php -l`, `node --check`, Markdown link check, `shellcheck`). |
-| **Tests (PHP 8.3, sqlite / pgsql)** | Matrix over the database with a PostgreSQL 17 service. Installs `zbar-tools` for the QR round-trip tests and the Composer dev dependencies, then: migrations through the CLI on a fresh database (`bin/migrate.php`, an idempotent second run, `bin/seed.php --demo` twice, `--status`), and PHPUnit (unit tests + the HTTP suite). The SQLite leg then runs `scripts/coverage.sh --no-readme` (pcov: unit suite with `--coverage-php`, every `php -S` request of the HTTP suite through the `tests/coverage/prepend.php` collector, merged with phpcov; plus `playwright test --list` for the test counts), writes the coverage table to the job summary and uploads `coverage-sqlite` (clover XML for unit / HTTP / combined, HTML report, `playwright-list.json`). The [release workflow](#releaseyml-versions-changelog-and-github-releases) reads that artifact. |
+| **Lint** | PHP 8.3 and Node 20, installs `shellcheck`, runs `scripts/lint.sh` (`php -l`, `node --check`, Markdown link check, `shellcheck`, `actionlint`). In CI, `actionlint` 1.7.7 is installed by `scripts/install-actionlint.sh` (version and checksum pinned). |
+| **deptrac** | PHP 8.4. Runs `php scripts/ci4-arch.php deptrac` against [`deptrac.yaml`](../deptrac.yaml). See [PHP 8.4 legs](#php-84-legs). |
+| **DI rule** | PHP 8.4. Runs `php scripts/ci4-arch.php di` against [`phpstan-di.neon`](../phpstan-di.neon). See [PHP 8.4 legs](#php-84-legs). |
+| **Tests (`app` @ PHP `version`, sqlite / pgsql)** | Matrix `app: [legacy, ci4]` × `php: ['8.4']` × `db: [sqlite, pgsql]`, plus legacy@8.3 on both databases (the upgrade/rollback reference: the shipped 2.5.x image). PostgreSQL 17 service. `scripts/ci4-leg.sh` decides whether the cell runs the suite. When it does: `zbar-tools`, Composer dev dependencies, migrations through the CLI on a fresh database (`bin/migrate.php`, an idempotent second run, `bin/seed.php --demo` twice, `--status`), and PHPUnit (unit tests + the HTTP suite) with `APOTHEKE_APP` set to the matrix app. Only legacy@8.3 SQLite then runs `scripts/coverage.sh --no-readme` (pcov: unit suite with `--coverage-php`, every `php -S` request of the HTTP suite through the `tests/coverage/prepend.php` collector, merged with phpcov; plus `playwright test --list` for the test counts), writes the coverage table to the job summary and uploads `coverage-sqlite` (clover XML for unit / HTTP / combined, HTML report, `playwright-list.json`). The [release workflow](#releaseyml-versions-changelog-and-github-releases) reads that artifact, and only from a push to `main`. |
 | **Headless mobile checks** | Starts `php -S` with demo data and runs `tests/e2e/mobile.mjs` (puppeteer-core + Chrome) at 375×667 and 390×844: filter sheet, theme switch, overflow, sticky bars, photos. |
 | **Visual E2E (shard N/3)** | Runs inside `mcr.microsoft.com/playwright:v1.64.0-noble` with a PostgreSQL service; `scripts/e2e-container-setup.sh` installs PHP 8.3, then `npx playwright test --shard=N/3` (`retries=1` in CI). On failure the HTML report, traces and screenshot diffs are uploaded as `playwright-report-shard-N`. |
 | **Docker build + smoke test** | Builds the image with Buildx (GitHub Actions cache), writes its size to the job summary, then: container on SQLite → `scripts/smoke.sh` and `scripts/docker-checks.sh` (routing, blocked paths, headers, gzip, body limits); a second container on PostgreSQL (`--network host`, `PORT=8081`) → `scripts/smoke.sh`; a graceful-stop check (`docker stop` must exit 0 within 20 s); the Playwright `@smoke` subset against the image (`E2E_DOCKER_IMAGE=apotheke:ci`, project `docker-smoke`). Container logs are always printed. |
 | **Conventional Commits** | Pull requests only: `scripts/check-commits.sh <base sha> <head sha>` checks every commit subject in the PR (merge commits and `chore(release): vX.Y.Z` commits are skipped). |
 | **Secret scan** | Full git history (`actions/checkout` with `fetch-depth: 0`) with the gitleaks CLI, pinned by version and checksum in the workflow. The job fails when gitleaks reports a finding. It does not use the gitleaks GitHub Action and needs no token or license. See [Secret scan](#secret-scan). |
 
+Lint, headless mobile checks, Playwright and the Docker smoke test stay on PHP 8.3. Moving those suites to PHP 8.4 is the next CI4 pull request.
+
+## PHP 8.4 legs
+
+The test matrix is `app: [legacy, ci4]` × PHP 8.4 × SQLite and PostgreSQL. Two extra cells, legacy@8.3 on each database, are the upgrade/rollback reference (the 2.5.x image). Parity work later compares legacy@8.4 with CI4@8.4; legacy@8.3 is not that comparison.
+
+**While no CI4 app exists, the ci4 leg passes without running PHPUnit.** `scripts/ci4-leg.sh` checks for `ci4/public/index.php`. If the file is missing it prints the reason to the log and writes `run=false`, and every suite step is skipped. The job itself succeeds, so `feature/ci4` stays green before the skeleton lands. PHP 8.4 is still installed on that job, so the leg proves the runtime comes up.
+
+When `ci4/public/index.php` exists, the same script requires `tests/lib.php` to mention `APOTHEKE_APP` (the switch that selects the CI4 server). If the tree has an app but the harness does not switch, the job fails instead of running the legacy suite under a ci4 label. The legacy cells always run the suite. `APOTHEKE_APP` is set to `legacy` or `ci4` for every cell; the legacy app ignores it.
+
+**deptrac** and the **DI rule** ship with empty configs:
+
+* [`deptrac.yaml`](../deptrac.yaml) has no paths, no layers and an empty ruleset. `scripts/ci4-arch.php` treats that exact file as a pass and does not invoke deptrac. Once the file lists layers, the job runs deptrac.
+* [`phpstan-di.neon`](../phpstan-di.neon) is level 6 with `paths: []`. PHPStan rejects an empty path list, so the DI job does not invoke it. The script checks that the file is still that empty shape and exits 0.
+
+Filling either file in (layers, or paths for the DI rule) makes the job run `deptrac` or `phpstan`. If the tool is not on `PATH`, the job fails. That is deliberate: an empty pass must not hide a config that grew rules.
+
 ## `release.yml`: versions, changelog and GitHub Releases
 
-Runs when CI finishes successfully for a push to `main` (`workflow_run`), or by hand (`workflow_dispatch`).
+Runs when CI finishes successfully for a push to `main` (`workflow_run` with `branches: [main]`), or by hand (`workflow_dispatch`).
+Pushes and pull requests on `feature/ci4` do not release. The release workflow is not modified for the CI4 branch: its trigger lists only `main`, and both the workflow-run job and a manual run check out `main`. `workflow_run` workflows are read from the default branch, so a copy of this file on `feature/ci4` cannot widen what `main` releases.
 The workflow token is `contents: read`. The release job raises that to `contents: write` (push the release commit and
 tag, create the GitHub Release) and `actions: read` (download the CI coverage artifact). `concurrency: release`, never
 cancelled. It skips when `main` has moved past the commit CI tested.
