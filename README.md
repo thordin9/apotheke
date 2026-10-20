@@ -17,8 +17,9 @@
 A small, fast, self-hosted web app for cataloguing your belongings: snap a photo on your phone, name the item, pick
 where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then find anything again with instant search.
 
-Plain PHP + PDO (SQLite or PostgreSQL) + GD. No framework, no runtime Composer packages, no JS build step, no CDNs:
-it works fully offline on your LAN.
+Plain PHP + PDO (SQLite or PostgreSQL) + GD, no JavaScript build step and no CDNs: it works fully offline on your LAN.
+`main` stays this legacy app until the **3.0.0** cutover. The port adopts **CodeIgniter 4** on PHP 8.4, side by side in
+`ci4/` ([requirements](#requirements), [ADR-001](docs/adr/001-codeigniter4.md)).
 
 **Documentation:** the full manual lives in [`docs/`](docs/index.md): [getting started](docs/getting-started.md) ·
 [configuration](docs/configuration.md) · [user guide](docs/user-guide.md) · [architecture](docs/architecture.md) ·
@@ -205,12 +206,21 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 ## Requirements
 
-**Runtime** (the Docker image has all of this):
+**Legacy app** — this tree, the Docker image, and `main` until the 3.0.0 cutover:
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
   `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
 * SQLite (built in) or PostgreSQL (tested with 17).
-* No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
+* No Composer packages at runtime on the legacy app: `composer.json` only lists PHPUnit under `require-dev`.
+
+**CodeIgniter 4 port** (replaces the no-framework rule). It is built side by side in `ci4/` and does not replace this tree until 3.0.0. [ADR-001](docs/adr/001-codeigniter4.md) records the decision; the plan is [Feature 12](docs/plans/feature12-ci4/PLAN.md).
+
+* **CodeIgniter 4** with pinned dependencies, on **PHP 8.4**.
+* **No schema change.** The 25 migrations stay byte-identical and run through a PDO runner plus a `LegacyFunctions` shim.
+* **Docker-only after the 3.0.0 cutover** (no non-Docker install and no vendored zip). Until then, [Install without Docker](#install-without-docker) still applies to the legacy app.
+* **One re-login** at upgrade. Sessions are not kept; users sign in again once.
+* **Module rules.** deptrac enforces the module dependency graph: every module may depend on Core, Core depends on nothing, and there are no cycles. Collaborators are constructor-injected. `service()` and `Services::` are allowed only in controllers and in `Config/Services.php` factories. The allowed edges are in [AGENTS.md](AGENTS.md#ci4-module-rules).
+* `main` stays the legacy app until 3.0.0. After that, 2.5.x gets security fixes only, on `release/2.5`, for 90 days.
 
 **Development only:** Composer + PHPUnit 11 (`composer install`), Node 20+ for the JS syntax check, the headless mobile
 checks and Playwright (`npm ci`), `shellcheck` for the shell lint, optionally `zbar-tools` (QR round-trip tests).

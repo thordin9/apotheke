@@ -1,7 +1,9 @@
 # Contributing to Apotheke
 
-Thanks for helping out! Apotheke is deliberately small: plain PHP 8.2+, SQLite or PostgreSQL via PDO, and GD.
-No framework, no Composer *runtime* dependencies (PHPUnit is dev-only), no JS build step. Please keep it that way.
+Thanks for helping out! The legacy app is deliberately small: plain PHP 8.2+, SQLite or PostgreSQL via PDO, and GD,
+with no JavaScript build step. It stays that way on `main` until the 3.0.0 cutover. The port adopts CodeIgniter 4
+(pinned dependencies, PHP 8.4, side by side in `ci4/`). See [docs/contributing.md](docs/contributing.md) and
+[ADR-001](docs/adr/001-codeigniter4.md). After 3.0.0, 2.5.x gets security fixes on `release/2.5` for 90 days.
 
 ## Running the tests
 
