@@ -147,7 +147,8 @@ the camera file. Deleting a photo, replacing it, or deleting the item (after und
 the JPEG and the thumbnail. Nothing from that photo is left in `images/`, `thumbs/` or `originals/`. A HEIC photo
 is turned into that JPEG when this server has Imagick with HEIC support (the Docker image does). Transparent areas
 are placed on white, and a CMYK photo is saved as an ordinary sRGB JPEG, the same as a photo GD reads itself.
-A grayscale photo is the exception: Imagick writes a 1-channel JPEG, so that match is approximate.
+For a grayscale photo, only the reduced JPEG sent to autofill is 1-channel. The photo shown is re-encoded by
+GD as a 3-channel JPEG and stays within a few levels.
 When Imagick cannot decode the HEIC, the file is kept and the page shows a plain grey placeholder instead.
 Photos already in the catalog before this version stay as they are and have no separate camera file.
 
