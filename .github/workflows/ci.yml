@@ -128,7 +128,7 @@ jobs:
         if: steps.suite.outputs.run == 'true'
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'ci4/composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests)
         if: steps.suite.outputs.run == 'true'
