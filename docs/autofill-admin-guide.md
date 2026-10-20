@@ -134,9 +134,9 @@ the Docker image allows 520 MB only on `/backup/restore`; other installs stay at
 large zip use `php bin/restore.php`.
 
 Autofill builds a temporary JPEG from that camera file (or from the served JPEG if the photo predates this version),
-sends only that, and deletes the temp file even when the request fails. HEIC needs Imagick with libheif. Without it,
-or if the conversion fails, autofill is skipped with *cannot be read as a photo*, the camera file stays, and a grey
-placeholder is what the page shows. The HEIC itself is never served or sent.
+sends only that, and deletes the temp file even when the request fails. HEIC needs Imagick with libheif. The Docker
+image includes that. Without it, or if the conversion fails, autofill is skipped with *cannot be read as a photo*,
+the camera file stays, and a grey placeholder is what the page shows. The HEIC itself is never served or sent.
 
 An HTML error page (including a Cloudflare 1102), a 200 that is not JSON, truncated JSON, a JSON 5xx that is not the
 API's own error object, and a timeout or network error on suggest are all *autofill is unavailable right now*. The

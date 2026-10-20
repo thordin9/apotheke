@@ -17,7 +17,7 @@
 A small, fast, self-hosted web app for cataloguing your belongings: snap a photo on your phone, name the item, pick
 where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then find anything again with instant search.
 
-Plain PHP + PDO (SQLite or PostgreSQL) + GD. No framework, no runtime Composer packages, no JS build step, no CDNs:
+Plain PHP + PDO (SQLite or PostgreSQL) + GD, and Imagick in the Docker image so HEIC photos can be read. No framework, no runtime Composer packages, no JS build step, no CDNs:
 it works fully offline on your LAN.
 
 **Documentation:** the full manual lives in [`docs/`](docs/index.md): [getting started](docs/getting-started.md) ·
@@ -163,7 +163,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   **Library** picks an existing photo.
 * This works over plain `http://` on your LAN. HTTPS is only needed for the live-camera `getUserMedia` API, which
   Apotheke does not use.
-* HEIC: iOS hands Safari a JPEG for file inputs; any other image the browser can decode is converted to JPEG on the device.
+* The photo you pick is uploaded untouched when it fits the upload limit. The browser shrinks it only when it is over that limit, and the page says the original is not kept. The server stores the file it received byte for byte and serves a separate JPEG with EXIF and GPS removed. HEIC is decoded on the server when Imagick lists HEIC (the Docker image does, via libheif). Without Imagick the HEIC file is still kept and the page shows a grey placeholder.
 
 ## Screenshots
 
@@ -209,6 +209,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
   `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
+  The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Other installs stay on GD: a HEIC upload is
+  kept byte for byte and shown as a placeholder until Imagick can decode it.
 * SQLite (built in) or PostgreSQL (tested with 17).
 * No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
 
@@ -477,7 +479,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Tests | PHP 8.3 × SQLite / PostgreSQL 17 service: migrations + seeding via the CLI, PHPUnit with a coverage artifact |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
-| Docker build + smoke test | builds the image, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
+| Docker build + smoke test | builds the image, checks Imagick lists HEIC (`scripts/docker-heic.sh`), runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 | Secret scan | pinned gitleaks CLI (`gitleaks git --log-opts=--all`) over every ref in the full git history; the job fails if it finds a secret |
 
@@ -497,8 +499,9 @@ Release ([docs/releasing.md](docs/releasing.md)). The running version is shown i
 * All SQL uses prepared statements; all output is HTML-escaped; a strict Content-Security-Policy is sent.
 * Every change (save, quantity, delete, theme, login/logout, restore) requires a CSRF token; an expired token shows a
   friendly page and changes nothing.
-* Uploads are validated with `getimagesize`, decoded and re-encoded by GD and stored under random hex names **outside the
-  web root**, served only through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed.
+* Uploads that fit the limit are stored byte-identical under `originals/` (outside the web root) and served only as a
+  stripped JPEG through a strict `[a-f0-9]{32}.jpg` route, so nothing uploaded can be executed. The Docker image uses
+  Imagick for HEIC; other installs use GD and show a placeholder when they cannot decode HEIC.
 * Attachments are checked by their magic bytes, stored under random names in `data/files/` and served only as downloads
   with `Content-Disposition: attachment`, `nosniff` and a `sandbox` CSP.
 * The web server only runs `public/index.php`; `src/` and `data/` are not reachable over HTTP.
@@ -509,7 +512,7 @@ Release ([docs/releasing.md](docs/releasing.md)). The running version is shown i
 ## Project layout
 
 ```
-Dockerfile                    php:8.3-fpm-alpine + nginx + tini; gd, exif, opcache, pdo_pgsql, zip
+Dockerfile                    php:8.3-fpm-alpine + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
 docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)

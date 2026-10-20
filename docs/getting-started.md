@@ -38,8 +38,9 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` through; to set any other variable from
 [Configuration](configuration.md), add it under `environment:`.
 
-**What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `exif`, `opcache`,
-`pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). `tini` is PID 1 and `docker/entrypoint.sh`:
+**What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
+`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). Installs without Docker
+stay on GD. `tini` is PID 1 and `docker/entrypoint.sh`:
 
 1. renders `docker/nginx.conf` with the port from `PORT` (default `80`),
 2. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`,

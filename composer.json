@@ -13,7 +13,8 @@
         "ext-pdo_sqlite": "SQLite storage (default)",
         "ext-pdo_pgsql": "PostgreSQL storage",
         "ext-exif": "Honour photo orientation",
-        "ext-dom": "SVG logo uploads in the Control Panel (sanitizer)"
+        "ext-dom": "SVG logo uploads in the Control Panel (sanitizer)",
+        "ext-imagick": "HEIC/HEIF photos. The Docker image includes Imagick with libheif; without it a HEIC upload is kept and shown as a placeholder"
     },
     "require-dev": {
         "phpunit/phpcov": "^10.0",
