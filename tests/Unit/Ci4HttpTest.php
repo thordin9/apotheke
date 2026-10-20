@@ -14,15 +14,58 @@ final class Ci4HttpTest extends TestCase
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        if (test_driver() !== 'pgsql') {
-            $this->markTestSkipped('PostgreSQL leg only');
-        }
         $shipped = dirname(__DIR__, 2) . '/ci4/public/router.php';
+        $sqliteDir = tmpdir('ci4-shipped-sqlite');
+        $sqlite = new Server($sqliteDir, [
+            'CI_ENVIRONMENT' => 'production',
+            'APOTHEKE_TEST_DB' => null,
+            'DB_DRIVER' => 'sqlite',
+            'DB_SCHEMA' => '',
+        ], 'ci4', $shipped);
+        try {
+            $response = $sqlite->client()->get('/healthz');
+            $this->assertSame(200, $response['status'], (string)@file_get_contents($sqlite->log));
+            $this->assertSame('ok', $response['body']);
+            $this->assertFalse($sqlite->logHas('apotheke_ci4_pgsql_probe'));
+            $this->assertNull($this->sqliteProbe($sqliteDir . '/catalog.sqlite'));
+        } finally {
+            $sqlite->stop();
+            rrmdir($sqliteDir);
+            @unlink($sqliteDir . '.server.log');
+        }
+
+        $admin = $this->adminPdo();
+        if (!$admin instanceof PDO) {
+            return;
+        }
         $before = $this->probeSnapshot();
+        $role = 'apo_nocreate_' . bin2hex(random_bytes(4));
+        $password = 'nocreatepass';
+        $publicCreate = $this->publicCanCreate($admin);
+        $admin->exec('CREATE ROLE ' . $role . " LOGIN PASSWORD '" . $password . "'");
+        if ($this->schemaCreate($admin, $role)) {
+            $admin->exec('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+            $admin->exec('REVOKE CREATE ON SCHEMA public FROM ' . $role);
+        }
+        $this->assertFalse($this->schemaCreate($admin, $role), 'the probe check needs a role that cannot CREATE');
         $plain = tmpdir('ci4-shipped');
         $marked = tmpdir('ci4-shipped-mark');
-        $without = new Server($plain, ['CI_ENVIRONMENT' => 'production', 'APOTHEKE_TEST_DB' => null], 'ci4', $shipped);
-        $with = new Server($marked, ['CI_ENVIRONMENT' => 'production', 'APOTHEKE_TEST_DB' => 'pgsql'], 'ci4', $shipped);
+        $without = new Server($plain, [
+            'CI_ENVIRONMENT' => 'production',
+            'APOTHEKE_TEST_DB' => null,
+            'DB_DRIVER' => 'pgsql',
+            'DB_USER' => $role,
+            'DB_PASSWORD' => $password,
+            'DB_SCHEMA' => '',
+        ], 'ci4', $shipped);
+        $with = new Server($marked, [
+            'CI_ENVIRONMENT' => 'production',
+            'APOTHEKE_TEST_DB' => 'pgsql',
+            'DB_DRIVER' => 'pgsql',
+            'DB_USER' => $role,
+            'DB_PASSWORD' => $password,
+            'DB_SCHEMA' => '',
+        ], 'ci4', $shipped);
         try {
             foreach ([$without, $with] as $server) {
                 $response = $server->client()->get('/healthz');
@@ -40,6 +83,10 @@ final class Ci4HttpTest extends TestCase
             rrmdir($marked);
             @unlink($plain . '.server.log');
             @unlink($marked . '.server.log');
+            $admin->exec('DROP ROLE IF EXISTS ' . $role);
+            if ($publicCreate) {
+                $admin->exec('GRANT CREATE ON SCHEMA public TO PUBLIC');
+            }
         }
     }
 
@@ -252,6 +299,59 @@ final class Ci4HttpTest extends TestCase
     private function probeRows(): int
     {
         return $this->probeSnapshot() ?? 0;
+    }
+
+    private function sqliteProbe(string $path): ?string
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+        $db = new SQLite3($path, SQLITE3_OPEN_READONLY);
+        $name = $db->querySingle("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'apotheke_ci4_pgsql_probe'");
+        $db->close();
+
+        return is_string($name) ? $name : null;
+    }
+
+    private function adminPdo(): ?PDO
+    {
+        $env = test_db_env(sys_get_temp_dir());
+        if (($env['DB_DRIVER'] ?? '') !== 'pgsql' && test_driver() !== 'pgsql') {
+            $env = [
+                'DB_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
+                'DB_PORT' => getenv('TEST_PG_PORT') ?: '5432',
+                'DB_NAME' => getenv('TEST_PG_DB') ?: 'apotheke',
+                'DB_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
+                'DB_PASSWORD' => getenv('TEST_PG_PASSWORD') ?: 'apotheke',
+            ];
+        }
+        try {
+            return new PDO(
+                "pgsql:host={$env['DB_HOST']};port={$env['DB_PORT']};dbname={$env['DB_NAME']};connect_timeout=3",
+                $env['DB_USER'],
+                $env['DB_PASSWORD'],
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+            );
+        } catch (PDOException) {
+            return null;
+        }
+    }
+
+    private function publicCanCreate(PDO $pdo): bool
+    {
+        $flag = $pdo->query(
+            "SELECT EXISTS (SELECT 1 FROM aclexplode(nspacl) AS a WHERE a.grantee = 0 AND a.privilege_type = 'CREATE')
+             FROM pg_namespace WHERE nspname = 'public'"
+        )->fetchColumn();
+
+        return $flag === true || $flag === 't' || $flag === '1' || $flag === 1;
+    }
+
+    private function schemaCreate(PDO $pdo, string $role): bool
+    {
+        $flag = $pdo->query('SELECT has_schema_privilege(' . $pdo->quote($role) . ", 'public', 'CREATE')")->fetchColumn();
+
+        return $flag === true || $flag === 't' || $flag === '1' || $flag === 1;
     }
 
     /** Null when the probe table does not exist. */
