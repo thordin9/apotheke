@@ -30,6 +30,29 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **ci:** scan the full git history with gitleaks on pull requests and pushes to main (`gitleaks git --log-opts=--all`; `actions/checkout` pinned to v4.4.0 on that job)
 - **git:** ignore `service.env`, `*.env`, `*.pem` and `*.key`; a tracked `.env.example` stays committable
 
+## [2.5.0] - 2026-10-20
+
+### Added
+
+- **autofill:** send a stripped JPEG and keep originals
+- **photos:** keep the picked file unless it is over the limit
+
+### Fixed
+
+- **autofill:** retry a 503 only when Retry-After is at most 60s
+- **photos:** refuse originals inside the web root
+- **nginx:** match /originals without regard to case
+
+### Maintenance
+
+- ci: add gitleaks scan, ignore rules, and read-only tokens ([#27](https://github.com/thordin9/apotheke/pull/27))
+- ci: scan every git ref with pinned gitleaks
+- **e2e:** test: update autofill-down baselines
+- **e2e:** test: expect unavailable from a slow photo test
+- docs: document upload limits, retries, and the Worker URL
+- **e2e:** test: upload a PNG that GD can decode
+- **qa:** docs: add PR #28 resize end-to-end QA report
+
 ## [2.4.1] - 2026-10-19
 
 ### Fixed
@@ -244,7 +267,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/thordin9/apotheke/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/thordin9/apotheke/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/thordin9/apotheke/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/thordin9/apotheke/compare/v2.3.1...v2.3.2

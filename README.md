@@ -410,33 +410,33 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
 | Front controller & routes | – | 97.0 % | 97.0 % |
-| Items, search, bulk, lending | 87.4 % | 94.7 % | 97.7 % |
+| Items, search, bulk, lending | 88.2 % | 91.4 % | 95.3 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
 | Users & roles | 91.3 % | 93.8 % | 96.4 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
-| Photos | 61.2 % | 91.8 % | 91.8 % |
+| Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 10.4 % | 99.8 % | 99.6 % |
-| Control Panel settings | 73.9 % | 97.2 % | 97.2 % |
-| Backup & restore | 87.3 % | 90.0 % | 98.9 % |
+| Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
+| Backup & restore | 87.4 % | 89.6 % | 96.9 % |
 | Database, migrations, legacy | 84.7 % | 90.3 % | 97.7 % |
-| Bootstrap, config, QR, seed | 71.8 % | 90.1 % | 91.5 % |
-| **All PHP** (6169 lines) | **61.7 %** | **95.5 %** | **97.4 %** |
+| Bootstrap, config, QR, seed | 69.8 % | 88.9 % | 90.5 % |
+| **All PHP** (6534 lines) | **62.8 %** | **93.8 %** | **96.3 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 131 | 22 |
+| `chromium-pixel` | 139 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 131 | 22 |
+| `desktop-chromium` | 139 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
 | `pgsql-smoke` | 33 | 0 |
-| `webkit-iphone-se` | 131 | 22 |
+| `webkit-iphone-se` | 139 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 131 | 22 |
+| `webkit-iphone13` | 139 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **565** | **176** |
+| **Total** | **597** | **176** |
 
 <sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->
