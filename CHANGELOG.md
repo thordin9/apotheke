@@ -7,6 +7,18 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.5.3] - 2026-10-20
+
+### Fixed
+
+- **qr:** disable function JIT before the encoder loads ([#36](https://github.com/thordin9/apotheke/pull/36))
+
+### Maintenance
+
+- **qr:** docs: name PHP 8.2, 8.3 and 8.4 as affected ([#36](https://github.com/thordin9/apotheke/pull/36))
+- **changelog:** docs: drop the unreleased QR note ([#36](https://github.com/thordin9/apotheke/pull/36))
+- **qa:** docs: add QA report for the QR function-JIT fix ([#36](https://github.com/thordin9/apotheke/pull/36))
+
 ## [2.5.2] - 2026-10-20
 
 ### Fixed
@@ -273,7 +285,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.3...HEAD
+[2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/thordin9/apotheke/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/thordin9/apotheke/compare/v2.4.1...v2.5.0

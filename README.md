@@ -209,6 +209,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
   `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
+  Function JIT can miscompile QR labels on PHP 8.2, 8.3 and 8.4, so `src/qr.php` turns it off for the whole worker on the first request
+  (tracing JIT stays on; the Docker image never enables JIT). `opcache_jit_blacklist()` does not help.
   The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Imagick flattens transparent areas onto
   white and converts CMYK to sRGB, matching GD. Other installs stay on GD: a HEIC upload is kept byte for byte and
   shown as a placeholder until Imagick can decode it.
@@ -425,8 +427,8 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
 | Database, migrations, legacy | 84.7 % | 90.3 % | 97.7 % |
-| Bootstrap, config, QR, seed | 70.2 % | 88.6 % | 90.8 % |
-| **All PHP** (6538 lines) | **63.4 %** | **94.0 %** | **96.7 %** |
+| Bootstrap, config, QR, seed | 69.0 % | 87.0 % | 90.0 % |
+| **All PHP** (6553 lines) | **63.3 %** | **93.9 %** | **96.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
@@ -526,7 +528,8 @@ src/db.php                    PDO connection (SQLite/PostgreSQL), dialect helper
 src/legacy.php                one-time upgrade of pre-migration SQLite installs (v1–v3)
 src/items.php                 items, locations, categories, search, statistics, images (GD)
 src/backup.php                portable backup zip and restore
-src/qr.php                    pure-PHP QR encoder (SVG)
+src/qr.php                    loads the QR encoder after the function-JIT guard
+src/qr-encode.php             pure-PHP QR encoder (SVG)
 src/seed.php                  idempotent starter/demo seeding
 src/bootstrap.php             sessions, auth, CSRF, helpers
 src/views.php                 HTML templates
