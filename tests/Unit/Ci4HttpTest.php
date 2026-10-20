@@ -199,7 +199,12 @@ final class Ci4HttpTest extends TestCase
             $this->assertSame('Not found', $right['body']);
             $this->assertSame($left['headers']['content-type'], $right['headers']['content-type'], $path);
             $this->assertArrayNotHasKey('content-security-policy', $right['headers'], $path);
+            $this->assertArrayNotHasKey('set-cookie', $right['headers'], $path);
         }
+        $plain = $ci4->get('/no-such-page');
+        $this->assertSame(404, $plain['status']);
+        $this->assertSame('Not found', $plain['body']);
+        $this->assertArrayHasKey('set-cookie', $plain['headers']);
     }
 
     private function seedTrust(string $dir): void
