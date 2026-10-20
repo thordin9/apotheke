@@ -61,8 +61,10 @@ shots that drifted within the tolerance are refreshed too. The workflow never pu
 ## Secret scan
 
 The **Secret scan** job in `ci.yml` checks every commit reachable from the checkout, not only the latest tree. The
-checkout uses `fetch-depth: 0` so the history is complete. gitleaks is the official CLI binary from its GitHub release
-(version **8.30.1**, linux x64, SHA-256 pinned in the workflow). The organization-licensed `gitleaks-action` is not used.
+checkout uses `actions/checkout` pinned to commit `11d5960a326750d5838078e36cf38b85af677262` (v4.4.0) with
+`fetch-depth: 0`, and the scan is `gitleaks git --log-opts="--all"` so every ref in that history is visited.
+gitleaks is the official CLI binary from its GitHub release (version **8.30.1**, linux x64, SHA-256 pinned in the
+workflow). The organization-licensed `gitleaks-action` is not used.
 
 The job fails on any finding (`--exit-code 1`) and redacts secrets in the log (`--redact`). No `.gitleaks.toml`
 allowlist is committed: the current history is clean. If a later scan flags a known placeholder or test fixture, add

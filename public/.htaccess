@@ -1,0 +1,5 @@
+# Camera originals live outside this directory. If a path containing /originals is requested
+# anyway (a mis-set ORIGINALS_DIR under the document root), refuse it.
+<IfModule mod_alias.c>
+    RedirectMatch 404 (?i)/originals
+</IfModule>

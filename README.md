@@ -65,8 +65,11 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   currency and number/date/time formats, time zone, page size, default sort, a compact list view, defaults for new items,
   thresholds and limits, photo sizes, users and sign-in — stored in the database, exportable as JSON, resettable per
   section. Database and paths stay in `config.php` / env and are shown read-only. See [docs/control-panel.md](docs/control-panel.md).
-* **AI autofill (optional)**: your own [autofill service](https://github.com/thordin9/apotheke-autofill-service) suggests
-  name, category, tags and notes from a photo. **On demand**: each photo on the item form has an *Analyze* button and
+* **AI autofill (optional)**: an [autofill service](https://github.com/thordin9/apotheke-autofill-service) suggests
+  name, category, tags and notes from a photo. The service address is your Worker URL, for example
+  `https://autofill.example` ([how to deploy the Worker](https://github.com/thordin9/apotheke-autofill-service/blob/main/docs/cloudflare-workers-deploy.md)).
+  A service you run yourself uses the same API. Apotheke sends a small
+  stripped JPEG, not the camera file. **On demand**: each photo on the item form has an *Analyze* button and
   nothing is sent until you tap it (auto-analyze is an admin option, off by default). Only empty fields are filled,
   never what you typed; one analysis at a time with a progress estimate. The admin picks the model and image size from
   what the service offers. See the [admin guide](docs/autofill-admin-guide.md) and [docs/autofill.md](docs/autofill.md).
@@ -79,9 +82,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 * **Filter sheet**: a bottom sheet to filter by location, category (including "No location" / "No category") and tag,
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, drag to reorder, choose the cover,
-  crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). Photos are
-  shrunk on the phone before upload (max 1600 px, JPEG ~80 %), then checked and re-encoded with GD on the server (which
-  strips EXIF/GPS) with a 480 px thumbnail for the grid.
+  crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). The file you pick is
+  uploaded unchanged when it fits the upload limit (20 MB by default). A larger file is reduced in the browser, and the page says the original is not kept. The server stores whatever it received byte for byte and serves a
+  separate JPEG (EXIF/GPS stripped, longest side at most 1600 px) plus a 480 px thumbnail. Deleting or replacing a photo removes the camera file, the
+  JPEG and the thumbnail.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
   list), plus purchase price (in `CURRENCY`), purchase date and serial number. Unused tags are removed automatically.
 * **QR labels** for locations and items: ☰ → *Print QR labels* prints one label per location (or one per item in a location;
@@ -91,9 +95,11 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   row, gap and printed lines are set in *Settings → QR labels* (delivered as a generated stylesheet, CSP-safe). Set the
   public URL if the address on the labels should differ from the one you are using right now.
 * **Backup & restore**: ☰ → *Backup & restore* downloads one zip with a portable JSON copy of the database (`backup.json`:
-  items, locations, categories, tags, photo list, history, settings) plus every photo and thumbnail. Restoring shows a
+  items, locations, categories, tags, photo list, history, settings) plus every served photo, thumbnail and camera file.
+  Restoring puts the camera file and the stripped JPEG back. CSV export only names the served photo. Restoring shows a
   preview of the file next to your current data; nothing changes until you tick the box and press *Restore*, and it runs in
-  one transaction. The format doesn't depend on the database, so SQLite ↔ PostgreSQL works both ways.
+  one transaction. The format doesn't depend on the database, so SQLite ↔ PostgreSQL works both ways. Older zips without
+  camera files still restore.
 * **Activity history**: every change is logged in the same transaction as the change itself: created, edited (old → new
   for name, category, notes, value, purchase date, serial, tags, low-stock level), moved (including moves caused by deleting a location),
   quantity, photos added/reordered/deleted/new cover, lent/returned, deleted. The item page shows the latest ten entries with a link to
@@ -348,8 +354,9 @@ optional. On a **brand-new** database Apotheke adds starter locations (Box 1 ★
 Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby, Clothing, Shoes, Books, Lighting) unless `SEED_DEFAULTS=false`; rename or
 delete them freely.
 
-Backups from the CLI are handy for cron jobs and archives bigger than the web upload limit. Photo files that restored data
-doesn't reference stay in `data/images` and are never deleted automatically.
+Backups from the CLI are handy for cron jobs and archives bigger than the web upload limit. The zip includes
+`originals/index.json` and the camera files; restore writes both the camera file and the stripped JPEG. Photo files
+that restored data doesn't reference stay in `data/images` and `originals/` and are never deleted automatically.
 
 ## Upgrading
 
@@ -472,11 +479,12 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
 | Docker build + smoke test | builds the image, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
-| Secret scan | pinned gitleaks CLI over the full git history; the job fails if it finds a secret |
+| Secret scan | pinned gitleaks CLI (`gitleaks git --log-opts=--all`) over every ref in the full git history; the job fails if it finds a secret |
 
 The secret scan downloads the [gitleaks](https://github.com/gitleaks/gitleaks) CLI (version and checksum pinned in
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml)) and runs it on a full checkout (`fetch-depth: 0`). It does not
-use the gitleaks GitHub Action and needs no token or license. See [CI](docs/ci.md#secret-scan).
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml)) and runs `gitleaks git --log-opts="--all"` on a full checkout
+(`fetch-depth: 0`, `actions/checkout` pinned to v4.4.0). It does not use the gitleaks GitHub Action and needs no token
+or license. See [CI](docs/ci.md#secret-scan).
 
 A separate *Update visual snapshots* workflow renders new baselines when a PR gets the `update-snapshots` label.
 After CI passes on `main`, the *Release* workflow bumps the [SemVer](https://semver.org/) version from the Conventional

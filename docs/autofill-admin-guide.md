@@ -10,8 +10,13 @@ You need the *Settings* permission (admins by default).
 ## 1. Connect the service
 
 1. Switch on **Suggest details from the photo**.
-2. **Service address**: where the service runs, without `/v1`, e.g. `http://192.168.1.10:8080`. If Apotheke runs in
-   Docker, `localhost` is the container itself: use the machine's LAN address.
+2. **Service address**: where the service runs, without `/v1`. This is your Worker URL, for example
+   `https://autofill.example`. Deploy steps are in the service repository's
+   [Worker deploy doc](https://github.com/thordin9/apotheke-autofill-service/blob/main/docs/cloudflare-workers-deploy.md).
+   The older Jetson/GPU build speaks the same API and still works if you host it.
+   If Apotheke runs in Docker, `localhost` is the container itself: use an address the container can reach.
+   The access token is the service's `AUTOFILL_TOKEN` (Control Panel → AI autofill → Access token). Never put a
+   real token in a file you commit.
 3. **Timeout (seconds)**: about 5 s more than the service's own timeout. The default 50 fits the shipped Jetson
    setup (the service gives up after 45 s).
 4. Press **Test connection** (nothing is saved). *Connected* lists the service's name, API version, what it
@@ -44,9 +49,12 @@ Both dropdowns appear only when the service offers a choice (API v1.2: `models` 
 | `models` with two or more entries | enabled | – |
 | `image_sizes` listed | – | enabled; *Recommended* preselected |
 
-**Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge (in the browser and
-again on the server), so an older service gets exactly what it got before (never enlarged). A v1.2 service decides
-through its recommended size instead.
+**Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge, so an older service
+gets that size when it lists no `image_sizes` (never enlarged). A v1.2 service decides through its recommended size
+instead. Either way the copy that leaves Apotheke is capped at 1600 px (`AUTOFILL_UPLOAD_MAX_SIDE`) and is a JPEG
+at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that multipart body is
+still larger than the service's `max_image_bytes`, Apotheke tries quality 70 and then 60. Until `/v1/info` has been
+cached, the limit used for that check is 983040 bytes (0.9 MiB). The original upload is never sent.
 
 **The Jetson setup** (from the service benchmarks): the service runs with `IMAGE_SIZES=448,560*,1024` and
 `ALLOWED_MODELS` unset, so Image size shows *Recommended (560 px)*, 448, 560 and 1024 px. The Model dropdown shows
@@ -60,8 +68,9 @@ service sends no `models` at all).
   say *Model is warming up… retrying in N s* and retries once. A model the service does not know falls back to its
   default; Test with a photo then shows *Model used: X (asked for Y)*.
 - **Image size**: *Recommended (N px)* uses the size the service recommends, or pick a long edge. Smaller images are
-  analyzed faster; larger ones can read small print better. Photos are resized on the phone or computer before upload
-  and are **never enlarged**.
+  analyzed faster; larger ones can read small print better. That size applies to the suggestion copy (built on the
+  server, and also prepared in the browser for Analyze). It is **never enlarged**. The file stored with the item is
+  the upload itself.
 
 The progress bar on the item form estimates with the chosen model's own typical time.
 
@@ -81,15 +90,16 @@ model or a new address before saving.
   step, with your real categories and tags. Shows three checks (*Reachable*, *Token accepted*, *Model ready*), the
   suggested name, category, tags and description with their confidence, **Model used**, the **Image size** sent and
   how long it took. It can take as long as the timeout, e.g. on the first photo after a model switch: if the model is
-  warming up and the service's Retry-After is no longer than the timeout, the test waits and tries once more, the same
-  single retry as Analyze.
+  warming up and the service's Retry-After is at most 60 seconds and no longer than the timeout, the test waits and
+  tries once more, the same single retry as Analyze. A longer Retry-After is not waited out.
 
 Typical results and what to do:
 
 | Result | Fix |
 |---|---|
 | *Could not connect* | Wrong address or port, the service is not running, or a firewall is in the way. |
-| *No answer within N seconds* | The service is overloaded, or the timeout is too short. |
+| *No answer within N seconds* | Test connection: the service is overloaded, or the timeout is too short. |
+| *autofill is unavailable right now* | Test with a photo: the suggestion step timed out, the network failed, or the answer was not the API. Analyze shows the same message and does not retry. |
 | *The service requires a token* / *refused the token* | Save the token the service expects, or clear it. |
 | *Still warming up* / *Model not ready* | The service is loading its model; try again in a minute. |
 | *Model used: X (asked for Y)* | Model Y is not allowed or not installed on the service; pick another or ask whoever runs the service. |
@@ -104,6 +114,43 @@ Typical results and what to do:
   **Test connection** (or Save) to see the dropdowns.
 - A second analysis of an item (another photo) no longer replaces what an earlier one filled in; it only fills
   fields that are still empty.
+
+## Camera files and what autofill reads
+
+New uploads are stored twice. `images/` and `thumbs/` are the stripped JPEGs the app shows. `originals/` (or
+`ORIGINALS_DIR`, default `<data_dir>/originals`, outside `public/`) keeps the upload byte for byte under a 64-hex
+name. The only pointer is a file in `originals/map/`, which is not a URL. `/originals/…` is 404 in any spelling
+(`/Originals`, `/ORIGINALS`) in the app, in `public/.htaccess`, and in the Docker nginx config
+(`location ~* ^/originals(/|$)`). The directory is created mode `0750` and the camera files mode `0640` when the
+filesystem allows it. If `ORIGINALS_DIR` resolves inside `public/`, Apotheke refuses to start.
+
+A picked file that fits **Maximum upload** (Control Panel → Photos & uploads, default 20 MB) is that camera file.
+A larger file is reduced in the browser before it is sent, and the form shows *This photo is over the upload limit,
+so a smaller copy will be saved. The original file is not kept.* To keep typical camera files, raise the three
+limits together: `uploads.max_mb` (at most 200), PHP `upload_max_filesize` and `post_max_size` (`docker/php.ini`
+ships `20M` and `22M`), and the web server body limit (Docker nginx `client_max_body_size 22m`). `post_max_size`
+and `client_max_body_size` need to sit a little above `upload_max_filesize`. A backup zip is larger than a photo:
+the Docker image allows 520 MB only on `/backup/restore`; other installs stay at about 22 MB and answer 413. For a
+large zip use `php bin/restore.php`.
+
+Autofill builds a temporary JPEG from that camera file (or from the served JPEG if the photo predates this version),
+sends only that, and deletes the temp file even when the request fails. HEIC needs Imagick with libheif. Without it,
+or if the conversion fails, autofill is skipped with *cannot be read as a photo*, the camera file stays, and a grey
+placeholder is what the page shows. The HEIC itself is never served or sent.
+
+An HTML error page (including a Cloudflare 1102), a 200 that is not JSON, truncated JSON, a JSON 5xx that is not the
+API's own error object, and a timeout or network error on suggest are all *autofill is unavailable right now*. The
+item saves with no suggestions and Apotheke does not retry. A well-formed API 503 (`backend_unavailable`) is retried
+once only when `Retry-After` is 60 seconds or less and no longer than the timeout. The retry sends the same
+analysis JPEG again, never the camera file, and saving the item is not blocked while it waits. A longer
+`Retry-After` (a daily cap that counts down to 00:00 UTC) is *busy*, with no retry, so the item can be saved at
+once. Any other JSON 5xx is unavailable and is a single request.
+
+**Upgrade.** Photos already on disk are not migrated. They keep working and have no camera file. New uploads get
+one. Backups from this version include `originals/`; older backups still restore. Deleting or replacing a photo
+removes the served JPEG, the thumbnail and the camera file.
+
+Disk use is about the size of each new camera file, on top of the smaller stripped JPEG and thumbnail.
 
 ## Security notes
 

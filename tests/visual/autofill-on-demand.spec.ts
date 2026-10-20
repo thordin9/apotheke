@@ -315,12 +315,12 @@ test.describe('AI autofill on demand', () => {
     await page.locator('#af-analyze').click();
     await expect(page.locator('#af-status')).toContainText(/Suggestions ready|nothing to fill in/);
     expect([stub.last().type, stub.last().width, stub.last().height]).toEqual(['JPEG', 300, 200]);
-    // transparency survives: a PNG with alpha is sent as a PNG with alpha
+    // the server always sends a stripped JPEG, so a PNG with alpha is flattened
     stub.clear();
     await pick(page, gd(app, 'af-alpha.png', '$im=imagecreatetruecolor(1600,1200);imagesavealpha($im,true);imagealphablending($im,false);imagefill($im,0,0,imagecolorallocatealpha($im,0,0,0,127));imagefilledellipse($im,800,600,900,900,imagecolorallocatealpha($im,220,40,40,0));imagepng($im,$argv[1]);'));
     await page.locator('#af-analyze').click();
     await expect(page.locator('#af-status')).toContainText(/Suggestions ready|nothing to fill in/);
-    expect([stub.last().type, stub.last().alpha, stub.last().width, stub.last().height]).toEqual(['PNG', true, 1024, 768]);
+    expect([stub.last().type, stub.last().alpha, stub.last().width, stub.last().height]).toEqual(['JPEG', false, 1024, 768]);
     // larger than the service's 10 MiB limit as picked, well below it once resized
     const huge = gd(app, 'af-huge-noise.png', '$w=2300;$h=1800;$im=imagecreatetruecolor($w,$h);mt_srand(7);for($y=0;$y<$h;$y++)for($x=0;$x<$w;$x++)imagesetpixel($im,$x,$y,mt_rand(0,0xFFFFFF));imagepng($im,$argv[1],0);');
     expect(fs.statSync(huge).size).toBeGreaterThan(10 * 1024 * 1024);
@@ -330,12 +330,12 @@ test.describe('AI autofill on demand', () => {
     await expect(page.locator('#af-status')).toContainText(/Suggestions ready|nothing to fill in/, { timeout: 20_000 });
     expect(stub.last().bytes).toBeLessThan(10 * 1024 * 1024);
     expect(Math.max(stub.last().width, stub.last().height)).toBe(1024);
-    // HEIC that the browser cannot decode: passed through, the service answers 415 – a clean message
+    // HEIC that neither the browser nor PHP can decode: nothing is sent
     const heic = path.join(app.server.filesDir, 'af-photo.heic');
     fs.writeFileSync(heic, Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.alloc(600, 7)]));
     await pick(page, heic);
     await page.locator('#af-analyze').click();
-    await expect(page.locator('#af-status')).toContainText('cannot read this kind of image');
+    await expect(page.locator('#af-status')).toContainText('cannot be read as a photo');
     await expect(page.locator('#af-status')).toHaveClass(/af-fail/);
   });
 

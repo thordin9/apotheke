@@ -847,6 +847,7 @@ function image_delete(?string $name): void
     if (!valid_image_name($name)) return;
     @unlink(IMG_DIR . '/' . $name);
     @unlink(THUMB_DIR . '/' . $name);
+    image_original_forget($name);
 }
 
 function upload_error_text(int $code): string
@@ -870,9 +871,10 @@ function pick_upload(array $fields): ?array
 }
 
 /**
- * Validate an uploaded image with GD, normalise orientation, re-encode as JPEG
- * (which also strips EXIF/GPS metadata) and create a thumbnail.
- * Returns the random file name stored in images/ and thumbs/.
+ * Keep the upload byte-identical under originals/, and write the photo everyone else sees under images/ and thumbs/:
+ * EXIF orientation applied, longest side image_full_max() (1600 by default), JPEG at the jpeg_quality setting, metadata
+ * stripped. Returns that served file name. An existing images/*.jpg with no originals/ sibling is left alone (no migration).
+ * HEIC/HEIF is kept as the original; when it cannot be converted the served file is a plain placeholder, never the HEIC.
  */
 function image_store(array $file): string
 {
@@ -880,37 +882,174 @@ function image_store(array $file): string
     if (!is_uploaded_file($file['tmp_name']) && PHP_SAPI !== 'cli') throw new UserError('Invalid upload.');
     if ($file['size'] > max_upload()) throw new UserError(upload_error_text(UPLOAD_ERR_INI_SIZE));
 
-    $info = @getimagesize($file['tmp_name']);
-    $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
-    if (!$info || !in_array($info[2], $types, true)) {
-        throw new UserError('Unsupported image. Please use JPEG, PNG, WebP or GIF (on iPhone, HEIC photos are converted automatically).');
+    $tmp = (string)$file['tmp_name'];
+    $info = @getimagesize($tmp);
+    $types = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'];
+    $ext = $info && isset($types[$info[2]]) ? $types[$info[2]] : null;
+    $heic = false;
+    if ($ext === null) {
+        $head = (string)@file_get_contents($tmp, false, null, 0, 12);
+        if (image_bytes_heic($head)) { $heic = true; $ext = 'heic'; }
+        else throw new UserError('Unsupported image. Please use JPEG, PNG, WebP or GIF (on iPhone, HEIC photos are converted automatically).');
     }
-    if ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) throw new UserError('Image dimensions are too large.');
-
-    $src = match ($info[2]) {
-        IMAGETYPE_JPEG => @imagecreatefromjpeg($file['tmp_name']),
-        IMAGETYPE_PNG  => @imagecreatefrompng($file['tmp_name']),
-        IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($file['tmp_name']) : false,
-        IMAGETYPE_GIF  => @imagecreatefromgif($file['tmp_name']),
-    };
-    if (!$src) throw new UserError('Could not read that image.');
-
-    if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
-        $exif = @exif_read_data($file['tmp_name']);
-        $src  = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
-    }
+    if (!$heic && ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000)) throw new UserError('Image dimensions are too large.');
 
     $name = bin2hex(random_bytes(16)) . '.jpg';
-    $full = image_fit($src, image_full_max());
-    $thumb = image_fit($src, image_thumb_max());
-    imageinterlace($full, true);
-    imageinterlace($thumb, true);
-    $ok = imagejpeg($full, IMG_DIR . '/' . $name, (int)setting('jpeg_quality')) && imagejpeg($thumb, THUMB_DIR . '/' . $name, (int)setting('jpeg_quality') - 6);
+    if (!image_original_save($name, $tmp, $ext)) throw new UserError('Server could not save the image.');
+    if ($heic) {
+        $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
+    } else {
+        $src = match ($info[2]) {
+            IMAGETYPE_JPEG => @imagecreatefromjpeg($tmp),
+            IMAGETYPE_PNG  => @imagecreatefrompng($tmp),
+            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tmp) : false,
+            IMAGETYPE_GIF  => @imagecreatefromgif($tmp),
+        };
+        if (!$src) { image_delete($name); throw new UserError('Could not read that image.'); }
+        if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+            $exif = @exif_read_data($tmp);
+            $src  = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
+        }
+        $ok = image_write_pair($src, $name);
+    }
     if (!$ok) {
         image_delete($name);
         throw new UserError('Server could not save the image.');
     }
     return $name;
+}
+
+/** HEIC/HEIF container (ISO BMFF "ftyp" box with a HEIF brand)? $head is the first 12 bytes. */
+function image_bytes_heic(string $head): bool
+{
+    return strlen($head) >= 12 && substr($head, 4, 4) === 'ftyp'
+        && in_array(substr($head, 8, 4), ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1'], true);
+}
+
+/** Create originals/ and map/, and a deny file so Apache refuses the directory if it is ever under the docroot. */
+function image_originals_prepare(): bool
+{
+    if (originals_dir_in_web_root(ORIGINALS_DIR, dirname(__DIR__) . '/public')) return false;
+    foreach ([ORIGINALS_DIR, ORIGINALS_DIR . '/map'] as $dir) {
+        if (!is_dir($dir) && !@mkdir($dir, 0750, true) && !is_dir($dir)) return false;
+        originals_chmod_dir($dir);
+    }
+    originals_htaccess_write(ORIGINALS_DIR . '/.htaccess');
+    originals_chmod_file(ORIGINALS_DIR . '/.htaccess');
+    return true;
+}
+
+function image_original_basename_ok(string $base): bool
+{
+    return preg_match('/^[a-f0-9]{64}\.(jpg|png|webp|gif|heic)$/D', $base) === 1;
+}
+
+/** Pointer from a served 32-hex name to the original's basename. Not a URL. */
+function image_original_map_path(string $name): ?string
+{
+    if (!valid_image_name($name)) return null;
+    return ORIGINALS_DIR . '/map/' . substr($name, 0, 32);
+}
+
+/**
+ * Byte-identical copy of the upload. The file name is 64 random hex characters, not the served name,
+ * so a media URL does not reveal it. The map entry is the only link, and it is not served over HTTP.
+ */
+function image_original_save(string $name, string $src, string $ext): bool
+{
+    if (!valid_image_name($name) || !preg_match('/^(jpg|png|webp|gif|heic)$/D', $ext)) return false;
+    if (!image_originals_prepare()) return false;
+    $base = bin2hex(random_bytes(32)) . '.' . $ext;
+    $dest = ORIGINALS_DIR . '/' . $base;
+    if (!@copy($src, $dest)) return false;
+    originals_chmod_file($dest);
+    $map = image_original_map_path($name);
+    if ($map === null || file_put_contents($map, $base, LOCK_EX) === false) {
+        @unlink($dest);
+        return false;
+    }
+    originals_chmod_file($map);
+    return true;
+}
+
+/** The kept upload for a served photo name, or null for a legacy photo that has none. */
+function image_original_path(string $name): ?string
+{
+    $map = image_original_map_path($name);
+    if ($map === null || !is_file($map)) return null;
+    $base = trim((string)@file_get_contents($map));
+    if (!image_original_basename_ok($base)) return null;
+    $path = ORIGINALS_DIR . '/' . $base;
+    return is_file($path) ? $path : null;
+}
+
+/** Drop the kept upload and its map entry. The served JPEG and thumbnail are the caller's job. */
+function image_original_forget(string $name): void
+{
+    $map = image_original_map_path($name);
+    if ($map === null) return;
+    $base = is_file($map) ? trim((string)@file_get_contents($map)) : '';
+    if (image_original_basename_ok($base)) @unlink(ORIGINALS_DIR . '/' . $base);
+    @unlink($map);
+}
+
+/** Copy the kept upload onto a new served name (a new random file, not a shared one). No-op when $from is a legacy photo. */
+function image_original_copy(string $from, string $to): void
+{
+    $src = image_original_path($from);
+    if ($src === null) return;
+    $ext = strtolower((string)pathinfo($src, PATHINFO_EXTENSION));
+    if (!image_original_save($to, $src, $ext)) throw new RuntimeException('could not copy original');
+}
+
+/** Full-size JPEG plus thumbnail, both metadata-free. Does not touch originals/. */
+function image_write_pair(GdImage $src, string $name): bool
+{
+    $full = image_fit($src, image_full_max());
+    $thumb = image_fit($src, image_thumb_max());
+    imageinterlace($full, true);
+    imageinterlace($thumb, true);
+    $q = (int)setting('jpeg_quality');
+    return imagejpeg($full, IMG_DIR . '/' . $name, $q) && imagejpeg($thumb, THUMB_DIR . '/' . $name, $q - 6);
+}
+
+/** HEIC → the same stripped JPEG as other photos, when Imagick has libheif. False leaves the caller to use a placeholder. */
+function image_store_heic(string $path, string $name): bool
+{
+    if (!class_exists('Imagick') || !function_exists('autofill_heic_supported') || !autofill_heic_supported()) return false;
+    try {
+        $im = new Imagick();
+        $im->readImage($path);
+        if (method_exists($im, 'autoOrient')) $im->autoOrient();
+        elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
+        $w = $im->getImageWidth();
+        $h = $im->getImageHeight();
+        if ($w < 1 || $h < 1 || $w * $h > 60_000_000) { $im->clear(); return false; }
+        $max = image_full_max();
+        if (max($w, $h) > $max) {
+            $s = $max / max($w, $h);
+            $filter = defined('Imagick::FILTER_LANCZOS') ? constant('Imagick::FILTER_LANCZOS') : 1;
+            $im->resizeImage(max(1, (int)round($w * $s)), max(1, (int)round($h * $s)), $filter, 1);
+        }
+        $im->setImageFormat('jpeg');
+        $im->setImageCompressionQuality((int)setting('jpeg_quality'));
+        $im->stripImage();
+        $blob = $im->getImageBlob();
+        $im->clear();
+        if (!is_string($blob) || !str_starts_with($blob, "\xFF\xD8")) return false;
+        $gd = @imagecreatefromstring($blob);
+        return $gd ? image_write_pair($gd, $name) : false;
+    } catch (Throwable) {
+        return false;
+    }
+}
+
+/** Grey JPEG used when a kept upload cannot be turned into a photo. Not the original bytes. */
+function image_store_placeholder(string $name): bool
+{
+    $im = imagecreatetruecolor(64, 64);
+    imagefill($im, 0, 0, imagecolorallocate($im, 226, 226, 226));
+    return image_write_pair($im, $name);
 }
 
 function apply_orientation(GdImage $im, int $o): GdImage
@@ -1252,6 +1391,12 @@ function image_copy(string $file): string
     if (is_file(THUMB_DIR . '/' . $file) && !@copy(THUMB_DIR . '/' . $file, THUMB_DIR . '/' . $new)) {
         @unlink(IMG_DIR . '/' . $new);
         throw new RuntimeException('could not copy thumbnail');
+    }
+    try {
+        image_original_copy($file, $new);
+    } catch (Throwable $e) {
+        image_delete($new);
+        throw $e;
     }
     return $new;
 }

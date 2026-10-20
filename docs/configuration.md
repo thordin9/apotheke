@@ -40,7 +40,8 @@ return [
 
 | `config.php` key | Environment variable | Default | Where | Meaning |
 |---|---|---|---|---|
-| `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | bootstrap | Photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file. Created if missing. |
+| `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | bootstrap | Served photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file and the camera uploads (`originals/`). Created if missing. |
+| `originals_dir` | `ORIGINALS_DIR` | *(empty → `<data_dir>/originals`)* | bootstrap | Byte-identical camera uploads. Empty, or a relative path, stays outside `public/`. An absolute path is used as given. Not served over HTTP. |
 | `timezone` | `TZ` | `UTC` (`Europe/Athens` in `docker-compose.yml`) | DB — Currency, dates & time → Time zone | Time zone for displayed times, the statistics buckets and "today" (lending due dates). |
 | `app_password` | `APP_PASSWORD` | *(empty)* | DB — Users | Password of the first account `admin` (stored as a hash when the database is created; sign-in on). Empty means no login. Later: Settings → Users & sign-in or `php bin/settings.php user password admin`. |
 | `db.driver` | `DB_DRIVER` | `sqlite` | bootstrap | `sqlite` or `pgsql`; anything else is an error. |
@@ -73,6 +74,8 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 
 | Variable | Used by | Meaning |
 |---|---|---|
+| `AUTOFILL_UPLOAD_MAX_SIDE` | autofill | Longest side of the JPEG sent to the autofill service. Default `1600`, clamped to 64–4096. Never enlarges a smaller photo. The model’s image size, when the service lists one, is still the cap when it is smaller. |
+| `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the multipart body is still over the service limit, Apotheke tries 70 and then 60. |
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |
@@ -84,9 +87,14 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 
 ## PHP and web server limits
 
-Photos are shrunk on the phone before upload (max. 1600 px, JPEG ~80 %), so the defaults are plenty. Backups uploaded
-through the web restore can be much larger: the Docker image allows up to 512 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
-in `docker/nginx.conf`; every other route keeps the 22 MB body limit); otherwise use `bin/restore.php`.
+A picked photo is uploaded unchanged when it fits **Maximum upload** (`uploads.max_mb`, default 20). Above that, the
+browser saves a smaller JPEG and says the original file is not kept. The shipped limits already cover a typical
+10–20 MB camera photo: `docker/php.ini` sets `upload_max_filesize=20M` and `post_max_size=22M`, and `docker/nginx.conf`
+sets `client_max_body_size 22m`. Raise all three together with `uploads.max_mb` (the Control Panel allows up to 200);
+`post_max_size` and `client_max_body_size` need to sit a little above `upload_max_filesize`. What the catalog shows
+is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
+through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
+in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
 ## Examples
 

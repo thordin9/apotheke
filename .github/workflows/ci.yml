@@ -272,7 +272,7 @@ jobs:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: Install gitleaks 8.30.1
@@ -294,4 +294,4 @@ jobs:
           install -m 0755 "$tmp/gitleaks" "$RUNNER_TEMP/gitleaks"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Scan full git history
-        run: gitleaks detect --source . --redact --no-banner --exit-code 1
+        run: gitleaks git --log-opts="--all" --redact --no-banner --exit-code 1

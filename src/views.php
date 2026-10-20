@@ -780,6 +780,7 @@ function view_item(array $it, array $photos = [], int $cur = 0, array $history =
     <?php if ($n < max_photos()): ?>
     <form method="post" action="/item/<?= $id ?>/photos" enctype="multipart/form-data" class="pm-add" id="photoadd">
       <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <input type="hidden" name="MAX_FILE_SIZE" value="<?= max_upload() ?>">
       <label class="btn"><input type="file" name="photos[]" accept="image/*" capture="environment" class="file" id="photoadd-cam"><?= icon('camera') ?> Take photo</label>
       <label class="btn"><input type="file" name="photos[]" accept="image/*" multiple class="file" id="photoadd-lib"><?= icon('image') ?> Add from library</label>
       <noscript><button class="btn btn-primary">Upload</button></noscript>

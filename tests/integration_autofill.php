@@ -281,8 +281,8 @@ $r = $suggest();
 T::ok(($r['json']['code'] ?? null) === 'unauthorized' && str_contains($r['json']['message'] ?? '', 'requires an access token') && !str_contains($r['json']['message'] ?? '', 'refused'), 'no token set, service wants one → "requires an access token"', $r['body']);
 $afSet(['autofill_url' => $stub->base, 'autofill_token' => '']);
 // failure modes: all soft (HTTP 200, ok:false, a message for the status line)
-foreach ([['http://127.0.0.1:1', 'unreachable', 'service down'], [$stub->base . '/m/error', 'busy', 'backend error (503)'],
-          [$stub->base . '/m/malformed', 'bad_response', 'malformed response'], [$stub->base . '/m/toolarge', 'too_large', 'service says too large (413)'],
+foreach ([['http://127.0.0.1:1', 'unavailable', 'service down'], [$stub->base . '/m/error', 'busy', 'backend error (503)'],
+          [$stub->base . '/m/malformed', 'unavailable', 'malformed response'], [$stub->base . '/m/toolarge', 'too_large', 'service says too large (413)'],
           [$stub->base . '/m/unsupported', 'unsupported', 'service says unsupported type (415)'], [$stub->base . '/m/badinfo/nope', 'bad_response', 'unexpected HTTP status (404)']] as [$u, $code, $what]) {
     $afSet(['autofill_url' => $u]);
     $r = $suggest();
@@ -290,19 +290,19 @@ foreach ([['http://127.0.0.1:1', 'unreachable', 'service down'], [$stub->base . 
 }
 $afSet(['autofill_url' => 'http://10.255.255.1:8080', 'autofill_timeout' => 10]);
 $r = $suggest();
-T::ok(($r['json']['code'] ?? '') === 'unreachable' && str_contains($r['json']['message'] ?? '', 'not reachable'), 'suggest: connect timeout → "not reachable", not "did not answer within"', $r['body']);
+T::ok(($r['json']['code'] ?? '') === 'unavailable' && str_contains($r['json']['message'] ?? '', 'unavailable'), 'suggest: connect timeout → unavailable, not "did not answer within"', $r['body']);
 $afSet(['autofill_url' => $stub->base . '/m/empty', 'autofill_timeout' => 5]);
 $r = $suggest();
 T::ok(($r['json']['ok'] ?? null) === true && ($r['json']['code'] ?? '') === 'empty', 'empty answer {} → no suggestions, not an error');
 $afSet(['autofill_url' => $stub->base . '/m/slow', 'autofill_timeout' => 3]);
 $t0 = microtime(true);
 $r = $suggest();
-T::ok(($r['json']['code'] ?? '') === 'timeout' && microtime(true) - $t0 < 6, 'slow service → timeout after the configured 3 s');
+T::ok(($r['json']['code'] ?? '') === 'unavailable' && str_contains($r['json']['message'] ?? '', 'unavailable') && microtime(true) - $t0 < 6, 'slow service → unavailable after the configured 3 s');
 $afSet(['autofill_url' => $stub->base, 'autofill_timeout' => 5]);
 // odd images
 $stub->clear();
 $r = $suggest(['image' => ['name' => 'x.heic', 'type' => 'image/heic', 'data' => "\x00\x00\x00\x18ftypheic" . str_repeat('x', 500)]]);
-T::ok(($r['json']['code'] ?? '') === 'unsupported' && ($stub->last()['bytes'] ?? 0) === 512, 'unreadable image (HEIC) passed through; service 415 → unsupported');
+T::ok(($r['json']['code'] ?? '') === 'unsupported' && str_contains($r['json']['message'] ?? '', 'cannot be read as a photo') && $stub->last() === null, 'unreadable HEIC is not sent');
 foreach (['doc.pdf' => "%PDF-1.7\n" . str_repeat('x', 500), 'notes.txt' => 'hello'] as $fn => $data) {
     $stub->clear();
     $r = $suggest(['image' => ['name' => $fn, 'type' => 'application/octet-stream', 'data' => $data]]);
@@ -418,7 +418,7 @@ $r = $photoTest(['autofill_url' => 'http://127.0.0.1:1', 'autofill_timeout' => '
 T::ok(($r['json']['code'] ?? '') === 'unreachable' && ($r['json']['checks']['reachable'] ?? null) === false, 'photo test: service down → unreachable');
 $t0 = microtime(true);
 $r = $photoTest(['autofill_url' => $stub->base . '/d/9000', 'autofill_timeout' => '3']);
-T::ok(($r['json']['code'] ?? '') === 'timeout' && microtime(true) - $t0 < 6, 'photo test: bounded by the typed timeout', $r['body']);
+T::ok(($r['json']['code'] ?? '') === 'unavailable' && str_contains($r['json']['message'] ?? '', 'unavailable') && microtime(true) - $t0 < 6, 'photo test: a slow suggest is unavailable, still bounded by the timeout', $r['body']);
 $r = $photoTest(['autofill_url' => 'gopher://x', 'autofill_timeout' => '3']);
 T::eq('invalid_url', $r['json']['code'] ?? null, 'photo test: invalid address');
 // without JavaScript: a full page with the result, nothing saved

@@ -1,5 +1,7 @@
 import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AutofillStub } from './autofill-stub';
 import { ROOT } from './fixtures';
@@ -218,6 +220,53 @@ test.describe('AI autofill suggestions', () => {
     expect(calls, 'no retry past the timeout').toBe(1);
   });
 
+  test('a Retry-After over a minute is busy and is not retried', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/busy/r/90', timeout: '60' });
+    let calls = 0;
+    page.on('request', r => { if (r.url().includes('/autofill/suggest')) calls++; });
+    stub.clear();
+    await app.go('/new');
+    await pick(page, app.image('af-cap.jpg', [90, 40, 140]));
+    const status = page.locator('#af-status');
+    await expect(status).toContainText('busy', { timeout: 8_000 });
+    await expect(status).not.toContainText('retrying');
+    await expect(status).not.toContainText('90');
+    expect(calls, 'one request').toBe(1);
+    await page.locator('#name').fill('Saved while capped');
+    await page.locator('#save').click();
+    await page.waitForURL(/saved=\d+/);
+    expect(app.sql<{ name: string }>("SELECT name FROM items WHERE name = 'Saved while capped'")[0].name).toBe('Saved while capped');
+  });
+
+  test('saving during a short retry does not wait out Retry-After', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/busy/r/5', timeout: '20' });
+    await app.go('/new');
+    await pick(page, app.image('af-save-retry.jpg', [40, 90, 140]));
+    await expect(page.locator('#af-status')).toContainText('retrying', { timeout: 8_000 });
+    const t = Date.now();
+    await page.locator('#name').fill('Saved during retry');
+    await page.locator('#save').click();
+    await page.waitForURL(/saved=\d+/);
+    expect(Date.now() - t, 'save did not wait out the 5 s Retry-After').toBeLessThan(4_000);
+    expect(app.sql<{ name: string }>("SELECT name FROM items WHERE name = 'Saved during retry'")[0].name).toBe('Saved during retry');
+  });
+
+  test('the retry sends the analysis copy twice, not the picked file', async ({ app, page }) => {
+    await configure(page, { on: true, url: stub.base + '/m/cold/r/1', timeout: '20' });
+    stub.clear();
+    const file = app.image('af-analysis.jpg', [20, 140, 90]);
+    const picked = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    await app.go('/new');
+    await pick(page, file);
+    await expect(page.locator('#af-status')).toContainText('Suggestions ready', { timeout: 12_000 });
+    const ups = stub.uploads();
+    expect(ups).toHaveLength(2);
+    expect(ups[0].sha256).toBe(ups[1].sha256);
+    expect(ups[0].sha256).not.toBe(picked);
+    expect(ups[0].type).toBe('JPEG');
+    expect(ups[1].type).toBe('JPEG');
+  });
+
   test('a preselected default category is replaced; one the user picked (even back to the default) is kept', async ({ app, page }) => {
     await configure(page, { on: true, url: stub.base + '/s/Tools' });
     app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; tax_set_default('category', tax_create('category', 'General')['id'], true);`]);
@@ -330,14 +379,17 @@ test.describe('AI autofill suggestions', () => {
   });
 
   for (const c of [
-    { name: 'service down', url: 'http://127.0.0.1:1', msg: 'not reachable' },
+    { name: 'service down', url: 'http://127.0.0.1:1', msg: 'unavailable' },
     { name: 'backend unavailable (503)', url: () => stub.base + '/m/error', msg: 'busy or not ready' },
     { name: 'backend error (503)', url: () => stub.base + '/m/fault', msg: 'had a problem with this photo. Try again, or fill in the fields yourself' },
-    { name: 'malformed response', url: () => stub.base + '/m/malformed', msg: 'unexpected answer' },
+    { name: 'malformed response', url: () => stub.base + '/m/malformed', msg: 'unavailable' },
+    { name: 'html 503', url: () => stub.base + '/m/htmlfail', msg: 'unavailable' },
+    { name: 'truncated json', url: () => stub.base + '/m/truncated', msg: 'unavailable' },
+    { name: 'json 502', url: () => stub.base + '/m/jsonerr', msg: 'unavailable' },
     { name: 'photo too large (413)', url: () => stub.base + '/m/toolarge', msg: 'too large (max 10 MiB / 10485760 bytes)' },
     { name: 'unsupported image (415)', url: () => stub.base + '/m/unsupported', msg: 'cannot read this kind of image' },
     { name: 'bad token (401)', url: () => stub.base + '/t/right-token', token: 'wrong-token', msg: 'refused the access token' },
-    { name: 'timeout', url: () => stub.base + '/m/slow', timeout: '3', msg: 'did not answer within 3 seconds' },
+    { name: 'timeout', url: () => stub.base + '/m/slow', timeout: '3', msg: 'unavailable' },
   ]) {
     test(`fails soft: ${c.name}`, async ({ app, page }) => {
       await configure(page, { on: true, url: typeof c.url === 'function' ? c.url() : c.url, timeout: c.timeout, token: c.token });

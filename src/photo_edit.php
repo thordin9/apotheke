@@ -47,6 +47,12 @@ function photo_edit(int $itemId, int $photoId, int $rotate, array $crop): array
         throw new UserError('Server could not save the image.', 500);
     }
     try {
+        image_original_copy($p['file'], $name);   // the camera file stays with the photo; the edit is only the served JPEG
+    } catch (Throwable) {
+        image_delete($name);
+        throw new UserError('Server could not save the image.', 500);
+    }
+    try {
         $version = db_tx(function (PDO $pdo) use ($itemId, $photoId, $name, $rotate, $cw, $ch): int {
             $pdo->prepare('UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ?')->execute([$name, now_utc(), $photoId, $itemId]);
             photos_renumber($itemId);

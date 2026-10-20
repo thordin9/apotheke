@@ -60,6 +60,25 @@ function out(int $status, mixed $body, array $headers = []): never
     echo is_string($body) ? $body : json_encode($body);
     exit;
 }
+function raw(int $status, string $body, string $contentType): never
+{
+    http_response_code($status);
+    header('Content-Type: ' . $contentType);
+    echo $body;
+    exit;
+}
+function stub_bump(string $file): void
+{
+    $fp = fopen($file, 'c+');
+    if ($fp === false) return;
+    flock($fp, LOCK_EX);
+    $n = (int)stream_get_contents($fp);
+    rewind($fp);
+    ftruncate($fp, 0);
+    fwrite($fp, (string)($n + 1));
+    flock($fp, LOCK_UN);
+    fclose($fp);
+}
 function fail(int $status, string $code, string $msg, array $headers = []): never
 {
     out($status, ['error' => ['code' => $code, 'message' => $msg]], $headers);
@@ -84,10 +103,12 @@ if ($loaded !== null && !isset($models[$loaded])) $loaded = $defaultModel;
 
 if ($path === '/healthz') out(200, ['status' => 'ok']);
 if ($path === '/_stub/uploads') {
-    if ($_SERVER['REQUEST_METHOD'] === 'DELETE') { @unlink($stateBase . '.jsonl'); @unlink($loadedFile); out(200, ['cleared' => true]); }
+    if ($_SERVER['REQUEST_METHOD'] === 'DELETE') { @unlink($stateBase . '.jsonl'); @unlink($loadedFile); @unlink($stateBase . '.count'); out(200, ['cleared' => true]); }
     $lines = is_file($stateBase . '.jsonl') ? file($stateBase . '.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     out(200, array_map(fn($l) => json_decode($l, true), array_slice($lines, -50)));
 }
+if ($path === '/_stub/count') out(200, ['n' => (int)@file_get_contents($stateBase . '.count')]);
+if ($path === '/v1/suggest' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') stub_bump($stateBase . '.count');
 if ($path === '/v1/info' && $_SERVER['REQUEST_METHOD'] === 'GET' && ($log = getenv('STUB_LOG'))) {
     file_put_contents($log . '.info', json_encode(['auth' => $_SERVER['HTTP_AUTHORIZATION'] ?? null]));
 }
@@ -118,11 +139,17 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // PNG colour type 4/6 (grey/RGB + alpha) or a tRNS chunk: the upload kept its transparency
     $alpha = $kind === 'PNG' ? (in_array(ord($data[25] ?? "\0"), [4, 6], true) || str_contains(substr($data, 0, (int)strpos($data, 'IDAT') ?: 4096), 'tRNS')) : false;
     $entry = json_encode(['auth' => $_SERVER['HTTP_AUTHORIZATION'] ?? null, 'context' => $ctx, 'type' => $kind,
-        'bytes' => strlen($data), 'width' => $dims[0] ?? null, 'height' => $dims[1] ?? null, 'alpha' => $alpha, 'mode' => $mode,
-        'filename' => $f['name'] ?? null, 'mime' => $f['type'] ?? null]);
+        'bytes' => strlen($data), 'sha256' => hash('sha256', $data), 'width' => $dims[0] ?? null, 'height' => $dims[1] ?? null, 'alpha' => $alpha, 'mode' => $mode,
+        'filename' => $f['name'] ?? null, 'mime' => $f['type'] ?? null, 'content_length' => (int)($_SERVER['CONTENT_LENGTH'] ?? 0)]);
     if ($log = getenv('STUB_LOG')) file_put_contents($log, $entry);
     file_put_contents($stateBase . '.jsonl', $entry . "\n", FILE_APPEND | LOCK_EX);
     if ($data === '') fail(400, 'bad_request', 'image is required');
+    $html1102 = '<!DOCTYPE html><html><head><title>Error 1102</title></head><body><h1>Error 1102</h1><p>Worker exceeded resources</p></body></html>';
+    if ($mode === 'html') raw(502, $html1102, 'text/html; charset=UTF-8');
+    if ($mode === 'htmlfail') raw(503, $html1102, 'text/html; charset=UTF-8');
+    if ($mode === 'text') raw(200, 'service exploded', 'text/plain; charset=UTF-8');
+    if ($mode === 'truncated') raw(200, '{"name":{"value":"Hammer"', 'application/json');
+    if ($mode === 'jsonerr') raw(502, '{"error":"Worker exceeded CPU","code":1102}', 'application/json');
     if ($mode === 'toolarge' || strlen($data) > $maxBytes) fail(413, 'payload_too_large', 'image too large');
     if ($mode === 'unsupported' || $kind === null) fail(415, 'unsupported_media_type', 'image must be JPEG, PNG or WebP');
     if (!is_array($ctx)) fail(400, 'bad_request', 'context must be a JSON object');
@@ -144,6 +171,7 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     if ($opt['d'] > 0) usleep($opt['d'] * 1000);
     if ($mode === 'malformed') out(200, '{not json');
+    if ($mode === 'hello') out(200, '{"hello":1}');
     if ($mode === 'empty') out(200, new stdClass());
     $cats = array_values(array_filter($ctx['categories'] ?? [], fn($c) => is_string($c) && trim($c) !== ''));
     $tags = array_slice(array_values(array_filter($ctx['tags'] ?? [], fn($t) => is_string($t) && trim($t) !== '')), 0, 3) ?: ['echo', 'sample'];

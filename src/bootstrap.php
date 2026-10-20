@@ -17,16 +17,100 @@ require_once __DIR__ . '/users.php';
 define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
 define('THUMB_DIR', DATA_DIR . '/thumbs');
+$originalsDir = trim((string)(cfg()['originals_dir'] ?? ''));
+if ($originalsDir === '') {
+    $originalsDir = DATA_DIR . '/originals';
+} elseif ($originalsDir[0] !== '/') {
+    $originalsDir = dirname(__DIR__) . '/' . $originalsDir;
+}
+define('ORIGINALS_DIR', rtrim($originalsDir, '/')); // camera uploads; never served. Default is outside public/.
+unset($originalsDir);
 define('SESS_DIR', DATA_DIR . '/sessions');
 
 date_default_timezone_set(cfg()['timezone']);
 mb_internal_encoding('UTF-8');
 
-foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, SESS_DIR] as $dir) {
+$webRoot = dirname(__DIR__) . '/public';
+if (originals_dir_in_web_root(ORIGINALS_DIR, $webRoot)) {
+    $msg = 'ORIGINALS_DIR is inside the web root (' . $webRoot . '). Set originals_dir to a directory outside public/.';
+    if (PHP_SAPI !== 'cli') {
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo $msg;
+    }
+    fwrite(STDERR, $msg . "\n");
+    exit(1);
+}
+unset($webRoot);
+
+foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, ORIGINALS_DIR, ORIGINALS_DIR . '/map', SESS_DIR] as $dir) {
     if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
         http_response_code(500);
         exit('Data directory ' . $dir . ' is not writable.');
     }
+}
+originals_chmod_dir(ORIGINALS_DIR);
+originals_chmod_dir(ORIGINALS_DIR . '/map');
+originals_htaccess_write(ORIGINALS_DIR . '/.htaccess');
+originals_chmod_file(ORIGINALS_DIR . '/.htaccess');
+
+/**
+ * Deny the originals directory if it is ever placed under an Apache document root.
+ * 2.4 uses mod_authz_core; 2.2 only understands Deny from all.
+ */
+function originals_htaccess(): string
+{
+    return "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n"
+        . "<IfModule !mod_authz_core.c>\n    Deny from all\n</IfModule>\n";
+}
+
+function originals_htaccess_write(string $path): void
+{
+    $want = originals_htaccess();
+    if (is_file($path) && (string)@file_get_contents($path) === $want) return;
+    @file_put_contents($path, $want);
+    originals_chmod_file($path);
+}
+
+/** True when $dir is the web root or any directory inside it, whatever that directory is named. */
+function originals_dir_in_web_root(string $dir, string $webRoot): bool
+{
+    $dir = path_normalize($dir);
+    $web = path_normalize($webRoot);
+    if ($dir === '' || $web === '') return false;
+    if ($dir === $web || str_starts_with($dir, $web . '/')) return true;
+    $realWeb = realpath($webRoot);
+    $realDir = realpath($dir);
+    if ($realWeb === false || $realDir === false) return false;
+    $realWeb = path_normalize($realWeb);
+    $realDir = path_normalize($realDir);
+    return $realDir === $realWeb || str_starts_with($realDir, $realWeb . '/');
+}
+
+/** Collapse "." and ".." without requiring the path to exist. */
+function path_normalize(string $path): string
+{
+    $path = str_replace('\\', '/', $path);
+    $abs = str_starts_with($path, '/');
+    $parts = [];
+    foreach (explode('/', $path) as $p) {
+        if ($p === '' || $p === '.') continue;
+        if ($p === '..') { array_pop($parts); continue; }
+        $parts[] = $p;
+    }
+    return ($abs ? '/' : '') . implode('/', $parts);
+}
+
+/** 0750 for originals directories. Failures are ignored where the filesystem cannot chmod. */
+function originals_chmod_dir(string $dir): void
+{
+    if (is_dir($dir)) @chmod($dir, 0750);
+}
+
+/** 0640 for a camera file, map entry or deny file. Failures are ignored. */
+function originals_chmod_file(string $path): void
+{
+    if (is_file($path)) @chmod($path, 0640);
 }
 
 final class UserError extends RuntimeException {}

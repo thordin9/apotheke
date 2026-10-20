@@ -137,8 +137,8 @@ test.describe('AI autofill settings', () => {
     await expect(page.locator('#af-checks')).toHaveText(/Not reachable\s*Token: not checked\s*Model: not checked/);
     await configure(page, stub.base + '/d/9000', '3');
     await page.locator('#af-test-photo').click();
-    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'timeout', { timeout: 8_000 });
-    await expect(page.locator('#af-res')).toContainText('3 s timeout');
+    await expect(page.locator('#af-res')).toHaveAttribute('data-code', 'unavailable', { timeout: 8_000 });
+    await expect(page.locator('#af-res')).toContainText('unavailable');
   });
 
   test('service down, timeout and not an autofill service', async ({ page }) => {
