@@ -34,6 +34,35 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg skips PHPUnit until `ci4/public/index.php` exists. deptrac and the DI rule run on empty configs. Releases stay on `main` only.
 
+## [2.5.2] - 2026-10-20
+
+### Fixed
+
+- **photos:** force 4:2:0 in Imagick JPEG encodes ([#32](https://github.com/thordin9/apotheke/pull/32))
+- limit 4:2:0 to analysis copy, tidy docs, CI ([#32](https://github.com/thordin9/apotheke/pull/32))
+
+### Maintenance
+
+- **photos:** test: fail a size miss and cover Imagick 4:4:4 ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **photos:** docs: describe Imagick JPEG 4:2:0 subsampling ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **changelog:** docs: drop notes already listed in 2.5.0 and 2.5.1 ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **qa:** docs: add QA report for PR 32 ([#32](https://github.com/thordin9/apotheke/pull/32))
+- test: make HEIC display test portable to Alpine GD ([#32](https://github.com/thordin9/apotheke/pull/32))
+- **qa:** docs: add PR 32 recheck report ([#32](https://github.com/thordin9/apotheke/pull/32))
+
+## [2.5.1] - 2026-10-20
+
+### Fixed
+
+- **bootstrap:** hide the originals path from the browser
+- **photos:** decode HEIC uploads in the Docker image
+
+### Maintenance
+
+- docs: describe untouched uploads and server-side HEIC
+- **autofill:** test: cover a 524288 analysis-copy limit
+- **qa:** docs: add QA report for L-4 Imagick and HEIC
+
 ## [2.5.0] - 2026-10-20
 
 ### Added
@@ -271,7 +300,9 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.2...HEAD
+[2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
+[2.5.1]: https://github.com/thordin9/apotheke/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/thordin9/apotheke/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/thordin9/apotheke/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/thordin9/apotheke/compare/v2.3.2...v2.4.0

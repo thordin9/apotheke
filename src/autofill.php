@@ -494,6 +494,11 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
             $im->resizeImage($nw, $nh, $filter, 1);
         }
         $im->setImageFormat('jpeg');
+        // 4:2:0 only on this analysis copy. A 4:4:4 source otherwise keeps its sampling and overshoots the size budget.
+        // setSamplingFactors() only accepts floats, so it cannot spell 2x2 and is not used.
+        // image_store_heic() does not set this: GD re-encodes that JPEG, and a forced 4:2:0 softens it at quality 90+.
+        $im->setOption('jpeg:sampling-factor', '2x2,1x1,1x1');
+        if (method_exists($im, 'setImageProperty')) $im->setImageProperty('jpeg:sampling-factor', '2x2,1x1,1x1');
         $im->setImageCompressionQuality(max(1, min(100, $quality)));
         $im->stripImage();
         $out = $im->getImageBlob();

@@ -191,6 +191,45 @@ T::eq(200, $c->get("/media/full/$legacy")['status'], 'a legacy photo with no ori
 @unlink("$dir/thumbs/$legacy");
 [$tw, $th] = getimagesize("$dir/thumbs/$img") ?: [0, 0];
 T::ok(max($tw, $th) === 480, "thumbnail 480px ({$tw}×{$th})");
+$heicPath = __DIR__ . '/fixtures/tiny-gps.heic';
+$heic = (string)file_get_contents($heicPath);
+T::ok(strlen($heic) > 100 && substr($heic, 4, 4) === 'ftyp' && str_contains($heic, 'GPSLatitude'), 'HEIC fixture is a generated file with EXIF text');
+$r = $c->api('/save', ['csrf' => $tok, 'name' => 'HEIC lamp', 'quantity' => 1], ['photo' => jpg_file($heic, 'lamp.heic', 'image/heic')]);
+$heicId = $savedId($r);
+T::ok($r['status'] === 200 && $heicId > 0, 'HEIC upload is accepted', substr($r['body'], 0, 300));
+$heicImg = (string)$db->query("SELECT image FROM items WHERE id = $heicId")->fetchColumn();
+$heicOrig = test_original($dir, $heicImg);
+T::ok($heicOrig !== null && hash_file('sha256', $heicOrig) === hash('sha256', $heic), 'HEIC original sha256 is unchanged');
+T::ok(str_ends_with((string)$heicOrig, '.heic'), 'original keeps the heic extension');
+$heicServed = (string)file_get_contents("$dir/images/$heicImg");
+$heicInfo = getimagesizefromstring($heicServed);
+T::ok(is_array($heicInfo) && $heicInfo[2] === IMAGETYPE_JPEG && str_starts_with($heicServed, "\xFF\xD8"), 'served HEIC copy is a JPEG');
+T::ok(!str_contains($heicServed, 'GPSLatitude') && !str_contains($heicServed, 'SerialNumber') && !str_contains($heicServed, "\xFF\xE1"), 'served JPEG has EXIF/GPS stripped');
+if (!function_exists('autofill_analysis_jpeg')) {
+    // Require inside a closure so bootstrap's top-level variables do not clobber this script.
+    (static function (string $dataDir): void {
+        putenv('DATA_DIR=' . $dataDir);
+        putenv('APOTHEKE_CONFIG=/nonexistent');
+        putenv('SEED_DEFAULTS=0');
+        require_once ROOT . '/src/bootstrap.php';
+        require_once ROOT . '/src/items.php';
+    })($dir);
+}
+$heicAnalysis = autofill_analysis_jpeg($heic);
+if (autofill_heic_supported()) {
+    T::ok($heicInfo[0] === 96 && $heicInfo[1] === 64, 'Imagick served the decoded HEIC');
+    $ai = is_string($heicAnalysis) ? getimagesizefromstring($heicAnalysis) : false;
+    T::ok(is_array($ai) && $ai[0] === 96 && $ai[1] === 64 && $ai[2] === IMAGETYPE_JPEG, 'analysis copy is a JPEG of the HEIC');
+    T::ok(is_string($heicAnalysis) && !str_contains($heicAnalysis, 'GPSLatitude') && !str_contains($heicAnalysis, 'SerialNumber') && !str_contains($heicAnalysis, "\xFF\xE1"), 'analysis JPEG has EXIF/GPS stripped');
+} else {
+    T::ok($heicInfo[0] === 64 && $heicInfo[1] === 64, 'without Imagick the served JPEG is the placeholder');
+    T::ok($heicAnalysis === null, 'without Imagick HEIC has no analysis JPEG');
+}
+$c->post("/item/$heicId/delete", ['csrf' => $tok]);
+foreach (["$dir/images/$heicImg", "$dir/thumbs/$heicImg", (string)$heicOrig, "$dir/originals/map/" . substr($heicImg, 0, 32)] as $gone) {
+    if ($gone !== '') @unlink($gone);
+}
+T::eq(0, (int)$db->query("SELECT COUNT(*) FROM items WHERE name = 'HEIC lamp'")->fetchColumn(), 'HEIC probe item removed');
 $r = $c->api('/save', ['csrf' => $tok, 'name' => 'Πρίζα πολύπριζο', 'location_id' => $ids['loc']['Κουτί 5'], 'category_id' => $ids['cat']['Electronics'], 'quantity' => 3, 'notes' => 'Ελληνικά'], ['photo2' => jpg_file(img_png(800, 600), 'p.png', 'image/png')]);
 $plug = $savedId($r);
 T::ok($plug > 0 && is_file("$dir/images/" . $db->query("SELECT image FROM items WHERE id = $plug")->fetchColumn()), 'PNG via library field (photo2) stored as JPEG');

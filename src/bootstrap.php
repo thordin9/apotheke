@@ -32,13 +32,12 @@ mb_internal_encoding('UTF-8');
 
 $webRoot = dirname(__DIR__) . '/public';
 if (originals_dir_in_web_root(ORIGINALS_DIR, $webRoot)) {
-    $msg = 'ORIGINALS_DIR is inside the web root (' . $webRoot . '). Set originals_dir to a directory outside public/.';
     if (PHP_SAPI !== 'cli') {
         http_response_code(500);
         header('Content-Type: text/plain; charset=UTF-8');
-        echo $msg;
+        echo originals_web_root_public_message();
     }
-    fwrite(STDERR, $msg . "\n");
+    startup_log(originals_web_root_log_message(ORIGINALS_DIR, $webRoot));
     exit(1);
 }
 unset($webRoot);
@@ -99,6 +98,27 @@ function path_normalize(string $path): string
         $parts[] = $p;
     }
     return ($abs ? '/' : '') . implode('/', $parts);
+}
+
+/** Shown in the browser when photo storage is inside public/. No filesystem path. */
+function originals_web_root_public_message(): string
+{
+    return 'The catalog cannot start because photo storage is inside the public web directory. Set originals_dir to a directory outside public/.';
+}
+
+/** Server log only, including the paths an admin needs to move photo storage. */
+function originals_web_root_log_message(string $dir, string $webRoot): string
+{
+    return 'ORIGINALS_DIR is inside the web root (originals=' . $dir . ', web=' . $webRoot . '). Set originals_dir to a directory outside public/.';
+}
+
+/**
+ * Write a startup failure to the process log. php-fpm has no standard-error stream constant,
+ * so this uses error_log (the image points that at the container output).
+ */
+function startup_log(string $message): void
+{
+    error_log($message);
 }
 
 /** 0750 for originals directories. Failures are ignored where the filesystem cannot chmod. */

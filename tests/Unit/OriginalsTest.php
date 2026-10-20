@@ -94,10 +94,152 @@ final class OriginalsTest extends DatabaseTestCase
         fclose($pipes[2]);
         $code = proc_close($proc);
         $this->assertSame(1, $code, $out . $err);
-        $this->assertStringContainsString('web root', $err . $out);
-        $this->assertStringContainsString($web, $err . $out);
+        $this->assertStringContainsString('web root', $err);
+        $this->assertStringContainsString($web, $err);
+        $this->assertStringNotContainsString($web, $out);
         $this->assertDirectoryDoesNotExist($bad);
         $this->assertDirectoryDoesNotExist($data);
+    }
+
+    public function testBrowserRefusalHidesThePathAndLogsIt(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $web = $root . '/public';
+        $bad = $web . '/camera-private-http';
+        if (is_dir($bad)) @rmdir($bad);
+        $data = sys_get_temp_dir() . '/apotheke-refuse-http-' . bin2hex(random_bytes(4));
+        mkdir($data, 0775, true);
+        $log = $data . '.log';
+        $sock = stream_socket_server('tcp://127.0.0.1:0');
+        $this->assertNotFalse($sock);
+        $port = (int)substr((string)strrchr((string)stream_socket_get_name($sock, false), ':'), 1);
+        fclose($sock);
+        $cmd = [PHP_BINARY, '-d', 'display_errors=0', '-d', 'log_errors=1', '-S', "127.0.0.1:$port", '-t', $root . '/public', $root . '/public/index.php'];
+        $env = [
+            'PATH' => (string)getenv('PATH'),
+            'DATA_DIR' => $data,
+            'ORIGINALS_DIR' => $bad,
+            'APOTHEKE_CONFIG' => '/nonexistent',
+            'SEED_DEFAULTS' => '0',
+        ];
+        $proc = proc_open($cmd, [1 => ['file', $log, 'a'], 2 => ['file', $log, 'a']], $pipes, $root, $env);
+        $this->assertIsResource($proc);
+        try {
+            $up = false;
+            for ($i = 0; $i < 50; $i++) {
+                $c = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+                if ($c) { fclose($c); $up = true; break; }
+                usleep(50000);
+            }
+            $this->assertTrue($up, 'php -S did not listen');
+            $ctx = stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 5]]);
+            $body = (string)@file_get_contents("http://127.0.0.1:$port/", false, $ctx);
+            $status = 0;
+            foreach ($http_response_header ?? [] as $line) {
+                if (preg_match('#^HTTP/\S+ (\d+)#', $line, $m)) $status = (int)$m[1];
+            }
+            $logged = (string)@file_get_contents($log);
+            $this->assertSame(500, $status, $body . $logged);
+            $this->assertStringContainsString('public web directory', $body);
+            $this->assertStringNotContainsString($web, $body);
+            $this->assertStringNotContainsString($bad, $body);
+            $this->assertStringContainsString($web, $logged);
+            $this->assertStringContainsString($bad, $logged);
+            $this->assertStringNotContainsString('Undefined constant', $logged);
+            $this->assertDirectoryDoesNotExist($bad);
+        } finally {
+            proc_terminate($proc);
+            proc_close($proc);
+            @unlink($log);
+            if (is_dir($data)) {
+                $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($data, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+                foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
+                @rmdir($data);
+            }
+        }
+    }
+
+    public function testPhpCgiRefusalHidesThePathAndDoesNotNeedStderr(): void
+    {
+        $cgi = $this->phpCgi();
+        if ($cgi === null) $this->markTestSkipped('php-cgi is not installed');
+        $root = dirname(__DIR__, 2);
+        $web = $root . '/public';
+        $bad = $web . '/camera-private-cgi';
+        if (is_dir($bad)) @rmdir($bad);
+        $data = sys_get_temp_dir() . '/apotheke-refuse-cgi-' . bin2hex(random_bytes(4));
+        mkdir($data, 0775, true);
+        $script = $data . '/refuse.php';
+        file_put_contents($script, "<?php\nrequire " . var_export($root . '/src/bootstrap.php', true) . ";\necho \"booted\\n\";\n");
+        $errFile = $data . '/error.log';
+        $spec = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $env = [
+            'PATH' => (string)getenv('PATH'),
+            'SCRIPT_FILENAME' => $script,
+            'SCRIPT_NAME' => '/refuse.php',
+            'REQUEST_METHOD' => 'GET',
+            'REDIRECT_STATUS' => '200',
+            'DATA_DIR' => $data,
+            'ORIGINALS_DIR' => $bad,
+            'APOTHEKE_CONFIG' => '/nonexistent',
+            'SEED_DEFAULTS' => '0',
+        ];
+        $proc = proc_open([$cgi, '-d', 'display_errors=0', '-d', 'log_errors=1', '-d', 'error_log=' . $errFile, $script], $spec, $pipes, $root, $env);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+        $out = (string)stream_get_contents($pipes[1]);
+        $err = (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+        $logged = (string)@file_get_contents($errFile);
+        $this->assertStringContainsString('Status: 500', $out, $out . $err . $logged);
+        $this->assertStringContainsString('public web directory', $out);
+        $this->assertStringNotContainsString($web, $out);
+        $this->assertStringNotContainsString($bad, $out);
+        $this->assertStringNotContainsString('Undefined constant', $out . $err . $logged);
+        $this->assertStringContainsString($web, $logged);
+        $this->assertStringContainsString($bad, $logged);
+        $this->assertStringNotContainsString('booted', $out);
+        $this->assertDirectoryDoesNotExist($bad);
+        @unlink($script);
+        @unlink($errFile);
+        @rmdir($data);
+    }
+
+    public function testStartupLogWritesThePathToTheErrorLog(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'apotheke-log');
+        $prev = ini_set('error_log', $file);
+        try {
+            startup_log(originals_web_root_log_message('/tmp/secret-originals', '/tmp/secret-public'));
+            $logged = (string)file_get_contents($file);
+            $this->assertStringContainsString('/tmp/secret-originals', $logged);
+            $this->assertStringContainsString('/tmp/secret-public', $logged);
+            $page = originals_web_root_public_message();
+            $this->assertStringNotContainsString('/tmp/secret-originals', $page);
+            $this->assertStringNotContainsString('/tmp/secret-public', $page);
+        } finally {
+            if ($prev !== false) ini_set('error_log', (string)$prev);
+            @unlink($file);
+        }
+    }
+
+    public function testBootstrapDoesNotReferenceTheStderrConstant(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__, 2) . '/src/bootstrap.php');
+        $this->assertDoesNotMatchRegularExpression('/\bSTDERR\b/', $src);
+    }
+
+    private function phpCgi(): ?string
+    {
+        $cands = [dirname(PHP_BINARY) . '/php-cgi', PHP_BINDIR . '/php-cgi'];
+        $which = trim((string)shell_exec('command -v php-cgi 2>/dev/null'));
+        if ($which !== '') $cands[] = $which;
+        foreach ($cands as $bin) {
+            if (is_file($bin) && is_executable($bin)) return $bin;
+        }
+        return null;
     }
 
     public function testLegacyPhotoWithoutAnOriginalIsLeftAlone(): void
