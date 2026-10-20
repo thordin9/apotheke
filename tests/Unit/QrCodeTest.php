@@ -69,10 +69,24 @@ final class QrCodeTest extends TestCase
         new QrCode('a', 'X');
     }
 
+    public function testJitModeClassification(): void
+    {
+        $this->assertTrue(qr_php84_jit_is_tracing('tracing', 0));
+        $this->assertTrue(qr_php84_jit_is_tracing('on', 5));
+        $this->assertTrue(qr_php84_jit_is_tracing('1254', 5));
+        $this->assertTrue(qr_php84_jit_is_tracing('0255', 5));
+        $this->assertTrue(qr_php84_jit_is_tracing('1055', 5));
+        $this->assertTrue(qr_php84_jit_is_tracing('1', 5), '"on" is reported as 1; kind 5 is tracing');
+        $this->assertFalse(qr_php84_jit_is_tracing('function', 0));
+        $this->assertFalse(qr_php84_jit_is_tracing('1235', 3));
+        $this->assertFalse(qr_php84_jit_is_tracing('1205', 0));
+        $this->assertFalse(qr_php84_jit_is_tracing('1215', 1));
+        $this->assertFalse(qr_php84_jit_is_tracing('1225', 2));
+    }
+
     /**
-     * PHP 8.4 function JIT miscompiles the finder loops when they count down from a negative index.
-     * setup-php defaults to opcache.jit=1235, which never returns; 1205 prints a different matrix.
-     * qr.php turns that JIT off before the encoder is loaded.
+     * PHP 8.4 function JIT miscompiles the finder loops, which count up from a negative index.
+     * Every function-JIT mode is disabled before the encoder loads. Tracing JIT stays on.
      */
     public function testFunctionJitMatchesInterpreter(): void
     {
@@ -85,10 +99,16 @@ final class QrCodeTest extends TestCase
             [str_repeat('Apotheke!', 30), 'M'],
         ];
         $interpreter = $this->jitMatrix('disable', $payloads, false);
-        foreach (['1235', '1205'] as $mode) {
+        foreach (['1235', '1205', '1215', 'function'] as $mode) {
             $jit = $this->jitMatrix($mode, $payloads, true);
             if ($jit === null) $this->markTestSkipped("opcache.jit=$mode did not turn on");
             $this->assertSame('disable', $jit['jit'], "opcache.jit=$mode is disabled before encode");
+            $this->assertSame($interpreter['rows'], $jit['rows'], "opcache.jit=$mode matrix");
+        }
+        foreach ([['tracing', 'tracing'], ['1254', '1254'], ['0255', '0255'], ['on', '1']] as [$mode, $kept]) {
+            $jit = $this->jitMatrix($mode, $payloads, true);
+            if ($jit === null) $this->markTestSkipped("opcache.jit=$mode did not turn on");
+            $this->assertSame($kept, $jit['jit'], "opcache.jit=$mode stays tracing");
             $this->assertSame($interpreter['rows'], $jit['rows'], "opcache.jit=$mode matrix");
         }
     }
@@ -107,7 +127,9 @@ $want = ' . var_export($mode, true) . ';
 $requireOn = ' . ($requireOn ? 'true' : 'false') . ';
 if ($requireOn) {
     $st = opcache_get_status(false);
-    if (empty($st["jit"]["on"]) || (string)ini_get("opcache.jit") !== $want) {
+    $ini = (string)ini_get("opcache.jit");
+    $alive = !empty($st["jit"]["on"]) && ($ini === $want || ($want === "on" && $ini === "1"));
+    if (!$alive) {
         fwrite(STDERR, "jit-off\n");
         exit(2);
     }
