@@ -1,11 +1,36 @@
 #!/usr/bin/env node
-// Check relative links (files and #anchors) in the Markdown docs: README.md, CONTRIBUTING.md and docs/*.md.
-// External http(s)/mailto links are not fetched. Usage: node scripts/check-links.mjs
+// Check relative links (files and #anchors) in Markdown: README.md, CONTRIBUTING.md,
+// AGENTS.md, docs/*.md, docs/adr/ and docs/plans/ (nested). External http(s)/mailto
+// links are not fetched. Usage: node scripts/check-links.mjs [--list]
 import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const files = ['README.md', 'CONTRIBUTING.md', ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).map(f => 'docs/' + f)];
+
+function markdownUnder(relDir) {
+  const abs = path.join(root, relDir);
+  if (!fs.existsSync(abs)) return [];
+  const out = [];
+  const walk = (dir, rel) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.name.startsWith('.')) continue;
+      const childRel = rel + '/' + ent.name;
+      if (ent.isDirectory()) walk(path.join(dir, ent.name), childRel);
+      else if (ent.name.endsWith('.md')) out.push(childRel);
+    }
+  };
+  walk(abs, relDir);
+  return out.sort();
+}
+
+const files = [
+  'README.md',
+  'CONTRIBUTING.md',
+  'AGENTS.md',
+  ...fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md')).sort().map(f => 'docs/' + f),
+  ...markdownUnder('docs/adr'),
+  ...markdownUnder('docs/plans'),
+];
 
 // GitHub-style heading anchors: lowercase, drop punctuation (keep letters, digits, spaces, - and _), spaces → -.
 const slug = s => s.trim().toLowerCase().replace(/<[^>]+>/g, '').replace(/[`*_~]/g, m => (m === '_' ? '_' : ''))
@@ -47,5 +72,6 @@ for (const rel of files) {
     }
   });
 }
+if (process.argv.includes('--list')) for (const rel of files) console.log(rel);
 console.log(`${checked} relative links checked in ${files.length} files, ${bad} broken`);
 process.exit(bad ? 1 : 0);
