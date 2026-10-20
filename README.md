@@ -209,8 +209,9 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 * PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
   `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
-  The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Other installs stay on GD: a HEIC upload is
-  kept byte for byte and shown as a placeholder until Imagick can decode it.
+  The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Imagick flattens transparent areas onto
+  white and converts CMYK to sRGB, matching GD. Other installs stay on GD: a HEIC upload is kept byte for byte and
+  shown as a placeholder until Imagick can decode it.
 * SQLite (built in) or PostgreSQL (tested with 17).
 * No Composer packages at runtime: `composer.json` only lists PHPUnit under `require-dev`.
 

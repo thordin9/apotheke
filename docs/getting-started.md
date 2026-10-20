@@ -40,7 +40,9 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 
 **What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
 `libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). Installs without Docker
-stay on GD. `tini` is PID 1 and `docker/entrypoint.sh`:
+stay on GD. When Imagick does decode a photo (HEIC, or a file GD cannot read), it flattens transparent areas onto
+white and converts CMYK to sRGB, then drops colour profiles, matching the JPEG GD writes. GD itself is unchanged.
+`tini` is PID 1 and `docker/entrypoint.sh`:
 
 1. renders `docker/nginx.conf` with the port from `PORT` (default `80`),
 2. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`,
@@ -93,7 +95,8 @@ With `--network host`, set `-e PORT=8081` (or any free port) so nginx listens th
 ## Without Docker
 
 Requirements: PHP 8.2+ with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP), `mbstring` and `zip`; `exif` is
-recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
+recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed. Optional `imagick` reads HEIC and
+files GD cannot; it uses the same white background and sRGB JPEG as GD, and does not change the GD path.
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke

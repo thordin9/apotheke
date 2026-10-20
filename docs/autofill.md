@@ -164,9 +164,10 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
 2. The server does not send that upload on. It builds a **separate** JPEG from the camera file when one exists,
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
    enlarged, quality about 80 (then 70, then 60 if the full multipart body is still over the limit), metadata
-   stripped. GD is used first, Imagick if GD cannot read the file. That analysis JPEG forces 4:2:0 chroma subsampling
-   (`jpeg:sampling-factor` `2x2,1x1,1x1`), so a 4:4:4 source is not copied through. GD's encoder is left as it is.
-   The JPEG the catalog shows does not get this override.
+   stripped. GD is used first, Imagick if GD cannot read the file. Imagick flattens transparency onto white and
+   converts CMYK to sRGB, then strips colour profiles, so that JPEG matches what GD would have written. GD's encoder
+   is left as it is. That analysis JPEG forces 4:2:0 chroma subsampling (`jpeg:sampling-factor` `2x2,1x1,1x1`), so a
+   4:4:4 source is not copied through. The JPEG the catalog shows does not get this override.
    The temp file is `DATA_DIR/tmp/autofill-*.jpg`
    and is deleted when the call ends, including on errors. The stored photo is not rewritten. Only that stripped
    JPEG leaves Apotheke. If it cannot be built, nothing is sent.
