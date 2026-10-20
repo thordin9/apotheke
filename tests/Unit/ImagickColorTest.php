@@ -2,8 +2,12 @@
 declare(strict_types=1);
 
 /**
- * Imagick fallback matches GD: transparent pixels land on white, and a CMYK JPEG becomes sRGB.
- * Skips when the Imagick extension is not loaded.
+ * Imagick fallback, one test per case. Fixtures: tests/fixtures/transparent.png (32×32, red corner,
+ * the rest fully transparent) and tests/fixtures/cmyk.jpg (16×16 CMYK). Skips when Imagick is absent.
+ *
+ * testTransparentPngDerivedImageHasNoBlack
+ * testCmykJpegDerivedImageIsSrgb
+ * testStoredOriginalSha256UnchangedAfterImagickFallback
  */
 final class ImagickColorTest extends DatabaseTestCase
 {
@@ -13,9 +17,10 @@ final class ImagickColorTest extends DatabaseTestCase
         if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
     }
 
-    public function testImagickFlattensTransparentPngOntoWhite(): void
+    /** Case 1. The derived JPEG has no black where the PNG was transparent. */
+    public function testTransparentPngDerivedImageHasNoBlack(): void
     {
-        $png = $this->transparentPng();
+        $png = $this->fixture('transparent.png');
         $out = autofill_analysis_jpeg($png, 32, 95, ['imagick']);
         $this->assertIsString($out);
         $this->assertStringStartsWith("\xFF\xD8", $out);
@@ -37,9 +42,10 @@ final class ImagickColorTest extends DatabaseTestCase
         $this->assertStringNotContainsString('ICC_PROFILE', $out);
     }
 
-    public function testImagickConvertsCmykJpegToSrgb(): void
+    /** Case 2. A CMYK JPEG's derived copy is sRGB. */
+    public function testCmykJpegDerivedImageIsSrgb(): void
     {
-        $src = $this->cmykJpeg();
+        $src = $this->fixture('cmyk.jpg');
         $this->assertSame(4, $this->jpegComponents($src), 'fixture must be a CMYK JPEG');
         $this->assertSame(Imagick::COLORSPACE_CMYK, $this->colorspace($src));
         $out = autofill_analysis_jpeg($src, 16, 95, ['imagick']);
@@ -57,23 +63,36 @@ final class ImagickColorTest extends DatabaseTestCase
         $this->assertEqualsWithDelta($want[2], $got[2], 2);
         $this->assertGreaterThan(200, $got[0], 'CMYK red became black or cyan');
         $this->assertLessThan(80, $got[2]);
-        $icc = '/usr/share/color/icc/ghostscript/default_cmyk.icc';
-        if (!is_file($icc)) return;
-        $profiled = $this->cmykJpegWithProfile((string)file_get_contents($icc));
-        $this->assertStringContainsString('ICC_PROFILE', $profiled);
-        $converted = autofill_analysis_jpeg($profiled, 16, 95, ['imagick']);
-        $this->assertIsString($converted);
-        $this->assertSame(3, $this->jpegComponents($converted));
-        $this->assertSame(Imagick::COLORSPACE_SRGB, $this->colorspace($converted));
-        $this->assertStringNotContainsString('ICC_PROFILE', $converted);
-        $gdProfiled = autofill_analysis_jpeg($profiled, 16, 95, ['gd']);
-        $this->assertIsString($gdProfiled);
-        $this->assertStringNotContainsString('ICC_PROFILE', $gdProfiled);
-        $fromImagick = $this->pixel($converted, 4, 4);
-        $fromGd = $this->pixel($gdProfiled, 4, 4);
-        $this->assertEqualsWithDelta($fromGd[0], $fromImagick[0], 2);
-        $this->assertEqualsWithDelta($fromGd[1], $fromImagick[1], 2);
-        $this->assertEqualsWithDelta($fromGd[2], $fromImagick[2], 2);
+    }
+
+    /**
+     * Case 3. The stored original stays the upload bytes. Only the derived analysis JPEG may change,
+     * and that copy is the corrected one (so reverting the colour fix fails this test).
+     */
+    public function testStoredOriginalSha256UnchangedAfterImagickFallback(): void
+    {
+        $this->migrateFresh();
+        foreach (['transparent.png' => 'png', 'cmyk.jpg' => 'jpg'] as $file => $ext) {
+            $bytes = $this->fixture($file);
+            $sha = hash('sha256', $bytes);
+            $name = $this->store($bytes, 'upload.' . $ext);
+            $orig = image_original_path($name);
+            $this->assertIsString($orig, $file);
+            $this->assertSame($sha, hash_file('sha256', $orig), $file . ' original differs from the upload');
+            $derived = autofill_analysis_jpeg((string)file_get_contents($orig), 32, 95, ['imagick']);
+            $this->assertIsString($derived, $file);
+            $this->assertNotSame($sha, hash('sha256', $derived), $file . ' derived copy must be allowed to differ');
+            $this->assertSame($sha, hash_file('sha256', $orig), $file . ' original changed when the derived JPEG was built');
+            $this->assertSame($bytes, (string)file_get_contents($orig), $file . ' original bytes changed');
+        }
+        $pngDerived = autofill_analysis_jpeg($this->fixture('transparent.png'), 32, 95, ['imagick']);
+        $this->assertIsString($pngDerived);
+        $clear = $this->pixel($pngDerived, 24, 24);
+        $this->assertGreaterThan(250, min($clear), 'derived PNG is black: ' . implode(',', $clear));
+        $cmykDerived = autofill_analysis_jpeg($this->fixture('cmyk.jpg'), 16, 95, ['imagick']);
+        $this->assertIsString($cmykDerived);
+        $this->assertSame(3, $this->jpegComponents($cmykDerived), 'derived CMYK JPEG is still CMYK');
+        $this->assertSame(Imagick::COLORSPACE_SRGB, $this->colorspace($cmykDerived));
     }
 
     /** The served HEIC JPEG is Imagick's intermediate, then GD. Alpha must already be white. */
@@ -82,7 +101,7 @@ final class ImagickColorTest extends DatabaseTestCase
         if (!function_exists('autofill_heic_supported') || !autofill_heic_supported()) {
             $this->markTestSkipped('Imagick HEIC support is not available');
         }
-        $png = $this->transparentPng();
+        $png = $this->fixture('transparent.png');
         $tmp = tempnam(sys_get_temp_dir(), 'alpha');
         $this->assertNotFalse($tmp);
         file_put_contents($tmp, $png);
@@ -101,45 +120,25 @@ final class ImagickColorTest extends DatabaseTestCase
         $this->assertSame(Imagick::COLORSPACE_SRGB, $this->colorspace($served));
     }
 
-    /** 32×32 PNG: opaque red in the corner, everything else fully transparent. */
-    private function transparentPng(): string
+    private function fixture(string $name): string
     {
-        $im = imagecreatetruecolor(32, 32);
-        imagealphablending($im, false);
-        imagesavealpha($im, true);
-        imagefill($im, 0, 0, imagecolorallocatealpha($im, 0, 0, 0, 127));
-        imagefilledrectangle($im, 0, 0, 7, 7, imagecolorallocatealpha($im, 200, 10, 10, 0));
-        ob_start();
-        imagepng($im);
-        return (string)ob_get_clean();
+        $path = dirname(__DIR__) . '/fixtures/' . $name;
+        $bytes = file_get_contents($path);
+        $this->assertNotFalse($bytes, $path);
+        $this->assertNotSame('', $bytes);
+        return $bytes;
     }
 
-    /** Solid CMYK JPEG (cyan 0, magenta 80, yellow 90). GD turns that into sRGB red. */
-    private function cmykJpeg(): string
+    private function store(string $bytes, string $filename): string
     {
-        $im = new Imagick();
-        $im->newImage(16, 16, new ImagickPixel('cmyk(0%,80%,90%,0%)'));
-        $im->setImageColorspace(Imagick::COLORSPACE_CMYK);
-        $im->setImageFormat('jpeg');
-        $im->setImageCompressionQuality(95);
-        $out = $im->getImageBlob();
-        $im->clear();
-        $this->assertIsString($out);
-        return $out;
-    }
-
-    /** Same solid CMYK JPEG with an embedded ICC profile. GD ignores the profile and still writes sRGB. */
-    private function cmykJpegWithProfile(string $icc): string
-    {
-        $im = new Imagick();
-        $im->readImageBlob($this->cmykJpeg());
-        $im->profileImage('icc', $icc);
-        $im->setImageFormat('jpeg');
-        $im->setImageCompressionQuality(95);
-        $out = $im->getImageBlob();
-        $im->clear();
-        $this->assertIsString($out);
-        return $out;
+        $tmp = tempnam(sys_get_temp_dir(), 'up');
+        $this->assertNotFalse($tmp);
+        file_put_contents($tmp, $bytes);
+        try {
+            return image_store(['error' => UPLOAD_ERR_OK, 'tmp_name' => $tmp, 'size' => strlen($bytes), 'name' => $filename]);
+        } finally {
+            @unlink($tmp);
+        }
     }
 
     /** @return array{0:int,1:int,2:int} */
