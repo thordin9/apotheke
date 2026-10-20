@@ -93,15 +93,15 @@ final class DsnTranslator
         $password = array_key_exists('password', $params) ? (string)$params['password'] : (string)($db['password'] ?? '');
         unset($params['user'], $params['password']);
 
-        $parts = ['host=' . $host, 'port=' . $port, 'dbname=' . $name];
+        $parts = [$this->libpq('host', $host), $this->libpq('port', $port), $this->libpq('dbname', $name)];
         if ($user !== '') {
-            $parts[] = 'user=' . $user;
+            $parts[] = $this->libpq('user', $user);
         }
         if ($password !== '') {
-            $parts[] = "password='" . str_replace("'", "\\'", $password) . "'";
+            $parts[] = $this->libpq('password', $password);
         }
         foreach ($params as $key => $value) {
-            $parts[] = $key . '=' . $value;
+            $parts[] = $this->libpq($key, $value);
         }
 
         $group = [
@@ -123,6 +123,14 @@ final class DsnTranslator
         }
 
         return $group;
+    }
+
+    /** libpq keyword/value: quote every value, escaping \ first and then '. */
+    private function libpq(string $key, string $value): string
+    {
+        $value = str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
+
+        return $key . "='" . $value . "'";
     }
 
     /** @return array<string,string> */

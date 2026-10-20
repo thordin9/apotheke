@@ -45,9 +45,40 @@ final class DsnTranslatorTest extends TestCase
         $this->assertSame('apotheke', $group['database']);
         $this->assertSame('require', $group['sslmode']);
         $this->assertSame('catalog', $group['schema']);
-        $this->assertStringContainsString('application_name=apotheke', (string)$group['DSN']);
-        $this->assertStringContainsString('host=db.example', (string)$group['DSN']);
+        $this->assertStringContainsString("application_name='apotheke'", (string)$group['DSN']);
+        $this->assertStringContainsString("host='db.example'", (string)$group['DSN']);
         $this->assertStringContainsString("password='secret'", (string)$group['DSN']);
+    }
+
+    public function testPgsqlQuotesEveryValueForLibpq(): void
+    {
+        $passwords = [
+            'a\\b' => "password='a\\\\b'",
+            'trail\\' => "password='trail\\\\'",
+            "o'clock" => "password='o\\'clock'",
+            'has space' => "password='has space'",
+            'a=b' => "password='a=b'",
+        ];
+        foreach ($passwords as $password => $fragment) {
+            $group = $this->translator->fromPdoDsn(
+                'pgsql:host=db.example;port=5432;dbname=apotheke;application_name=my app',
+                ['user' => 'apotheke', 'password' => $password]
+            );
+            $dsn = (string)$group['DSN'];
+            $this->assertStringContainsString($fragment, $dsn, $password);
+            $this->assertStringContainsString("host='db.example'", $dsn);
+            $this->assertStringContainsString("port='5432'", $dsn);
+            $this->assertStringContainsString("dbname='apotheke'", $dsn);
+            $this->assertStringContainsString("user='apotheke'", $dsn);
+            $this->assertStringContainsString("application_name='my app'", $dsn);
+            $this->assertStringNotContainsString('host=db.example', str_replace("host='db.example'", '', $dsn));
+        }
+
+        $user = $this->translator->fromPdoDsn(
+            'pgsql:host=db.example;port=5432;dbname=apotheke',
+            ['user' => "o'brien\\ops", 'password' => 'x']
+        );
+        $this->assertStringContainsString("user='o\\'brien\\\\ops'", (string)$user['DSN']);
     }
 
     public function testPgsqlPasswordFromTheDsnIsQuotedInTheConnectString(): void

@@ -48,6 +48,8 @@ The legacy PHPUnit cells also run the parity recorder (`tests/parity/`). Its fir
 
 The job sets `APOTHEKE_TEST_DB` to `sqlite` or `pgsql`. `tests/lib.php` copies that choice, and the host, database, user, password and schema, into the environment of every server it starts. A CI4 server on the pgsql leg checks that its connection driver is `Postgre` and inserts into `public.apotheke_ci4_pgsql_probe`. The following step runs `scripts/ci4-pgsql-proof.php`, which prints `apotheke_ci4_pgsql_probe rows=N` and fails when the table is missing or the count is 0.
 
+The test job's PostgreSQL password is the test-only value `apotheke\test`. CI4's `/healthz` check on that cell connects with the backslash still in `DB_PASSWORD`.
+
 **deptrac** and the **DI rule** run the tools from `vendor/bin` (then `ci4/vendor/bin`, then `PATH`):
 
 * [`deptrac.yaml`](../deptrac.yaml) lists Core and DevServer. Core depends on nothing. DevServer may depend on Core.

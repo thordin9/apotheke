@@ -81,6 +81,35 @@ final class Ci4HttpTest extends TestCase
         }
     }
 
+    public function testHealthzAcceptsABackslashPasswordOnPostgres(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        if (test_driver() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL leg only');
+        }
+        $password = (string)getenv('TEST_PG_PASSWORD');
+        if (getenv('CI') === 'true' || getenv('CI') === '1') {
+            $this->assertStringContainsString('\\', $password, 'the CI PostgreSQL password must contain a backslash');
+        }
+        if (!str_contains($password, '\\')) {
+            $this->markTestSkipped('PostgreSQL password has no backslash');
+        }
+        $dir = tmpdir('ci4-slash');
+        $server = new Server($dir, [], 'ci4');
+        try {
+            $response = $server->client()->get('/healthz');
+            $this->assertSame(200, $response['status'], (string)@file_get_contents($server->log));
+            $this->assertSame('ok', $response['body']);
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
+    }
+
     public function testBadDsnFailsAtBootAndRedactsThePassword(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {

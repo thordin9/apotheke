@@ -11,6 +11,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, camera originals stay unserved, and a bad DSN or photo storage inside the web root stops boot with the same messages. The dev server router is `ci4/public/router.php`.
 
+### Fixed
+
+- **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects.
+
 ### Maintenance
 
 - **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg runs PHPUnit against the CI4 server. `APOTHEKE_TEST_DB` selects that server's database, and the ci4@pgsql job checks `public.apotheke_ci4_pgsql_probe`. deptrac and the DI rule check the Core and DevServer modules. Releases stay on `main` only.

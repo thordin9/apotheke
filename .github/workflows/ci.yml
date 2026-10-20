@@ -97,7 +97,8 @@ jobs:
         env:
           POSTGRES_DB: apotheke
           POSTGRES_USER: apotheke
-          POSTGRES_PASSWORD: apotheke
+          # Test-only password. The backslash is what the CI4 /healthz check connects with.
+          POSTGRES_PASSWORD: 'apotheke\test'
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
@@ -107,7 +108,7 @@ jobs:
       TEST_PG_PORT: '5432'
       TEST_PG_DB: apotheke
       TEST_PG_USER: apotheke
-      TEST_PG_PASSWORD: apotheke
+      TEST_PG_PASSWORD: 'apotheke\test'
       APOTHEKE_APP: ${{ matrix.app }}
       APOTHEKE_TEST_DB: ${{ matrix.db }}
     steps:
@@ -143,7 +144,8 @@ jobs:
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
         if: steps.suite.outputs.run == 'true'
         run: |
-          export DATA_DIR="$RUNNER_TEMP/cli-data" DB_HOST=127.0.0.1 DB_PASSWORD=apotheke DB_SCHEMA=ci_cli
+          export DATA_DIR="$RUNNER_TEMP/cli-data" DB_HOST=127.0.0.1 DB_SCHEMA=ci_cli
+          export DB_PASSWORD="$TEST_PG_PASSWORD"
           php bin/migrate.php
           php bin/migrate.php | grep -q 'Already up to date'
           php bin/seed.php --demo
