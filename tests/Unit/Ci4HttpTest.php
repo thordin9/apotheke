@@ -9,6 +9,40 @@ require_once dirname(__DIR__) . '/lib.php';
 /** The CI4 dev server against the legacy health contract. */
 final class Ci4HttpTest extends TestCase
 {
+    public function testShippedBootDoesNotWriteThePgsqlProbe(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        if (test_driver() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL leg only');
+        }
+        $shipped = dirname(__DIR__, 2) . '/ci4/public/router.php';
+        $before = $this->probeSnapshot();
+        $plain = tmpdir('ci4-shipped');
+        $marked = tmpdir('ci4-shipped-mark');
+        $without = new Server($plain, ['CI_ENVIRONMENT' => 'production', 'APOTHEKE_TEST_DB' => null], 'ci4', $shipped);
+        $with = new Server($marked, ['CI_ENVIRONMENT' => 'production', 'APOTHEKE_TEST_DB' => 'pgsql'], 'ci4', $shipped);
+        try {
+            foreach ([$without, $with] as $server) {
+                $response = $server->client()->get('/healthz');
+                $this->assertSame(200, $response['status'], (string)@file_get_contents($server->log));
+                $this->assertSame('ok', $response['body']);
+                $this->assertFalse($server->logHas('apotheke_ci4_pgsql_probe'));
+                $this->assertSame($before, $this->probeSnapshot());
+            }
+        } finally {
+            $without->stop();
+            $with->stop();
+            testdb_drop($plain);
+            testdb_drop($marked);
+            rrmdir($plain);
+            rrmdir($marked);
+            @unlink($plain . '.server.log');
+            @unlink($marked . '.server.log');
+        }
+    }
+
     public function testHealthOriginalsCookiesAndRouter(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -217,6 +251,12 @@ final class Ci4HttpTest extends TestCase
 
     private function probeRows(): int
     {
+        return $this->probeSnapshot() ?? 0;
+    }
+
+    /** Null when the probe table does not exist. */
+    private function probeSnapshot(): ?int
+    {
         $env = test_db_env(sys_get_temp_dir());
         $pdo = new PDO(
             "pgsql:host={$env['DB_HOST']};port={$env['DB_PORT']};dbname={$env['DB_NAME']}",
@@ -224,6 +264,10 @@ final class Ci4HttpTest extends TestCase
             $env['DB_PASSWORD'],
             [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
         );
+        $reg = $pdo->query("SELECT to_regclass('public.apotheke_ci4_pgsql_probe')")->fetchColumn();
+        if ($reg === false || $reg === null) {
+            return null;
+        }
 
         return (int)$pdo->query('SELECT count(*) FROM public.apotheke_ci4_pgsql_probe')->fetchColumn();
     }

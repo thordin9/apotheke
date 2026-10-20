@@ -40,6 +40,11 @@ final class Ci4BranchCiTest extends TestCase
         $proof = (string)file_get_contents($this->root() . '/scripts/ci4-pgsql-proof.php');
         $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $proof);
         $this->assertStringContainsString('apotheke_ci4_pgsql_probe rows=', $proof);
+        $wiring = (string)file_get_contents($this->root() . '/ci4/modules/Core/Boot/FrameworkWiring.php');
+        $this->assertStringNotContainsString('apotheke_ci4_pgsql_probe', $wiring);
+        $harness = (string)file_get_contents($this->root() . '/tests/ci4-router.php');
+        $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $harness);
+        $this->assertStringContainsString("ROOT . '/tests/ci4-router.php'", (string)file_get_contents($this->root() . '/tests/lib.php'));
         $this->assertStringContainsString("matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'", $yml);
     }
 
