@@ -2,9 +2,9 @@
 
 *Status: local draft by ITAdvisor. Nothing has been posted, pushed or opened.*
 *Base: **`v2.5.0`** = **`87850e379d85d6690e232ba107373208f9b7ffbd`** (tag object `85a1a3f`, 2026-10-20 10:11 EEST),
-`chore(release): v2.5.0` on top of `5633472` (merge of PR #28; its tree equals PR head `56f5b08`). **Verified:** the diff
-from 56f5b08/5633472 is 3 files: `VERSION`, `CHANGELOG.md`, `README.md` (coverage tables only), as reported by Coder,
-re-checked here, **passed QA's tag check** and the **PM's re-scan of 87850e3** (gitleaks + trufflehog clean, production
+`chore(release): v2.5.0` on top of `5633472` (merge of PR #28; its tree equals PR head `56f5b08`). **The v2.5.0 tag check is verified** (QA PASS at 10:15 EEST, 87850e3, only VERSION, CHANGELOG and README coverage tables changed). The diff
+from 56f5b08/5633472 is those files (`VERSION`, `CHANGELOG.md`, `README.md`), as reported by Coder,
+re-checked here, together with the **PM's re-scan of 87850e3** (gitleaks + trufflehog clean, production
 hostname 0 hits). Every code reference in this plan holds for v2.5.0 unchanged.*
 *Rev. 1: 56baf17 (v2.4.1). Rev. 2: 5633472. Rev. 3: v2.5.0 (87850e3). The changelog is at the end of this file.*
 *Target: **CodeIgniter 4.7.5** (2026-10-09; Packagist: `php ^8.2`, `ext-intl`, `ext-mbstring`,
@@ -55,7 +55,7 @@ These decisions are reflected in the body. §8 lists what is still open.
    breakage separately from the port. **Parity compares legacy@8.4 with CI4@8.4**, so 8.4 deprecations are never counted
    as port differences. **Legacy@8.3**, the shipped 2.5.x image, stays the reference for upgrade and rollback.
 7. **Parity target = main at v2.5.0 plus the L-4 patch** (Coder; Imagick+libheif in Docker, N-6, N-7, N-8). The freeze
-   starts when that patch lands. Known legacy quirks (N-2, L-2, N-4, I-3) are ported **as they are** and fixed after the
+   starts when that patch lands. Known legacy quirks (N-2, QA L-2, N-4, I-3) are ported **as they are** and fixed after the
    cutover (§5.2, R12).
 8. **Autofill image size** is what goes out: the long edge is **min(model image size, 1600) px**. Today that is
    **1024 px**, because the Worker's `/v1/info` lists no `image_sizes` (QA I-1). The 1600 cap applies only when a service
@@ -253,7 +253,7 @@ is used **unchanged** by the PDO runner.
   6. golden tests: each `LegacyFunctions` function's output equals the legacy function's over a corpus
      (Greek/Latin folding, natkey numbers, settings defaults under different env/config).
 * `apotheke:migrate` / `bin/migrate.php` give the same output as legacy (golden CLI test).
-* **No 0026+ on 3.0.x unless it is backported to 2.5.x** during the 90-day support window (L-2), so a rollback from
+* **No 0026+ on 3.0.x unless it is backported to 2.5.x** during the 90-day support window (PM L-2), so a rollback from
   3.0.x to 2.5.x never meets an unknown schema. After the window, new migrations land on main in the same format.
 
 ### 3.5 Storage contract outside SQL
@@ -275,7 +275,7 @@ is used **unchanged** by the PDO runner.
    `/data`.
 2. Start the 3.0.0 image. Check that `/healthz` is 200, `bin/migrate.php --status` shows nothing pending, and
    `docker-checks.sh` shows `/originals` 404 ×3. Users sign in again.
-3. **Rollback A:** the 2.5.x image (**PHP 8.3, the reference**) on the same `/data`. No data step (L-2 guarantees no
+3. **Rollback A:** the 2.5.x image (**PHP 8.3, the reference**) on the same `/data`. No data step (PM L-2 guarantees no
    unknown migration).
 4. **Rollback B:** restore the snapshot or dump, or `bin/restore.php pre-3.0.zip --yes` on 2.5.x.
 5. CI job "upgrade-rollback": **legacy@8.3 (2.5.x image) → CI4@8.4 → legacy@8.3**, both drivers, demo data with
@@ -299,18 +299,20 @@ at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 
 ### 4.2 PR list
 
+19 CI4 PRs (1–10, 11a, 11b, 12–18), plus the main-side `release/2.5` PR and L-4.
+
 | # | PR | Scope | Acceptance criteria |
 |---|---|---|---|
 | 1 | `docs!: allow CodeIgniter 4 (AGENTS.md, README)` — **first** | rule change in `AGENTS.md`, README requirements, `docs/contributing.md`; ADR-001 (CI4, side by side, no schema change, Docker-only, re-login, PHP 8.4) | wording matches Stathis's decision; link check green |
-| 2 | `ci(ci4): branch wiring, PHP 8.4` | `ci.yml` push trigger adds `feature/ci4`; matrix `app: [legacy, ci4]` × `php: 8.4` (+ legacy@8.3 job kept for the upgrade/rollback reference); deptrac + DI rule jobs (empty config); release.yml untouched | CI runs on PRs into and pushes to the branch; nothing is released from it |
-| 3 | `test: legacy suite on PHP 8.4; parity recorder + allowlist` | run all legacy suites (lint, PHPUnit, HTTP, Playwright, mobile, Docker smoke on a `php:8.4` test image) on 8.4; fix 8.4 breakage in **separate `fix(php84)` commits** (8.3-compatible, no behaviour change); add `tests/parity/` recorder with the first steps (install, healthz, settings) and `tests/parity/allowlist.yml` pre-filled with N-2, L-2, N-4, I-3 (§5.2) (M-6) | legacy@8.4 passes everything legacy@8.3 passes; the 8.3↔8.4 legacy diff is recorded and explained; the recorder runs legacy@8.4 vs legacy@8.4 with zero diffs |
+| 2 | `ci(ci4): branch wiring, PHP 8.4` | `ci.yml` push trigger adds `feature/ci4`; PR 2 runs only the CI4 leg (PHP 8.4) plus legacy@8.3 (the upgrade/rollback reference); the legacy@8.4 runs move to PR 3; deptrac + DI rule jobs (empty config); release.yml untouched | CI runs on PRs into and pushes to the branch; nothing is released from it |
+| 3 | `test: legacy suite on PHP 8.4; parity recorder + allowlist` | legacy@8.4 runs (moved from PR 2): all legacy suites (lint, PHPUnit, HTTP, Playwright, mobile, Docker smoke on a `php:8.4` test image) on 8.4; fix 8.4 breakage in **separate `fix(php84)` commits** (8.3-compatible, no behaviour change); add `tests/parity/` recorder with the first steps (install, healthz, settings) and `tests/parity/allowlist.yml` pre-filled with N-2, QA L-2, N-4, I-3 (§5.2) (M-6) | legacy@8.4 passes everything legacy@8.3 passes; the 8.3↔8.4 legacy diff is recorded and explained; the recorder runs legacy@8.4 vs legacy@8.4 with zero diffs |
 | 4 | `feat(ci4): skeleton + Core` | appstarter 4.7.5, `ApothekeConfig`, **`DsnTranslator`**, `DatabaseFactory`, **`RequestScheme`**, `OriginalsGuard`, security filters, `StoragePreflight`, **DevServer router**, `/healthz`, `/health` | endpoints byte-identical; `/originals` ×3 → 404; refusal cases incl. symlink (generic page N-6, `error_log` N-7); 0750/0640; DSN table test (sqlite paths, pgsql host/port/dbname/sslmode, bad DSN → boot error); Secure cookie matrix (direct HTTP/HTTPS, proxy header with trust on/off, comma list); router rejects `..`, `*.php`, serves assets; `composer audit` clean |
 | 5 | `feat(ci4): Migrations module (PDO runner + LegacyFunctions)` | `PdoMigrationRunner`, `LegacyFunctions.php`, `apotheke:migrate`, `bin/migrate.php` | **all six tests in §3.4**, under 8.4 on SQLite and PG |
 | 6 | `feat(ci4): settings, branding, settings CLI` | SettingsService, Control Panel, export/import, branding, `SettingsCommand` | 62 keys validate identically; export identical; sanitizer corpus; **CLI goldens: all 19 forms + 4 error paths, comparing argv → stdout, stderr and exit code between legacy and CI4** (and `migrate`, `seed`, `backup`, `restore` goldens added in their PRs) (M-3) |
 | 7 | `feat(ci4): auth, CSRF, roles` | sessions (fresh), Csrf 419, Permission filter, login/register/account, users/roles, rate limits | specs `auth`, `roles`, `users`; permission matrix identical; an old cookie gets a clean sign-in page |
 | 8 | `feat(ci4): layout, taxonomy, notes` | layout/menu/theme/errors; locations/categories/tags; **Notes module** | `manage`, `locations-nested`, `theme`, `errors` specs; Markdown golden corpus equals `md_render` (incl. links, XSS cases, 20000 cap) |
 | 9 | `feat(ci4): catalog list, search, stats, favourites` | ListQuery, search engines, stats, saved filters, **Favourites module** | `list`, `search`, `saved-filters`, `favourites`, `value` specs; search corpus identical on both DBs |
-| 10 | `feat(ci4): media storage (originals + served copy)` | OriginalStore, ServedImageWriter, Heic/placeholder, ImageStore, `/media`, `MAX_FILE_SIZE` | byte-identical originals (JPEG/PNG/WebP/GIF/HEIC); served ≤ `image_full_max` (1600), q82, stripped; thumb ≤480; HEIC → Imagick JPEG or placeholder; only served names reach views/labels/CSV/API; L-2 behaviour identical (allowlisted); `originals.spec.ts`, `OriginalsTest` |
+| 10 | `feat(ci4): media storage (originals + served copy)` | OriginalStore, ServedImageWriter, Heic/placeholder, ImageStore, `/media`, `MAX_FILE_SIZE` | byte-identical originals (JPEG/PNG/WebP/GIF/HEIC); served ≤ `image_full_max` (1600), q82, stripped; thumb ≤480; HEIC → Imagick JPEG or placeholder; only served names reach views/labels/CSV/API; QA L-2 behaviour identical (allowlisted); `originals.spec.ts`, `OriginalsTest` |
 | 11a | `feat(ci4): item form, save, photos, undo, activity` (rev-2 PR 10, part a) | item view/form/save; photo add/order/cover/delete/edit; undo; **ActivityController**; browser upload rule + notice | delete and replace remove original + map + served + thumb, released at the next undo prune exactly like legacy (**N-4**, allowlisted as identical); edit gives the new version its own original copy, while autofill still analyses the unedited original (**I-3**, identical); `/activity` paging + deleted-item fallback identical; specs `add`, `item`, `photos`, `undo`, `history` |
 | 11b | `feat(ci4): bulk, merge, duplicate, quantity, attachments` (rev-2 PR 10, part b) | **BulkMerge module** (bulk, merge, duplicate, qty), attachments | duplicate copies originals; bulk delete honours undo; specs `bulk`, `merge`, `duplicate`, `stock`, `attachments`; DB-diff parity steps |
 | 12 | **autofill client PR** `feat(ci4): autofill client` | AnalysisCopyBuilder, TempFile, ResponseClassifier, client, `/autofill/suggest`, settings test/photo test/token | the matrix in §4.3; `integration_autofill.php` unchanged and green; `autofill-*` specs; no token in logs/HTML/JSON; **live check 1 (≤25 Neurons)** per §4.4 with usage posted |
@@ -362,7 +364,7 @@ only in QA's private config), stops at the cap, and QA **posts the Neuron usage*
     commit types and finds the last tag with `git describe`, which on `release/2.5` resolves to `v2.5.x`). A `feat` on
     that branch fails the run;
   - add a `docs/releasing.md` section covering backport flow (fix on main or on the branch, cherry-pick with `-x`),
-    security-only scope, the 90-day end date, and that migrations must be backported per L-2.
+    security-only scope, the 90-day end date, and that migrations must be backported per PM L-2.
 * The gates on `release/2.5` PRs are the same four.
 
 ### 4.6 Keeping parity with main; freeze
@@ -407,7 +409,7 @@ clear before PR 16.
   | Id | Legacy behaviour kept as is | Parity expectation |
   |---|---|---|
   | N-2 | Imagick build: a corrupt JPEG that GD rejects is still analysed as a stripped recovered re-encode | identical to legacy (original never sent) |
-  | L-2 | broken JPEG or >60 MP → 422, item not saved; broken HEIC → saved with placeholder | identical to legacy |
+  | QA L-2 | broken JPEG or >60 MP → 422, item not saved; broken HEIC → saved with placeholder | identical to legacy |
   | N-4 | a deleted item's originals stay on disk until the next undoable action prunes the token | identical to legacy |
   | I-3 | edits apply to the served copy; autofill analyses the unedited original | identical to legacy |
 
@@ -437,7 +439,7 @@ upload rejection corpus; token-leak grep; gitleaks; `composer audit`.
 | `AGENTS.md`, `README.md`, `docs/contributing.md` | **PR 1**: rule change; module and dependency rules (graph, constructor injection) |
 | `docs/ci4/PLAN.md`, `docs/ci4/adr/*` | this plan; ADRs (framework, layout + deptrac graph, PDO runner + LegacyFunctions, sessions, CSRF, storage contract, PHP 8.4, release/2.5) |
 | `docs/architecture.md` | CI4 request flow, module map, Media storage, Autofill pipeline, Migrations module |
-| `docs/database.md` | same schema; storage outside the DB; LegacyFunctions; the L-2 migration rule |
+| `docs/database.md` | same schema; storage outside the DB; LegacyFunctions; the PM L-2 migration rule |
 | `docs/getting-started.md`, `docs/deployment-and-operations.md` | Docker-only; 3.0 upgrade guide with §3.6, re-login, `ORIGINALS_DIR` rules, PHP 8.4 image |
 | `docs/configuration.md` | same env vars (incl. `DB_DSN` forms supported by the translator, `ORIGINALS_DIR`, autofill knobs), `trust_proxy` behaviour, `CI_ENVIRONMENT` |
 | `docs/releasing.md` | `release/2.5` flow, patch-only guard, 90-day window (§4.5) |
@@ -463,9 +465,9 @@ upload rejection corpus; token-leak grep; gitleaks; `composer audit`.
 | R9 | Performance (framework boot, Imagick) | OPcache + classmap; `/media` without session; p95 budget |
 | R10 | Image size | **~60 MB growth accepted (PM)**; multi-stage build; the cutover PR records before (2.5.x+L-4) and after |
 | R11 | Re-login surprises users | release notes, upgrade guide, clean sign-in for old cookies |
-| R12 | Scope creep / branch rot; legacy quirks | parity first; quirks (N-2, L-2, N-4, I-3) ported identically and **fixed in follow-ups after 3.0.0**; rehearsal merge in a throwaway clone |
+| R12 | Scope creep / branch rot; legacy quirks | parity first; quirks (N-2, QA L-2, N-4, I-3) ported identically and **fixed in follow-ups after 3.0.0**; rehearsal merge in a throwaway clone |
 | R13 | **PHP 8.4 deprecations/behaviour** mistaken for port bugs | PR 3 runs legacy on 8.4 first; parity is legacy@8.4 vs CI4@8.4; legacy@8.3 only for upgrade/rollback |
-| R14 | Two maintained lines (2.5.x and 3.0.x) diverge | `release/2.5` security-only, patch-only guard, 90-day end date, L-2 migration rule |
+| R14 | Two maintained lines (2.5.x and 3.0.x) diverge | `release/2.5` security-only, patch-only guard, 90-day end date, PM L-2 migration rule |
 | R15 | Module coupling creeps back | deptrac graph + DI rule in CI (L-1) |
 
 ---
@@ -479,6 +481,8 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
 
 ## Changelog of this plan
 
+* **Reviewer fixes (2026-10-20):** (L-a) 19 CI4 PRs (1–10, 11a, 11b, 12–18), plus the main-side `release/2.5` PR and L-4; (L-b) PR 2 runs only the CI4 leg plus legacy@8.3, and the legacy@8.4 runs move to PR 3; (QA) "PM L-2" is the migration-backport rule (§3.4, §6, R14) and "QA L-2" is the broken-JPEG/over-60-MP 422 quirk (allowlist, R12, PR 10); the base note says the v2.5.0 tag check is verified (QA PASS at 10:15 EEST, 87850e3, only VERSION, CHANGELOG and README coverage tables changed).
+
 **rev. 3 (2026-10-20, base v2.5.0 = 87850e3, verified by QA's tag check and the PM's re-scan)**
 * Re-based on the v2.5.0 tag: the diff from 5633472 is VERSION, CHANGELOG.md, README coverage tables only, so no code reference changed.
 * Folded the PM decisions into the body and replaced the appended section with a **decisions log**, including
@@ -490,16 +494,16 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
   SQLite and PG**. Also: PDO closed before SQLite3 opens, concurrent mixed-connection migration (WAL / advisory lock),
   and goldens.
 * **PHP 8.4:** CI4 image and branch CI on 8.4. New **PR 3** runs legacy on 8.4 with separate `fix(php84)` commits.
-  **Parity = legacy@8.4 vs CI4@8.4**; legacy@8.3 = upgrade/rollback reference (M-1). PRs renumbered 1–18 (with 11a/11b).
+  **Parity = legacy@8.4 vs CI4@8.4**; legacy@8.3 = upgrade/rollback reference (M-1). 19 CI4 PRs (1–10, 11a, 11b, 12–18), plus the main-side `release/2.5` PR and L-4.
 * **M-2:** `DsnTranslator`, `RequestScheme` (trust_proxy + X-Forwarded-Proto, not proxyIPs), **Notes** module,
   **ActivityController**, **DevServer** router. **M-3:** `bin/settings.php` counted at **11 commands / 19 forms** + error
   paths, with CLI golden tests. **M-4:** `release/2.5` branch + main-side release.yml/ci.yml PR, patch-only guard, docs,
   until 3.0.0 + 90 days. **M-5:** item PR split into 11a/11b; **BulkMerge** and **Favourites** modules. **M-6:** the
   recorder and allowlist arrive in PR 3 and every PR adds steps.
-* **L-1:** deptrac dependency graph + constructor injection (`service()` only in controllers). **L-2:** no 0026+ on 3.0.x
+* **L-1:** deptrac dependency graph + constructor injection (`service()` only in controllers). **PM L-2:** no 0026+ on 3.0.x
   unless backported to 2.5.x within 90 days. **L-3:** unit tests per new service and coverage ≥ legacy per PR.
 * **QA items:** base note rephrased as an expectation; image-size wording = min(model size, 1600) = 1024 px today
-  (I-1), with stub cases for no `image_sizes` → 1024 and no `max_image_bytes` → 983040; matrix row 4 notes N-2; N-2, L-2,
+  (I-1), with stub cases for no `image_sizes` → 1024 and no `max_image_bytes` → 983040; matrix row 4 notes N-2; N-2, QA L-2,
   N-4 and I-3 ported as is and listed in `tests/parity/allowlist.yml`, fixed after cutover (R12).
 * Gates now include the PR's own parity steps, coverage ≥ legacy and the deptrac/DI checks. R10 updated; new R13–R15.
 * Appendix A: #28 is a **merge commit** (two parents), not a squash; `src/autofill.php` = **1,008 lines** (verified);
