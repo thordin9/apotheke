@@ -1031,12 +1031,9 @@ function image_store_heic(string $path, string $name): bool
             $filter = defined('Imagick::FILTER_LANCZOS') ? constant('Imagick::FILTER_LANCZOS') : 1;
             $im->resizeImage(max(1, (int)round($w * $s)), max(1, (int)round($h * $s)), $filter, 1);
         }
-        $im->setImageFormat('jpeg');
-        $im->setImageCompressionQuality((int)setting('jpeg_quality'));
-        $im->stripImage();
-        $blob = $im->getImageBlob();
+        $blob = autofill_imagick_jpeg_blob($im, (int)setting('jpeg_quality'));
         $im->clear();
-        if (!is_string($blob) || !str_starts_with($blob, "\xFF\xD8")) return false;
+        if ($blob === null) return false;
         $gd = @imagecreatefromstring($blob);
         return $gd ? image_write_pair($gd, $name) : false;
     } catch (Throwable) {

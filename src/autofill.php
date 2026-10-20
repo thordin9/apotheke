@@ -493,15 +493,28 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
             $filter = defined('Imagick::FILTER_LANCZOS') ? constant('Imagick::FILTER_LANCZOS') : 1;
             $im->resizeImage($nw, $nh, $filter, 1);
         }
-        $im->setImageFormat('jpeg');
-        $im->setImageCompressionQuality(max(1, min(100, $quality)));
-        $im->stripImage();
-        $out = $im->getImageBlob();
+        $out = autofill_imagick_jpeg_blob($im, $quality);
         $im->clear();
-        return is_string($out) && str_starts_with($out, "\xFF\xD8") ? $out : null;
+        return $out;
     } catch (Throwable) {
         return null;
     }
+}
+
+/**
+ * JPEG bytes from an Imagick image, chroma forced to 4:2:0.
+ * A 4:4:4 source otherwise keeps its sampling factor and the analysis copy overshoots the size budget.
+ * setSamplingFactors() only accepts floats, so it cannot spell 2x2 and is not used.
+ */
+function autofill_imagick_jpeg_blob(Imagick $im, int $quality): ?string
+{
+    $im->setImageFormat('jpeg');
+    $im->setOption('jpeg:sampling-factor', '2x2,1x1,1x1');
+    if (method_exists($im, 'setImageProperty')) $im->setImageProperty('jpeg:sampling-factor', '2x2,1x1,1x1');
+    $im->setImageCompressionQuality(max(1, min(100, $quality)));
+    $im->stripImage();
+    $out = $im->getImageBlob();
+    return is_string($out) && str_starts_with($out, "\xFF\xD8") ? $out : null;
 }
 
 /** multipart/form-data for POST /v1/suggest. The returned body is what curl will send, headers included. */
