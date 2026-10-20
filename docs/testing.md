@@ -18,7 +18,8 @@ KEEP_TEST_DATA=1 php tests/integration.php   # keep the temp data dirs for inspe
 ```
 
 CI runs that suite on legacy@8.3 (the upgrade/rollback reference) and on legacy@8.4, on SQLite and PostgreSQL.
-The ci4 cells run PHPUnit too. `APOTHEKE_APP=ci4` starts `ci4/public/router.php`, and the catalog HTTP suite is
+The ci4 cells run PHPUnit too. `APOTHEKE_APP=ci4` starts `ci4/public/router.php`, and `APOTHEKE_TEST_DB` tells
+`tests/lib.php` which database to pass to those servers. The catalog HTTP suite is
 skipped there until those routes exist. Lint, the headless mobile checks, Playwright and Docker build + smoke also
 run on both PHP 8.3 and PHP 8.4. deptrac and the DI rule check Core and DevServer. See [CI](ci.md#php-84-legs). The
 legacy comparison is [php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).

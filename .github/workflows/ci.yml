@@ -109,6 +109,7 @@ jobs:
       TEST_PG_USER: apotheke
       TEST_PG_PASSWORD: apotheke
       APOTHEKE_APP: ${{ matrix.app }}
+      APOTHEKE_TEST_DB: ${{ matrix.db }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -151,6 +152,9 @@ jobs:
       - name: PHPUnit (unit + HTTP integration)
         if: steps.suite.outputs.run == 'true'
         run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
+      - name: Prove CI4 used PostgreSQL
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
+        run: php scripts/ci4-pgsql-proof.php
       - uses: actions/setup-node@v4
         if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
         with:

@@ -103,7 +103,7 @@ final class Server
         $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M', ...$cov,
                 '-S', "127.0.0.1:$port", '-t', $docroot, $front];
         $harness = $this->app === 'ci4' ? ['APOTHEKE_HARNESS' => '1'] : [];
-        $fullEnv = array_merge(getenv(), ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'], test_db_env($dataDir), $harness, $env);
+        $fullEnv = array_merge(getenv(), test_server_env($dataDir), $harness, $env);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');
         for ($i = 0; $i < 100; $i++) {
@@ -318,11 +318,30 @@ function jpg_file(string $data, string $name = 'photo.jpg', string $type = 'imag
     return ['name' => $name, 'type' => $type, 'data' => $data];
 }
 
-/* ---------- database under test: SQLite (default) or PostgreSQL (TEST_DB_DRIVER=pgsql) ---------- */
+/* ---------- database under test: SQLite (default) or PostgreSQL ---------- */
 
 function test_driver(): string
 {
-    return getenv('TEST_DB_DRIVER') === 'pgsql' ? 'pgsql' : 'sqlite';
+    foreach ([getenv('APOTHEKE_TEST_DB'), getenv('TEST_DB_DRIVER'), getenv('DB_DRIVER')] as $named) {
+        if ($named === 'pgsql' || $named === 'sqlite') return $named;
+    }
+    return 'sqlite';
+}
+
+/**
+ * Env passed to every php -S the harness starts.
+ * APOTHEKE_TEST_DB and the DB_* keys are set here. The child does not
+ * infer its database from whatever the PHPUnit process happened to inherit.
+ *
+ * @param array<string,string> $env
+ * @return array<string,string>
+ */
+function test_server_env(string $dataDir, array $env = []): array
+{
+    $base = ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'];
+    $db = test_db_env($dataDir);
+    $db['APOTHEKE_TEST_DB'] = test_driver();
+    return array_merge($base, $db, $env);
 }
 
 /** Env for the app server: on pgsql every data dir gets its own throwaway schema. */

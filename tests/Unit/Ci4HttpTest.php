@@ -23,12 +23,17 @@ final class Ci4HttpTest extends TestCase
             $this->compareHealth($legacy, $ci4);
             $this->assertTrue($ci4->logHas('apotheke-harness app=ci4'));
             $this->assertFalse($legacy->logHas('apotheke-harness app=ci4'));
-            $pdo = new PDO('sqlite:' . $ci4Dir . '/catalog.sqlite');
-            $this->assertSame('wal', $pdo->query('PRAGMA journal_mode')->fetchColumn());
+            if (test_driver() === 'pgsql') {
+                $this->assertGreaterThan(0, $this->probeRows(), 'CI4 pgsql leg did not write apotheke_ci4_pgsql_probe');
+                $this->cookies($ci4, null);
+            } else {
+                $pdo = new PDO('sqlite:' . $ci4Dir . '/catalog.sqlite');
+                $this->assertSame('wal', $pdo->query('PRAGMA journal_mode')->fetchColumn());
+                $this->cookies($ci4, $pdo);
+            }
             $this->originals($legacy->client(), $ci4->client());
             $this->assertSame(0750, fileperms($ci4Dir . '/originals') & 0777);
             $this->assertSame(0640, fileperms($ci4Dir . '/originals/.htaccess') & 0777);
-            $this->cookies($ci4, $pdo);
             $this->router($ci4, $asset);
             $this->head($ci4);
         } finally {
@@ -133,7 +138,20 @@ final class Ci4HttpTest extends TestCase
         }
     }
 
-    private function cookies(Server $server, PDO $pdo): void
+    private function probeRows(): int
+    {
+        $env = test_db_env(sys_get_temp_dir());
+        $pdo = new PDO(
+            "pgsql:host={$env['DB_HOST']};port={$env['DB_PORT']};dbname={$env['DB_NAME']}",
+            $env['DB_USER'],
+            $env['DB_PASSWORD'],
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        );
+
+        return (int)$pdo->query('SELECT count(*) FROM public.apotheke_ci4_pgsql_probe')->fetchColumn();
+    }
+
+    private function cookies(Server $server, ?PDO $pdo): void
     {
         $plain = $server->client()->get('/');
         $this->assertSame(404, $plain['status']);
@@ -142,6 +160,9 @@ final class Ci4HttpTest extends TestCase
 
         $forwarded = $server->client()->get('/', ['X-Forwarded-Proto: https']);
         $this->assertStringNotContainsString('secure', strtolower($this->cookieLine($forwarded)));
+        if (!$pdo instanceof PDO) {
+            return;
+        }
 
         $pdo->exec('CREATE TABLE settings (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
         $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('trust_proxy', 'true', '2026-01-01')");

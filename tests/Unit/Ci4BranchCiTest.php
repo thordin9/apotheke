@@ -34,6 +34,12 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString("php: '8.3'", $yml);
         $this->assertStringContainsString('db: [sqlite, pgsql]', $yml);
         $this->assertStringContainsString('APOTHEKE_APP: ${{ matrix.app }}', $yml);
+        $this->assertStringContainsString('APOTHEKE_TEST_DB: ${{ matrix.db }}', $yml);
+        $this->assertStringContainsString('php scripts/ci4-pgsql-proof.php', $yml);
+        $this->assertStringContainsString("matrix.app == 'ci4' && matrix.db == 'pgsql'", $yml);
+        $proof = (string)file_get_contents($this->root() . '/scripts/ci4-pgsql-proof.php');
+        $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $proof);
+        $this->assertStringContainsString('apotheke_ci4_pgsql_probe rows=', $proof);
         $this->assertStringContainsString("matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'", $yml);
     }
 
@@ -163,6 +169,52 @@ final class Ci4BranchCiTest extends TestCase
         exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
         $this->assertSame(1, $code);
         $this->assertStringContainsString('does not switch servers on APOTHEKE_APP', (string)file_get_contents($this->stderrFile()));
+    }
+
+    public function testServerEnvPassesApothekeTestDbExplicitly(): void
+    {
+        require_once dirname(__DIR__) . '/lib.php';
+        $keys = ['APOTHEKE_TEST_DB', 'TEST_DB_DRIVER', 'DB_DRIVER', 'TEST_PG_HOST', 'TEST_PG_PORT', 'TEST_PG_DB', 'TEST_PG_USER', 'TEST_PG_PASSWORD'];
+        $prev = [];
+        foreach ($keys as $key) {
+            $prev[$key] = getenv($key);
+        }
+        putenv('APOTHEKE_TEST_DB=pgsql');
+        putenv('TEST_DB_DRIVER=sqlite');
+        putenv('DB_DRIVER=sqlite');
+        putenv('TEST_PG_HOST=10.1.2.3');
+        putenv('TEST_PG_PORT=5432');
+        putenv('TEST_PG_DB=apotheke');
+        putenv('TEST_PG_USER=apotheke');
+        putenv('TEST_PG_PASSWORD=apotheke\\test');
+        try {
+            $env = test_server_env('/tmp/apo-pgsql-leg');
+            $this->assertSame('pgsql', $env['APOTHEKE_TEST_DB']);
+            $this->assertSame('pgsql', $env['DB_DRIVER']);
+            $this->assertSame('10.1.2.3', $env['DB_HOST']);
+            $this->assertSame('5432', $env['DB_PORT']);
+            $this->assertSame('apotheke', $env['DB_NAME']);
+            $this->assertSame('apotheke', $env['DB_USER']);
+            $this->assertSame('apotheke\\test', $env['DB_PASSWORD']);
+            $this->assertNotSame('', $env['DB_SCHEMA']);
+            $this->assertStringStartsWith('t_', $env['DB_SCHEMA']);
+
+            putenv('APOTHEKE_TEST_DB=sqlite');
+            putenv('DB_DRIVER=pgsql');
+            $sqlite = test_server_env('/tmp/apo-sqlite-leg');
+            $this->assertSame('sqlite', $sqlite['APOTHEKE_TEST_DB']);
+            $this->assertSame('sqlite', $sqlite['DB_DRIVER']);
+            $this->assertArrayNotHasKey('DB_SCHEMA', $sqlite);
+            $this->assertArrayNotHasKey('DB_PASSWORD', $sqlite);
+        } finally {
+            foreach ($prev as $key => $value) {
+                if ($value === false) {
+                    putenv($key);
+                } else {
+                    putenv($key . '=' . $value);
+                }
+            }
+        }
     }
 
     public function testCi4LegRunsWhenTheHarnessSelectsCi4(): void
