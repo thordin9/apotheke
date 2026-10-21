@@ -318,6 +318,68 @@ function test_schema(string $dataDir): string
     return 't_' . substr(md5($dataDir), 0, 12);
 }
 
+/** Connection parameters for the test PostgreSQL (admin role). */
+function test_pg_params(): array
+{
+    if (function_exists('db_driver') && db_driver() === 'pgsql') {
+        $c = cfg()['db'];
+        return ['host' => (string)$c['host'], 'port' => (string)$c['port'], 'name' => (string)$c['name'],
+                'user' => (string)$c['user'], 'password' => (string)$c['password']];
+    }
+    if (test_driver() === 'pgsql') {
+        $e = test_db_env('pg-admin');
+        return ['host' => $e['DB_HOST'], 'port' => $e['DB_PORT'], 'name' => $e['DB_NAME'],
+                'user' => $e['DB_USER'], 'password' => $e['DB_PASSWORD']];
+    }
+    $pass = getenv('TEST_PG_PASSWORD');
+    return ['host' => getenv('TEST_PG_HOST') ?: '127.0.0.1', 'port' => getenv('TEST_PG_PORT') ?: '5432',
+            'name' => getenv('TEST_PG_DB') ?: 'apotheke', 'user' => getenv('TEST_PG_USER') ?: 'apotheke',
+            'password' => $pass === false ? 'apotheke' : (string)$pass];
+}
+
+function test_pg_ident(string $name): string
+{
+    if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $name)) {
+        throw new RuntimeException('Refusing an unsafe PostgreSQL identifier.');
+    }
+    return $name;
+}
+
+/** Admin connection to the test PostgreSQL (the role that can create schemas). */
+function test_pg_admin(): PDO
+{
+    $e = test_pg_params();
+    return new PDO("pgsql:host={$e['host']};port={$e['port']};dbname={$e['name']}", $e['user'], $e['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+}
+
+/**
+ * Login role with CONNECT but not CREATE on the database.
+ * When $schema is set, that schema is created and owned by the role.
+ * @return array{user:string,password:string,schema:?string}
+ */
+function test_pg_role_without_create(?string $schema = null): array
+{
+    $admin = test_pg_admin();
+    $user = 'nocreate_' . bin2hex(random_bytes(4));
+    $password = 'secret-' . bin2hex(random_bytes(12));
+    $admin->exec('CREATE ROLE ' . test_pg_ident($user) . ' LOGIN PASSWORD ' . $admin->quote($password) . ' NOSUPERUSER NOCREATEDB NOCREATEROLE');
+    $admin->exec('REVOKE CREATE ON DATABASE ' . test_pg_ident($admin->query('SELECT current_database()')->fetchColumn()) . ' FROM ' . test_pg_ident($user));
+    if ($schema !== null) {
+        $admin->exec('CREATE SCHEMA ' . test_pg_ident($schema) . ' AUTHORIZATION ' . test_pg_ident($user));
+    }
+    return ['user' => $user, 'password' => $password, 'schema' => $schema];
+}
+
+function test_pg_drop_role(string $user, ?string $schema = null): void
+{
+    $admin = test_pg_admin();
+    $user = test_pg_ident($user);
+    $admin->query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = ' . $admin->quote($user) . ' AND pid <> pg_backend_pid()');
+    if ($schema !== null) $admin->exec('DROP SCHEMA IF EXISTS ' . test_pg_ident($schema) . ' CASCADE');
+    $admin->exec('DROP ROLE IF EXISTS ' . $user);
+}
+
 /** PDO to the same database the server for $dataDir uses. */
 function testdb(string $dataDir): PDO
 {

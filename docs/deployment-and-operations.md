@@ -4,6 +4,7 @@
 * [Upgrades](#upgrades)
 * [Behind a web server or reverse proxy](#behind-a-web-server-or-reverse-proxy)
 * [HTTPS](#https)
+* [PostgreSQL role](#postgresql-role)
 * [Security](#security)
 * [Monitoring and logs](#monitoring-and-logs)
 
@@ -152,6 +153,24 @@ Apotheke does not read `X-Forwarded-*` headers. Behind a TLS proxy, therefore:
 Plain HTTP on a trusted LAN works for every feature, including camera uploads. Use HTTPS when the app is reachable
 from outside your network or when you want the `Secure` session cookie. Options for a home network: a reverse proxy with a certificate from your own CA (e.g. Caddy's
 internal CA, trusted on your phones), or a real domain with a DNS-01 certificate. Camera uploads do not need HTTPS.
+
+## PostgreSQL role
+
+The application role does not need CREATE on the database when `DB_SCHEMA` already exists. PostgreSQL checks that
+privilege before it notices that a schema is there, so Apotheke looks the name up in `pg_namespace` and runs
+`CREATE SCHEMA` only when it is missing.
+
+Create the schema as a role that is allowed to, and let the application role own it (or grant USAGE, and CREATE
+on the schema so a later migration can add tables):
+
+```sql
+CREATE ROLE apotheke_app LOGIN PASSWORD '…' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE SCHEMA apotheke AUTHORIZATION apotheke_app;
+```
+
+Then set `DB_USER=apotheke_app` and `DB_SCHEMA=apotheke`. If the schema is missing and this role cannot create
+it, startup fails. The message is in the PHP log (`[apotheke] …`) and on the CLI. It names the schema and does
+not include the password or the DSN. The browser shows the generic error page.
 
 ## Security
 

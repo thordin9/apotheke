@@ -84,6 +84,12 @@ data in `./data/postgres` and has a `pg_isready` health check. The app reaches i
 To use an existing PostgreSQL server instead, set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` (or a
 full `DB_DSN`) and leave the profile off. Photos are always stored in `DATA_DIR`, whichever database you use.
 
+`DB_SCHEMA` is optional. On connect, Apotheke looks that name up in `pg_namespace` and runs `CREATE SCHEMA` only
+when it is missing. A database role does not need CREATE on the database when the schema already exists. Create
+the schema first and grant the role USAGE on it, and CREATE on the schema so migrations can add tables. If the
+schema is missing and the role cannot create it, startup fails with an error that names the schema and does not
+include the password or the DSN.
+
 ## Plain `docker run`
 
 ```bash

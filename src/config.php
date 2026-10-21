@@ -48,7 +48,7 @@ function config_defaults(string $root): array
             'name'        => 'apotheke',
             'user'        => 'apotheke',
             'password'    => '',
-            'schema'      => '',            // pgsql: optional schema (search_path); created if missing
+            'schema'      => '',            // pgsql: optional search_path; CREATE SCHEMA only when missing
         ],
         'uploads' => [
             'max_mb'    => 20,
