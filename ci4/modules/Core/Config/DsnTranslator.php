@@ -31,7 +31,7 @@ final class DsnTranslator
             return $this->pgsql($dsn, $db);
         }
 
-        throw new DsnException($this->bad($dsn));
+        $this->bad($dsn);
     }
 
     /** @param array<string,mixed> $db */
@@ -57,7 +57,7 @@ final class DsnTranslator
     {
         $path = substr($dsn, 7);
         if ($path === '') {
-            throw new DsnException($this->bad($dsn));
+            $this->bad($dsn);
         }
 
         return [
@@ -79,14 +79,14 @@ final class DsnTranslator
     {
         $body = substr($dsn, 6);
         if ($body === '') {
-            throw new DsnException($this->bad($dsn));
+            $this->bad($dsn);
         }
         $params = $this->pairs($body, $dsn);
         $host = (string)($params['host'] ?? '');
         $port = (string)($params['port'] ?? '');
         $name = (string)($params['dbname'] ?? '');
         if ($host === '' || $name === '' || $port === '' || preg_match('/^\d+$/', $port) !== 1) {
-            throw new DsnException($this->bad($dsn));
+            $this->bad($dsn);
         }
         unset($params['host'], $params['port'], $params['dbname']);
         $user = array_key_exists('user', $params) ? (string)$params['user'] : (string)($db['user'] ?? '');
@@ -143,25 +143,53 @@ final class DsnTranslator
             }
             $bits = explode('=', $part, 2);
             if (count($bits) !== 2 || $bits[0] === '') {
-                throw new DsnException($this->bad($dsn));
+                $this->bad($dsn);
             }
             $out[$bits[0]] = $bits[1];
         }
         if ($out === []) {
-            throw new DsnException($this->bad($dsn));
+            $this->bad($dsn);
         }
 
         return $out;
     }
 
-    private function bad(string $dsn): string
+    /** @return never */
+    private function bad(string $dsn): void
     {
-        $safe = preg_replace('/(password=)[^;]*/i', '$1***', $dsn) ?? $dsn;
+        throw new DsnException($dsn);
+    }
 
-        return 'Unsupported database DSN "' . $safe . '". Use sqlite:<path> or pgsql:host=…;port=…;dbname=….';
+    /**
+     * Error-log line. Only driver, host, port and dbname are copied out of the DSN.
+     * A value that does not parse contributes nothing: the line is not a redaction of the raw string.
+     */
+    public static function logLine(string $driver, string $dsn): string
+    {
+        require_once dirname(__DIR__, 4) . '/src/config.php';
+        $parts = ['Database ' . $driver];
+        if (str_starts_with($dsn, 'sqlite:')) {
+            return implode(' ', $parts);
+        }
+        $fields = config_dsn_public_fields($dsn);
+        if (is_array($fields)) {
+            foreach (['host', 'port', 'dbname'] as $key) {
+                if (($fields[$key] ?? '') !== '') {
+                    $parts[] = $key . '=' . $fields[$key];
+                }
+            }
+        }
+
+        return implode(' ', $parts);
     }
 }
 
 final class DsnException extends RuntimeException
 {
+    public const PUBLIC_MESSAGE = 'The database settings could not be used.';
+
+    public function __construct(public readonly string $dsn)
+    {
+        parent::__construct(self::PUBLIC_MESSAGE);
+    }
 }

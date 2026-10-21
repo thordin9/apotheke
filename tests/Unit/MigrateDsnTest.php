@@ -162,8 +162,71 @@ final class MigrateDsnTest extends TestCase
         $this->assertStringNotContainsString('SecretSqliteUser99', $run['out']);
     }
 
-    /** @return array{out:string,err:string,code:int,data:string} */
-    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke'): array
+    public function testCi4MigratePrintsOnlyAllowlistedFields(): void
+    {
+        if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php')) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        foreach (self::passwordLines() as $name => $row) {
+            $dsn = $row[0];
+            $dbPassword = $row[1];
+            $secrets = $row[2];
+            $where = $row[3];
+            $dbUser = $row[4] ?? 'apotheke';
+            $run = $this->migrate($dsn, $dbPassword, 'pgsql', $dbUser, true);
+            $this->assertNotSame(0, $run['code'], $name . $run['out'] . $run['err']);
+            $this->assertSame('Database: pgsql – ' . $where . "\n", $run['out'], $name . $run['err']);
+            foreach ($secrets as $secret) {
+                $this->assertStringNotContainsString($secret, $run['out'] . $run['err'], $name);
+            }
+        }
+    }
+
+    public function testConnectFailureHidesUserAndPasswordWhenExceptionArgsAreVisible(): void
+    {
+        $user = 'zzuser9';
+        $password = 'zzpass9';
+        $legacy = $this->migrate(
+            'pgsql:host=127.0.0.1;port=1;dbname=keepdb;user=zzuser9;password=zzpass9',
+            $password,
+            'pgsql',
+            $user,
+            false,
+            ['zend.exception_ignore_args=0']
+        );
+        $this->assertConnectFailureIsAllowlisted($legacy, $user, $password);
+        if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php')) {
+            return;
+        }
+        $ci4 = $this->migrate(
+            'pgsql:host=127.0.0.1;port=1;dbname=keepdb;user=zzuser9;password=zzpass9',
+            $password,
+            'pgsql',
+            $user,
+            true,
+            ['zend.exception_ignore_args=0']
+        );
+        $this->assertConnectFailureIsAllowlisted($ci4, $user, $password);
+    }
+
+    /** @param array{out:string,err:string,code:int,data:string} $run */
+    private function assertConnectFailureIsAllowlisted(array $run, string $user, string $password): void
+    {
+        $text = $run['out'] . $run['err'];
+        $this->assertNotSame(0, $run['code'], $text);
+        $this->assertStringContainsString('host=127.0.0.1', $text);
+        $this->assertStringContainsString('port=1', $text);
+        $this->assertStringContainsString('dbname=keepdb', $text);
+        $this->assertStringNotContainsString($user, $text);
+        $this->assertStringNotContainsString($password, $text);
+        $this->assertStringNotContainsString('PDO->__construct', $text);
+    }
+
+    /**
+     * @param list<string> $ini
+     * @return array{out:string,err:string,code:int,data:string}
+     */
+    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke', bool $ci4 = false, array $ini = []): array
     {
         $root = dirname(__DIR__, 2);
         $data = sys_get_temp_dir() . '/apotheke-migrate-' . bin2hex(random_bytes(4));
@@ -182,8 +245,16 @@ final class MigrateDsnTest extends TestCase
             'DB_SCHEMA' => 'app',
         ];
         if ($dsn !== null) $env['DB_DSN'] = $dsn;
+        if ($ci4) $env['APOTHEKE_APP'] = 'ci4';
+        $cmd = [PHP_BINARY];
+        foreach ($ini as $setting) {
+            $cmd[] = '-d';
+            $cmd[] = $setting;
+        }
+        $cmd[] = $root . '/bin/migrate.php';
+        $cmd[] = '--status';
         $proc = proc_open(
-            [PHP_BINARY, $root . '/bin/migrate.php', '--status'],
+            $cmd,
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             $root,

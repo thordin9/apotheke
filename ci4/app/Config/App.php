@@ -208,7 +208,16 @@ class App extends BaseConfig
     {
         parent::__construct();
         $config = \Apotheke\Core\Config\ApothekeConfig::fromEnvironment();
-        $group = (new \Apotheke\Core\Config\DsnTranslator())->translate($config->database());
+        try {
+            $group = (new \Apotheke\Core\Config\DsnTranslator())->translate($config->database());
+        } catch (\Apotheke\Core\Config\DsnException $e) {
+            // startup.php already stopped the web request. Spark still has to
+            // reach apotheke:migrate, which prints the banner itself.
+            if (PHP_SAPI !== 'cli') {
+                throw $e;
+            }
+            $group = ['DBDriver' => 'SQLite3', 'database' => ':memory:'];
+        }
         $trust = (new \Apotheke\Core\Http\TrustProxyReader($group))->trusted();
         $base = (new \Apotheke\Core\Http\RequestScheme($trust))->publicBase($_SERVER, $config->publicUrl());
         $this->baseURL = $base . '/';

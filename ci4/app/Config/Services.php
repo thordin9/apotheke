@@ -25,6 +25,17 @@ class Services extends BaseService
             return static::getSharedInstance('apothekeDb');
         }
         $config = \Apotheke\Core\Config\ApothekeConfig::fromEnvironment();
+        $dbConfig = $config->database();
+        $runner = new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations');
+        $pdo = $runner->connect($dbConfig);
+        try {
+            $runner->migrate($pdo, (string)($dbConfig['driver'] ?? ''), [
+                'data_dir' => $config->dataDir(),
+                'seed' => (bool)($config->values()['seed_defaults'] ?? false),
+            ]);
+        } finally {
+            $runner->close($pdo);
+        }
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, new \Apotheke\Core\Config\DsnTranslator());
         $db = \Config\Database::connect();
         $factory->apply($db);

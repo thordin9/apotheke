@@ -16,6 +16,9 @@ parameters:
         - ci4/app/Config/Exceptions.php
         - ci4/app/Config/App.php
         - ci4/public
+    excludePaths:
+        # The shim is the untyped legacy function bodies. Golden tests cover it.
+        - ci4/modules/Migrations/LegacyFunctions.php
     bootstrapFiles:
         - ci4/tools/PhpStan/bootstrap.php
 rules:

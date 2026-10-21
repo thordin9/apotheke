@@ -40,6 +40,7 @@ class Autoload extends AutoloadConfig
     public $psr4 = [
         APP_NAMESPACE => APPPATH,
         'Apotheke' => ROOTPATH . 'modules',
+        'Apotheke\Migrations' => ROOTPATH . 'modules/Migrations',
     ];
 
     /**

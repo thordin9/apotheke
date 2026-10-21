@@ -99,15 +99,19 @@ final class DsnTranslatorTest extends TestCase
         $this->expectBad('pgsql:');
     }
 
-    public function testPasswordIsRedactedInTheBootMessage(): void
+    public function testBootMessageHasNoDsnParts(): void
     {
         try {
             $this->translator->fromPdoDsn('mysql:host=localhost;password=s3cret;dbname=app', []);
             $this->fail('expected DsnException');
         } catch (DsnException $e) {
-            $this->assertStringContainsString('password=***', $e->getMessage());
+            $this->assertSame(DsnException::PUBLIC_MESSAGE, $e->getMessage());
             $this->assertStringNotContainsString('s3cret', $e->getMessage());
-            $this->assertStringContainsString('sqlite:<path>', $e->getMessage());
+            $this->assertStringNotContainsString('localhost', $e->getMessage());
+            $this->assertStringNotContainsString('mysql:', $e->getMessage());
+            $log = DsnTranslator::logLine('pgsql', $e->dsn);
+            $this->assertSame('Database pgsql host=localhost dbname=app', $log);
+            $this->assertStringNotContainsString('s3cret', $log);
         }
     }
 

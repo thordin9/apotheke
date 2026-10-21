@@ -18,8 +18,8 @@ final class FrameworkWiring
         $group = (new DatabaseFactory($config, new DsnTranslator()))->group();
         $database = config(Database::class);
         $database->default = array_merge($database->default, $group);
-        if (($group['DBDriver'] ?? '') === 'SQLite3') {
-            $database->default['schema'] = '';
-        }
+        // Search path is set by DatabaseFactory after a quoted CREATE SCHEMA. CI4 would
+        // otherwise SET the raw name (folded, and before the schema exists).
+        $database->default['schema'] = '';
     }
 }
