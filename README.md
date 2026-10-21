@@ -323,7 +323,7 @@ compose file never wipes a value from `config.php`.
 | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
 | `SQLITE_PATH` | `<DATA_DIR>/catalog.sqlite` | SQLite database file. |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `127.0.0.1` / `5432` / `apotheke` / `apotheke` / *(empty)* | PostgreSQL connection. |
-| `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema (created if missing). |
+| `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema. Created only when it is missing, so a role without CREATE can use one that already exists. |
 | `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. |
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
