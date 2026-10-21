@@ -71,24 +71,24 @@ final class QrCodeTest extends TestCase
 
     public function testJitModeClassification(): void
     {
-        $this->assertTrue(qr_php84_jit_is_tracing('tracing', 0));
-        $this->assertTrue(qr_php84_jit_is_tracing('on', 5));
-        $this->assertTrue(qr_php84_jit_is_tracing('1254', 5));
-        $this->assertTrue(qr_php84_jit_is_tracing('0255', 5));
-        $this->assertTrue(qr_php84_jit_is_tracing('1055', 5));
-        $this->assertTrue(qr_php84_jit_is_tracing('1', 5), '"on" is reported as 1; kind 5 is tracing');
-        $this->assertFalse(qr_php84_jit_is_tracing('function', 0));
-        $this->assertFalse(qr_php84_jit_is_tracing('1235', 3));
-        $this->assertFalse(qr_php84_jit_is_tracing('1205', 0));
-        $this->assertFalse(qr_php84_jit_is_tracing('1215', 1));
-        $this->assertFalse(qr_php84_jit_is_tracing('1225', 2));
-        $this->assertFalse(qr_php84_jit_is_tracing('0205', 0));
+        $this->assertTrue(qr_jit_is_tracing('tracing', 0));
+        $this->assertTrue(qr_jit_is_tracing('on', 5));
+        $this->assertTrue(qr_jit_is_tracing('1254', 5));
+        $this->assertTrue(qr_jit_is_tracing('0255', 5));
+        $this->assertTrue(qr_jit_is_tracing('1055', 5));
+        $this->assertTrue(qr_jit_is_tracing('1', 5), '"on" is reported as 1; kind 5 is tracing');
+        $this->assertFalse(qr_jit_is_tracing('function', 0));
+        $this->assertFalse(qr_jit_is_tracing('1235', 3));
+        $this->assertFalse(qr_jit_is_tracing('1205', 0));
+        $this->assertFalse(qr_jit_is_tracing('1215', 1));
+        $this->assertFalse(qr_jit_is_tracing('1225', 2));
+        $this->assertFalse(qr_jit_is_tracing('0205', 0));
     }
 
     /**
      * Function JIT miscompiles the finder loops, which count up from a negative index.
-     * On PHP 8.2, 8.3 and 8.4 the matrix can be silently wrong; on PHP 8.4 the same mode can hang.
-     * Every function-JIT mode is disabled before the encoder loads. Tracing JIT stays on.
+     * opcache.jit=1235 can emit a wrong matrix on PHP 8.2 and 8.3, and can hang GET /labels on PHP 8.4.
+     * The guard runs on every PHP version. Tracing JIT stays on.
      */
     public function testFunctionJitMatchesInterpreter(): void
     {
