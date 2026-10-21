@@ -88,7 +88,7 @@ final class QrCodeTest extends TestCase
     /**
      * Function JIT miscompiles the finder loops, which count up from a negative index.
      * opcache.jit=1235 can emit a wrong matrix on PHP 8.2 and 8.3, and can hang GET /labels on PHP 8.4.
-     * The guard runs on every PHP version. Tracing JIT stays on.
+     * Every function-JIT mode is disabled before the encoder loads. Tracing JIT stays on.
      */
     public function testFunctionJitMatchesInterpreter(): void
     {
