@@ -323,7 +323,7 @@ compose file never wipes a value from `config.php`.
 | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
 | `SQLITE_PATH` | `<DATA_DIR>/catalog.sqlite` | SQLite database file. |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `127.0.0.1` / `5432` / `apotheke` / `apotheke` / *(empty)* | PostgreSQL connection. |
-| `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema (created if missing). |
+| `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema. Created only when it is missing, so a role without CREATE can use one that already exists. |
 | `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. |
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
@@ -424,12 +424,12 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 10.4 % | 99.8 % | 99.6 % |
+| Views (HTML) | 10.4 % | 99.4 % | 99.3 % |
 | Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 84.7 % | 90.3 % | 97.7 % |
-| Bootstrap, config, QR, seed | 69.0 % | 87.0 % | 90.0 % |
-| **All PHP** (6600 lines) | **63.2 %** | **93.4 %** | **96.3 %** |
+| Database, migrations, legacy | 85.5 % | 86.7 % | 97.8 % |
+| Bootstrap, config, QR, seed | 60.6 % | 76.1 % | 79.1 % |
+| **All PHP** (6689 lines) | **62.5 %** | **92.1 %** | **95.3 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

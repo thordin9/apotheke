@@ -1,0 +1,9 @@
+# gitleaks generic-api-key flags password=SecretMissingEq99 in
+# tests/Unit/MigrateDsnTest.php. That value is a migrate-banner fixture, not a
+# credential, and the commit that added it stays in history.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Migrate DSN test placeholder flagged by generic-api-key."
+regexes = ['''SecretMissingEq99''']

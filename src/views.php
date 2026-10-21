@@ -1346,13 +1346,22 @@ function view_account(array $me, ?string $error, ?string $toast): void
 function view_error(int $code, string $msg): void
 {
     http_response_code($code);
-    page_start('Error');
-    ?>
+    try {
+        page_start('Error');
+        ?>
 <main class="wrap narrow login">
   <div class="empty"><?= icon('box') ?><p><?= h($msg) ?></p><a class="btn btn-primary" href="/">Back to catalog</a></div>
 </main>
 <?php
-    page_end();
+        page_end();
+    } catch (Throwable $e) {
+        // The usual page reads settings. A failure while connecting has nothing to read,
+        // so fall back to a plain page. The message is the generic one; details stay in the log.
+        error_log('[apotheke] error page: ' . $e->getMessage());
+        if (!headers_sent()) header('Content-Type: text/html; charset=UTF-8');
+        echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Error</title></head><body><p>'
+            . h($msg) . '</p></body></html>';
+    }
 }
 
 /* ---------- QR labels ---------- */

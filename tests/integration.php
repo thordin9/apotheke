@@ -13,9 +13,11 @@ foreach (['pdo_sqlite', 'gd', 'mbstring'] as $ext) {
 }
 
 $tmpDirs = [];
-register_shutdown_function(function () use (&$tmpDirs) {
+$pgRoles = [];
+register_shutdown_function(function () use (&$tmpDirs, &$pgRoles) {
     if (getenv('KEEP_TEST_DATA')) return;
     foreach ($tmpDirs as $d) { rrmdir($d); @unlink($d . '.server.log'); try { testdb_drop($d); } catch (Throwable) {} }
+    foreach ($pgRoles as $role) { try { test_pg_drop_role($role['user'], $role['schema']); } catch (Throwable) {} }
 });
 $newDir = function (string $p) use (&$tmpDirs): string { return $tmpDirs[] = tmpdir('apotheke-' . $p); };
 $savedId = fn(array $r): int => preg_match('/saved=(\d+)/', (string)($r['json']['redirect'] ?? $r['headers']['location'] ?? ''), $m) ? (int)$m[1] : 0;
@@ -2253,6 +2255,53 @@ T::eq(404, $sk->get("/stocktake/$sid/finish")['status'], 'GET on an action → 4
 $s4 = (int)substr($sk->post('/stocktake', ['csrf' => $skt, 'location_id' => $attic])['headers']['location'], 11);
 T::ok(str_contains($sk->get('/backup')['body'], '<th scope="row">Stocktakes</th><td>4</td>'), 'backup counts stocktakes');
 $sx->stop();
+
+/* ======================================================================= */
+if (test_driver() !== 'pgsql') {
+    fwrite(STDOUT, "\n  - skipped PostgreSQL schema privilege tests (driver " . test_driver() . ")\n");
+} else {
+    T::section('PostgreSQL schema without CREATE (#41)');
+    $dir = $newDir('nocreate');
+    $schema = test_schema($dir);
+    $role = test_pg_role_without_create($schema);
+    $pgRoles[] = ['user' => $role['user'], 'schema' => $schema];
+    $admin = test_pg_admin();
+    $canCreate = $admin->query('SELECT has_database_privilege(' . $admin->quote($role['user']) . ", current_database(), 'CREATE')")->fetchColumn();
+    T::ok($canCreate === false || $canCreate === 'f' || $canCreate === '0' || $canCreate === 0, 'role has no CREATE on the database');
+    $probe = new PDO('pgsql:host=' . test_pg_params()['host'] . ';port=' . test_pg_params()['port'] . ';dbname=' . test_pg_params()['name'],
+        $role['user'], $role['password'], [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    $denied = false;
+    try {
+        $probe->exec('CREATE SCHEMA IF NOT EXISTS ' . test_pg_ident($schema));
+    } catch (PDOException $e) {
+        $denied = $e->getCode() === '42501';
+    }
+    $probe = null;
+    T::ok($denied, 'CREATE SCHEMA IF NOT EXISTS is denied even though the schema exists');
+    $srv = new Server($dir, ['DB_USER' => $role['user'], 'DB_PASSWORD' => $role['password'], 'DB_SCHEMA' => $schema]);
+    $r = $srv->client()->get('/healthz');
+    T::eq(200, $r['status'], 'existing schema, role without CREATE → GET /healthz 200');
+    T::eq('ok', $r['body'], '/healthz body is ok for a role without CREATE');
+    T::ok(!str_contains($r['body'], $role['password']) && !str_contains($r['body'], 'pgsql:'), 'healthz does not leak the password or DSN');
+    $home = $srv->client()->get('/');
+    T::eq(200, $home['status'], 'list page renders for a role without CREATE');
+    $srv->stop();
+
+    $missing = 'm_' . bin2hex(random_bytes(4));
+    $dir2 = $newDir('noschema');
+    $srv2 = new Server($dir2, ['DB_USER' => $role['user'], 'DB_PASSWORD' => $role['password'], 'DB_SCHEMA' => $missing]);
+    $bad = $srv2->client()->get('/');
+    T::eq(500, $bad['status'], 'missing schema, role without CREATE → 500');
+    T::ok(str_contains($bad['body'], 'Something went wrong on the server.'), 'browser gets the generic error page');
+    $hz = $srv2->client()->get('/healthz');
+    T::eq(500, $hz['status'], 'GET /healthz is 500 when the schema is missing');
+    $log = is_file($srv2->log) ? (string)file_get_contents($srv2->log) : '';
+    $shown = $bad['body'] . $hz['body'] . $log;
+    T::ok(str_contains($log, $missing) && str_contains($log, 'does not exist') && str_contains($log, 'cannot create'), 'log names the missing schema and says it cannot be created');
+    T::ok(!str_contains($shown, $role['password']), 'error does not contain the password');
+    T::ok(!str_contains($shown, 'pgsql:'), 'error does not contain the DSN');
+    $srv2->stop();
+}
 
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 
