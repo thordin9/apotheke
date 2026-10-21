@@ -15,8 +15,7 @@ require dirname(__DIR__) . '/src/items.php';
 
 $c = cfg();
 $driver = $c['db']['driver'];
-$where = $driver === 'sqlite' ? $c['db']['sqlite_path'] : config_dsn($c['db']) . ($c['db']['schema'] !== '' ? ' (schema ' . $c['db']['schema'] . ')' : '');
-echo "Database: $driver – $where\n";
+echo 'Database: ' . $driver . ' – ' . config_migrate_where($c['db']) . "\n";
 $pdo = db_connect($c['db']);
 
 if (in_array('--status', $argv, true)) {
