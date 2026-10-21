@@ -5,79 +5,165 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * bin/migrate.php prints the database it is about to open. A password in
- * DB_DSN or DB_PASSWORD must not be on that line or in the connection error.
+ * bin/migrate.php prints only the driver, host, port, dbname, and DB_SCHEMA.
+ * The user and the password are never on that line. A DSN that does not parse
+ * is `<unparsed dsn>` and nothing more. The line is printed before connecting.
  */
 final class MigrateDsnTest extends TestCase
 {
-    /** @return array<string, array{0:?string,1:string,2:list<string>,3:list<string>}> */
+    /** @return array<string, array{0:?string,1:string,2:list<string>,3:string,4?:string}> */
     public static function passwordLines(): array
     {
-        $later = ['dbname=keepdb', 'sslmode=keepmode', '(schema app)'];
+        $where = 'host=127.0.0.1 port=1 dbname=keepdb (schema app)';
         return [
             'lower-case key' => [
                 'pgsql:host=127.0.0.1;port=1;password=SecretLower99;dbname=keepdb;sslmode=keepmode',
                 'SecretEnv99',
                 ['SecretLower99', 'SecretEnv99'],
-                $later,
+                $where,
             ],
             'upper-case key' => [
-                'pgsql:host=127.0.0.1;port=1;PASSWORD=SecretUpper99;dbname=keepdb;sslmode=keepmode',
+                'pgsql:HOST=127.0.0.1;PORT=1;PASSWORD=SecretUpper99;DBNAME=keepdb',
                 'SecretEnv99',
                 ['SecretUpper99', 'SecretEnv99'],
-                $later,
+                $where,
             ],
             'mixed-case key' => [
-                'pgsql:host=127.0.0.1;port=1;Password=SecretMixed99;dbname=keepdb;sslmode=keepmode',
+                'pgsql:Host=127.0.0.1;Port=1;Password=SecretMixed99;DbName=keepdb',
                 'SecretEnv99',
                 ['SecretMixed99', 'SecretEnv99'],
-                $later,
+                $where,
             ],
             'quoted value with spaces' => [
                 "pgsql:host=127.0.0.1;port=1;password='alpha SecretSpace99' dbname=keepdb sslmode=keepmode",
                 'SecretEnv99',
-                ['SecretSpace99', 'SecretEnv99'],
-                $later,
+                ['SecretSpace99', 'SecretEnv99', 'alpha'],
+                $where,
             ],
             'quoted value with escaped quote' => [
                 "pgsql:host=127.0.0.1;port=1;password='it\\'s a;SecretQuote99';dbname=keepdb;sslmode=keepmode",
                 'SecretEnv99',
                 ['SecretQuote99', 'SecretEnv99'],
-                $later,
+                $where,
             ],
             'password is not the last key' => [
                 'pgsql:host=127.0.0.1;port=1;password=SecretMid99;dbname=keepdb;sslmode=keepmode',
                 'SecretEnv99',
                 ['SecretMid99', 'SecretEnv99'],
-                ['host=127.0.0.1', 'dbname=keepdb', 'sslmode=keepmode', '(schema app)'],
+                $where,
             ],
             'DB_PASSWORD only' => [
                 null,
                 'SecretEnvOnly99',
                 ['SecretEnvOnly99'],
-                ['dbname=keepdb', '(schema app)'],
+                $where,
+            ],
+            'space after equals' => [
+                'pgsql:host=127.0.0.1;port=1;password= SecretAfterEq99;dbname=keepdb',
+                'SecretEnv99',
+                ['SecretAfterEq99', 'SecretEnv99'],
+                $where,
+            ],
+            'space before equals' => [
+                'pgsql:host=127.0.0.1;port=1;password =SecretBeforeEq99;dbname=keepdb',
+                'SecretEnv99',
+                ['SecretBeforeEq99', 'SecretEnv99'],
+                $where,
+            ],
+            'unquoted escaped space in a password' => [
+                "pgsql:host=127.0.0.1;port=1;password=SecretLead\\ Hidden99;dbname=keepdb",
+                'SecretEnv99',
+                ['SecretLead', 'Hidden99', 'SecretEnv99'],
+                $where,
+            ],
+            'quoted dbname is one value' => [
+                "pgsql:host=127.0.0.1;port=1;dbname='keepdb password=SecretEmbed99'",
+                'SecretEnv99',
+                ['SecretEnv99'],
+                'host=127.0.0.1 port=1 dbname=keepdb password=SecretEmbed99 (schema app)',
+            ],
+            'escaped space is part of the host value' => [
+                "pgsql:host=h\\ password=SecretEscHost99;port=1;dbname=keepdb",
+                'SecretEnv99',
+                ['SecretEnv99'],
+                'host=h password=SecretEscHost99 port=1 dbname=keepdb (schema app)',
+            ],
+            'password value is not copied into a field' => [
+                'pgsql:password=SecretAsDb99;host=127.0.0.1;port=1',
+                'SecretEnv99',
+                ['SecretAsDb99', 'SecretEnv99'],
+                'host=127.0.0.1 port=1 (schema app)',
+            ],
+            'duplicate keys keep the last allowlisted value' => [
+                'pgsql:host=SecretHost99;host=127.0.0.1;port=9;port=1;dbname=SecretDb99;dbname=keepdb;password=SecretFirst99;password=SecretLater99',
+                'SecretEnv99',
+                ['SecretHost99', 'SecretDb99', 'SecretFirst99', 'SecretLater99', 'SecretEnv99'],
+                $where,
+            ],
+            'uri userinfo' => [
+                'postgresql://SecretUser99:SecretUriPw99@127.0.0.1:1/keepdb',
+                'SecretEnv99',
+                ['SecretUser99', 'SecretUriPw99', 'SecretEnv99'],
+                $where,
+            ],
+            'uri query password' => [
+                'postgresql://127.0.0.1:1/keepdb?password=SecretQuery99&user=SecretQueryUser99',
+                'SecretEnv99',
+                ['SecretQuery99', 'SecretQueryUser99', 'SecretEnv99'],
+                $where,
+            ],
+            'user is never printed' => [
+                'pgsql:host=127.0.0.1;port=1;user=SecretDsnUser99;password=SecretPw99;dbname=keepdb',
+                'SecretEnv99',
+                ['SecretDsnUser99', 'SecretPw99', 'SecretEnv99', 'SecretCfgUser99'],
+                $where,
+                'SecretCfgUser99',
+            ],
+            'unterminated quote' => [
+                "pgsql:host=127.0.0.1;dbname='SecretUnterm99",
+                'SecretEnv99',
+                ['SecretUnterm99', '127.0.0.1', 'SecretEnv99'],
+                '<unparsed dsn>',
+            ],
+            'missing equals' => [
+                'pgsql:host=127.0.0.1;dbname;password=SecretMissingEq99',
+                'SecretEnv99',
+                ['SecretMissingEq99', '127.0.0.1', 'SecretEnv99'],
+                '<unparsed dsn>',
+            ],
+            'junk dsn' => [
+                'not a dsn SecretJunk99',
+                'SecretEnv99',
+                ['SecretJunk99', 'SecretEnv99'],
+                '<unparsed dsn>',
             ],
         ];
     }
 
-    /** @param list<string> $secrets @param list<string> $keep */
+    /** @param list<string> $secrets */
     #[DataProvider('passwordLines')]
-    public function testMigratePrintsNoPassword(?string $dsn, string $dbPassword, array $secrets, array $keep): void
+    public function testMigratePrintsOnlyAllowlistedFields(?string $dsn, string $dbPassword, array $secrets, string $where, string $dbUser = 'apotheke'): void
     {
-        $run = $this->migrate($dsn, $dbPassword);
-        $all = $run['out'] . $run['err'];
-        $this->assertNotSame(0, $run['code'], $all);
+        $run = $this->migrate($dsn, $dbPassword, 'pgsql', $dbUser);
+        $this->assertNotSame(0, $run['code'], $run['out'] . $run['err']);
+        $this->assertSame('Database: pgsql – ' . $where . "\n", $run['out']);
         foreach ($secrets as $secret) {
-            $this->assertStringNotContainsString($secret, $all);
+            $this->assertStringNotContainsString($secret, $run['out'] . $run['err']);
         }
-        foreach ($keep as $token) {
-            $this->assertStringContainsString($token, $run['out']);
-        }
-        $this->assertStringNotContainsString('password', strtolower($run['out']));
     }
 
-    /** @return array{out:string,err:string,code:int} */
-    private function migrate(?string $dsn, string $dbPassword): array
+    public function testSqlitePrintsTheDriverAndPath(): void
+    {
+        $run = $this->migrate('sqlite:password=SecretSqliteDsn99', 'SecretSqlite99', 'sqlite', 'SecretSqliteUser99');
+        $path = $run['data'] . '/catalog.sqlite';
+        $this->assertStringStartsWith('Database: sqlite – ' . $path . "\n", $run['out']);
+        $this->assertStringNotContainsString('SecretSqliteDsn99', $run['out'] . $run['err']);
+        $this->assertStringNotContainsString('SecretSqlite99', $run['out'] . $run['err']);
+        $this->assertStringNotContainsString('SecretSqliteUser99', $run['out']);
+    }
+
+    /** @return array{out:string,err:string,code:int,data:string} */
+    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke'): array
     {
         $root = dirname(__DIR__, 2);
         $data = sys_get_temp_dir() . '/apotheke-migrate-' . bin2hex(random_bytes(4));
@@ -87,11 +173,11 @@ final class MigrateDsnTest extends TestCase
             'DATA_DIR' => $data,
             'APOTHEKE_CONFIG' => '/nonexistent',
             'SEED_DEFAULTS' => '0',
-            'DB_DRIVER' => 'pgsql',
+            'DB_DRIVER' => $driver,
             'DB_HOST' => '127.0.0.1',
             'DB_PORT' => '1',
             'DB_NAME' => 'keepdb',
-            'DB_USER' => 'apotheke',
+            'DB_USER' => $dbUser,
             'DB_PASSWORD' => $dbPassword,
             'DB_SCHEMA' => 'app',
         ];
@@ -115,6 +201,6 @@ final class MigrateDsnTest extends TestCase
             foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
             @rmdir($data);
         }
-        return ['out' => (string)$out, 'err' => (string)$err, 'code' => $code];
+        return ['out' => (string)$out, 'err' => (string)$err, 'code' => $code, 'data' => $data];
     }
 }

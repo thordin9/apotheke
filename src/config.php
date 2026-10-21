@@ -120,55 +120,111 @@ function config_dsn(array $db): string
 }
 
 /**
- * DSN safe to print. Drops every password key (any letter case). A single-quoted
- * value follows libpq rules: spaces and semicolons stay inside the quotes, and
- * a backslash escapes the next character (\' and \\). Keys after the password stay.
+ * What bin/migrate.php may print. SQLite is the driver plus the file path.
+ * Anything else is host, port, dbname, and DB_SCHEMA. A DSN that does not parse
+ * is `<unparsed dsn>` and nothing more. User and password are never included.
  */
-function config_redact_password(string $dsn): string
+function config_migrate_where(array $db): string
 {
-    if (!preg_match('/^([A-Za-z][A-Za-z0-9]*:)(.*)$/s', $dsn, $parts)) return $dsn;
-    $rest = $parts[2];
+    if ($db['driver'] === 'sqlite') return (string)$db['sqlite_path'];
+    $fields = config_dsn_public_fields(config_dsn($db));
+    if ($fields === null) return '<unparsed dsn>';
+    $parts = [];
+    foreach (['host', 'port', 'dbname'] as $key) {
+        if (($fields[$key] ?? '') !== '') $parts[] = $key . '=' . $fields[$key];
+    }
+    $where = implode(' ', $parts);
+    if ((string)$db['schema'] !== '') $where .= ($where !== '' ? ' ' : '') . '(schema ' . $db['schema'] . ')';
+    return $where;
+}
+
+/**
+ * host, port, and dbname from a DSN. Null when the string does not parse.
+ * Keyword values follow libpq: spaces may surround "=", single quotes may hold
+ * spaces and \', \\, and an unquoted backslash escapes the next character
+ * (including a space). The last duplicate of an allowlisted key wins.
+ * @return array{host?:string,port?:string,dbname?:string}|null
+ */
+function config_dsn_public_fields(string $dsn): ?array
+{
+    if (preg_match('#^[A-Za-z][A-Za-z0-9+.-]*://#', $dsn) === 1) {
+        $url = parse_url($dsn);
+        if (!is_array($url)) return null;
+        $fields = [];
+        if (isset($url['host']) && $url['host'] !== '') $fields['host'] = $url['host'];
+        if (isset($url['port'])) $fields['port'] = (string)$url['port'];
+        $path = (string)($url['path'] ?? '');
+        if ($path !== '' && $path !== '/') $fields['dbname'] = ltrim($path, '/');
+        return $fields === [] ? null : $fields;
+    }
+    if (preg_match('/^[A-Za-z][A-Za-z0-9]*:(.*)$/s', $dsn, $parts) !== 1) return null;
+    $tokens = config_dsn_keywords($parts[1]);
+    if ($tokens === null) return null;
+    $fields = [];
+    foreach (['host', 'port', 'dbname'] as $key) {
+        if (isset($tokens[$key])) $fields[$key] = $tokens[$key];
+    }
+    return $fields;
+}
+
+/** @return array<string,string>|null keyword → decoded value, or null if tokenising fails */
+function config_dsn_keywords(string $rest): ?array
+{
     $len = strlen($rest);
-    $out = '';
     $i = 0;
+    $out = [];
     while ($i < $len) {
-        if ($rest[$i] === ';' || ctype_space($rest[$i])) {
-            $out .= $rest[$i];
-            $i++;
-            continue;
-        }
+        while ($i < $len && config_dsn_is_sep($rest[$i])) $i++;
+        if ($i >= $len) break;
         $start = $i;
-        while ($i < $len && $rest[$i] !== '=' && $rest[$i] !== ';' && !ctype_space($rest[$i])) $i++;
-        if ($i >= $len || $rest[$i] !== '=') {
-            $out .= substr($rest, $start, $i - $start);
-            continue;
-        }
+        while ($i < $len && $rest[$i] !== '=' && !config_dsn_is_sep($rest[$i])) $i++;
         $key = substr($rest, $start, $i - $start);
+        if ($key === '') return null;
+        while ($i < $len && ctype_space($rest[$i])) $i++;
+        if ($i >= $len || $rest[$i] !== '=') return null;
         $i++;
-        $valueStart = $i;
+        while ($i < $len && ctype_space($rest[$i])) $i++;
         if ($i < $len && $rest[$i] === "'") {
             $i++;
+            $value = '';
+            $closed = false;
             while ($i < $len) {
-                if ($rest[$i] === '\\' && $i + 1 < $len) {
+                if ($rest[$i] === '\\') {
+                    if ($i + 1 >= $len) return null;
+                    $value .= $rest[$i + 1];
                     $i += 2;
                     continue;
                 }
                 if ($rest[$i] === "'") {
                     $i++;
+                    $closed = true;
                     break;
                 }
+                $value .= $rest[$i];
                 $i++;
             }
+            if (!$closed) return null;
         } else {
-            while ($i < $len && $rest[$i] !== ';' && !ctype_space($rest[$i])) $i++;
+            $value = '';
+            while ($i < $len && !config_dsn_is_sep($rest[$i])) {
+                if ($rest[$i] === '\\') {
+                    if ($i + 1 >= $len) return null;
+                    $value .= $rest[$i + 1];
+                    $i += 2;
+                    continue;
+                }
+                $value .= $rest[$i];
+                $i++;
+            }
         }
-        if (strcasecmp($key, 'password') === 0) {
-            while ($i < $len && ($rest[$i] === ';' || ctype_space($rest[$i]))) $i++;
-            continue;
-        }
-        $out .= $key . '=' . substr($rest, $valueStart, $i - $valueStart);
+        $out[strtolower($key)] = $value;
     }
-    return $parts[1] . rtrim($out, "; \t\r\n");
+    return $out;
+}
+
+function config_dsn_is_sep(string $ch): bool
+{
+    return $ch === ';' || ctype_space($ch);
 }
 
 /** The process-wide configuration (read once per request from getenv()). */

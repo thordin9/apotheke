@@ -172,8 +172,9 @@ Then set `DB_USER=apotheke_app` and `DB_SCHEMA=apotheke`. If the schema is missi
 it, startup fails. The message is in the PHP log (`[apotheke] …`) and on the CLI. It names the schema and does
 not include the password or the DSN. The browser shows the generic error page.
 
-`php bin/migrate.php` prints the driver, host, database, and schema. It drops a `password` key from `DB_DSN`
-in any letter case, including a single-quoted value, and it never prints `DB_PASSWORD`.
+`php bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user
+or the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
+`<unparsed dsn>`.
 
 ## Security
 

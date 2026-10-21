@@ -128,9 +128,9 @@ used to fail at startup even when the schema was already there. A role without C
 an existing schema. Create the schema first and grant that role USAGE on it, plus CREATE on the schema when
 migrations need to add tables. If the schema is missing and the role cannot create it, startup fails. The log
 line (`[apotheke] …`) and the CLI error name the schema. They do not include the password or the DSN.
-`bin/migrate.php` prints the driver, host, database, and schema. It drops a `password` key from `DB_DSN` in
-any letter case, including a single-quoted value, and it never prints `DB_PASSWORD`. The browser shows the
-generic error page.
+`bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user or
+the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
+`<unparsed dsn>`. The browser shows the generic error page.
 
 QR labels that should point at a fixed address:
 
