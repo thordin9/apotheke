@@ -13,7 +13,10 @@ declare(strict_types=1);
  * is active (affected: 8.2–8.4).
  */
 
-/** True when opcache.jit is tracing JIT. $kind is opcache_get_status()["jit"]["kind"] (the CRTO trigger digit). */
+/**
+ * True when opcache.jit is tracing JIT. $kind is opcache_get_status()["jit"]["kind"] (the CRTO trigger digit).
+ * Every function-JIT mode is disabled before the encoder loads.
+ */
 function qr_jit_is_tracing(string $jit, int $kind): bool
 {
     $jit = strtolower(trim($jit));
