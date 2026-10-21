@@ -31,7 +31,7 @@ src/db.php                PDO, dialects, migrations
 src/items.php             domain: items, locations, categories, search, images
 src/views.php             HTML pages and fragments
 src/backup.php            portable zip backup/restore
-src/qr.php                pure-PHP QR (SVG). On PHP 8.4 this turns function JIT off, then loads qr-encode.php
+src/qr.php                pure-PHP QR (SVG). On PHP 8.2, 8.3 and 8.4, turns function JIT off, then loads qr-encode.php
 migrations/NNNN_*.php     versioned schema steps
 bin/                      migrate, seed, backup, restore CLIs
 tests/                    integration.php, Unit/, visual/ (Playwright), e2e/, parity/

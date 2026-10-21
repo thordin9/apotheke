@@ -25,6 +25,38 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **test:** compare two legacy installs (fresh install, `/healthz`, a settings save) and record the four parity quirks (N-2, QA L-2, N-4, I-3).
 - **fix:** QR labels finish under PHP 8.4 function JIT (`opcache.jit=1235`). The guard disables opcache JIT for the whole PHP worker from the first request, not only for QR encoding. The cost is negligible. `opcache_jit_blacklist()` does not help. The matrix matches the interpreter.
 
+## [2.5.4] - 2026-10-20
+
+### Fixed
+
+- **images:** flatten Imagick transparency onto white and convert CMYK to sRGB ([#33](https://github.com/thordin9/apotheke/issues/33), [#37](https://github.com/thordin9/apotheke/pull/37))
+
+### Changed
+
+- **images:** share Imagick colour helpers ([#37](https://github.com/thordin9/apotheke/pull/37))
+
+### Maintenance
+
+- **images:** test: lock Imagick fallback fixtures and original sha256 ([#37](https://github.com/thordin9/apotheke/pull/37))
+- docs: drop the hand-written Unreleased changelog note ([#37](https://github.com/thordin9/apotheke/pull/37))
+- **changelog:** docs: add the QR function-JIT note to 2.5.3 ([#39](https://github.com/thordin9/apotheke/pull/39))
+- docs: note Imagick grayscale JPEG is one channel ([#37](https://github.com/thordin9/apotheke/pull/37))
+- test: count the HEIC writer as a fourth Imagick test ([#37](https://github.com/thordin9/apotheke/pull/37))
+- **qa:** docs: add the v2.5.3 release QA report ([#39](https://github.com/thordin9/apotheke/pull/39))
+- **qa:** docs: add QA report for the Imagick colour fix ([#37](https://github.com/thordin9/apotheke/pull/37))
+
+## [2.5.3] - 2026-10-20
+
+### Fixed
+
+- **qr:** disable function JIT before the encoder loads ([#36](https://github.com/thordin9/apotheke/pull/36))
+- **qr:** On 2.5.x, function JIT could produce a wrong QR code on installs outside Docker that enable it. PHP 8.2 and 8.3 with `opcache.jit=1235` miscompiled 1 of 240 codes; on PHP 8.4 that mode can hang `GET /labels`, and other function-JIT modes such as `1205` wrote wrong codes. `src/qr.php` now turns JIT off for the whole worker from the first request when function JIT is active. The cost is negligible. `opcache_jit_blacklist()` does not help. Tracing JIT stays on. The Docker image leaves JIT off, so its behaviour is unchanged.
+
+### Maintenance
+
+- **qr:** docs: name PHP 8.2, 8.3 and 8.4 as affected ([#36](https://github.com/thordin9/apotheke/pull/36))
+- **qa:** docs: add QA report for the QR function-JIT fix ([#36](https://github.com/thordin9/apotheke/pull/36))
+
 ## [2.5.2] - 2026-10-20
 
 ### Fixed
@@ -291,7 +323,9 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.4...HEAD
+[2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4
+[2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/thordin9/apotheke/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/thordin9/apotheke/compare/v2.4.1...v2.5.0

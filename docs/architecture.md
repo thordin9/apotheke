@@ -20,15 +20,16 @@ src/
   settings_views.php      Control Panel pages (/settings/…)
   db.php                  PDO connection, dialect helpers, migration runner
   legacy.php              one-time conversion of pre-migration SQLite installs (schema v1–v3)
-  items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD; Imagick for HEIC),
+  items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD; Imagick for HEIC; fallback uses white and sRGB),
                           activity log, low stock, bulk actions, lending, duplicating, the location tree
+  image-color.php         Imagick colour helpers shared by the display copy and the analysis JPEG
   markdown.php            safe Markdown subset for notes (escape first, then a few constructs; http/https/mailto links)
   attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
   favourites.php          favourite flag, recently viewed list (device cookie or shared scope)
   merge.php               merging duplicates: preview (confirm screen), item_merge() in one transaction, candidates
   undo.php                undo tokens: item snapshots, soft delete (files kept until expiry), apply, prune, the bar
   backup.php              portable backup zip (dump + photos + attachments) and restore
-  qr.php                  loads qr-encode.php (pure-PHP QR, SVG) after the PHP 8.4 function-JIT guard
+  qr.php                  loads qr-encode.php (pure-PHP QR, SVG) after the function-JIT guard
   seed.php                starter locations/categories and demo data
   views.php               all HTML: page shell, partials (cards, chips, sheets), one view_* function per screen
 migrations/NNNN_*.php     versioned schema steps
