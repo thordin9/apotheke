@@ -15,7 +15,12 @@ require dirname(__DIR__) . '/src/items.php';
 
 $c = cfg();
 $driver = $c['db']['driver'];
-$where = $driver === 'sqlite' ? $c['db']['sqlite_path'] : config_dsn($c['db']) . ($c['db']['schema'] !== '' ? ' (schema ' . $c['db']['schema'] . ')' : '');
+if ($driver === 'sqlite') {
+    $where = $c['db']['sqlite_path'];
+} else {
+    $where = config_redact_password(config_dsn($c['db']));
+    if ($c['db']['schema'] !== '') $where .= ' (schema ' . $c['db']['schema'] . ')';
+}
 echo "Database: $driver – $where\n";
 $pdo = db_connect($c['db']);
 

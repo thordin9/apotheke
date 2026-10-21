@@ -119,6 +119,58 @@ function config_dsn(array $db): string
     return sprintf('pgsql:host=%s;port=%d;dbname=%s', $db['host'], $db['port'], $db['name']);
 }
 
+/**
+ * DSN safe to print. Drops every password key (any letter case). A single-quoted
+ * value follows libpq rules: spaces and semicolons stay inside the quotes, and
+ * a backslash escapes the next character (\' and \\). Keys after the password stay.
+ */
+function config_redact_password(string $dsn): string
+{
+    if (!preg_match('/^([A-Za-z][A-Za-z0-9]*:)(.*)$/s', $dsn, $parts)) return $dsn;
+    $rest = $parts[2];
+    $len = strlen($rest);
+    $out = '';
+    $i = 0;
+    while ($i < $len) {
+        if ($rest[$i] === ';' || ctype_space($rest[$i])) {
+            $out .= $rest[$i];
+            $i++;
+            continue;
+        }
+        $start = $i;
+        while ($i < $len && $rest[$i] !== '=' && $rest[$i] !== ';' && !ctype_space($rest[$i])) $i++;
+        if ($i >= $len || $rest[$i] !== '=') {
+            $out .= substr($rest, $start, $i - $start);
+            continue;
+        }
+        $key = substr($rest, $start, $i - $start);
+        $i++;
+        $valueStart = $i;
+        if ($i < $len && $rest[$i] === "'") {
+            $i++;
+            while ($i < $len) {
+                if ($rest[$i] === '\\' && $i + 1 < $len) {
+                    $i += 2;
+                    continue;
+                }
+                if ($rest[$i] === "'") {
+                    $i++;
+                    break;
+                }
+                $i++;
+            }
+        } else {
+            while ($i < $len && $rest[$i] !== ';' && !ctype_space($rest[$i])) $i++;
+        }
+        if (strcasecmp($key, 'password') === 0) {
+            while ($i < $len && ($rest[$i] === ';' || ctype_space($rest[$i]))) $i++;
+            continue;
+        }
+        $out .= $key . '=' . substr($rest, $valueStart, $i - $valueStart);
+    }
+    return $parts[1] . rtrim($out, "; \t\r\n");
+}
+
 /** The process-wide configuration (read once per request from getenv()). */
 function cfg(): array
 {
