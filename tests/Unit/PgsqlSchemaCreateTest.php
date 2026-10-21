@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
@@ -114,6 +115,59 @@ final class PgsqlSchemaCreateTest extends TestCase
         $this->assertSame($existing, $pdo->query('SELECT current_schema()')->fetchColumn());
     }
 
+    /** @return list<array{0:string}> */
+    public static function duplicateSchemaCodes(): array
+    {
+        return [['42P06'], ['23505']];
+    }
+
+    #[DataProvider('duplicateSchemaCodes')]
+    public function testDuplicateSchemaCreateIsIgnoredWhenTheSchemaExistsNow(string $sqlstate): void
+    {
+        $this->admin();
+        $schema = 'z' . bin2hex(random_bytes(4));
+        $this->schemas[] = $schema;
+        $pdo = $this->race($sqlstate, true);
+
+        db_pgsql_use_schema($pdo, $schema);
+
+        $this->assertSame($schema, $pdo->query('SELECT current_schema()')->fetchColumn());
+    }
+
+    #[DataProvider('duplicateSchemaCodes')]
+    public function testDuplicateSchemaCreateStillFailsWhenTheSchemaIsMissing(string $sqlstate): void
+    {
+        $this->admin();
+        $schema = 'y' . bin2hex(random_bytes(4));
+        $this->schemas[] = $schema;
+        $pdo = $this->race($sqlstate, false);
+        $caught = null;
+        try {
+            db_pgsql_use_schema($pdo, $schema);
+        } catch (PDOException $e) {
+            $caught = $e;
+        } catch (RuntimeException $e) {
+            $this->fail($sqlstate . ' was replaced with: ' . $e->getMessage());
+        }
+        $this->assertInstanceOf(PDOException::class, $caught, $sqlstate . ' was ignored while the schema was still missing');
+        $this->assertSame($sqlstate, (string)$caught->getCode());
+        $this->assertFalse(db_pgsql_schema_exists($pdo, $schema));
+    }
+
+    private function race(string $sqlstate, bool $createFirst): SchemaRacePdo
+    {
+        $pg = test_pg_params();
+        $pdo = new SchemaRacePdo(
+            "pgsql:host={$pg['host']};port={$pg['port']};dbname={$pg['name']}",
+            $pg['user'],
+            $pg['password'],
+            [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+        );
+        $pdo->sqlstate = $sqlstate;
+        $pdo->createFirst = $createFirst;
+        return $pdo;
+    }
+
     /** @return array{user:string,password:string,schema:?string} */
     private function role(?string $schema): array
     {
@@ -171,5 +225,26 @@ final class PgsqlSchemaCreateTest extends TestCase
             'schema' => $schema,
             'sqlite_path' => '',
         ];
+    }
+}
+
+/**
+ * CREATE SCHEMA that loses a race: the statement can apply, then PostgreSQL
+ * still reports duplicate_schema (42P06) or unique_violation (23505).
+ */
+final class SchemaRacePdo extends PDO
+{
+    public string $sqlstate = '42P06';
+    public bool $createFirst = true;
+
+    public function exec(string $statement): int|false
+    {
+        if (preg_match('/^CREATE SCHEMA\b/i', $statement) === 1) {
+            if ($this->createFirst) parent::exec($statement);
+            $e = new PDOException('simulated ' . $this->sqlstate);
+            (new ReflectionProperty(PDOException::class, 'code'))->setValue($e, $this->sqlstate);
+            throw $e;
+        }
+        return parent::exec($statement);
     }
 }

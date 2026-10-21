@@ -44,7 +44,9 @@ function db_connect(array $db): PDO
  * Point the connection at $schema. PostgreSQL checks CREATE on the database
  * before it looks at whether the schema exists, so CREATE SCHEMA IF NOT EXISTS
  * fails for a role without CREATE even when the schema is already there.
- * Look the name up first and create it only when it is missing.
+ * Look the name up first and create it only when it is missing. A concurrent
+ * CREATE SCHEMA can still raise 42P06 or 23505; connect continues when the
+ * schema is there afterwards.
  */
 function db_pgsql_use_schema(PDO $pdo, string $schema): void
 {
@@ -53,16 +55,17 @@ function db_pgsql_use_schema(PDO $pdo, string $schema): void
         try {
             $pdo->exec('CREATE SCHEMA IF NOT EXISTS ' . $quoted);
         } catch (PDOException $e) {
-            if ($e->getCode() === '42501' && db_pgsql_schema_exists($pdo, $schema)) {
-                // Another session created it after the check. Keep going.
-            } elseif ($e->getCode() === '42501') {
+            $code = (string)$e->getCode();
+            // 42501: CREATE was refused. 42P06 / 23505: two connections created it at once
+            // (duplicate_schema, or the pg_namespace unique index).
+            $alreadyThere = in_array($code, ['42501', '42P06', '23505'], true) && db_pgsql_schema_exists($pdo, $schema);
+            if (!$alreadyThere && $code === '42501') {
                 throw new RuntimeException(
                     'PostgreSQL schema "' . $schema . '" does not exist, and this database role cannot create it. '
                     . 'Create the schema, then grant this role USAGE and CREATE on it.'
                 );
-            } else {
-                throw $e;
             }
+            if (!$alreadyThere) throw $e;
         }
     }
     $pdo->exec('SET search_path TO ' . $quoted);
