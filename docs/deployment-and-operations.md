@@ -174,7 +174,9 @@ not include the password or the DSN. The browser shows the generic error page.
 
 `php bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user
 or the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`.
+`<unparsed dsn>`. With `APOTHEKE_APP=ci4` the same banner comes from `apotheke:migrate`. A failed connection
+prints that same allowlist. The image sets `zend.exception_ignore_args = On`, so the exception text does not
+add the user or the password either.
 
 ## Security
 
@@ -213,7 +215,7 @@ or the password. SQLite prints the driver and the file path. A DSN that does not
 ## Monitoring and logs
 
 * `GET /healthz` returns `ok` after connecting to the database (the Docker `HEALTHCHECK` uses it) and sends the running
-  version in `X-Apotheke-Version`.
+  version in `X-Apotheke-Version`. A missing PostgreSQL schema that this role cannot create is an error, not `ok`.
 * `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
   are logged as `[apotheke] …` and shown to the user as a generic error page.

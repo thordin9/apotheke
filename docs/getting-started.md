@@ -91,8 +91,8 @@ full `DB_DSN`) and leave the profile off. Photos are always stored in `DATA_DIR`
 `DB_SCHEMA` is optional. On connect, Apotheke looks that name up in `pg_namespace` and runs `CREATE SCHEMA` only
 when it is missing. A database role does not need CREATE on the database when the schema already exists. Create
 the schema first and grant the role USAGE on it, and CREATE on the schema so migrations can add tables. If the
-schema is missing and the role cannot create it, startup fails with an error that names the schema and does not
-include the password or the DSN.
+schema is missing and the role cannot create it, startup fails. The log names the schema and does not
+include the password or the DSN. The browser shows a generic page, and `/healthz` is not `ok`.
 
 ## Plain `docker run`
 

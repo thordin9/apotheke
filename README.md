@@ -335,7 +335,7 @@ compose file never wipes a value from `config.php`.
 | `SQLITE_PATH` | `<DATA_DIR>/catalog.sqlite` | SQLite database file. |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` | `127.0.0.1` / `5432` / `apotheke` / `apotheke` / *(empty)* | PostgreSQL connection. |
 | `DB_SCHEMA` | *(empty)* | Optional PostgreSQL schema. Created only when it is missing, so a role without CREATE can use one that already exists. |
-| `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. |
+| `DB_DSN` | *(empty)* | Full PDO DSN; overrides host/port/name. A value CI4 cannot use stops boot. The page does not include the DSN. The log lists the driver, host, port and database name. |
 | `MAX_UPLOAD_MB`, `IMAGE_FULL_MAX`, `IMAGE_THUMB_MAX` | `20`, `1600`, `480` | Upload limit (MB) and stored photo/thumbnail size (px). |
 | `PAGE_SIZE` | `60` | Items per page. |
 | `CURRENCY` | `EUR` | Currency shown next to item values (ISO code or symbol). Only a label; no conversion. |
@@ -353,6 +353,7 @@ All of them read the same configuration as the web app. In Docker, prefix them w
 ```bash
 php bin/migrate.php                      # apply pending migrations (also adopts legacy SQLite installs)
 php bin/migrate.php --status             # list applied / pending migrations
+# APOTHEKE_APP=ci4 runs the same command through apotheke:migrate. The banner is the same.
 php bin/seed.php                         # starter locations/categories (idempotent, skips existing names)
 php bin/seed.php --demo                  # … plus a few demo items with generated photos
 php bin/backup.php                       # apotheke-backup-<date>.zip in the current directory
