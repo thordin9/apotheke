@@ -66,10 +66,10 @@ checkout uses `actions/checkout` pinned to commit `11d5960a326750d5838078e36cf38
 gitleaks is the official CLI binary from its GitHub release (version **8.30.1**, linux x64, SHA-256 pinned in the
 workflow). The organization-licensed `gitleaks-action` is not used.
 
-The job fails on any finding (`--exit-code 1`) and redacts secrets in the log (`--redact`). No `.gitleaks.toml`
-allowlist is committed: the current history is clean. If a later scan flags a known placeholder or test fixture, add
-the smallest possible allowlist in `.gitleaks.toml` with a comment saying why. Do not allowlist a real-looking secret;
-remove it from history instead.
+The job fails on any finding (`--exit-code 1`) and redacts secrets in the log (`--redact`). `.gitleaks.toml`
+allowlists one migrate-banner fixture, `SecretMissingEq99`, which `generic-api-key` flags and which remains in
+history. If a later scan flags another known placeholder, add the smallest possible pattern with a comment saying
+why. Do not allowlist a real-looking secret; remove it from history instead.
 
 Workflow tokens stay `contents: read` everywhere. The only extra grant is on the release job (`contents: write` and
 `actions: read`), because that job pushes the version commit and tag and downloads the coverage artifact.
