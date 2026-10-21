@@ -15,8 +15,20 @@ final class PgsqlSchemaCreateTest extends TestCase
     /** @var list<array{user:string,schema:?string}> */
     private array $roles = [];
 
+    /** @var list<string> Schema names that need quoted DROP (mixed case or a " in the name). */
+    private array $schemas = [];
+
     protected function tearDown(): void
     {
+        try {
+            if ($this->schemas !== []) {
+                $admin = test_pg_admin();
+                foreach ($this->schemas as $schema) {
+                    $admin->exec('DROP SCHEMA IF EXISTS ' . self::quoteIdent($schema) . ' CASCADE');
+                }
+            }
+        } catch (Throwable) {
+        }
         foreach ($this->roles as $role) {
             try {
                 test_pg_drop_role($role['user'], $role['schema']);
@@ -59,6 +71,49 @@ final class PgsqlSchemaCreateTest extends TestCase
         }
     }
 
+    public function testMixedCaseSchemaNameIsCreatedAndReusedExactly(): void
+    {
+        $this->admin();
+        $created = 'Ab' . bin2hex(random_bytes(4));
+        $existing = 'Cd' . bin2hex(random_bytes(4));
+        $this->schemas[] = $created;
+        $pg = test_pg_params();
+
+        $pdo = db_connect($this->config($pg['user'], $pg['password'], $created));
+        $this->assertSame($created, $pdo->query('SELECT current_schema()')->fetchColumn());
+        $found = $pdo->prepare('SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = ?');
+        $found->execute([$created]);
+        $this->assertSame($created, $found->fetchColumn());
+        $lower = $pdo->prepare('SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = ?');
+        $lower->execute([strtolower($created)]);
+        $this->assertFalse($lower->fetchColumn());
+        $pdo = null;
+
+        $role = $this->own($existing);
+        $pdo = db_connect($this->config($role['user'], $role['password'], $existing));
+        $this->assertSame($existing, $pdo->query('SELECT current_schema()')->fetchColumn());
+    }
+
+    public function testSchemaNameContainingAQuoteIsCreatedAndReusedExactly(): void
+    {
+        $this->admin();
+        $created = 'q"' . bin2hex(random_bytes(4));
+        $existing = 'r"' . bin2hex(random_bytes(4));
+        $this->schemas[] = $created;
+        $pg = test_pg_params();
+
+        $pdo = db_connect($this->config($pg['user'], $pg['password'], $created));
+        $this->assertSame($created, $pdo->query('SELECT current_schema()')->fetchColumn());
+        $found = $pdo->prepare('SELECT nspname FROM pg_catalog.pg_namespace WHERE nspname = ?');
+        $found->execute([$created]);
+        $this->assertSame($created, $found->fetchColumn());
+        $pdo = null;
+
+        $role = $this->own($existing);
+        $pdo = db_connect($this->config($role['user'], $role['password'], $existing));
+        $this->assertSame($existing, $pdo->query('SELECT current_schema()')->fetchColumn());
+    }
+
     /** @return array{user:string,password:string,schema:?string} */
     private function role(?string $schema): array
     {
@@ -78,6 +133,27 @@ final class PgsqlSchemaCreateTest extends TestCase
         } catch (PDOException $e) {
             $this->markTestSkipped('PostgreSQL not reachable: ' . $e->getMessage());
         }
+    }
+
+    /** @return array{user:string,password:string} */
+    private function own(string $schema): array
+    {
+        $admin = $this->admin();
+        $user = 'nocreate_' . bin2hex(random_bytes(4));
+        $password = 'secret-' . bin2hex(random_bytes(12));
+        $ident = test_pg_ident($user);
+        $admin->exec('CREATE ROLE ' . $ident . ' LOGIN PASSWORD ' . $admin->quote($password) . ' NOSUPERUSER NOCREATEDB NOCREATEROLE');
+        $db = test_pg_ident((string)$admin->query('SELECT current_database()')->fetchColumn());
+        $admin->exec('REVOKE CREATE ON DATABASE ' . $db . ' FROM ' . $ident);
+        $admin->exec('CREATE SCHEMA ' . self::quoteIdent($schema) . ' AUTHORIZATION ' . $ident);
+        $this->roles[] = ['user' => $user, 'schema' => null];
+        $this->schemas[] = $schema;
+        return ['user' => $user, 'password' => $password];
+    }
+
+    private static function quoteIdent(string $name): string
+    {
+        return '"' . str_replace('"', '""', $name) . '"';
     }
 
     /** @return array<string,mixed> */
