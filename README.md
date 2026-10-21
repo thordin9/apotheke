@@ -424,12 +424,12 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 10.4 % | 99.8 % | 99.6 % |
+| Views (HTML) | 10.4 % | 99.4 % | 99.3 % |
 | Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 84.7 % | 90.3 % | 97.7 % |
-| Bootstrap, config, QR, seed | 69.0 % | 87.0 % | 90.0 % |
-| **All PHP** (6600 lines) | **63.2 %** | **93.4 %** | **96.3 %** |
+| Database, migrations, legacy | 85.5 % | 86.7 % | 97.8 % |
+| Bootstrap, config, QR, seed | 60.6 % | 76.1 % | 79.1 % |
+| **All PHP** (6689 lines) | **62.5 %** | **92.1 %** | **95.3 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

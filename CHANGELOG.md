@@ -7,6 +7,32 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.5.5] - 2026-10-21
+
+### Fixed
+
+- **db:** skip CREATE SCHEMA when DB_SCHEMA already exists ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **db:** ignore duplicate schema create races ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **migrate:** omit passwords from the database line ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **migrate:** print only allowlisted DSN fields ([#44](https://github.com/thordin9/apotheke/pull/44))
+
+### Changed
+
+- **qr:** rename qr_php84_jit_is_tracing ([#45](https://github.com/thordin9/apotheke/pull/45))
+
+### Maintenance
+
+- **changelog:** docs: add the Imagick colour note to 2.5.4 ([#40](https://github.com/thordin9/apotheke/pull/40))
+- docs: clarify that only the autofill JPEG is one channel ([#40](https://github.com/thordin9/apotheke/pull/40))
+- **changelog:** docs: link #37 from the 2.5.4 images line ([#40](https://github.com/thordin9/apotheke/pull/40))
+- **qa:** docs: add the v2.5.4 release QA report ([#40](https://github.com/thordin9/apotheke/pull/40))
+- **qa:** docs: add QA report for the QR helper rename ([#45](https://github.com/thordin9/apotheke/pull/45))
+- **docker:** build: fetch imagick from a pinned GitHub tarball ([#47](https://github.com/thordin9/apotheke/pull/47))
+- **qa:** docs: add QA report for #46 imagick pinned source ([#47](https://github.com/thordin9/apotheke/pull/47))
+- **db:** test: cover mixed-case and quoted schema names ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **ci:** chore: allowlist the migrate DSN placeholder ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **qa:** docs: add QA report for the DB schema fix ([#44](https://github.com/thordin9/apotheke/pull/44))
+
 ## [2.5.4] - 2026-10-20
 
 ### Fixed
@@ -305,7 +331,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.4...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.5...HEAD
+[2.5.5]: https://github.com/thordin9/apotheke/compare/v2.5.4...v2.5.5
 [2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
