@@ -39,7 +39,9 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 [Configuration](configuration.md), add it under `environment:`.
 
 **What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
-`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). Opcache is on and JIT is
+`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). Imagick is built from its
+GitHub release tag, pinned by `IMAGICK_VERSION` and `IMAGICK_SHA256` in the `Dockerfile`, so the build does not depend on
+pecl.php.net. To upgrade it, change both. Opcache is on and JIT is
 left off (`docker/php.ini` sets no JIT buffer). Installs without Docker stay on GD. When Imagick does decode a photo
 (HEIC, or a file GD cannot read), it flattens transparent areas onto white and converts CMYK to sRGB, then drops
 colour profiles, matching the JPEG GD writes. For a grayscale photo, Imagick writes a 1-channel JPEG, so
