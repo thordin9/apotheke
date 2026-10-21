@@ -11,17 +11,12 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Fixed
 
-- **db:** skip CREATE SCHEMA when DB_SCHEMA already exists ([#44](https://github.com/thordin9/apotheke/pull/44))
 - **db:** CREATE SCHEMA is skipped when DB_SCHEMA already exists, so a role without CREATE no longer gets a 500 ([#41](https://github.com/thordin9/apotheke/issues/41), [#44](https://github.com/thordin9/apotheke/pull/44))
-- **db:** ignore duplicate schema create races ([#44](https://github.com/thordin9/apotheke/pull/44))
 - **db:** concurrent first-start creation of the same schema no longer fails ([#44](https://github.com/thordin9/apotheke/pull/44))
-- **migrate:** omit passwords from the database line ([#44](https://github.com/thordin9/apotheke/pull/44))
-- **migrate:** print only allowlisted DSN fields ([#44](https://github.com/thordin9/apotheke/pull/44))
 - **migrate:** bin/migrate.php prints only the driver, host, port, dbname and DB_SCHEMA, never the user or the password ([#44](https://github.com/thordin9/apotheke/pull/44))
 
 ### Changed
 
-- **qr:** rename qr_php84_jit_is_tracing ([#45](https://github.com/thordin9/apotheke/pull/45))
 - **qr:** the QR helper is renamed from qr_php84_jit_is_tracing to qr_jit_is_tracing ([#45](https://github.com/thordin9/apotheke/pull/45))
 
 ### Maintenance
@@ -31,7 +26,6 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **changelog:** docs: link #37 from the 2.5.4 images line ([#40](https://github.com/thordin9/apotheke/pull/40))
 - **qa:** docs: add the v2.5.4 release QA report ([#40](https://github.com/thordin9/apotheke/pull/40))
 - **qa:** docs: add QA report for the QR helper rename ([#45](https://github.com/thordin9/apotheke/pull/45))
-- **docker:** build: fetch imagick from a pinned GitHub tarball ([#47](https://github.com/thordin9/apotheke/pull/47))
 - **docker:** the image builds Imagick from a pinned source tarball ([#47](https://github.com/thordin9/apotheke/pull/47))
 - **qa:** docs: add QA report for #46 imagick pinned source ([#47](https://github.com/thordin9/apotheke/pull/47))
 - **db:** test: cover mixed-case and quoted schema names ([#44](https://github.com/thordin9/apotheke/pull/44))
