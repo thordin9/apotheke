@@ -174,10 +174,11 @@ not include the password or the DSN. The browser shows the generic error page.
 
 `php bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user
 or the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`. If PostgreSQL refuses the connection, the command prints `Could not connect to the database`
+`<unparsed dsn>`. When it can't connect to the database, the command prints `Could not connect to the database`
 with those same fields and exits with status 1. It does not print or log the server's own error text (that
 text names the database user), the password, or the full DSN, including when PHP includes exception arguments
-in stack traces. A SQLite file that cannot be opened still reports the engine's own error.
+in stack traces. `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and `bin/settings.php` exit 1 with that
+same line, and `/healthz` logs it. A SQLite file that cannot be opened still reports the engine's own error.
 
 ## Security
 

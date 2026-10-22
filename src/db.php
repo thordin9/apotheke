@@ -78,14 +78,79 @@ function db_pgsql_schema_exists(PDO $pdo, string $schema): bool
     return $st->fetchColumn() !== false;
 }
 
-/** The request's connection; migrations (and first-use seeding) run automatically on first use. */
+/** A refused connect. The message is the allowlisted line and nothing else. */
+final class DatabaseConnectException extends RuntimeException {}
+
+/**
+ * What a failed connect may say. Driver, host, port and dbname only
+ * (plus DB_SCHEMA when it is set). Never the user, the password, the DSN
+ * or the server's own text.
+ */
+function db_connect_failure_message(string $driver, string $where): string
+{
+    return 'Could not connect to the database (' . $driver . ' – ' . $where . ').';
+}
+
+/**
+ * /healthz calls db() outside the front controller's try, so a connect
+ * failure would otherwise be an uncaught exception and the log would gain
+ * a trace. Report that case as the allowlisted line. Any other uncaught
+ * exception goes to the previous handler when there is one.
+ */
+function db_install_connect_handler(): void
+{
+    static $installed = false;
+    if ($installed) return;
+    $installed = true;
+    // Stay installed for the life of the process. Restoring the previous
+    // handler on the way out would drop this one for every later request
+    // in a long-lived worker.
+    $previous = set_exception_handler(static function (Throwable $e) use (&$previous): void {
+        if ($e instanceof DatabaseConnectException) {
+            error_log($e->getMessage());
+            http_response_code(500);
+            exit(1);
+        }
+        if (is_callable($previous)) {
+            ($previous)($e);
+            return;
+        }
+        error_log('Uncaught ' . $e::class . ': ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+        http_response_code(500);
+        exit(255);
+    });
+}
+
+/**
+ * The request's connection; migrations (and first-use seeding) run automatically on first use.
+ * A PostgreSQL PDOException raised while opening the connection is replaced here.
+ * libpq's text names the login ("password authentication failed for user …").
+ * With zend.exception_ignore_args off, a trace of that exception also includes
+ * the DSN and the user. On PHP 8.2 and newer the password argument is shown as
+ * SensitiveParameterValue; the password text appears only when it is embedded
+ * in the DSN and zend.exception_string_param_max_len is raised. SQLite open
+ * errors do not name a login, so those are rethrown unchanged.
+ */
 function db(?PDO $replace = null): PDO
 {
     static $pdo = null;
     if ($replace !== null) return $pdo = $replace;   // tests inject a connection
     if ($pdo instanceof PDO) return $pdo;
     $c = cfg();
-    $pdo = db_connect($c['db']);
+    try {
+        $pdo = db_connect($c['db']);
+    } catch (PDOException $e) {
+        if ($c['db']['driver'] !== 'sqlite') {
+            $msg = db_connect_failure_message((string)$c['db']['driver'], config_migrate_where($c['db']));
+            if (PHP_SAPI === 'cli') {
+                fwrite(STDERR, $msg . "\n");
+                exit(1);
+            }
+            db_install_connect_handler();
+            throw new DatabaseConnectException($msg);
+        }
+        throw $e;
+    }
     migrate($pdo, $c['db']['driver'], ['data_dir' => $c['data_dir'], 'seed' => $c['seed_defaults']]);
     return $pdo;
 }

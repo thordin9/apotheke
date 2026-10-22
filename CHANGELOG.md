@@ -7,6 +7,12 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged.
+- **bootstrap:** a data directory that is not writable exits 1.
+- **docker:** exception traces in the image omit function arguments, so a password passed into a call is not copied into the trace.
+
 ## [2.5.6] - 2026-10-22
 
 ### Fixed

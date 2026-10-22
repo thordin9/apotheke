@@ -20,10 +20,13 @@ try {
     $pdo = db_connect($c['db']);
 } catch (PDOException $e) {
     // libpq's own text names the user ("password authentication failed for user …").
-    // With zend.exception_ignore_args off, the trace also includes the DSN, user, and password.
+    // With zend.exception_ignore_args off, the trace includes the DSN and the user.
+    // On PHP 8.2 and newer the password argument is shown as SensitiveParameterValue.
+    // The password text appears only when it is embedded in the DSN and
+    // zend.exception_string_param_max_len is raised.
     // SQLite open errors do not name a login; leave those as the engine reports them.
     if ($driver !== 'sqlite') {
-        fwrite(STDERR, 'Could not connect to the database (' . $driver . ' – ' . config_migrate_where($c['db']) . ").\n");
+        fwrite(STDERR, db_connect_failure_message($driver, config_migrate_where($c['db'])) . "\n");
         exit(1);
     }
     throw $e;

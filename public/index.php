@@ -1210,7 +1210,9 @@ try {
     if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], $code);
     view_error($code, $e->getMessage());
 } catch (Throwable $e) {
-    error_log('[apotheke] ' . $e);
+    // A refused connect is already the allowlisted line. Logging the whole
+    // exception would add a trace around it.
+    error_log('[apotheke] ' . ($e instanceof DatabaseConnectException ? $e->getMessage() : $e));
     if (wants_json()) json_out(['ok' => false, 'error' => 'Server error'], 500);
     view_error(500, 'Something went wrong on the server.');
 }
