@@ -16,6 +16,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -33,6 +34,7 @@ jobs:
   test:
     name: Tests (PHP ${{ matrix.php }}, ${{ matrix.db }})
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -72,7 +74,20 @@ jobs:
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zbar-tools
+        # A hung mirror once kept this step running for hours. Each apt call gets its own timeout,
+        # the whole install is retried 3 times, and the step itself stops after 15 minutes.
+        timeout-minutes: 15
+        run: |
+          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          for i in 1 2 3; do
+            if timeout 120 sudo apt-get "${apt_opts[@]}" update -qq \
+              && timeout 180 sudo apt-get "${apt_opts[@]}" install -y -qq zbar-tools; then
+              exit 0
+            fi
+            echo "zbar-tools install failed (attempt $i/3)" >&2
+            [ "$i" -lt 3 ] && sleep $((i * 15))
+          done
+          exit 1
       - name: Install dev dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
@@ -111,6 +126,7 @@ jobs:
   mobile-checks:
     name: Headless mobile checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -262,6 +278,7 @@ jobs:
     name: Conventional Commits
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -273,6 +290,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
