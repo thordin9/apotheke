@@ -7,25 +7,20 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
-### Fixed
-
-- **migrate:** bin/migrate.php exits 1 when the database refuses the connection and prints only the driver, host, port, dbname and DB_SCHEMA. The server's error text (it names the database user), the password and the full DSN are not printed or logged. SQLite open errors are unchanged.
-
 ## [2.5.6] - 2026-10-22
 
 ### Fixed
 
-- **migrate:** keep the DB user name out of connect errors ([#55](https://github.com/thordin9/apotheke/pull/55))
+- **migrate:** bin/migrate.php exits 1 when the database refuses the connection and prints only the driver, host, port, dbname and DB_SCHEMA. The server's error text (it names the database user), the password and the full DSN are not printed or logged. SQLite open errors are unchanged. ([#55](https://github.com/thordin9/apotheke/pull/55))
 
 ### Maintenance
 
-- **docker:** build: add pinned PECL fallback for imagick, https-only curl ([#48](https://github.com/thordin9/apotheke/pull/48))
+- **docker:** the image builds Imagick from a pinned source tarball, falls back to a second pinned tarball from PECL, and fetches both over https only ([#48](https://github.com/thordin9/apotheke/pull/48))
 - **qa:** docs: add QA report for #48 imagick PECL fallback ([#48](https://github.com/thordin9/apotheke/pull/48))
-- **changelog:** docs: add the DB schema and migrate notes to 2.5.5 ([#49](https://github.com/thordin9/apotheke/pull/49))
-- **changelog:** docs: replace generated 2.5.5 lines with notes ([#49](https://github.com/thordin9/apotheke/pull/49))
-- **config:** test: cover the migrate DSN banner in process ([#50](https://github.com/thordin9/apotheke/pull/50))
-- **ci:** chore: anchor the migrate DSN gitleaks allowlist ([#50](https://github.com/thordin9/apotheke/pull/50))
-- **qr:** chore: restore the function-JIT docblock sentence ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **changelog:** the 2.5.5 notes describe, in plain language, the schema fix, the migrate banner, the QR helper rename and the pinned Imagick build ([#49](https://github.com/thordin9/apotheke/pull/49))
+- **config:** tests call the migrate banner in this process, so coverage includes it ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **ci:** the secret scan allowlists the migrate DSN test placeholder only in that test file ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qr:** the QR helper comment again says that function JIT is turned off before the encoder loads ([#50](https://github.com/thordin9/apotheke/pull/50))
 - **qa:** docs: add the v2.5.5 release QA report ([#50](https://github.com/thordin9/apotheke/pull/50))
 - **qa:** docs: add the PR #50 cleanup QA report ([#50](https://github.com/thordin9/apotheke/pull/50))
 - ci: add job timeouts and retry the zbar and E2E apt installs ([#54](https://github.com/thordin9/apotheke/pull/54))
