@@ -52,7 +52,7 @@ return [
 | `db.name` | `DB_NAME` | `apotheke` | bootstrap | PostgreSQL database. |
 | `db.user` | `DB_USER` | `apotheke` | bootstrap | PostgreSQL user. |
 | `db.password` | `DB_PASSWORD` | *(empty)* | bootstrap | PostgreSQL password. |
-| `db.schema` | `DB_SCHEMA` | *(empty)* | bootstrap | Optional PostgreSQL schema (`search_path`); created if missing. `trust_proxy` is read from `settings` in that schema, on a separate connection so the app connection stays open. |
+| `db.schema` | `DB_SCHEMA` | *(empty)* | bootstrap | Optional PostgreSQL schema (`search_path`). Created only when missing. `trust_proxy` is read from `settings` in that schema, on a separate connection so the app connection stays open. |
 | `uploads.max_mb` | `MAX_UPLOAD_MB` | `20` | DB — Photos & uploads | Server-side upload limit per photo in MB. Also raise PHP's `upload_max_filesize` / `post_max_size` (and the web server's body limit) if you increase it. |
 | `uploads.full_max` | `IMAGE_FULL_MAX` | `1600` | DB — Photos & uploads | Longest side in px of stored photos. |
 | `uploads.thumb_max` | `IMAGE_THUMB_MAX` | `480` | DB — Photos & uploads | Longest side in px of thumbnails. |
@@ -121,6 +121,16 @@ DB_USER=apotheke
 DB_PASSWORD=secret
 DB_SCHEMA=apotheke
 ```
+
+Apotheke looks the schema up in `pg_namespace` and runs `CREATE SCHEMA` only when that name is missing.
+PostgreSQL checks CREATE on the database before it checks whether the schema exists, so a role without CREATE
+used to fail at startup even when the schema was already there. A role without CREATE on the database can use
+an existing schema. Create the schema first and grant that role USAGE on it, plus CREATE on the schema when
+migrations need to add tables. If the schema is missing and the role cannot create it, startup fails. The log
+line (`[apotheke] …`) and the CLI error name the schema. They do not include the password or the DSN.
+`bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user or
+the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
+`<unparsed dsn>`. The browser shows the generic error page.
 
 QR labels that should point at a fixed address:
 

@@ -220,6 +220,16 @@ Notes:
 | 0021 | `0021_photo_versions.php` | `item_photos.version`, `item_photos.edited_at` (crop/rotate versions) |
 | 0022 | `0022_roles.php` | `roles` (built-in + custom permission sets), `users.status`, `auth_attempts` (rate limits) |
 
+## PostgreSQL schema and roles
+
+With `DB_SCHEMA` set, the connection's `search_path` is that schema. On connect, Apotheke reads
+`pg_catalog.pg_namespace` and runs `CREATE SCHEMA` only when the name is absent. PostgreSQL would otherwise
+check CREATE on the database first and reject a role without that privilege even when the schema already
+exists. The role still needs USAGE on the schema, and CREATE on the schema when a migration adds tables.
+If the schema is missing and the role cannot create it, connect fails with an error that names the schema
+and does not include the password or the DSN. See
+[Deployment and operations](deployment-and-operations.md#postgresql-role).
+
 ## How migrations run
 
 ```mermaid

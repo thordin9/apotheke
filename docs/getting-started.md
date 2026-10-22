@@ -40,7 +40,10 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 
 **What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
 `libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). That default is the shipped 2.5.x image.
-`docker build --build-arg PHP_VERSION=8.4` builds the CI test image from the same Dockerfile, including Imagick. Compose and the published image keep the default. Opcache is on and JIT is
+`docker build --build-arg PHP_VERSION=8.4` builds the CI test image from the same Dockerfile, including Imagick. Compose and the published image keep the default. Imagick is built from its
+GitHub release tag, with pecl.php.net as a second source. Each is pinned by its own sha256 (`IMAGICK_SHA256` and
+`IMAGICK_PECL_SHA256` in the `Dockerfile`, next to `IMAGICK_VERSION`), and the build fails if neither download matches.
+To upgrade it, change all three. Opcache is on and JIT is
 left off (`docker/php.ini` sets no JIT buffer). Installs without Docker stay on GD. When Imagick does decode a photo
 (HEIC, or a file GD cannot read), it flattens transparent areas onto white and converts CMYK to sRGB, then drops
 colour profiles, matching the JPEG GD writes. For a grayscale photo, Imagick writes a 1-channel JPEG, so
@@ -84,6 +87,12 @@ data in `./data/postgres` and has a `pg_isready` health check. The app reaches i
 
 To use an existing PostgreSQL server instead, set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` (or a
 full `DB_DSN`) and leave the profile off. Photos are always stored in `DATA_DIR`, whichever database you use.
+
+`DB_SCHEMA` is optional. On connect, Apotheke looks that name up in `pg_namespace` and runs `CREATE SCHEMA` only
+when it is missing. A database role does not need CREATE on the database when the schema already exists. Create
+the schema first and grant the role USAGE on it, and CREATE on the schema so migrations can add tables. If the
+schema is missing and the role cannot create it, startup fails with an error that names the schema and does not
+include the password or the DSN.
 
 ## Plain `docker run`
 

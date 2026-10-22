@@ -20,7 +20,7 @@ return [
         'name'     => 'apotheke',             // DB_NAME
         'user'     => 'apotheke',             // DB_USER
         'password' => '',                     // DB_PASSWORD
-        'schema'   => '',                     // DB_SCHEMA     optional, created if missing
+        'schema'   => '',                     // DB_SCHEMA     optional; created only when missing
         'dsn'      => '',                     // DB_DSN        full PDO DSN, overrides host/port/name
     ],
 

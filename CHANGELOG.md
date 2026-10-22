@@ -25,6 +25,31 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **test:** compare two legacy installs (fresh install, `/healthz`, a settings save) and record the four parity quirks (N-2, QA L-2, N-4, I-3).
 - **fix:** QR labels finish under PHP 8.4 function JIT (`opcache.jit=1235`). The guard disables opcache JIT for the whole PHP worker from the first request, not only for QR encoding. The cost is negligible. `opcache_jit_blacklist()` does not help. The matrix matches the interpreter.
 
+## [2.5.5] - 2026-10-21
+
+### Fixed
+
+- **db:** CREATE SCHEMA is skipped when DB_SCHEMA already exists, so a role without CREATE no longer gets a 500 ([#41](https://github.com/thordin9/apotheke/issues/41), [#44](https://github.com/thordin9/apotheke/pull/44))
+- **db:** concurrent first-start creation of the same schema no longer fails ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **migrate:** bin/migrate.php prints only the driver, host, port, dbname and DB_SCHEMA, never the user or the password ([#44](https://github.com/thordin9/apotheke/pull/44))
+
+### Changed
+
+- **qr:** the QR helper is renamed from qr_php84_jit_is_tracing to qr_jit_is_tracing ([#45](https://github.com/thordin9/apotheke/pull/45))
+
+### Maintenance
+
+- **changelog:** docs: add the Imagick colour note to 2.5.4 ([#40](https://github.com/thordin9/apotheke/pull/40))
+- docs: clarify that only the autofill JPEG is one channel ([#40](https://github.com/thordin9/apotheke/pull/40))
+- **changelog:** docs: link #37 from the 2.5.4 images line ([#40](https://github.com/thordin9/apotheke/pull/40))
+- **qa:** docs: add the v2.5.4 release QA report ([#40](https://github.com/thordin9/apotheke/pull/40))
+- **qa:** docs: add QA report for the QR helper rename ([#45](https://github.com/thordin9/apotheke/pull/45))
+- **docker:** the image builds Imagick from a pinned source tarball ([#47](https://github.com/thordin9/apotheke/pull/47))
+- **qa:** docs: add QA report for #46 imagick pinned source ([#47](https://github.com/thordin9/apotheke/pull/47))
+- **db:** test: cover mixed-case and quoted schema names ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **ci:** chore: allowlist the migrate DSN placeholder ([#44](https://github.com/thordin9/apotheke/pull/44))
+- **qa:** docs: add QA report for the DB schema fix ([#44](https://github.com/thordin9/apotheke/pull/44))
+
 ## [2.5.4] - 2026-10-20
 
 ### Fixed
@@ -323,7 +348,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.4...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.5...HEAD
+[2.5.5]: https://github.com/thordin9/apotheke/compare/v2.5.4...v2.5.5
 [2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/thordin9/apotheke/compare/v2.5.1...v2.5.2
