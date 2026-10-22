@@ -11,6 +11,26 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **migrate:** bin/migrate.php exits 1 when the database refuses the connection and prints only the driver, host, port, dbname and DB_SCHEMA. The server's error text (it names the database user), the password and the full DSN are not printed or logged. SQLite open errors are unchanged.
 
+## [2.5.6] - 2026-10-22
+
+### Fixed
+
+- **migrate:** keep the DB user name out of connect errors ([#55](https://github.com/thordin9/apotheke/pull/55))
+
+### Maintenance
+
+- **docker:** build: add pinned PECL fallback for imagick, https-only curl ([#48](https://github.com/thordin9/apotheke/pull/48))
+- **qa:** docs: add QA report for #48 imagick PECL fallback ([#48](https://github.com/thordin9/apotheke/pull/48))
+- **changelog:** docs: add the DB schema and migrate notes to 2.5.5 ([#49](https://github.com/thordin9/apotheke/pull/49))
+- **changelog:** docs: replace generated 2.5.5 lines with notes ([#49](https://github.com/thordin9/apotheke/pull/49))
+- **config:** test: cover the migrate DSN banner in process ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **ci:** chore: anchor the migrate DSN gitleaks allowlist ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qr:** chore: restore the function-JIT docblock sentence ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qa:** docs: add the v2.5.5 release QA report ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qa:** docs: add the PR #50 cleanup QA report ([#50](https://github.com/thordin9/apotheke/pull/50))
+- ci: add job timeouts and retry the zbar and E2E apt installs ([#54](https://github.com/thordin9/apotheke/pull/54))
+- **qa:** docs: add the PR #55 fix(migrate) QA report ([#55](https://github.com/thordin9/apotheke/pull/55))
+
 ## [2.5.5] - 2026-10-21
 
 ### Fixed
@@ -334,7 +354,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.5...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.6...HEAD
+[2.5.6]: https://github.com/thordin9/apotheke/compare/v2.5.5...v2.5.6
 [2.5.5]: https://github.com/thordin9/apotheke/compare/v2.5.4...v2.5.5
 [2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3
