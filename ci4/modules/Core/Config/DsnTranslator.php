@@ -133,7 +133,12 @@ final class DsnTranslator
         return $key . "='" . $value . "'";
     }
 
-    /** @return array<string,string> */
+    /**
+     * PDO still splits on ";". libpq ignores whitespace around a key and around "=".
+     * Only the whitespace after "=" is removed from the value.
+     *
+     * @return array<string,string>
+     */
     private function pairs(string $body, string $dsn): array
     {
         $out = [];
@@ -142,10 +147,14 @@ final class DsnTranslator
                 continue;
             }
             $bits = explode('=', $part, 2);
-            if (count($bits) !== 2 || $bits[0] === '') {
+            if (count($bits) !== 2) {
                 $this->bad($dsn);
             }
-            $out[$bits[0]] = $bits[1];
+            $key = trim($bits[0]);
+            if ($key === '') {
+                $this->bad($dsn);
+            }
+            $out[$key] = ltrim($bits[1]);
         }
         if ($out === []) {
             $this->bad($dsn);

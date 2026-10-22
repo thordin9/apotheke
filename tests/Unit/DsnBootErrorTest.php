@@ -27,11 +27,13 @@ final class DsnBootErrorTest extends TestCase
                 'log' => 'Database pgsql host=db.example port=5432 dbname=catalog',
                 'absent' => ['s9d44', 'password', 'mysql'],
             ],
-            // pairs() keeps "password = …", so translation succeeds and boot continues.
-            // M-1 still requires that value to stay out of the body, the log, and stderr.
+            // Spaces around "=" are the password, as libpq does. The canary and the
+            // word password stay out of the body, the log, and stderr. startup.php
+            // does not connect; a connect that fails on db.example must be the
+            // generic 500 and the allowlisted log line.
             'spaces' => [
-                'dsn' => 'pgsql:host=db.example;port=5432;dbname=catalog;password = s9d44',
-                'proceeds' => true,
+                'dsn' => 'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44',
+                'onConnect' => 'Database pgsql host=db.example port=5432 dbname=catalog',
                 'absent' => ['s9d44', 'password'],
             ],
             'semicolon' => [
@@ -47,7 +49,11 @@ final class DsnBootErrorTest extends TestCase
                 $this->assertStringNotContainsString($needle, $shown, $name . $shown);
             }
             $this->assertStringNotContainsString($case['dsn'], $shown, $name);
-            if (!empty($case['proceeds'])) {
+            if (isset($case['onConnect'])) {
+                if ($hit['status'] === 500) {
+                    $this->assertSame('The database settings could not be used.', $hit['body'], $name);
+                    $this->assertStringContainsString($case['onConnect'], $hit['log'], $name . $hit['log']);
+                }
                 continue;
             }
             $this->assertSame(500, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
