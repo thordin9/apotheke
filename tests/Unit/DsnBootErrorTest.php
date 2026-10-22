@@ -21,9 +21,17 @@ final class DsnBootErrorTest extends TestCase
                 'log' => 'Database pgsql host=db.example port=5432 dbname=catalog',
                 'absent' => ['u9d44', 'zzu', 'postgresql://'],
             ],
-            'spaces' => [
+            // The log names the configured DB_DRIVER, not the DSN's prefix.
+            'unsupported-prefix' => [
                 'dsn' => 'mysql:host=db.example;port=5432;dbname=catalog;password = s9d44',
                 'log' => 'Database pgsql host=db.example port=5432 dbname=catalog',
+                'absent' => ['s9d44', 'password', 'mysql'],
+            ],
+            // pairs() keeps "password = …", so translation succeeds and boot continues.
+            // M-1 still requires that value to stay out of the body, the log, and stderr.
+            'spaces' => [
+                'dsn' => 'pgsql:host=db.example;port=5432;dbname=catalog;password = s9d44',
+                'proceeds' => true,
                 'absent' => ['s9d44', 'password'],
             ],
             'semicolon' => [
@@ -34,14 +42,20 @@ final class DsnBootErrorTest extends TestCase
         ];
         foreach ($cases as $name => $case) {
             $hit = $this->boot($case['dsn']);
+            $shown = $hit['body'] . $hit['log'] . $hit['err'];
+            foreach ($case['absent'] as $needle) {
+                $this->assertStringNotContainsString($needle, $shown, $name . $shown);
+            }
+            $this->assertStringNotContainsString($case['dsn'], $shown, $name);
+            if (!empty($case['proceeds'])) {
+                continue;
+            }
             $this->assertSame(500, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
             $this->assertSame('The database settings could not be used.', $hit['body'], $name);
             $this->assertStringContainsString($case['log'], $hit['log'], $name . $hit['log']);
-            $shown = $hit['body'] . $hit['log'] . $hit['err'];
-            foreach ($case['absent'] as $needle) {
-                $this->assertStringNotContainsString($needle, $shown, $name);
+            if ($name === 'unsupported-prefix') {
+                $this->assertStringNotContainsString('mysql', $hit['log'], $name);
             }
-            $this->assertStringNotContainsString($case['dsn'], $shown, $name);
         }
     }
 
