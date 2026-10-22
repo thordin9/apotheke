@@ -79,7 +79,7 @@ while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
 3. Pending migrations run automatically on the first request, in one transaction under a lock; or run
    `php bin/migrate.php` yourself and check with `php bin/migrate.php --status`.
 
-After a PHP security release, rebuild so the new base image is fetched, then restart:
+Bump the pinned PHP patch in the Dockerfile on each PHP security release, then rebuild with `docker compose build --pull` and restart. CI checks that the built image's PHP version matches that pin.
 
 ```bash
 docker compose build --pull
