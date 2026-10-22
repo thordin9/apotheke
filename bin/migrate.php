@@ -11,7 +11,12 @@ declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') exit(1);
 if (getenv('APOTHEKE_APP') === 'ci4') {
-    $args = [PHP_BINARY, dirname(__DIR__) . '/ci4/spark', 'apotheke:migrate', '--no-header'];
+    $spark = dirname(__DIR__) . '/ci4/spark';
+    if (!file_exists($spark)) {
+        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
+        exit(1);
+    }
+    $args = [PHP_BINARY, $spark, 'apotheke:migrate', '--no-header'];
     foreach (array_slice($argv, 1) as $arg) {
         if ($arg === '--status') $args[] = '--status';
     }

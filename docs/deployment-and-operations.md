@@ -174,7 +174,7 @@ not include the password or the DSN. The browser shows the generic error page.
 
 `php bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user
 or the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`. With `APOTHEKE_APP=ci4` the same banner comes from `apotheke:migrate`. A failed connection
+`<unparsed dsn>`. With `APOTHEKE_APP=ci4` the same banner comes from `apotheke:migrate`. If that variable is set and `ci4/spark` is not in the install, the command prints `APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.` and exits 1. That line has no DSN. A failed connection
 prints that same allowlist. The image sets `zend.exception_ignore_args = On`, so the exception text does not
 add the user or the password either.
 
