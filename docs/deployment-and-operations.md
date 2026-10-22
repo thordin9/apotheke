@@ -79,6 +79,13 @@ while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
 3. Pending migrations run automatically on the first request, in one transaction under a lock; or run
    `php bin/migrate.php` yourself and check with `php bin/migrate.php --status`.
 
+After a PHP security release, rebuild so the new base image is fetched, then restart:
+
+```bash
+docker compose build --pull
+docker compose up -d
+```
+
 Notes:
 
 * **Pre-migration SQLite installs** (schema v1–v3) are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then

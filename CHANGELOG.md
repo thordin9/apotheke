@@ -9,6 +9,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Fixed
 
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
 - **migrate:** bin/migrate.php exits 1 when the database refuses the connection and prints only the driver, host, port, dbname and DB_SCHEMA. The server's error text (it names the database user), the password and the full DSN are not printed or logged. SQLite open errors are unchanged.
 
 ## [2.5.6] - 2026-10-22
