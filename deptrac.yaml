@@ -1,4 +1,4 @@
-# Core depends on nothing. DevServer may depend on Core. Other modules land in later PRs.
+# Core depends on nothing. DevServer and Migrations may depend on Core.
 deptrac:
   paths:
     - ci4/modules
@@ -11,7 +11,13 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\DevServer\\
+    - name: Migrations
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Migrations\\
   ruleset:
     Core: []
     DevServer:
+      - Core
+    Migrations:
       - Core

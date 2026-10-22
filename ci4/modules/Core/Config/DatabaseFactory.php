@@ -29,14 +29,11 @@ final class DatabaseFactory
             return;
         }
         if ($driver === 'Postgre') {
-            $connection->query("SET TIME ZONE 'UTC'");
-            $schema = (string)($this->config->database()['schema'] ?? '');
-            if ($schema === '') {
-                return;
+            if ($connection->query("SET TIME ZONE 'UTC'") === false) {
+                throw new \RuntimeException('Could not set the database time zone.');
             }
-            $quoted = '"' . str_replace('"', '""', $schema) . '"';
-            $connection->query('CREATE SCHEMA IF NOT EXISTS ' . $quoted);
-            $connection->query('SET search_path TO ' . $quoted);
+            $schema = (string)($this->config->database()['schema'] ?? '');
+            (new PgsqlSchema())->apply(new Ci4SchemaSession($connection), $schema);
         }
     }
 

@@ -227,7 +227,8 @@ With `DB_SCHEMA` set, the connection's `search_path` is that schema. On connect,
 check CREATE on the database first and reject a role without that privilege even when the schema already
 exists. The role still needs USAGE on the schema, and CREATE on the schema when a migration adds tables.
 If the schema is missing and the role cannot create it, connect fails with an error that names the schema
-and does not include the password or the DSN. See
+and does not include the password or the DSN. CI4 uses the same check on connect and before migrations, so
+`/healthz` is not `ok` while the schema is missing. See
 [Deployment and operations](deployment-and-operations.md#postgresql-role).
 
 ## How migrations run

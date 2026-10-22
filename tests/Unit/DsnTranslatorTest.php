@@ -81,6 +81,39 @@ final class DsnTranslatorTest extends TestCase
         $this->assertStringContainsString("user='o\\'brien\\\\ops'", (string)$user['DSN']);
     }
 
+    public function testSpacedPgsqlKeysReachTheCi4Group(): void
+    {
+        $dsn = 'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44';
+        $group = $this->translator->fromPdoDsn($dsn, []);
+        $this->assertSame('db.example', $group['hostname']);
+        $this->assertSame(5432, $group['port']);
+        $this->assertSame('catalog', $group['database']);
+        $this->assertSame('s9d44', $group['password']);
+        $this->assertStringContainsString("host='db.example'", (string)$group['DSN']);
+        $this->assertStringContainsString("password='s9d44'", (string)$group['DSN']);
+
+        $kept = $this->translator->fromPdoDsn(
+            'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44 ',
+            []
+        );
+        $this->assertSame('s9d44 ', $kept['password']);
+
+        $log = DsnTranslator::logLine('pgsql', $dsn);
+        $this->assertSame('Database pgsql host=db.example port=5432 dbname=catalog', $log);
+        $this->assertStringNotContainsString('s9d44', $log);
+        $this->assertStringNotContainsString('password', $log);
+    }
+
+    public function testSpacedUserMapsToTheUsername(): void
+    {
+        $group = $this->translator->fromPdoDsn(
+            'pgsql:host=db.example;port=5432;dbname=catalog;user = zzu',
+            []
+        );
+        $this->assertSame('zzu', $group['username']);
+        $this->assertStringContainsString("user='zzu'", (string)$group['DSN']);
+    }
+
     public function testPgsqlPasswordFromTheDsnIsQuotedInTheConnectString(): void
     {
         $group = $this->translator->fromPdoDsn(
@@ -99,15 +132,19 @@ final class DsnTranslatorTest extends TestCase
         $this->expectBad('pgsql:');
     }
 
-    public function testPasswordIsRedactedInTheBootMessage(): void
+    public function testBootMessageHasNoDsnParts(): void
     {
         try {
             $this->translator->fromPdoDsn('mysql:host=localhost;password=s3cret;dbname=app', []);
             $this->fail('expected DsnException');
         } catch (DsnException $e) {
-            $this->assertStringContainsString('password=***', $e->getMessage());
+            $this->assertSame(DsnException::PUBLIC_MESSAGE, $e->getMessage());
             $this->assertStringNotContainsString('s3cret', $e->getMessage());
-            $this->assertStringContainsString('sqlite:<path>', $e->getMessage());
+            $this->assertStringNotContainsString('localhost', $e->getMessage());
+            $this->assertStringNotContainsString('mysql:', $e->getMessage());
+            $log = DsnTranslator::logLine('pgsql', $e->dsn);
+            $this->assertSame('Database pgsql host=localhost dbname=app', $log);
+            $this->assertStringNotContainsString('s3cret', $log);
         }
     }
 

@@ -48,24 +48,19 @@ final class Ci4HttpTest extends TestCase
             $admin->exec('REVOKE CREATE ON SCHEMA public FROM ' . $role);
         }
         $this->assertFalse($this->schemaCreate($admin, $role), 'the probe check needs a role that cannot CREATE');
+        $schema = 's_' . bin2hex(random_bytes(4));
+        $admin->exec('CREATE SCHEMA ' . $schema . ' AUTHORIZATION ' . $role);
         $plain = tmpdir('ci4-shipped');
         $marked = tmpdir('ci4-shipped-mark');
-        $without = new Server($plain, [
+        $db = [
             'CI_ENVIRONMENT' => 'production',
-            'APOTHEKE_TEST_DB' => null,
             'DB_DRIVER' => 'pgsql',
             'DB_USER' => $role,
             'DB_PASSWORD' => $password,
-            'DB_SCHEMA' => '',
-        ], 'ci4', $shipped);
-        $with = new Server($marked, [
-            'CI_ENVIRONMENT' => 'production',
-            'APOTHEKE_TEST_DB' => 'pgsql',
-            'DB_DRIVER' => 'pgsql',
-            'DB_USER' => $role,
-            'DB_PASSWORD' => $password,
-            'DB_SCHEMA' => '',
-        ], 'ci4', $shipped);
+            'DB_SCHEMA' => $schema,
+        ];
+        $without = new Server($plain, $db + ['APOTHEKE_TEST_DB' => null], 'ci4', $shipped);
+        $with = new Server($marked, $db + ['APOTHEKE_TEST_DB' => 'pgsql'], 'ci4', $shipped);
         try {
             foreach ([$without, $with] as $server) {
                 $response = $server->client()->get('/healthz');
@@ -83,6 +78,7 @@ final class Ci4HttpTest extends TestCase
             rrmdir($marked);
             @unlink($plain . '.server.log');
             @unlink($marked . '.server.log');
+            $admin->exec('DROP SCHEMA IF EXISTS ' . $schema . ' CASCADE');
             $admin->exec('DROP ROLE IF EXISTS ' . $role);
             if ($publicCreate) {
                 $admin->exec('GRANT CREATE ON SCHEMA public TO PUBLIC');
@@ -178,6 +174,8 @@ final class Ci4HttpTest extends TestCase
             $this->assertNotSame('', test_db_env($ci4Dir)['DB_SCHEMA']);
             $this->assertNotSame('public', test_db_env($ci4Dir)['DB_SCHEMA']);
             $legacy->client()->get('/');
+            $migrated = $ci4->client()->get('/healthz');
+            $this->assertSame(200, $migrated['status'], (string)@file_get_contents($ci4->log));
             $this->seedTrust($legacyDir);
             $this->seedTrust($ci4Dir);
             $header = ['X-Forwarded-Proto: https'];
@@ -241,9 +239,12 @@ final class Ci4HttpTest extends TestCase
         try {
             $response = $server->client()->get('/healthz');
             $this->assertSame(500, $response['status']);
-            $this->assertStringContainsString('Unsupported database DSN', $response['body']);
-            $this->assertStringContainsString('password=***', $response['body']);
-            $this->assertStringNotContainsString('s3cret', $response['body']);
+            $this->assertSame('The database settings could not be used.', $response['body']);
+            $log = (string)@file_get_contents($server->log);
+            $this->assertStringNotContainsString('s3cret', $response['body'] . $log);
+            $this->assertStringNotContainsString('mysql:', $response['body']);
+            $this->assertStringContainsString('host=localhost', $log);
+            $this->assertStringContainsString('dbname=app', $log);
         } finally {
             $server->stop();
             rrmdir($dir);
@@ -392,8 +393,13 @@ final class Ci4HttpTest extends TestCase
             return;
         }
 
-        $pdo->exec('CREATE TABLE settings (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
-        $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('trust_proxy', 'true', '2026-01-01')");
+        $exists = $pdo->query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settings'")->fetchColumn();
+        if ($exists) {
+            $pdo->exec("UPDATE settings SET value = 'true' WHERE name = 'trust_proxy'");
+        } else {
+            $pdo->exec('CREATE TABLE settings (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
+            $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('trust_proxy', 'true', '2026-01-01')");
+        }
         $trusted = new Client($server->base);
         $on = $trusted->get('/', ['X-Forwarded-Proto: HTTPS, http']);
         $this->assertStringContainsString('secure', strtolower($this->cookieLine($on)));

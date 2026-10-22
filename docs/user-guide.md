@@ -524,7 +524,8 @@ icon and favicon), currency and number/date/time formats, time zone, items per p
 view, defaults for new items (quantity, low-stock threshold, tags, notes, purchase date, expiry, location, category),
 the *Expiring soon* window, the default loan period, limits for saved filters and photos, photo sizes and the password.
 *Backup & data* exports/imports the settings as JSON next to the backup and CSV links. Each section can be reset to its
-defaults. Details: [control-panel.md](control-panel.md).
+defaults. If the database settings cannot be used, the page says the database settings could not be used and does not
+show the connection string. Details: [control-panel.md](control-panel.md).
 
 ![Settings](screenshots/settings-light.png) ![Accent colour](screenshots/settings-appearance-dark.png)
 

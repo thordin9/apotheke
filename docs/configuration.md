@@ -46,7 +46,7 @@ return [
 | `app_password` | `APP_PASSWORD` | *(empty)* | DB — Users | Password of the first account `admin` (stored as a hash when the database is created; sign-in on). Empty means no login. Later: Settings → Users & sign-in or `php bin/settings.php user password admin`. |
 | `db.driver` | `DB_DRIVER` | `sqlite` | bootstrap | `sqlite` or `pgsql`; anything else is an error. |
 | `db.sqlite_path` | `SQLITE_PATH` | `<data_dir>/catalog.sqlite` | bootstrap | SQLite database file. |
-| `db.dsn` | `DB_DSN` | *(empty)* | bootstrap | Full PDO DSN for PostgreSQL; overrides host, port and name. CI4's `DsnTranslator` accepts `sqlite:<path>` (including `:memory:`) and `pgsql:host=…;port=…;dbname=…` with optional `sslmode`, `connect_timeout`, `options` and `service`. The `pg_connect` string quotes every value as `key='value'`, escaping `\` and then `'`. Anything else stops boot. A password in the message is redacted. |
+| `db.dsn` | `DB_DSN` | *(empty)* | bootstrap | Full PDO DSN for PostgreSQL; overrides host, port and name. CI4's `DsnTranslator` accepts `sqlite:<path>` (including `:memory:`) and `pgsql:host=…;port=…;dbname=…` with optional `sslmode`, `connect_timeout`, `options` and `service`. Whitespace around a key and around `=` is ignored, as libpq does for `key = value`; the value keeps everything after those spaces. The `pg_connect` string quotes every value as `key='value'`, escaping `\` and then `'`. Anything else stops boot. The page says the database settings could not be used and includes no DSN parts. The log line lists only the driver, host, port and database name. |
 | `db.host` | `DB_HOST` | `127.0.0.1` | bootstrap | PostgreSQL host. |
 | `db.port` | `DB_PORT` | `5432` | bootstrap | PostgreSQL port. |
 | `db.name` | `DB_NAME` | `apotheke` | bootstrap | PostgreSQL database. |
@@ -96,7 +96,7 @@ is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
 through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
 in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
-`docker/php.ini` enables opcache and leaves JIT off. Installs that turn function JIT on are covered by `src/qr.php`:
+`docker/php.ini` enables opcache, leaves JIT off, and sets `zend.exception_ignore_args = On` so a failed connection does not log the user or password from the exception arguments. Installs that turn function JIT on are covered by `src/qr.php`:
 the first request sets `opcache.jit=disable` for the whole worker. Tracing JIT stays on. The cost is negligible, and
 `opcache_jit_blacklist()` does not help. On 2.5.x, function JIT on PHP 8.2, 8.3 and 8.4 could write a wrong QR code
 on installs outside Docker that enabled it.

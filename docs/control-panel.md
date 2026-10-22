@@ -10,7 +10,7 @@ Values are stored in the database (`settings` table), take effect on the next re
 
 | Kind | Examples | Lives in | Changed with |
 |---|---|---|---|
-| **Bootstrap** | `DATA_DIR`, `DB_DRIVER`, `DB_HOST` … `DB_PASSWORD`, `DB_SCHEMA`, `SQLITE_PATH`, `SEED_DEFAULTS`, `APOTHEKE_CONFIG` | `config.php` / environment | editing the file or the environment, then restarting. Shown read-only under **Settings → System** (the DB password only as "set"). |
+| **Bootstrap** | `DATA_DIR`, `DB_DRIVER`, `DB_HOST` … `DB_PASSWORD`, `DB_SCHEMA`, `SQLITE_PATH`, `SEED_DEFAULTS`, `APOTHEKE_CONFIG` | `config.php` / environment | editing the file or the environment, then restarting. Shown read-only under **Settings → System** (the DB password only as "set"). A database setting that cannot be used stops the app. The page says the database settings could not be used. The error log lists the driver, host, port and database name, and does not include the user or the password. |
 | **Everything else** | name, accent, currency, page size, time zone, upload limits, password … | database (`settings`) | the Control Panel, `bin/settings.php`, or importing a settings JSON |
 
 The first time the `0013_settings` migration runs (a new install or an upgrade) it **copies the current `config.php` /

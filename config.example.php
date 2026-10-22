@@ -20,8 +20,8 @@ return [
         'name'     => 'apotheke',             // DB_NAME
         'user'     => 'apotheke',             // DB_USER
         'password' => '',                     // DB_PASSWORD
-        'schema'   => '',                     // DB_SCHEMA     optional; created only when missing
-        'dsn'      => '',                     // DB_DSN        full PDO DSN, overrides host/port/name
+        'schema'   => '',                     // DB_SCHEMA     optional; created only when missing. A missing schema this role cannot create stops startup.
+        'dsn'      => '',                     // DB_DSN        full PDO DSN, overrides host/port/name. A bad DSN shows a generic page.
     ],
 
     'uploads' => [
