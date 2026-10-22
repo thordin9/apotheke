@@ -16,7 +16,18 @@ require dirname(__DIR__) . '/src/items.php';
 $c = cfg();
 $driver = $c['db']['driver'];
 echo 'Database: ' . $driver . ' – ' . config_migrate_where($c['db']) . "\n";
-$pdo = db_connect($c['db']);
+try {
+    $pdo = db_connect($c['db']);
+} catch (PDOException $e) {
+    // libpq's own text names the user ("password authentication failed for user …").
+    // With zend.exception_ignore_args off, the trace also includes the DSN, user, and password.
+    // SQLite open errors do not name a login; leave those as the engine reports them.
+    if ($driver !== 'sqlite') {
+        fwrite(STDERR, 'Could not connect to the database (' . $driver . ' – ' . config_migrate_where($c['db']) . ").\n");
+        exit(1);
+    }
+    throw $e;
+}
 
 if (in_array('--status', $argv, true)) {
     $applied = migrations_applied($pdo, $driver);

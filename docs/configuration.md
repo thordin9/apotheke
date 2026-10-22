@@ -130,7 +130,10 @@ migrations need to add tables. If the schema is missing and the role cannot crea
 line (`[apotheke] …`) and the CLI error name the schema. They do not include the password or the DSN.
 `bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user or
 the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`. The browser shows the generic error page.
+`<unparsed dsn>`. If PostgreSQL refuses the connection, the command prints `Could not connect to the database`
+with those same fields and exits with status 1. It does not print or log the server's own error text (that
+text names the database user), the password, or the full DSN. A SQLite file that cannot be opened still
+reports the engine's own error. The browser shows the generic error page.
 
 QR labels that should point at a fixed address:
 

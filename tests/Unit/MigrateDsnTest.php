@@ -162,8 +162,72 @@ final class MigrateDsnTest extends TestCase
         $this->assertStringNotContainsString('SecretSqliteUser99', $run['out']);
     }
 
-    /** @return array{out:string,err:string,code:int,data:string} */
-    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke'): array
+    /**
+     * A refused PostgreSQL connection must not reveal the login.
+     * libpq names the user ("password authentication failed for user …"), and
+     * with zend.exception_ignore_args off the trace also includes the DSN
+     * (user and password) unless string arguments are truncated. The production
+     * ini truncates them (zend.exception_string_param_max_len=0), so this test
+     * turns that limit up and checks stdout, stderr, and the error log.
+     */
+    public function testConnectFailureOmitsUserPasswordAndDsn(): void
+    {
+        $user = 'canaryuser';
+        $password = 'canarypass';
+        $log = tempnam(sys_get_temp_dir(), 'apotheke-mig-');
+        $this->assertNotFalse($log);
+        $dsn = 'pgsql:host=127.0.0.1;port=5432;dbname=keepdb;user=' . $user . ';password=' . $password;
+        $where = 'host=127.0.0.1 port=5432 dbname=keepdb (schema app)';
+        try {
+            $run = $this->migrate($dsn, $password, 'pgsql', $user, [
+                'zend.exception_ignore_args' => '0',
+                'zend.exception_string_param_max_len' => '1000000',
+                'log_errors' => '1',
+                'display_errors' => 'stderr',
+                'error_log' => $log,
+            ], [
+                'DB_HOST' => '127.0.0.1',
+                'DB_PORT' => '5432',
+                'DB_NAME' => 'keepdb',
+            ]);
+            $logged = is_file($log) ? (string)file_get_contents($log) : '';
+            $blob = $run['out'] . "\n" . $run['err'] . "\n" . $logged;
+            $this->assertStringNotContainsString($user, $run['out']);
+            $this->assertStringNotContainsString($user, $run['err']);
+            $this->assertStringNotContainsString($user, $logged);
+            $this->assertStringNotContainsString($password, $run['out']);
+            $this->assertStringNotContainsString($password, $run['err']);
+            $this->assertStringNotContainsString($password, $logged);
+            $this->assertStringNotContainsString($dsn, $blob);
+            $this->assertStringNotContainsString('password authentication failed', $blob);
+            $this->assertStringNotContainsString('PDOException', $blob);
+            $this->assertStringNotContainsString('Stack trace', $blob);
+            $this->assertSame(1, $run['code'], $blob);
+            $this->assertSame('Database: pgsql – ' . $where . "\n", $run['out']);
+            $this->assertSame('Could not connect to the database (pgsql – ' . $where . ").\n", $run['err']);
+        } finally {
+            @unlink((string)$log);
+        }
+    }
+
+    /** SQLite open errors stay the raw engine message. PostgreSQL is the path that names a user. */
+    public function testSqliteOpenErrorStaysUnchanged(): void
+    {
+        $run = $this->migrate(null, 'canarypass', 'sqlite', 'canaryuser', [], [
+            'SQLITE_PATH' => '/proc/no-such-migrate-dir/catalog.sqlite',
+        ]);
+        $blob = $run['out'] . "\n" . $run['err'];
+        $this->assertNotSame(0, $run['code']);
+        $this->assertStringContainsString('unable to open database file', $blob);
+        $this->assertStringNotContainsString('Could not connect to the database', $blob);
+    }
+
+    /**
+     * @param array<string,string> $ini
+     * @param array<string,string> $envExtra
+     * @return array{out:string,err:string,code:int,data:string}
+     */
+    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke', array $ini = [], array $envExtra = []): array
     {
         $root = dirname(__DIR__, 2);
         $data = sys_get_temp_dir() . '/apotheke-migrate-' . bin2hex(random_bytes(4));
@@ -182,8 +246,16 @@ final class MigrateDsnTest extends TestCase
             'DB_SCHEMA' => 'app',
         ];
         if ($dsn !== null) $env['DB_DSN'] = $dsn;
+        $env = array_merge($env, $envExtra);
+        $cmd = [PHP_BINARY];
+        foreach ($ini as $key => $value) {
+            $cmd[] = '-d';
+            $cmd[] = $key . '=' . $value;
+        }
+        $cmd[] = $root . '/bin/migrate.php';
+        $cmd[] = '--status';
         $proc = proc_open(
-            [PHP_BINARY, $root . '/bin/migrate.php', '--status'],
+            $cmd,
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             $root,
