@@ -22,7 +22,11 @@ function db_driver(): string
 /** Open a PDO connection for a db config block (no migrations). */
 function db_connect(array $db): PDO
 {
-    $pdo = new PDO(config_dsn($db), $db['driver'] === 'pgsql' ? (string)$db['user'] : null, $db['driver'] === 'pgsql' ? (string)$db['password'] : null, [
+    // Drop the password from the argument before any later error, so a stack trace cannot include it.
+    $password = $db['driver'] === 'pgsql' ? (string)$db['password'] : null;
+    $user = $db['driver'] === 'pgsql' ? (string)$db['user'] : null;
+    unset($db['password']);
+    $pdo = new PDO(config_dsn($db), $user, $password, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_STRINGIFY_FETCHES  => false,
@@ -31,13 +35,47 @@ function db_connect(array $db): PDO
         $pdo->exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
     } else {
         $pdo->exec("SET TIME ZONE 'UTC'");
-        if ((string)$db['schema'] !== '') {
-            $s = '"' . str_replace('"', '""', (string)$db['schema']) . '"';
-            $pdo->exec("CREATE SCHEMA IF NOT EXISTS $s");
-            $pdo->exec("SET search_path TO $s");
-        }
+        if ((string)$db['schema'] !== '') db_pgsql_use_schema($pdo, (string)$db['schema']);
     }
     return $pdo;
+}
+
+/**
+ * Point the connection at $schema. PostgreSQL checks CREATE on the database
+ * before it looks at whether the schema exists, so CREATE SCHEMA IF NOT EXISTS
+ * fails for a role without CREATE even when the schema is already there.
+ * Look the name up first and create it only when it is missing. A concurrent
+ * CREATE SCHEMA can still raise 42P06 or 23505; connect continues when the
+ * schema is there afterwards.
+ */
+function db_pgsql_use_schema(PDO $pdo, string $schema): void
+{
+    $quoted = '"' . str_replace('"', '""', $schema) . '"';
+    if (!db_pgsql_schema_exists($pdo, $schema)) {
+        try {
+            $pdo->exec('CREATE SCHEMA IF NOT EXISTS ' . $quoted);
+        } catch (PDOException $e) {
+            $code = (string)$e->getCode();
+            // 42501: CREATE was refused. 42P06 / 23505: two connections created it at once
+            // (duplicate_schema, or the pg_namespace unique index).
+            $alreadyThere = in_array($code, ['42501', '42P06', '23505'], true) && db_pgsql_schema_exists($pdo, $schema);
+            if (!$alreadyThere && $code === '42501') {
+                throw new RuntimeException(
+                    'PostgreSQL schema "' . $schema . '" does not exist, and this database role cannot create it. '
+                    . 'Create the schema, then grant this role USAGE and CREATE on it.'
+                );
+            }
+            if (!$alreadyThere) throw $e;
+        }
+    }
+    $pdo->exec('SET search_path TO ' . $quoted);
+}
+
+function db_pgsql_schema_exists(PDO $pdo, string $schema): bool
+{
+    $st = $pdo->prepare('SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = ?');
+    $st->execute([$schema]);
+    return $st->fetchColumn() !== false;
 }
 
 /** The request's connection; migrations (and first-use seeding) run automatically on first use. */
