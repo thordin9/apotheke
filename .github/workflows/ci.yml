@@ -227,10 +227,21 @@ jobs:
         run: |
           set -euo pipefail
           pin=$(sed -nE 's/^FROM php:([0-9]+\.[0-9]+\.[0-9]+)-fpm-alpine$/\1/p' Dockerfile)
-          if [ -z "$pin" ]; then
+          if [ -z "$pin" ] || [ "$(printf '%s\n' "$pin" | wc -l)" -ne 1 ]; then
             echo "Dockerfile FROM line does not pin php:X.Y.Z-fpm-alpine" >&2
             exit 1
           fi
+          expected_from="FROM php:${pin}-fpm-alpine"
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+              'FROM php:'*)
+                if [ "$line" != "$expected_from" ]; then
+                  echo "Dockerfile FROM line does not pin php:X.Y.Z-fpm-alpine" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done < Dockerfile
           docker run --rm -e PIN="$pin" apotheke:ci php -r 'echo "PHP_VERSION=".PHP_VERSION, PHP_EOL; exit(version_compare(PHP_VERSION, getenv("PIN"), "==") ? 0 : 1);'
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
