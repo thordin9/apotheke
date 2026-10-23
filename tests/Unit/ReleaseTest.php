@@ -97,6 +97,16 @@ final class ReleaseTest extends TestCase
         $this->assertStringNotContainsString('[Unreleased]:', $notes);
     }
 
+    public function testChangelogFoldKeepsBlankLinesInsideNotes(): void
+    {
+        $cl = "# Changelog\n\n## [Unreleased]\n\nFirst paragraph.\n\nSecond paragraph.\n\n### Fixed\n\n- one\n\n- two\n\n```\nline\n\nline\n```\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $out = rel_changelog_insert($cl, "## [1.1.0] - 2026-10-13\n\n### Fixed\n\n- generated\n", '1.1.0', 'v1.0.0', self::URL);
+        $this->assertStringContainsString("First paragraph.\n\nSecond paragraph.", $out);
+        $this->assertStringContainsString("- generated\n- one\n\n- two", $out);
+        $this->assertStringContainsString("```\nline\n\nline\n```", $out);
+        $this->assertStringContainsString("## [Unreleased]\n\n## [1.1.0]", $out);
+    }
+
     public function testRealChangelogAcceptsTheNextRelease(): void
     {
         $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
