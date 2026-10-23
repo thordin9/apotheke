@@ -430,9 +430,9 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Views (HTML) | 10.4 % | 99.4 % | 99.3 % |
 | Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 85.5 % | 86.7 % | 97.8 % |
-| Bootstrap, config, QR, seed | 72.8 % | 76.1 % | 91.2 % |
-| **All PHP** (6689 lines) | **63.6 %** | **92.1 %** | **96.3 %** |
+| Database, migrations, legacy | 79.4 % | 81.2 % | 90.8 % |
+| Bootstrap, config, QR, seed | 72.7 % | 76.0 % | 91.1 % |
+| **All PHP** (6715 lines) | **63.4 %** | **91.8 %** | **95.9 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
