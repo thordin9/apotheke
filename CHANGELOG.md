@@ -12,6 +12,20 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged.
 - **bootstrap:** a data directory that is not writable exits 1.
 - **docker:** exception traces in the image omit function arguments, so a password passed into a call is not copied into the trace.
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
+
+## [2.5.7] - 2026-10-23
+
+### Fixed
+
+- **docker:** pin the PHP 8.3.36 security release ([#57](https://github.com/thordin9/apotheke/pull/57))
+
+### Maintenance
+
+- **changelog:** docs: write the 2.5.6 notes in plain language ([#56](https://github.com/thordin9/apotheke/pull/56))
+- **qa:** docs: add the v2.5.6 release QA report ([#56](https://github.com/thordin9/apotheke/pull/56))
+- **docker:** ci: assert the image runs the pinned PHP patch ([#57](https://github.com/thordin9/apotheke/pull/57))
+- **qa:** docs: add the PR 57 PHP pin QA report ([#57](https://github.com/thordin9/apotheke/pull/57))
 
 ## [2.5.6] - 2026-10-22
 
@@ -355,7 +369,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.6...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.7...HEAD
+[2.5.7]: https://github.com/thordin9/apotheke/compare/v2.5.6...v2.5.7
 [2.5.6]: https://github.com/thordin9/apotheke/compare/v2.5.5...v2.5.6
 [2.5.5]: https://github.com/thordin9/apotheke/compare/v2.5.4...v2.5.5
 [2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4

@@ -1,4 +1,5 @@
-FROM php:8.3-fpm-alpine
+# Bump this patch tag on each PHP security release.
+FROM php:8.3.36-fpm-alpine
 
 LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.description="Apotheke, the storehouse for your stuff: a self-hosted PHP catalog for your belongings (nginx + php-fpm)" \
