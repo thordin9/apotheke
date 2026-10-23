@@ -52,8 +52,8 @@ Both dropdowns appear only when the service offers a choice (API v1.2: `models` 
 **Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge, so an older service
 gets that size when it lists no `image_sizes` (never enlarged). A v1.2 service decides through its recommended size
 instead. Either way the copy that leaves Apotheke is capped at 1600 px (`AUTOFILL_UPLOAD_MAX_SIDE`) and is a JPEG
-at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that multipart body is
-still larger than the byte cap, Apotheke tries quality 70 and then 60, then a shorter long edge, until the copy fits.
+at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that JPEG is
+still larger than the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the copy fits.
 The cap is **Maximum image size** (below). Until `/v1/info` has been cached and the setting is `auto`, that cap is
 983040 bytes (0.9 MiB). The original upload is never sent.
 

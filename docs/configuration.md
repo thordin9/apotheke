@@ -85,7 +85,7 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | Variable | Used by | Meaning |
 |---|---|---|
 | `AUTOFILL_UPLOAD_MAX_SIDE` | autofill | Longest side of the JPEG sent to the autofill service. Default `1600`, clamped to 64–4096. Never enlarges a smaller photo. The model’s image size, when the service lists one, is still the cap when it is smaller. |
-| `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the multipart body is still over the byte cap, Apotheke tries 70 and then 60, then a shorter long edge, until the body fits. This does not set the byte cap (`autofill_max_image_bytes` in the Control Panel). |
+| `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the JPEG is still over the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until it fits. This does not set the byte cap (`autofill_max_image_bytes` in the Control Panel). |
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |

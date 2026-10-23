@@ -1141,6 +1141,26 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: []);
     }
 
+    public function testJpegQualityStepsDownByTen(): void
+    {
+        $prev = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        try {
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            $this->assertSame([80, 70, 60], autofill_jpeg_qualities());
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=95');
+            $this->assertSame([95, 85, 75, 65, 60], autofill_jpeg_qualities(), 'a high quality steps down by 10 instead of jumping to 70');
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=90');
+            $this->assertSame([90, 80, 70, 60], autofill_jpeg_qualities());
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=65');
+            $this->assertSame([65, 60], autofill_jpeg_qualities());
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=40');
+            $this->assertSame([40], autofill_jpeg_qualities(), 'below 60 the configured quality is the only step');
+        } finally {
+            if ($prev === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prev);
+        }
+    }
+
     /**
      * A service that advertises max_image_bytes 524288 and no image_sizes. The analysis copy is still built with the
      * existing q80, then q70, then q60 step-down. The whole multipart body has to land on or under that limit.

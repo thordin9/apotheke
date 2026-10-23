@@ -20,7 +20,7 @@ const AUTOFILL_IMAGE_BYTES_MIN = 65536;    // smallest explicit autofill_max_ima
 const AUTOFILL_IMAGE_BYTES_MAX = 10485760; // largest explicit autofill_max_image_bytes (10 MiB)
 const AUTOFILL_UPLOAD_MAX_SIDE = 1600;     // long edge of the temporary analysis JPEG (env AUTOFILL_UPLOAD_MAX_SIDE)
 const AUTOFILL_RETRY_AFTER_MAX = 60;       // one retry only when Retry-After is at most this many seconds
-const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 70, then 60; then a shorter long edge, until the body fits
+const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 10 points at a time down to 60; then a shorter long edge
 
 function autofill_enabled(): bool
 {
@@ -469,12 +469,14 @@ function autofill_upload_jpeg_quality(): int
     return AUTOFILL_UPLOAD_JPEG_QUALITY;
 }
 
-/** Quality to try, highest first: the configured one, then 70, then 60, skipping any that are not lower. */
+/** Quality to try, highest first: the configured one, then 10 points lower, down through 60. Below 60, only the configured quality. */
 function autofill_jpeg_qualities(): array
 {
     $q = autofill_upload_jpeg_quality();
-    $out = [$q];
-    foreach ([70, 60] as $step) if ($step < $q) $out[] = $step;
+    $out = [];
+    for ($n = $q; $n >= 60; $n -= 10) $out[] = $n;
+    if ($out === []) return [$q];
+    if ($out[array_key_last($out)] !== 60) $out[] = 60;
     return $out;
 }
 
@@ -629,8 +631,8 @@ function autofill_unlink_analysis(?string $path): void
 /**
  * Build the analysis JPEG and the full multipart body. Writes the JPEG under DATA_DIR/tmp when it fits;
  * the caller deletes that path. The original bytes are never written and never returned.
- * Quality steps down (the configured quality, then 70, then 60), then the long edge, until the multipart body
- * fits the byte cap. If nothing fits, the result is too_large.
+ * Quality steps down by 10 from the configured quality, and 60 is tried before the long edge shortens,
+ * until the JPEG fits the byte cap. If nothing fits, the result is too_large.
  * @param list<string>|null $engines
  * @return array{ok:true,path:string,body:string,content_type:string,jpeg:string,width:int,height:int}|array{ok:false,code:string,message:string}
  */

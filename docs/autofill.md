@@ -169,8 +169,9 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
    `max_image_bytes`, and used as stored only when neither is known.
 2. The server does not send that upload on. It builds a **separate** JPEG from the camera file when one exists,
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
-   enlarged, quality about 80 (then 70, then 60). If the multipart body is still over the byte cap, the long edge
-   is reduced and those qualities are tried again, until the body fits. If it cannot, nothing is sent.
+   enlarged, quality about 80. If that JPEG is still over the byte cap, quality steps down by 10 (60 is
+   always tried) and then the long edge is reduced and those qualities are tried again, until the JPEG fits.
+   If it cannot, nothing is sent.
    Metadata is stripped. GD is used first, Imagick if GD cannot read the file. Imagick flattens transparency onto white and
    converts CMYK to sRGB, then strips colour profiles, so that JPEG matches what GD would have written. For a
    grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. GD's encoder
