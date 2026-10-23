@@ -107,6 +107,15 @@ final class ReleaseTest extends TestCase
         $this->assertStringContainsString("## [Unreleased]\n\n## [1.1.0]", $out);
     }
 
+    public function testReleasedSectionsDoNotRepeatDockerAndDbLines(): void
+    {
+        $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
+        $this->assertStringNotContainsString('**docker:** pin the PHP 8.3.36 security release', $cl);
+        $this->assertStringNotContainsString('**db:** keep the database user out of connect errors', $cl);
+        $this->assertStringContainsString('**docker:** the Docker image now builds on PHP 8.3.36', $cl);
+        $this->assertStringContainsString('**db:** seed, backup, restore and settings exit 1', $cl);
+    }
+
     public function testRealChangelogAcceptsTheNextRelease(): void
     {
         $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
