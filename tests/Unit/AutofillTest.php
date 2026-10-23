@@ -1058,6 +1058,10 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('10 MiB', autofill_mib(10485760));
         $this->assertSame('0.9 MiB', autofill_mib(983040));
         $this->assertSame('1.5 MiB', autofill_mib(1572864));
+        $this->assertSame('1 KB', autofill_mib(1000));
+        $this->assertSame('0.01 KB', autofill_mib(10));
+        $this->assertStringContainsString('max 1 KB / 1000 bytes', autofill_too_large_message(1000));
+        $this->assertStringNotContainsString('0 MiB', autofill_too_large_message(1000));
         $this->assertSame(60, settings_schema()['autofill_timeout'][5]['max']);
         $this->assertSame(983040, AUTOFILL_SERVICE_IMAGE_BYTES);
     }

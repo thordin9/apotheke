@@ -281,10 +281,16 @@ function autofill_test(string $url, int $timeout, ?string $token = null): array
     return ['ok' => true, 'code' => 'ok', 'message' => 'Connected to “' . $info['name'] . '”.', 'info' => $info];
 }
 
-/** Bytes as MiB for the image limit: 10485760 → "10 MiB", 983040 → "0.9 MiB". */
+/** Bytes for the image limit: 10485760 → "10 MiB", 983040 → "0.9 MiB", 1000 → "1 KB" (a 1-decimal MiB of 0 would hide it). */
 function autofill_mib(int $bytes): string
 {
-    return rtrim(rtrim(number_format($bytes / 1048576, 1, '.', ''), '0'), '.') . ' MiB';
+    $mib = $bytes / 1048576;
+    if ($bytes > 0 && $mib < 0.05) {
+        $kb = $bytes / 1024;
+        $decimals = $kb >= 0.05 ? 1 : 2;
+        return rtrim(rtrim(number_format($kb, $decimals, '.', ''), '0'), '.') . ' KB';
+    }
+    return rtrim(rtrim(number_format($mib, 1, '.', ''), '0'), '.') . ' MiB';
 }
 
 /**
