@@ -7,13 +7,20 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Added
+
+- **autofill:** Control Panel → AI autofill has **Maximum image size (bytes)** (`autofill_max_image_bytes`, default `auto`). `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when that answer is unavailable. An explicit value must be a whole number from 65536 to 10485760. There is no environment override. An explicit value is capped to `enforced_image_bytes` when that field is present, otherwise to `max_image_bytes`, and used as stored only when neither is known. A lower cap logs a warning and never the token. An HTTP 413 refetches `/v1/info` once, clamps again, and retries the upload once. The copy is a hard maximum: JPEG quality steps down, then the long edge, until it fits. The stored photo stays byte-identical. ([#59](https://github.com/thordin9/apotheke/pull/59))
+
+### Fixed
+
+- **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged.
+
 ## [2.5.8] - 2026-10-23
 
 ### Fixed
 
-- **db:** keep the database user out of connect errors ([#58](https://github.com/thordin9/apotheke/pull/58))
 - **release:** move handwritten Unreleased notes into the version ([#58](https://github.com/thordin9/apotheke/pull/58))
-- **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged.
+- **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged. ([#58](https://github.com/thordin9/apotheke/pull/58))
 - **bootstrap:** a data directory that is not writable exits 1.
 - **docker:** exception traces in the image omit function arguments, so a password passed into a call is not copied into the trace.
 
@@ -34,8 +41,7 @@ and `docker compose exec apotheke php -v` should then show 8.3.36.
 
 ### Fixed
 
-- **docker:** pin the PHP 8.3.36 security release ([#57](https://github.com/thordin9/apotheke/pull/57))
-- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart. ([#57](https://github.com/thordin9/apotheke/pull/57))
 
 ### Maintenance
 

@@ -111,16 +111,17 @@ function rel_changelog_fold(string $section, string $hand): string
     $notes = [];
     $preface = [];
     $title = '';
-    foreach (preg_split("/\n/", str_replace("\r\n", "\n", trim($hand))) as $line) {
+    foreach (preg_split("/\n/", str_replace("\r\n", "\n", $hand)) as $line) {
         if (preg_match('/^### (.+)$/', $line, $m)) {
             $title = trim($m[1]);
             $notes[$title] ??= [];
             continue;
         }
-        if (trim($line) === '') continue;
         if ($title === '') $preface[] = $line;
         else $notes[$title][] = $line;
     }
+    $prefaceText = rel_trim_blank_edges($preface);
+    foreach ($notes as $name => $lines) $notes[$name] = rel_trim_blank_edges($lines);
     if (!preg_match('/\A(## [^\n]*)\n(.*)\z/s', $section, $parts)) return rtrim($section) . "\n";
     $chunks = preg_split('/^(### .+)$/m', $parts[2], -1, PREG_SPLIT_DELIM_CAPTURE);
     $lead = trim((string)array_shift($chunks));
@@ -132,20 +133,35 @@ function rel_changelog_fold(string $section, string $hand): string
         if (!isset($content[$name])) $order[] = $name;
         $content[$name] = isset($content[$name]) && $content[$name] !== '' ? $content[$name] . "\n" . $text : $text;
     }
-    foreach ($notes as $name => $lines) {
-        if ($lines === []) continue;
+    foreach ($notes as $name => $text) {
+        if ($text === '') continue;
         if (!isset($content[$name])) $order[] = $name;
-        $text = implode("\n", $lines);
         $content[$name] = isset($content[$name]) && $content[$name] !== '' ? $content[$name] . "\n" . $text : $text;
     }
     $out = $parts[1];
-    $intro = array_values(array_filter([$lead, ...$preface], fn($l) => $l !== ''));
-    if ($intro !== []) $out .= "\n\n" . implode("\n", $intro);
+    $intro = array_values(array_filter([$lead, $prefaceText], fn($l) => $l !== ''));
+    if ($intro !== []) $out .= "\n\n" . implode("\n\n", $intro);
     foreach ($order as $name) {
         if (($content[$name] ?? '') === '') continue;
         $out .= (str_ends_with($out, "\n") ? "\n" : "\n\n") . "### $name\n\n" . $content[$name] . "\n";
     }
     return str_ends_with($out, "\n") ? $out : $out . "\n";
+}
+
+/** Drop blank lines at the ends of a block and keep the ones in the middle. */
+function rel_trim_blank_edges(array $lines): string
+{
+    while ($lines !== [] && trim((string)$lines[0]) === '') array_shift($lines);
+    while ($lines !== [] && trim((string)$lines[array_key_last($lines)]) === '') array_pop($lines);
+    return implode("\n", $lines);
+}
+
+/** GitHub release body: the version section after folding, plus the compare link. */
+function rel_release_notes(string $changelog, string $version, string $compareUrl): string
+{
+    $pattern = '/^## \[' . preg_quote($version, '/') . '\][^\n]*\n(.*?)(?=^## \[|^\[[^\]]+\]: |\z)/ms';
+    if (!preg_match($pattern, $changelog, $m)) throw new RuntimeException("CHANGELOG.md has no $version section");
+    return trim($m[1]) . "\n\n**Full changelog:** $compareUrl\n";
 }
 
 /* ---------- git ---------- */
@@ -216,9 +232,10 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         $date = is_string($opt['date'] ?? null) ? $opt['date'] : gmdate('Y-m-d');
         $url = rel_repo_url();
         $section = rel_section($next, $date, $commits, $url);
-        file_put_contents("$root/CHANGELOG.md", rel_changelog_insert((string)file_get_contents("$root/CHANGELOG.md"), $section, $next, $tag, $url));
+        $written = rel_changelog_insert((string)file_get_contents("$root/CHANGELOG.md"), $section, $next, $tag, $url);
+        file_put_contents("$root/CHANGELOG.md", $written);
         file_put_contents("$root/VERSION", "$next\n");
-        $notes = trim(preg_replace('/^## [^\n]*\n/', '', $section)) . "\n\n**Full changelog:** " . ($tag ? "$url/compare/$tag...v$next" : "$url/commits/v$next") . "\n";
+        $notes = rel_release_notes($written, $next, $tag ? "$url/compare/$tag...v$next" : "$url/commits/v$next");
         file_put_contents(is_string($opt['notes'] ?? null) ? $opt['notes'] : 'release-notes.md', $notes);
         echo "version=$next\n";
         exit(0);

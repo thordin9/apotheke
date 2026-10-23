@@ -185,7 +185,7 @@ or the password. SQLite prints the driver and the file path. A DSN that does not
 with those same fields and exits with status 1. It does not print or log the server's own error text (that
 text names the database user), the password, or the full DSN, including when PHP includes exception arguments
 in stack traces. `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and `bin/settings.php` exit 1 with that
-same line, and `/healthz` logs it. A SQLite file that cannot be opened still reports the engine's own error.
+same line, and `/healthz` logs it. While the database is down, every route, including CSS, the manifest and `/login`, returns 500 and the log has only that sanitized line. A SQLite file that cannot be opened still reports the engine's own error.
 
 ## Security
 
