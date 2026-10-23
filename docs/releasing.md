@@ -29,6 +29,9 @@ a trailing `(#N)` in a squash commit.
 The changelog groups entries as *Breaking changes*, *Added* (`feat`), *Fixed* (`fix`), *Performance* (`perf`) and
 *Maintenance* (everything else). The new section goes below `## [Unreleased]`, and the compare links at the bottom are
 updated. Notes written by hand under `## [Unreleased]` move into that section, and `## [Unreleased]` is left empty.
+A handwritten bullet replaces a generated bullet in that same section when both start with the same scope
+(`- **autofill:** …`), so the notes do not list one change twice. A generated bullet with a different scope, or
+the same scope under a different heading, stays.
 The GitHub Release body is that whole section, handwritten notes included, plus the compare link.
 
 ## The release workflow

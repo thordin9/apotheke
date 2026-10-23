@@ -132,6 +132,20 @@ final class ReleaseTest extends TestCase
         }
     }
 
+    public function testHandwrittenScopeReplacesTheGeneratedLine(): void
+    {
+        $cl = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- **autofill:** the long note about the image cap\n\n### Fixed\n\n- **autofill:** a later fix stays with its own heading\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $section = "## [1.1.0] - 2026-10-13\n\n### Added\n\n- **autofill:** add a configurable maximum image size\n- **items:** keep this generated line\n\n### Fixed\n\n- **db:** generated only\n";
+        $out = rel_changelog_insert($cl, $section, '1.1.0', 'v1.0.0', self::URL);
+        $this->assertStringNotContainsString('add a configurable maximum image size', $out);
+        $this->assertStringContainsString('- **autofill:** the long note about the image cap', $out);
+        $this->assertStringContainsString('- **items:** keep this generated line', $out);
+        $this->assertStringContainsString('- **db:** generated only', $out);
+        $this->assertStringContainsString('- **autofill:** a later fix stays with its own heading', $out);
+        $added = substr($out, (int)strpos($out, '### Added'), (int)strpos($out, '### Fixed') - (int)strpos($out, '### Added'));
+        $this->assertSame(1, substr_count($added, '**autofill:**'));
+    }
+
     public function testChangelogFoldKeepsBlankLinesInsideNotes(): void
     {
         $cl = "# Changelog\n\n## [Unreleased]\n\nFirst paragraph.\n\nSecond paragraph.\n\n### Fixed\n\n- one\n\n- two\n\n```\nline\n\nline\n```\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
