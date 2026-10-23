@@ -72,7 +72,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   stripped JPEG, not the camera file. **On demand**: each photo on the item form has an *Analyze* button and
   nothing is sent until you tap it (auto-analyze is an admin option, off by default). Only empty fields are filled,
   never what you typed; one analysis at a time with a progress estimate. The admin picks the model and image size from
-  what the service offers, and can cap the JPEG that is sent (`auto` follows the service). The camera file stays as
+  what the service offers, and can cap the JPEG that is sent (`auto` follows the service; an explicit size is still capped to the service’s enforced limit, otherwise the limit it advertises). The camera file stays as
   uploaded. See the [admin guide](docs/autofill-admin-guide.md) and [docs/autofill.md](docs/autofill.md).
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.

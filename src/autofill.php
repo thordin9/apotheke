@@ -313,21 +313,41 @@ function autofill_enforced_image_bytes(): ?int
 }
 
 /**
- * The byte cap for the analysis copy. $warn logs once per call when enforced_image_bytes lowers the configured target.
- * The log line is the two sizes only: never the token.
+ * Positive max_image_bytes from the cached /v1/info, or null.
+ */
+function autofill_advertised_image_bytes(): ?int
+{
+    foreach ([autofill_info_cache(), autofill_known_info()] as $info) {
+        $n = is_array($info) ? ($info['max_image_bytes'] ?? null) : null;
+        if (is_int($n) && $n > 0) return $n;
+    }
+    return null;
+}
+
+/**
+ * The byte cap for the analysis copy. An explicit setting is capped to enforced_image_bytes when the service
+ * sent one, otherwise to max_image_bytes, and used as stored only when neither is known. auto already follows
+ * max_image_bytes, then the same enforced clamp. $warn logs when that cap is lower. The line is the two sizes
+ * and which field won: never the token.
  */
 function autofill_target_image_bytes(bool $warn = false): int
 {
     $target = autofill_configured_image_bytes();
     $enforced = autofill_enforced_image_bytes();
-    if ($enforced !== null && $enforced < $target) {
-        if ($warn) autofill_log('image limit clamped from ' . $target . ' to ' . $enforced . ' bytes (enforced_image_bytes)');
-        return $enforced;
+    $cap = $enforced;
+    $why = 'enforced_image_bytes';
+    if ($cap === null && setting('autofill_max_image_bytes') !== 'auto') {
+        $cap = autofill_advertised_image_bytes();
+        $why = 'max_image_bytes';
+    }
+    if ($cap !== null && $cap < $target) {
+        if ($warn) autofill_log('image limit clamped from ' . $target . ' to ' . $cap . ' bytes (' . $why . ')');
+        return $cap;
     }
     return $target;
 }
 
-/** The image limit that applies now (configured target, clamped to enforced_image_bytes). No log line. */
+/** The image limit that applies now (explicit or auto, then the service cap). No log line. */
 function autofill_service_image_limit(): int
 {
     return autofill_target_image_bytes(false);

@@ -528,6 +528,52 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame(2031616, autofill_service_image_limit(), 'auto is clamped to enforced_image_bytes too');
     }
 
+    public function testExplicitTargetClampsToMaxImageBytesWhenEnforcedIsAbsent(): void
+    {
+        $this->clearUploads();
+        $prev = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=95');
+        $log = tempnam(sys_get_temp_dir(), 'aflog');
+        $prevLog = ini_set('error_log', $log);
+        $prevOn = ini_set('log_errors', '1');
+        try {
+            settings_store([
+                'autofill_enabled' => true,
+                'autofill_url' => self::$stubBase . '/b/1048576',
+                'autofill_timeout' => 5,
+                'autofill_max_image_bytes' => 2097152,
+                'autofill_token' => 'sekret-token-xyz',
+            ]);
+            @unlink(DATA_DIR . '/autofill-info.json');
+            $this->assertTrue(autofill_prime_info());
+            $info = autofill_known_info();
+            $this->assertSame(1048576, $info['max_image_bytes']);
+            $this->assertNull($info['enforced_image_bytes']);
+            $this->assertSame(1048576, autofill_target_image_bytes(true));
+            $r = autofill_suggest($this->noisyJpeg1024());
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame(1, $this->suggestCount(), 'the copy fits, so there is no 413 and no retry');
+            $ups = $this->uploads();
+            $this->assertCount(1, $ups);
+            $this->assertLessThanOrEqual(1048576, $ups[0]['bytes']);
+            $this->assertSame('JPEG', $ups[0]['type']);
+            $this->assertArrayNotHasKey('http_413', $r);
+            $this->assertSame(1048576, autofill_service_image_limit());
+        } finally {
+            if ($prev === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prev);
+            if ($prevLog !== false) ini_set('error_log', (string)$prevLog);
+            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
+        }
+        $text = (string)file_get_contents($log);
+        @unlink($log);
+        $this->assertStringContainsString('2097152', $text);
+        $this->assertStringContainsString('1048576', $text);
+        $this->assertStringContainsString('max_image_bytes', $text);
+        $this->assertStringNotContainsString('sekret-token-xyz', $text);
+        $this->assertStringNotContainsString('Bearer', $text);
+    }
+
     public function testHttp413RefetchesInfoReclampsAndRetriesOnce(): void
     {
         $this->clearUploads();

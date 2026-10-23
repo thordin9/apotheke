@@ -164,7 +164,8 @@ from a photo of this item*.
 
 The photo saved with the item is still the file you uploaded, when it fits the upload limit. Analyze sends a
 **separate** JPEG. An admin sets how large that copy may be under **Settings → AI autofill → Maximum image size**
-(the default follows the service). If the service says the photo is too large, Apotheke checks the limit once more
+(the default follows the service). A number set there is still capped by the service: `enforced_image_bytes` when
+that field is present, otherwise `max_image_bytes`, and the number itself only when neither is known. If the service says the photo is too large, Apotheke checks the limit once more
 and tries a smaller copy a single time. The file stored with the item is not resized for that.
 
 - Only **one photo is analyzed at a time**. While it runs, the Analyze buttons are greyed out and ignore another

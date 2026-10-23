@@ -26,6 +26,8 @@ declare(strict_types=1);
  *              /v1/suggest then answers with model_used: context.model when listed, else the default (unknown → default).
  *   /z/<sizes>   API v1.2: GET /v1/info lists these image_sizes (long edges), `*` marks the recommended one,
  *              e.g. /z/448,672*,1024
+ *   /b/<bytes>   GET /v1/info reports max_image_bytes, and a larger /v1/suggest is HTTP 413. Without it,
+ *              STUB_MAX_BYTES applies (default 10 MiB). No enforced_image_bytes unless /e/ is set too.
  *   /e/<bytes>   GET /v1/info includes enforced_image_bytes. Mode clamp omits it until the first /v1/suggest,
  *              which answers 413; the next /v1/info includes it and later suggests are handled normally.
  * Mode `switch` (with /n/): the stub remembers which model is "loaded" (the default at first). A /v1/suggest for
@@ -42,17 +44,17 @@ declare(strict_types=1);
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $mode = 'ok';
 $token = '';
-$opt = ['r' => 1, 'l' => null, 'd' => 0, 'e' => null];
+$opt = ['r' => 1, 'l' => null, 'd' => 0, 'e' => null, 'b' => null];
 if (preg_match('#^/m/([a-z]+)(/.*)?$#D', $path, $m)) { $mode = $m[1]; $path = $m[2] ?? '/'; }
 $opt['s'] = $opt['n'] = $opt['z'] = null;
 while (true) {
-    if (preg_match('#^/([rlde])/(\d{1,8})(/.*)?$#D', $path, $m)) { $opt[$m[1]] = (int)$m[2]; $path = $m[3] ?? '/'; }
+    if (preg_match('#^/([rldeb])/(\d{1,8})(/.*)?$#D', $path, $m)) { $opt[$m[1]] = (int)$m[2]; $path = $m[3] ?? '/'; }
     elseif (preg_match('#^/s/([^/]+)(/.*)?$#D', $path, $m)) { $opt['s'] = rawurldecode($m[1]); $path = $m[2] ?? '/'; }
     elseif (preg_match('#^/([nz])/([^/]+)(/.*)?$#D', $path, $m)) { $opt[$m[1]] = rawurldecode($m[2]); $path = $m[3] ?? '/'; }
     else break;
 }
 if (preg_match('#^/t/([^/]+)(/.*)?$#D', $path, $m)) { $token = rawurldecode($m[1]); $path = $m[2] ?? '/'; }
-$maxBytes = (int)(getenv('STUB_MAX_BYTES') ?: 10485760);
+$maxBytes = $opt['b'] ?? (int)(getenv('STUB_MAX_BYTES') ?: 10485760);
 
 function out(int $status, mixed $body, array $headers = []): never
 {
