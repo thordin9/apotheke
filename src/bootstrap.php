@@ -46,8 +46,15 @@ foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, ORIGINALS_DIR, ORIGINALS_DIR . '/map', S
     if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
         $msg = 'Data directory ' . $dir . ' is not writable.';
         http_response_code(500);
-        if (PHP_SAPI === 'cli') fwrite(STDERR, $msg . "\n");
-        else echo $msg;
+        if (PHP_SAPI === 'cli') {
+            $err = fopen('php://stderr', 'w');
+            if ($err !== false) {
+                fwrite($err, $msg . "\n");
+                fclose($err);
+            }
+        } else {
+            echo $msg;
+        }
         exit(1);
     }
 }
