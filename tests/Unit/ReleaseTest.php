@@ -97,6 +97,41 @@ final class ReleaseTest extends TestCase
         $this->assertStringNotContainsString('[Unreleased]:', $notes);
     }
 
+    public function testApplyWritesTheFoldedSectionIntoTheNotesFile(): void
+    {
+        $d = sys_get_temp_dir() . '/relapply-' . bin2hex(random_bytes(4));
+        mkdir($d . '/scripts', 0775, true);
+        mkdir($d . '/bin', 0775, true);
+        copy(dirname(__DIR__, 2) . '/scripts/release.php', $d . '/scripts/release.php');
+        file_put_contents($d . '/VERSION', "1.0.0\n");
+        file_put_contents($d . '/CHANGELOG.md', "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- kept the handwritten line\n\n## [1.0.0] - 2026-01-01\n\n### Added\n\n- first\n\n[Unreleased]: https://github.com/o/r/compare/v1.0.0...HEAD\n[1.0.0]: https://github.com/o/r/releases/tag/v1.0.0\n");
+        file_put_contents($d . '/bin/gh', "#!/bin/sh\nprintf '%s\n' \"\$@\" >> " . escapeshellarg($d . '/gh-args') . "\nexit 0\n");
+        chmod($d . '/bin/gh', 0755);
+        $run = function (string $c) use ($d): void {
+            exec('cd ' . escapeshellarg($d) . " && $c 2>&1", $o, $rc);
+            $this->assertSame(0, $rc, implode("\n", $o));
+        };
+        $run('git init -q -b main . && git config user.email t@t && git config user.name t && git config commit.gpgsign false');
+        $run('git add VERSION CHANGELOG.md scripts/release.php && git commit -q -m "feat: base" && git tag v1.0.0');
+        $run('git commit -q --allow-empty -m "fix(db): generated only"');
+        $notes = $d . '/notes.md';
+        $cmd = 'cd ' . escapeshellarg($d)
+            . ' && PATH=' . escapeshellarg($d . '/bin:' . getenv('PATH'))
+            . ' GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=o/r'
+            . ' php scripts/release.php apply --notes=' . escapeshellarg($notes) . ' --date=2026-10-23';
+        exec($cmd . ' 2>&1', $out, $rc);
+        try {
+            $this->assertSame(0, $rc, implode("\n", $out));
+            $body = (string)file_get_contents($notes);
+            $this->assertStringContainsString('- **db:** generated only', $body);
+            $this->assertStringContainsString('- kept the handwritten line', $body);
+            $this->assertStringContainsString('**Full changelog:** https://github.com/o/r/compare/v1.0.0...v1.0.1', $body);
+            $this->assertStringNotContainsString('## [1.0.0]', $body);
+        } finally {
+            exec('rm -rf ' . escapeshellarg($d));
+        }
+    }
+
     public function testChangelogFoldKeepsBlankLinesInsideNotes(): void
     {
         $cl = "# Changelog\n\n## [Unreleased]\n\nFirst paragraph.\n\nSecond paragraph.\n\n### Fixed\n\n- one\n\n- two\n\n```\nline\n\nline\n```\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
