@@ -114,6 +114,79 @@ final class DbConnectErrorTest extends TestCase
         }
     }
 
+    public function testFrontControllerConnectFailureLogsOnlyTheSanitizedLine(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $data = sys_get_temp_dir() . '/apotheke-front-' . bin2hex(random_bytes(4));
+        mkdir($data, 0775, true);
+        $log = $data . '/php-error.log';
+        $serverLog = $data . '/server.log';
+        $sock = stream_socket_server('tcp://127.0.0.1:0');
+        $this->assertNotFalse($sock);
+        $port = (int)substr((string)strrchr((string)stream_socket_get_name($sock, false), ':'), 1);
+        fclose($sock);
+        $dsn = 'pgsql:host=127.0.0.1;port=1;dbname=keepdb;user=' . self::USER . ';password=' . self::PASSWORD;
+        $cmd = [
+            PHP_BINARY,
+            '-d', 'display_errors=0',
+            '-d', 'log_errors=1',
+            '-d', 'error_log=' . $log,
+            '-d', 'zend.exception_ignore_args=0',
+            '-d', 'zend.exception_string_param_max_len=1000000',
+            '-d', 'opcache.jit=disable',
+            '-S', '127.0.0.1:' . $port,
+            '-t', $root . '/public',
+            $root . '/public/index.php',
+        ];
+        $env = [
+            'PATH' => (string)getenv('PATH'),
+            'APOTHEKE_CONFIG' => '/nonexistent',
+            'SEED_DEFAULTS' => '0',
+            'DB_DSN' => $dsn,
+        ] + $this->refusedEnv($data);
+        $proc = proc_open($cmd, [1 => ['file', $serverLog, 'a'], 2 => ['file', $serverLog, 'a']], $pipes, $root, $env);
+        $this->assertIsResource($proc);
+        try {
+            $up = false;
+            for ($i = 0; $i < 50; $i++) {
+                $c = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+                if ($c) { fclose($c); $up = true; break; }
+                usleep(50000);
+            }
+            $this->assertTrue($up, 'php -S did not listen');
+            $ctx = stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 5]]);
+            $body = (string)@file_get_contents('http://127.0.0.1:' . $port . '/login', false, $ctx);
+            $headers = implode("\n", $http_response_header ?? []);
+            $status = 0;
+            foreach ($http_response_header ?? [] as $line) {
+                if (preg_match('#^HTTP/\S+ (\d+)#', $line, $m)) $status = (int)$m[1];
+            }
+            $logged = is_file($log) ? (string)file_get_contents($log) : '';
+            $server = is_file($serverLog) ? (string)file_get_contents($serverLog) : '';
+            $blob = $headers . "\n" . $body . "\n" . $logged . "\n" . $server;
+            $message = 'Could not connect to the database (pgsql – host=127.0.0.1 port=1 dbname=keepdb).';
+            $this->assertSame(500, $status, $blob);
+            $this->assertStringNotContainsString(self::USER, $blob);
+            $this->assertStringNotContainsString(self::PASSWORD, $blob);
+            $this->assertStringNotContainsString($dsn, $blob);
+            $this->assertStringNotContainsString('password authentication', $blob);
+            $this->assertStringNotContainsString('SQLSTATE', $blob);
+            $this->assertStringNotContainsString('Stack trace', $blob);
+            $this->assertStringNotContainsString('PDOException', $blob);
+            $line = preg_quote($message, '/');
+            $this->assertMatchesRegularExpression(
+                '/^\[[^\]]+\] \[apotheke\] ' . $line . "\n"
+                . '\[[^\]]+\] \[apotheke\] error page: ' . $line . "\n$/",
+                $logged,
+                $blob
+            );
+        } finally {
+            proc_terminate($proc);
+            proc_close($proc);
+            $this->removeTree($data);
+        }
+    }
+
     public function testDataDirectoryNotWritableExits1(): void
     {
         $dir = '/dev/null/apotheke-unwritable';

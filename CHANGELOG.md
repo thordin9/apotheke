@@ -11,6 +11,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **autofill:** Control Panel → AI autofill has **Maximum image size (bytes)** (`autofill_max_image_bytes`, default `auto`). `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when that answer is unavailable. An explicit value must be a whole number from 65536 to 10485760. There is no environment override. When `/v1/info` includes `enforced_image_bytes`, the JPEG sent to the service is clamped to it and a warning is logged (never the token). An HTTP 413 refetches `/v1/info` once, clamps again, and retries the upload once. The copy is a hard maximum: JPEG quality steps down, then the long edge, until it fits. The stored photo stays byte-identical ([#37](https://github.com/thordin9/apotheke/pull/37)).
 
+### Fixed
+
+- **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged.
+
 ## [2.5.8] - 2026-10-23
 
 ### Fixed
