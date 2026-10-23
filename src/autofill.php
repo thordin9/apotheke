@@ -327,8 +327,8 @@ function autofill_advertised_image_bytes(): ?int
 /**
  * The byte cap for the analysis copy. An explicit setting is capped to enforced_image_bytes when the service
  * sent one, otherwise to max_image_bytes, and used as stored only when neither is known. auto already follows
- * max_image_bytes, then the same enforced clamp. $warn logs when that cap is lower. The line is the two sizes
- * and which field won: never the token.
+ * max_image_bytes, then the same enforced clamp. $warn logs when that cap is lower, once per distinct pair.
+ * The line is the two sizes and which field won: never the token.
  */
 function autofill_target_image_bytes(bool $warn = false): int
 {
