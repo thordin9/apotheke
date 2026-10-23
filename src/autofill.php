@@ -341,10 +341,28 @@ function autofill_target_image_bytes(bool $warn = false): int
         $why = 'max_image_bytes';
     }
     if ($cap !== null && $cap < $target) {
-        if ($warn) autofill_log('image limit clamped from ' . $target . ' to ' . $cap . ' bytes (' . $why . ')');
+        if ($warn) autofill_log_image_clamp($target, $cap, $why);
         return $cap;
     }
     return $target;
+}
+
+/**
+ * Log one clamp. The same from/to pair is not logged again, including when a 413 retry rebuilds the copy.
+ * The remembered pair lives in the existing info-cache file and is kept when that file is refreshed for the
+ * same address. A different pair, or a different address, logs again. The line is the two sizes and the
+ * field name: never the token. No request-static state.
+ */
+function autofill_log_image_clamp(int $target, int $cap, string $why): void
+{
+    $f = DATA_DIR . '/autofill-info.json';
+    $d = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;
+    if (!is_array($d)) $d = [];
+    $prev = $d['clamp'] ?? null;
+    if (is_array($prev) && ($prev['from'] ?? null) === $target && ($prev['to'] ?? null) === $cap && ($prev['field'] ?? null) === $why) return;
+    $d['clamp'] = ['from' => $target, 'to' => $cap, 'field' => $why];
+    @file_put_contents($f, json_encode($d));
+    autofill_log('image limit clamped from ' . $target . ' to ' . $cap . ' bytes (' . $why . ')');
 }
 
 /** The image limit that applies now (explicit or auto, then the service cap). No log line. */
@@ -402,7 +420,10 @@ function autofill_info_cache(?array $info = null, int $maxAge = 3600): ?array
 {
     $f = DATA_DIR . '/autofill-info.json';
     if ($info !== null) {
-        @file_put_contents($f, json_encode(['at' => time(), 'url' => (string)setting('autofill_url'), 'info' => $info]));
+        $prev = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;
+        $row = ['at' => time(), 'url' => (string)setting('autofill_url'), 'info' => $info];
+        if (is_array($prev) && ($prev['url'] ?? '') === $row['url'] && is_array($prev['clamp'] ?? null)) $row['clamp'] = $prev['clamp'];
+        @file_put_contents($f, json_encode($row));
         return $info;
     }
     $d = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;

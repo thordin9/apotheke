@@ -14,6 +14,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Fixed
 
 - **release:** a handwritten changelog bullet replaces the generated bullet with the same scope, so the release notes do not list that change twice.
+- **autofill:** an image-limit clamp is logged once per distinct pair of sizes. A later photo, and the rebuild after an HTTP 413, does not log that pair again. The line still has no token.
 - **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged.
 
 ## [2.5.8] - 2026-10-23

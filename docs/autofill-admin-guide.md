@@ -89,7 +89,7 @@ This is a hard maximum for the JPEG that leaves Apotheke. The app lowers JPEG qu
 70, then 60) and then the long edge until the upload fits. If it still does not fit, Analyze says the photo is too
 large and nothing is sent. The file stored with the item is not changed.
 
-A lower service cap is logged as a warning with the two sizes. The access token is not in that line.
+A lower service cap is logged as a warning with the two sizes, once until that pair of sizes changes. The access token is not in that line.
 
 If the service answers **HTTP 413**, Apotheke fetches `/v1/info` once, applies the clamp again, and uploads once
 more. It does not keep retrying. A second 413 is the same “too large” message, using the limit from that refetch.

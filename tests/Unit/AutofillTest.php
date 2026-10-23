@@ -574,6 +574,57 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertStringNotContainsString('Bearer', $text);
     }
 
+    public function testClampWarningIsLoggedOncePerDistinctPair(): void
+    {
+        $this->clearUploads();
+        $log = tempnam(sys_get_temp_dir(), 'aflog');
+        $prevLog = ini_set('error_log', $log);
+        $prevOn = ini_set('log_errors', '1');
+        $paths = [];
+        try {
+            settings_store([
+                'autofill_enabled' => true,
+                'autofill_url' => self::$stubBase . '/m/clamp/e/2031616',
+                'autofill_timeout' => 5,
+                'autofill_max_image_bytes' => 2097152,
+                'autofill_token' => 'sekret-token-xyz',
+            ]);
+            $info = ['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'enforced_image_bytes' => 2031616, 'ready' => true];
+            autofill_info_cache($info);
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $jpeg = $this->jpeg(80, 60);
+            foreach ([0, 1] as $i) {
+                $opened = autofill_open_analysis($jpeg, 1024, '{}');
+                if (!empty($opened['path'])) $paths[] = $opened['path'];
+                $this->assertTrue($opened['ok'], $opened['message'] ?? '');
+            }
+            $text = (string)file_get_contents($log);
+            $this->assertSame(1, substr_count($text, 'image limit clamped'), $text);
+            $r = autofill_suggest($jpeg);
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame(2, $this->suggestCount(), 'the clamp stub still does one 413 and one retry');
+            $text = (string)file_get_contents($log);
+            $this->assertSame(1, substr_count($text, 'image limit clamped'), $text);
+            settings_store(['autofill_max_image_bytes' => 4000000]);
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $text = (string)file_get_contents($log);
+            $this->assertSame(2, substr_count($text, 'image limit clamped'), $text);
+            $this->assertStringContainsString('4000000', $text);
+            autofill_info_cache($info);
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $text = (string)file_get_contents($log);
+            $this->assertSame(2, substr_count($text, 'image limit clamped'), 'refreshing /v1/info for the same address does not log the same pair again');
+            $this->assertStringNotContainsString('sekret-token-xyz', $text);
+            $this->assertStringNotContainsString('Bearer', $text);
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+            if ($prevLog !== false) ini_set('error_log', (string)$prevLog);
+            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
+            @unlink($log);
+        }
+    }
+
     public function testHttp413RefetchesInfoReclampsAndRetriesOnce(): void
     {
         $this->clearUploads();

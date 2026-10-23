@@ -71,7 +71,7 @@ list sort/view, new-item defaults, loan period, saved-filter and photo limits, J
 variable. `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when `/v1/info` has not
 been seen. An empty value is saved as `auto`. An explicit value is a whole number of bytes from 65536 to 10485760. It is capped to
 `enforced_image_bytes` when `/v1/info` includes it, otherwise to `max_image_bytes` when that field is present,
-and used as stored only when neither is known. A lower cap logs a warning and never the token. The database
+and used as stored only when neither is known. A lower cap logs a warning once until that pair of sizes changes, and never the token. The database
 connection itself stays the DSN in `db.dsn` / `DB_DSN` (or host, port and name). `AUTOFILL_UPLOAD_MAX_SIDE` and
 `AUTOFILL_UPLOAD_JPEG_QUALITY` still choose the starting long edge and the first JPEG quality. They do not replace
 this byte cap.
