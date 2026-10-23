@@ -164,11 +164,12 @@ final class MigrateDsnTest extends TestCase
 
     /**
      * A refused PostgreSQL connection must not reveal the login.
-     * libpq names the user ("password authentication failed for user …"), and
-     * with zend.exception_ignore_args off the trace also includes the DSN
-     * (user and password) unless string arguments are truncated. The production
-     * ini truncates them (zend.exception_string_param_max_len=0), so this test
-     * turns that limit up and checks stdout, stderr, and the error log.
+     * libpq names the user ("password authentication failed for user …").
+     * With zend.exception_ignore_args off, the trace includes the DSN and the
+     * user. On PHP 8.2 and newer the password argument is SensitiveParameterValue;
+     * the password text appears only when it is embedded in the DSN and
+     * zend.exception_string_param_max_len is raised. This test turns that limit
+     * up and checks stdout, stderr, and the error log.
      */
     public function testConnectFailureOmitsUserPasswordAndDsn(): void
     {

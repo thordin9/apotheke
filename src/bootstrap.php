@@ -45,7 +45,8 @@ unset($webRoot);
 foreach ([DATA_DIR, IMG_DIR, THUMB_DIR, ORIGINALS_DIR, ORIGINALS_DIR . '/map', SESS_DIR] as $dir) {
     if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
         http_response_code(500);
-        exit('Data directory ' . $dir . ' is not writable.');
+        echo 'Data directory ' . $dir . ' is not writable.';
+        exit(1);
     }
 }
 originals_chmod_dir(ORIGINALS_DIR);
