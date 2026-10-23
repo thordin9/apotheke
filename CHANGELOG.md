@@ -12,13 +12,13 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged.
 - **bootstrap:** a data directory that is not writable exits 1.
 - **docker:** exception traces in the image omit function arguments, so a password passed into a call is not copied into the trace.
-- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
 
 ## [2.5.7] - 2026-10-23
 
 ### Fixed
 
 - **docker:** pin the PHP 8.3.36 security release ([#57](https://github.com/thordin9/apotheke/pull/57))
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
 
 ### Maintenance
 

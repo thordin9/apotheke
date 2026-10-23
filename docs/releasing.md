@@ -28,7 +28,7 @@ a trailing `(#N)` in a squash commit.
 
 The changelog groups entries as *Breaking changes*, *Added* (`feat`), *Fixed* (`fix`), *Performance* (`perf`) and
 *Maintenance* (everything else). The new section goes below `## [Unreleased]`, and the compare links at the bottom are
-updated.
+updated. Notes written by hand under `## [Unreleased]` move into that section, and `## [Unreleased]` is left empty.
 
 ## The release workflow
 

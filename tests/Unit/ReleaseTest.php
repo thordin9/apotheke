@@ -76,6 +76,14 @@ final class ReleaseTest extends TestCase
         rel_changelog_insert($out, "## [1.1.0] - x\n", '1.1.0', 'v1.0.0', self::URL);
     }
 
+    public function testChangelogInsertMovesHandWrittenNotes(): void
+    {
+        $cl = "# Changelog\n\n## [Unreleased]\n\nRebuild first.\n\n### Fixed\n\n- kept\n\n### Changed\n\n- moved\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $out = rel_changelog_insert($cl, "## [1.1.0] - 2026-10-13\n\n### Fixed\n\n- generated\n", '1.1.0', 'v1.0.0', self::URL);
+        $this->assertSame("# Changelog\n\n## [Unreleased]\n\n## [1.1.0] - 2026-10-13\n\nRebuild first.\n\n### Fixed\n\n- generated\n- kept\n\n### Changed\n\n- moved\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n"
+            . "[Unreleased]: https://github.com/o/r/compare/v1.1.0...HEAD\n[1.1.0]: https://github.com/o/r/compare/v1.0.0...v1.1.0\n", $out);
+    }
+
     public function testRealChangelogAcceptsTheNextRelease(): void
     {
         $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');

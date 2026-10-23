@@ -80,22 +80,72 @@ function rel_section(string $version, string $date, array $commits, string $repo
     return $out;
 }
 
-/** Insert a release section below "## [Unreleased]" and add/refresh the compare links at the bottom. */
+/**
+ * Insert a release section below "## [Unreleased]" and add/refresh the compare links at the bottom.
+ * Notes written by hand under Unreleased move into that section, and Unreleased is left empty.
+ */
 function rel_changelog_insert(string $changelog, string $section, string $version, ?string $prevTag, string $repoUrl): string
 {
     if (!str_contains($changelog, '## [Unreleased]')) throw new RuntimeException('CHANGELOG.md has no "## [Unreleased]" heading');
     if (preg_match('/^## \[' . preg_quote($version, '/') . '\]/m', $changelog)) throw new RuntimeException("CHANGELOG.md already has $version");
     $parts = preg_split('/^(## \[Unreleased\][^\n]*\n)/m', $changelog, 2, PREG_SPLIT_DELIM_CAPTURE);
     [$head, $unrel, $rest] = $parts;
-    // anything written under Unreleased by hand stays there; the new release goes right after it
     $next = preg_match('/^## \[/m', $rest, $mm, PREG_OFFSET_CAPTURE) ? $mm[0][1] : (preg_match('/^\[[^\]]+\]: /m', $rest, $ml, PREG_OFFSET_CAPTURE) ? $ml[0][1] : strlen($rest));
-    $rest = rtrim(substr($rest, 0, $next)) . ($next > 0 && trim(substr($rest, 0, $next)) !== '' ? "\n\n" : "\n") . $section . "\n" . substr($rest, $next);
+    $hand = substr($rest, 0, $next);
+    if (trim($hand) === '') {
+        $rest = rtrim($hand) . "\n" . $section . "\n" . substr($rest, $next);
+    } else {
+        $rest = "\n" . rel_changelog_fold($section, $hand) . "\n" . substr($rest, $next);
+    }
     $out = $head . $unrel . $rest;
     $out = preg_replace('/^\[Unreleased\]: .*$/m', '[Unreleased]: ' . $repoUrl . '/compare/v' . $version . '...HEAD', $out, 1, $n);
     if (!$n) $out = rtrim($out) . "\n\n[Unreleased]: $repoUrl/compare/v$version...HEAD\n";
     $link = '[' . $version . ']: ' . $repoUrl . ($prevTag ? '/compare/' . $prevTag . '...v' . $version : '/releases/tag/v' . $version);
     $out = preg_replace('/^(\[Unreleased\]: [^\n]*\n)/m', "$1$link\n", $out, 1);
     return $out;
+}
+
+/** Move hand-written Unreleased notes into $section. Same ### headings are joined; others are appended. */
+function rel_changelog_fold(string $section, string $hand): string
+{
+    $notes = [];
+    $preface = [];
+    $title = '';
+    foreach (preg_split("/\n/", str_replace("\r\n", "\n", trim($hand))) as $line) {
+        if (preg_match('/^### (.+)$/', $line, $m)) {
+            $title = trim($m[1]);
+            $notes[$title] ??= [];
+            continue;
+        }
+        if (trim($line) === '') continue;
+        if ($title === '') $preface[] = $line;
+        else $notes[$title][] = $line;
+    }
+    if (!preg_match('/\A(## [^\n]*)\n(.*)\z/s', $section, $parts)) return rtrim($section) . "\n";
+    $chunks = preg_split('/^(### .+)$/m', $parts[2], -1, PREG_SPLIT_DELIM_CAPTURE);
+    $lead = trim((string)array_shift($chunks));
+    $order = [];
+    $content = [];
+    for ($i = 0; $i < count($chunks); $i += 2) {
+        $name = trim(substr($chunks[$i], 4));
+        $text = trim($chunks[$i + 1]);
+        if (!isset($content[$name])) $order[] = $name;
+        $content[$name] = isset($content[$name]) && $content[$name] !== '' ? $content[$name] . "\n" . $text : $text;
+    }
+    foreach ($notes as $name => $lines) {
+        if ($lines === []) continue;
+        if (!isset($content[$name])) $order[] = $name;
+        $text = implode("\n", $lines);
+        $content[$name] = isset($content[$name]) && $content[$name] !== '' ? $content[$name] . "\n" . $text : $text;
+    }
+    $out = $parts[1];
+    $intro = array_values(array_filter([$lead, ...$preface], fn($l) => $l !== ''));
+    if ($intro !== []) $out .= "\n\n" . implode("\n", $intro);
+    foreach ($order as $name) {
+        if (($content[$name] ?? '') === '') continue;
+        $out .= (str_ends_with($out, "\n") ? "\n" : "\n\n") . "### $name\n\n" . $content[$name] . "\n";
+    }
+    return str_ends_with($out, "\n") ? $out : $out . "\n";
 }
 
 /* ---------- git ---------- */
