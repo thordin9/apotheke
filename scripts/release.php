@@ -136,7 +136,8 @@ function rel_changelog_fold(string $section, string $hand): string
     foreach ($notes as $name => $text) {
         if ($text === '') continue;
         if (!isset($content[$name])) $order[] = $name;
-        $content[$name] = isset($content[$name]) && $content[$name] !== '' ? $content[$name] . "\n" . $text : $text;
+        $prior = $content[$name] ?? '';
+        $content[$name] = $prior !== '' ? trim(rel_drop_scoped_generated($prior, $text) . "\n" . $text) : $text;
     }
     $out = $parts[1];
     $intro = array_values(array_filter([$lead, $prefaceText], fn($l) => $l !== ''));
@@ -146,6 +147,25 @@ function rel_changelog_fold(string $section, string $hand): string
         $out .= (str_ends_with($out, "\n") ? "\n" : "\n\n") . "### $name\n\n" . $content[$name] . "\n";
     }
     return str_ends_with($out, "\n") ? $out : $out . "\n";
+}
+
+/**
+ * A handwritten bullet replaces generated bullets in the same section that use its scope
+ * (`- **autofill:** …`), so the release notes do not list that change twice.
+ */
+function rel_drop_scoped_generated(string $generated, string $hand): string
+{
+    $scopes = [];
+    foreach (preg_split("/\n/", $hand) as $line) {
+        if (preg_match('/^- \*\*([^*]+):\*\* /', $line, $m)) $scopes[$m[1]] = true;
+    }
+    if ($scopes === []) return $generated;
+    $kept = [];
+    foreach (preg_split("/\n/", $generated) as $line) {
+        if (preg_match('/^- \*\*([^*]+):\*\* /', $line, $m) && isset($scopes[$m[1]])) continue;
+        $kept[] = $line;
+    }
+    return rel_trim_blank_edges($kept);
 }
 
 /** Drop blank lines at the ends of a block and keep the ones in the middle. */

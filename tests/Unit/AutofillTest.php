@@ -574,6 +574,57 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertStringNotContainsString('Bearer', $text);
     }
 
+    public function testClampWarningIsLoggedOncePerDistinctPair(): void
+    {
+        $this->clearUploads();
+        $log = tempnam(sys_get_temp_dir(), 'aflog');
+        $prevLog = ini_set('error_log', $log);
+        $prevOn = ini_set('log_errors', '1');
+        $paths = [];
+        try {
+            settings_store([
+                'autofill_enabled' => true,
+                'autofill_url' => self::$stubBase . '/m/clamp/e/2031616',
+                'autofill_timeout' => 5,
+                'autofill_max_image_bytes' => 2097152,
+                'autofill_token' => 'sekret-token-xyz',
+            ]);
+            $info = ['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'enforced_image_bytes' => 2031616, 'ready' => true];
+            autofill_info_cache($info);
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $jpeg = $this->jpeg(80, 60);
+            foreach ([0, 1] as $i) {
+                $opened = autofill_open_analysis($jpeg, 1024, '{}');
+                if (!empty($opened['path'])) $paths[] = $opened['path'];
+                $this->assertTrue($opened['ok'], $opened['message'] ?? '');
+            }
+            $text = (string)file_get_contents($log);
+            $this->assertSame(1, substr_count($text, 'image limit clamped'), $text);
+            $r = autofill_suggest($jpeg);
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame(2, $this->suggestCount(), 'the clamp stub still does one 413 and one retry');
+            $text = (string)file_get_contents($log);
+            $this->assertSame(1, substr_count($text, 'image limit clamped'), $text);
+            settings_store(['autofill_max_image_bytes' => 4000000]);
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $text = (string)file_get_contents($log);
+            $this->assertSame(2, substr_count($text, 'image limit clamped'), $text);
+            $this->assertStringContainsString('4000000', $text);
+            autofill_info_cache($info);
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $text = (string)file_get_contents($log);
+            $this->assertSame(2, substr_count($text, 'image limit clamped'), 'refreshing /v1/info for the same address does not log the same pair again');
+            $this->assertStringNotContainsString('sekret-token-xyz', $text);
+            $this->assertStringNotContainsString('Bearer', $text);
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+            if ($prevLog !== false) ini_set('error_log', (string)$prevLog);
+            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
+            @unlink($log);
+        }
+    }
+
     public function testHttp413RefetchesInfoReclampsAndRetriesOnce(): void
     {
         $this->clearUploads();
@@ -1007,6 +1058,10 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('10 MiB', autofill_mib(10485760));
         $this->assertSame('0.9 MiB', autofill_mib(983040));
         $this->assertSame('1.5 MiB', autofill_mib(1572864));
+        $this->assertSame('1 KB', autofill_mib(1000));
+        $this->assertSame('0.01 KB', autofill_mib(10));
+        $this->assertStringContainsString('max 1 KB / 1000 bytes', autofill_too_large_message(1000));
+        $this->assertStringNotContainsString('0 MiB', autofill_too_large_message(1000));
         $this->assertSame(60, settings_schema()['autofill_timeout'][5]['max']);
         $this->assertSame(983040, AUTOFILL_SERVICE_IMAGE_BYTES);
     }
@@ -1088,6 +1143,64 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertSame('too_large', $r['code']);
         $this->assertSame([], $this->uploads(), 'no HTTP request once every quality is still over the limit');
         $this->assertSame([], glob(DATA_DIR . '/tmp/autofill-*.jpg') ?: []);
+    }
+
+    public function testJpegQualityStepsDownByTen(): void
+    {
+        $prev = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        try {
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            $this->assertSame([80, 70, 60], autofill_jpeg_qualities());
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=95');
+            $this->assertSame([95, 85, 75, 65, 60], autofill_jpeg_qualities(), 'a high quality steps down by 10 instead of jumping to 70');
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=90');
+            $this->assertSame([90, 80, 70, 60], autofill_jpeg_qualities());
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=65');
+            $this->assertSame([65, 60], autofill_jpeg_qualities());
+            putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=40');
+            $this->assertSame([40], autofill_jpeg_qualities(), 'below 60 the configured quality is the only step');
+        } finally {
+            if ($prev === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prev);
+        }
+    }
+
+    public function testLimitMeasuresTheImagePartNotTheMultipartBody(): void
+    {
+        $prev = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=80');
+        $paths = [];
+        try {
+            $engines = [];
+            if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) $engines[] = 'gd';
+            if (class_exists('Imagick')) $engines[] = 'imagick';
+            $this->assertNotSame([], $engines);
+            $source = $this->noisyJpeg1024();
+            foreach ($engines as $engine) {
+                $at = autofill_analysis_jpeg($source, 1024, 80, [$engine]);
+                $this->assertNotNull($at);
+                $limit = strlen($at);
+                $wrapped = strlen(autofill_multipart_body($at, '{}')['body']);
+                $this->assertGreaterThan($limit, $wrapped, $engine . ' wrapper is larger than the JPEG');
+                @unlink(DATA_DIR . '/autofill-info.json');
+                settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5, 'autofill_max_image_bytes' => 'auto']);
+                autofill_info_cache(['name' => 'x', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => $limit, 'enforced_image_bytes' => null, 'ready' => true]);
+                $opened = autofill_open_analysis($source, 1024, '{}', [$engine]);
+                if (!empty($opened['path'])) $paths[] = $opened['path'];
+                $this->assertTrue($opened['ok'], $engine . ' ' . ($opened['message'] ?? ''));
+                $this->assertSame($limit, strlen($opened['jpeg']), $engine . ' kept the JPEG that fills the cap');
+                $this->assertGreaterThan($limit, strlen($opened['body']), $engine . ' multipart wrapper is over the cap and still accepted');
+                $this->clearUploads();
+                $sent = autofill_suggest_at(self::$stubBase, '', 5, $opened['body'], $opened['content_type'], strlen($opened['jpeg']));
+                $this->assertNotSame('too_large', $sent['code'], $engine . ' local pre-check uses the image part');
+                $this->assertSame(1, $this->suggestCount(), $engine . ' the JPEG was posted');
+            }
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+            if ($prev === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prev);
+            @unlink(DATA_DIR . '/autofill-info.json');
+        }
     }
 
     /**

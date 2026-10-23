@@ -20,7 +20,7 @@ const AUTOFILL_IMAGE_BYTES_MIN = 65536;    // smallest explicit autofill_max_ima
 const AUTOFILL_IMAGE_BYTES_MAX = 10485760; // largest explicit autofill_max_image_bytes (10 MiB)
 const AUTOFILL_UPLOAD_MAX_SIDE = 1600;     // long edge of the temporary analysis JPEG (env AUTOFILL_UPLOAD_MAX_SIDE)
 const AUTOFILL_RETRY_AFTER_MAX = 60;       // one retry only when Retry-After is at most this many seconds
-const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 70, then 60; then a shorter long edge, until the body fits
+const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 10 points at a time down to 60; then a shorter long edge
 
 function autofill_enabled(): bool
 {
@@ -281,10 +281,16 @@ function autofill_test(string $url, int $timeout, ?string $token = null): array
     return ['ok' => true, 'code' => 'ok', 'message' => 'Connected to “' . $info['name'] . '”.', 'info' => $info];
 }
 
-/** Bytes as MiB for the image limit: 10485760 → "10 MiB", 983040 → "0.9 MiB". */
+/** Bytes for the image limit: 10485760 → "10 MiB", 983040 → "0.9 MiB", 1000 → "1 KB" (a 1-decimal MiB of 0 would hide it). */
 function autofill_mib(int $bytes): string
 {
-    return rtrim(rtrim(number_format($bytes / 1048576, 1, '.', ''), '0'), '.') . ' MiB';
+    $mib = $bytes / 1048576;
+    if ($bytes > 0 && $mib < 0.05) {
+        $kb = $bytes / 1024;
+        $decimals = $kb >= 0.05 ? 1 : 2;
+        return rtrim(rtrim(number_format($kb, $decimals, '.', ''), '0'), '.') . ' KB';
+    }
+    return rtrim(rtrim(number_format($mib, 1, '.', ''), '0'), '.') . ' MiB';
 }
 
 /**
@@ -327,8 +333,8 @@ function autofill_advertised_image_bytes(): ?int
 /**
  * The byte cap for the analysis copy. An explicit setting is capped to enforced_image_bytes when the service
  * sent one, otherwise to max_image_bytes, and used as stored only when neither is known. auto already follows
- * max_image_bytes, then the same enforced clamp. $warn logs when that cap is lower. The line is the two sizes
- * and which field won: never the token.
+ * max_image_bytes, then the same enforced clamp. $warn logs when that cap is lower, once per distinct pair.
+ * The line is the two sizes and which field won: never the token.
  */
 function autofill_target_image_bytes(bool $warn = false): int
 {
@@ -341,10 +347,28 @@ function autofill_target_image_bytes(bool $warn = false): int
         $why = 'max_image_bytes';
     }
     if ($cap !== null && $cap < $target) {
-        if ($warn) autofill_log('image limit clamped from ' . $target . ' to ' . $cap . ' bytes (' . $why . ')');
+        if ($warn) autofill_log_image_clamp($target, $cap, $why);
         return $cap;
     }
     return $target;
+}
+
+/**
+ * Log one clamp. The same from/to pair is not logged again, including when a 413 retry rebuilds the copy.
+ * The remembered pair lives in the existing info-cache file and is kept when that file is refreshed for the
+ * same address. A different pair, or a different address, logs again. The line is the two sizes and the
+ * field name: never the token. No request-static state.
+ */
+function autofill_log_image_clamp(int $target, int $cap, string $why): void
+{
+    $f = DATA_DIR . '/autofill-info.json';
+    $d = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;
+    if (!is_array($d)) $d = [];
+    $prev = $d['clamp'] ?? null;
+    if (is_array($prev) && ($prev['from'] ?? null) === $target && ($prev['to'] ?? null) === $cap && ($prev['field'] ?? null) === $why) return;
+    $d['clamp'] = ['from' => $target, 'to' => $cap, 'field' => $why];
+    @file_put_contents($f, json_encode($d));
+    autofill_log('image limit clamped from ' . $target . ' to ' . $cap . ' bytes (' . $why . ')');
 }
 
 /** The image limit that applies now (explicit or auto, then the service cap). No log line. */
@@ -402,7 +426,10 @@ function autofill_info_cache(?array $info = null, int $maxAge = 3600): ?array
 {
     $f = DATA_DIR . '/autofill-info.json';
     if ($info !== null) {
-        @file_put_contents($f, json_encode(['at' => time(), 'url' => (string)setting('autofill_url'), 'info' => $info]));
+        $prev = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;
+        $row = ['at' => time(), 'url' => (string)setting('autofill_url'), 'info' => $info];
+        if (is_array($prev) && ($prev['url'] ?? '') === $row['url'] && is_array($prev['clamp'] ?? null)) $row['clamp'] = $prev['clamp'];
+        @file_put_contents($f, json_encode($row));
         return $info;
     }
     $d = is_file($f) ? json_decode((string)@file_get_contents($f), true) : null;
@@ -448,12 +475,14 @@ function autofill_upload_jpeg_quality(): int
     return AUTOFILL_UPLOAD_JPEG_QUALITY;
 }
 
-/** Quality to try, highest first: the configured one, then 70, then 60, skipping any that are not lower. */
+/** Quality to try, highest first: the configured one, then 10 points lower, down through 60. Below 60, only the configured quality. */
 function autofill_jpeg_qualities(): array
 {
     $q = autofill_upload_jpeg_quality();
-    $out = [$q];
-    foreach ([70, 60] as $step) if ($step < $q) $out[] = $step;
+    $out = [];
+    for ($n = $q; $n >= 60; $n -= 10) $out[] = $n;
+    if ($out === []) return [$q];
+    if ($out[array_key_last($out)] !== 60) $out[] = 60;
     return $out;
 }
 
@@ -608,8 +637,8 @@ function autofill_unlink_analysis(?string $path): void
 /**
  * Build the analysis JPEG and the full multipart body. Writes the JPEG under DATA_DIR/tmp when it fits;
  * the caller deletes that path. The original bytes are never written and never returned.
- * Quality steps down (the configured quality, then 70, then 60), then the long edge, until the multipart body
- * fits the byte cap. If nothing fits, the result is too_large.
+ * Quality steps down by 10 from the configured quality, and 60 is tried before the long edge shortens,
+ * until the JPEG fits the byte cap. If nothing fits, the result is too_large.
  * @param list<string>|null $engines
  * @return array{ok:true,path:string,body:string,content_type:string,jpeg:string,width:int,height:int}|array{ok:false,code:string,message:string}
  */
@@ -634,7 +663,8 @@ function autofill_open_analysis(string $bytes, int $side, string $contextJson, ?
             }
             $saw = true;
             $part = autofill_multipart_body($jpeg, $contextJson);
-            if (strlen($part['body']) <= $limit) {
+            // The service limits the image part. The multipart wrapper is about 320 bytes and is not counted.
+            if (strlen($jpeg) <= $limit) {
                 try { $path = autofill_temp_jpg(); } catch (Throwable) { return $fail('unavailable', autofill_unavailable_message()); }
                 if (file_put_contents($path, $jpeg) === false) {
                     autofill_unlink_analysis($path);
@@ -961,7 +991,7 @@ function autofill_prime_info(): bool
  */
 function autofill_post_analysis(string $base, string $token, int $timeout, array $opened, callable $rebuild): array
 {
-    $r = autofill_suggest_at($base, $token, $timeout, $opened['body'], $opened['content_type']);
+    $r = autofill_suggest_at($base, $token, $timeout, $opened['body'], $opened['content_type'], strlen((string)($opened['jpeg'] ?? '')));
     if (empty($r['http_413'])) {
         unset($r['http_413']);
         return [$r, $opened];
@@ -974,23 +1004,24 @@ function autofill_post_analysis(string $base, string $token, int $timeout, array
         return [['ok' => false, 'code' => $next['code'], 'message' => $next['message'], 'elapsed_ms' => (int)($r['elapsed_ms'] ?? 0)], $opened];
     }
     if (($next['path'] ?? '') !== ($opened['path'] ?? '')) autofill_unlink_analysis(is_string($opened['path'] ?? null) ? $opened['path'] : null);
-    $r = autofill_suggest_at($base, $token, $timeout, $next['body'], $next['content_type']);
+    $r = autofill_suggest_at($base, $token, $timeout, $next['body'], $next['content_type'], strlen((string)($next['jpeg'] ?? '')));
     unset($r['http_413']);
     return [$r, $next];
 }
 
 /**
- * One POST /v1/suggest to $base. $body is the full multipart body (already measured). Never throws, never retries.
+ * One POST /v1/suggest to $base. $imageBytes is the JPEG the service limits (the multipart wrapper is not counted).
+ * Never throws, never retries.
  * A transport failure, a non-JSON body, truncated JSON, an HTML error page or a 5xx that is not the API's own
  * 503 shape is "autofill unavailable" with no retry_after. A JSON 503 backend_unavailable / backend_error is unchanged.
  * @return array{ok:bool,code:string,message:string,suggestions?:array,confidence?:array,retry_after?:int,elapsed_ms:int}
  */
-function autofill_suggest_at(string $base, string $token, int $timeout, string $body, string $contentType): array
+function autofill_suggest_at(string $base, string $token, int $timeout, string $body, string $contentType, int $imageBytes = 0): array
 {
     $t0 = hrtime(true);
     $fail = fn(string $code, string $msg): array => ['ok' => false, 'code' => $code, 'message' => $msg, 'elapsed_ms' => (int)round((hrtime(true) - $t0) / 1e6)];
     $limit = autofill_service_image_limit();
-    if (strlen($body) > $limit) return $fail('too_large', autofill_too_large_message($limit));
+    if (($imageBytes > 0 ? $imageBytes : strlen($body)) > $limit) return $fail('too_large', autofill_too_large_message($limit));
     $r = autofill_http('POST', rtrim($base, '/') . '/v1/suggest', $body, $token, $timeout, $contentType);
     $down = fn() => $fail('unavailable', autofill_unavailable_message());
     if ($r['error'] === 'timeout' || $r['error'] === 'unreachable') { autofill_log('suggest: ' . $r['error']); return $down(); }
@@ -1095,7 +1126,7 @@ function autofill_test_photo(string $url, int $timeout, string $token, ?string $
         if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= AUTOFILL_RETRY_AFTER_MAX && $wait <= $timeout) {
             sleep($wait);
             $left = max(1, (int)floor($timeout - (microtime(true) - $t0)));
-            $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type']);
+            $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type'], strlen((string)($opened['jpeg'] ?? '')));
             unset($r['http_413']);
         }
     } catch (Throwable $e) {

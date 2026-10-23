@@ -52,8 +52,9 @@ Both dropdowns appear only when the service offers a choice (API v1.2: `models` 
 **Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge, so an older service
 gets that size when it lists no `image_sizes` (never enlarged). A v1.2 service decides through its recommended size
 instead. Either way the copy that leaves Apotheke is capped at 1600 px (`AUTOFILL_UPLOAD_MAX_SIDE`) and is a JPEG
-at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that multipart body is
-still larger than the byte cap, Apotheke tries quality 70 and then 60, then a shorter long edge, until the copy fits.
+at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that JPEG is
+still larger than the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the JPEG fits.
+The service limits that JPEG, so the multipart wrapper (about 320 bytes) is not counted.
 The cap is **Maximum image size** (below). Until `/v1/info` has been cached and the setting is `auto`, that cap is
 983040 bytes (0.9 MiB). The original upload is never sent.
 
@@ -85,14 +86,16 @@ The progress bar on the item form estimates with the chosen model's own typical 
 | `auto` (default) | `max_image_bytes` from the service’s last `GET /v1/info`. When that answer has not been seen, 983040 bytes. |
 | a whole number | That many bytes, from 65536 to 10485760. An empty value is saved as `auto`. Capped to `enforced_image_bytes` when `/v1/info` includes it, otherwise to `max_image_bytes` when that field is present, and used as stored only when neither is known. Anything outside that range is rejected when you save, with the allowed range in the message. |
 
-This is a hard maximum for the JPEG that leaves Apotheke. The app lowers JPEG quality (the configured quality, then
-70, then 60) and then the long edge until the upload fits. If it still does not fit, Analyze says the photo is too
-large and nothing is sent. The file stored with the item is not changed.
+This is a hard maximum for the JPEG that leaves Apotheke. The app lowers JPEG quality by 10 from the configured
+quality (60 is always tried) and then shortens the long edge until that JPEG fits. The multipart wrapper is not
+counted. If it still does not fit, Analyze says the photo is too large and nothing is sent. The file stored with
+the item is not changed.
 
-A lower service cap is logged as a warning with the two sizes. The access token is not in that line.
+A lower service cap is logged as a warning with the two sizes, once until that pair of sizes changes. The access token is not in that line.
 
 If the service answers **HTTP 413**, Apotheke fetches `/v1/info` once, applies the clamp again, and uploads once
 more. It does not keep retrying. A second 413 is the same “too large” message, using the limit from that refetch.
+A limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB).
 
 Defaults: until you choose, Apotheke uses the service's default model and recommended size. Which model and size suit
 your hardware best is measured in the service's benchmarks (`docs/benchmarks.md` in the service repository); set the

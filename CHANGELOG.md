@@ -7,6 +7,14 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **release:** a handwritten changelog bullet replaces the generated bullet with the same scope, so the release notes do not list that change twice.
+- **autofill:** an image-limit clamp is logged once per distinct pair of sizes. A later photo, and the rebuild after an HTTP 413, does not log that pair again. The line still has no token.
+- **autofill:** JPEG quality steps down by 10 from the configured quality. 60 is still tried before the long edge shrinks, so a quality of 95 no longer jumps straight to 70.
+- **autofill:** the byte cap is applied to the JPEG the service limits. The multipart wrapper, about 320 bytes, is not counted.
+- **autofill:** a limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB).
+
 ## [2.6.0] - 2026-10-23
 
 ### Added
