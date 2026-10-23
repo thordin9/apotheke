@@ -1161,6 +1161,44 @@ final class AutofillTest extends DatabaseTestCase
         }
     }
 
+    public function testLimitMeasuresTheImagePartNotTheMultipartBody(): void
+    {
+        $prev = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=80');
+        $paths = [];
+        try {
+            $engines = [];
+            if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) $engines[] = 'gd';
+            if (class_exists('Imagick')) $engines[] = 'imagick';
+            $this->assertNotSame([], $engines);
+            $source = $this->noisyJpeg1024();
+            foreach ($engines as $engine) {
+                $at = autofill_analysis_jpeg($source, 1024, 80, [$engine]);
+                $this->assertNotNull($at);
+                $limit = strlen($at);
+                $wrapped = strlen(autofill_multipart_body($at, '{}')['body']);
+                $this->assertGreaterThan($limit, $wrapped, $engine . ' wrapper is larger than the JPEG');
+                @unlink(DATA_DIR . '/autofill-info.json');
+                settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5, 'autofill_max_image_bytes' => 'auto']);
+                autofill_info_cache(['name' => 'x', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => $limit, 'enforced_image_bytes' => null, 'ready' => true]);
+                $opened = autofill_open_analysis($source, 1024, '{}', [$engine]);
+                if (!empty($opened['path'])) $paths[] = $opened['path'];
+                $this->assertTrue($opened['ok'], $engine . ' ' . ($opened['message'] ?? ''));
+                $this->assertSame($limit, strlen($opened['jpeg']), $engine . ' kept the JPEG that fills the cap');
+                $this->assertGreaterThan($limit, strlen($opened['body']), $engine . ' multipart wrapper is over the cap and still accepted');
+                $this->clearUploads();
+                $sent = autofill_suggest_at(self::$stubBase, '', 5, $opened['body'], $opened['content_type'], strlen($opened['jpeg']));
+                $this->assertNotSame('too_large', $sent['code'], $engine . ' local pre-check uses the image part');
+                $this->assertSame(1, $this->suggestCount(), $engine . ' the JPEG was posted');
+            }
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+            if ($prev === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prev);
+            @unlink(DATA_DIR . '/autofill-info.json');
+        }
+    }
+
     /**
      * A service that advertises max_image_bytes 524288 and no image_sizes. The analysis copy is still built with the
      * existing q80, then q70, then q60 step-down. The whole multipart body has to land on or under that limit.

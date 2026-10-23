@@ -657,7 +657,8 @@ function autofill_open_analysis(string $bytes, int $side, string $contextJson, ?
             }
             $saw = true;
             $part = autofill_multipart_body($jpeg, $contextJson);
-            if (strlen($part['body']) <= $limit) {
+            // The service limits the image part. The multipart wrapper is about 320 bytes and is not counted.
+            if (strlen($jpeg) <= $limit) {
                 try { $path = autofill_temp_jpg(); } catch (Throwable) { return $fail('unavailable', autofill_unavailable_message()); }
                 if (file_put_contents($path, $jpeg) === false) {
                     autofill_unlink_analysis($path);
@@ -984,7 +985,7 @@ function autofill_prime_info(): bool
  */
 function autofill_post_analysis(string $base, string $token, int $timeout, array $opened, callable $rebuild): array
 {
-    $r = autofill_suggest_at($base, $token, $timeout, $opened['body'], $opened['content_type']);
+    $r = autofill_suggest_at($base, $token, $timeout, $opened['body'], $opened['content_type'], strlen((string)($opened['jpeg'] ?? '')));
     if (empty($r['http_413'])) {
         unset($r['http_413']);
         return [$r, $opened];
@@ -997,23 +998,24 @@ function autofill_post_analysis(string $base, string $token, int $timeout, array
         return [['ok' => false, 'code' => $next['code'], 'message' => $next['message'], 'elapsed_ms' => (int)($r['elapsed_ms'] ?? 0)], $opened];
     }
     if (($next['path'] ?? '') !== ($opened['path'] ?? '')) autofill_unlink_analysis(is_string($opened['path'] ?? null) ? $opened['path'] : null);
-    $r = autofill_suggest_at($base, $token, $timeout, $next['body'], $next['content_type']);
+    $r = autofill_suggest_at($base, $token, $timeout, $next['body'], $next['content_type'], strlen((string)($next['jpeg'] ?? '')));
     unset($r['http_413']);
     return [$r, $next];
 }
 
 /**
- * One POST /v1/suggest to $base. $body is the full multipart body (already measured). Never throws, never retries.
+ * One POST /v1/suggest to $base. $imageBytes is the JPEG the service limits (the multipart wrapper is not counted).
+ * Never throws, never retries.
  * A transport failure, a non-JSON body, truncated JSON, an HTML error page or a 5xx that is not the API's own
  * 503 shape is "autofill unavailable" with no retry_after. A JSON 503 backend_unavailable / backend_error is unchanged.
  * @return array{ok:bool,code:string,message:string,suggestions?:array,confidence?:array,retry_after?:int,elapsed_ms:int}
  */
-function autofill_suggest_at(string $base, string $token, int $timeout, string $body, string $contentType): array
+function autofill_suggest_at(string $base, string $token, int $timeout, string $body, string $contentType, int $imageBytes = 0): array
 {
     $t0 = hrtime(true);
     $fail = fn(string $code, string $msg): array => ['ok' => false, 'code' => $code, 'message' => $msg, 'elapsed_ms' => (int)round((hrtime(true) - $t0) / 1e6)];
     $limit = autofill_service_image_limit();
-    if (strlen($body) > $limit) return $fail('too_large', autofill_too_large_message($limit));
+    if (($imageBytes > 0 ? $imageBytes : strlen($body)) > $limit) return $fail('too_large', autofill_too_large_message($limit));
     $r = autofill_http('POST', rtrim($base, '/') . '/v1/suggest', $body, $token, $timeout, $contentType);
     $down = fn() => $fail('unavailable', autofill_unavailable_message());
     if ($r['error'] === 'timeout' || $r['error'] === 'unreachable') { autofill_log('suggest: ' . $r['error']); return $down(); }
@@ -1118,7 +1120,7 @@ function autofill_test_photo(string $url, int $timeout, string $token, ?string $
         if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= AUTOFILL_RETRY_AFTER_MAX && $wait <= $timeout) {
             sleep($wait);
             $left = max(1, (int)floor($timeout - (microtime(true) - $t0)));
-            $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type']);
+            $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type'], strlen((string)($opened['jpeg'] ?? '')));
             unset($r['http_413']);
         }
     } catch (Throwable $e) {

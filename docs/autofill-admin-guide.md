@@ -53,7 +53,8 @@ Both dropdowns appear only when the service offers a choice (API v1.2: `models` 
 gets that size when it lists no `image_sizes` (never enlarged). A v1.2 service decides through its recommended size
 instead. Either way the copy that leaves Apotheke is capped at 1600 px (`AUTOFILL_UPLOAD_MAX_SIDE`) and is a JPEG
 at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that JPEG is
-still larger than the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the copy fits.
+still larger than the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the JPEG fits.
+The service limits that JPEG, so the multipart wrapper (about 320 bytes) is not counted.
 The cap is **Maximum image size** (below). Until `/v1/info` has been cached and the setting is `auto`, that cap is
 983040 bytes (0.9 MiB). The original upload is never sent.
 

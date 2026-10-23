@@ -171,7 +171,8 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
    enlarged, quality about 80. If that JPEG is still over the byte cap, quality steps down by 10 (60 is
    always tried) and then the long edge is reduced and those qualities are tried again, until the JPEG fits.
-   If it cannot, nothing is sent.
+   The service limits that JPEG. The multipart wrapper (boundaries and the context part, about 320 bytes) is not
+   counted. If the JPEG cannot be made to fit, nothing is sent.
    Metadata is stripped. GD is used first, Imagick if GD cannot read the file. Imagick flattens transparency onto white and
    converts CMYK to sRGB, then strips colour profiles, so that JPEG matches what GD would have written. For a
    grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. GD's encoder
