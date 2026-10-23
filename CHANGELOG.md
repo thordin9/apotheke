@@ -11,15 +11,35 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **autofill:** Control Panel → AI autofill has **Maximum image size (bytes)** (`autofill_max_image_bytes`, default `auto`). `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when that answer is unavailable. An explicit value must be a whole number from 65536 to 10485760. There is no environment override. When `/v1/info` includes `enforced_image_bytes`, the JPEG sent to the service is clamped to it and a warning is logged (never the token). An HTTP 413 refetches `/v1/info` once, clamps again, and retries the upload once. The copy is a hard maximum: JPEG quality steps down, then the long edge, until it fits. The stored photo stays byte-identical ([#37](https://github.com/thordin9/apotheke/pull/37)).
 
+## [2.5.8] - 2026-10-23
+
 ### Fixed
 
-- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
+- **db:** keep the database user out of connect errors ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **release:** move handwritten Unreleased notes into the version ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged.
+- **bootstrap:** a data directory that is not writable exits 1.
+- **docker:** exception traces in the image omit function arguments, so a password passed into a call is not copied into the trace.
+
+### Maintenance
+
+- test: disable JIT in the healthz connect log ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **changelog:** docs: add the 2.5.7 PHP rebuild note ([#58](https://github.com/thordin9/apotheke/pull/58))
+- docs: add --pull to the plain docker build ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **docker:** test: align the PHP pin check with CI ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **docker:** ci: print the expected PHP pin on mismatch ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **qa:** docs: add the v2.5.7 release QA report ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **qa:** docs: add the PR 58 v2.5.8 fix QA report ([#58](https://github.com/thordin9/apotheke/pull/58))
 
 ## [2.5.7] - 2026-10-23
+
+Apotheke publishes no image, so rebuild with `docker compose build --pull && docker compose up -d`,
+and `docker compose exec apotheke php -v` should then show 8.3.36.
 
 ### Fixed
 
 - **docker:** pin the PHP 8.3.36 security release ([#57](https://github.com/thordin9/apotheke/pull/57))
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
 
 ### Maintenance
 
@@ -370,7 +390,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.7...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.8...HEAD
+[2.5.8]: https://github.com/thordin9/apotheke/compare/v2.5.7...v2.5.8
 [2.5.7]: https://github.com/thordin9/apotheke/compare/v2.5.6...v2.5.7
 [2.5.6]: https://github.com/thordin9/apotheke/compare/v2.5.5...v2.5.6
 [2.5.5]: https://github.com/thordin9/apotheke/compare/v2.5.4...v2.5.5

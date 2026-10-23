@@ -98,7 +98,7 @@ include the password or the DSN.
 ## Plain `docker run`
 
 ```bash
-docker build -t apotheke .
+docker build --pull -t apotheke .
 docker run -d --name apotheke -p 9091:9091 -v "$PWD/data:/data" -e TZ=Europe/Athens apotheke
 ```
 
