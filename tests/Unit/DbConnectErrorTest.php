@@ -62,6 +62,7 @@ final class DbConnectErrorTest extends TestCase
             '-d', 'error_log=' . $log,
             '-d', 'zend.exception_ignore_args=0',
             '-d', 'zend.exception_string_param_max_len=1000000',
+            '-d', 'opcache.jit=disable',
             '-S', '127.0.0.1:' . $port,
             '-t', $root . '/public',
             $root . '/public/index.php',
