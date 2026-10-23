@@ -196,8 +196,8 @@ final class DbConnectErrorTest extends TestCase
         ]);
         $blob = $run['out'] . "\n" . $run['err'] . "\n" . $run['log'];
         $this->assertSame(1, $run['code'], $blob);
-        $this->assertSame('Data directory ' . $dir . ' is not writable.', $run['out']);
-        $this->assertSame('', $run['err']);
+        $this->assertSame('', $run['out']);
+        $this->assertSame('Data directory ' . $dir . ' is not writable.' . "\n", $run['err']);
     }
 
     /** SQLite open errors stay the engine message. They do not name a login. */
