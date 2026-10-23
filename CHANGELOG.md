@@ -7,10 +7,6 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
-### Added
-
-- **autofill:** Control Panel → AI autofill has **Maximum image size (bytes)** (`autofill_max_image_bytes`, default `auto`). `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when that answer is unavailable. An explicit value must be a whole number from 65536 to 10485760. There is no environment override. An explicit value is capped to `enforced_image_bytes` when that field is present, otherwise to `max_image_bytes`, and used as stored only when neither is known. A lower cap logs a warning and never the token. An HTTP 413 refetches `/v1/info` once, clamps again, and retries the upload once. The copy is a hard maximum: JPEG quality steps down, then the long edge, until it fits. The stored photo stays byte-identical. ([#59](https://github.com/thordin9/apotheke/pull/59))
-
 ### Fixed
 
 - **release:** a handwritten changelog bullet replaces the generated bullet with the same scope, so the release notes do not list that change twice.
@@ -18,7 +14,34 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **autofill:** JPEG quality steps down by 10 from the configured quality. 60 is still tried before the long edge shrinks, so a quality of 95 no longer jumps straight to 70.
 - **autofill:** the byte cap is applied to the JPEG the service limits. The multipart wrapper, about 320 bytes, is not counted.
 - **autofill:** a limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB).
+
+## [2.6.0] - 2026-10-23
+
+### Added
+
+- **autofill:** add a configurable maximum image size ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **autofill:** Control Panel → AI autofill has **Maximum image size (bytes)** (`autofill_max_image_bytes`, default `auto`). `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when that answer is unavailable. An explicit value must be a whole number from 65536 to 10485760. There is no environment override. An explicit value is capped to `enforced_image_bytes` when that field is present, otherwise to `max_image_bytes`, and used as stored only when neither is known. A lower cap logs a warning and never the token. An HTTP 413 refetches `/v1/info` once, clamps again, and retries the upload once. The copy is a hard maximum: JPEG quality steps down, then the long edge, until it fits. The stored photo stays byte-identical. ([#59](https://github.com/thordin9/apotheke/pull/59))
+
+### Fixed
+
+- **release:** build the release body from the full section ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **release:** keep blank lines inside changelog notes ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **bootstrap:** write the data-dir error to stderr ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **bootstrap:** avoid the STDERR constant under php-fpm ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **autofill:** cap an explicit size to the service limit ([#59](https://github.com/thordin9/apotheke/pull/59))
 - **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged.
+
+### Maintenance
+
+- **e2e:** test: update autofill settings screenshot baselines ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **db:** docs: record the 500 while the database is down ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **changelog:** docs: drop the duplicate docker and db lines ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **qa:** docs: add the v2.5.8 release QA report ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **release:** test: run apply and check the notes file ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **changelog:** docs: link the image-size note to #59 ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **autofill:** docs: say a blank image size saves as auto ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **e2e:** test: update autofill settings baselines ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **qa:** docs: add the v2.6.0 max image size QA report ([#59](https://github.com/thordin9/apotheke/pull/59))
 
 ## [2.5.8] - 2026-10-23
 
@@ -397,7 +420,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.8...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/thordin9/apotheke/compare/v2.5.8...v2.6.0
 [2.5.8]: https://github.com/thordin9/apotheke/compare/v2.5.7...v2.5.8
 [2.5.7]: https://github.com/thordin9/apotheke/compare/v2.5.6...v2.5.7
 [2.5.6]: https://github.com/thordin9/apotheke/compare/v2.5.5...v2.5.6
