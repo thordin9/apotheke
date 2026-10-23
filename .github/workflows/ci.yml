@@ -242,7 +242,10 @@ jobs:
                 ;;
             esac
           done < Dockerfile
-          docker run --rm -e PIN="$pin" apotheke:ci php -r 'echo "PHP_VERSION=".PHP_VERSION, PHP_EOL; exit(version_compare(PHP_VERSION, getenv("PIN"), "==") ? 0 : 1);'
+          if ! docker run --rm -e PIN="$pin" apotheke:ci php -r 'echo "PHP_VERSION=".PHP_VERSION, PHP_EOL; exit(version_compare(PHP_VERSION, getenv("PIN"), "==") ? 0 : 1);'; then
+            echo "expected $pin" >&2
+            exit 1
+          fi
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: HEIC (Imagick lists HEIC) and startup refusal
