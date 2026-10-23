@@ -84,6 +84,19 @@ final class ReleaseTest extends TestCase
             . "[Unreleased]: https://github.com/o/r/compare/v1.1.0...HEAD\n[1.1.0]: https://github.com/o/r/compare/v1.0.0...v1.1.0\n", $out);
     }
 
+    public function testReleaseNotesIncludeHandWrittenNotes(): void
+    {
+        $cl = "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- kept the handwritten line\n\n### Changed\n\n- moved aside\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $out = rel_changelog_insert($cl, "## [1.1.0] - 2026-10-13\n\n### Fixed\n\n- generated\n", '1.1.0', 'v1.0.0', self::URL);
+        $notes = rel_release_notes($out, '1.1.0', self::URL . '/compare/v1.0.0...v1.1.0');
+        $this->assertStringContainsString("- generated\n- kept the handwritten line", $notes);
+        $this->assertStringContainsString('- moved aside', $notes);
+        $this->assertStringContainsString('**Full changelog:** ' . self::URL . '/compare/v1.0.0...v1.1.0', $notes);
+        $this->assertStringNotContainsString('## [1.0.0]', $notes);
+        $this->assertStringNotContainsString('## [1.1.0]', $notes);
+        $this->assertStringNotContainsString('[Unreleased]:', $notes);
+    }
+
     public function testRealChangelogAcceptsTheNextRelease(): void
     {
         $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');

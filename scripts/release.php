@@ -148,6 +148,14 @@ function rel_changelog_fold(string $section, string $hand): string
     return str_ends_with($out, "\n") ? $out : $out . "\n";
 }
 
+/** GitHub release body: the version section after folding, plus the compare link. */
+function rel_release_notes(string $changelog, string $version, string $compareUrl): string
+{
+    $pattern = '/^## \[' . preg_quote($version, '/') . '\][^\n]*\n(.*?)(?=^## \[|^\[[^\]]+\]: |\z)/ms';
+    if (!preg_match($pattern, $changelog, $m)) throw new RuntimeException("CHANGELOG.md has no $version section");
+    return trim($m[1]) . "\n\n**Full changelog:** $compareUrl\n";
+}
+
 /* ---------- git ---------- */
 
 function rel_git(string ...$args): string
@@ -216,9 +224,10 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         $date = is_string($opt['date'] ?? null) ? $opt['date'] : gmdate('Y-m-d');
         $url = rel_repo_url();
         $section = rel_section($next, $date, $commits, $url);
-        file_put_contents("$root/CHANGELOG.md", rel_changelog_insert((string)file_get_contents("$root/CHANGELOG.md"), $section, $next, $tag, $url));
+        $written = rel_changelog_insert((string)file_get_contents("$root/CHANGELOG.md"), $section, $next, $tag, $url);
+        file_put_contents("$root/CHANGELOG.md", $written);
         file_put_contents("$root/VERSION", "$next\n");
-        $notes = trim(preg_replace('/^## [^\n]*\n/', '', $section)) . "\n\n**Full changelog:** " . ($tag ? "$url/compare/$tag...v$next" : "$url/commits/v$next") . "\n";
+        $notes = rel_release_notes($written, $next, $tag ? "$url/compare/$tag...v$next" : "$url/commits/v$next");
         file_put_contents(is_string($opt['notes'] ?? null) ? $opt['notes'] : 'release-notes.md', $notes);
         echo "version=$next\n";
         exit(0);
