@@ -15,6 +15,9 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [2.5.7] - 2026-10-23
 
+Apotheke publishes no image, so rebuild with `docker compose build --pull && docker compose up -d`,
+and `docker compose exec apotheke php -v` should then show 8.3.36.
+
 ### Fixed
 
 - **docker:** pin the PHP 8.3.36 security release ([#57](https://github.com/thordin9/apotheke/pull/57))
