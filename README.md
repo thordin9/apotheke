@@ -239,7 +239,7 @@ Then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` sho
 > QR labels printed with `:8080` in them need reprinting (or keep the old address with `ports: ["8080:9091"]`).
 > `docker run -p 8080:80 …` becomes `-p 9091:9091` (or `-p 8080:9091`). `PORT` still overrides the container port.
 
-The image (about 100 MB) is `php:8.3-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
+The image (about 100 MB) is `php:8.3.36-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
 `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
 stops both gracefully on `docker stop` and exits if either dies (so `restart: unless-stopped` brings it back). nginx
 listens on port 9091 inside the container; set `PORT` to change that (e.g. with `--network host`). The entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
@@ -283,7 +283,8 @@ Its data lives in `./data/postgres`. For an existing server set `DB_HOST`, `DB_P
 
 ### Update
 
-Pull the new version (keep `data/`), then `docker compose up -d --build`. Migrations run automatically; see
+Pull the new version (keep `data/`), then `docker compose up -d --build`. After a PHP security release, use
+`docker compose build --pull` and `docker compose up -d` so the new base image is fetched. Migrations run automatically; see
 [Upgrading](#upgrading).
 
 ## Install without Docker
@@ -367,6 +368,8 @@ that restored data doesn't reference stay in `data/images` and `originals/` and 
 ## Upgrading
 
 On first start after an update the database is upgraded automatically (or run `php bin/migrate.php`).
+
+After a PHP security release, rebuild the image so the new base is fetched, then restart: `docker compose build --pull` and `docker compose up -d`.
 
 * **Pre-migration SQLite installs (schema v1–v3)** are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
   converted and adopted into the migration system in one transaction: if anything fails, nothing changes.
@@ -516,7 +519,7 @@ Release ([docs/releasing.md](docs/releasing.md)). The running version is shown i
 ## Project layout
 
 ```
-Dockerfile                    php:8.3-fpm-alpine + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
+Dockerfile                    php:8.3.36-fpm-alpine + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
 docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)

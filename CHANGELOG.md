@@ -7,6 +7,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart.
+
 ## [2.5.6] - 2026-10-22
 
 ### Fixed

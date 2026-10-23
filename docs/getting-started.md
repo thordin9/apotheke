@@ -38,7 +38,7 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` through; to set any other variable from
 [Configuration](configuration.md), add it under `environment:`.
 
-**What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
+**What's in the image:** `php:8.3.36-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
 `libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). Imagick is built from its
 GitHub release tag, with pecl.php.net as a second source. Each is pinned by its own sha256 (`IMAGICK_SHA256` and
 `IMAGICK_PECL_SHA256` in the `Dockerfile`, next to `IMAGICK_VERSION`), and the build fails if neither download matches.
@@ -61,6 +61,8 @@ A `HEALTHCHECK` polls `/healthz`.
 git pull
 docker compose up -d --build
 ```
+
+After a PHP security release, fetch the new base image and restart: `docker compose build --pull`, then `docker compose up -d`.
 
 Pending database migrations run automatically on the first request. See
 [Deployment and operations](deployment-and-operations.md#upgrades).
