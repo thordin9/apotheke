@@ -110,6 +110,7 @@ function settings_schema(): array
         'autofill_timeout' => ['autofill', 'Timeout (seconds)', 'int', 50, 'How long to wait for suggestions. Saving an item never waits for them. Set it about 5 s above the service’s own timeout: 50 for the default Jetson setup (the service gives up after 45 s). When the service says its model is still loading, Apotheke waits as long as it asks (up to this timeout) and tries once more.', ['min' => 3, 'max' => 60]],
         'autofill_model'   => ['autofill', 'Model', 'af_model', '', 'Which of the service’s models looks at the photos. Switching models makes the next photo slower while the service loads it.', ['max' => 120]],
         'autofill_image_size' => ['autofill', 'Image size', 'af_size', 0, 'Long edge of the photo sent to the service. Smaller is faster; larger can read small print. Photos are never enlarged.', ['min' => 0, 'max' => 4096]],
+        'autofill_max_image_bytes' => ['autofill', 'Maximum image size (bytes)', 'af_bytes', 'auto', 'Largest JPEG sent to the service. auto uses the service’s limit, or 983040 when the service has not said. Otherwise a whole number from 65536 to 10485760. The stored photo is not changed.', []],
         'autofill_token'   => ['autofill', 'Access token', 'secret', '', '', []],
         // security (own form)
         'auth_enabled'     => ['security', 'Require sign-in', 'internal', 'cfg_auth', '', []],
@@ -206,6 +207,17 @@ function setting_validate(string $key, mixed $raw): mixed
                 throw new UserError("$label: between " . AUTOFILL_SIDE_MIN . " and {$o['max']} px.");
             }
             return (int)$str;
+        case 'af_bytes':   // 'auto', or an explicit byte cap. No environment override.
+            if ($str === null) throw new UserError("$label: auto, or a whole number of bytes from " . AUTOFILL_IMAGE_BYTES_MIN . ' to ' . AUTOFILL_IMAGE_BYTES_MAX . '.');
+            if ($str === '' || strcasecmp($str, 'auto') === 0) return 'auto';
+            if (!preg_match('/^\d{1,8}$/D', $str)) {
+                throw new UserError("$label: auto, or a whole number of bytes from " . AUTOFILL_IMAGE_BYTES_MIN . ' to ' . AUTOFILL_IMAGE_BYTES_MAX . '.');
+            }
+            $n = (int)$str;
+            if ($n < AUTOFILL_IMAGE_BYTES_MIN || $n > AUTOFILL_IMAGE_BYTES_MAX) {
+                throw new UserError("$label: auto, or a whole number of bytes from " . AUTOFILL_IMAGE_BYTES_MIN . ' to ' . AUTOFILL_IMAGE_BYTES_MAX . '.');
+            }
+            return $n;
         case 'role':
             if ($str === null || !isset(account_roles()[$str]) || $str === 'admin') throw new UserError("$label: choose a role other than admin.");
             return $str;

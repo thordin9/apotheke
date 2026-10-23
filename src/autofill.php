@@ -16,9 +16,11 @@ const AUTOFILL_CAPABILITIES = ['name', 'category', 'tags', 'description'];
 const AUTOFILL_MAX_BODY = 262144;          // bytes we accept from the service
 const AUTOFILL_CONNECT_TIMEOUT = 3;        // seconds
 const AUTOFILL_SERVICE_IMAGE_BYTES = 983040; // 1 MiB − 64 KiB, until /v1/info has cached max_image_bytes
+const AUTOFILL_IMAGE_BYTES_MIN = 65536;    // smallest explicit autofill_max_image_bytes
+const AUTOFILL_IMAGE_BYTES_MAX = 10485760; // largest explicit autofill_max_image_bytes (10 MiB)
 const AUTOFILL_UPLOAD_MAX_SIDE = 1600;     // long edge of the temporary analysis JPEG (env AUTOFILL_UPLOAD_MAX_SIDE)
 const AUTOFILL_RETRY_AFTER_MAX = 60;       // one retry only when Retry-After is at most this many seconds
-const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 70, then 60 if the multipart body is still over the limit
+const AUTOFILL_UPLOAD_JPEG_QUALITY = 80;   // then 70, then 60; then a shorter long edge, until the body fits
 
 function autofill_enabled(): bool
 {
@@ -121,7 +123,8 @@ function autofill_json_object(string $body): ?array
  * Validate GET /v1/info. Unknown fields and unknown capabilities are ignored.
  * avg_latency_ms (optional, API v1.x): the service's recent average time per suggestion; anything but a non-negative
  * integer is ignored (null), never a reason to reject the answer.
- * @return array{name:string,version:string,capabilities:string[],backend:?string,max_image_bytes:?int,ready:bool,avg_latency_ms:?int}|null
+ * enforced_image_bytes (optional): a positive integer the service will not accept above. A wrong shape is ignored.
+ * @return array{name:string,version:string,capabilities:string[],backend:?string,max_image_bytes:?int,enforced_image_bytes:?int,ready:bool,avg_latency_ms:?int}|null
  */
 function autofill_parse_info(string $body): ?array
 {
@@ -135,6 +138,8 @@ function autofill_parse_info(string $body): ?array
     }
     $max = $d['max_image_bytes'] ?? null;
     if ($max !== null && (!is_int($max) || $max < 1)) return null;
+    $enforced = $d['enforced_image_bytes'] ?? null;
+    $enforced = is_int($enforced) && $enforced > 0 ? $enforced : null;
     $backend = $d['backend'] ?? null;
     if ($backend !== null && !is_string($backend)) return null;
     $ready = $d['ready'] ?? true;
@@ -142,7 +147,8 @@ function autofill_parse_info(string $body): ?array
     $lat = $d['avg_latency_ms'] ?? null;
     $lat = is_int($lat) && $lat >= 0 ? min($lat, 3_600_000) : null;
     return ['name' => clean_line($d['name'], 80), 'version' => clean_line($d['version'], 20), 'capabilities' => $caps,
-            'backend' => $backend === null ? null : clean_line($backend, 40), 'max_image_bytes' => $max, 'ready' => $ready,
+            'backend' => $backend === null ? null : clean_line($backend, 40), 'max_image_bytes' => $max,
+            'enforced_image_bytes' => $enforced, 'ready' => $ready,
             'avg_latency_ms' => $lat, 'models' => autofill_parse_models($d['models'] ?? null),
             'image_sizes' => autofill_parse_image_sizes($d['image_sizes'] ?? null)];
 }
@@ -282,15 +288,49 @@ function autofill_mib(int $bytes): string
 }
 
 /**
- * The image limit to tell the user: the service's max_image_bytes when we have seen one, otherwise 983040 (1 MiB − 64 KiB).
+ * Byte cap before enforced_image_bytes. "auto" (the setting default; there is no env override) uses max_image_bytes
+ * from the cached /v1/info, or 983040 when that field has not been seen.
  */
-function autofill_service_image_limit(): int
+function autofill_configured_image_bytes(): int
 {
+    $raw = setting('autofill_max_image_bytes');
+    if ($raw !== 'auto') return (int)$raw;
     foreach ([autofill_info_cache(), autofill_known_info()] as $info) {
         $n = is_array($info) ? ($info['max_image_bytes'] ?? null) : null;
         if (is_int($n) && $n > 0) return $n;
     }
     return AUTOFILL_SERVICE_IMAGE_BYTES;
+}
+
+/** Positive enforced_image_bytes from the cached /v1/info, or null. */
+function autofill_enforced_image_bytes(): ?int
+{
+    foreach ([autofill_info_cache(), autofill_known_info()] as $info) {
+        $n = is_array($info) ? ($info['enforced_image_bytes'] ?? null) : null;
+        if (is_int($n) && $n > 0) return $n;
+    }
+    return null;
+}
+
+/**
+ * The byte cap for the analysis copy. $warn logs once per call when enforced_image_bytes lowers the configured target.
+ * The log line is the two sizes only: never the token.
+ */
+function autofill_target_image_bytes(bool $warn = false): int
+{
+    $target = autofill_configured_image_bytes();
+    $enforced = autofill_enforced_image_bytes();
+    if ($enforced !== null && $enforced < $target) {
+        if ($warn) autofill_log('image limit clamped from ' . $target . ' to ' . $enforced . ' bytes (enforced_image_bytes)');
+        return $enforced;
+    }
+    return $target;
+}
+
+/** The image limit that applies now (configured target, clamped to enforced_image_bytes). No log line. */
+function autofill_service_image_limit(): int
+{
+    return autofill_target_image_bytes(false);
 }
 
 /** Status line when a photo is rejected as too large. $bytes is the limit that applies. */
@@ -548,6 +588,8 @@ function autofill_unlink_analysis(?string $path): void
 /**
  * Build the analysis JPEG and the full multipart body. Writes the JPEG under DATA_DIR/tmp when it fits;
  * the caller deletes that path. The original bytes are never written and never returned.
+ * Quality steps down (the configured quality, then 70, then 60), then the long edge, until the multipart body
+ * fits the byte cap. If nothing fits, the result is too_large.
  * @param list<string>|null $engines
  * @return array{ok:true,path:string,body:string,content_type:string,jpeg:string,width:int,height:int}|array{ok:false,code:string,message:string}
  */
@@ -560,30 +602,48 @@ function autofill_open_analysis(string $bytes, int $side, string $contextJson, ?
         autofill_log('suggest: skipped, no image library for this photo');
         return $fail('unsupported', 'No suggestions: this kind of file cannot be read as a photo.');
     }
-    $limit = autofill_service_image_limit();
+    $limit = autofill_target_image_bytes(true);
     $saw = false;
-    foreach (autofill_jpeg_qualities() as $q) {
-        $jpeg = autofill_analysis_jpeg($bytes, $side, $q, $engines, $exifPath);
-        if ($jpeg === null) {
-            if ($saw) break;
-            autofill_log('suggest: skipped, could not build a stripped JPEG');
-            return $fail('unsupported', 'No suggestions: this kind of file cannot be read as a photo.');
-        }
-        $saw = true;
-        $part = autofill_multipart_body($jpeg, $contextJson);
-        if (strlen($part['body']) <= $limit) {
-            try { $path = autofill_temp_jpg(); } catch (Throwable) { return $fail('unavailable', autofill_unavailable_message()); }
-            if (file_put_contents($path, $jpeg) === false) {
-                autofill_unlink_analysis($path);
-                return $fail('unavailable', autofill_unavailable_message());
+    foreach (autofill_analysis_sides($side) as $trySide) {
+        foreach (autofill_jpeg_qualities() as $q) {
+            $jpeg = autofill_analysis_jpeg($bytes, $trySide, $q, $engines, $exifPath);
+            if ($jpeg === null) {
+                if ($saw) break 2;
+                autofill_log('suggest: skipped, could not build a stripped JPEG');
+                return $fail('unsupported', 'No suggestions: this kind of file cannot be read as a photo.');
             }
-            $info = @getimagesizefromstring($jpeg);
-            return ['ok' => true, 'path' => $path, 'body' => $part['body'], 'content_type' => $part['content_type'],
-                'jpeg' => $jpeg, 'width' => (int)($info[0] ?? 0), 'height' => (int)($info[1] ?? 0)];
+            $saw = true;
+            $part = autofill_multipart_body($jpeg, $contextJson);
+            if (strlen($part['body']) <= $limit) {
+                try { $path = autofill_temp_jpg(); } catch (Throwable) { return $fail('unavailable', autofill_unavailable_message()); }
+                if (file_put_contents($path, $jpeg) === false) {
+                    autofill_unlink_analysis($path);
+                    return $fail('unavailable', autofill_unavailable_message());
+                }
+                $info = @getimagesizefromstring($jpeg);
+                return ['ok' => true, 'path' => $path, 'body' => $part['body'], 'content_type' => $part['content_type'],
+                    'jpeg' => $jpeg, 'width' => (int)($info[0] ?? 0), 'height' => (int)($info[1] ?? 0)];
+            }
         }
     }
     autofill_log('suggest: analysis copy over the image limit');
     return $fail('too_large', autofill_too_large_message($limit));
+}
+
+/** Long edges to try, largest first: $side, then four fifths, and never below AUTOFILL_SIDE_MIN. */
+function autofill_analysis_sides(int $side): array
+{
+    $n = max(1, $side);
+    $out = [];
+    while (count($out) < 24) {
+        $out[] = $n;
+        if ($n <= AUTOFILL_SIDE_MIN) break;
+        $next = (int)floor($n * 4 / 5);
+        if ($next > $n - 1) $next = $n - 1;
+        if ($next < AUTOFILL_SIDE_MIN) $next = AUTOFILL_SIDE_MIN;
+        $n = $next;
+    }
+    return $out;
 }
 
 function autofill_unavailable_message(): string
@@ -814,14 +874,18 @@ function autofill_suggest_path(string $source, ?array $engines = null): array
     $ctx = json_encode(autofill_context(autofill_chosen_model($known)), JSON_UNESCAPED_UNICODE);
     $analysis = null;
     try {
-        $opened = autofill_open_analysis($bytes, $side, $ctx === false ? '{}' : $ctx, $engines, $source);
+        $contextJson = $ctx === false ? '{}' : $ctx;
+        $opened = autofill_open_analysis($bytes, $side, $contextJson, $engines, $source);
         if (!$opened['ok']) return $fail($opened['code'], $opened['message']);
         $analysis = $opened['path'];
-        $sent = ['type' => 'image/jpeg', 'bytes' => strlen($opened['jpeg']), 'width' => $opened['width'], 'height' => $opened['height']];
         $base = rtrim((string)setting('autofill_url'), '/');
-        $r = autofill_suggest_at($base, autofill_token(), (int)setting('autofill_timeout'), $opened['body'], $opened['content_type']);
+        $timeout = (int)setting('autofill_timeout');
+        $token = autofill_token();
+        [$r, $opened] = autofill_post_analysis($base, $token, $timeout, $opened, fn() => autofill_open_analysis($bytes, $side, $contextJson, $engines, $source));
+        $analysis = is_string($opened['path'] ?? null) ? $opened['path'] : $analysis;
+        $sent = ['type' => 'image/jpeg', 'bytes' => strlen((string)($opened['jpeg'] ?? '')), 'width' => (int)($opened['width'] ?? 0), 'height' => (int)($opened['height'] ?? 0)];
         // the service answered: refresh its /v1/info (image limit, avg_latency_ms) when the copy is older than 10 minutes
-        if ($r['ok'] && autofill_info_cache(null, 600) === null) autofill_refresh_info($base, autofill_token());
+        if ($r['ok'] && autofill_info_cache(null, 600) === null) autofill_refresh_info($base, $token);
         unset($r['confidence'], $r['elapsed_ms']);
         return $r + ['avg_latency_ms' => autofill_expected_ms(), 'image' => $sent];
     } catch (Throwable $e) {
@@ -870,6 +934,32 @@ function autofill_prime_info(): bool
 }
 
 /**
+ * POST /v1/suggest. On HTTP 413, refetch /v1/info once, rebuild, and POST that copy once. A second 413 is returned
+ * as-is. Never loops, and the log line does not include the token.
+ * @param callable():array $rebuild
+ * @return array{0:array,1:array}
+ */
+function autofill_post_analysis(string $base, string $token, int $timeout, array $opened, callable $rebuild): array
+{
+    $r = autofill_suggest_at($base, $token, $timeout, $opened['body'], $opened['content_type']);
+    if (empty($r['http_413'])) {
+        unset($r['http_413']);
+        return [$r, $opened];
+    }
+    unset($r['http_413']);
+    autofill_log('suggest: HTTP 413, refetching image limit');
+    autofill_refresh_info($base, $token, min(5, max(1, $timeout)));
+    $next = $rebuild();
+    if (empty($next['ok'])) {
+        return [['ok' => false, 'code' => $next['code'], 'message' => $next['message'], 'elapsed_ms' => (int)($r['elapsed_ms'] ?? 0)], $opened];
+    }
+    if (($next['path'] ?? '') !== ($opened['path'] ?? '')) autofill_unlink_analysis(is_string($opened['path'] ?? null) ? $opened['path'] : null);
+    $r = autofill_suggest_at($base, $token, $timeout, $next['body'], $next['content_type']);
+    unset($r['http_413']);
+    return [$r, $next];
+}
+
+/**
  * One POST /v1/suggest to $base. $body is the full multipart body (already measured). Never throws, never retries.
  * A transport failure, a non-JSON body, truncated JSON, an HTML error page or a 5xx that is not the API's own
  * 503 shape is "autofill unavailable" with no retry_after. A JSON 503 backend_unavailable / backend_error is unchanged.
@@ -896,7 +986,7 @@ function autofill_suggest_at(string $base, string $token, int $timeout, string $
         case 401: case 403:
             if ($token === '') { autofill_log('suggest: service requires a token (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service requires an access token. An admin can set it in Settings → AI autofill.'); }
             autofill_log('suggest: token refused (HTTP ' . $r['status'] . ')'); return $fail('unauthorized', 'No suggestions: the service refused the access token. An admin can fix it in Settings → AI autofill.');
-        case 413: return $fail('too_large', autofill_too_large_message($limit));
+        case 413: return $fail('too_large', autofill_too_large_message($limit)) + ['http_413' => true];
         case 415: return $fail('unsupported', 'No suggestions: the service cannot read this kind of image.');
         case 503:
             // Only the API's JSON error object. An HTML 503 (or any other shape) is unavailable, and is not retried.
@@ -970,20 +1060,23 @@ function autofill_test_photo(string $url, int $timeout, string $token, ?string $
     $base = rtrim(trim($url), '/');
     $analysis = null;
     try {
-        $opened = autofill_open_analysis($bytes, $side, $ctx === false ? '{}' : $ctx, null, autofill_sample_path());
+        $contextJson = $ctx === false ? '{}' : $ctx;
+        $opened = autofill_open_analysis($bytes, $side, $contextJson, null, autofill_sample_path());
         if (!$opened['ok']) {
             $msg = preg_replace('/^No suggestions: /', 'The sample photo got no suggestions: ', $opened['message']) ?? $opened['message'];
             return ['ok' => false, 'code' => $opened['code'], 'message' => $msg, 'checks' => $checks, 'info' => $c['info']];
         }
         $analysis = $opened['path'];
         $afterChecks = $left;
-        $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type']);
+        [$r, $opened] = autofill_post_analysis($base, $token, $left, $opened, fn() => autofill_open_analysis($bytes, $side, $contextJson, null, autofill_sample_path()));
+        $analysis = is_string($opened['path'] ?? null) ? $opened['path'] : $analysis;
         // one retry, same rule as the item form: 503 + Retry-After, and only when that wait is within the timeout
         $wait = (int)($r['retry_after'] ?? 0);
         if (!$r['ok'] && ($r['code'] ?? '') === 'busy' && $wait > 0 && $wait <= AUTOFILL_RETRY_AFTER_MAX && $wait <= $timeout) {
             sleep($wait);
             $left = max(1, (int)floor($timeout - (microtime(true) - $t0)));
             $r = autofill_suggest_at($base, $token, $left, $opened['body'], $opened['content_type']);
+            unset($r['http_413']);
         }
     } catch (Throwable $e) {
         autofill_log('suggest: failed (' . $e::class . ')');

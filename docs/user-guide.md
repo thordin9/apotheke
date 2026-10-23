@@ -162,6 +162,11 @@ until you tap it (unless an admin turned on *Analyze photos automatically*; then
 When you edit an item that already has photos, each of them has its own **Analyze** button in the row *Suggest details
 from a photo of this item*.
 
+The photo saved with the item is still the file you uploaded, when it fits the upload limit. Analyze sends a
+**separate** JPEG. An admin sets how large that copy may be under **Settings → AI autofill → Maximum image size**
+(the default follows the service). If the service says the photo is too large, Apotheke checks the limit once more
+and tries a smaller copy a single time. The file stored with the item is not resized for that.
+
 - Only **one photo is analyzed at a time**. While it runs, the Analyze buttons are greyed out and ignore another
   press; keyboard focus stays on the one you pressed. They come back when it is done.
 - You can keep typing, choose a location or save while it works.

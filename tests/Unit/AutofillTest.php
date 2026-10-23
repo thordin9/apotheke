@@ -48,6 +48,7 @@ final class AutofillTest extends DatabaseTestCase
         $this->assertFalse(setting('autofill_enabled'));
         $this->assertSame('', setting('autofill_url'));
         $this->assertSame(50, setting('autofill_timeout'));
+        $this->assertSame('auto', setting('autofill_max_image_bytes'));
         $this->assertSame('', autofill_token());
         $this->assertFalse(autofill_enabled());
     }
@@ -75,7 +76,7 @@ final class AutofillTest extends DatabaseTestCase
     public function testTokenIsSecretAndNotInTheGenericForm(): void
     {
         $this->assertSame('secret', settings_schema()['autofill_token'][2]);
-        $this->assertSame(['autofill_enabled', 'autofill_auto', 'autofill_url', 'autofill_timeout', 'autofill_model', 'autofill_image_size'], settings_section_keys('autofill'));
+        $this->assertSame(['autofill_enabled', 'autofill_auto', 'autofill_url', 'autofill_timeout', 'autofill_model', 'autofill_image_size', 'autofill_max_image_bytes'], settings_section_keys('autofill'));
         settings_store(['autofill_token' => 'abc123']);
         $this->assertArrayNotHasKey('autofill_token', settings_export()['settings']);
         $this->assertStringNotContainsString('abc123', json_encode(settings_export()));
@@ -102,7 +103,7 @@ final class AutofillTest extends DatabaseTestCase
     public function testParseInfo(): void
     {
         $ok = autofill_parse_info('{"name":"echo","version":"1","capabilities":["name","tags","category","description","colour"],"backend":"echo","max_image_bytes":10485760,"extra":1}');
-        $this->assertSame(['name' => 'echo', 'version' => '1', 'capabilities' => ['name', 'tags', 'category', 'description'], 'backend' => 'echo', 'max_image_bytes' => 10485760, 'ready' => true, 'avg_latency_ms' => null, 'models' => null, 'image_sizes' => null], $ok);
+        $this->assertSame(['name' => 'echo', 'version' => '1', 'capabilities' => ['name', 'tags', 'category', 'description'], 'backend' => 'echo', 'max_image_bytes' => 10485760, 'enforced_image_bytes' => null, 'ready' => true, 'avg_latency_ms' => null, 'models' => null, 'image_sizes' => null], $ok);
         $this->assertSame([], autofill_parse_info('{"name":"x","version":"1","capabilities":[]}')['capabilities']);
         $this->assertFalse(autofill_parse_info('{"name":"x","version":"1","capabilities":[],"ready":false}')['ready']);
         foreach (['', '{not json', '[]', '"x"', '{"version":"1","capabilities":[]}', '{"name":"x","capabilities":[]}', '{"name":"x","version":"1"}',
@@ -433,10 +434,205 @@ final class AutofillTest extends DatabaseTestCase
     {
         settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase . '/m/toolarge', 'autofill_timeout' => 5]);
         @unlink(DATA_DIR . '/autofill-info.json');
+        $this->assertSame(983040, autofill_service_image_limit());
+        $this->assertStringContainsString('983040', autofill_too_large_message(983040), 'the fallback until /v1/info is cached');
+        $this->clearUploads();
         $r = autofill_suggest($this->jpeg(40, 40));
         $this->assertSame('too_large', $r['code']);
-        $this->assertStringContainsString('0.9 MiB', $r['message'], 'MiB, the fallback until /v1/info is cached');
-        $this->assertStringContainsString('983040', $r['message'], 'the same limit in bytes');
+        $this->assertSame(2, $this->suggestCount(), 'HTTP 413 refetches /v1/info and posts once more, then stops');
+        $this->assertStringContainsString('10485760', $r['message'], 'the retry uses the limit the refetch reported');
+        $this->assertArrayNotHasKey('http_413', $r);
+    }
+
+    public function testMaxImageBytesRejectsValuesOutsideTheRange(): void
+    {
+        $this->assertSame('auto', setting_validate('autofill_max_image_bytes', ' auto '));
+        $this->assertSame('auto', setting_validate('autofill_max_image_bytes', 'AUTO'));
+        $this->assertSame('auto', setting_validate('autofill_max_image_bytes', ''));
+        $this->assertSame(65536, setting_validate('autofill_max_image_bytes', '65536'));
+        $this->assertSame(10485760, setting_validate('autofill_max_image_bytes', ' 10485760 '));
+        $this->assertSame(2097152, setting_validate('autofill_max_image_bytes', 2097152));
+        foreach (['0', '65535', '10485761', '-1', '1.5', 'auto1', '1e5', 'bytes'] as $bad) {
+            try {
+                setting_validate('autofill_max_image_bytes', $bad);
+                $this->fail("accepted $bad");
+            } catch (UserError $e) {
+                $this->assertStringContainsString('65536', $e->getMessage(), $bad);
+                $this->assertStringContainsString('10485760', $e->getMessage(), $bad);
+            }
+        }
+        $html = setting_field_html('autofill_max_image_bytes', 'auto', null);
+        $this->assertStringContainsString('name="autofill_max_image_bytes"', $html);
+        $this->assertStringContainsString('id="s-autofill_max_image_bytes"', $html);
+        $this->assertStringContainsString('value="auto"', $html);
+    }
+
+    public function testMigration0026SeedsAutoAndKeepsAnExplicitValue(): void
+    {
+        $run = require migrations_dir() . '/0026_autofill_max_image_bytes.php';
+        $this->pdo->exec("DELETE FROM settings WHERE name = 'autofill_max_image_bytes'");
+        settings_cache(null, true);
+        $run($this->pdo, $this->driver);
+        settings_cache(null, true);
+        $this->assertSame('auto', setting('autofill_max_image_bytes'));
+        $this->assertSame('"auto"', $this->pdo->query("SELECT value FROM settings WHERE name = 'autofill_max_image_bytes'")->fetchColumn());
+        settings_store(['autofill_max_image_bytes' => 65536]);
+        $run($this->pdo, $this->driver);
+        settings_cache(null, true);
+        $this->assertSame(65536, setting('autofill_max_image_bytes'), 'a second run does not replace an explicit value');
+        $this->assertArrayHasKey('0026', migrations_applied($this->pdo, $this->driver));
+    }
+
+    public function testAutoImageLimitUsesInfoAndFallsBackWithoutAnEnvOverride(): void
+    {
+        $this->assertSame('auto', setting('autofill_max_image_bytes'));
+        putenv('AUTOFILL_MAX_IMAGE_BYTES=65536');
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $this->assertSame(983040, autofill_service_image_limit(), 'no /v1/info: 983040, and the env var is ignored');
+        autofill_info_cache(['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'enforced_image_bytes' => null, 'ready' => true]);
+        $this->assertSame(10485760, autofill_service_image_limit());
+        autofill_info_cache(['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => null, 'enforced_image_bytes' => null, 'ready' => true]);
+        $this->assertSame(983040, autofill_service_image_limit(), 'info without max_image_bytes falls back');
+        $odd = autofill_parse_info('{"name":"x","version":"1","capabilities":[],"enforced_image_bytes":"2031616"}');
+        $this->assertIsArray($odd);
+        $this->assertNull($odd['enforced_image_bytes'], 'a non-integer enforced_image_bytes is ignored');
+        $this->assertNull(autofill_parse_info('{"name":"x","version":"1","capabilities":[],"enforced_image_bytes":-1}')['enforced_image_bytes']);
+        putenv('AUTOFILL_MAX_IMAGE_BYTES');
+    }
+
+    public function testExplicitTargetClampsToEnforcedImageBytesAndWarns(): void
+    {
+        settings_store(['autofill_max_image_bytes' => 2097152, 'autofill_token' => 'sekret-token-xyz', 'autofill_url' => self::$stubBase]);
+        $parsed = autofill_parse_info('{"name":"x","version":"1","capabilities":[],"max_image_bytes":10485760,"enforced_image_bytes":2031616,"ready":true}');
+        $this->assertSame(2031616, $parsed['enforced_image_bytes']);
+        autofill_info_cache($parsed);
+        $log = tempnam(sys_get_temp_dir(), 'aflog');
+        $prevLog = ini_set('error_log', $log);
+        $prevOn = ini_set('log_errors', '1');
+        try {
+            $this->assertSame(2031616, autofill_target_image_bytes(true));
+            $this->assertSame(2031616, autofill_service_image_limit());
+        } finally {
+            if ($prevLog !== false) ini_set('error_log', (string)$prevLog);
+            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
+        }
+        $text = (string)file_get_contents($log);
+        @unlink($log);
+        $this->assertStringContainsString('2097152', $text);
+        $this->assertStringContainsString('2031616', $text);
+        $this->assertStringNotContainsString('sekret-token-xyz', $text);
+        autofill_info_cache(['name' => 'x', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'enforced_image_bytes' => 4000000, 'ready' => true]);
+        $this->assertSame(2097152, autofill_service_image_limit(), 'a higher enforced cap does not raise the target');
+        settings_store(['autofill_max_image_bytes' => 'auto']);
+        autofill_info_cache($parsed);
+        $this->assertSame(2031616, autofill_service_image_limit(), 'auto is clamped to enforced_image_bytes too');
+    }
+
+    public function testHttp413RefetchesInfoReclampsAndRetriesOnce(): void
+    {
+        $this->clearUploads();
+        $prev = getenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=95');
+        $log = tempnam(sys_get_temp_dir(), 'aflog');
+        $prevLog = ini_set('error_log', $log);
+        $prevOn = ini_set('log_errors', '1');
+        try {
+            settings_store([
+                'autofill_enabled' => true,
+                'autofill_url' => self::$stubBase . '/m/clamp/e/2031616',
+                'autofill_timeout' => 5,
+                'autofill_max_image_bytes' => 2097152,
+                'autofill_token' => 'sekret-token-xyz',
+            ]);
+            autofill_info_cache(['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'enforced_image_bytes' => null, 'ready' => true]);
+            $this->assertSame(2097152, autofill_service_image_limit());
+            $r = autofill_suggest($this->noisyJpeg1024());
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame(2, $this->suggestCount(), 'one refetch and one retry, then stop');
+            $ups = $this->uploads();
+            $this->assertCount(2, $ups);
+            $this->assertGreaterThan(2031616, $ups[0]['bytes'], 'the first copy was built for 2097152');
+            $this->assertLessThanOrEqual(2031616, $ups[1]['bytes'], 'the retry was rebuilt under enforced_image_bytes');
+            $this->assertSame('JPEG', $ups[1]['type']);
+            $this->assertSame(2031616, autofill_known_info()['enforced_image_bytes']);
+            $this->assertSame(2031616, autofill_service_image_limit());
+            $this->assertArrayNotHasKey('http_413', $r);
+        } finally {
+            if ($prev === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+            else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $prev);
+            if ($prevLog !== false) ini_set('error_log', (string)$prevLog);
+            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
+        }
+        $text = (string)file_get_contents($log);
+        @unlink($log);
+        $this->assertStringNotContainsString('sekret-token-xyz', $text);
+        $this->assertStringNotContainsString('Bearer', $text);
+        $this->assertStringContainsString('2031616', $text);
+    }
+
+    public function testNoisyPhotoHardMaxAndByteIdenticalOriginal(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5]);
+        @unlink(DATA_DIR . '/autofill-info.json');
+        $jpeg = $this->noisyJpeg1024();
+        $engines = [];
+        if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) $engines[] = 'gd';
+        if (class_exists('Imagick')) $engines[] = 'imagick';
+        $this->assertNotSame([], $engines);
+        $paths = [];
+        try {
+            foreach ([524288, 1048576, 2031616] as $limit) {
+                settings_store(['autofill_max_image_bytes' => $limit]);
+                $this->assertSame($limit, autofill_service_image_limit());
+                foreach ($engines as $engine) {
+                    $opened = autofill_open_analysis($jpeg, 1024, '{}', [$engine]);
+                    if (!empty($opened['path'])) $paths[] = $opened['path'];
+                    $this->assertTrue($opened['ok'], $engine . ' at ' . $limit . ' ' . ($opened['message'] ?? ''));
+                    $this->assertLessThanOrEqual($limit, strlen($opened['body']), $engine . ' multipart exceeds ' . $limit);
+                    $this->assertStringStartsWith("\xFF\xD8", $opened['jpeg']);
+                }
+            }
+            settings_store(['autofill_max_image_bytes' => 65536]);
+            foreach ($engines as $engine) {
+                $atFull = autofill_analysis_jpeg($jpeg, 1024, 60, [$engine]);
+                $this->assertNotNull($atFull);
+                $full = strlen(autofill_multipart_body($atFull, '{}')['body']);
+                $opened = autofill_open_analysis($jpeg, 1024, '{}', [$engine]);
+                if (!empty($opened['path'])) $paths[] = $opened['path'];
+                $this->assertTrue($opened['ok'], $engine . ' at 65536 ' . ($opened['message'] ?? ''));
+                $this->assertLessThanOrEqual(65536, strlen($opened['body']));
+                if ($full > 65536) {
+                    $dim = getimagesizefromstring($opened['jpeg']);
+                    $this->assertLessThan(1024, max($dim[0], $dim[1]), $engine . ' stayed at 1024 px past the hard max');
+                }
+            }
+            settings_store(['autofill_max_image_bytes' => 'auto']);
+            autofill_info_cache(['name' => 'tiny', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10, 'enforced_image_bytes' => null, 'ready' => true]);
+            $opened = autofill_open_analysis($jpeg, 1024, '{}', [$engines[0]]);
+            $this->assertFalse($opened['ok']);
+            $this->assertSame('too_large', $opened['code']);
+            $this->assertStringContainsString('10 bytes', $opened['message']);
+
+            settings_store(['autofill_max_image_bytes' => 524288]);
+            @unlink(DATA_DIR . '/autofill-info.json');
+            $name = $this->storePhoto($jpeg);
+            $origPath = image_original_path($name);
+            $this->assertNotNull($origPath);
+            $orig = (string)file_get_contents($origPath);
+            $served = (string)file_get_contents(IMG_DIR . '/' . $name);
+            $this->clearUploads();
+            $r = autofill_suggest_path($origPath);
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame($orig, (string)file_get_contents($origPath), 'the camera file stays byte-identical');
+            $this->assertSame($served, (string)file_get_contents(IMG_DIR . '/' . $name), 'the served JPEG is not rewritten');
+            $ups = $this->uploads();
+            $this->assertCount(1, $ups);
+            $this->assertNotSame(hash('sha256', $orig), $ups[0]['sha256']);
+            $this->assertLessThanOrEqual(524288, (int)$ups[0]['content_length']);
+            $this->assertSame('JPEG', $ups[0]['type']);
+        } finally {
+            foreach ($paths as $path) autofill_unlink_analysis($path);
+        }
     }
 
     public function testSuggestRouteNeedsCreate(): void

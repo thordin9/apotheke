@@ -66,6 +66,15 @@ The Control Panel adds more DB settings with built-in defaults only (accent, log
 list sort/view, new-item defaults, loan period, saved-filter and photo limits, JPEG quality); see
 [control-panel.md](control-panel.md#sections).
 
+**AI autofill image bytes** (`autofill_max_image_bytes`) is one of those. It lives only in the `settings` table
+(Control Panel → AI autofill → Maximum image size). Default `auto`. There is no `config.php` key and no environment
+variable. `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when `/v1/info` has not
+been seen. An explicit value is a whole number of bytes from 65536 to 10485760. If `/v1/info` includes
+`enforced_image_bytes` and that number is smaller, the JPEG sent to the service is clamped to it. The database
+connection itself stays the DSN in `db.dsn` / `DB_DSN` (or host, port and name). `AUTOFILL_UPLOAD_MAX_SIDE` and
+`AUTOFILL_UPLOAD_JPEG_QUALITY` still choose the starting long edge and the first JPEG quality. They do not replace
+this byte cap.
+
 Values are normalised after loading: `data_dir` and `public_url` lose a trailing `/`, the numeric upload settings and
 `page_size` are at least `1`, `seed_defaults` accepts the usual boolean spellings (`true/false`, `1/0`, `yes/no`,
 `on/off`).
@@ -75,7 +84,7 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | Variable | Used by | Meaning |
 |---|---|---|
 | `AUTOFILL_UPLOAD_MAX_SIDE` | autofill | Longest side of the JPEG sent to the autofill service. Default `1600`, clamped to 64–4096. Never enlarges a smaller photo. The model’s image size, when the service lists one, is still the cap when it is smaller. |
-| `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the multipart body is still over the service limit, Apotheke tries 70 and then 60. |
+| `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the multipart body is still over the byte cap, Apotheke tries 70 and then 60, then a shorter long edge, until the body fits. This does not set the byte cap (`autofill_max_image_bytes` in the Control Panel). |
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |

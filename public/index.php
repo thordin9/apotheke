@@ -707,8 +707,9 @@ try {
         if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
             json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
         }
-        // the browser already resized the photo. State the tighter of the upload cap and the service image limit
-        // (max_image_bytes from /v1/info, otherwise 983040). The stored photo is saved later, by the item form.
+        // the browser already resized the photo. State the tighter of the upload cap and the autofill byte cap
+        // (the Maximum image size setting, auto → max_image_bytes or 983040, then enforced_image_bytes).
+        // The stored photo is saved later, by the item form.
         if ((int)$f['size'] > max_upload()) {
             json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
         }
