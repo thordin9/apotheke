@@ -38,6 +38,45 @@ function image_dimensions_too_large(int $w, int $h): bool
     return (float)$w * (float)$h > (float)IMAGE_MAX_PIXELS;
 }
 
+/**
+ * A full-frame decode (HEIC/HEIF) against the limits Imagick will actually enforce.
+ * Width and height refuse the read. Area does not: a frame over the area limit spills to disk.
+ * A Q16 pixel cache is about 8 bytes a pixel and has to fit in memory, map and disk together.
+ * Do not use this on a JPEG header. jpeg:size opens the cache at the reduced size, so a 16,000 px
+ * host limit still accepts a wider JPEG.
+ */
+function imagick_frame_exceeds_policy(int $w, int $h): bool
+{
+    if (!class_exists('Imagick') || $w < 1 || $h < 1) return false;
+    $width = (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH);
+    $height = (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_HEIGHT);
+    if (($width > 0 && $w > $width) || ($height > 0 && $h > $height)) return true;
+    $budget = (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_MEMORY)
+        + (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_MAP)
+        + (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_DISK);
+    return $budget > 0 && (float)$w * (float)$h * 8 > (float)$budget;
+}
+
+/** The wand reported a resource limit (width, memory, disk, time). A codec or a short file does not match. */
+function imagick_is_resource_limit(Throwable $e): bool
+{
+    if (!class_exists('ImagickException') || !$e instanceof ImagickException) return false;
+    return preg_match('/exceeds limit|limit exceeded|cache resources exhausted|memory allocation failed|memory allocation error|time limit exceeded|resource limit|security limit/i', $e->getMessage()) === 1;
+}
+
+/**
+ * Resource-limit failures become the dimension error. HEIC/HEIF often keeps only "Failed to read the file"
+ * and drops the cache reason, so that text counts only when the frame is already outside the limits.
+ */
+function imagick_failure_is_too_large(Throwable $e, int $w, int $h): bool
+{
+    if (imagick_is_resource_limit($e)) return true;
+    return class_exists('ImagickException')
+        && $e instanceof ImagickException
+        && $e->getMessage() === 'Failed to read the file'
+        && imagick_frame_exceeds_policy($w, $h);
+}
+
 /** Hint for libjpeg's scaled decode, or null when the frame is already within $maxSide. */
 function image_jpeg_size_hint(int $w, int $h, int $maxSide): ?string
 {
@@ -84,7 +123,8 @@ function image_ping_heic(string $bytes): ?array
         $h = $im->getImageHeight();
         $im->clear();
         return [$w, $h];
-    } catch (Throwable) {
+    } catch (Throwable $e) {
+        if (imagick_is_resource_limit($e)) throw new UserError('Image dimensions are too large.');
         return null;
     }
 }
@@ -131,7 +171,8 @@ function image_gd_from_scaled_jpeg(string $bytes, int $maxSide): ?GdImage
         if (!is_string($blob) || !str_starts_with($blob, "\xFF\xD8")) return null;
         $gd = @imagecreatefromstring($blob);
         return $gd instanceof GdImage ? $gd : null;
-    } catch (Throwable) {
+    } catch (Throwable $e) {
+        if (imagick_is_resource_limit($e)) throw new UserError('Image dimensions are too large.');
         return null;
     }
 }

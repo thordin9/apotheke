@@ -877,7 +877,9 @@ function pick_upload(array $fields): ?array
  * stripped. Returns that served file name. An existing images/*.jpg with no originals/ sibling is left alone (no migration).
  * HEIC/HEIF is kept as the original; when it cannot be converted the served file is a plain placeholder, never the HEIC.
  * Dimensions come from the header before any full decode. A frame over IMAGE_MAX_PIXELS or IMAGE_MAX_SIDE is refused.
+ * A HEIC/HEIF frame outside Imagick's own width, height or cache budget is refused the same way.
  * JPEG above IMAGE_GD_MAX_PIXELS is decoded already reduced. PNG, WebP and GIF above that are refused.
+ * An Imagick resource-limit failure is the same "too large" error, not a server error.
  */
 function image_store(array $file): string
 {
@@ -897,7 +899,9 @@ function image_store(array $file): string
     }
     if ($heic) {
         $dims = image_ping_heic((string)@file_get_contents($tmp));
-        if ($dims !== null && image_dimensions_too_large($dims[0], $dims[1])) throw new UserError('Image dimensions are too large.');
+        if ($dims !== null && (image_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) {
+            throw new UserError('Image dimensions are too large.');
+        }
     } elseif (image_dimensions_too_large((int)$info[0], (int)$info[1])
         || ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG)) {
         throw new UserError('Image dimensions are too large.');
@@ -906,9 +910,19 @@ function image_store(array $file): string
     $name = bin2hex(random_bytes(16)) . '.jpg';
     if (!image_original_save($name, $tmp, $ext)) throw new UserError('Server could not save the image.');
     if ($heic) {
-        $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
+        try {
+            $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
+        } catch (UserError $e) {
+            image_delete($name);
+            throw $e;
+        }
     } elseif ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
-        $gd = image_gd_from_scaled_jpeg((string)file_get_contents($tmp), image_full_max());
+        try {
+            $gd = image_gd_from_scaled_jpeg((string)file_get_contents($tmp), image_full_max());
+        } catch (UserError $e) {
+            image_delete($name);
+            throw $e;
+        }
         if (!$gd || !image_write_pair($gd, $name)) {
             image_delete($name);
             throw new UserError(class_exists('Imagick') ? 'Could not read that image.' : 'Image dimensions are too large.');
@@ -1040,14 +1054,23 @@ function image_store_heic(string $path, string $name): bool
     $format = $bytes === '' ? null : image_explicit_format($bytes);
     if ($format === null) return false;
     $jpegSize = null;
+    $frameW = 0;
+    $frameH = 0;
     if ($format === 'HEIC' || $format === 'HEIF') {
         $dims = image_ping_heic($bytes);
-        if ($dims === null || image_dimensions_too_large($dims[0], $dims[1])) return false;
+        if ($dims === null) return false;
+        $frameW = $dims[0];
+        $frameH = $dims[1];
+        if (image_dimensions_too_large($frameW, $frameH) || imagick_frame_exceeds_policy($frameW, $frameH)) {
+            throw new UserError('Image dimensions are too large.');
+        }
     } else {
         $info = @getimagesizefromstring($bytes);
         if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return false;
-        if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return false;
-        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint((int)$info[0], (int)$info[1], image_full_max());
+        $frameW = (int)$info[0];
+        $frameH = (int)$info[1];
+        if ((float)$frameW * (float)$frameH > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return false;
+        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint($frameW, $frameH, image_full_max());
     }
     try {
         $im = imagick_read_explicit($bytes, $format, $jpegSize);
@@ -1055,7 +1078,10 @@ function image_store_heic(string $path, string $name): bool
         elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
         $w = $im->getImageWidth();
         $h = $im->getImageHeight();
-        if (image_dimensions_too_large($w, $h)) { $im->clear(); return false; }
+        if (image_dimensions_too_large($w, $h)) {
+            $im->clear();
+            throw new UserError('Image dimensions are too large.');
+        }
         imagick_match_gd($im);
         $max = image_full_max();
         if (max($w, $h) > $max) {
@@ -1071,7 +1097,10 @@ function image_store_heic(string $path, string $name): bool
         if (!is_string($blob) || !str_starts_with($blob, "\xFF\xD8")) return false;
         $gd = @imagecreatefromstring($blob);
         return $gd ? image_write_pair($gd, $name) : false;
-    } catch (Throwable) {
+    } catch (UserError $e) {
+        throw $e;
+    } catch (Throwable $e) {
+        if (imagick_failure_is_too_large($e, $frameW, $frameH)) throw new UserError('Image dimensions are too large.');
         return false;
     }
 }

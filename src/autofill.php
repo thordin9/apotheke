@@ -579,8 +579,12 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
     if ($format === null) return null;
     $jpegSize = null;
     if ($format === 'HEIC' || $format === 'HEIF') {
-        $dims = image_ping_heic($bytes);
-        if ($dims === null || image_dimensions_too_large($dims[0], $dims[1])) return null;
+        try {
+            $dims = image_ping_heic($bytes);
+        } catch (UserError) {
+            return null;
+        }
+        if ($dims === null || image_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1])) return null;
     } else {
         $info = @getimagesizefromstring($bytes);
         if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
@@ -759,8 +763,12 @@ function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE):
 {
     $side = max(AUTOFILL_SIDE_MIN, min(AUTOFILL_SIDE_MAX, $side));
     if (autofill_is_heic($bytes)) {
-        $dims = image_ping_heic($bytes);
-        if ($dims !== null && image_dimensions_too_large($dims[0], $dims[1])) return null;
+        try {
+            $dims = image_ping_heic($bytes);
+        } catch (UserError) {
+            return null;
+        }
+        if ($dims !== null && (image_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) return null;
         return ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false, 'width' => null, 'height' => null];
     }
     $info = @getimagesizefromstring($bytes);
@@ -768,7 +776,11 @@ function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE):
     if (!$info || !in_array($info[2], $types, true) || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
     if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
         if ((int)$info[2] !== IMAGETYPE_JPEG) return null;
-        $src = image_gd_from_scaled_jpeg($bytes, $side);
+        try {
+            $src = image_gd_from_scaled_jpeg($bytes, $side);
+        } catch (UserError) {
+            return null;
+        }
         if (!$src) return null;
         ob_start();
         $im = image_fit($src, $side);

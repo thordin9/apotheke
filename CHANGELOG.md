@@ -11,6 +11,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **images:** a photo of up to 250 megapixels and 30,000 px on a side is kept, including a 48 MP or 200 MP phone photo. The camera file stays byte-identical and the copy on screen is still reduced. A larger frame is refused from the header, before it is decoded. (S-M1, SEC-N5) ([#72](https://github.com/thordin9/apotheke/pull/72))
 - **images:** a JPEG above 40 megapixels is decoded already reduced. Photos at or under 40 megapixels still go through GD. Imagick is used with an explicit format, and its resource limits are set at startup. (S-M1, SEC-N5) ([#72](https://github.com/thordin9/apotheke/pull/72))
+- **images:** a photo Imagick refuses because of a resource limit, including a HEIC frame the decoder will not allocate, is declined with the same “too large” message as an oversized frame. The upload is not stored, and the page does not show a server error. (S-M1, SEC-N5) ([#72](https://github.com/thordin9/apotheke/pull/72))
 
 ### Maintenance
 

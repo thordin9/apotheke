@@ -192,6 +192,92 @@ final class ImageDecodeTest extends DatabaseTestCase
     }
 
     /**
+     * A host limit below the frame is the same "too large" error as the header gate.
+     * The width limit is lowered only for this test and put back: it is process-wide.
+     * The HEIC sample is refused from its header. The JPEG is over the GD budget, so the
+     * reduced decode hits the limit and the Imagick exception is mapped. A short HEIC
+     * and a small JPEG are unchanged.
+     */
+    public function testResourceLimitRefusalIsTheDimensionError(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        $width = (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH);
+        Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, 8);
+        try {
+            $this->assertSame(8, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH));
+            $limit = new ImagickException("width or height exceeds limit `/tmp/x.jpg' @ error/cache.c/OpenPixelCache/3933");
+            $codec = new ImagickException('Unsupported feature: Unsupported codec (4.3000)');
+            $invalid = new ImagickException("Invalid input: No 'meta' box");
+            $generic = new ImagickException('Failed to read the file');
+            $security = new ImagickException('Memory allocation error: Security limit exceeded: iloc box contained 599270400 bytes, exceeding the security limit of 536870912 bytes');
+            $this->assertTrue(imagick_is_resource_limit($limit));
+            $this->assertTrue(imagick_is_resource_limit($security));
+            $this->assertTrue(imagick_failure_is_too_large($limit, 4, 4));
+            $this->assertFalse(imagick_is_resource_limit($codec));
+            $this->assertFalse(imagick_failure_is_too_large($codec, 8064, 6048));
+            $this->assertFalse(imagick_failure_is_too_large($invalid, 16320, 12240));
+            $this->assertTrue(imagick_failure_is_too_large($generic, 16, 16));
+            $this->assertFalse(imagick_failure_is_too_large($generic, 4, 4));
+
+            $sample = $this->heicSample();
+            $before = $this->tree(DATA_DIR);
+            try {
+                $this->store($sample, 'wide-limit.heic');
+                $this->fail('a HEIC outside the width limit was stored');
+            } catch (UserError $e) {
+                $this->assertSame('Image dimensions are too large.', $e->getMessage());
+            }
+            $this->assertSame($before, $this->tree(DATA_DIR));
+            $this->assertNull(autofill_analysis_jpeg($sample, 160, 80, ['imagick']));
+            $this->assertNull(autofill_prepare_image($sample, 160));
+
+            try {
+                $this->store($this->solidJpeg(8000, 5008), 'wide-limit.jpg');
+                $this->fail('a JPEG the reduced decode still could not open was stored');
+            } catch (UserError $e) {
+                $this->assertSame('Image dimensions are too large.', $e->getMessage());
+            }
+            $this->assertSame($before, $this->tree(DATA_DIR));
+
+            $broken = "\x00\x00\x00\x18ftypheic" . str_repeat('x', 200);
+            $name = $this->store($broken, 'broken.heic');
+            $orig = image_original_path($name);
+            $this->assertNotNull($orig);
+            $this->assertSame(hash('sha256', $broken), hash_file('sha256', $orig));
+            $served = getimagesize(IMG_DIR . '/' . $name);
+            $this->assertIsArray($served);
+            $this->assertSame([64, 64], [$served[0], $served[1]]);
+
+            $small = $this->store($this->solidJpeg(40, 32), 'still-small.jpg');
+            $info = getimagesize(IMG_DIR . '/' . $small);
+            $this->assertIsArray($info);
+            $this->assertSame([40, 32], [$info[0], $info[1]]);
+        } finally {
+            Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, $width);
+        }
+        $this->assertSame($width, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH));
+    }
+
+    /** A HEIC whose plane the decoder will not allocate is the dimension error, and nothing is stored. */
+    public function testHeicDecoderMemoryLimitIsTheDimensionError(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        $bytes = $this->withHugeIloc($this->heicSample());
+        $before = $this->tree(DATA_DIR);
+        try {
+            $this->store($bytes, 'huge-iloc.heic');
+            $this->fail('a HEIC over the decoder memory limit was stored');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+        } catch (ImagickException $e) {
+            $this->fail('decoder limit escaped as ' . $e->getMessage());
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+        $this->assertNull(autofill_analysis_jpeg($bytes, 160, 80, ['imagick']));
+        $this->assertNull(autofill_prepare_image($bytes, 160));
+    }
+
+    /**
      * A declared 48 MP or 200 MP HEIC header is inside the hard limit.
      * This build has no HEVC encoder, and ImageMagick does not scale HEIC while decoding, so the test does not
      * decode a real 48 MP HEIC frame. The memory bound for that size is the JPEG case. The small uncompressed
@@ -383,6 +469,15 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertIsString($bytes);
         $this->assertSame('heic', substr($bytes, 8, 4));
         return $bytes;
+    }
+
+    /** Declare an iloc plane large enough that the HEIC decoder refuses it before a frame is built. */
+    private function withHugeIloc(string $bytes): string
+    {
+        $needle = "\x00\x00\x00\x03\x00\x00\x00\x00\x23iinf";
+        $pos = strpos($bytes, $needle);
+        $this->assertNotFalse($pos);
+        return substr($bytes, 0, $pos) . pack('N', 599_270_400) . substr($bytes, $pos + 4);
     }
 
     private function withIspe(string $bytes, int $w, int $h): string
