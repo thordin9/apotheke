@@ -2,8 +2,8 @@
 # The image refuses to start with sign-in off (hardening, SEC-M3).
 #   bash scripts/docker-signin-checks.sh apotheke:ci
 # Checks: no APP_PASSWORD -> exit 78 with a clear message; a bad ALLOW_NO_LOGIN -> exit 64; a too-short APP_PASSWORD
-# -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without APP_PASSWORD (sign-in already on in the
-# database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
+# -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without
+# APP_PASSWORD (sign-in already on in the database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
 set -euo pipefail
 image="${1:?usage: docker-signin-checks.sh IMAGE}"
 name="apotheke-signin-$$"
