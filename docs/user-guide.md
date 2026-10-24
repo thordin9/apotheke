@@ -137,10 +137,12 @@ bumps the photo's version and deletes the previous served file (unless an undo s
 and copied onto the new version; the editor shows the stripped JPEG, not that camera file. Without JavaScript, *Exact values*
 offers the same as a rotation menu and crop fields in percent.
 
-The file you pick is uploaded as it is when it fits the upload limit (20 MB by default). It is kept byte for byte
+The file you pick is uploaded as it is when it fits the upload limit (20 MB by default), and it is kept byte for byte
 (about as much disk again as the file you sent) under a name that is not the one in the page, outside the web root.
 A larger file is reduced in the browser first, and the form says *This photo is over the upload limit, so a smaller
-copy will be saved. The original file is not kept.* What you see and what a thumbnail shows is a separate JPEG: EXIF
+copy will be saved. The original file is not kept.* A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels,
+is turned away with *Image dimensions are too large.* A JPEG of up to 250 megapixels is kept. The same message
+is used when the server cannot decode a photo that large. What you see and what a thumbnail shows is a separate JPEG: EXIF
 orientation applied, longest side at most 1600 px, GPS and camera details removed. A backup stores that camera file
 together with the JPEG, and restoring puts both back. CSV export only names the served photo and does not include
 the camera file. Deleting a photo, replacing it, or deleting the item (after undo expires) removes the camera file,

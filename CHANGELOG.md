@@ -11,6 +11,22 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
 
+## [2.6.8] - 2026-10-24
+
+### Fixed
+
+- **images:** a PNG above 26 megapixels is refused from the header before it is decoded, with the same message as an oversized photo. WebP and GIF stay at 40 megapixels. The cap is the size an alpha PNG still fits under the Docker image's memory_limit of 256M (peak 231931904 bytes with the upload held). A camera file saved before processing dies, including a fatal error, is removed before the request ends. Suggest returns that same message with status 422 when a decode is refused as too large. ([#79](https://github.com/thordin9/apotheke/pull/79))
+
+### Maintenance
+
+- **changelog:** docs: record the PNG upload hardening ([#79](https://github.com/thordin9/apotheke/pull/79))
+- **auth:** test: pin web guest admin and CLI password off ([#79](https://github.com/thordin9/apotheke/pull/79))
+- **changelog:** docs: keep the #79 note out of v2.6.6 ([#79](https://github.com/thordin9/apotheke/pull/79))
+- **qa:** docs: add the v2.6.5 release QA report ([#79](https://github.com/thordin9/apotheke/pull/79))
+- **qa:** docs: add v2.6.6 release QA doc ([#79](https://github.com/thordin9/apotheke/pull/79))
+- **qa:** docs: add v2.6.7 release QA doc ([#79](https://github.com/thordin9/apotheke/pull/79))
+- **qa:** docs: add #79 PNG cap and upload clean-up QA doc ([#79](https://github.com/thordin9/apotheke/pull/79))
+
 ## [2.6.7] - 2026-10-24
 
 **Upgrade note:** Docker installs are private by default (hardening, SEC-M3). Compose publishes the app on `127.0.0.1:9091` only: if phones or other machines open it directly, change the port line in `docker-compose.yml` to `"9091:9091"` (all interfaces) or `"<LAN-IP>:9091:9091"` on purpose; a reverse proxy on the same server needs no change. The container also refuses to start with sign-in off. An install with sign-in on starts unchanged. Without sign-in, either turn it on with `docker compose run --rm -u www-data apotheke php bin/settings.php password` (setting `APP_PASSWORD` alone doesn't, once the database exists), or set `ALLOW_NO_LOGIN=1` to keep running without sign-in. A new install needs `APP_PASSWORD` or `ALLOW_NO_LOGIN=1`.
@@ -552,7 +568,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.7...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.8...HEAD
+[2.6.8]: https://github.com/thordin9/apotheke/compare/v2.6.7...v2.6.8
 [2.6.7]: https://github.com/thordin9/apotheke/compare/v2.6.6...v2.6.7
 [2.6.6]: https://github.com/thordin9/apotheke/compare/v2.6.5...v2.6.6
 [2.6.5]: https://github.com/thordin9/apotheke/compare/v2.6.4...v2.6.5

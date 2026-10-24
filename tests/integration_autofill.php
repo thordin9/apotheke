@@ -309,6 +309,28 @@ $overJpeg = "\xFF\xD8\xFF\xC0" . pack('n', 11) . "\x08" . pack('n', 15632) . pac
 $r = $suggest(['image' => ['name' => 'over.jpg', 'type' => 'image/jpeg', 'data' => $overJpeg]]);
 T::eq(422, $r['status'], 'over-limit JPEG on /autofill/suggest → 422');
 T::ok(($r['json']['error'] ?? '') === 'Image dimensions are too large.' && ($r['json']['message'] ?? '') === 'Image dimensions are too large.' && $stub->last() === null, 'over-limit JPEG is the dimension error and is not sent', $r['body']);
+$pngIhdr = function (int $w, int $h): string {
+    $data = pack('N', $w) . pack('N', $h) . "\x08\x02\x00\x00\x00";
+    return "\x89PNG\r\n\x1a\n" . pack('N', strlen($data)) . 'IHDR' . $data . pack('N', crc32('IHDR' . $data));
+};
+$bigPng = $pngIhdr(6000, 5000);
+$stub->clear();
+$r = $suggest(['image' => ['name' => 'big.png', 'type' => 'image/png', 'data' => $bigPng]]);
+T::eq(422, $r['status'], 'PNG over 26 MP on /autofill/suggest → 422');
+T::ok(($r['json']['error'] ?? '') === 'Image dimensions are too large.' && ($r['json']['message'] ?? '') === 'Image dimensions are too large.' && $stub->last() === null, 'over-limit PNG is the dimension error and is not sent', $r['body']);
+$cameraFiles = function () use ($afd): array {
+    $out = [];
+    foreach (array_merge(glob($afd . '/originals/*') ?: [], glob($afd . '/originals/map/*') ?: [], glob($afd . '/images/*') ?: []) as $p) {
+        if (is_file($p) && !str_ends_with($p, '.htaccess')) $out[] = $p;
+    }
+    sort($out);
+    return $out;
+};
+$beforeFiles = $cameraFiles();
+$r = $af->api('/save', ['csrf' => $at, 'name' => 'Too big png'], ['photo' => ['name' => 'big.png', 'type' => 'image/png', 'data' => $bigPng]]);
+T::eq(422, $r['status'], 'PNG over 26 MP on /save → 422');
+T::ok(($r['json']['error'] ?? '') === 'Image dimensions are too large.', 'save uses the dimension error', (string)$r['body']);
+T::eq($beforeFiles, $cameraFiles(), 'refused PNG leaves no camera file');
 foreach (['doc.pdf' => "%PDF-1.7\n" . str_repeat('x', 500), 'notes.txt' => 'hello'] as $fn => $data) {
     $stub->clear();
     $r = $suggest(['image' => ['name' => $fn, 'type' => 'application/octet-stream', 'data' => $data]]);
