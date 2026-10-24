@@ -20,6 +20,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **ci4:** the migration runner gives a `user` or `password` in `DB_DSN` the same precedence as CI4's own connection: the DSN wins, and `DB_USER` / `DB_PASSWORD` fill in only what it leaves out. A spaced `password = …` with `DB_PASSWORD` unset no longer fails boot.
 - **ci4:** read `trust_proxy` from the `DB_SCHEMA` search path, on its own PostgreSQL connection, so closing that connection leaves CI4's connection open.
 - **ci4:** a role without CREATE can use an existing schema, and a concurrent create (42P06 / 23505) continues once the schema is there. Connection failures from `bin/migrate.php` and `apotheke:migrate` print only the driver, host, port, database name and schema. The image sets `zend.exception_ignore_args = On`.
+- **ci4:** CI4's schema setup reads the SQLSTATE (42501, 42P06, 23505) from the PostgreSQL driver instead of the English message text, so a server with a non-English `lc_messages` gets the same handling.
 
 ### Maintenance
 

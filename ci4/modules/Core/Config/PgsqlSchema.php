@@ -6,6 +6,7 @@ namespace Apotheke\Core\Config;
 
 use PDO;
 use PDOException;
+use PgSql\Connection as PgSqlConnection;
 use ReflectionProperty;
 use RuntimeException;
 
@@ -85,7 +86,12 @@ final class PdoSchemaSession implements SchemaSession
     }
 }
 
-/** CI4's Postgre connection. DBDebug is off, so a failed query returns false instead of throwing. */
+/**
+ * CI4's Postgre connection. DBDebug is off, so a failed query returns false
+ * instead of throwing. CI4's error() has no SQLSTATE for Postgre (its code is
+ * always ''), so exec() reads it from the driver result on the native
+ * connection. The message text is never parsed: it follows lc_messages.
+ */
 final class Ci4SchemaSession implements SchemaSession
 {
     public function __construct(private object $conn)
@@ -98,7 +104,7 @@ final class Ci4SchemaSession implements SchemaSession
             'SELECT 1 AS present FROM pg_catalog.pg_namespace WHERE nspname = ' . $this->conn->escape($schema)
         );
         if ($result === false) {
-            $this->failed();
+            $this->failed($this->errorCode());
         }
         $row = $result->getRowArray();
 
@@ -107,8 +113,25 @@ final class Ci4SchemaSession implements SchemaSession
 
     public function exec(string $sql): void
     {
-        if ($this->conn->query($sql) === false) {
-            $this->failed();
+        $link = $this->conn->connID ?? null;
+        if (!$link instanceof PgSqlConnection) {
+            if ($this->conn->query($sql) === false) {
+                $this->failed($this->errorCode());
+            }
+
+            return;
+        }
+        if (!pg_send_query($link, $sql)) {
+            $this->failed('');
+        }
+        $state = null;
+        while (($result = pg_get_result($link)) !== false) {
+            if ($state === null && pg_result_status($result) === PGSQL_FATAL_ERROR) {
+                $state = (string)pg_result_error_field($result, PGSQL_DIAG_SQLSTATE);
+            }
+        }
+        if ($state !== null) {
+            $this->failed($state);
         }
     }
 
@@ -116,7 +139,7 @@ final class Ci4SchemaSession implements SchemaSession
     {
         $result = $this->conn->query('SELECT current_schema() AS schema');
         if ($result === false) {
-            $this->failed();
+            $this->failed($this->errorCode());
         }
         $row = $result->getRowArray();
         if (!is_array($row) || !isset($row['schema']) || $row['schema'] === '') {
@@ -126,31 +149,18 @@ final class Ci4SchemaSession implements SchemaSession
         return (string)$row['schema'];
     }
 
-    private function failed(): never
+    /** The driver code from error(), when the driver fills it in. */
+    private function errorCode(): string
     {
         $error = $this->conn->error();
-        $message = is_array($error) ? (string)($error['message'] ?? '') : '';
-        $code = self::sqlstate($message);
+
+        return is_array($error) ? (string)($error['code'] ?? '') : '';
+    }
+
+    private function failed(string $code): never
+    {
         $e = new PDOException('PostgreSQL query failed');
         (new ReflectionProperty(PDOException::class, 'code'))->setValue($e, $code);
         throw $e;
-    }
-
-    public static function sqlstate(string $message): string
-    {
-        if (preg_match('/SQLSTATE\[([0-9A-Z]{5})\]/', $message, $m) === 1) {
-            return $m[1];
-        }
-        if (str_contains($message, 'permission denied')) {
-            return '42501';
-        }
-        if (str_contains($message, 'already exists')) {
-            return '42P06';
-        }
-        if (str_contains($message, 'duplicate key') || str_contains($message, 'pg_namespace_nspname_index')) {
-            return '23505';
-        }
-
-        return '';
     }
 }
