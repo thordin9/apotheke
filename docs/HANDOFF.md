@@ -11,8 +11,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter; no pages yet).
-- Permissions: a required filter applies legacy's per-route check (`route_perm()`, `user_can()`) to every CI4 request
-  by method and path, before CSRF, with legacy's 401, 303 and 403 answers. New routes are covered without listing them.
+- Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
+  with legacy's 401, 303 and 403 answers. The permission comes from the routed path: each route's `permission` option
+  (a route without one is refused), or legacy `route_perm()` where no route matches.
 - Sessions: native `apothekesid` files, started on demand. CI4 applies `session_idle_hours` and `session_days` from
   sign-in, and each account has a session epoch (migration 0028), as `main` does.
 - Stored secrets (S-L5): with `APP_KEY` or `APP_KEY_FILE` set, CI4 seals the AI autofill token in the same `enc:v1:`
