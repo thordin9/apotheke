@@ -89,6 +89,10 @@ Notes:
 * Migration `0025` (2.4) turns AI autofill's *Analyze photos automatically* **off** on every install: photos are
   only analyzed when someone taps *Analyze*. An admin can turn it back on under Control Panel → AI autofill (see
   [Upgrading from 2.3](autofill.md#upgrading-from-23)).
+* **CI4 and `;` in the database credentials.** On the CI4 app, a `DB_USER` or `DB_PASSWORD` that contains `;` cannot
+  be combined with `user=` / `password=` text inside another `DB_DSN` setting (`options`, `application_name`, the
+  `sslpassword` keyword); boot stops with a message saying so. Remove that text from `DB_DSN`, or change the
+  credential so it has no `;`. Any other character in the user or password works.
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 * **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file

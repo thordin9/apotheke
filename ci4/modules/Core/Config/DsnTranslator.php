@@ -90,7 +90,8 @@ final class DsnTranslator
         }
         unset($params['host'], $params['port'], $params['dbname']);
         [$user, $password] = self::credentials($params, $db);
-        self::refuseCredentialText($params, $dsn);
+        // Same refusal as the migration runner, so boot stops before either connects.
+        self::pdoParts($params, $user, $password, $dsn);
         unset($params['user'], $params['password']);
 
         $parts = [self::libpq('host', $host), self::libpq('port', $port), self::libpq('dbname', $name)];
@@ -144,49 +145,61 @@ final class DsnTranslator
     }
 
     /**
-     * What PdoMigrationRunner hands to PDO: the DSN without its top-level user
-     * and password, plus the resolved user and password as PDO arguments. With
-     * no user= or password= text left in the DSN (refuseCredentialText()), PDO
-     * appends both on PHP 8.3 and 8.4 alike. A DSN that does not tokenise is
-     * returned as it is, for PDO to reject as legacy does.
+     * What PdoMigrationRunner hands to PDO. The resolved user and password are
+     * written into the DSN as the last top-level keys, quoted as for pg_connect,
+     * and PDO gets null for both, so it appends nothing on PHP 8.3 or 8.4 and
+     * other settings may mention user= or password=. A DSN that does not
+     * tokenise is returned as it is, with the credentials as PDO arguments, for
+     * PDO to reject as legacy does.
      *
      * @param array<string,mixed> $db
-     * @return array{0:string,1:string,2:string,3:bool} DSN, user, password, whether DB_DSN set credentials that differ
+     * @return array{0:string,1:?string,2:?string,3:bool} DSN, PDO user, PDO password, whether DB_DSN set credentials that differ
      */
     public static function forPdo(string $dsn, array $db): array
     {
         require_once dirname(__DIR__, 4) . '/src/config.php';
         $keywords = str_starts_with($dsn, 'pgsql:') ? config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6))) : null;
         [$user, $password, $differs] = self::credentials($keywords ?? [], $db);
-        if ($keywords !== null) {
-            $dsn = 'pgsql:' . self::refuseCredentialText($keywords, $dsn);
+        if ($keywords === null) {
+            return [$dsn, $user, $password, $differs];
         }
 
-        return [$dsn, $user, $password, $differs];
+        return [...self::pdoParts($keywords, $user, $password, $dsn), $differs];
     }
 
     /**
-     * The DSN's keywords without the top-level user and password, as libpq
-     * key='value' pairs. PDO on PHP 8.4 drops the user and password passed to
-     * it when the DSN has the text "user=" or "password=" anywhere, so that text
-     * left in another value or keyword (options, application_name, sslpassword)
-     * stops boot instead of being stripped.
+     * PDO pgsql turns every ";" in the DSN into a space, quotes included, so a
+     * user or password with ";" cannot be written into it. That one goes to PDO
+     * as an argument instead. PHP 8.4's PDO ignores the argument when the DSN
+     * has the text "user=" (or "password=") anywhere, so in that case boot stops
+     * with a message that has no values. Nothing is stripped silently.
      *
      * @param array<string,string> $keywords
+     * @return array{0:string,1:?string,2:?string} DSN, PDO user, PDO password
      */
-    private static function refuseCredentialText(array $keywords, string $dsn): string
+    private static function pdoParts(array $keywords, string $user, string $password, string $dsn): array
     {
         unset($keywords['user'], $keywords['password']);
         $parts = [];
         foreach ($keywords as $key => $value) {
             $parts[] = self::libpq($key, $value);
         }
+        $args = ['user' => null, 'password' => null];
+        foreach (['user' => $user, 'password' => $password] as $key => $value) {
+            if (str_contains($value, ';')) {
+                $args[$key] = $value;
+            } else {
+                $parts[] = self::libpq($key, $value);
+            }
+        }
         $rest = implode(' ', $parts);
-        if (str_contains($rest, 'user=') || str_contains($rest, 'password=')) {
-            throw new DsnException($dsn, DsnException::CREDENTIAL_TEXT);
+        foreach ($args as $key => $value) {
+            if ($value !== null && str_contains($rest, $key . '=')) {
+                throw new DsnException($dsn, DsnException::SEMICOLON_CREDENTIAL);
+            }
         }
 
-        return $rest;
+        return ['pgsql:' . $rest, $args['user'], $args['password']];
     }
 
     /** libpq keyword/value: quote every value, escaping \ first and then '. */
@@ -251,9 +264,10 @@ final class DsnException extends RuntimeException
 {
     public const PUBLIC_MESSAGE = 'The database settings could not be used.';
 
-    public const CREDENTIAL_TEXT = 'The database settings could not be used: DB_DSN has user= or password= inside another '
-        . 'setting (for example options, application_name or sslpassword). Set the user and password with '
-        . 'DB_USER and DB_PASSWORD or the DSN\'s own user and password keys, and remove that text.';
+    public const SEMICOLON_CREDENTIAL = 'The database settings could not be used: DB_USER or DB_PASSWORD contains ";", '
+        . 'which PDO cannot read inside the DSN, and DB_DSN also has user= or password= text in another setting '
+        . '(for example options, application_name or sslpassword). Remove that text from DB_DSN, or use a user '
+        . 'and password without ";".';
 
     /** @param string $public one of the constants above; it never contains DSN values */
     public function __construct(public readonly string $dsn, string $public = self::PUBLIC_MESSAGE)
