@@ -11,6 +11,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Fixed
 
+- **auth:** the command line can change sign-in settings and admin accounts when guest browsing is on. ([#77](https://github.com/thordin9/apotheke/pull/77))
 - **docker:** hardening (SEC-M3, #70 N-3): a restore upload with an unknown host name gets 421 from nginx, not 500. ([#73](https://github.com/thordin9/apotheke/pull/73))
 
 ### Maintenance
