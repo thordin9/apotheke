@@ -154,7 +154,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   (change the catalog), *viewer* (look only) or your own **custom roles** built from 14 granular permissions (view, add,
   edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
   every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
-  with a default role, admin approval and rate limiting — both off by default. The history shows who changed
+  with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
+  admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   Empty means no login, fine on a trusted LAN.
 
@@ -335,6 +336,7 @@ compose file never wipes a value from `config.php`.
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
 | `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost` and `PUBLIC_URL`'s host always work; other names get 421. See [Host names](docs/deployment-and-operations.md#host-names). |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
+| `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed here. The client is the rightmost hop that isn't itself listed. With `trust_proxy` on and an empty list, the connecting address is used. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
 ## Command-line tools
