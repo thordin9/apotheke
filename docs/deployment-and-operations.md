@@ -99,8 +99,8 @@ Notes:
 * **Host names (this version).** The app now answers only to IP addresses, `localhost`, the machine's own host
   name, `PUBLIC_URL`'s host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
   add that name to `ALLOWED_HOSTS` or set `PUBLIC_URL` before upgrading; otherwise the browser shows *Unknown host
-  name* (421). Health checks (`/healthz`, `/health`) follow the same rule: point container, orchestrator and
-  monitoring probes at an allowed host. See [Host names](#host-names).
+  name* (421). Health checks (`/healthz`, `/health`) follow the Host rule from 2.6.2
+  ([Host names](#host-names)): point container, orchestrator and monitoring probes at an allowed host.
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 * **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
@@ -229,7 +229,7 @@ If you open the app by a name such as `apotheke.lan` or `nas.local`, set `PUBLIC
 to `ALLOWED_HOSTS`. A reverse proxy must pass the original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy
 does by default) or a name on this list.
 
-The health endpoints `/healthz` and `/health` follow the same rule (#70 L-2). The image's own `HEALTHCHECK` uses
+The health endpoints `/healthz` and `/health` follow the Host rule from 2.6.2 described above (#70 L-2). The image's own `HEALTHCHECK` uses
 `127.0.0.1` and keeps working, but a container or orchestrator health check, or an outside monitor, must use an
 allowed host: an IP address, `localhost`, the container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS`
 entry. A probe that uses any other name gets 421.
