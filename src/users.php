@@ -277,7 +277,8 @@ function user_can(string $perm, ?array $u = null): bool
 function actor_is_admin(): bool
 {
     $u = current_user();
-    if ($u === null) return PHP_SAPI === 'cli';
+    // Guest browsing returns the anonymous guest instead of null. On the command line that is still nobody signed in.
+    if ($u === null || !empty($u['anon'])) return PHP_SAPI === 'cli';
     return ($u['role'] ?? '') === 'admin';
 }
 

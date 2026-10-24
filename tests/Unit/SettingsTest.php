@@ -167,6 +167,40 @@ final class SettingsTest extends DatabaseTestCase
         }
     }
 
+    public function testCommandLineImportAppliesASecuritySettingWhenGuestBrowsingIsOn(): void
+    {
+        $this->assertSame('cli', PHP_SAPI);
+        user_create('root', 'long-enough', 'admin');
+        $panel = role_create('Panel', ['view', 'settings']);
+        $id = user_create('panel', 'long-enough', $panel);
+        auth_turn_on();
+        settings_store(['auth_guest_disabled' => false]);
+        settings_cache(null, true);
+        current_user(null, true);
+        try {
+            $this->assertTrue(current_user()['anon']);
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => ['session_days' => 7],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame(7, setting('session_days'), 'the command line applies a sign-in setting');
+            $this->assertNotContains('session_days', $r['ignored']);
+            $this->assertSame(1, $r['applied']);
+
+            current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => ['session_days' => 14],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame(7, setting('session_days'), 'a signed-in non-admin still cannot import a sign-in setting');
+            $this->assertContains('session_days', $r['ignored']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
     public function testDatabaseLabelShowsOnlyHostPortAndName(): void
     {
         $secret = 'spaced-secret';
