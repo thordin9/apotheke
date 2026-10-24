@@ -11,6 +11,9 @@ services:
     volumes:
       - ./data:/data
       # APP_KEY_FILE example: keep the key file outside ./data so it is not in the data volume or its backups.
+      # php-fpm runs as www-data (uid 82, gid 82). The file must be readable by that user, for example
+      #   chown root:www-data secrets/app_key && chmod 0440 secrets/app_key
+      # The Compose secrets: block below is readable by the container user and needs no extra mode.
       # - ./secrets/app_key:/run/secrets/app_key:ro
     # Or as a Compose secret (mounted read-only at /run/secrets/app_key), with the top-level secrets: block below.
     # secrets:

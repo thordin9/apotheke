@@ -91,8 +91,8 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | `AUTOFILL_UPLOAD_MAX_SIDE` | autofill | Longest side of the JPEG sent to the autofill service. Default `1600`, clamped to 64–4096. Never enlarges a smaller photo. The model’s image size, when the service lists one, is still the cap when it is smaller. |
 | `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the JPEG is still over the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the JPEG fits. The cap applies to that JPEG, which is what the service limits; the multipart wrapper is not counted. This does not set the byte cap (`autofill_max_image_bytes` in the Control Panel). |
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
-| `APP_KEY` | app, CLI | Base64 of 32 bytes. Encrypts stored secrets. Recommended, including for Docker. Empty leaves them unencrypted. See [Stored secrets](#stored-secrets). |
-| `APP_KEY_FILE` | app, CLI | Optional file with the same key text, outside the data directory and outside backup paths. Ignored when `APP_KEY` is set. |
+| `APP_KEY` | app, CLI | Base64 of 32 bytes. Encrypts stored secrets. Recommended, including for Docker. Empty leaves them unencrypted. A value that is set but unusable refuses secret saves. See [Stored secrets](#stored-secrets). |
+| `APP_KEY_FILE` | app, CLI | Optional file with the same key text, outside the data directory and outside backup paths, readable by the app user. Ignored when `APP_KEY` is set. |
 | `APP_KEY_NEW` | `bin/settings.php key rotate` | Replacement key for one rotation. Never put it in the command arguments. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `ALLOW_NO_LOGIN` | Docker image | `1`, `true` or `yes` lets the container start with sign-in off (no `APP_PASSWORD`, no sign-in in the database). Use it only on a trusted network. Empty, `0`, `false` or `no` (the default) keeps the start-up check (hardening, SEC-M3): `bin/settings.php auth status` reads the database without changing it, and the container exits with code 78 when sign-in is off. Any other value exits with code 64. |
@@ -132,15 +132,15 @@ php bin/settings.php key generate
 
 `key generate` prints a key and stores nothing.
 
-A non-empty `APP_KEY` wins over `APP_KEY_FILE`, including when `APP_KEY` does not decode. In that case secrets stay as stored and the log says `apotheke: APP_KEY is not a 32-byte key; stored secrets stay unencrypted.`
+A non-empty `APP_KEY` wins over `APP_KEY_FILE`, including when `APP_KEY` does not decode. A configured key that cannot be used does not fall back to plaintext. The save is refused, the previous row stays as it was, and the Control Panel names the cause. The log names that same cause and does not include the key. A malformed `APP_KEY` logs `apotheke: APP_KEY is not a 32-byte key; stored secrets will not be saved.`
 
-`APP_KEY_FILE` points at a file you create, with the same text. Keep it outside the data directory and outside every directory a backup can include (the data directory, `images/`, `thumbs/`, `files/`, `originals/`, and `ORIGINALS_DIR` when that path is elsewhere). `chmod 600` fits a key file. A path inside those directories is ignored, including a symlink that resolves inside them. The log says `apotheke: APP_KEY_FILE is inside the data directory or a backup path and was not used.` Apotheke does not create a key file for you.
+`APP_KEY_FILE` points at a file you create, with the same text. Keep it outside the data directory and outside every directory a backup can include (the data directory, `images/`, `thumbs/`, `files/`, `originals/`, and `ORIGINALS_DIR` when that path is elsewhere). The file has to be readable by the user the app runs as. In the Docker image that user is `www-data` (uid 82, gid 82): `chown root:www-data` and `chmod 0440`. The Compose `secrets:` mount is readable by that user and needs no extra mode. A path inside the refused directories is not used, including a symlink that resolves inside them, and a secret save is refused. The log says `apotheke: APP_KEY_FILE is inside the data directory or a backup path; stored secrets will not be saved.` A file the app cannot read is refused the same way (`apotheke: APP_KEY_FILE could not be read; stored secrets will not be saved.`). Apotheke does not create a key file for you.
 
-PHP's `sodium` extension does the encryption. It is part of the Docker image. Without it, secrets stay as stored and the log says `apotheke: ext-sodium is missing; stored secrets stay unencrypted.`
+PHP's `sodium` extension does the encryption. It is part of the Docker image. With a key configured and the extension missing, secret saves are refused and the log says `apotheke: sodium extension is missing; stored secrets will not be saved.` With no key configured, a missing extension leaves secrets plaintext, as in [No key](#no-key), and the log says `apotheke: ext-sodium is missing; stored secrets stay unencrypted.`
 
 ### No key
 
-The app still starts, and those secrets stay plaintext. The Control Panel shows *Set APP_KEY to encrypt stored secrets.* next to the access token, and each process logs `apotheke: set APP_KEY to encrypt stored secrets` once. After a key is set, the next save writes the envelope. Reading a plaintext value rewrites it encrypted as well.
+The app still starts, and those secrets stay plaintext. The Control Panel shows *Set APP_KEY to encrypt stored secrets.* next to the access token, and each process logs `apotheke: set APP_KEY to encrypt stored secrets` once. After a key is set, the next save writes the envelope. Reading a plaintext value rewrites it encrypted as well. That plaintext path is only when `APP_KEY` and `APP_KEY_FILE` are both unset. A key that is set but unusable shows a warning that names the cause, and refuses the save.
 
 ### Wrong or lost key
 
