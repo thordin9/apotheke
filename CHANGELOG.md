@@ -7,6 +7,8 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-10-24
+
 ### Fixed
 
 - **release:** a handwritten changelog bullet replaces the generated bullet with the same scope, so the release notes do not list that change twice.
@@ -14,6 +16,14 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 - **autofill:** JPEG quality steps down by 10 from the configured quality. 60 is still tried before the long edge shrinks, so a quality of 95 no longer jumps straight to 70.
 - **autofill:** the byte cap is applied to the JPEG the service limits. The multipart wrapper, about 320 bytes, is not counted.
 - **autofill:** a limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB).
+
+### Maintenance
+
+- **autofill:** docs: say the clamp warning is once per pair ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **autofill:** docs: describe the ten-point quality step ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **autofill:** docs: say a tiny limit is shown in KB ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **qa:** docs: add the #60 max image size nits QA report ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **qa:** docs: add the v2.6.0 release QA report ([#60](https://github.com/thordin9/apotheke/pull/60))
 
 ## [2.6.0] - 2026-10-23
 
@@ -420,7 +430,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.1...HEAD
+[2.6.1]: https://github.com/thordin9/apotheke/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/thordin9/apotheke/compare/v2.5.8...v2.6.0
 [2.5.8]: https://github.com/thordin9/apotheke/compare/v2.5.7...v2.5.8
 [2.5.7]: https://github.com/thordin9/apotheke/compare/v2.5.6...v2.5.7
