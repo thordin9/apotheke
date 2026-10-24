@@ -13,6 +13,12 @@ declare(strict_types=1);
  *   b  DB_USER/DB_PASSWORD only             env role           env role
  *   c  both set, differing                  env role           dsn role
  *   d  both set, DB_PASSWORD empty          fails              dsn role
+ *   e  user= in application_name            env role           fails
+ *   e2 password= in options                 env role           fails
+ *   e3 c, plus user= in options             env role           dsn role
+ *
+ * e–e3: PHP 8.4's PDO drops DB_USER/DB_PASSWORD when user= or password=
+ * appears anywhere in the DSN; with no DSN credentials (e, e2) it fails.
  *
  * Environment: TEST_PG_HOST, TEST_PG_PORT, TEST_PG_DB, TEST_PG_USER and
  * TEST_PG_PASSWORD (a role that may CREATE ROLE); APP_ROOT (default: this
@@ -41,8 +47,8 @@ $adminPassword = getenv('TEST_PG_PASSWORD');
 $adminPassword = $adminPassword === false ? 'apotheke' : $adminPassword;
 
 $expected = [
-    '8.3' => ['a' => null, 'b' => 'env', 'c' => 'env', 'd' => null, 'e' => 'env', 'e2' => 'env'],
-    '8.4' => ['a' => 'dsn', 'b' => 'env', 'c' => 'dsn', 'd' => 'dsn', 'e' => null, 'e2' => null],
+    '8.3' => ['a' => null, 'b' => 'env', 'c' => 'env', 'd' => null, 'e' => 'env', 'e2' => 'env', 'e3' => 'env'],
+    '8.4' => ['a' => 'dsn', 'b' => 'env', 'c' => 'dsn', 'd' => 'dsn', 'e' => null, 'e2' => null, 'e3' => 'dsn'],
 ][PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION] ?? null;
 if ($expected === null) {
     fwrite(STDERR, 'No expected row for PHP ' . PHP_VERSION . ".\n");
@@ -72,6 +78,7 @@ $cases = [
     // PHP 8.4's PDO drops the passed credentials when user= or password= appears anywhere.
     'e' => ['user= in application_name', $base . ";application_name='a user=b password=c'", $roles['env']['user'], $roles['env']['password']],
     'e2' => ['password= in options', $base . ";options='-c application_name=password=x'", $roles['env']['user'], $roles['env']['password']],
+    'e3' => ['c, plus user= in options', $withDsn . ";options='-c application_name=user=x'", $roles['env']['user'], $roles['env']['password']],
 ];
 $names = [$roles['env']['user'] => 'env', $roles['dsn']['user'] => 'dsn', '-' => null];
 

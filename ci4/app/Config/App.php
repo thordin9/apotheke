@@ -201,6 +201,13 @@ class App extends BaseConfig
     public bool $CSPEnabled = false;
 
     /**
+     * trust_proxy for this request. Read once here, because this config is built
+     * before CI4's connection is wired; the session filter reuses it instead of
+     * reading it again (SEC-N11). Config instances are per request, not static.
+     */
+    public bool $trustProxy = false;
+
+    /**
      * baseURL comes from PUBLIC_URL or the request. proxyIPs stays empty:
      * the Secure cookie follows RequestScheme, not CI4's proxy list.
      */
@@ -218,8 +225,8 @@ class App extends BaseConfig
             }
             $group = ['DBDriver' => 'SQLite3', 'database' => ':memory:'];
         }
-        $trust = (new \Apotheke\Core\Http\TrustProxyReader($group))->trusted();
-        $base = (new \Apotheke\Core\Http\RequestScheme($trust))->publicBase($_SERVER, $config->publicUrl());
+        $this->trustProxy = (new \Apotheke\Core\Http\TrustProxyReader($group))->trusted();
+        $base = (new \Apotheke\Core\Http\RequestScheme($this->trustProxy))->publicBase($_SERVER, $config->publicUrl());
         $this->baseURL = $base . '/';
     }
 }

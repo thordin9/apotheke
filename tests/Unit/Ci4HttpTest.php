@@ -120,6 +120,8 @@ final class Ci4HttpTest extends TestCase
             $this->assertSame(0640, fileperms($ci4Dir . '/originals/.htaccess') & 0777);
             $this->router($ci4, $asset);
             $this->head($ci4);
+            $this->healthVerbs($ci4);
+            $this->sessionToken($ci4);
         } finally {
             $legacy->stop();
             $ci4->stop();
@@ -192,6 +194,44 @@ final class Ci4HttpTest extends TestCase
             $this->assertStringContainsString('secure', strtolower($this->cookieLine($right)));
             $health = $ci4->client()->get('/healthz');
             $this->assertSame(200, $health['status'], (string)@file_get_contents($ci4->log));
+        } finally {
+            $legacy->stop();
+            $ci4->stop();
+            testdb_drop($legacyDir);
+            testdb_drop($ci4Dir);
+            rrmdir($legacyDir);
+            rrmdir($ci4Dir);
+            @unlink($legacyDir . '.server.log');
+            @unlink($ci4Dir . '.server.log');
+        }
+    }
+
+    /** SEC-N9: the CI4 session cookie lasts session_days, like legacy. */
+    public function testSessionCookieFollowsSessionDays(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $legacyDir = tmpdir('ci4-days-leg');
+        $ci4Dir = tmpdir('ci4-days');
+        $legacy = new Server($legacyDir, [], 'legacy');
+        $ci4 = new Server($ci4Dir, [], 'ci4');
+        try {
+            $this->assertSame(200, $legacy->client()->get('/healthz')['status']);
+            $this->assertSame(200, $ci4->client()->get('/healthz')['status'], (string)@file_get_contents($ci4->log));
+            $this->assertStringContainsString('max-age=2592000', strtolower($this->cookieLine($ci4->client()->get('/'))));
+            foreach (['7' => 604800, '400' => 2592000] as $days => $maxAge) {
+                // 400 is outside 1–365: the stored value is invalid, so both fall back to 30 days.
+                foreach ([$legacyDir, $ci4Dir] as $dir) {
+                    $pdo = testdb($dir);
+                    $pdo->exec("DELETE FROM settings WHERE name = 'session_days'");
+                    $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('session_days', '" . $days . "', '2026-01-01')");
+                }
+                $left = strtolower($this->cookieLine($legacy->client()->get('/')));
+                $right = strtolower($this->cookieLine($ci4->client()->get('/')));
+                $this->assertStringContainsString('max-age=' . $maxAge, $left, 'legacy ' . $days);
+                $this->assertStringContainsString('max-age=' . $maxAge, $right, 'ci4 ' . $days);
+            }
         } finally {
             $legacy->stop();
             $ci4->stop();
@@ -296,6 +336,14 @@ final class Ci4HttpTest extends TestCase
         $this->assertSame(404, $plain['status']);
         $this->assertSame('Not found', $plain['body']);
         $this->assertArrayHasKey('set-cookie', $plain['headers']);
+        // SEC-N8: the error page carries the same security headers as legacy view_error().
+        $legacyPage = $legacy->get('/no-such-page');
+        $this->assertSame(404, $legacyPage['status']);
+        $this->assertSame('nosniff', $plain['headers']['x-content-type-options'] ?? '');
+        foreach (['x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'] as $name) {
+            $this->assertNotSame('', $legacyPage['headers'][$name] ?? '', $name);
+            $this->assertSame($legacyPage['headers'][$name], $plain['headers'][$name] ?? '', $name);
+        }
     }
 
     private function seedTrust(string $dir): void
@@ -458,5 +506,32 @@ final class Ci4HttpTest extends TestCase
         $response = $server->client()->req('HEAD', '/healthz');
         $this->assertSame(200, $response['status']);
         $this->assertNotSame('', $response['headers']['x-apotheke-version'] ?? '');
+    }
+
+    /** SEC-N10: /health and /healthz answer GET (and HEAD) only. */
+    private function healthVerbs(Server $server): void
+    {
+        foreach (['/health', '/healthz'] as $path) {
+            $this->assertSame(200, $server->client()->get($path)['status'], $path);
+            foreach (['DELETE', 'PUT', 'PATCH'] as $method) {
+                $response = $server->client()->req($method, $path);
+                $this->assertContains($response['status'], [404, 405], $method . ' ' . $path);
+                $this->assertStringNotContainsString('ok', $response['body'], $method . ' ' . $path);
+            }
+            $post = $server->client()->post($path);
+            $this->assertContains($post['status'], [404, 405], 'POST ' . $path);
+        }
+    }
+
+    /** Like legacy init_session(), a CI4 session holds a CSRF token for CsrfFilter (SEC-N10). */
+    private function sessionToken(Server $server): void
+    {
+        $client = $server->client();
+        $client->get('/');
+        $sid = (string)($client->cookies['apothekesid'] ?? '');
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9,-]+$/', $sid);
+        $file = $server->dataDir . '/sessions/sess_' . $sid;
+        $this->assertFileExists($file);
+        $this->assertMatchesRegularExpression('/csrf\|s:64:"[0-9a-f]{64}"/', (string)file_get_contents($file));
     }
 }

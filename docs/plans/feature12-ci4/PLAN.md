@@ -111,10 +111,12 @@ Shown as during the branch (`ci4/`). After cutover the same tree sits at the roo
 ```
 ci4/
   app/                         thin CI4 shell: only framework glue
-    Config/  App.php (baseURL from PUBLIC_URL or the request; proxyIPs EMPTY — see Core/Http/RequestScheme)
+    Config/  App.php (baseURL from PUBLIC_URL or the request; proxyIPs EMPTY — see Core/Http/RequestScheme;
+             reads trust_proxy once per request and the session filter reuses it, SEC-N11)
              Autoload.php (PSR-4 Apotheke\ => modules/), Database.php (built by Core DatabaseFactory),
              Filters.php, Routing.php (autoRoute off), Session.php (FileHandler, DATA_DIR/sessions, cookie
-             apothekesid, Secure flag from RequestScheme), Security.php (CI4 CSRF off), Toolbar.php (off outside
+             apothekesid, Secure flag from RequestScheme, lifetime from session_days through Core/Http/SessionLifetime,
+             SEC-N9), Security.php (CI4 CSRF off), Toolbar.php (off outside
              development), Exceptions.php (UserError → 4xx; else 500 "Server error"), Services.php (factories only)
   modules/
     Core/        Config/ApothekeConfig (defaults < config.php < env, same env map incl. DB_DSN, ORIGINALS_DIR)
@@ -125,7 +127,9 @@ ci4/
                    Postgre: UTC, DB_SCHEMA create + search_path), Database/Dialect
                  Http/RequestScheme (port of request_is_https(): HTTPS/port 443, or trust_proxy ON and the first
                    X-Forwarded-Proto value == https; drives Secure cookies and public_url; NOT CI4 proxyIPs, M-2)
-                 Filters/ OriginalsGuard (first), SecurityHeaders, HeadAsGet, PostTooLarge, JsonNegotiation
+                 Filters/ OriginalsGuard (first), SecurityHeaders, HeadAsGet, PostTooLarge, JsonNegotiation,
+                   CsrfFilter (global before-filter, SEC-N10: legacy check_csrf() on every non-safe method;
+                   session token from the `csrf` field or `X-CSRF-Token`, 419; never starts a session)
                  Boot/StoragePreflight (ORIGINALS_DIR vs FCPATH, generic refusal page (N-6), error_log (N-7))
                  Helpers/apotheke_helper.php, Exceptions/UserError, Libraries/Clock + Responder, Views/layout…
     Migrations/  Apotheke\Migrations — the PDO runner in its own module (PM decision, H-1)
@@ -139,7 +143,8 @@ ci4/
                                       delegate to Settings\SettingsSchema (single source), golden-tested against legacy
                  Commands/ apotheke:migrate [--status]; bin/migrate.php wrapper
     Auth/        Login/Register/Account/Logout controllers; UserModel, RoleModel, AuthAttemptModel; AuthService,
-                 Permissions, RateLimiter; filters Csrf (419), Permission (`perm:<name>`), SessionRelease
+                 Permissions, RateLimiter; filters Permission (`perm:<name>`), SessionRelease (Csrf is Core's
+                 CsrfFilter)
     Settings/    SettingsSchema (62 keys), SettingsService, SettingsRepository, Branding; Control Panel;
                  Commands/SettingsCommand (all 19 forms) + bin/settings.php wrapper
     Taxonomy/    LocationModel, CategoryModel, TagModel, ItemTagRepository, LocationTree; controllers
@@ -174,8 +179,9 @@ bin/*.php                      thin wrappers calling spark (argv, output and exi
   Undo; Favourites → Catalog; Lending/Stocktake/Labels → Catalog, Taxonomy; ImportExport → Catalog, Taxonomy;
   Backup → all repositories + Media + Settings; Autofill → Media (read-only `originalPathOrServed`), Settings,
   Taxonomy (context names). No cycles; Core depends on nothing. A violation fails the Lint job.
-* **Constructor injection everywhere.** `service()` / `Services::` calls are allowed **only in controllers** (and
-  `Config/Services.php` factories). Services, models and commands get their collaborators through constructors. A
+* **Constructor injection everywhere.** `service()` / `Services::` calls are allowed **only in controllers** and
+  filters, which CI4 builds without constructor arguments, inside `before()`/`after()` only (and
+  `Config/Services.php` factories; conditions in ADR 001). Services, models and commands get their collaborators through constructors. A
   PHPStan rule enforces this (L-1).
 * Thin controllers. Services hold the rules and are shared by CLI and web. CI4 `Model` for single-id tables, Query
   Builder repositories for composite/text keys. Filters for cross-cutting concerns. Views ported verbatim. No inline

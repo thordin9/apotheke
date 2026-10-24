@@ -26,7 +26,21 @@ or the behaviour users already rely on.
    on a LAN. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 
 Module boundaries for the port (dependency graph enforced by deptrac, constructor injection, `service()`
-only in controllers) are in [AGENTS.md](../../AGENTS.md#ci4-module-rules).
+only in controllers and filters) are in [AGENTS.md](../../AGENTS.md#ci4-module-rules).
+
+Filters may use the shared services because CI4 builds them with `new $class()` and no constructor
+arguments. Three conditions apply, so a long-lived worker (FrankenPHP, the Cloudflare phase) never carries
+one request's state into the next:
+
+1. **Inside `before()`/`after()` only.** A filter resolves a service inside its `before()` or `after()`
+   method, never in a constructor, a helper, a closure, a property or a static. Filters declare no
+   properties (`ci4/tests/Core/FilterStateTest.php`).
+2. **No cached request or settings state.** A service a filter uses keeps nothing across requests: for
+   example `Services::sessionLifetime()` reads `session_days` through the request's `SettingsService` on
+   every call (`ci4/tests/Core/SessionCookieWorkerTest.php`).
+3. **Exact match in the rule.** The PHPStan `NoServiceRule` allows only files directly in
+   `ci4/modules/<Module>/Filters/`, inside `before()`/`after()`. Any other class is still flagged
+   (`tests/Unit/Ci4DiRuleTest.php`).
 
 ## Consequences
 
