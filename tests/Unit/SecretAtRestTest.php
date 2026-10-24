@@ -14,7 +14,7 @@ final class SecretAtRestTest extends DatabaseTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['APP_KEY', 'APP_KEY_FILE', 'APP_KEY_NEW'] as $k) {
+        foreach (['APP_KEY', 'APP_KEY_FILE', 'APP_KEY_NEW', 'APOTHEKE_SODIUM'] as $k) {
             $this->savedEnv[$k] = getenv($k);
             putenv($k);
         }
@@ -165,25 +165,86 @@ final class SecretAtRestTest extends DatabaseTestCase
     {
         $path = DATA_DIR . '/app.key';
         $this->cleanup[] = $path;
-        file_put_contents($path, base64_encode(random_bytes(32)) . "\n");
+        $fileKey = base64_encode(random_bytes(32));
+        file_put_contents($path, $fileKey . "\n");
         $this->assertTrue(secret_key_file_refused($path));
         $this->assertTrue(secret_key_file_refused(ORIGINALS_DIR . '/k.key'));
-        putenv('APP_KEY_FILE=' . $path);
-        $plain = 'refused-' . bin2hex(random_bytes(4));
-        $log = $this->temp('log');
-        $prev = ini_set('error_log', $log);
-        $prevOn = ini_set('log_errors', '1');
-        try {
-            settings_store(['autofill_token' => $plain]);
-        } finally {
-            if ($prev !== false) ini_set('error_log', (string)$prev);
-            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
-        }
+        $this->assertUnusableKeyRefusesSave(
+            ['APP_KEY' => '', 'APP_KEY_FILE' => $path],
+            'APP_KEY_FILE is inside the data directory or a backup path',
+            [$fileKey]
+        );
+    }
+
+    public function testMalformedAppKeyRefusesTheSave(): void
+    {
+        $bad = 'malformed-key-' . bin2hex(random_bytes(6));
+        $this->assertUnusableKeyRefusesSave(
+            ['APP_KEY' => $bad, 'APP_KEY_FILE' => ''],
+            'APP_KEY is not a 32-byte key',
+            [$bad]
+        );
+    }
+
+    public function testMalformedKeyFileRefusesTheSave(): void
+    {
+        $path = $this->temp('key');
+        $bad = 'not-a-key-file-' . bin2hex(random_bytes(4));
+        file_put_contents($path, $bad . "\n");
+        $this->assertFalse(secret_key_file_refused($path));
+        $this->assertUnusableKeyRefusesSave(
+            ['APP_KEY' => '', 'APP_KEY_FILE' => $path],
+            'APP_KEY_FILE is not a 32-byte key',
+            [$bad]
+        );
+    }
+
+    public function testUnreadableKeyFileRefusesTheSave(): void
+    {
+        $path = $this->temp('key');
+        $fileKey = base64_encode(random_bytes(32));
+        file_put_contents($path, $fileKey . "\n");
+        chmod($path, 0000);
+        $this->assertFalse(secret_key_file_refused($path));
+        $this->assertUnusableKeyRefusesSave(
+            ['APP_KEY' => '', 'APP_KEY_FILE' => $path],
+            'APP_KEY_FILE could not be read',
+            [$fileKey]
+        );
+    }
+
+    public function testSodiumMissingWithAKeyRefusesTheSave(): void
+    {
+        $key = base64_encode(random_bytes(32));
+        $this->assertUnusableKeyRefusesSave(
+            ['APP_KEY' => $key, 'APP_KEY_FILE' => '', 'APOTHEKE_SODIUM' => '0'],
+            'sodium extension is missing',
+            [$key]
+        );
+    }
+
+    public function testNoKeyStillStoresPlaintext(): void
+    {
+        putenv('APOTHEKE_SODIUM=0');
+        $plain = 'plain-' . bin2hex(random_bytes(4));
+        settings_store(['autofill_token' => $plain]);
         $this->assertSame($plain, $this->decoded('autofill_token'));
-        $text = (string)file_get_contents($log);
-        $this->assertStringContainsString('APP_KEY_FILE is inside the data directory or a backup path and was not used.', $text);
-        $this->assertStringNotContainsString($plain, $text);
-        $this->assertStringNotContainsString(trim((string)file_get_contents($path)), $text);
+        $this->assertStringNotContainsString(SECRET_ENVELOPE, $this->raw('autofill_token'));
+        $html = settings_autofill_token_html('csrf', null);
+        $this->assertStringContainsString('id="secret-key-warn"', $html);
+        $this->assertStringContainsString('Set APP_KEY to encrypt stored secrets.', $html);
+        $this->assertStringNotContainsString('sodium', strtolower($html));
+        $this->assertStringNotContainsString('cannot be saved', $html);
+    }
+
+    public function testAddressChangeClearsTokenWhenTheKeyIsWrong(): void
+    {
+        $this->assertAddressChangeClearsUndecryptableToken(false);
+    }
+
+    public function testAddressChangeClearsTokenWhenTheKeyIsMissing(): void
+    {
+        $this->assertAddressChangeClearsUndecryptableToken(true);
     }
 
     public function testPasswordHashStaysAHash(): void
@@ -315,6 +376,103 @@ final class SecretAtRestTest extends DatabaseTestCase
         [$exit2, $out2] = $this->settings([], ['key', 'generate']);
         $this->assertSame(0, $exit2);
         $this->assertNotSame(trim($out), trim($out2));
+    }
+
+    /** @param array<string,string> $env @param list<string> $forbidden */
+    private function assertUnusableKeyRefusesSave(array $env, string $phrase, array $forbidden): void
+    {
+        $oldPlain = 'old-' . bin2hex(random_bytes(6));
+        putenv('APP_KEY=' . base64_encode(random_bytes(32)));
+        putenv('APP_KEY_FILE');
+        putenv('APOTHEKE_SODIUM');
+        settings_cache(null, true);
+        settings_store(['autofill_token' => $oldPlain]);
+        $before = $this->raw('autofill_token');
+        $this->assertStringContainsString(SECRET_ENVELOPE, $before);
+        $this->assertStringNotContainsString($oldPlain, $before);
+
+        foreach (['APP_KEY', 'APP_KEY_FILE', 'APOTHEKE_SODIUM'] as $k) putenv($k);
+        foreach ($env as $k => $v) {
+            if ($v === '') putenv($k);
+            else putenv($k . '=' . $v);
+        }
+        settings_cache(null, true);
+
+        $newPlain = 'new-' . bin2hex(random_bytes(6));
+        $log = $this->temp('log');
+        $prev = ini_set('error_log', $log);
+        $prevOn = ini_set('log_errors', '1');
+        try {
+            $html = settings_autofill_token_html('csrf', null);
+            $this->assertStringContainsString('id="secret-key-warn"', $html);
+            $this->assertStringContainsString($phrase, $html);
+            $this->assertStringContainsString('Stored secrets cannot be saved.', $html);
+            $this->assertStringNotContainsString('Set APP_KEY', $html);
+            foreach ($forbidden as $secret) $this->assertStringNotContainsString($secret, $html);
+
+            $thrown = null;
+            try {
+                settings_store(['autofill_token' => $newPlain]);
+            } catch (UserError $e) {
+                $thrown = $e;
+            }
+            $this->assertInstanceOf(UserError::class, $thrown);
+            $this->assertStringContainsString($phrase, $thrown->getMessage());
+            $this->assertStringContainsString('The secret was not saved.', $thrown->getMessage());
+            foreach ($forbidden as $secret) $this->assertStringNotContainsString($secret, $thrown->getMessage());
+            $this->assertStringNotContainsString($newPlain, $thrown->getMessage());
+            $this->assertStringNotContainsString($oldPlain, $thrown->getMessage());
+
+            $err = settings_save(['autofill_token' => $newPlain]);
+            $this->assertArrayHasKey('autofill_token', $err);
+            $this->assertStringContainsString($phrase, $err['autofill_token']);
+            $this->assertStringContainsString('The secret was not saved.', $err['autofill_token']);
+            $form = settings_autofill_token_html('csrf', $err['autofill_token']);
+            $this->assertStringContainsString('id="af-token-err"', $form);
+            $this->assertStringContainsString($phrase, $form);
+            $this->assertStringContainsString('The secret was not saved.', $form);
+        } finally {
+            if ($prev !== false) ini_set('error_log', (string)$prev);
+            if ($prevOn !== false) ini_set('log_errors', (string)$prevOn);
+        }
+
+        $this->assertSame($before, $this->raw('autofill_token'));
+        $this->assertStringNotContainsString($newPlain, $this->raw('autofill_token'));
+        $text = (string)file_get_contents($log);
+        $this->assertStringContainsString('apotheke: ' . $phrase . '; stored secrets will not be saved.', $text);
+        $this->assertStringNotContainsString('set APP_KEY to encrypt stored secrets', $text);
+        $this->assertStringNotContainsString('stay unencrypted', $text);
+        $this->assertStringNotContainsString($newPlain, $text);
+        $this->assertStringNotContainsString($oldPlain, $text);
+        foreach ($forbidden as $secret) $this->assertStringNotContainsString($secret, $text);
+    }
+
+    private function assertAddressChangeClearsUndecryptableToken(bool $dropKey): void
+    {
+        $key = random_bytes(32);
+        $token = 'tok-' . bin2hex(random_bytes(6));
+        putenv('APP_KEY=' . base64_encode($key));
+        settings_cache(null, true);
+        settings_store([
+            'autofill_url' => 'http://autofill.example',
+            'autofill_token' => $token,
+        ]);
+        $sealed = $this->raw('autofill_token');
+        $this->assertStringContainsString(SECRET_ENVELOPE, $sealed);
+        if ($dropKey) putenv('APP_KEY');
+        else putenv('APP_KEY=' . base64_encode(random_bytes(32)));
+        settings_cache(null, true);
+        $this->assertSame('', setting('autofill_token'));
+        $this->assertSame('', autofill_token());
+        $cleared = settings_store(['autofill_url' => 'http://other.example']);
+        $this->assertTrue($cleared);
+        $this->assertSame('', $this->decoded('autofill_token'));
+        $this->assertStringNotContainsString($token, $this->raw('autofill_token'));
+        $this->assertStringNotContainsString(SECRET_ENVELOPE, $this->raw('autofill_token'));
+        putenv('APP_KEY=' . base64_encode($key));
+        settings_cache(null, true);
+        $this->assertSame('', setting('autofill_token'));
+        $this->assertStringNotContainsString($token, $this->raw('autofill_token'));
     }
 
     private function raw(string $name): string
