@@ -565,8 +565,8 @@ final class AutofillTest extends CIUnitTestCase
             'csrf' => 'csrf-test-token',
         ]);
         $saved->assertStatus(303);
-        $location = $saved->response()->getHeaderLine('Location');
-        $this->assertStringContainsString('/settings/autofill?done=token-saved', $location);
+        // A relative Location, as legacy sends (#76 L-2).
+        $this->assertSame('/settings/autofill?done=token-saved', $saved->response()->getHeaderLine('Location'));
         $this->assertStringContainsString('no-store', $saved->response()->getHeaderLine('Cache-Control'));
         $this->assertStringNotContainsString('form-token-placeholder', $saved->response()->getBody());
         $this->assertArrayNotHasKey('_ci_previous_url', $_SESSION);
@@ -578,7 +578,7 @@ final class AutofillTest extends CIUnitTestCase
             'csrf' => 'csrf-test-token',
         ]);
         $cleared->assertStatus(303);
-        $this->assertStringContainsString('/settings/autofill?done=token-cleared', $cleared->response()->getHeaderLine('Location'));
+        $this->assertSame('/settings/autofill?done=token-cleared', $cleared->response()->getHeaderLine('Location'));
         $this->assertArrayNotHasKey('_ci_previous_url', $_SESSION);
         $this->assertSame('', $this->settings->autofillToken());
     }

@@ -92,11 +92,9 @@ final class SettingsAutofillController extends Controller
         if ($this->wantsJson()) {
             return $this->json(['ok' => true, 'redirect' => $to]);
         }
-        // A plain 303 is text/html, so storePreviousURL() builds CI4's session
-        // beside the native one and FileHandler's ini_set() fails.
-        helper('url');
-
-        return redirect()->to($to, 303)->setHeader('Cache-Control', 'no-store');
+        // A relative Location, as legacy sends (#76 L-2). A RedirectResponse is
+        // never stored as the previous URL.
+        return redirect()->setStatusCode(303)->setHeader('Location', $to)->setHeader('Cache-Control', 'no-store');
     }
 
     /** @param array<string,mixed> $data */
