@@ -90,13 +90,13 @@ $s2->stop();
 
 // sign-in on
 $sd3 = $newDir('sess-pw');
-$s3 = new Server($sd3, ['APP_PASSWORD' => 's3cret']);
+$s3 = new Server($sd3, ['APP_PASSWORD' => 's3cret-pw']);
 $anon = new Client($s3->base);
 $before = $sessFiles($sd3);
 $r = $anon->get('/');
 T::ok($r['status'] === 303 && !$setsSid($r), 'anonymous / → /login without a session');
 T::eq(303, $anon->get('/no/such/page')['status'], 'anonymous 404 path → /login');
-T::eq(419, $anon->post('/login', ['username' => 'admin', 'password' => 's3cret'])['status'], 'cookieless sign-in POST → 419');
+T::eq(419, $anon->post('/login', ['username' => 'admin', 'password' => 's3cret-pw'])['status'], 'cookieless sign-in POST → 419');
 T::eq(401, $anon->get('/backup/restore/check')['status'], 'restore check → 401 when not signed in');
 T::eq(303, $anon->post('/backup/restore', ['csrf' => 'x'])['status'], 'restore POST without a session → /login');
 T::eq($before, $sessFiles($sd3), 'no session file for anonymous redirects, refused POSTs or the restore check');
@@ -104,7 +104,7 @@ $r = $anon->get('/login');
 T::ok($r['status'] === 200 && $setsSid($r), 'the sign-in page starts a session (it has a form)');
 T::eq($before + 1, $sessFiles($sd3), 'one session file for the sign-in page');
 $ltok = preg_match('/name="csrf" value="([a-f0-9]+)"/', $r['body'], $lm) ? $lm[1] : '';
-T::eq(303, $anon->post('/login', ['csrf' => $ltok, 'username' => 'admin', 'password' => 's3cret'])['status'], 'sign-in works with the on-demand session');
+T::eq(303, $anon->post('/login', ['csrf' => $ltok, 'username' => 'admin', 'password' => 's3cret-pw'])['status'], 'sign-in works with the on-demand session');
 T::eq(204, $anon->get('/backup/restore/check')['status'], 'restore check → 204 for an admin');
 T::eq(200, $anon->get('/backup')['status'], 'signed-in pages work');
 // a signed-in user without the Backup permission (#70 N-1)
