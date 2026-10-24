@@ -9,7 +9,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Fixed
 
-- **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. A configured but unusable key refuses secret saves. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
 
 ## [2.6.9] - 2026-10-24
 

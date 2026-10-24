@@ -148,6 +148,17 @@ function secret_is_at_rest(string $key): bool
     return in_array($key, secret_at_rest_names(), true);
 }
 
+/** True when the settings row holds a non-empty string, before decryption. */
+function secret_setting_nonempty(string $name): bool
+{
+    $st = db()->prepare('SELECT value FROM settings WHERE name = ?');
+    $st->execute([$name]);
+    $col = $st->fetchColumn();
+    if (!is_string($col)) return false;
+    $decoded = json_decode($col, true);
+    return is_string($decoded) && $decoded !== '';
+}
+
 /**
  * @return array{0:mixed,1:bool} value to validate, and whether a legacy plaintext row should be sealed
  */
@@ -453,7 +464,13 @@ function settings_save(array $raw, array $extra = []): array
     foreach ($raw as $k => $v) {
         try { $ok[$k] = setting_validate((string)$k, $v); } catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
-    if (!$err) settings_store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
+    if (!$err) {
+        try {
+            settings_store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
+        } catch (UserError $e) {
+            $err['autofill_token'] = $e->getMessage();
+        }
+    }
     return $err;
 }
 

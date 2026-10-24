@@ -750,7 +750,13 @@ try {
             view_settings_section('autofill', [], ['autofill_token' => 'Token: 1–512 printable characters, no spaces.'], null);
             exit;
         }
-        settings_store(['autofill_token' => $t]);
+        try {
+            settings_store(['autofill_token' => $t]);
+        } catch (UserError $e) {
+            http_response_code(422);
+            view_settings_section('autofill', [], ['autofill_token' => $e->getMessage()], null);
+            exit;
+        }
         autofill_prime_info();   // a token-protected service: cache its /v1/info now (at most 5 s, failures ignored)
         redirect('/settings/autofill?done=token-saved');
     }
