@@ -7,9 +7,22 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.6.12] - 2026-10-24
+
 ### Fixed
 
 - **auth:** a sign-in ends on the server once it is older than `session_days`, counted from sign-in. A session from before the upgrade is stamped on its next request instead of being ended. The idle stamp moves at most once a minute. Sign-out of an already ended session redirects. Sign out everywhere (Your account, and `php bin/settings.php user signout NAME`) and a new password replace the account's session epoch (migration 0028), so older sessions are dropped. SEC-N6. ([#84](https://github.com/thordin9/apotheke/pull/84))
+
+### Maintenance
+
+- docs: state the server-side sign-in limit ([#84](https://github.com/thordin9/apotheke/pull/84))
+- docs: record the session lifetime limit ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **e2e:** test: update the security settings baseline ([#84](https://github.com/thordin9/apotheke/pull/84))
+- test: use 8-character password in session lifetime tests ([#84](https://github.com/thordin9/apotheke/pull/84))
+- test: stale sign-out deletes the live session file ([#84](https://github.com/thordin9/apotheke/pull/84))
+- docs: name migration 0028 in the changelog ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **qa:** docs: add v2.6.11 release QA doc ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **qa:** docs: add PR 84 session lifetime QA doc ([#84](https://github.com/thordin9/apotheke/pull/84))
 
 ## [2.6.11] - 2026-10-24
 
@@ -632,7 +645,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.11...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.12...HEAD
+[2.6.12]: https://github.com/thordin9/apotheke/compare/v2.6.11...v2.6.12
 [2.6.11]: https://github.com/thordin9/apotheke/compare/v2.6.10...v2.6.11
 [2.6.10]: https://github.com/thordin9/apotheke/compare/v2.6.9...v2.6.10
 [2.6.9]: https://github.com/thordin9/apotheke/compare/v2.6.8...v2.6.9
