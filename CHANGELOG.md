@@ -11,9 +11,12 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, and camera originals stay unserved. Photo storage inside the web root stops boot with the same message as the legacy app. A bad DSN stops boot. The page says the database settings could not be used, with no DSN parts. The log line lists only the driver, host, port and database name. The dev server router is `ci4/public/router.php`.
 - **ci4:** Migrations module. `apotheke:migrate` and `bin/migrate.php` (when `APOTHEKE_APP=ci4`) apply the 25 migrations through a PDO runner. CI4 checks `pg_namespace` before `CREATE SCHEMA`. A missing schema does not return `/healthz` 200.
+- **ci4:** Settings module. `SettingsSchema` is the single source of the 62 settings keys (defaults and validation); the migration shim's `settings_schema`, `setting_default` and `setting_validate` delegate to it. `SettingsService` (all, get, save, reset a section, export, import up to 256 KiB, the write-only autofill token with its own getter, token cleared when the service address moves) is built per request by `Config\Services`. `/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico` and `/brand/{file}` match the legacy bytes and headers and start no session; brand files sit behind a `BrandStore` interface. `apotheke:settings` and `bin/settings.php` (when `APOTHEKE_APP=ci4`) run `list`, `get`, `set`, `reset`, `export` and `import` with the legacy output and exit codes; the account and sign-in forms stay on legacy until the Auth module.
 
 ### Fixed
 
+- **ci4:** `Services::apothekeDb` brings the schema up to date once per process and database, not on every request in a long-lived worker. Under php-fpm and spark that is once per request or command, as legacy `db()` does; `apotheke:migrate` stays the explicit way. The settings cache lives in the per-request `SettingsService`, not in a static.
+- **ci4:** `get` of an unknown key or of a write-only key exits 1 with a message instead of a PHP fatal or printing the secret.
 - **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects.
 - **ci4:** a PostgreSQL DSN may have spaces around `=`, as libpq does, so `password = …` and `user = …` are the password and the user. The log line still lists only the driver, host, port and database name.
 - **ci4:** read `trust_proxy` from the `DB_SCHEMA` search path, on its own PostgreSQL connection, so closing that connection leaves CI4's connection open.
@@ -22,6 +25,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Maintenance
 
 - **ci:** `scripts/ci4-pgsql-proof.php` reports SQLSTATE 42P01 as a missing probe table. Any other SQLSTATE is a connection or query failure. The script does not print the DSN or the password.
+- **test:** CI4 module tests (`ci4/phpunit.xml.dist`, CIUnitTestCase) run inside the main PHPUnit run on SQLite and PostgreSQL. Goldens compare the settings schema, the settings CLI and the branding routes with legacy.
 - **test:** a production CI4 boot with `APOTHEKE_TEST_DB` unset returns 200 and does not create the probe table, on SQLite and as a PostgreSQL role without CREATE.
 - **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg runs PHPUnit against the CI4 server. `APOTHEKE_TEST_DB` selects that server's database. The pgsql probe is written by `tests/ci4-router.php`, and the ci4@pgsql job checks `public.apotheke_ci4_pgsql_probe`. deptrac and the DI rule check the Core and DevServer modules. Releases stay on `main` only.
 - **ci:** run lint, headless mobile checks, Playwright and the Docker build + smoke test on PHP 8.4 as well as PHP 8.3. The shipped image stays PHP 8.3. `PHP_VERSION=8.4` builds the test image from the same Dockerfile. Markdown link checks walk all of `docs/`.

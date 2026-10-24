@@ -256,6 +256,12 @@ All pending steps run in **one transaction**, so a failed upgrade leaves the dat
 concurrent first requests wait instead of migrating twice. `php bin/migrate.php --status` lists applied and pending
 versions.
 
+**CI4 (`ci4/`):** the same runner (`PdoMigrationRunner`) runs before the first CI4 database connection of a process
+(`Apotheke\Migrations\BootMigration`, called from `Config\Services::apothekeDb`), and `apotheke:migrate` runs it on
+demand. The check is remembered per process and database, and only after it succeeds. Under php-fpm and spark a
+process is one request or command, so this matches legacy. A long-lived worker (FrankenPHP worker mode) checks once,
+at its first request, instead of on every request; deploys that add a migration restart the workers.
+
 ## Writing a migration
 
 1. Add `migrations/NNNN_short_name.php` with the next free number (the runner sorts by the four digits).

@@ -107,6 +107,11 @@ php bin/settings.php password                       # shortcut: password of "adm
 
 (In Docker: `docker compose exec apotheke php bin/settings.php users`.)
 
+With `APOTHEKE_APP=ci4`, `bin/settings.php` passes `list`, `get`, `set`, `reset`, `export` and `import` to
+`php ci4/spark apotheke:settings` (same output and exit codes: 1 with the message on stderr for a refused value, 2 for
+an unknown command). `get` of `autofill_token` or `password_hash` exits 1 (`write-only`). The account and sign-in
+commands above still run on the legacy code until the CI4 Auth module lands.
+
 ## Import / export
 
 **Settings → Backup & data → Export settings** downloads `apotheke-settings-YYYY-MM-DD.json`:
