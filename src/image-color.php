@@ -9,20 +9,20 @@ declare(strict_types=1);
  * IMAGE_MAX_PIXELS is 250 megapixels and IMAGE_MAX_SIDE is 30,000 px. A JPEG may use that whole range:
  * jpeg:size decodes it already reduced, and the decoded frame stays within 128 megapixels.
  * HEIC/HEIF has no reduced decode, so the header stops at the same bounds as the ImageMagick policy:
- * IMAGE_HEIC_MAX_PIXELS is 128 megapixels and IMAGE_HEIC_MAX_SIDE is 20,000 px.
- * IMAGE_HEIC_MAX_SIDE must equal policy.xml's width and height. ImageMagick's 20KP is 20,000 px; 16KP is 16,000.
+ * IMAGE_HEIC_MAX_PIXELS is 128 megapixels and IMAGE_HEIC_MAX_SIDE is 16,384 px.
+ * IMAGE_HEIC_MAX_SIDE must equal policy.xml's width and height. That value is exactly 16384 px.
  * A 48 MP frame (8064×6048) is inside both. A 200 MP sensor (16384×12288) is inside the JPEG cap and
  * outside the HEIC cap.
  * IMAGE_GD_MAX_PIXELS is 40 megapixels: GD truecolor is 4 bytes a pixel, so 40 MP is 160 MB and fits under
  * memory_limit 256M. Larger JPEG photos are decoded already reduced. Larger PNG, WebP and GIF photos are refused.
- * Imagick's memory, map, disk, area and side limits match that policy: 256 MiB, 256 MiB, 1 GiB, 128 MP, 20,000 px.
+ * Imagick's memory, map, disk, area and side limits match that policy: 256 MiB, 256 MiB, 1 GiB, 128 MP, 16,384 px.
  */
 
 const IMAGE_MAX_PIXELS = 250_000_000;
 const IMAGE_MAX_SIDE = 30000;
 const IMAGE_HEIC_MAX_PIXELS = 128_000_000;
-// Must equal policy.xml width and height. ImageMagick 20KP is 20,000 px; 16KP is 16,000.
-const IMAGE_HEIC_MAX_SIDE = 20000;
+// Must equal policy.xml width and height. The policy value is exactly 16384 px.
+const IMAGE_HEIC_MAX_SIDE = 16384;
 const IMAGE_GD_MAX_PIXELS = 40_000_000;
 
 const IMAGICK_LIMIT_MEMORY = 256 * 1024 * 1024;
@@ -61,8 +61,8 @@ function image_heic_dimensions_too_large(int $w, int $h): bool
  * A full-frame decode (HEIC/HEIF) against the limits Imagick will actually enforce.
  * Width and height refuse the read. Area does not: a frame over the area limit spills to disk.
  * A Q16 pixel cache is about 8 bytes a pixel and has to fit in memory, map and disk together.
- * Do not use this on a JPEG header. jpeg:size opens the cache at the reduced size, so the 20KP
- * host limit still accepts a wider JPEG.
+ * Do not use this on a JPEG header. jpeg:size opens the cache at the reduced size, so a JPEG
+ * wider than 16,384 px can still be accepted when the decoded frame is not.
  */
 function imagick_frame_exceeds_policy(int $w, int $h): bool
 {
