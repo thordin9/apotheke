@@ -54,6 +54,23 @@ final class Ci4DsnCredentialsTest extends TestCase
     }
 
     /**
+     * QA #53 L-E: a user or password in DB_DSN wins over DB_USER and DB_PASSWORD
+     * on both connections, however it is spaced. DB_USER and DB_PASSWORD fill in
+     * only what the DSN leaves out.
+     */
+    public function testDsnCredentialsWinAndDbCredentialsFillTheGaps(): void
+    {
+        $this->boot([
+            'spaced password, DB_PASSWORD unset' => ['user=%u;password = %p', null],
+            'spaced user and password' => ['user = %u ; password = %p ; connect_timeout = 5 ', null],
+            'DSN password beats DB_PASSWORD' => ['user=%u;password = %p', 'not-the-password'],
+            'DSN user beats DB_USER' => ['user = %u;password=%p', null, 'apotheke'],
+            'DB_PASSWORD fills in' => ['user=%u', '%p'],
+            'DB_USER and DB_PASSWORD fill in' => ['connect_timeout=5', '%p', '%u'],
+        ]);
+    }
+
+    /**
      * Boots once per case. In the DSN tail and the DB_PASSWORD value, %u is the
      * role and %p its password. Every case must reach /healthz 200 without the
      * password showing in the body or the log.

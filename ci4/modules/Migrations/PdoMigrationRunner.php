@@ -33,8 +33,7 @@ final class PdoMigrationRunner
     {
         self::loadConfig();
         $driver = (string)($db['driver'] ?? '');
-        $password = $driver === 'pgsql' ? (string)($db['password'] ?? '') : null;
-        $user = $driver === 'pgsql' ? (string)($db['user'] ?? '') : null;
+        [$user, $password] = $driver === 'pgsql' ? self::credentials($db) : [null, null];
         $withoutSecret = $db;
         unset($withoutSecret['password'], $withoutSecret['user']);
         try {
@@ -57,6 +56,28 @@ final class PdoMigrationRunner
         }
 
         return $pdo;
+    }
+
+    /**
+     * The user and password PDO should add to the DSN. A user or password in
+     * DB_DSN wins, as in DsnTranslator and in legacy on PHP 8.4. DB_USER and
+     * DB_PASSWORD fill in only what the DSN leaves out, and an empty one is not
+     * sent. The DSN is read as libpq reads it, so `password = x` counts as set.
+     *
+     * @param array<string,mixed> $db
+     * @return array{0:?string,1:?string}
+     */
+    private static function credentials(array $db): array
+    {
+        $dsn = config_dsn($db);
+        $inDsn = str_starts_with($dsn, 'pgsql:') ? (config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6))) ?? []) : [];
+        $pick = static function (string $key) use ($db, $inDsn): ?string {
+            $value = (string)($db[$key] ?? '');
+
+            return array_key_exists($key, $inDsn) || $value === '' ? null : $value;
+        };
+
+        return [$pick('user'), $pick('password')];
     }
 
     /** @param array<string,mixed> $db */
