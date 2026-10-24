@@ -187,3 +187,14 @@ Disk use is about the size of each new camera file, on top of the smaller stripp
 - Test connection can make this server contact any http(s) host an admin types in. Grant the *Settings* permission
   only to people you trust with that.
 - Problems are logged as one short line (`apotheke autofill: …`), never with the token or the service's answer.
+
+## On the CI4 build
+
+The limits, the token and the two test buttons behave as above. The Control Panel screens and the item form are still
+the legacy pages until those UI modules exist. The CI4 app serves the JSON routes in the [technical reference](autofill.md#ci4):
+suggest, save or clear the token, test connection, and test with the sample photo. A POST needs the session CSRF token.
+
+The warn-once note (a lower image limit, logged once per pair, never with the token) and the temporary resized JPEG
+are files under the data directory (`autofill/info.json` and `autofill/tmp/`), not under CodeIgniter's `writable/`
+folder. The camera file and the JPEG the catalog shows are not rewritten. The service address in examples stays
+`https://autofill.example`. Do not put the access token in a file you commit.

@@ -74,7 +74,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   nothing is sent until you tap it (auto-analyze is an admin option, off by default). Only empty fields are filled,
   never what you typed; one analysis at a time with a progress estimate. The admin picks the model and image size from
   what the service offers, and can cap the JPEG that is sent (`auto` follows the service; an explicit size is still capped to the service’s enforced limit, otherwise the limit it advertises). The camera file stays as
-  uploaded. See the [admin guide](docs/autofill-admin-guide.md) and [docs/autofill.md](docs/autofill.md).
+  uploaded. The CI4 client (`ci4/modules/Autofill`) follows the same rules: only the resized copy is sent. See the [admin guide](docs/autofill-admin-guide.md) and [docs/autofill.md](docs/autofill.md).
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
 * **Full-text search**, instant, across name, notes, tags, serial number, barcode, borrower, category and the whole
@@ -497,8 +497,8 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 |---|---|
 | Lint | `scripts/lint.sh` (PHP, JS, shell, workflow lint) on PHP 8.3 and PHP 8.4. Markdown links cover every file under `docs/` |
 | Tests | legacy@8.3 (upgrade/rollback reference) and PHP 8.4 × `legacy` / `ci4`, each on SQLite and PostgreSQL 17. The ci4 leg runs PHPUnit with `APOTHEKE_APP=ci4` (the catalog HTTP suite stays on legacy until those routes exist). The legacy cells also run the parity recorder (install, `/healthz`, settings), and PHP 8.4 cells compare legacy and CI4 health bytes. The coverage artifact is uploaded from legacy@8.3 SQLite only |
-| deptrac | Core depends on nothing; DevServer may depend on Core |
-| DI rule | PHPStan level 6. `service()` only in controllers and `Config/Services.php`. `composer audit` on `ci4/` is a deliberate gate |
+| deptrac | Core depends on nothing. DevServer and Settings may depend on Core. Migrations may depend on Core and Settings. Autofill may depend on Core and Settings |
+| DI rule | PHPStan level 6. `service()` only in controllers, filter `before()`/`after()`, and `Config/Services.php`. `composer audit` on `ci4/` is a deliberate gate |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px, on PHP 8.3 and PHP 8.4 |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, on PHP 8.3 and PHP 8.4, `retries=1`; report, traces and screenshot diffs uploaded on failure |
 | Docker build + smoke test | builds the image (shipped default PHP 8.3, plus a PHP 8.4 test build), checks Imagick lists HEIC (`scripts/docker-heic.sh`) on both, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |

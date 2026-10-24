@@ -368,6 +368,14 @@ Run against the stub on both engine setups (GD + Imagick/libheif, GD only):
    no retry. Any other API 503 code → `backend_error`.
 7. 401/403/413/415/4xx are mapped as today. The token only goes to the saved URL. Logs are ≤80 chars and redacted.
 
+**Status (PR #69).** The client follows v2.6.1, not the multipart sentence in item 2. The cap is the JPEG the service
+limits. Quality steps down by 10 from the configured quality, and 60 is tried before the long edge shrinks. The
+warn-once pair and the temporary JPEG are bytes behind `Apotheke\Core\Storage\Storage` (`autofill/info.json`,
+`autofill/tmp/…`) under `DATA_DIR`. There is no per-request global for that pair, and the database stays the existing
+DSN-driven connection. The live Neuron check in §4.4 was not run; tests use the stub. Settings HTML and the item-form
+button stay on legacy. Media and Taxonomy are not modules yet, so photo lookup and context names are SQL. Media should
+extend this storage interface later rather than add a second one.
+
 ### 4.4 Live Worker checks (Neurons) — final (PM, 10:15 EEST)
 
 Every PR runs against the stub only. There are **two live checks, each capped at 25 Neurons (≤50 total, under the 70

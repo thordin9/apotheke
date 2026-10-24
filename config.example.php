@@ -36,3 +36,9 @@ return [
     'public_url'    => '',                    // PUBLIC_URL     base URL in QR labels, e.g. http://192.168.1.10:9091 (default: from the request)
     'seed_defaults' => true,                  // SEED_DEFAULTS  starter locations/categories on a new database
 ];
+
+// AI autofill does not read a byte cap from this file or from AUTOFILL_MAX_IMAGE_BYTES.
+// Two environment variables choose the analysis copy only (the stored photo is unchanged):
+//   AUTOFILL_UPLOAD_MAX_SIDE       longest side sent to the service (default 1600, clamped 64–4096)
+//   AUTOFILL_UPLOAD_JPEG_QUALITY   first JPEG quality of that copy (default 80, clamped 40–95)
+// Docs use the placeholder https://autofill.example. Do not put a service token in this file.

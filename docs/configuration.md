@@ -74,7 +74,8 @@ been seen. An empty value is saved as `auto`. An explicit value is a whole numbe
 and used as stored only when neither is known. A lower cap logs a warning once until that pair of sizes changes, and never the token. The database
 connection itself stays the DSN in `db.dsn` / `DB_DSN` (or host, port and name). `AUTOFILL_UPLOAD_MAX_SIDE` and
 `AUTOFILL_UPLOAD_JPEG_QUALITY` still choose the starting long edge and the first JPEG quality. They do not replace
-this byte cap.
+this byte cap. `AUTOFILL_MAX_IMAGE_BYTES` is not read. On the CI4 build the cached `/v1/info` and the warn-once pair
+live in `DATA_DIR/autofill/info.json` through the storage interface, not in CodeIgniter's `writable/` directory.
 
 Values are normalised after loading: `data_dir` and `public_url` lose a trailing `/`, the numeric upload settings and
 `page_size` are at least `1`, `seed_defaults` accepts the usual boolean spellings (`true/false`, `1/0`, `yes/no`,
