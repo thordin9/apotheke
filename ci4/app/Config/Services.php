@@ -19,23 +19,28 @@ use CodeIgniter\Config\BaseService;
  */
 class Services extends BaseService
 {
+    /** The Apotheke config (defaults < config.php < env), once per request. */
+    public static function apothekeConfig(bool $getShared = true): \Apotheke\Core\Config\ApothekeConfig
+    {
+        if ($getShared) {
+            return static::getSharedInstance('apothekeConfig');
+        }
+
+        return \Apotheke\Core\Config\ApothekeConfig::fromEnvironment();
+    }
+
+    /**
+     * The CI4 connection. Migrations run once per process before it is used
+     * (BootMigration), not on every request, and through apotheke:migrate.
+     */
     public static function apothekeDb(bool $getShared = true): object
     {
         if ($getShared) {
             return static::getSharedInstance('apothekeDb');
         }
-        $config = \Apotheke\Core\Config\ApothekeConfig::fromEnvironment();
-        $dbConfig = $config->database();
-        $runner = new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations');
-        $pdo = $runner->connect($dbConfig);
-        try {
-            $runner->migrate($pdo, (string)($dbConfig['driver'] ?? ''), [
-                'data_dir' => $config->dataDir(),
-                'seed' => (bool)($config->values()['seed_defaults'] ?? false),
-            ]);
-        } finally {
-            $runner->close($pdo);
-        }
+        $config = static::apothekeConfig();
+        \Apotheke\Migrations\BootMigration::ensure($config);
+        \Apotheke\Core\Boot\FrameworkWiring::apply($config);
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, new \Apotheke\Core\Config\DsnTranslator());
         $db = \Config\Database::connect();
         $factory->apply($db);
