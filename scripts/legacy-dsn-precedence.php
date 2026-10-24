@@ -41,8 +41,8 @@ $adminPassword = getenv('TEST_PG_PASSWORD');
 $adminPassword = $adminPassword === false ? 'apotheke' : $adminPassword;
 
 $expected = [
-    '8.3' => ['a' => null, 'b' => 'env', 'c' => 'env', 'd' => null],
-    '8.4' => ['a' => 'dsn', 'b' => 'env', 'c' => 'dsn', 'd' => 'dsn'],
+    '8.3' => ['a' => null, 'b' => 'env', 'c' => 'env', 'd' => null, 'e' => 'env', 'e2' => 'env'],
+    '8.4' => ['a' => 'dsn', 'b' => 'env', 'c' => 'dsn', 'd' => 'dsn', 'e' => null, 'e2' => null],
 ][PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION] ?? null;
 if ($expected === null) {
     fwrite(STDERR, 'No expected row for PHP ' . PHP_VERSION . ".\n");
@@ -69,6 +69,9 @@ $cases = [
     'b' => ['DB_USER/DB_PASSWORD only', $base, $roles['env']['user'], $roles['env']['password']],
     'c' => ['both set, differing', $withDsn, $roles['env']['user'], $roles['env']['password']],
     'd' => ['both set, DB_PASSWORD empty', $withDsn, $roles['env']['user'], ''],
+    // PHP 8.4's PDO drops the passed credentials when user= or password= appears anywhere.
+    'e' => ['user= in application_name', $base . ";application_name='a user=b password=c'", $roles['env']['user'], $roles['env']['password']],
+    'e2' => ['password= in options', $base . ";options='-c application_name=password=x'", $roles['env']['user'], $roles['env']['password']],
 ];
 $names = [$roles['env']['user'] => 'env', $roles['dsn']['user'] => 'dsn', '-' => null];
 
@@ -92,7 +95,7 @@ try {
         $got = array_key_exists($out, $names) ? $names[$out] : 'other';
         $ok = $got === $expected[$id];
         $failed = $failed || !$ok;
-        printf("  %s %-28s expected %-9s got %-9s %s\n", $id, $label, $expected[$id] ?? 'failure', $got ?? 'failure', $ok ? 'ok' : 'MISMATCH');
+        printf("  %-2s %-28s expected %-9s got %-9s %s\n", $id, $label, $expected[$id] ?? 'failure', $got ?? 'failure', $ok ? 'ok' : 'MISMATCH');
     }
 } finally {
     foreach ($roles as $role) {
