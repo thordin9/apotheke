@@ -106,12 +106,10 @@ final class Ci4SettingsSchemaTest extends DatabaseTestCase
         (new SettingsSchema())->validate('auth_register_role', 'helper');
     }
 
-    public function testAutofillMaxImageBytesWhenTheKeyExists(): void
+    public function testAutofillMaxImageBytes(): void
     {
         $schema = new SettingsSchema();
-        if (!$schema->has('autofill_max_image_bytes')) {
-            $this->markTestSkipped('autofill_max_image_bytes arrives with the v2.6.0 sync (migration 0026)');
-        }
+        $this->assertTrue($schema->has('autofill_max_image_bytes'), 'migration 0026 key is missing from the schema copy');
         $this->assertSame('autofill', $schema->definitions()['autofill_max_image_bytes'][0]);
         $this->assertSame('auto', $schema->default('autofill_max_image_bytes', []));
         foreach (['', 'auto', 'AUTO', ' Auto ', null] as $raw) {

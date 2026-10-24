@@ -12,7 +12,9 @@ use Config\Database;
 /**
  * Copies the translated DSN into CI4's default connection group: before
  * routing on the web (pre_system), and from Services::apothekeDb, because
- * spark does not fire pre_system. Idempotent.
+ * spark does not fire pre_system. Not idempotent: each call overwrites the
+ * group, so Services::apothekeDb calls it only under spark (PHP_SAPI 'cli'),
+ * where nothing else has touched the group.
  */
 final class FrameworkWiring
 {
