@@ -139,7 +139,7 @@ function settings_bootstrap_info(): array
     if ($db['driver'] === 'sqlite') {
         $rows[] = ['SQLite file', $db['sqlite_path'], $src('SQLITE_PATH')];
     } else {
-        $rows[] = ['Database', $db['dsn'] !== '' ? preg_replace('/password=[^;]*/i', 'password=•••', $db['dsn']) : $db['host'] . ':' . $db['port'] . ' / ' . $db['name'], $src('DB_HOST')];
+        $rows[] = ['Database', settings_database_label($db), $src('DB_HOST')];
         $rows[] = ['Database user', $db['user'], $src('DB_USER')];
         $rows[] = ['Schema', $db['schema'] !== '' ? $db['schema'] : '(default)', $src('DB_SCHEMA')];
         $rows[] = ['Database password', $db['password'] !== '' ? '•••••• (set)' : '(empty)', $src('DB_PASSWORD')];
@@ -149,6 +149,23 @@ function settings_bootstrap_info(): array
     $rows[] = ['Config file', is_file($file) ? $file : $file . ' (not present)', getenv('APOTHEKE_CONFIG') ? 'env APOTHEKE_CONFIG' : 'default'];
     $rows[] = ['PHP', PHP_VERSION, 'server'];
     return $rows;
+}
+
+/**
+ * What the Control Panel may show for a PostgreSQL connection: host, port and dbname.
+ * A full DSN is parsed the same way as config_dsn_public_fields(); the password is never included.
+ * @param array{dsn?:string,host?:string|int,port?:string|int,name?:string} $db
+ */
+function settings_database_label(array $db): string
+{
+    if ((string)($db['dsn'] ?? '') === '') return (string)($db['host'] ?? '') . ':' . (string)($db['port'] ?? '') . ' / ' . (string)($db['name'] ?? '');
+    $fields = config_dsn_public_fields((string)$db['dsn']);
+    if ($fields === null) return '<unparsed dsn>';
+    $parts = [];
+    foreach (['host', 'port', 'dbname'] as $key) {
+        if (($fields[$key] ?? '') !== '') $parts[] = $key . '=' . $fields[$key];
+    }
+    return $parts === [] ? '<unparsed dsn>' : implode(' ', $parts);
 }
 
 function setting_default(string $key): mixed
@@ -393,6 +410,8 @@ function settings_import(string $json): array
         $k = (string)$k;
         $def = settings_schema()[$k] ?? null;
         if ($def === null || in_array($def[2], ['secret', 'internal'], true)) { $ignored[] = $k; continue; }
+        // Sign-in settings are the same actions as granting admin and turning sign-in off: an admin account, or the command line.
+        if ($def[0] === 'security' && !actor_is_admin()) { $ignored[] = $k; continue; }
         try { $ok[$k] = setting_validate($k, is_bool($v) ? $v : (is_scalar($v) || $v === null ? (string)$v : $v)); }
         catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }

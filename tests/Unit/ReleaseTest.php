@@ -165,12 +165,51 @@ final class ReleaseTest extends TestCase
         $this->assertStringContainsString('**db:** seed, backup, restore and settings exit 1', $cl);
     }
 
+    public function testUnreleasedHandwrittenBulletNeedsAPrLink(): void
+    {
+        $linked = '- **autofill:** the note ([#60](https://github.com/thordin9/apotheke/pull/60))';
+        $bare = '- **db:** while the database is down, every route returns 500.';
+        $missing = rel_unreleased_missing_pr_links("# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n$linked\n$bare\n\n## [1.0.0] - 2026-10-01\n\n$bare\n");
+        $this->assertSame([$bare], $missing, 'a released section is not checked, and a linked Unreleased bullet is kept');
+        $this->assertSame([], rel_unreleased_missing_pr_links("# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n$linked\n\n## [1.0.0] - 2026-10-01\n\n$bare\n"));
+        $this->assertSame([], rel_unreleased_missing_pr_links("# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-10-01\n\n- old\n"));
+        $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
+        $this->assertSame([], rel_unreleased_missing_pr_links($cl));
+        $v261 = substr($cl, (int)strpos($cl, "## [2.6.1]"), (int)strpos($cl, "## [2.6.0]") - (int)strpos($cl, "## [2.6.1]"));
+        $fixed261 = substr($v261, (int)strpos($v261, "### Fixed\n"), (int)strpos($v261, '### Maintenance') - (int)strpos($v261, "### Fixed\n"));
+        $this->assertSame(5, substr_count($fixed261, '([#60](https://github.com/thordin9/apotheke/pull/60))'));
+        $fixed260 = substr($cl, (int)strpos($cl, "### Fixed\n", (int)strpos($cl, '## [2.6.0]')), (int)strpos($cl, '### Maintenance', (int)strpos($cl, '## [2.6.0]')) - (int)strpos($cl, "### Fixed\n", (int)strpos($cl, '## [2.6.0]')));
+        $this->assertStringContainsString('- **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged. ([#59](https://github.com/thordin9/apotheke/pull/59))', $fixed260);
+    }
+
     public function testRealChangelogAcceptsTheNextRelease(): void
     {
         $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
         $out = rel_changelog_insert($cl, "## [9.9.9] - 2099-01-01\n\n### Fixed\n\n- x\n", '9.9.9', 'v1.0.0', self::URL);
         $this->assertLessThan(strpos($out, '## [1.0.0]'), strpos($out, '## [9.9.9]'));
         $this->assertStringContainsString('[9.9.9]: https://github.com/o/r/compare/v1.0.0...v9.9.9', $out);
+    }
+
+    public function testTextBeforeTheFirstHeadingOpensTheReleaseNotes(): void
+    {
+        $cl = "# Changelog\n\n## [Unreleased]\n\n**Upgrade note:** set X first.\n\n```\nX=nas.local\n```\n\n### Fixed\n\n- kept ([#7](" . self::URL . "/pull/7))\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $out = rel_changelog_insert($cl, "## [1.1.0] - 2026-10-13\n\n### Fixed\n\n- generated\n", '1.1.0', 'v1.0.0', self::URL);
+        $notes = rel_release_notes($out, '1.1.0', self::URL . '/compare/v1.0.0...v1.1.0');
+        $this->assertStringStartsWith("**Upgrade note:** set X first.\n\n```\nX=nas.local\n```\n\n### Fixed\n", $notes);
+        $this->assertSame([], rel_unreleased_missing_pr_links($cl), 'a paragraph and a code block need no PR link');
+    }
+
+    public function testRealChangelogUpgradeNoteLeadsTheNextReleaseNotes(): void
+    {
+        $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
+        if (!preg_match('/^## \[Unreleased\]\n\n\*\*Upgrade note:\*\*/m', $cl)) $this->markTestSkipped('no upgrade note under Unreleased');
+        $out = rel_changelog_insert($cl, "## [9.9.9] - 2099-01-01\n\n### Fixed\n\n- x\n", '9.9.9', 'v1.0.0', self::URL);
+        $notes = rel_release_notes($out, '9.9.9', self::URL . '/compare/v1.0.0...v9.9.9');
+        $this->assertStringStartsWith('**Upgrade note:**', $notes);
+        // the whole note, as written under Unreleased, opens the notes ahead of the first section
+        $unreleased = substr($cl, strpos($cl, "## [Unreleased]\n\n") + strlen("## [Unreleased]\n\n"));
+        $note = trim(substr($unreleased, 0, (int)strpos($unreleased, "\n### ")));
+        $this->assertStringStartsWith($note . "\n\n### ", $notes);
     }
 
     public function testCommitsFromAGitHistory(): void

@@ -14,6 +14,7 @@ public/                   web root (the only directory a web server should expos
   assets/                 app.css, app.js, theme.js, icons (served as static files)
 src/
   bootstrap.php           constants, data directories, sessions, auth, CSRF, small helpers, asset()
+  hosts.php               Host allow-list and the same-origin rule for no-login mode
   config.php              configuration loader (defaults < config.php < environment)
   settings.php            Control Panel settings: schema, validation, typed per-request cache, accent contrast maths,
                           logo upload/SVG sanitizer/icon generation, manifest, password
@@ -36,7 +37,7 @@ migrations/NNNN_*.php     versioned schema steps
 bin/                      CLI: migrate.php, seed.php, backup.php, restore.php, settings.php
 docker/                   nginx.conf (template), fastcgi.conf, php-fpm.conf, php.ini, entrypoint.sh
 tests/                    run.sh, integration.php + lib.php, Unit/, Integration/, e2e/ (puppeteer), visual/ (Playwright)
-scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, docker-auth-checks.sh, docker-signin-checks.sh, imagick-policy-check.php, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
 docs/                     this documentation and the README screenshots
 ```
 

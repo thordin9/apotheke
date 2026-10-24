@@ -44,6 +44,12 @@ final class ConfigTest extends TestCase
         $this->assertSame(3650, config_load('/app', null, ['EXPIRY_SOON_DAYS' => '99999'])['expiry_soon_days']);
     }
 
+    public function testAllowedHostsFromEnv(): void
+    {
+        $this->assertSame('', config_load('/app', null, [])['allowed_hosts']);
+        $this->assertSame('apotheke.lan, nas', config_load('/app', null, ['ALLOWED_HOSTS' => ' apotheke.lan, nas '])['allowed_hosts']);
+    }
+
     public function testCurrencyFromEnv(): void
     {
         $this->assertSame('CHF', config_load('/app', null, ['CURRENCY' => ' CHF '])['currency']);
@@ -102,6 +108,18 @@ final class ConfigTest extends TestCase
         file_put_contents($this->file, '<?php return 42;');
         $this->expectException(RuntimeException::class);
         config_load('/app', $this->file, []);
+    }
+
+    public function testTrustedProxiesFromEnvAndFile(): void
+    {
+        $this->assertSame([], config_load('/app', null, [])['trusted_proxies']);
+        $this->assertSame(['192.0.2.1', '192.0.2.0/24'], config_load('/app', null, ['TRUSTED_PROXIES' => '192.0.2.1, 192.0.2.0/24 , not-an-ip'])['trusted_proxies']);
+        $this->assertSame(['198.51.100.1'], config_load('/app', $this->write(['trusted_proxies' => ['198.51.100.1']]), ['TRUSTED_PROXIES' => ''])['trusted_proxies']);
+        $this->assertSame(['203.0.113.5'], config_load('/app', $this->write(['trusted_proxies' => ['198.51.100.1']]), ['TRUSTED_PROXIES' => '203.0.113.5'])['trusted_proxies']);
+        $this->assertTrue(config_ip_matches('192.0.2.15', '192.0.2.0/24'));
+        $this->assertFalse(config_ip_matches('192.0.3.15', '192.0.2.0/24'));
+        $this->assertTrue(config_ip_matches('192.0.2.1', '192.0.2.1'));
+        $this->assertFalse(config_ip_matches('192.0.2.2', '192.0.2.1'));
     }
 
     public function testExampleConfigLoads(): void

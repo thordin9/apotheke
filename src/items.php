@@ -559,7 +559,7 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
     $st->execute($args);
     $total = (int)$st->fetchColumn();
 
-    $page   = max(1, $page);
+    $page   = clamp_page($page);
     $pageSize ??= page_size();
     $offset = ($page - 1) * $pageSize;
     $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on, i.favourite "
@@ -609,6 +609,12 @@ function db_tx(callable $fn): mixed
 /* ---------- activity log (written inside the same transaction as the change) ---------- */
 
 const ACTIVITY_PAGE = 50;
+const PAGE_MAX = 100000;
+
+function clamp_page(int $page): int
+{
+    return max(1, min(PAGE_MAX, $page));
+}
 
 function activity_log(int $itemId, string $itemName, string $action, array $details = []): void
 {
@@ -619,7 +625,7 @@ function activity_log(int $itemId, string $itemName, string $action, array $deta
 /** @return array<int,array{id:int,item_id:?int,item_name:string,action:string,details:array,created_at:string,exists:bool}> */
 function activity_list(?int $itemId = null, int $page = 1, int $per = ACTIVITY_PAGE): array
 {
-    $page = max(1, $page);
+    $page = clamp_page($page);
     $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, a.actor, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
             FROM activity a LEFT JOIN items i ON i.id = a.item_id' . ($itemId !== null ? ' WHERE a.item_id = ?' : '')
          . ' ORDER BY a.id DESC LIMIT ' . ($per + 1) . ' OFFSET ' . (($page - 1) * $per);
@@ -876,6 +882,12 @@ function pick_upload(array $fields): ?array
  * EXIF orientation applied, longest side image_full_max() (1600 by default), JPEG at the jpeg_quality setting, metadata
  * stripped. Returns that served file name. An existing images/*.jpg with no originals/ sibling is left alone (no migration).
  * HEIC/HEIF is kept as the original; when it cannot be converted the served file is a plain placeholder, never the HEIC.
+ * Dimensions come from the header before any full decode. A frame over IMAGE_MAX_PIXELS or IMAGE_MAX_SIDE is refused.
+ * HEIC/HEIF is also refused above IMAGE_HEIC_MAX_PIXELS or IMAGE_HEIC_MAX_SIDE, before Imagick reads pixels.
+ * JPEG above IMAGE_GD_MAX_PIXELS is decoded already reduced. A PNG above IMAGE_PNG_MAX_PIXELS is refused.
+ * WebP and GIF above IMAGE_GD_MAX_PIXELS are refused.
+ * An Imagick resource-limit failure is the same "too large" error, not a server error.
+ * If decoding dies after the camera file is saved, that file is removed before the request ends.
  */
 function image_store(array $file): string
 {
@@ -893,31 +905,113 @@ function image_store(array $file): string
         if (image_bytes_heic($head)) { $heic = true; $ext = 'heic'; }
         else throw new UserError('Unsupported image. Please use JPEG, PNG, WebP or GIF (on iPhone, HEIC photos are converted automatically).');
     }
-    if (!$heic && ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000)) throw new UserError('Image dimensions are too large.');
+    if ($heic) {
+        if (image_heic_header_over_limit(image_ping_heic((string)@file_get_contents($tmp)))) {
+            throw new UserError('Image dimensions are too large.');
+        }
+    } elseif (image_raster_header_over_limit((int)$info[0], (int)$info[1], (int)$info[2])) {
+        throw new UserError('Image dimensions are too large.');
+    }
 
     $name = bin2hex(random_bytes(16)) . '.jpg';
     if (!image_original_save($name, $tmp, $ext)) throw new UserError('Server could not save the image.');
-    if ($heic) {
-        $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
-    } else {
-        $src = match ($info[2]) {
-            IMAGETYPE_JPEG => @imagecreatefromjpeg($tmp),
-            IMAGETYPE_PNG  => @imagecreatefrompng($tmp),
-            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tmp) : false,
-            IMAGETYPE_GIF  => @imagecreatefromgif($tmp),
-        };
-        if (!$src) { image_delete($name); throw new UserError('Could not read that image.'); }
-        if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
-            $exif = @exif_read_data($tmp);
-            $src  = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
+    image_upload_cleanup_arm($name);
+    try {
+        if ($heic) {
+            try {
+                $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
+            } catch (UserError $e) {
+                image_delete($name);
+                throw $e;
+            }
+        } elseif ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
+            try {
+                $gd = image_gd_from_scaled_jpeg((string)file_get_contents($tmp), image_full_max());
+            } catch (UserError $e) {
+                image_delete($name);
+                throw $e;
+            }
+            if (!$gd || !image_write_pair($gd, $name)) {
+                image_delete($name);
+                throw new UserError(class_exists('Imagick') ? 'Could not read that image.' : 'Image dimensions are too large.');
+            }
+            $ok = true;
+        } else {
+            $src = match ($info[2]) {
+                IMAGETYPE_JPEG => @imagecreatefromjpeg($tmp),
+                IMAGETYPE_PNG  => @imagecreatefrompng($tmp),
+                IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tmp) : false,
+                IMAGETYPE_GIF  => @imagecreatefromgif($tmp),
+            };
+            if (!$src) { image_delete($name); throw new UserError('Could not read that image.'); }
+            if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+                $exif = @exif_read_data($tmp);
+                $src  = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
+            }
+            $ok = image_write_pair($src, $name);
         }
-        $ok = image_write_pair($src, $name);
+        if (!$ok) {
+            image_delete($name);
+            throw new UserError('Server could not save the image.');
+        }
+        image_upload_cleanup_disarm($name);
+        return $name;
+    } finally {
+        if (image_upload_cleanup_armed($name)) {
+            image_delete($name);
+            image_upload_cleanup_disarm($name);
+        }
     }
-    if (!$ok) {
-        image_delete($name);
-        throw new UserError('Server could not save the image.');
-    }
-    return $name;
+}
+
+/**
+ * Paths to drop if this request dies after the camera file is saved and before the display copy is ready.
+ * A fatal error does not run finally, so the shutdown function unlinks the paths recorded here.
+ *
+ * @return array<string, array{orig:string,map:string,img:string,thumb:string}>
+ */
+function &image_upload_cleanup_list(): array
+{
+    static $pending = [];
+    return $pending;
+}
+
+function image_upload_cleanup_arm(string $name): void
+{
+    static $hooked = false;
+    $orig = image_original_path($name);
+    $map = image_original_map_path($name);
+    if (!is_string($orig) || $orig === '' || !is_string($map) || $map === '') return;
+    $pending = &image_upload_cleanup_list();
+    $pending[$name] = [
+        'orig' => $orig,
+        'map' => $map,
+        'img' => IMG_DIR . '/' . $name,
+        'thumb' => THUMB_DIR . '/' . $name,
+    ];
+    if ($hooked) return;
+    $hooked = true;
+    register_shutdown_function(static function () use (&$pending): void {
+        foreach ($pending as $paths) {
+            @unlink($paths['orig']);
+            @unlink($paths['map']);
+            @unlink($paths['img']);
+            @unlink($paths['thumb']);
+        }
+        $pending = [];
+    });
+}
+
+function image_upload_cleanup_disarm(string $name): void
+{
+    $pending = &image_upload_cleanup_list();
+    unset($pending[$name]);
+}
+
+function image_upload_cleanup_armed(string $name): bool
+{
+    $pending = &image_upload_cleanup_list();
+    return isset($pending[$name]);
 }
 
 /** HEIC/HEIF container (ISO BMFF "ftyp" box with a HEIF brand)? $head is the first 12 bytes. */
@@ -1014,18 +1108,45 @@ function image_write_pair(GdImage $src, string $name): bool
     return imagejpeg($full, IMG_DIR . '/' . $name, $q) && imagejpeg($thumb, THUMB_DIR . '/' . $name, $q - 6);
 }
 
-/** HEIC → the same stripped JPEG as other photos, when Imagick has libheif. False leaves the caller to use a placeholder. */
+/**
+ * HEIC/HEIF, or a JPEG/PNG/GIF/WebP already known to the caller, → the same stripped JPEG as other photos.
+ * The format is named explicitly. False leaves the caller to use a placeholder. Does not force 4:2:0.
+ */
 function image_store_heic(string $path, string $name): bool
 {
     if (!class_exists('Imagick') || !function_exists('autofill_heic_supported') || !autofill_heic_supported()) return false;
+    $bytes = (string)@file_get_contents($path);
+    $format = $bytes === '' ? null : image_explicit_format($bytes);
+    if ($format === null) return false;
+    $jpegSize = null;
+    $frameW = 0;
+    $frameH = 0;
+    if ($format === 'HEIC' || $format === 'HEIF') {
+        $dims = image_ping_heic($bytes);
+        if ($dims === null) return false;
+        $frameW = $dims[0];
+        $frameH = $dims[1];
+        if (image_heic_dimensions_too_large($frameW, $frameH) || imagick_frame_exceeds_policy($frameW, $frameH)) {
+            throw new UserError('Image dimensions are too large.');
+        }
+    } else {
+        $info = @getimagesizefromstring($bytes);
+        if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return false;
+        $frameW = (int)$info[0];
+        $frameH = (int)$info[1];
+        if ((float)$frameW * (float)$frameH > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return false;
+        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint($frameW, $frameH, image_full_max());
+    }
     try {
-        $im = new Imagick();
-        $im->readImage($path);
+        $im = imagick_read_explicit($bytes, $format, $jpegSize);
         if (method_exists($im, 'autoOrient')) $im->autoOrient();
         elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
         $w = $im->getImageWidth();
         $h = $im->getImageHeight();
-        if ($w < 1 || $h < 1 || $w * $h > 60_000_000) { $im->clear(); return false; }
+        if (image_dimensions_too_large($w, $h)) {
+            $im->clear();
+            throw new UserError('Image dimensions are too large.');
+        }
         imagick_match_gd($im);
         $max = image_full_max();
         if (max($w, $h) > $max) {
@@ -1041,7 +1162,10 @@ function image_store_heic(string $path, string $name): bool
         if (!is_string($blob) || !str_starts_with($blob, "\xFF\xD8")) return false;
         $gd = @imagecreatefromstring($blob);
         return $gd ? image_write_pair($gd, $name) : false;
-    } catch (Throwable) {
+    } catch (UserError $e) {
+        throw $e;
+    } catch (Throwable $e) {
+        if (imagick_failure_is_too_large($e, $frameW, $frameH)) throw new UserError('Image dimensions are too large.');
         return false;
     }
 }

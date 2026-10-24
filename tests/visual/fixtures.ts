@@ -106,7 +106,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     let server: Server, stop: () => void;
     if (DOCKER_IMAGE) {
       const name = `apotheke-pw-${workerInfo.workerIndex}-${process.pid}`;
-      const env = { ...appEnv, DATA_DIR: '/data' };
+      const env = { ...appEnv, DATA_DIR: '/data', ALLOW_NO_LOGIN: '1' };   // start like php -S: sign-in off unless a test turns it on
       const e = Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]);
       fs.chmodSync(filesDir, 0o777);
       execFileSync('docker', ['run', '-d', '--rm', '--name', name, '--network', 'host', '-e', `PORT=${port}`, ...e,

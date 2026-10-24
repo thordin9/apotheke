@@ -84,6 +84,7 @@ function user_create(string $name, string $password, string $role, ?string $conf
 {
     $name = user_name_valid($name);
     $role = user_role_valid($role);
+    if ($role === 'admin' && !actor_is_admin()) throw new UserError('Only an admin can grant the admin role.', 403);
     $password = user_password_valid($password, $confirm);
     $id = db_insert(db(), 'INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?,?,?,?,?,?)',
         [$name, user_key($name), password_hash($password, PASSWORD_DEFAULT), $role, $status === 'pending' ? 'pending' : 'active', now_utc()]);
@@ -94,7 +95,8 @@ function user_create(string $name, string $password, string $role, ?string $conf
 /** Approve a self-registered account waiting for an admin. */
 function user_approve(int $id): void
 {
-    user_get($id) ?? throw new UserError('User not found.', 404);
+    $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     db()->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
 }
 
@@ -111,6 +113,8 @@ function user_set_role(int $id, string $role): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
     $role = user_role_valid($role);
+    guard_admin_target($u);
+    if ($role === 'admin' && !actor_is_admin()) throw new UserError('Only an admin can grant the admin role.', 403);
     user_guard_admin($u, $role);
     db()->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $id]);
     roles(true);
@@ -119,14 +123,16 @@ function user_set_role(int $id, string $role): void
 /** New password; every session of that user has to sign in again. */
 function user_set_password(int $id, string $password, ?string $confirm = null): void
 {
-    user_get($id) ?? throw new UserError('User not found.', 404);
+    $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     $password = user_password_valid($password, $confirm);
     db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([password_hash($password, PASSWORD_DEFAULT), $id]);
 }
 
 function user_rename(int $id, string $name): void
 {
-    user_get($id) ?? throw new UserError('User not found.', 404);
+    $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     $name = user_name_valid($name, $id);
     db()->prepare('UPDATE users SET username = ?, username_key = ? WHERE id = ?')->execute([$name, user_key($name), $id]);
 }
@@ -134,6 +140,7 @@ function user_rename(int $id, string $name): void
 function user_delete(int $id): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     if ($u['role'] === 'admin' && $u['status'] === 'active' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin and cannot be deleted.', 409);
     db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
     roles(true);
@@ -171,6 +178,33 @@ function auth_enabled(): bool
     return true;
 }
 
+/**
+ * Whether sign-in will be on, read without creating, migrating or seeding anything (the Docker entrypoint asks this
+ * before it starts the app; hardening, SEC-M3). Same answer as auth_enabled(): the stored auth_enabled setting, else
+ * APP_PASSWORD (the first migration seeds the setting from it); an empty account list counts only with APP_PASSWORD,
+ * which then creates the account admin. $pdo is null when there is no database yet; $appPassword is cfg()['app_password'].
+ */
+function auth_on_at_start(?PDO $pdo, string $appPassword): bool
+{
+    $pw = $appPassword !== '';
+    if ($pdo === null) return $pw;
+    try {
+        $st = $pdo->prepare('SELECT value FROM settings WHERE name = ?');
+        $st->execute(['auth_enabled']);
+        $raw = $st->fetchColumn();
+    } catch (PDOException) {
+        return $pw;   // no settings table yet
+    }
+    if ($raw === false) return $pw;
+    if (json_decode((string)$raw, true) !== true) return false;
+    try {
+        $users = (int)$pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+    } catch (PDOException) {
+        $users = 0;
+    }
+    return $users > 0 || $pw;
+}
+
 /** Turn sign-in on. Without any account yet, $name/$password create the first admin. */
 function auth_turn_on(): void
 {
@@ -180,6 +214,7 @@ function auth_turn_on(): void
 
 function auth_turn_off(): void
 {
+    if (!actor_is_admin()) throw new UserError('Only an admin can turn sign-in off.', 403);
     settings_store(['auth_enabled' => false]);
 }
 
@@ -238,33 +273,100 @@ function user_can(string $perm, ?array $u = null): bool
     return role_has($u['role'], $perm);
 }
 
+/** An admin account, or the command line. Granting admin, turning sign-in off, and changing an admin account need this.
+ * $sapi defaults to this process. Tests pass a web SAPI to show the anonymous guest is not an admin there. */
+function actor_is_admin(?string $sapi = null): bool
+{
+    $sapi ??= PHP_SAPI;
+    $u = current_user();
+    // Guest browsing returns the anonymous guest instead of null. On the command line that is still nobody signed in.
+    if ($u === null || !empty($u['anon'])) return $sapi === 'cli';
+    return ($u['role'] ?? '') === 'admin';
+}
+
+/** A non-admin cannot change an admin account (role, name, password, approval, or deletion). The command line can. */
+function guard_admin_target(array $u): void
+{
+    if (($u['role'] ?? '') === 'admin' && !actor_is_admin()) {
+        throw new UserError('Only an admin can change an admin account.', 403);
+    }
+}
+
 /* ---------- rate limiting (sign-in, registration) ---------- */
 
 const RATE_LIMITS = ['login' => [10, 900], 'register' => [5, 3600]];
 
-function client_key(): string
+/**
+ * Address of the browser. X-Forwarded-For counts only when “Trust the reverse proxy” is on and the
+ * connection came from a configured proxy (trusted_proxies). The client is then the rightmost hop
+ * that is not itself a configured proxy. Otherwise this is REMOTE_ADDR.
+ * @param list<string> $proxies
+ */
+function client_address_from(string $remote, string $forwarded, bool $trustProxy, array $proxies): string
 {
-    return substr(hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? 'cli')), 0, 32);
+    $remote = trim($remote);
+    if ($remote === '') $remote = 'cli';
+    $pick = static function (string $ip): string {
+        $norm = config_ip_normalize($ip);
+        return $norm ?? $ip;
+    };
+    if (!$trustProxy || $proxies === [] || !config_proxy_allows($remote, $proxies)) return $pick($remote);
+    $hops = [];
+    foreach (explode(',', $forwarded) as $part) {
+        $part = trim($part);
+        if ($part !== '') $hops[] = $part;
+    }
+    $hops[] = $remote;
+    $untrusted = [];
+    foreach ($hops as $hop) if (!config_proxy_allows($hop, $proxies)) $untrusted[] = $hop;
+    if ($untrusted === []) return $pick($remote);
+    return $pick($untrusted[array_key_last($untrusted)]);
 }
 
-/** Throws 429 when $kind was tried too often from this address; otherwise records the attempt. */
-function rate_limit(string $kind): void
+function client_address(): string
+{
+    try { $trust = (bool)setting('trust_proxy'); } catch (Throwable) { $trust = false; }
+    $proxies = cfg()['trusted_proxies'] ?? [];
+    return client_address_from(
+        (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+        (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''),
+        $trust,
+        is_array($proxies) ? $proxies : []
+    );
+}
+
+/** Sign-in includes the account, so one client cannot use up the limit for every account. */
+function client_key(?string $account = null): string
+{
+    $material = $account === null ? client_address() : client_address() . "\0" . $account;
+    return substr(hash('sha256', $material), 0, 32);
+}
+
+function rate_bucket(string $kind, ?string $account): string
+{
+    return client_key($kind === 'login' ? user_key((string)$account) : null);
+}
+
+/** Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the attempt. */
+function rate_limit(string $kind, ?string $account = null): void
 {
     [$max, $window] = RATE_LIMITS[$kind];
     $now = app_time();
+    $key = rate_bucket($kind, $account);
     $pdo = db();
     $pdo->prepare('DELETE FROM auth_attempts WHERE at < ?')->execute([$now - 86400]);
     $st = $pdo->prepare('SELECT COUNT(*) FROM auth_attempts WHERE kind = ? AND client = ? AND at >= ?');
-    $st->execute([$kind, client_key(), $now - $window]);
+    $st->execute([$kind, $key, $now - $window]);
     if ((int)$st->fetchColumn() >= $max) {
-        throw new UserError('Too many attempts from this address – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
+        $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
+        throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
     }
-    $pdo->prepare('INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)')->execute([$kind, client_key(), $now]);
+    $pdo->prepare('INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)')->execute([$kind, $key, $now]);
 }
 
-function rate_limit_clear(string $kind): void
+function rate_limit_clear(string $kind, ?string $account = null): void
 {
-    db()->prepare('DELETE FROM auth_attempts WHERE kind = ? AND client = ?')->execute([$kind, client_key()]);
+    db()->prepare('DELETE FROM auth_attempts WHERE kind = ? AND client = ?')->execute([$kind, rate_bucket($kind, $account)]);
 }
 
 /** Self-registration: creates an account with the configured role (pending when approval is required). */
