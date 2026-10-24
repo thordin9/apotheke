@@ -364,9 +364,9 @@ that are JSON use `Content-Type: application/json; charset=utf-8` and `Cache-Con
 | Method and path | Body | Result |
 |---|---|---|
 | POST `/autofill/suggest` | `photo_id` of a stored photo, or an `image` upload | JSON. `error` is null or the message. The stored file is not written. |
-| POST `/settings/autofill/token` | `token` empty to clear, otherwise the new token | JSON `{ok,redirect}` for a fetch client, otherwise 303 to `/settings/autofill`. Invalid token is 422. |
-| POST `/settings/autofill/test` | `url`, `timeout`, optional `token` | Always JSON. |
-| POST `/settings/autofill/test-photo` | same, plus optional `model` and `size` | Always JSON. Uses `public/assets/autofill-sample.jpg`. |
+| POST `/settings/autofill/token` | `token` to save, or `action=clear` to remove it. An empty `token` is 422, not a clear. | JSON `{ok,redirect}` for a fetch client, otherwise 303 to `/settings/autofill?done=token-saved` or `token-cleared`. |
+| POST `/settings/autofill/test` | `autofill_url`, `autofill_timeout`, optional `autofill_token` | Always JSON. |
+| POST `/settings/autofill/test-photo` | same, plus optional `autofill_model` and `autofill_image_size` | Always JSON. Uses `public/assets/autofill-sample.jpg`. |
 
 **Cap.** The limit is the JPEG, not the multipart wrapper. Order: `enforced_image_bytes` from `/v1/info` (one warning
 per distinct pair), then `autofill_max_image_bytes` (`auto` is `/v1/info` `max_image_bytes`, or 983040; an explicit
@@ -382,10 +382,15 @@ tried before the long edge shrinks. On HTTP 413, `/v1/info` is fetched once and 
 | `autofill/info.json` | Last `/v1/info` for the saved address, and the warn-once clamp pair |
 | `autofill/tmp/autofill-<16 hex>.jpg` | The resized JPEG, deleted after the request |
 
-Nothing in the module writes a `writable/` path. The legacy filename `autofill-info.json` is not read. Media should
-implement this same interface later (for example for R2) rather than add a second one.
+Nothing in the module writes a `writable/` path. A key whose path contains a symlink is refused, and a replace is a
+temporary file in the same directory followed by `rename`, so a read-only file can still be replaced. The legacy
+filename `autofill-info.json` is not read. Media should implement this same interface later (for example for R2)
+rather than add a second one.
 
-**Not in this module yet.** The Control Panel HTML and the item-form Analyze button stay on legacy. Permission checks
-arrive with Auth. Category and tag names, and which file to analyze (kept original, otherwise the served JPEG), are
-SQL until Taxonomy and Media exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker
-check. CI4 cases live in `ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`.
+**Not in this module yet.** The Control Panel HTML and the item-form Analyze button stay on legacy. The four POST
+routes check the session CSRF token only. Host and same-origin checks arrive with
+[#76](https://github.com/thordin9/apotheke/pull/76). The permission check arrives with the CI4 login PR. Category
+and tag names, and which file to analyze (kept original, otherwise the served JPEG), are SQL until Taxonomy and Media
+exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. CI4 cases live in
+`ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`. The header pre-check from
+[#72](https://github.com/thordin9/apotheke/pull/72) waits until that change is on `feature/ci4`.
