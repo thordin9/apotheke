@@ -325,7 +325,8 @@ wide or high and 128 MP, ImageMagick's memory and map at 256 MiB, its disk cache
 seconds, and it turns off the coders that read text, vector or page formats or fetch URLs, all external delegates
 and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as before. The image build fails if the
 policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick reports, the refused coders, and
-from `magick -list policy` no rights for delegates or `@file` paths and a time limit of 60 s or less; #70 N-2).
+from `magick -list policy` no rights for delegates or `@file` paths, including any narrower rule added later, and a
+time limit of 60 s or less; #70 N-2, #73 QA N-1).
 
 ## HTTPS
 

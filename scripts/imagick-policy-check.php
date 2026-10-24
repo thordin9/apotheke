@@ -6,7 +6,44 @@ declare(strict_types=1);
  * Run in the image: at build time from the Dockerfile and again in CI (scripts/docker-heic.sh).
  * Exit 0 when every limit matches, the denied coders are refused and `magick -list policy` shows no rights for
  * delegates or "@file" paths and a time limit of 60 s or less; 1 otherwise.
+ * Every `delegate` and `path` rule must have rights None, so a later, narrower allow rule fails too (#73 QA N-1).
  */
+
+/** `magick -list policy` output as a list of blocks: domain plus name, value, rights and pattern when shown. */
+function imagick_policy_blocks(string $listing): array
+{
+    $blocks = [];
+    foreach (preg_split('/^\s*Policy:\s*/m', $listing) ?: [] as $i => $chunk) {
+        if ($i === 0) continue;
+        $b = ['domain' => strtolower(trim((string)strtok($chunk, "\n")))];
+        if (preg_match_all('/^\s*(name|value|rights|pattern):\s*(.*?)\s*$/m', $chunk, $m, PREG_SET_ORDER)) {
+            foreach ($m as [, $k, $v]) $b[$k] = $v;
+        }
+        $blocks[] = $b;
+    }
+    return $blocks;
+}
+
+/**
+ * Delegates and "@file" paths: `delegate *` and `path @*` must be there with rights None, and no other delegate or
+ * path rule may grant anything (a narrower allow rule would re-enable what the blanket rule refuses).
+ * @return list<array{0:bool,1:string}>
+ */
+function imagick_policy_rights_checks(array $blocks): array
+{
+    $out = [];
+    foreach (['delegate' => '*', 'path' => '@*'] as $domain => $pattern) {
+        $rules = array_filter($blocks, static fn(array $b): bool => $b['domain'] === $domain);
+        $blanket = array_filter($rules, static fn(array $b): bool => ($b['pattern'] ?? '') === $pattern);
+        $allow = array_filter($rules, static fn(array $b): bool => strcasecmp($b['rights'] ?? '', 'None') !== 0);
+        $out[] = [$blanket !== [] && $allow === [], "$domain rules have rights None (" . ($blanket === [] ? "no $domain $pattern rule"
+            : ($allow === [] ? count($rules) . ' rule(s)' : 'allowed: ' . implode(', ', array_map(static fn(array $b): string => ($b['pattern'] ?? '?') . ' ' . ($b['rights'] ?? '?'), $allow)))) . ')'];
+    }
+    return $out;
+}
+
+// Loaded by a test for the functions above: stop here.
+if (realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) !== __FILE__) return;
 
 $fail = 0;
 $say = static function (bool $ok, string $what) use (&$fail): void {
@@ -61,21 +98,9 @@ try {
 // paths must have no rights at all, and the time limit must be 60 s or less. A saved listing can be passed as the
 // first argument instead (for testing the check itself).
 $listing = isset($argv[1]) ? (string)@file_get_contents($argv[1]) : (string)shell_exec('magick -list policy 2>/dev/null');
-$blocks = [];
-foreach (preg_split('/^\s*Policy:\s*/m', $listing) ?: [] as $i => $chunk) {
-    if ($i === 0) continue;
-    $b = ['domain' => strtolower(trim(strtok($chunk, "\n")))];
-    if (preg_match_all('/^\s*(name|value|rights|pattern):\s*(.*?)\s*$/m', $chunk, $m, PREG_SET_ORDER)) {
-        foreach ($m as [, $k, $v]) $b[$k] = $v;
-    }
-    $blocks[] = $b;
-}
+$blocks = imagick_policy_blocks($listing);
 $say($blocks !== [], 'magick -list policy shows the policy');
-foreach (['delegate' => '*', 'path' => '@*'] as $domain => $pattern) {
-    $rules = array_filter($blocks, static fn(array $b): bool => $b['domain'] === $domain && ($b['pattern'] ?? '') === $pattern);
-    $none = $rules !== [] && array_filter($rules, static fn(array $b): bool => strcasecmp($b['rights'] ?? '', 'None') !== 0) === [];
-    $say($none, "$domain $pattern has rights None");
-}
+foreach (imagick_policy_rights_checks($blocks) as [$ok, $what]) $say($ok, $what);
 $times = array_map(static fn(array $b): string => $b['value'] ?? '', array_filter($blocks, static fn(array $b): bool => $b['domain'] === 'resource' && strcasecmp($b['name'] ?? '', 'time') === 0));
 $timeOk = $times !== [] && array_filter($times, static fn(string $v): bool => !ctype_digit($v) || (int)$v > 60 || (int)$v === 0) === [];
 $say($timeOk, 'limit TIME <= 60 s (got ' . ($times === [] ? 'none' : implode(', ', $times)) . ')');
