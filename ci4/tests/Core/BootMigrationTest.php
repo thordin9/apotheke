@@ -40,6 +40,23 @@ final class BootMigrationTest extends CIUnitTestCase
         $this->assertTrue(BootMigration::ensure($a));
     }
 
+    /** One DSN serving two schemas or two users: each is migrated on its own (QA #64 L-1). */
+    public function testSchemaAndUserArePartOfTheKey(): void
+    {
+        $dir = $this->config()->dataDir();
+        $base = ['DATA_DIR' => $dir, 'DB_DRIVER' => 'sqlite', 'SEED_DEFAULTS' => '0'];
+        $a = ApothekeConfig::load(ApothekeConfig::repoRoot(), null, $base + ['DB_SCHEMA' => 'shop_a', 'DB_USER' => 'u1']);
+        $schema = ApothekeConfig::load(ApothekeConfig::repoRoot(), null, $base + ['DB_SCHEMA' => 'shop_b', 'DB_USER' => 'u1']);
+        $user = ApothekeConfig::load(ApothekeConfig::repoRoot(), null, $base + ['DB_SCHEMA' => 'shop_a', 'DB_USER' => 'u2']);
+        $this->assertSame($a->database()['dsn'] ?? null, $schema->database()['dsn'] ?? null, 'same DSN');
+        $this->assertTrue(BootMigration::ensure($a));
+        $this->assertFalse(BootMigration::done($schema), 'another schema is not marked migrated');
+        $this->assertTrue(BootMigration::ensure($schema), 'another schema is migrated on its own');
+        $this->assertFalse(BootMigration::done($user), 'another user is not marked migrated');
+        $this->assertTrue(BootMigration::ensure($user), 'another user is migrated on its own');
+        $this->assertFalse(BootMigration::ensure($a), 'the first one is still remembered');
+    }
+
     public function testAFailedMigrationIsRetried(): void
     {
         $config = $this->config();
