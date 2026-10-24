@@ -64,6 +64,19 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **test:** the CI4 boot migration key is pinned to the schema and the user, the credentials warning is pinned to once per request, and `skipOutsideCi()` is a shared trait with a test for its CI-only fail branch. ([#68](https://github.com/thordin9/apotheke/pull/68))
 - **ci4:** sync `main` d821bb8 (2.6.8) into `feature/ci4`. The legacy app gets main's 2.6.2–2.6.8 hardening (Host allow-list, sign-in import limits, restore check, ImageMagick policy, image decode limits and the PNG cap, the CLI admin fix, Docker localhost bind and required sign-in). `scripts/lint.sh` runs `release.php check-links`, so an unlinked `[Unreleased]` bullet fails lint on `feature/ci4` too, and the link check skips elided `(…#anchor)` placeholders in quoted QA suggestions. ([#83](https://github.com/thordin9/apotheke/pull/83))
 
+## [2.6.9] - 2026-10-24
+
+### Fixed
+
+- **auth:** a signed-in session ends after `session_idle_hours` hours with no request (default 168, at most 8760). The stay-signed-in limit is unchanged. The idle limit is set under Users & sign-in and is a sign-in setting on import, restore, and the command line. SEC-N6. ([#80](https://github.com/thordin9/apotheke/pull/80))
+
+### Maintenance
+
+- **changelog:** docs: record the idle session limit ([#80](https://github.com/thordin9/apotheke/pull/80))
+- **e2e:** test: update the security settings baseline ([#80](https://github.com/thordin9/apotheke/pull/80))
+- **qa:** docs: add #80 session idle hours QA doc ([#80](https://github.com/thordin9/apotheke/pull/80))
+- **qa:** docs: add v2.6.8 release QA doc ([#80](https://github.com/thordin9/apotheke/pull/80))
+
 ## [2.6.8] - 2026-10-24
 
 ### Fixed
@@ -621,7 +634,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.8...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.9...HEAD
+[2.6.9]: https://github.com/thordin9/apotheke/compare/v2.6.8...v2.6.9
 [2.6.8]: https://github.com/thordin9/apotheke/compare/v2.6.7...v2.6.8
 [2.6.7]: https://github.com/thordin9/apotheke/compare/v2.6.6...v2.6.7
 [2.6.6]: https://github.com/thordin9/apotheke/compare/v2.6.5...v2.6.6

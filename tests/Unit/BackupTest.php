@@ -107,6 +107,7 @@ final class BackupTest extends DatabaseTestCase
         $dump['settings']['app_name'] = 'From backup';
         $dump['settings']['auth_guest_disabled'] = false;
         $dump['settings']['auth_register_disabled'] = false;
+        $dump['settings']['session_idle_hours'] = 12;
         $dump['settings']['auth_enabled'] = false;
         $zip = $this->zipWith(['backup.json' => $dump]);
         try {
@@ -116,6 +117,7 @@ final class BackupTest extends DatabaseTestCase
             $this->assertSame('From backup', setting('app_name'));
             $this->assertTrue(setting('auth_guest_disabled'));
             $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertSame(168, setting('session_idle_hours'));
             $this->assertTrue(auth_enabled());
             $this->assertSame('admin', user_get($root)['role']);
             $this->assertSame($perms, role_get($desk)['perms']);
@@ -124,6 +126,7 @@ final class BackupTest extends DatabaseTestCase
             settings_cache(null, true);
             $this->assertTrue(setting('auth_guest_disabled'));
             $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertSame(168, setting('session_idle_hours'));
             $this->assertTrue(auth_enabled());
             $this->assertSame('admin', user_get($root)['role']);
             current_user(user_get($root) + ['guest' => false, 'anon' => false]);
@@ -131,6 +134,7 @@ final class BackupTest extends DatabaseTestCase
             settings_cache(null, true);
             $this->assertFalse(setting('auth_guest_disabled'));
             $this->assertFalse(setting('auth_register_disabled'));
+            $this->assertSame(12, setting('session_idle_hours'));
             $this->assertTrue(auth_enabled(), 'sign-in mode is not a settings key a file can clear');
         } finally {
             current_user(null, true);
