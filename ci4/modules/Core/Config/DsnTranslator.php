@@ -143,30 +143,37 @@ final class DsnTranslator
     }
 
     /**
-     * What PdoMigrationRunner hands to PDO: the DSN without user or password,
-     * plus the resolved user and password as PDO arguments. With no user or
-     * password left in the DSN, PDO appends both on PHP 8.3 and 8.4 alike.
-     * A DSN that does not tokenise is returned as it is, for PDO to reject.
+     * What PdoMigrationRunner hands to PDO. The DSN's own user and password are
+     * dropped and the resolved ones are written last, so the string is the one
+     * legacy PDO builds on PHP 8.3 ("<dsn> user='…' password='…'"). The runner
+     * passes null user and password to PDO, so PDO adds nothing on any version.
+     * Passing them as PDO arguments is not safe on PHP 8.4: PDO skips them when
+     * the DSN contains the text "user=" or "password=" anywhere, for example in
+     * `options`, `application_name` or the `sslpassword` keyword.
+     * A DSN that does not tokenise is returned as it is, with the credentials
+     * as PDO arguments, for PDO to reject as legacy does.
      *
      * @param array<string,mixed> $db
-     * @return array{0:string,1:string,2:string,3:bool} DSN, user, password, whether DB_DSN set one that differs
+     * @return array{0:string,1:?string,2:?string,3:bool} DSN, PDO user, PDO password, whether DB_DSN set credentials that differ
      */
     public static function forPdo(string $dsn, array $db): array
     {
         require_once dirname(__DIR__, 4) . '/src/config.php';
         $keywords = str_starts_with($dsn, 'pgsql:') ? config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6))) : null;
         [$user, $password, $differs] = self::credentials($keywords ?? [], $db);
-        if ($keywords !== null) {
-            $parts = [];
-            foreach ($keywords as $key => $value) {
-                if ($key !== 'user' && $key !== 'password') {
-                    $parts[] = self::libpq($key, $value);
-                }
-            }
-            $dsn = 'pgsql:' . implode(' ', $parts);
+        if ($keywords === null) {
+            return [$dsn, $user, $password, $differs];
         }
+        $parts = [];
+        foreach ($keywords as $key => $value) {
+            if ($key !== 'user' && $key !== 'password') {
+                $parts[] = self::libpq($key, $value);
+            }
+        }
+        $parts[] = self::libpq('user', $user);
+        $parts[] = self::libpq('password', $password);
 
-        return [$dsn, $user, $password, $differs];
+        return ['pgsql:' . implode(' ', $parts), null, null, $differs];
     }
 
     /** libpq keyword/value: quote every value, escaping \ first and then '. */

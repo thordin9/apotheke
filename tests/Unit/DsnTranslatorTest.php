@@ -190,8 +190,12 @@ final class DsnTranslatorTest extends TestCase
             $this->assertStringNotContainsString('dsn', (string)$group['DSN'], $name);
 
             [$pdoDsn, $pdoUser, $pdoPassword, $pdoDiffers] = DsnTranslator::forPdo($dsn, $db);
-            $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog'", $pdoDsn, $name);
-            $this->assertSame([$user, $password, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
+            $this->assertSame(
+                "pgsql:host='db.example' port='5432' dbname='catalog' " . $this->libpqValue('user', $user) . ' ' . $this->libpqValue('password', $password),
+                $pdoDsn,
+                $name
+            );
+            $this->assertSame([null, null, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
         }
 
         $this->assertSame(['sqlite:/x.sqlite', 'u', 'p', false], DsnTranslator::forPdo('sqlite:/x.sqlite', ['user' => 'u', 'password' => 'p']));
@@ -225,6 +229,28 @@ final class DsnTranslatorTest extends TestCase
     private function libpqValue(string $key, string $value): string
     {
         return $key . "='" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
+    }
+
+    /**
+     * PDO on PHP 8.4 skips the user and password passed to it when the DSN has
+     * the text "user=" or "password=" anywhere. forPdo() writes the resolved
+     * credentials into the DSN itself, after every other value, so nothing
+     * depends on PDO adding them.
+     */
+    public function testForPdoWritesTheCredentialsLastWhateverOtherValuesSay(): void
+    {
+        $dsn = "pgsql:host=db.example;port=5432;dbname=catalog;application_name='a user=b password=c';sslpassword=k;user=dsnu";
+        [$pdoDsn, $user, $password, $differs] = DsnTranslator::forPdo($dsn, ['user' => 'envu', 'password' => "e'p"]);
+        $this->assertNull($user);
+        $this->assertNull($password);
+        $this->assertTrue($differs);
+        $this->assertSame(
+            "pgsql:host='db.example' port='5432' dbname='catalog' application_name='a user=b password=c' sslpassword='k' user='envu' password='e\\'p'",
+            $pdoDsn
+        );
+
+        $group = $this->translator->fromPdoDsn($dsn, ['user' => 'envu', 'password' => 'ep']);
+        $this->assertStringEndsWith("application_name='a user=b password=c' sslpassword='k' user='envu' password='ep'", (string)$group['DSN']);
     }
 
     private function expectBad(string $dsn): void

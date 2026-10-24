@@ -145,6 +145,75 @@ final class Ci4DsnCredentialsTest extends TestCase
         }
     }
 
+    /**
+     * The risk: on PHP 8.4, PDO drops the user and password passed to it when the
+     * DSN mentions "user=" or "password=" anywhere, here inside application_name.
+     * PHP 8.3 (the shipped image) still appends them.
+     */
+    public function testPdoOnPhp84DropsPassedCredentialsWhenTheDsnMentionsThem(): void
+    {
+        $pg = test_pg_params();
+        $env = $this->roles['env'];
+        $dsn = sprintf("pgsql:host=%s;port=%s;dbname=%s;application_name='a user=b password=c'", $pg['host'], $pg['port'], $pg['name']);
+        $pgpass = getenv('PGPASSWORD');
+        putenv('PGPASSWORD');
+        putenv('PGPASSFILE=/nonexistent');
+        try {
+            $pdo = new PDO($dsn, $env['user'], $env['password']);
+            $connected = (string)$pdo->query('SELECT current_user')->fetchColumn();
+        } catch (PDOException) {
+            $connected = null;
+        } finally {
+            putenv($pgpass === false ? 'PGPASSWORD' : 'PGPASSWORD=' . $pgpass);
+            putenv('PGPASSFILE');
+        }
+        if (PHP_VERSION_ID >= 80400) {
+            $this->assertNull($connected, 'PDO 8.4 used the passed credentials; the guard in forPdo() may be unnecessary now');
+        } else {
+            $this->assertSame($env['user'], $connected);
+        }
+    }
+
+    /** CI4 does not depend on PDO adding the credentials: the runner and /healthz log in as DB_USER. */
+    public function testValuesMentioningUserOrPasswordDoNotDropTheCredentials(): void
+    {
+        $pg = test_pg_params();
+        $env = $this->roles['env'];
+        $tails = [
+            'application_name' => "application_name='a user=b password=c'",
+            'options' => "options='-c search_path=user=x'",
+            'sslpassword keyword' => 'sslpassword=placeholder',
+        ];
+        $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
+        $pgpass = getenv('PGPASSWORD');
+        putenv('PGPASSWORD');
+        putenv('PGPASSFILE=/nonexistent');
+        try {
+            foreach ($tails as $label => $tail) {
+                $db = [
+                    'driver' => 'pgsql',
+                    'dsn' => sprintf('pgsql:host=%s;port=%s;dbname=%s;', $pg['host'], $pg['port'], $pg['name']) . $tail,
+                    'user' => $env['user'],
+                    'password' => $env['password'],
+                    'schema' => '',
+                ];
+                $pdo = $runner->connect($db);
+                $this->assertSame($env['user'], $pdo->query('SELECT current_user')->fetchColumn(), $label);
+                $runner->close($pdo);
+            }
+        } finally {
+            putenv($pgpass === false ? 'PGPASSWORD' : 'PGPASSWORD=' . $pgpass);
+            putenv('PGPASSFILE');
+        }
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            return;
+        }
+        foreach ($tails as $label => $tail) {
+            $hit = $this->boot('dbname=' . $pg['name'] . ';' . $tail, '%eu', '%ep');
+            $this->assertSame(200, $hit['status'], $label . ': ' . $hit['body'] . $hit['log']);
+        }
+    }
+
     /** One warning, with no user names or passwords, when DB_DSN's credentials differ from the ones used. */
     public function testDifferingCredentialsLogOneWarningWithoutValues(): void
     {
