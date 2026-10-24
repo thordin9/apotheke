@@ -10,7 +10,9 @@ data=$(mktemp -d)
 chmod 0777 "$data"
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
-  docker run --rm -v "$data:/data" --entrypoint sh "$image" -c 'rm -rf /data/* /data/.[!.]*' >/dev/null 2>&1 || true
+  # the entrypoint hands /data to www-data; give it back so the runner can delete it from the sticky /tmp
+  docker run --rm -v "$data:/data" --entrypoint sh "$image" -c "rm -rf /data/* /data/.[!.]*; chown $(id -u):$(id -g) /data" \
+    >/dev/null 2>&1 || true
   rm -rf "$data"
 }
 trap cleanup EXIT
