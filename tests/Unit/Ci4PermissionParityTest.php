@@ -41,7 +41,9 @@ final class Ci4PermissionParityTest extends TestCase
             '/stocktake', '/stocktake/3', '/labels', '/labels/x', '/item/3/label', '/item/x/label', '/new', '/autofill/suggest',
             '/autofill/suggestx', '/item/3/duplicate', '/item/3/lend', '/item/3/return', '/lent', '/bulk', '/item/3/delete',
             '/save', '/item/3/merge', '/item/3/edit', '/item/3/photos/4/edit', '/item/3/photos/x/edit', '/item/3', '/media/a.jpg',
-            '/theme', '/theme.css', '/recent/clear', '/healthz', '/no-such-page', "/item/3/edit\n"];
+            '/theme', '/theme.css', '/recent/clear', '/healthz', '/no-such-page', "/item/3/edit\n",
+            '/autofill/suggest/', '//autofill/suggest', '/autofill/suggest ', '/autofill/suggest%20/', '/autofill%2Fsuggest',
+            '/settings/autofill/token/', '//settings/autofill/token', '/settings%2Fautofill%2Ftoken', '/item/3/delete/'];
         $posts = [[], ['id' => '0'], ['id' => '5'], ['id' => '-1'], ['id' => 'abc'], ['id' => '7x'], ['id' => ['a']], ['id' => []], ['id' => '']];
         $rules = new RoutePermission();
         $n = 0;
@@ -79,6 +81,10 @@ final class Ci4PermissionParityTest extends TestCase
         $this->assertGreaterThan(100, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
+            if (str_starts_with($case, 'variant ')) {
+                $this->assertVariant($case, $legacy, $answers['ci4'][$case]);
+                continue;
+            }
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
         }
     }
@@ -88,8 +94,10 @@ final class Ci4PermissionParityTest extends TestCase
     {
         $pdo = testdb($dir);
         $pdo->exec("INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES ('desk', 'Help desk', '[\"view\",\"settings\"]', 0, '2026-01-01 00:00:00')");
+        // Edit without Add items or Settings: legacy's default rule for an unrouted POST is edit.
+        $pdo->exec("INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES ('fixer', 'Fixer', '[\"view\",\"edit\"]', 0, '2026-01-01 00:00:00')");
         $ids = [];
-        foreach (['ada' => 'admin', 'eda' => 'editor', 'vera' => 'viewer', 'dee' => 'desk', 'gus' => 'gone', 'pam' => 'editor'] as $name => $role) {
+        foreach (['ada' => 'admin', 'eda' => 'editor', 'vera' => 'viewer', 'dee' => 'desk', 'gus' => 'gone', 'pam' => 'editor', 'fay' => 'fixer'] as $name => $role) {
             $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
                 ->execute([$name, $name, password_hash('long-enough', PASSWORD_DEFAULT), $role, $name === 'pam' ? 'pending' : 'active', '2026-01-01 00:00:00']);
             $ids[$name] = (int)$pdo->query("SELECT id FROM users WHERE username_key = '" . $name . "'")->fetchColumn();
@@ -111,7 +119,7 @@ final class Ci4PermissionParityTest extends TestCase
             return [$client, $token];
         };
         $out = [];
-        $visitors = ['off' => null, 'signed-out' => null, 'guest' => null, 'ada' => 'ada', 'eda' => 'eda', 'vera' => 'vera', 'dee' => 'dee', 'gus' => 'gus', 'pam' => 'pam', 'stale' => 'eda'];
+        $visitors = ['off' => null, 'signed-out' => null, 'guest' => null, 'ada' => 'ada', 'eda' => 'eda', 'vera' => 'vera', 'dee' => 'dee', 'gus' => 'gus', 'pam' => 'pam', 'fay' => 'fay', 'stale' => 'eda'];
         foreach ($visitors as $visitor => $account) {
             $this->setting($pdo, 'auth_enabled', $visitor === 'off' ? 'false' : 'true');
             $this->setting($pdo, 'auth_guest_disabled', $visitor === 'guest' ? 'false' : 'true');
@@ -132,6 +140,16 @@ final class Ci4PermissionParityTest extends TestCase
                     }
                 }
             }
+            // Paths CI4's router normalises to a route (trailing or doubled slash, an encoded space or slash).
+            // Legacy has no such routes; CI4 derives the permission from the routed path.
+            foreach (self::ROUTES as $route) {
+                foreach ([$route . '/', '/' . $route, $route . '%20/', '/' . str_replace('/', '%2F', substr($route, 1)), str_replace('/', '//', $route)] as $variant) {
+                    [$client, $token] = $signIn($account, $visitor === 'stale');
+                    $r = $client->post($variant, ['csrf' => $token, 'token' => 'placeholder-token', 'action' => 'clear'], [], ['X-Requested-With: fetch']);
+                    $out['variant ' . $visitor . ' ' . $route . ' ' . $variant] = ['status' => $r['status'], 'location' => $r['headers']['location'] ?? null,
+                        'may' => $this->may($pdo, $visitor, $account, $route === '/autofill/suggest' ? 'create' : 'settings')];
+                }
+            }
             // Reads: a page CI4 does not have yet, a photo, and what legacy answers before its check.
             foreach (['/no-such-page', '/media/a.jpg', '/theme.css', '/healthz'] as $path) {
                 foreach (['form' => [], 'fetch' => ['X-Requested-With: fetch']] as $kind => $headers) {
@@ -143,6 +161,46 @@ final class Ci4PermissionParityTest extends TestCase
         }
 
         return $out;
+    }
+
+    /**
+     * A routed variant: legacy refuses it or answers 404 (no such route), and
+ * never answers it to a visitor without the route's permission. CI4
+     * answers the route itself only to a visitor with the route's permission,
+     * and refuses everyone else.
+     *
+     * @param array<string,mixed> $legacy
+     * @param array<string,mixed> $ci4
+     */
+    private function assertVariant(string $case, array $legacy, array $ci4): void
+    {
+        $refusal = static fn (array $a): bool => in_array($a['status'], [401, 403], true) || ($a['status'] === 303 && $a['location'] === '/login');
+        // Legacy decodes the path but does not trim it: 404 unless the decoded path is the route itself.
+        $this->assertTrue($legacy['status'] === 404 || $refusal($legacy) || $legacy['may'], $case . ' legacy ' . json_encode($legacy));
+        if ($ci4['may']) {
+            $this->assertFalse($refusal($ci4), $case . ' ci4 ' . json_encode($ci4));
+        } else {
+            $this->assertTrue($refusal($ci4), $case . ' ci4 ' . json_encode($ci4));
+            $this->assertFalse($ci4['status'] >= 200 && $ci4['status'] < 300, $case);
+        }
+    }
+
+    /** Whether this visitor holds $perm (the fixture's roles; sign-in off is the anonymous admin). */
+    private function may(PDO $pdo, string $visitor, ?string $account, string $perm): bool
+    {
+        if ($visitor === 'off') {
+            return true;
+        }
+        if ($account === null || in_array($visitor, ['pam', 'stale'], true)) {
+            return false;
+        }
+        $role = (string)$pdo->query("SELECT role FROM users WHERE username_key = '" . $account . "'")->fetchColumn();
+        if ($role === 'admin') {
+            return true;
+        }
+        $perms = $pdo->query("SELECT perms FROM roles WHERE role_key = '" . $role . "'")->fetchColumn();
+
+        return in_array($perm, json_decode((string)$perms, true) ?: [], true);
     }
 
     private function setting(PDO $pdo, string $name, string $value): void

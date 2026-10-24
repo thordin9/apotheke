@@ -86,8 +86,11 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertSame(\Apotheke\Auth\Filters\PermissionFilter::class, $filters->aliases['permission']);
     }
 
-    /** Every route that is not a GET needs a permission the anonymous visitor lacks: a new route cannot be left open. */
-    public function testEveryNonGetRouteNeedsAPermission(): void
+    /**
+     * Every route that is not a GET records the permission legacy gives it,
+     * and the anonymous visitor lacks it: a new route cannot be left open.
+     */
+    public function testEveryNonGetRouteRecordsItsLegacyPermission(): void
     {
         $collection = Services::routes();
         $collection->loadRoutes();
@@ -98,12 +101,12 @@ final class PermissionFilterTest extends CIUnitTestCase
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
                 $path = '/' . ltrim((string)$route, '/');
                 $seen[] = $path;
-                $this->assertFalse($rules->isBeforeCheck($verb, $path), $verb . ' ' . $path);
-                $need = $rules->need($verb, $path, []);
+                $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
+                $this->assertSame($rules->need($verb, $path, []), $need, $verb . ' ' . $path . ': record legacy route_perm() as the `permission` option');
                 $this->assertNotSame(Permissions::PUBLIC, $need, $verb . ' ' . $path);
-                $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal(null, $need), $verb . ' ' . $path);
+                $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal(null, (string)$need), $verb . ' ' . $path);
                 $guest = ['role' => 'guest', 'guest' => true, 'anon' => true];
-                $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal($guest, $need), $verb . ' ' . $path);
+                $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal($guest, (string)$need), $verb . ' ' . $path);
             }
         }
         sort($seen);
@@ -115,19 +118,26 @@ final class PermissionFilterTest extends CIUnitTestCase
         }
     }
 
-    /** Every GET route is either answered before legacy's check or needs "view". */
-    public function testEveryGetRouteIsPublicOrNeedsView(): void
+    /** Every GET route is answered before legacy's check (`none`) or records legacy's permission. */
+    public function testEveryGetRouteRecordsItsLegacyPermission(): void
     {
         $collection = Services::routes();
         $collection->loadRoutes();
         $rules = new RoutePermission();
-        foreach (array_keys($collection->getRoutes('GET')) as $route) {
-            $path = '/' . ltrim((string)$route, '/');
-            if (str_contains($path, '(')) {
-                $path = '/brand/logo.png';
+        $n = 0;
+        foreach (['GET', 'HEAD'] as $verb) {
+            foreach (array_keys($collection->getRoutes($verb)) as $route) {
+                $path = '/' . ltrim((string)$route, '/');
+                if (str_contains($path, '(')) {
+                    $path = '/brand/logo.png';
+                }
+                $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
+                $this->assertNotNull($need, $verb . ' ' . $path);
+                $this->assertTrue($need === Permissions::NONE ? $rules->isBeforeCheck('GET', $path) : $need === $rules->need('GET', $path), $verb . ' ' . $path);
+                $n++;
             }
-            $this->assertTrue($rules->isBeforeCheck('GET', $path) || $rules->need('GET', $path) === 'view', $path);
         }
+        $this->assertSame(12, $n, "7 GET and 5 HEAD routes");
     }
 
     public function testRouteNeedsMatchLegacy(): void
@@ -288,25 +298,148 @@ final class PermissionFilterTest extends CIUnitTestCase
     }
 
     /**
-     * The filter alone, for a request with these $_SERVER entries (the
-     * feature requests carry no $_SERVER headers).
+     * The permission is derived from the routed path: CI4's router decodes the
+     * path and trims slashes and spaces, so these variants reach the routes.
+     */
+    #[DataProvider('postRoutes')]
+    public function testRoutedVariantsNeedTheRoutesPermission(string $route, string $need): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $this->signInAs($this->account('vera', 'viewer'));
+        $message = 'Your role (Viewer) does not allow this – it needs the “' . Permissions::ALL[$need][0] . '” permission. Ask an admin.';
+        $variants = [$route . '/', '/' . $route, $route . '%20/', $route . '%20', $route . '+', str_replace('/', '%2F', $route), str_replace('/', '//', $route) . '/ /'];
+        foreach ($variants as $variant) {
+            $denied = $this->filter($variant, ['HTTP_ACCEPT' => 'application/json']);
+            $this->assertSame(403, $denied->getStatusCode(), $variant);
+            $this->assertSame(['ok' => false, 'error' => $message], json_decode((string)$denied->getBody(), true), $variant);
+        }
+        $this->signInAs($this->account('eda', $need === 'create' ? 'editor' : 'admin'));
+        foreach ($variants as $variant) {
+            $this->assertNull($this->filterOrNull($variant), $variant);
+        }
+    }
+
+    /** A PUBLIC_URL with a path: the rules apply to the path relative to the base URL. */
+    public function testABaseUrlWithAPathKeepsTheRules(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $this->signInAs($this->account('eda', 'editor'));
+        foreach (array_keys(self::POST_ROUTES) as $route) {
+            if (self::POST_ROUTES[$route] !== 'settings') {
+                continue;
+            }
+            $denied = $this->filter($route, ['HTTP_X_REQUESTED_WITH' => 'fetch'], 'POST', 'https://example.test/apotheke/');
+            $this->assertSame(403, $denied->getStatusCode(), $route);
+            $this->assertStringContainsString('“Settings” permission', (string)$denied->getBody(), $route);
+        }
+        $this->assertNull($this->filterOrNull('autofill/suggest', [], 'POST', 'https://example.test/apotheke/'));
+    }
+
+    /** A route without a recorded permission is refused to everyone (fail closed), whatever route_perm() says. */
+    public function testARouteWithoutAPermissionIsRefused(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $routes = Services::routes();
+        $routes->loadRoutes();
+        $routes->post('test-unmapped', static fn (): string => 'ran');
+        $routes->get('test-unmapped-page', static fn (): string => 'ran');
+        $this->assertSame('edit', (new RoutePermission())->need('POST', '/test-unmapped'), 'legacy would let an editor through');
+
+        $refused = $this->filter('test-unmapped', ['HTTP_ACCEPT' => 'application/json']);
+        $this->assertSame(403, $refused->getStatusCode(), 'sign-in off: refused to the anonymous admin too');
+        $this->assertSame('{"ok":false,"error":"Your role (Admin) does not allow this. Ask an admin."}', (string)$refused->getBody());
+        $this->assertSame(403, $this->filter('test-unmapped-page', [], 'GET')->getStatusCode());
+
+        $ada = $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $this->assertSame(303, $this->filter('test-unmapped')->getStatusCode(), 'signed out: sign in first');
+        foreach (['eda' => 'editor', 'ann' => 'admin'] as $name => $role) {
+            $this->signInAs($this->account($name, $role));
+            $this->assertSame(403, $this->filter('test-unmapped')->getStatusCode(), $role);
+        }
+        $this->signInAs($ada);
+        $this->post('test-unmapped')->assertStatus(403);
+    }
+
+    /** HEAD is a GET; the path is decoded; the role name is escaped on the HTML page. */
+    public function testHeadDecodingAndEscaping(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        // Legacy answers GET /backup/restore/check before its check; HEAD is a GET there.
+        $this->assertNull($this->filterOrNull('backup/restore/check', [], 'HEAD'));
+        $this->assertSame(303, $this->filter('backup/restore/check', [], 'POST')->getStatusCode());
+
+        $this->db()->table('roles')->insert(['role_key' => 'desk', 'name' => '<b>Desk</b> & "Co"', 'perms' => json_encode(['view', 'edit']), 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);
+        $this->signInAs($this->account('dee', 'desk'));
+        // Unrouted: item/3%2Fdelete is /item/3/delete once decoded, which needs Delete, not Edit.
+        $decoded = $this->filter('item/3%2Fdelete', ['HTTP_ACCEPT' => 'application/json']);
+        $this->assertSame('Your role (<b>Desk</b> & "Co") does not allow this – it needs the “Delete” permission. Ask an admin.', json_decode((string)$decoded->getBody(), true)['error'] ?? null);
+        // The request path is decoded once; the router decodes again (a space here) and trims it.
+        $space = $this->filter('item/3/delete%2520', ['HTTP_ACCEPT' => 'application/json']);
+        $this->assertStringContainsString('“Delete” permission', (string)$space->getBody());
+        $page = (string)$this->filter('item/3%2Fdelete')->getBody();
+        $this->assertStringContainsString('Your role (&lt;b&gt;Desk&lt;/b&gt; &amp; &quot;Co&quot;) does not allow this', $page);
+        $this->assertStringNotContainsString('<b>Desk', $page);
+    }
+
+    /** The permission is decided on the method after CI4's `_method` override. */
+    public function testTheOverriddenMethodDecides(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $routes = Services::routes();
+        $routes->loadRoutes();
+        $routes->put('test-put', static fn (): string => 'ran', ['permission' => 'settings']);
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $this->signInAs($this->account('eda', 'editor'));
+        // As a plain POST no route matches and route_perm() says edit (an editor may);
+        // overridden to PUT, the PUT route matches and needs settings.
+        $this->assertNull($this->filterOrNull('test-put'));
+        $this->post('test-put', ['_method' => 'PUT'])->assertStatus(403);
+    }
+
+    /**
+     * The filter alone, for a request to $route (relative to the base URL,
+     * as sent, still encoded) with these $_SERVER entries. The feature
+     * requests carry no $_SERVER headers.
      *
      * @param array<string,string> $server
      */
-    private function filter(string $route, array $server): \CodeIgniter\HTTP\ResponseInterface
+    private function filterOrNull(string $route, array $server = [], string $method = 'POST', ?string $baseURL = null): ?\CodeIgniter\HTTP\ResponseInterface
     {
-        $config = config(\Config\App::class);
+        $config = clone config(\Config\App::class);
+        if ($baseURL !== null) {
+            $config->baseURL = $baseURL;
+        }
         $request = new \CodeIgniter\HTTP\IncomingRequest($config, new \CodeIgniter\HTTP\SiteURI($config, $route), null, new \CodeIgniter\HTTP\UserAgent());
-        $request = $request->withMethod('POST');
+        $request = $request->withMethod($method);
         $saved = $_SERVER;
         try {
             $request->setGlobal('server', $server + $_SERVER);
-            $response = (new \Apotheke\Auth\Filters\PermissionFilter())->before($request);
+
+            return (new \Apotheke\Auth\Filters\PermissionFilter())->before($request);
         } finally {
             $request->setGlobal('server', $saved);
             $_SERVER = $saved;
         }
-        $this->assertNotNull($response);
+    }
+
+    /** @param array<string,string> $server */
+    private function filter(string $route, array $server = [], string $method = 'POST', ?string $baseURL = null): \CodeIgniter\HTTP\ResponseInterface
+    {
+        $response = $this->filterOrNull($route, $server, $method, $baseURL);
+        $this->assertNotNull($response, $method . ' ' . $route);
 
         return $response;
     }
