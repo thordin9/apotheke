@@ -1,10 +1,15 @@
 # Core depends on nothing. DevServer, Settings and Autofill may depend on Core.
+# Auth may depend on Core and Settings.
 # Migrations may depend on Core and on Settings (schema only).
 # Autofill may depend on Settings. Media and Taxonomy are not modules yet.
 deptrac:
   paths:
     - ci4/modules
   layers:
+    - name: Auth
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Auth\\
     - name: Core
       collectors:
         - type: classLike
@@ -26,6 +31,9 @@ deptrac:
         - type: classLike
           value: ^Apotheke\\Autofill\\
   ruleset:
+    Auth:
+      - Core
+      - Settings
     Core: []
     DevServer:
       - Core

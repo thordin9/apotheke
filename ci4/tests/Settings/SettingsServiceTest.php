@@ -6,6 +6,8 @@ namespace Tests\Settings;
 
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Security\ActorGate;
+use Apotheke\Core\Security\CommandLine;
 use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
@@ -236,10 +238,36 @@ final class SettingsServiceTest extends CIUnitTestCase
         $this->assertFalse($r['token_cleared']);
         $this->assertSame(['Imported', 33, false], [$service->get('app_name'), $service->get('page_size'), $service->get('search_typos')]);
         $this->assertSame('placeholder-token', $service->autofillToken(), 'import never writes the token');
-        // Round trip.
-        $again = $this->fresh()->import((string)json_encode($service->export()));
+        // Round trip, by the command line (or an admin).
+        $again = $this->fresh([], new CommandLine())->import((string)json_encode($service->export()));
         $this->assertSame([], $again['errors']);
         $this->assertSame(count($service->export()['settings']), $again['applied']);
+    }
+
+    /** SEC-M1: sign-in settings come in only from an admin or the command line (main #71). */
+    #[DataProvider('drivers')]
+    public function testImportSkipsSignInSettingsUnlessTheActorIsAdmin(string $driver): void
+    {
+        $service = $this->service($driver);
+        $file = (string)json_encode(['format' => 'apotheke-settings', 'settings' => [
+            'app_name' => 'Shed', 'auth_register_disabled' => false, 'auth_guest_disabled' => false,
+            'auth_register_role' => 'editor', 'auth_register_approval' => true, 'session_days' => 7,
+            'trust_proxy' => true, 'auth_enabled' => false,
+        ]]);
+        $security = ['auth_register_disabled', 'auth_guest_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'];
+        $r = $service->import($file);
+        $this->assertSame(1, $r['applied']);
+        foreach ([...$security, 'auth_enabled'] as $key) {
+            $this->assertContains($key, $r['ignored'], $key);
+        }
+        $fresh = $this->fresh();
+        $this->assertSame('Shed', $fresh->get('app_name'));
+        $this->assertSame([true, true, 'viewer', false, 30, false], array_map($fresh->get(...), $security));
+
+        $admin = $this->fresh([], new CommandLine())->import($file);
+        $this->assertSame(7, $admin['applied']);
+        $this->assertSame(['auth_enabled'], $admin['ignored'], 'sign-in mode is not a key a file can set');
+        $this->assertSame([false, false, 'editor', true, 7, true], array_map($this->fresh()->get(...), $security));
     }
 
     #[DataProvider('drivers')]
@@ -314,7 +342,7 @@ final class SettingsServiceTest extends CIUnitTestCase
     }
 
     /** @param array<string,mixed> $config */
-    private function fresh(array $config = []): SettingsService
+    private function fresh(array $config = [], ?ActorGate $actor = null): SettingsService
     {
         return new SettingsService(
             new SettingsRepository($this->database->db),
@@ -325,6 +353,7 @@ final class SettingsServiceTest extends CIUnitTestCase
             function (string $message): void {
                 $this->logged[] = $message;
             },
+            $actor,
         );
     }
 }

@@ -130,9 +130,9 @@ final class Ci4ConnectFailureLeakTest extends TestCase
 
     /**
      * CI4's own pg_connect failing after the runner logged in: a login event
-     * trigger changes the role's password on its second login (the runner's;
-     * the first is the trust_proxy read), so CI4's connection gets libpq's
-     * "password authentication failed for user ...".
+     * trigger changes the role's password on its first login (the runner's;
+     * Config\App opens no connection of its own), so CI4's connection gets
+     * libpq's "password authentication failed for user ...".
      */
     public function testCi4PgConnectFailureShowsNoValues(): void
     {
@@ -145,7 +145,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
         $this->admin->exec('CREATE SEQUENCE public.lk_seq_' . $this->tag);
         $this->admin->exec("CREATE FUNCTION $fn() RETURNS event_trigger LANGUAGE plpgsql SECURITY DEFINER AS \$f\$
             BEGIN
-              IF session_user = '{$this->user}' AND nextval('public.lk_seq_{$this->tag}') = 2 THEN
+              IF session_user = '{$this->user}' AND nextval('public.lk_seq_{$this->tag}') = 1 THEN
                 EXECUTE 'ALTER ROLE {$this->user} PASSWORD ''lkchanged_{$this->tag}''';
               END IF;
             END \$f\$");
@@ -154,8 +154,8 @@ final class Ci4ConnectFailureLeakTest extends TestCase
         $before = $this->ci4Logs();
         $hit = $this->healthz($this->appEnv($case));
         $logs = $this->ci4LogsSince($before);
-        // Two logins got in (trust_proxy, runner); CI4's third was refused before the trigger.
-        $this->assertSame(2, (int)$this->admin->query('SELECT last_value FROM public.lk_seq_' . $this->tag)->fetchColumn());
+        // One login got in (the runner); CI4's second was refused before the trigger.
+        $this->assertSame(1, (int)$this->admin->query('SELECT last_value FROM public.lk_seq_' . $this->tag)->fetchColumn());
         // Like legacy db(): 500, an empty body and only the allowlisted line (#58).
         $this->assertSame(500, $hit['status'], $hit['body'] . $hit['log'] . $logs);
         $this->assertSame('', $hit['body']);

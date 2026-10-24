@@ -5,20 +5,24 @@ declare(strict_types=1);
 namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
-use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\RequestScheme;
+use Apotheke\Core\Http\SessionGate;
 use CodeIgniter\Filters\FilterInterface;
+use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
-use Config\App;
 use Config\Cookie;
 use Config\Services;
 use Config\Session;
+use Throwable;
 
 /**
- * Opens the apothekesid session the same way the legacy app does.
- * CI4's Session service is configured to match, and started with PHP's session
- * API. The lifetime follows session_days (SEC-N9).
+ * Sets up the apothekesid session the same way the legacy app does, and loads
+ * it only when the request's cookie names a live session (SEC-L2, legacy
+ * init_session() on main); SessionToken starts one on demand. CI4's Session
+ * service is configured to match, and PHP's session API does the work. The
+ * lifetime follows session_days (SEC-N9); the Secure flag follows trust_proxy
+ * and public_url (legacy session_cookie_secure()).
  */
 final class SessionCookie implements FilterInterface
 {
@@ -28,7 +32,19 @@ final class SessionCookie implements FilterInterface
             return null;
         }
         $config = ApothekeConfig::fromEnvironment();
-        $secure = $this->secureCookie($request);
+        $server = $request->getServer();
+        $server = is_array($server) ? $server : [];
+        // trust_proxy and public_url come from this request's SettingsService, on
+        // CI4's connection: no separate settings connection (#74 N-2, SEC-N11).
+        try {
+            $settings = Services::settings();
+            $trustProxy = (bool)$settings->get('trust_proxy');
+            $publicUrl = (string)$settings->get('public_url');
+        } catch (Throwable) {
+            $trustProxy = false;
+            $publicUrl = $config->publicUrl();
+        }
+        $secure = (new RequestScheme($trustProxy))->secureCookie($server, $publicUrl);
         $cookie = config(Cookie::class);
         $cookie->secure = $secure;
         $lifetime = Services::sessionLifetime(false)->seconds();
@@ -51,24 +67,15 @@ final class SessionCookie implements FilterInterface
             'samesite' => 'Lax',
             'secure' => $secure,
         ]);
-        session_start();
-        // Legacy init_session(): every session has a CSRF token for CsrfFilter.
-        if (!is_string($_SESSION['csrf'] ?? null) || $_SESSION['csrf'] === '') {
-            $_SESSION['csrf'] = (new CsrfCheck())->newToken();
+        // SEC-L2: only a cookie that names a live session loads one. SEC-N6: an
+        // idle session ends after session_days without use.
+        $id = $request instanceof IncomingRequest ? $request->getCookie(SessionGate::COOKIE) : ($_COOKIE[SessionGate::COOKIE] ?? null);
+        $gate = new SessionGate(time());
+        if (is_string($id) && $gate->isLive($id, $save)) {
+            $gate->resume($lifetime);
         }
 
         return null;
-    }
-
-    /**
-     * Secure flag from RequestScheme, with the trust_proxy value Config\App read
-     * for this request: no second settings read or connection (SEC-N11).
-     */
-    public function secureCookie(RequestInterface $request): bool
-    {
-        $server = $request->getServer();
-
-        return (new RequestScheme(config(App::class)->trustProxy))->secureCookie(is_array($server) ? $server : []);
     }
 
     private function isHealth(RequestInterface $request): bool

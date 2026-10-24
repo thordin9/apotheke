@@ -33,9 +33,13 @@ final class RequestSchemeTest extends TestCase
     public function testPublicBasePrefersTheConfiguredUrl(): void
     {
         $scheme = new RequestScheme(false);
-        $this->assertSame('https://catalog.example', $scheme->publicBase(['HTTP_HOST' => 'ignored'], 'https://catalog.example/'));
-        $this->assertSame('http://phone.local', $scheme->publicBase(['HTTP_HOST' => 'phone.local']));
-        $this->assertSame('https://phone.local', $scheme->publicBase(['HTTP_HOST' => 'phone.local', 'HTTPS' => 'on']));
-        $this->assertSame('http://localhost', $scheme->publicBase(['HTTP_HOST' => 'bad host']));
+        $any = static fn (string $host): bool => true;
+        $none = static fn (string $host): bool => false;
+        $this->assertSame('https://catalog.example', $scheme->publicBase(['HTTP_HOST' => 'ignored'], $any, 'https://catalog.example/'));
+        $this->assertSame('http://phone.local', $scheme->publicBase(['HTTP_HOST' => 'phone.local'], $any));
+        $this->assertSame('https://phone.local', $scheme->publicBase(['HTTP_HOST' => 'phone.local', 'HTTPS' => 'on'], $any));
+        $this->assertSame('http://localhost', $scheme->publicBase(['HTTP_HOST' => 'phone.local'], $none), 'a Host that fails the allow-list is never used');
+        $this->assertSame('http://localhost', $scheme->publicBase([], $any));
+        $this->assertSame('http://phone.local:9091', $scheme->publicBase(['HTTP_HOST' => 'Phone.LOCAL:9091'], $any));
     }
 }

@@ -6,6 +6,8 @@ namespace Apotheke\Settings;
 
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Security\ActorGate;
+use Apotheke\Core\Security\Nobody;
 use Closure;
 use LogicException;
 
@@ -40,9 +42,12 @@ final class SettingsService
     /** @var Closure(string):void */
     private readonly Closure $log;
 
+    private readonly ActorGate $actor;
+
     /**
      * @param array<string,mixed> $config ApothekeConfig values (for config-backed defaults)
      * @param (Closure(string):void)|null $log warning sink; error_log() like legacy autofill_log()
+     * @param ?ActorGate $actor who imports (SEC-M1); none = not an admin
      */
     public function __construct(
         private readonly SettingsRepository $repository,
@@ -51,10 +56,12 @@ final class SettingsService
         private readonly Clock $clock,
         private readonly array $config,
         ?Closure $log = null,
+        ?ActorGate $actor = null,
     ) {
         $this->log = $log ?? static function (string $message): void {
             error_log($message);
         };
+        $this->actor = $actor ?? new Nobody();
     }
 
     /** The schema, validating `role` settings against the install's account roles. */
@@ -204,7 +211,9 @@ final class SettingsService
 
     /**
      * Import an export. Valid known keys are applied together; invalid ones
-     * are reported and skipped, unknown and protected ones ignored. Moving
+     * are reported and skipped, unknown and protected ones ignored, and so are
+     * the sign-in (security) settings unless the actor is an admin or the
+     * command line (SEC-M1). A backup restore goes through here too. Moving
      * the autofill address clears the stored token.
      *
      * @param ?int $maxBytes larger input is refused; null = no limit (the CLI, like legacy)
@@ -223,6 +232,12 @@ final class SettingsService
         foreach ($d['settings'] as $key => $value) {
             $key = (string)$key;
             if (!$this->schema->has($key) || $this->schema->isProtected($key)) {
+                $ignored[] = $key;
+                continue;
+            }
+            // Sign-in settings are the same actions as granting admin and turning
+            // sign-in off: an admin account, or the command line (SEC-M1).
+            if ($this->schema->section($key) === 'security' && !$this->actor->isAdmin()) {
                 $ignored[] = $key;
                 continue;
             }

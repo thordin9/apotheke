@@ -85,7 +85,34 @@ if (!function_exists('ci4_test_arm_wrong_ci4_password')) {
     }
 }
 
+if (!function_exists('ci4_test_arm_session_on_demand')) {
+    /**
+     * Test only. CI4 has no page with a form yet, which is what starts a session
+     * on demand (SEC-L2). APOTHEKE_TEST_SESSION_ON_DEMAND=1 adds a required
+     * before filter after `session` that asks for the CSRF token the way such a
+     * page will, so the cookie tests can see a fresh session's Set-Cookie.
+     */
+    function ci4_test_arm_session_on_demand(): void
+    {
+        if (getenv('APOTHEKE_TEST_SESSION_ON_DEMAND') !== '1') {
+            return;
+        }
+        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        \CodeIgniter\Events\Events::on(
+            'pre_system',
+            static function (): void {
+                require_once __DIR__ . '/ci4-session-on-demand.php';
+                $filters = config(\Config\Filters::class);
+                $filters->aliases['testsessionondemand'] = \ApothekeTestSessionOnDemand::class;
+                $filters->required['before'][] = 'testsessionondemand';
+            },
+            \CodeIgniter\Events\Events::PRIORITY_LOW
+        );
+    }
+}
+
 ci4_test_arm_pgsql_probe();
 ci4_test_arm_wrong_ci4_password();
+ci4_test_arm_session_on_demand();
 
 return require dirname(__DIR__) . '/ci4/public/router.php';

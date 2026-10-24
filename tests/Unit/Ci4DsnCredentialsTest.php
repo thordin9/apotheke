@@ -341,7 +341,7 @@ final class Ci4DsnCredentialsTest extends TestCase
     }
 
     /** One warning per request, with no user names or passwords, when DB_DSN's credentials differ from the ones used. */
-    public function testDifferingCredentialsLogOneWarningWithoutValues(): void
+    public function testDifferingCredentialsLogOneWarningPerRequestWithoutValues(): void
     {
         $name = test_pg_params()['name'];
         $differ = $this->boot('dbname=' . $name . ';user=%du;password=%dp', '%eu', '%ep', 2);

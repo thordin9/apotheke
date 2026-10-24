@@ -40,6 +40,10 @@ class Filters extends BaseFilters
         'securityheaders' => \Apotheke\Core\Filters\SecurityHeaders::class,
         'posttoolarge' => \Apotheke\Core\Filters\PostTooLargeFilter::class,
         'session' => \Apotheke\Core\Filters\SessionCookie::class,
+        // Host allow-list (SEC-M3): 421 for an unknown name, before /healthz.
+        'hostcheck' => \Apotheke\Core\Filters\HostFilter::class,
+        // Sign-in off: non-safe requests from another site get 403 (SEC-M3), on every path.
+        'sameorigin' => \Apotheke\Core\Filters\SameOriginFilter::class,
         // Legacy check_csrf() (session token). CI4's cookie CSRF ('csrf') stays off.
         'sessioncsrf' => \Apotheke\Core\Filters\CsrfFilter::class,
     ];
@@ -62,8 +66,10 @@ class Filters extends BaseFilters
             'headasget',
             'harness',
             'originalsguard',
+            'hostcheck',
             'posttoolarge',
             'session',
+            'sameorigin',
         ],
         'after' => [
         ],

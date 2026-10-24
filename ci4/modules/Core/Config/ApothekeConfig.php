@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Config;
 
+use Apotheke\Core\Http\ProxyList;
 use RuntimeException;
+
+// Loaded before Composer's autoloader (Core/Boot/startup.php, root tests).
+require_once dirname(__DIR__) . '/Http/ProxyList.php';
 
 /**
  * defaults < config.php < environment, the same map and normalisation as src/config.php.
@@ -35,10 +39,12 @@ final class ApothekeConfig
         'IMAGE_THUMB_MAX' => 'uploads.thumb_max',
         'PAGE_SIZE' => 'page_size',
         'PUBLIC_URL' => 'public_url',
+        'ALLOWED_HOSTS' => 'allowed_hosts',
         'CURRENCY' => 'currency',
         'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
         'SEED_DEFAULTS' => 'seed_defaults',
         'ORIGINALS_DIR' => 'originals_dir',
+        'TRUSTED_PROXIES' => 'trusted_proxies',
     ];
 
     public static function repoRoot(): string
@@ -79,11 +85,13 @@ final class ApothekeConfig
         }
         $cfg['page_size'] = max(1, (int)$cfg['page_size']);
         $cfg['public_url'] = rtrim((string)$cfg['public_url'], '/');
+        $cfg['allowed_hosts'] = trim((string)($cfg['allowed_hosts'] ?? ''));
         $cfg['currency'] = mb_substr(trim((string)$cfg['currency']), 0, 8) ?: 'EUR';
         $cfg['expiry_soon_days'] = min(3650, max(1, (int)$cfg['expiry_soon_days']));
         $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
         $cfg['app_password'] = (string)$cfg['app_password'];
         $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
+        $cfg['trusted_proxies'] = (new ProxyList())->parse($cfg['trusted_proxies'] ?? []);
 
         return new self($cfg);
     }
@@ -124,6 +132,19 @@ final class ApothekeConfig
         return rtrim($dir, '/');
     }
 
+    /**
+     * TRUSTED_PROXIES: addresses and blocks allowed to set X-Forwarded-For when
+     * trust_proxy is on (SEC-M2).
+     *
+     * @return list<string>
+     */
+    public function trustedProxies(): array
+    {
+        $list = $this->values['trusted_proxies'] ?? [];
+
+        return is_array($list) ? array_values(array_filter($list, 'is_string')) : [];
+    }
+
     /** @return array<string,mixed> */
     public function database(): array
     {
@@ -135,6 +156,12 @@ final class ApothekeConfig
     public function publicUrl(): string
     {
         return (string)$this->values['public_url'];
+    }
+
+    /** ALLOWED_HOSTS: extra host names besides PUBLIC_URL's (SEC-M3). */
+    public function allowedHosts(): string
+    {
+        return (string)$this->values['allowed_hosts'];
     }
 
     /** @return array<string,mixed> */
@@ -164,8 +191,10 @@ final class ApothekeConfig
             'currency' => 'EUR',
             'expiry_soon_days' => 30,
             'public_url' => '',
+            'allowed_hosts' => '',
             'seed_defaults' => true,
             'originals_dir' => '',
+            'trusted_proxies' => [],
         ];
     }
 
