@@ -99,7 +99,8 @@ Notes:
 * **Host names (this version).** The app now answers only to IP addresses, `localhost`, the machine's own host
   name, `PUBLIC_URL`'s host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
   add that name to `ALLOWED_HOSTS` or set `PUBLIC_URL` before upgrading; otherwise the browser shows *Unknown host
-  name* (421). See [Host names](#host-names).
+  name* (421). Health checks (`/healthz`, `/health`) follow the same rule: point container, orchestrator and
+  monitoring probes at an allowed host. See [Host names](#host-names).
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 * **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
@@ -183,7 +184,8 @@ The app answers only to host names it knows (hardening, SEC-M3). A request with 
 
 * IP addresses (IPv4, and IPv6 in brackets such as `[fd00::10]:9091`), so opening the app by its LAN address works
   with nothing configured;
-* `localhost` (and `*.localhost`), and the machine's own host name (in Docker, the container's host name);
+* `localhost` (and `*.localhost`), and the machine's own host name (in Docker, the container's host name: the
+  container ID unless `hostname:` is set in the compose file);
 * the host of `PUBLIC_URL`;
 * every name in `ALLOWED_HOSTS` (comma-separated, for example `ALLOWED_HOSTS=apotheke.lan,nas.lan`; a port in an
   entry is ignored). `*` accepts any name and turns the check off.
@@ -192,16 +194,25 @@ If you open the app by a name such as `apotheke.lan` or `nas.local`, set `PUBLIC
 to `ALLOWED_HOSTS`. A reverse proxy must pass the original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy
 does by default) or a name on this list.
 
+The health endpoints `/healthz` and `/health` follow the same rule (#70 L-2). The image's own `HEALTHCHECK` uses
+`127.0.0.1` and keeps working, but a container or orchestrator health check, or an outside monitor, must use an
+allowed host: an IP address, `localhost`, the container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS`
+entry. A probe that uses any other name gets 421.
+
 With sign-in off (no `APP_PASSWORD` and no accounts), a request that changes something (anything but GET, HEAD and
 OPTIONS) must come from the app's own pages: the browser's `Sec-Fetch-Site` must be `same-origin` or `none`, or
 `Origin` must be the app's own address or `PUBLIC_URL`. Requests that send neither header, such as `curl` and
-scripts, are not affected.
+scripts, are not affected. Behind a TLS proxy, set `PUBLIC_URL` to the `https://` address or turn on `trust_proxy`:
+otherwise the app expects an `http://` `Origin`, and browsers that send only `Origin` (no `Sec-Fetch-Site`, such as
+Safari before 16.4) get 403 on every change (#70 N-6).
 
 ### Sessions and the restore upload
 
 A session (a small file in `DATA_DIR/sessions`) is created only when a page with a form is shown or someone signs
 in (hardening, SEC-L2). 404 pages, the icons, the manifest and the theme CSS, health checks and anonymous redirects
-to the sign-in page don't create one, and a session cookie whose session no longer exists is ignored.
+to the sign-in page don't create one, and a session cookie whose session no longer exists is ignored. The sign-in
+page has a form, so each visit to it without a session cookie still starts a session (the rest of SEC-L2, deferred);
+PHP's session clean-up removes old session files (#70 N-5).
 
 In the Docker image, nginx asks the app (`/backup/restore/check`, through `auth_request`) before it accepts a
 restore upload. Only a signed-in user with the Backup permission (or anyone while sign-in is off) may send the up to
@@ -216,11 +227,15 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
    Replace `php` in `fastcgi_pass` with your PHP-FPM upstream or socket, and include your own FastCGI settings in the
    first location (the Docker image uses [`docker/fastcgi.conf`](../docker/fastcgi.conf)). Keep
    `client_max_body_size 520m` in **both** locations: the check is a subrequest that sees the upload's
-   `Content-Length`, and with a smaller limit nginx refuses the check itself and answers 500.
+   `Content-Length`, and with a smaller limit nginx refuses the check itself and answers 500. nginx also turns
+   any other answer from the check into 500; the `@restore_check_failed` location passes the app's 421 for an
+   unknown host name on (hardening, #70 N-3), and nginx still logs *auth request unexpected status: 421*.
 
    ```nginx
    location = /backup/restore {
        auth_request /_restore_check;
+       auth_request_set $restore_check $upstream_status;
+       error_page 500 = @restore_check_failed;
        client_max_body_size 520m;
        client_body_timeout 300s;
        fastcgi_read_timeout 300s;
@@ -253,11 +268,16 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
        fastcgi_param PATH_INFO "";
        fastcgi_param HTTP_PROXY "";
    }
+   location @restore_check_failed {
+       if ($restore_check = 421) { return 421; }
+       return 500;
+   }
    ```
 
 3. Run `nginx -t`, then reload nginx.
 4. Check it: `curl -s -o /dev/null -w '%{http_code}\n' https://apotheke.example/backup/restore/check` prints `401`
-   while signed out (or `204` with sign-in off), and a large restore upload while signed out gets `401` at once.
+   while signed out (or `204` with sign-in off), a large restore upload while signed out gets `401` at once, and
+   one with an unknown `Host` gets `421`.
    [`scripts/docker-auth-checks.sh`](../scripts/docker-auth-checks.sh) runs the full set of checks.
 
 ### ImageMagick policy
@@ -267,7 +287,8 @@ S-L1, from [`docker/imagemagick-policy.xml`](../docker/imagemagick-policy.xml)).
 wide or high and 128 MP, ImageMagick's memory and map at 256 MiB, its disk cache at 1 GiB and its time at 60
 seconds, and it turns off the coders that read text, vector or page formats or fetch URLs, all external delegates
 and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as before. The image build fails if the
-policy is not in effect (`scripts/imagick-policy-check.php`).
+policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick reports, the refused coders, and
+from `magick -list policy` no rights for delegates or `@file` paths and a time limit of 60 s or less; #70 N-2).
 
 ## HTTPS
 
@@ -344,6 +365,8 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
 * `GET /healthz` returns `ok` after connecting to the database (the Docker `HEALTHCHECK` uses it) and sends the running
   version in `X-Apotheke-Version`.
 * `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
+* Both health endpoints are behind the [Host check](#host-names): a probe must use an IP address, `localhost`, the
+  container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS` entry, or it gets 421.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
   are logged as `[apotheke] …` and shown to the user as a generic error page.
 * Disk usage is mostly `data/originals` (about the size of each camera file), plus the smaller stripped JPEG in

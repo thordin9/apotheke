@@ -23,6 +23,8 @@ check "unknown Host refused"             421 "$(code -H 'Host: other.example' "$
 check "restore check: not signed in"     401 "$(code "$base/backup/restore/check")"
 # nginx asks the app before it reads the body: refused without an upload
 check "30 MB restore refused before sign-in" 401 "$(code -X POST -F "backup=@$work/big" "$base/backup/restore")"
+# an unknown Host on the restore upload gets the app's 421, not nginx's 500 (#70 N-3)
+check "30 MB restore with unknown Host"  421 "$(code -H 'Host: other.example' -X POST -F "backup=@$work/big" "$base/backup/restore")"
 
 curl -s -c "$jar" -b "$jar" -o "$work/login.html" "$base/login"
 tok=$(sed -n 's/.*name="csrf" value="\([a-f0-9]*\)".*/\1/p' "$work/login.html")
