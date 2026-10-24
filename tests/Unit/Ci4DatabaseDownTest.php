@@ -59,7 +59,11 @@ final class Ci4DatabaseDownTest extends TestCase
         }
     }
 
-    /** The runner connects, CI4's own Postgre connect is refused (wrong password). */
+    /**
+     * The runner connects, CI4's own Postgre connect is refused (wrong password).
+     * This is the only test that catches a missing catch in Services::apothekeDb, so in
+     * CI it fails rather than skips when PostgreSQL is down or accepts any password.
+     */
     public function testCi4PostgreConnectRefusalIsTheSanitizedLine(): void
     {
         $this->requireCi4();
@@ -67,12 +71,12 @@ final class Ci4DatabaseDownTest extends TestCase
         try {
             test_pg_admin();
         } catch (PDOException) {
-            $this->markTestSkipped('PostgreSQL is not reachable');
+            $this->skipOutsideCi('PostgreSQL is not reachable');
         }
         $wrong = 'wrong-ci4-' . bin2hex(random_bytes(4));
         try {
             new PDO('pgsql:host=' . $pg['host'] . ';port=' . $pg['port'] . ';dbname=' . $pg['name'], $pg['user'], $wrong);
-            $this->markTestSkipped('PostgreSQL accepts any password (trust auth)');
+            $this->skipOutsideCi('PostgreSQL accepts any password (trust auth)');
         } catch (PDOException) {
         }
         $dir = tmpdir('ci4-ci4connect');
@@ -176,6 +180,16 @@ final class Ci4DatabaseDownTest extends TestCase
         if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
+    }
+
+    /** Skip locally; in CI (CI or GITHUB_ACTIONS set) the refused-connect path must run. */
+    private function skipOutsideCi(string $why): never
+    {
+        $ci = in_array(getenv('CI'), ['true', '1'], true) || getenv('GITHUB_ACTIONS') === 'true';
+        if ($ci) {
+            $this->fail($why . '. In CI the refused CI4 connect must run: give the PostgreSQL service password auth (scram-sha-256 or md5).');
+        }
+        $this->markTestSkipped($why);
     }
 
     private function assertNoSecrets(string $blob): void
