@@ -156,6 +156,28 @@ and `client_max_body_size` need to sit a little above `upload_max_filesize`. A b
 the Docker image allows 520 MB only on `/backup/restore`; other installs stay at about 22 MB and answer 413. For a
 large zip use `php bin/restore.php`.
 
+The frame has its own limit, and it depends on the format. A JPEG of at most 250 megapixels, and at most
+30,000 px on a side, is accepted. It is decoded already reduced, through Imagick with the JPEG format named
+and a size hint, so the decoded frame stays within 128 megapixels. That keeps a 48 MP phone JPEG and a 200 MP
+sensor JPEG (16384×12288). The camera file in `originals/` stays byte-identical, and the copy on screen is
+still reduced to the full-size long edge. A larger JPEG is refused from the header, before it is decoded.
+HEIC and HEIF are not decoded already reduced, so a HEIC photo above 128 megapixels, or above 16,384 px on a
+side, is refused from the header with the same message, before any pixels are read. A 48 MP HEIC is still
+accepted. A PNG above 26 megapixels is refused before it is decoded. WebP and GIF photos above 40 megapixels
+are refused, because those formats are decoded in full. On the Docker image (`memory_limit` 256M), an alpha PNG of
+about 32 megapixels exhausts memory while GD decodes it, and a 40 megapixel PNG does too. A 26 megapixel alpha PNG,
+with the 20 MB upload still held and then fitted to a JPEG, peaked at 231931904 bytes on that image's GD, about
+35 MB under the limit. The same image still decodes a 40 megapixel WebP or GIF (peak 195035136 bytes). Photos
+within those limits go through GD. HEIC/HEIF uses Imagick with the format named explicitly.
+Imagick's limits are set when the app starts, to the same bounds as the policy the Docker image ships
+([`docker/imagemagick-policy.xml`](../docker/imagemagick-policy.xml), installed as
+`/etc/ImageMagick-7/policy.xml`): memory 256 MiB, map
+256 MiB, disk 1 GiB, area 128 megapixels, width and height 16,384 px. A frame those limits refuse — including
+a tighter limit configured on the server, or a HEIC frame the decoder will not allocate — is declined with the
+same message as an oversized photo. Suggest uses that message too, including when the refusal happens at decode
+rather than from the header. It is not decoded, and the camera file is not kept. If decoding dies after the
+camera file was saved, that file is removed before the request ends.
+
 Autofill builds a temporary JPEG from that camera file (or from the served JPEG if the photo predates this version),
 sends only that, and deletes the temp file even when the request fails. When Imagick encodes that JPEG it uses
 4:2:0 chroma subsampling, so a 4:4:4 source no longer inflates the analysis copy. It also flattens transparent

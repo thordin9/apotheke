@@ -8,7 +8,7 @@ return [
     'data_dir'     => __DIR__ . '/data',      // DATA_DIR      photos, thumbnails, sessions (and the SQLite file)
     'originals_dir' => '',                   // ORIGINALS_DIR camera uploads; empty = <data_dir>/originals (outside public/)
     'timezone'     => 'Europe/Athens',        // TZ            used for dates and statistics
-    'app_password' => '',                     // APP_PASSWORD  empty = no login (LAN only)
+    'app_password' => '',                     // APP_PASSWORD  empty = no login (Docker: needs ALLOW_NO_LOGIN=1)
 
     'db' => [
         'driver'      => 'sqlite',            // DB_DRIVER     sqlite | pgsql
@@ -34,7 +34,13 @@ return [
     'currency'      => 'EUR',                 // CURRENCY       shown next to item values (EUR, USD, £, …)
     'expiry_soon_days' => 30,                 // EXPIRY_SOON_DAYS  "Expiring soon" window in days (1–3650)
     'public_url'    => '',                    // PUBLIC_URL     base URL in QR labels, e.g. http://192.168.1.10:9091 (default: from the request)
+    'allowed_hosts' => '',                    // ALLOWED_HOSTS  extra host names, comma-separated (addresses, localhost and PUBLIC_URL's host always work)
     'seed_defaults' => true,                  // SEED_DEFAULTS  starter locations/categories on a new database
+    // Addresses of your own reverse proxies (comma-separated in TRUSTED_PROXIES). X-Forwarded-For
+    // is read only when trust_proxy is on and the connecting peer is listed here. The client is
+    // the rightmost hop that isn't itself listed. With trust_proxy on and an empty list, the
+    // connecting address is used.
+    'trusted_proxies' => [],                  // TRUSTED_PROXIES  e.g. ['127.0.0.1', '192.0.2.0/24']
 ];
 
 // AI autofill does not read a byte cap from this file or from AUTOFILL_MAX_IMAGE_BYTES.

@@ -89,6 +89,147 @@ final class SettingsTest extends DatabaseTestCase
         $this->assertSame('Shed', setting('app_name'), 'other sections untouched');
     }
 
+    public function testImportSkipsSignInSettingsWithoutUsersPermission(): void
+    {
+        user_create('root', 'long-enough', 'admin');
+        $panel = role_create('Panel', ['view', 'settings']);
+        $id = user_create('panel', 'long-enough', $panel);
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        try {
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => [
+                    'app_name' => 'Shed',
+                    'auth_register_disabled' => false,
+                    'auth_guest_disabled' => false,
+                    'auth_register_role' => 'editor',
+                    'auth_register_approval' => true,
+                    'session_days' => 7,
+                    'session_idle_hours' => 12,
+                    'trust_proxy' => true,
+                ],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame('Shed', setting('app_name'));
+            $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertTrue(setting('auth_guest_disabled'));
+            $this->assertSame('viewer', setting('auth_register_role'));
+            $this->assertFalse(setting('auth_register_approval'));
+            $this->assertSame(30, setting('session_days'));
+            $this->assertSame(168, setting('session_idle_hours'));
+            $this->assertFalse(setting('trust_proxy'));
+            foreach (['auth_register_disabled', 'auth_guest_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'session_idle_hours', 'trust_proxy'] as $k) {
+                $this->assertContains($k, $r['ignored']);
+            }
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testImportSkipsSignInSettingsWithOnlyUsersPermission(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        try {
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => [
+                    'app_name' => 'Shed',
+                    'auth_register_disabled' => false,
+                    'auth_guest_disabled' => false,
+                    'auth_register_role' => 'editor',
+                    'auth_enabled' => false,
+                ],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame('Shed', setting('app_name'));
+            $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertTrue(setting('auth_guest_disabled'));
+            $this->assertSame('viewer', setting('auth_register_role'));
+            $this->assertTrue(auth_enabled());
+            foreach (['auth_register_disabled', 'auth_guest_disabled', 'auth_register_role', 'auth_enabled'] as $k) {
+                $this->assertContains($k, $r['ignored']);
+            }
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => ['auth_register_disabled' => false, 'auth_register_role' => 'editor', 'session_idle_hours' => 12],
+            ]));
+            settings_cache(null, true);
+            $this->assertFalse(setting('auth_register_disabled'));
+            $this->assertSame('editor', setting('auth_register_role'));
+            $this->assertSame(12, setting('session_idle_hours'));
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testCommandLineImportAppliesASecuritySettingWhenGuestBrowsingIsOn(): void
+    {
+        $this->assertSame('cli', PHP_SAPI);
+        user_create('root', 'long-enough', 'admin');
+        $panel = role_create('Panel', ['view', 'settings']);
+        $id = user_create('panel', 'long-enough', $panel);
+        auth_turn_on();
+        settings_store(['auth_guest_disabled' => false]);
+        settings_cache(null, true);
+        current_user(null, true);
+        try {
+            $this->assertTrue(current_user()['anon']);
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => ['session_days' => 7],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame(7, setting('session_days'), 'the command line applies a sign-in setting');
+            $this->assertNotContains('session_days', $r['ignored']);
+            $this->assertSame(1, $r['applied']);
+
+            current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => ['session_days' => 14],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame(7, setting('session_days'), 'a signed-in non-admin still cannot import a sign-in setting');
+            $this->assertContains('session_days', $r['ignored']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testDatabaseLabelShowsOnlyHostPortAndName(): void
+    {
+        $secret = 'spaced-secret';
+        $label = settings_database_label([
+            'dsn' => "pgsql:host=192.0.2.10; port = 5432; password = {$secret}; dbname=catalog",
+            'host' => '127.0.0.1', 'port' => 5432, 'name' => 'unused',
+        ]);
+        $this->assertSame('host=192.0.2.10 port=5432 dbname=catalog', $label);
+        $this->assertStringNotContainsString($secret, $label);
+        $url = settings_database_label([
+            'dsn' => "postgresql://apotheke:{$secret}@192.0.2.10:5432/catalog",
+            'host' => '', 'port' => 0, 'name' => '',
+        ]);
+        $this->assertSame('host=192.0.2.10 port=5432 dbname=catalog', $url);
+        $this->assertStringNotContainsString($secret, $url);
+        $bad = settings_database_label([
+            'dsn' => "pgsql:password = {$secret}",
+            'host' => '192.0.2.10', 'port' => 5432, 'name' => 'catalog',
+        ]);
+        $this->assertStringNotContainsString($secret, $bad);
+        $this->assertSame('<unparsed dsn>', $bad);
+        $this->assertSame('192.0.2.10:5432 / catalog', settings_database_label([
+            'dsn' => '', 'host' => '192.0.2.10', 'port' => 5432, 'name' => 'catalog',
+        ]));
+    }
+
     public function testExportImportRoundTrip(): void
     {
         settings_save(['app_name' => 'Garage', 'accent' => '#0F766E']);

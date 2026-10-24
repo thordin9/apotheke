@@ -10,11 +10,19 @@
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
+echo 'APP_PASSWORD=change-me' > .env    # pick your own; it becomes the password of the account admin
 docker compose up -d --build
 ```
 
-Open `http://SERVER-IP:9091` on your phone (same network). The compose file maps host port **9091** to port 9091 in the
-container and mounts `./data` as `/data`:
+The container needs sign-in (hardening, SEC-M3): without `APP_PASSWORD` on the first start it stops with
+`sign-in is off` in `docker compose logs`. To run without sign-in on purpose (a trusted network only), set
+`ALLOW_NO_LOGIN=1` instead.
+
+The compose file publishes port **9091** on `127.0.0.1` only, so at first the app opens just on the server itself
+(`http://127.0.0.1:9091`). To use it from your phone, publish it on your network on purpose: change the port line in
+`docker-compose.yml` to `"9091:9091"` (all interfaces) or `"192.0.2.10:9091:9091"` (one LAN address of the server),
+run `docker compose up -d`, and open `http://SERVER-IP:9091` on your phone (same network). The compose file mounts
+`./data` as `/data`:
 
 ```
 data/
@@ -34,7 +42,7 @@ APP_PASSWORD=change-me
 TZ=Europe/Athens
 ```
 
-Run `docker compose up -d` again after changing it. The compose file passes `TZ`, `APP_PASSWORD`, `DB_DRIVER`,
+Run `docker compose up -d` again after changing it. The compose file passes `TZ`, `APP_PASSWORD`, `ALLOW_NO_LOGIN`, `DB_DRIVER`,
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` through; to set any other variable from
 [Configuration](configuration.md), add it under `environment:`.
 
@@ -100,8 +108,13 @@ include the password or the DSN. The browser shows a generic page, and `/healthz
 
 ```bash
 docker build --pull -t apotheke .
-docker run -d --name apotheke -p 9091:9091 -v "$PWD/data:/data" -e TZ=Europe/Athens apotheke
+docker run -d --name apotheke -p 127.0.0.1:9091:9091 -v "$PWD/data:/data" -e TZ=Europe/Athens \
+  -e APP_PASSWORD=change-me apotheke
 ```
+
+`-p 127.0.0.1:9091:9091` keeps the app on the server itself; use `-p 9091:9091` to reach it from your network. Without
+`APP_PASSWORD` (and with sign-in not yet on in the database) the container refuses to start unless `-e ALLOW_NO_LOGIN=1`
+is set.
 
 With `--network host`, set `-e PORT=8081` (or any free port) so nginx listens there.
 

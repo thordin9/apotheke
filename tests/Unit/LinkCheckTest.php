@@ -38,7 +38,7 @@ final class LinkCheckTest extends TestCase
         file_put_contents($root . '/README.md', "[plan](docs/superpowers/plans/note.md)\n");
         file_put_contents($root . '/CONTRIBUTING.md', "# Contributing\n");
         file_put_contents($root . '/AGENTS.md', "# Agents\n");
-        file_put_contents($root . '/docs/qa/note.md', "# Note\n\n[missing](missing.md)\n");
+        file_put_contents($root . '/docs/qa/note.md', "# Note\n\n[missing](missing.md)\n\nSuggestion: [Host names](…#host-names)\n");
         file_put_contents($root . '/docs/superpowers/plans/note.md', "# Plans\n\n[qa](../../qa/note.md)\n");
         $script = dirname(__DIR__, 2) . '/scripts/check-links.mjs';
         $out = [];
@@ -48,6 +48,7 @@ final class LinkCheckTest extends TestCase
         $this->assertSame(1, $code, $text);
         $this->assertStringContainsString('docs/qa/note.md', $text);
         $this->assertStringContainsString('missing file missing.md', $text);
+        $this->assertStringContainsString('1 broken', $text, 'an elided (…#anchor) placeholder is not a link');
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
         foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
         @rmdir($root);

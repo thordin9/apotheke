@@ -85,7 +85,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, drag to reorder, choose the cover,
   crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). The file you pick is
-  uploaded unchanged when it fits the upload limit (20 MB by default). A larger file is reduced in the browser, and the page says the original is not kept. The server stores whatever it received byte for byte and serves a
+  uploaded unchanged when it fits the upload limit (20 MB by default). A larger file is reduced in the browser, and the page says the original is not kept. A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels, is refused. The server stores whatever it received byte for byte and serves a
   separate JPEG (EXIF/GPS stripped, longest side at most 1600 px) plus a 480 px thumbnail. Deleting or replacing a photo removes the camera file, the
   JPEG and the thumbnail.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
@@ -155,9 +155,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   (change the catalog), *viewer* (look only) or your own **custom roles** built from 14 granular permissions (view, add,
   edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
   every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
-  with a default role, admin approval and rate limiting — both off by default. The history shows who changed
+  with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
+  admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. A sign-in lasts at most `session_days` (default 30) and ends after `session_idle_hours` hours with no request (default 168, at most 8760). Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
-  Empty means no login, fine on a trusted LAN.
+  The Docker image needs it (or sign-in already on) to start; `ALLOW_NO_LOGIN=1` runs it without sign-in on purpose.
 
 ### iPhone camera notes
 
@@ -165,7 +166,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   **Library** picks an existing photo.
 * This works over plain `http://` on your LAN. HTTPS is only needed for the live-camera `getUserMedia` API, which
   Apotheke does not use.
-* The photo you pick is uploaded untouched when it fits the upload limit. The browser shrinks it only when it is over that limit, and the page says the original is not kept. The server stores the file it received byte for byte and serves a separate JPEG with EXIF and GPS removed. HEIC is decoded on the server when Imagick lists HEIC (the Docker image does, via libheif). Without Imagick the HEIC file is still kept and the page shows a grey placeholder.
+* The photo you pick is uploaded untouched when it fits the upload limit. The browser shrinks it only when it is over that limit, and the page says the original is not kept. A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels, is refused. The server stores the file it received byte for byte and serves a separate JPEG with EXIF and GPS removed. HEIC is decoded on the server when Imagick lists HEIC (the Docker image does, via libheif). Without Imagick the HEIC file is still kept and the page shows a grey placeholder.
 
 ## Screenshots
 
@@ -239,12 +240,18 @@ On the LAN server:
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
+echo 'APP_PASSWORD=change-me' > .env    # pick your own: the password of the account admin
 docker compose up -d --build
 ```
 
-Then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` shows the server IP). In Safari tap Share →
-**Add to Home Screen**. To use another host port, change the left side of `"9091:9091"` in `docker-compose.yml`
-(e.g. `"8080:9091"`).
+Docker installs are private by default (hardening, SEC-M3): the container refuses to start with sign-in off, and
+compose publishes the port on `127.0.0.1` only. To run without sign-in on a trusted LAN, set `ALLOW_NO_LOGIN=1` in
+`.env` instead of `APP_PASSWORD`. To open the app from your phone, change the port line in `docker-compose.yml` from
+`"127.0.0.1:9091:9091"` to `"9091:9091"` (or `"192.0.2.10:9091:9091"` for one LAN address of the server), run
+`docker compose up -d`, then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` shows the server
+IP). In Safari tap Share → **Add to Home Screen**. To use another host port, change the port before the last `:9091`
+(e.g. `"8080:9091"`). Upgrading an install that runs without sign-in: see
+[Docker defaults](docs/deployment-and-operations.md#docker-defaults-localhost-and-sign-in).
 
 > **Upgrading from 1.x (port 8080):** the image now listens on **9091** (was 80 inside the container) and the compose
 > file maps host port **9091** (was 8080). Update bookmarks, home-screen icons, reverse proxies and `PUBLIC_URL`;
@@ -330,7 +337,8 @@ compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN). |
+| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
+| `ALLOW_NO_LOGIN` | *(empty)* | Docker only: `1` lets the container start with sign-in off. Without it the container exits unless `APP_PASSWORD` is set or sign-in is on in the database. |
 | `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
 | `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
 | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
@@ -344,7 +352,9 @@ compose file never wipes a value from `config.php`.
 | `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Set it if you open the app under a different name than your phone will. |
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
+| `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost`, the machine's host name and `PUBLIC_URL`'s host always work; other names get 421, health checks (`/healthz`, `/health`) included. See [Host names](docs/deployment-and-operations.md#host-names). |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
+| `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed here. The client is the rightmost hop that isn't itself listed. With `trust_proxy` on and an empty list, the connecting address is used. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
 ## Command-line tools
@@ -432,20 +442,20 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
 | Front controller & routes | – | 97.0 % | 97.0 % |
-| Items, search, bulk, lending | 89.9 % | 93.5 % | 97.0 % |
+| Items, search, bulk, lending | 88.9 % | 90.6 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 91.3 % | 93.8 % | 96.4 % |
+| Users & roles | 93.6 % | 90.0 % | 96.4 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 11.8 % | 99.4 % | 99.3 % |
-| Control Panel settings | 74.7 % | 96.0 % | 97.3 % |
+| Control Panel settings | 75.4 % | 94.6 % | 97.5 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 79.7 % | 81.0 % | 91.0 % |
-| Bootstrap, config, QR, seed | 71.9 % | 75.9 % | 90.1 % |
-| **All PHP** (6814 lines) | **64.3 %** | **91.5 %** | **96.0 %** |
+| Database, migrations, legacy | 80.1 % | 80.7 % | 91.1 % |
+| Bootstrap, config, QR, seed | 73.4 % | 75.1 % | 91.0 % |
+| **All PHP** (7236 lines) | **65.6 %** | **89.9 %** | **95.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
@@ -501,7 +511,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | DI rule | PHPStan level 6. `service()` only in controllers, filter `before()`/`after()`, and `Config/Services.php`. `composer audit` on `ci4/` is a deliberate gate |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px, on PHP 8.3 and PHP 8.4 |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, on PHP 8.3 and PHP 8.4, `retries=1`; report, traces and screenshot diffs uploaded on failure |
-| Docker build + smoke test | builds the image (shipped default PHP 8.3, plus a PHP 8.4 test build), checks Imagick lists HEIC (`scripts/docker-heic.sh`) on both, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
+| Docker build + smoke test | builds the image (shipped default PHP 8.3, plus a PHP 8.4 test build), checks Imagick lists HEIC (`scripts/docker-heic.sh`) on both, checks the ImageMagick policy, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits, Host check), `scripts/docker-auth-checks.sh` (sign-in mode: sessions, restore limit), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 | Secret scan | pinned gitleaks CLI (`gitleaks git --log-opts=--all`) over every ref in the full git history; the job fails if it finds a secret |
 
@@ -535,7 +545,7 @@ Release ([docs/releasing.md](docs/releasing.md)). A green CI run on `feature/ci4
 
 ```
 Dockerfile                    php:8.3.36-fpm-alpine by default (ARG PHP_VERSION) + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
-docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
+docker-compose.yml            port 127.0.0.1:9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)
 bin/                          migrate.php, seed.php, backup.php, restore.php
@@ -551,6 +561,7 @@ src/qr.php                    loads the QR encoder after the function-JIT guard
 src/qr-encode.php             pure-PHP QR encoder (SVG)
 src/seed.php                  idempotent starter/demo seeding
 src/bootstrap.php             sessions, auth, CSRF, helpers
+src/hosts.php                 Host allow-list, same-origin rule (no-login mode)
 src/views.php                 HTML templates
 tests/run.sh, integration.php lint + HTTP integration suite (no Composer)
 tests/Unit/, Integration/     PHPUnit suites

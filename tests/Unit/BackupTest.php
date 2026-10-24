@@ -89,6 +89,101 @@ final class BackupTest extends DatabaseTestCase
         return ['pgsql', $this->other];
     }
 
+    public function testRestoreSkipsSignInSettingsUnlessTheCallerIsAdmin(): void
+    {
+        settings_cache(null, true);
+        roles(true);
+        current_user(null, true);
+        $root = user_create('root', 'long-enough', 'admin');
+        $backup = role_create('Archivist', ['view', 'backup']);
+        $desk = role_create('Helpdesk', ['view', 'users', 'backup']);
+        $archivist = user_create('archivist', 'long-enough', $backup);
+        $help = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        $this->assertTrue(setting('auth_guest_disabled'));
+        $perms = role_get($desk)['perms'];
+        $dump = backup_dump($this->pdo, $this->driver);
+        $dump['settings']['app_name'] = 'From backup';
+        $dump['settings']['auth_guest_disabled'] = false;
+        $dump['settings']['auth_register_disabled'] = false;
+        $dump['settings']['session_idle_hours'] = 12;
+        $dump['settings']['auth_enabled'] = false;
+        $zip = $this->zipWith(['backup.json' => $dump]);
+        try {
+            current_user(user_get($archivist) + ['guest' => false, 'anon' => false]);
+            backup_restore($this->pdo, $this->driver, $this->dataDir(), $zip);
+            settings_cache(null, true);
+            $this->assertSame('From backup', setting('app_name'));
+            $this->assertTrue(setting('auth_guest_disabled'));
+            $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertSame(168, setting('session_idle_hours'));
+            $this->assertTrue(auth_enabled());
+            $this->assertSame('admin', user_get($root)['role']);
+            $this->assertSame($perms, role_get($desk)['perms']);
+            current_user(user_get($help) + ['guest' => false, 'anon' => false]);
+            backup_restore($this->pdo, $this->driver, $this->dataDir(), $zip);
+            settings_cache(null, true);
+            $this->assertTrue(setting('auth_guest_disabled'));
+            $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertSame(168, setting('session_idle_hours'));
+            $this->assertTrue(auth_enabled());
+            $this->assertSame('admin', user_get($root)['role']);
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            backup_restore($this->pdo, $this->driver, $this->dataDir(), $zip);
+            settings_cache(null, true);
+            $this->assertFalse(setting('auth_guest_disabled'));
+            $this->assertFalse(setting('auth_register_disabled'));
+            $this->assertSame(12, setting('session_idle_hours'));
+            $this->assertTrue(auth_enabled(), 'sign-in mode is not a settings key a file can clear');
+        } finally {
+            current_user(null, true);
+            roles(true);
+            settings_cache(null, true);
+        }
+    }
+
+    public function testRestoreRefusesUsersAndRolesTables(): void
+    {
+        settings_cache(null, true);
+        roles(true);
+        current_user(null, true);
+        $root = user_create('root', 'long-enough', 'admin');
+        $desk = role_create('Helpdesk', ['view', 'users', 'backup']);
+        $help = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        $perms = role_get($desk)['perms'];
+        $dump = backup_dump($this->pdo, $this->driver);
+        $dump['tables']['users'] = [
+            'columns' => ['id', 'username', 'username_key', 'password_hash', 'role', 'status', 'created_at'],
+            'rows' => [[$root, 'root', 'root', 'x', 'viewer', 'active', '2026-01-01 00:00:00']],
+        ];
+        $dump['tables']['roles'] = [
+            'columns' => ['role_key', 'name', 'perms', 'builtin'],
+            'rows' => [[$desk, 'Helpdesk', '["view"]', 0]],
+        ];
+        $zip = $this->zipWith(['backup.json' => $dump]);
+        try {
+            foreach ([$help, $root] as $who) {
+                current_user(user_get($who) + ['guest' => false, 'anon' => false]);
+                try {
+                    backup_restore($this->pdo, $this->driver, $this->dataDir(), $zip);
+                    $this->fail('a backup naming users or roles was restored');
+                } catch (UserError $e) {
+                    $this->assertStringContainsString('Unknown table', $e->getMessage());
+                }
+                $this->assertSame('admin', user_get($root)['role']);
+                $this->assertSame('desk', user_get($help)['username']);
+                $this->assertSame($perms, role_get($desk)['perms']);
+            }
+        } finally {
+            current_user(null, true);
+            roles(true);
+            settings_cache(null, true);
+        }
+    }
+
     public function testRoundTripRestoresEverythingExactly(): void
     {
         $src = $this->dataDir();

@@ -118,7 +118,8 @@ function settings_schema(): array
         'auth_register_disabled' => ['security', 'Disable registrations', 'bool', true, 'Off: anyone who can reach this address can create an account at /register (limited to 5 per hour per address).', []],
         'auth_register_role' => ['security', 'Role for new registrations', 'role', 'viewer', 'Admin cannot be chosen.', []],
         'auth_register_approval' => ['security', 'Registrations need an admin’s approval', 'bool', false, 'New accounts can only sign in once an admin approves them under Users.', []],
-        'session_days' => ['security', 'Stay signed in for (days)', 'int', 30, 'How long a sign-in lasts without being used. Shorter is safer on shared devices; applies from the next sign-in.', ['min' => 1, 'max' => 365]],
+        'session_days' => ['security', 'Stay signed in for (days)', 'int', 30, 'The longest a sign-in lasts, counted from sign-in. Later visits do not extend it. Applies from the next sign-in.', ['min' => 1, 'max' => 365]],
+        'session_idle_hours' => ['security', 'Sign out after idle (hours)', 'int', 168, 'End a sign-in after this many hours with no request. 1–8760 (365 days). The stay-signed-in limit above still applies.', ['min' => 1, 'max' => 8760]],
         'trust_proxy' => ['security', 'Trust the reverse proxy', 'bool', false, 'Turn on only when the app sits behind your own HTTPS proxy (nginx, Caddy, Traefik) that sets X-Forwarded-Proto. Then sign-in cookies are marked Secure. Leave off when the app is reachable directly.', []],
         'import_create_missing' => ['data', 'CSV import creates missing entries', 'bool', true, 'Pre-ticks “Create missing locations, categories and tags” on the import screen.', []],
         'password_hash'    => ['security', 'Password (before accounts; moved to the user “admin” by migration 0018)', 'secret', 'cfg_hash', '', []],
@@ -139,7 +140,7 @@ function settings_bootstrap_info(): array
     if ($db['driver'] === 'sqlite') {
         $rows[] = ['SQLite file', $db['sqlite_path'], $src('SQLITE_PATH')];
     } else {
-        $rows[] = ['Database', $db['dsn'] !== '' ? preg_replace('/password=[^;]*/i', 'password=•••', $db['dsn']) : $db['host'] . ':' . $db['port'] . ' / ' . $db['name'], $src('DB_HOST')];
+        $rows[] = ['Database', settings_database_label($db), $src('DB_HOST')];
         $rows[] = ['Database user', $db['user'], $src('DB_USER')];
         $rows[] = ['Schema', $db['schema'] !== '' ? $db['schema'] : '(default)', $src('DB_SCHEMA')];
         $rows[] = ['Database password', $db['password'] !== '' ? '•••••• (set)' : '(empty)', $src('DB_PASSWORD')];
@@ -149,6 +150,23 @@ function settings_bootstrap_info(): array
     $rows[] = ['Config file', is_file($file) ? $file : $file . ' (not present)', getenv('APOTHEKE_CONFIG') ? 'env APOTHEKE_CONFIG' : 'default'];
     $rows[] = ['PHP', PHP_VERSION, 'server'];
     return $rows;
+}
+
+/**
+ * What the Control Panel may show for a PostgreSQL connection: host, port and dbname.
+ * A full DSN is parsed the same way as config_dsn_public_fields(); the password is never included.
+ * @param array{dsn?:string,host?:string|int,port?:string|int,name?:string} $db
+ */
+function settings_database_label(array $db): string
+{
+    if ((string)($db['dsn'] ?? '') === '') return (string)($db['host'] ?? '') . ':' . (string)($db['port'] ?? '') . ' / ' . (string)($db['name'] ?? '');
+    $fields = config_dsn_public_fields((string)$db['dsn']);
+    if ($fields === null) return '<unparsed dsn>';
+    $parts = [];
+    foreach (['host', 'port', 'dbname'] as $key) {
+        if (($fields[$key] ?? '') !== '') $parts[] = $key . '=' . $fields[$key];
+    }
+    return $parts === [] ? '<unparsed dsn>' : implode(' ', $parts);
 }
 
 function setting_default(string $key): mixed
@@ -393,6 +411,8 @@ function settings_import(string $json): array
         $k = (string)$k;
         $def = settings_schema()[$k] ?? null;
         if ($def === null || in_array($def[2], ['secret', 'internal'], true)) { $ignored[] = $k; continue; }
+        // Sign-in settings are the same actions as granting admin and turning sign-in off: an admin account, or the command line.
+        if ($def[0] === 'security' && !actor_is_admin()) { $ignored[] = $k; continue; }
         try { $ok[$k] = setting_validate($k, is_bool($v) ? $v : (is_scalar($v) || $v === null ? (string)$v : $v)); }
         catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }

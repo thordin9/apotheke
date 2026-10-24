@@ -14,6 +14,7 @@ public/                   web root (the only directory a web server should expos
   assets/                 app.css, app.js, theme.js, icons (served as static files)
 src/
   bootstrap.php           constants, data directories, sessions, auth, CSRF, small helpers, asset()
+  hosts.php               Host allow-list and the same-origin rule for no-login mode
   config.php              configuration loader (defaults < config.php < environment)
   settings.php            Control Panel settings: schema, validation, typed per-request cache, accent contrast maths,
                           logo upload/SVG sanitizer/icon generation, manifest, password
@@ -36,7 +37,7 @@ migrations/NNNN_*.php     versioned schema steps
 bin/                      CLI: migrate.php, seed.php, backup.php, restore.php, settings.php
 docker/                   nginx.conf (template), fastcgi.conf, php-fpm.conf, php.ini, entrypoint.sh
 tests/                    run.sh, integration.php + lib.php, Unit/, Integration/, e2e/ (puppeteer), visual/ (Playwright)
-scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, docker-auth-checks.sh, docker-signin-checks.sh, imagick-policy-check.php, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
 docs/                     this documentation and the README screenshots
 ```
 
@@ -95,7 +96,7 @@ Important routes:
 ### Sessions, auth and CSRF
 
 `init_session()` opens the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
-`SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; lifetime from `session_days`, default 30), makes sure a CSRF token exists, and **closes the session right away** so parallel
+`SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; lifetime from `session_days`, default 30, not extended by later visits). A signed-in session also ends when no request has arrived for `session_idle_hours` hours (default 168, at most 8760). That last-request time is kept in the session file and updated when the session is opened. `init_session()` makes sure a CSRF token exists, and **closes the session right away** so parallel
 requests (photos, instant search) never wait for the session lock. Every state-changing route calls `check_csrf()`
 (form field `csrf` or header `X-CSRF-Token`). When sign-in is on (Settings → Users & sign-in; `APP_PASSWORD` creates the account `admin`), everything except `/login`, `/healthz` and
 the branding routes (`/theme.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) requires a signed-in session (`uid`) whose
