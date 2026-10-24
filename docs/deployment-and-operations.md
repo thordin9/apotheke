@@ -101,10 +101,11 @@ Notes:
   `sslpassword` keyword); boot stops with a message saying so. Remove that text from `DB_DSN`, or change the
   credential so it has no `;`. Any other character in the user or password works.
 * **Host names (this version).** The app now answers only to IP addresses, `localhost`, the machine's own host
-  name, `PUBLIC_URL`'s host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
-  add that name to `ALLOWED_HOSTS` or set `PUBLIC_URL` before upgrading; otherwise the browser shows *Unknown host
-  name* (421). Health checks (`/healthz`, `/health`) follow the same rule: point container, orchestrator and
-  monitoring probes at an allowed host. See [Host names](#host-names).
+  name, the Public URL's host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
+  add that name to `ALLOWED_HOSTS` or set the Public URL under Control Panel → General before upgrading
+  (`PUBLIC_URL` only works on a new install); otherwise the browser shows *Unknown host name* (421). Health checks
+  (`/healthz`, `/health`) follow the Host rule from 2.6.2 ([Host names](#host-names)): point container,
+  orchestrator and monitoring probes at an allowed host.
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 * **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
@@ -130,7 +131,8 @@ tested example (static assets with long-lived caching and gzip, blocked paths, t
 `/backup/restore`, granted through `auth_request`).
 
 Upgrading from 1.x: the image listens on port 9091 (it was 80) and compose publishes 9091 (it was 8080) — point your
-reverse proxy at the new port, or publish the old one with `ports: ["8080:9091"]`.
+reverse proxy at the new port, or publish the old one with `ports: ["127.0.0.1:8080:9091"]` (see
+[Docker defaults](#docker-defaults-localhost-and-sign-in) to reach it from your network).
 
 ### Docker defaults: localhost and sign-in
 
@@ -141,11 +143,15 @@ Two defaults keep a new Docker install private (hardening, SEC-M3):
   `"9091:9091"` (all interfaces) or `"192.0.2.10:9091:9091"` (one LAN address of the server). With `docker run`, use
   `-p 127.0.0.1:9091:9091` or `-p 9091:9091` in the same way.
 * **Sign-in required.** Before it starts nginx and php-fpm, the entrypoint runs `bin/settings.php auth status` as
-  `www-data`. That reads the database without creating, migrating or changing it. When sign-in would be off, the
+  `www-data`. That reads the database without migrating or seeding it, and a missing SQLite file stays missing. Like
+  the app a moment later, it may create an empty `DB_SCHEMA` that doesn't exist yet and switch an older SQLite file to
+  WAL mode. When sign-in would be off, the
   container exits with code 78 and logs `sign-in is off` with both ways out (the `bin/settings.php password` command and `ALLOW_NO_LOGIN=1`). Sign-in counts as on when the stored *Require sign-in*
   setting is on and an account exists, or, on a new database, when `APP_PASSWORD` is set (it creates the account
-  `admin` on the first request). The check waits up to 30 s for the database (PostgreSQL may still be starting) and
-  then exits with code 78 too.
+  `admin` on the first request; it needs at least 8 characters, not only spaces, or the container exits with code 78
+  and says `APP_PASSWORD is too short` without showing the value). The check tries for about 30 s while the database
+  may still be starting (30 tries, 1 s apart; a PostgreSQL address that doesn't answer makes each try wait 5 s, so up
+  to about 3 minutes) and then exits with code 78 too.
   * An install that already has sign-in on in its database starts without `APP_PASSWORD`; the variable is only used
     on a new database.
   * To run without sign-in on purpose, on a trusted network only, set `ALLOW_NO_LOGIN=1`. Any value other than
@@ -220,17 +226,18 @@ The app answers only to host names it knows (hardening, SEC-M3). A request with 
   with nothing configured;
 * `localhost` (and `*.localhost`), and the machine's own host name (in Docker, the container's host name: the
   container ID unless `hostname:` is set in the compose file);
-* the host of `PUBLIC_URL`;
+* the host of the Public URL (Control Panel → General; `PUBLIC_URL` sets it on a new install only);
 * every name in `ALLOWED_HOSTS` (comma-separated, for example `ALLOWED_HOSTS=apotheke.lan,nas.lan`; a port in an
   entry is ignored). `*` accepts any name and turns the check off.
 
-If you open the app by a name such as `apotheke.lan` or `nas.local`, set `PUBLIC_URL` to that address or add the name
-to `ALLOWED_HOSTS`. A reverse proxy must pass the original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy
-does by default) or a name on this list.
+If you open the app by a name such as `apotheke.lan` or `nas.local`, add the name to `ALLOWED_HOSTS` or make it the
+Public URL. `PUBLIC_URL` only works on a new install: the first start saves it in the database, and from then on an
+existing install sets the address under Control Panel → General (Public URL). A reverse proxy must pass the
+original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy does by default) or a name on this list.
 
-The health endpoints `/healthz` and `/health` follow the same rule (#70 L-2). The image's own `HEALTHCHECK` uses
+The health endpoints `/healthz` and `/health` follow the Host rule from 2.6.2 described above (#70 L-2). The image's own `HEALTHCHECK` uses
 `127.0.0.1` and keeps working, but a container or orchestrator health check, or an outside monitor, must use an
-allowed host: an IP address, `localhost`, the container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS`
+allowed host: an IP address, `localhost`, the container's host name, the Public URL's host or an `ALLOWED_HOSTS`
 entry. A probe that uses any other name gets 421.
 
 With sign-in off (no `APP_PASSWORD` and no accounts; in Docker only with `ALLOW_NO_LOGIN=1`), a request that changes something (anything but GET, HEAD and
@@ -262,8 +269,9 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
    first location (the Docker image uses [`docker/fastcgi.conf`](../docker/fastcgi.conf)). Keep
    `client_max_body_size 520m` in **both** locations: the check is a subrequest that sees the upload's
    `Content-Length`, and with a smaller limit nginx refuses the check itself and answers 500. nginx also turns
-   any other answer from the check into 500; the `@restore_check_failed` location passes the app's 421 for an
-   unknown host name on (hardening, #70 N-3), and nginx still logs *auth request unexpected status: 421*.
+   any other answer from the check into 500; the `@restore_check_failed` location answers 421 for an
+   unknown host name instead, with the same short text as the app's 421 (hardening, #70 N-3, #73 QA N-2), and nginx
+   still logs *auth request unexpected status: 421*.
 
    ```nginx
    location = /backup/restore {
@@ -303,7 +311,10 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
        fastcgi_param HTTP_PROXY "";
    }
    location @restore_check_failed {
-       if ($restore_check = 421) { return 421; }
+       default_type text/plain;
+       charset utf-8;
+       add_header Cache-Control no-store always;
+       if ($restore_check = 421) { return 421 "Unknown host name. Open the app by its address, or add this name to ALLOWED_HOSTS (or PUBLIC_URL).\n"; }
        return 500;
    }
    ```
@@ -322,7 +333,8 @@ wide or high and 128 MP, ImageMagick's memory and map at 256 MiB, its disk cache
 seconds, and it turns off the coders that read text, vector or page formats or fetch URLs, all external delegates
 and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as before. The image build fails if the
 policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick reports, the refused coders, and
-from `magick -list policy` no rights for delegates or `@file` paths and a time limit of 60 s or less; #70 N-2).
+from `magick -list policy` no rights for delegates or `@file` paths, including any narrower rule added later, and a
+time limit of 60 s or less; #70 N-2, #73 QA N-1).
 
 ## HTTPS
 
@@ -405,6 +417,17 @@ The image sets `zend.exception_ignore_args = On`, so the exception text does not
   request must come from the app's own pages; see [Host names](#host-names).
 * **HSTS:** the app does not send `Strict-Transport-Security` itself, because it often runs on plain HTTP on a LAN.
   Add it in your TLS proxy (see the Caddy and nginx examples above).
+* **Stored secrets:** with `APP_KEY` set, recoverable secrets (the autofill access token) are encrypted in the
+  database. A configured key that cannot be used (malformed, unreadable, inside the data directory, or the sodium
+  extension missing) refuses secret saves. With no key configured, they stay plaintext. Password hashes stay hashes.
+  The database file itself and the upload directories (photos, thumbnails, camera originals, attachments) are not
+  encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR` and, for PostgreSQL, the database volume.
+  See [Stored secrets](configuration.md#stored-secrets). If the key is lost, stored secrets count as unset, so keep the
+  key out of the data volume and its backups. An `APP_KEY_FILE` must be readable by the app user. Inside the image
+  that user is `www-data` (uid 82, gid 82). `chown` runs on the host, where `www-data` is gid 33 on Debian and Ubuntu
+  and some hosts have no such group, so use `chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside
+  Swarm, plain `docker compose` bind-mounts a `file:` secret with the host file's owner and mode and ignores uid, gid
+  and mode. The same `root:82` and `0440` apply to that file.
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.
@@ -413,9 +436,9 @@ The image sets `zend.exception_ignore_args = On`, so the exception text does not
 
 * `GET /healthz` returns `ok` after connecting to the database (the Docker `HEALTHCHECK` uses it) and sends the running
   version in `X-Apotheke-Version`. A missing PostgreSQL schema that this role cannot create is an error, not `ok`.
-* `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
+* `GET /health` returns `{"status":"ok","version":"X.Y.Z"}` (JSON, no login needed; `version` is the running release from `VERSION`) for monitoring tools.
 * Both health endpoints are behind the [Host check](#host-names): a probe must use an IP address, `localhost`, the
-  container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS` entry, or it gets 421.
+  container's host name, the Public URL's host or an `ALLOWED_HOSTS` entry, or it gets 421.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
   are logged as `[apotheke] …` and shown to the user as a generic error page.
 * Disk usage is mostly `data/originals` (about the size of each camera file), plus the smaller stripped JPEG in

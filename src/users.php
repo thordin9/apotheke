@@ -16,6 +16,7 @@ const PASSWORD_MIN = 8;
 function user_row(array $r): array
 {
     return ['id' => (int)$r['id'], 'username' => (string)$r['username'], 'role' => (string)$r['role'], 'status' => (string)($r['status'] ?? 'active'), 'password_hash' => (string)$r['password_hash'],
+        'session_epoch' => (string)($r['session_epoch'] ?? ''),
         'created_at' => (string)$r['created_at'], 'last_login_at' => $r['last_login_at'] === null ? null : (string)$r['last_login_at']];
 }
 
@@ -127,6 +128,7 @@ function user_set_password(int $id, string $password, ?string $confirm = null): 
     guard_admin_target($u);
     $password = user_password_valid($password, $confirm);
     db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([password_hash($password, PASSWORD_DEFAULT), $id]);
+    user_renew_epoch($id);
 }
 
 function user_rename(int $id, string $name): void
@@ -158,13 +160,51 @@ function user_verify(string $name, string $password): ?array
     return $u;
 }
 
-/** Sessions remember this fingerprint; a new password for the user invalidates them. */
+/**
+ * Sessions remember this fingerprint. A stored session epoch wins; otherwise it is the
+ * password-hash fingerprint sessions already held before that column existed. Changing the
+ * password or signing out everywhere stores a new value, so older sessions no longer match.
+ */
 function user_epoch(array $u): string
 {
+    $stored = (string)($u['session_epoch'] ?? '');
+    if ($stored !== '') return $stored;
     return substr(hash('sha256', $u['password_hash'] . '|' . $u['id']), 0, 16);
 }
 
+/** Replace the account's session epoch. Every session still holding the old one is signed out. */
+function user_renew_epoch(int $id): string
+{
+    $epoch = bin2hex(random_bytes(8));
+    db()->prepare('UPDATE users SET session_epoch = ? WHERE id = ?')->execute([$epoch, $id]);
+    return $epoch;
+}
+
+/** Sign this account out on every device. The caller signs the current session back in when it should stay. */
+function user_sign_out_everywhere(int $id): void
+{
+    if (!user_get($id)) throw new UserError('User not found.', 404);
+    user_renew_epoch($id);
+}
+
 /* ---------- sign-in mode ---------- */
+
+/** APP_PASSWORD is set but too short or blank (hardening, #75 QA L-2). The message never contains the value. */
+final class AppPasswordError extends RuntimeException {}
+
+/** Why a non-empty APP_PASSWORD can't become a password (same PASSWORD_MIN as any other), or null when it can. */
+function app_password_problem(#[\SensitiveParameter] string $pw): ?string
+{
+    if ($pw === '' || (trim($pw) !== '' && mb_strlen($pw) >= PASSWORD_MIN)) return null;
+    return 'APP_PASSWORD is too short: use at least ' . PASSWORD_MIN . ' characters (not only spaces), or leave it empty.';
+}
+
+/** Throws AppPasswordError before APP_PASSWORD is stored as a password (seeding, or the first account "admin"). */
+function app_password_require(): void
+{
+    $problem = app_password_problem((string)cfg()['app_password']);
+    if ($problem !== null) throw new AppPasswordError($problem);
+}
 
 function auth_enabled(): bool
 {
@@ -173,13 +213,14 @@ function auth_enabled(): bool
     // APP_PASSWORD (env/config) on an install without accounts: it becomes the password of the account "admin"
     $pw = (string)cfg()['app_password'];
     if ($pw === '' || mb_strlen($pw) < 1) return false;
+    app_password_require();
     db_insert(db(), 'INSERT INTO users (username, username_key, password_hash, role, created_at) VALUES (?,?,?,?,?)',
         ['admin', 'admin', password_hash($pw, PASSWORD_DEFAULT), 'admin', now_utc()]);
     return true;
 }
 
 /**
- * Whether sign-in will be on, read without creating, migrating or seeding anything (the Docker entrypoint asks this
+ * Whether sign-in will be on, read without migrating or seeding (the Docker entrypoint asks this
  * before it starts the app; hardening, SEC-M3). Same answer as auth_enabled(): the stored auth_enabled setting, else
  * APP_PASSWORD (the first migration seeds the setting from it); an empty account list counts only with APP_PASSWORD,
  * which then creates the account admin. $pdo is null when there is no database yet; $appPassword is cfg()['app_password'].

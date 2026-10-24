@@ -12,13 +12,14 @@ declare(strict_types=1);
  *   php bin/settings.php user add NAME ROLE [PASSWORD]   ROLE: admin, editor, viewer or a custom role key (asks for the password if not given)
  *   php bin/settings.php user approve NAME    approve a self-registered account
  *   php bin/settings.php user password NAME [PASSWORD]   set a new password (signs that user out everywhere)
+ *   php bin/settings.php user signout NAME    end every session of that account
  *   php bin/settings.php user role NAME ROLE
  *   php bin/settings.php user rename NAME NEWNAME
  *   php bin/settings.php user delete NAME
  *   php bin/settings.php roles                list the roles and their permissions
  *   php bin/settings.php roles reset          restore the built-in roles' permissions (custom roles stay)
  *   php bin/settings.php auth on|off          turn sign-in on (needs an admin account) or off
- *   php bin/settings.php auth status          on or off without touching the database; exit 0 = on, 3 = off (Docker entrypoint)
+ *   php bin/settings.php auth status          on or off without migrating or seeding; exit 0 = on, 3 = off, 4 = APP_PASSWORD too short (Docker entrypoint)
  *   php bin/settings.php password [PASSWORD]  recovery shortcut: set the password of "admin" (created if missing) and turn sign-in on
  *   php bin/settings.php password --off       turn sign-in off
  *   php bin/settings.php export > s.json      /  import s.json
@@ -102,8 +103,12 @@ try {
                     user_delete($find()['id']);
                     echo "Deleted {$name}.\n";
                     break;
+                case 'signout':
+                    user_sign_out_everywhere($find()['id']);
+                    echo "Signed {$name} out on every device.\n";
+                    break;
                 default:
-                    throw new UserError('Use: user add|password|role|approve|rename|delete NAME …');
+                    throw new UserError('Use: user add|password|role|approve|rename|delete|signout NAME …');
             }
             break;
         case 'roles':
@@ -114,15 +119,23 @@ try {
             if (($argv[2] ?? '') === 'on') { auth_turn_on(); echo "Sign-in turned on.\n"; }
             elseif (($argv[2] ?? '') === 'off') { auth_turn_off(); echo "Sign-in turned off.\n"; }
             elseif (($argv[2] ?? '') === 'status') {
-                // read-only: a missing SQLite file stays missing, and nothing is migrated
+                // no migration or seeding, and a missing SQLite file stays missing (connecting may still create an empty
+                // DB_SCHEMA or switch an older SQLite file to WAL, as the app does)
                 $db = cfg()['db'];
+                $db['connect_timeout'] = 5;   // each try of the entrypoint's wait (#75 QA N-2)
                 try {
                     $pdo = $db['driver'] === 'sqlite' && !is_file((string)$db['sqlite_path']) ? null : db_connect($db);
                 } catch (PDOException) {
                     fwrite(STDERR, db_connect_failure_message((string)$db['driver'], config_migrate_where($db)) . "\n");
                     exit(1);
                 }
-                $on = auth_on_at_start($pdo, (string)cfg()['app_password']);
+                $pw = (string)cfg()['app_password'];
+                $on = auth_on_at_start($pdo, $pw);
+                // APP_PASSWORD decides only on a new install; there it must meet PASSWORD_MIN (hardening, #75 QA L-2)
+                if ($on !== auth_on_at_start($pdo, '') && ($problem = app_password_problem($pw)) !== null) {
+                    fwrite(STDERR, $problem . "\n");
+                    exit(4);
+                }
                 echo $on ? "on\n" : "off\n";
                 exit($on ? 0 : 3);
             }
@@ -176,7 +189,7 @@ try {
             fwrite(STDERR, "Unknown command. See the comment at the top of bin/settings.php.\n");
             exit(2);
     }
-} catch (UserError $e) {
+} catch (UserError|AppPasswordError $e) {   // a short APP_PASSWORD exits 1 with its message (#81 QA L-1)
     fwrite(STDERR, $e->getMessage() . "\n");
     exit(1);
 }

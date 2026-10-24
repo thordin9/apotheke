@@ -26,11 +26,14 @@ function db_connect(array $db): PDO
     $password = $db['driver'] === 'pgsql' ? (string)$db['password'] : null;
     $user = $db['driver'] === 'pgsql' ? (string)$db['user'] : null;
     unset($db['password']);
-    $pdo = new PDO(config_dsn($db), $user, $password, [
+    $options = [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_STRINGIFY_FETCHES  => false,
-    ]);
+    ];
+    // seconds to wait for a PostgreSQL connection (pdo_pgsql's own default is 30)
+    if (!empty($db['connect_timeout'])) $options[PDO::ATTR_TIMEOUT] = (int)$db['connect_timeout'];
+    $pdo = new PDO(config_dsn($db), $user, $password, $options);
     if ($db['driver'] === 'sqlite') {
         $pdo->exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
     } else {

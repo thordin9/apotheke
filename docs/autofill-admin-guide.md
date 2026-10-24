@@ -23,7 +23,8 @@ You need the *Settings* permission (admins by default).
    suggests, its image limit, its typical answer time and, for a service with API v1.2, its **models** and **image
    sizes**.
 5. If the service runs with `AUTOFILL_TOKEN`, enter it under **Access token** and press **Save token**. The token is
-   write-only: it is never shown again, exported or backed up.
+   write-only: it is never shown again, exported or backed up. Set `APP_KEY` first so it is encrypted at rest
+   ([Stored secrets](configuration.md#stored-secrets)). Without a key the page warns you and the token stays plaintext.
 6. Press **Save**. Apotheke fetches the service's details once (at most 5 s), so the first photo already gets a
    progress estimate.
 

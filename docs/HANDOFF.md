@@ -6,7 +6,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Current state
 
 - `feature/ci4` carries `main` up to v2.6.9 (sync [#83](https://github.com/thordin9/apotheke/pull/83)); #85 brings
-  v2.6.13. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and in development.
+  v2.6.13, including the legacy session limits, `user signout NAME` and the Control Panel key warning. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes), Auth
   (current user, admin guards, session epoch, sign out everywhere; no pages yet).
@@ -19,15 +19,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Pull requests
 
 - [#89](https://github.com/thordin9/apotheke/pull/89): stored-secret encryption for CI4 (S-L5). Merged.
-- [#90](https://github.com/thordin9/apotheke/pull/90): the CI4 session port (this page's PR). In review.
-- [#85](https://github.com/thordin9/apotheke/pull/85): sync `main` v2.6.13 into `feature/ci4`. Open.
+- [#90](https://github.com/thordin9/apotheke/pull/90): the CI4 session port. Merged.
+- [#85](https://github.com/thordin9/apotheke/pull/85): sync `main` v2.6.13 into `feature/ci4` (this page's PR). In
+  review.
 
 ## Next steps
 
-1. After #90, merge `feature/ci4` into the #85 branch (plain merge, no force-push) and get its CI to 22/22.
-2. PLAN PR 7: the Permission filter for CI4 routes. It must land before the cutover.
+1. Next PR: PLAN PR 7, the Permission filter for CI4 routes. It must land before the cutover.
+2. Sync `main` v2.6.14 and later (#87, the docs trim #88) into `feature/ci4` in a later sync PR.
 3. One batched PR of small follow-ups: #89 test and cleanup items, the Control Panel key warning with the settings
-   UI, and `SessionGate::signIn()` call sites with `keepSignIn` only where `main` #87 passes it.
+   page, and `SessionGate::signIn()` call sites with `keepSignIn` only where `main` #87 passes it.
 4. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 5. Layout module (shared page shell, assets under `ci4/public`), then the Auth pages on top of it.

@@ -120,7 +120,7 @@ function settings_schema(): array
         'auth_register_disabled' => ['security', 'Disable registrations', 'bool', true, 'Off: anyone who can reach this address can create an account at /register (limited to 5 per hour per address).', []],
         'auth_register_role' => ['security', 'Role for new registrations', 'role', 'viewer', 'Admin cannot be chosen.', []],
         'auth_register_approval' => ['security', 'Registrations need an admin’s approval', 'bool', false, 'New accounts can only sign in once an admin approves them under Users.', []],
-        'session_days' => ['security', 'Stay signed in for (days)', 'int', 30, 'The longest a sign-in lasts, counted from sign-in. Later visits do not extend it. Applies from the next sign-in.', ['min' => 1, 'max' => 365]],
+        'session_days' => ['security', 'Stay signed in for (days)', 'int', 30, 'The longest a sign-in lasts, counted from sign-in. Later visits do not extend it. The server ends it when this time has passed.', ['min' => 1, 'max' => 365]],
         'session_idle_hours' => ['security', 'Sign out after idle (hours)', 'int', 168, 'End a sign-in after this many hours with no request. 1–8760 (365 days). The stay-signed-in limit above still applies.', ['min' => 1, 'max' => 8760]],
         'trust_proxy' => ['security', 'Trust the reverse proxy', 'bool', false, 'Turn on only when the app sits behind your own HTTPS proxy (nginx, Caddy, Traefik) that sets X-Forwarded-Proto. Then sign-in cookies are marked Secure. Leave off when the app is reachable directly.', []],
         'import_create_missing' => ['data', 'CSV import creates missing entries', 'bool', true, 'Pre-ticks “Create missing locations, categories and tags” on the import screen.', []],
@@ -492,6 +492,7 @@ function settings_reset_section(string $section): void
 function settings_seed(PDO $pdo): void
 {
     $have = $pdo->query('SELECT name FROM settings')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('password_hash', $have, true)) app_password_require();   // the hash is seeded from APP_PASSWORD
     $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
     foreach (settings_schema() as $k => $_) {
         if (in_array($k, $have, true)) continue;

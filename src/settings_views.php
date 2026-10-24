@@ -439,7 +439,8 @@ function settings_autofill_token_html(string $tok, ?string $error): string
 {
     $set = autofill_token() !== '';
     $o = '<section class="set-card" id="af-token"><h2 class="set-h">' . icon('lock') . ' Access token</h2>'
-       . '<p class="hint">Only needed when the service was started with <code>AUTOFILL_TOKEN</code>. It is stored on this server and sent as a bearer token; it is never shown again and not included in exports or backups.</p>'
+       . secret_storage_warning_html()
+       . '<p class="hint">Only needed when the service was started with <code>AUTOFILL_TOKEN</code>. It is stored on this server and sent as a bearer token; it is never shown again and not included in exports or backups. With <code>APP_KEY</code> set it is encrypted at rest.</p>'
        . '<p class="pw-state" id="af-token-state">' . ($set ? icon('check') . ' A token is <b>set</b>.' : 'No token set.') . '</p>'
        . ($error !== null ? '<p class="field-err" id="af-token-err" role="alert">' . h($error) . '</p>' : '')
        . '<form method="post" action="/settings/autofill/token" class="setform" id="af-token-form" autocomplete="off"><input type="hidden" name="csrf" value="' . $tok . '">'

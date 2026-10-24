@@ -69,6 +69,87 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci:** the Docker job runs `scripts/legacy-dsn-precedence.php` with the image's PHP against its PostgreSQL and checks legacy `db_connect()` credential precedence (golden cases a–d, plus e, e2 and e3 where `user=` or `password=` text sits inside `application_name` or `options`, e3 with credentials in both the DSN and the environment, for that PHP version) with `current_user`. On CI, the refused-connect log test fails instead of skipping when it cannot run. ([#66](https://github.com/thordin9/apotheke/pull/66)) ([#68](https://github.com/thordin9/apotheke/pull/68))
 - **test:** the CI4 boot migration key is pinned to the schema and the user, the credentials warning is pinned to once per request, and `skipOutsideCi()` is a shared trait with a test for its CI-only fail branch. ([#68](https://github.com/thordin9/apotheke/pull/68))
 - **ci4:** sync `main` 3f729a3 (2.6.9) into `feature/ci4`. The legacy app gets main's 2.6.2–2.6.9 hardening (Host allow-list, sign-in import limits, restore check, ImageMagick policy, image decode limits and the PNG cap, the CLI admin fix, Docker localhost bind and required sign-in, the `session_idle_hours` idle sign-out). Migration 0027 (`session_idle_hours`) is in the CI4 settings schema copy; CI4 does not enforce the idle limit yet. `scripts/lint.sh` runs `release.php check-links`, so an unlinked `[Unreleased]` bullet fails lint on `feature/ci4` too, and the link check skips elided `(…#anchor)` placeholders in quoted QA suggestions. ([#83](https://github.com/thordin9/apotheke/pull/83))
+- **ci4:** sync `main` 32b1ef8 (2.6.10) into `feature/ci4`. The legacy app gets main's #81 follow-ups (an `APP_PASSWORD` of at least 8 characters, nginx's 421 with the app's text, the ImageMagick policy check and the release-notes dedupe). Short `APP_PASSWORD` test fixtures are now 8 characters or more, the link check skips only `(…)` and `(…#anchor)` placeholders, and the autofill docs say CI4 suggest has no photo size limits yet. ([#85](https://github.com/thordin9/apotheke/pull/85))
+
+## [2.6.13] - 2026-10-24
+
+### Fixed
+
+- **ui:** the footer version label has a fixed width, so a release bump no longer shifts the centred footer links. ([#86](https://github.com/thordin9/apotheke/pull/86))
+
+### Maintenance
+
+- **e2e:** test: pin the footer version label before screenshots ([#86](https://github.com/thordin9/apotheke/pull/86))
+- **e2e:** test: update the list footer baselines ([#86](https://github.com/thordin9/apotheke/pull/86))
+- **changelog:** docs: add the footer version width fix ([#86](https://github.com/thordin9/apotheke/pull/86))
+
+## [2.6.12] - 2026-10-24
+
+### Fixed
+
+- **auth:** a sign-in ends on the server once it is older than `session_days`, counted from sign-in. A session from before the upgrade is stamped on its next request instead of being ended. The idle stamp moves at most once a minute. Sign-out of an already ended session redirects. Sign out everywhere (Your account, and `php bin/settings.php user signout NAME`) and a new password replace the account's session epoch (migration 0028), so older sessions are dropped. SEC-N6. ([#84](https://github.com/thordin9/apotheke/pull/84))
+
+### Maintenance
+
+- docs: state the server-side sign-in limit ([#84](https://github.com/thordin9/apotheke/pull/84))
+- docs: record the session lifetime limit ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **e2e:** test: update the security settings baseline ([#84](https://github.com/thordin9/apotheke/pull/84))
+- test: use 8-character password in session lifetime tests ([#84](https://github.com/thordin9/apotheke/pull/84))
+- test: stale sign-out deletes the live session file ([#84](https://github.com/thordin9/apotheke/pull/84))
+- docs: name migration 0028 in the changelog ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **qa:** docs: add v2.6.11 release QA doc ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **qa:** docs: add PR 84 session lifetime QA doc ([#84](https://github.com/thordin9/apotheke/pull/84))
+
+## [2.6.11] - 2026-10-24
+
+### Fixed
+
+- **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. A configured but unusable key refuses secret saves. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
+
+### Changed
+
+- **security:** refuse secret saves with an unusable key ([#78](https://github.com/thordin9/apotheke/pull/78))
+
+### Maintenance
+
+- **changelog:** docs: link stored-secret encryption pull request ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **visual:** test: refresh autofill screenshots for the key warning ([#78](https://github.com/thordin9/apotheke/pull/78))
+- ci: assert the sodium extension in the image ([#78](https://github.com/thordin9/apotheke/pull/78))
+- docs: show APP_KEY_FILE mount and key backup advice ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **security:** test: cover unusable-key and moved-address cases ([#78](https://github.com/thordin9/apotheke/pull/78))
+- docs: correct key file permissions ([#78](https://github.com/thordin9/apotheke/pull/78))
+- docs: use numeric gid 82 for key file permissions ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **visual:** test: re-render baselines for the wider v2.6.10 footer ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **qa:** docs: add v2.6.10 release QA doc ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **qa:** docs: add PR 78 stored-secret encryption QA doc ([#78](https://github.com/thordin9/apotheke/pull/78))
+
+## [2.6.10] - 2026-10-24
+
+**Upgrade note:** a new install's `APP_PASSWORD` now needs at least 8 characters, not only spaces (hardening, #75 QA L-2). A shorter one stops the first start with a message that doesn't show it. An install that already has an account is unaffected.
+
+### Fixed
+
+- **auth:** hardening (#75 QA L-2): `APP_PASSWORD` meets the same 8-character minimum as every other password. A shorter value stops the Docker start check (exit 78), `bin/migrate.php`, `bin/settings.php` (exit 1, no stack trace) and the first-account seed, and the value is never logged. ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docker:** hardening (#75 QA L-1, N-2; #73 QA N-1, N-2): the start check is tested for a database that can't be read, and each try waits at most 5 s for PostgreSQL. The ImageMagick policy check fails on any delegate or `@file` path rule that grants rights. nginx's 421 on the restore upload has the app's short plain-text body. ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **release:** a handwritten Fixed bullet replaces the lines generated from the same PR's `fix:` commits, whatever their scope (v2.6.5 release QA L-1). ([#81](https://github.com/thordin9/apotheke/pull/81))
+
+### Maintenance
+
+- **docker:** test: cover the exit 78 when the database can't be read ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** docs: say what the sign-in start check may change ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docker:** docs: bind the 1.x upgrade port examples to 127.0.0.1 ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **hosts:** docs: name the 2.6.2 Host rule that health checks follow ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **hosts:** docs: say PUBLIC_URL only works on a new install ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **health:** docs: use a version placeholder in the /health example ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: cover a failing account query and the admin seed ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: give the APP_PASSWORD fixtures 8 or more characters ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docker:** test: rewrap the sign-in checks header ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **changelog:** docs: record the SEC-M3 follow-up hardening ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: settings CLI exits 1 on a short APP_PASSWORD ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: give the idle-session fixture an 8-character password ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **qa:** docs: add v2.6.9 release QA ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **qa:** docs: add PR #81 SEC-M3 follow-up QA ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docs:** health checks follow the Host rule from 2.6.2, `PUBLIC_URL` only works on a new install (an existing one uses Control Panel → General), the `/health` example uses a version placeholder, the 1.x upgrade port examples bind to `127.0.0.1`, and the start check's wording says what it may change (#73 QA L-1, v2.6.2 release QA L-1 and N-4, #75 QA N-1 and N-3). ([#81](https://github.com/thordin9/apotheke/pull/81))
 
 ## [2.6.9] - 2026-10-24
 
@@ -640,7 +721,11 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.9...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.13...HEAD
+[2.6.13]: https://github.com/thordin9/apotheke/compare/v2.6.12...v2.6.13
+[2.6.12]: https://github.com/thordin9/apotheke/compare/v2.6.11...v2.6.12
+[2.6.11]: https://github.com/thordin9/apotheke/compare/v2.6.10...v2.6.11
+[2.6.10]: https://github.com/thordin9/apotheke/compare/v2.6.9...v2.6.10
 [2.6.9]: https://github.com/thordin9/apotheke/compare/v2.6.8...v2.6.9
 [2.6.8]: https://github.com/thordin9/apotheke/compare/v2.6.7...v2.6.8
 [2.6.7]: https://github.com/thordin9/apotheke/compare/v2.6.6...v2.6.7

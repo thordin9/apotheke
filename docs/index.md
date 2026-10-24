@@ -21,7 +21,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 |---|---|
 | [AGENTS.md](../AGENTS.md) | Instructions for AI agents: stack constraints, layout, tests, commits |
 | [Getting started](getting-started.md) | Docker, Docker Compose (including the `postgres` profile), running without Docker, local development |
-| [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules |
+| [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules, stored-secret encryption |
 | [Control Panel](control-panel.md) | Settings at `/settings`: what lives in the database vs. `config.php`, accent contrast, logo upload, users & roles, import/export, `bin/settings.php` |
 | [AI autofill](autofill.md) | Optional suggestions from a photo by the separate autofill service: settings, write-only token, Test connection and Test with a photo, the Analyze button (on demand), model and image size (API v1.2), progress while it works, what is sent and how failures are handled, debug hooks and test stub modes |
 | [AI autofill: admin guide](autofill-admin-guide.md) | Setting up autofill step by step: connecting the service, *Analyze photos automatically* (off by default), choosing the model and image size, the test buttons, upgrading from 2.3 |

@@ -126,7 +126,9 @@ are not followed and only http(s) is allowed; for a home-network app that is acc
 
 - It is saved through its own form and **never shown again**: the page only says whether a token is set.
 - It is a `secret` setting: not in the settings export, not in backups, cannot be set by a settings import,
-  never written to logs and never sent to the browser. Suggestions go through Apotheke's server, so the
+  never written to logs and never sent to the browser. With `APP_KEY` set it is stored as an `enc:v1:` envelope.
+  Without a key it stays plaintext and the Control Panel says to set `APP_KEY`. See
+  [Stored secrets](configuration.md#stored-secrets). Suggestions go through Apotheke's server, so the
   browser never talks to the service directly.
 - **Clear token** removes it.
 - Saving a **different service address** (same comparison as above) clears the stored token in the same
@@ -393,5 +395,8 @@ routes check the session CSRF token only. Host and same-origin checks arrive wit
 [#76](https://github.com/thordin9/apotheke/pull/76). The permission check arrives with the CI4 login PR. Category
 and tag names, and which file to analyze (kept original, otherwise the served JPEG), are SQL until Taxonomy and Media
 exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. CI4 cases live in
-`ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`. The header pre-check from
-[#72](https://github.com/thordin9/apotheke/pull/72) waits until that change is on `feature/ci4`.
+`ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`. Photo size limits are legacy-only for
+now: the legacy header pre-check and decode limits ([#72](https://github.com/thordin9/apotheke/pull/72)) and the PNG
+cap ([#79](https://github.com/thordin9/apotheke/pull/79)) are on `feature/ci4` since
+[#83](https://github.com/thordin9/apotheke/pull/83), but the CI4 Autofill module does not apply them yet, so CI4
+suggest has no pixel or decode limit. Porting them is a pending CI4 follow-up (Coder's L-2 port).
