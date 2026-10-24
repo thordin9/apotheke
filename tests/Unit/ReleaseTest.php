@@ -146,6 +146,20 @@ final class ReleaseTest extends TestCase
         $this->assertSame(1, substr_count($added, '**autofill:**'));
     }
 
+    public function testHandwrittenFixedBulletReplacesThatPrsGeneratedFixLines(): void
+    {
+        $pr = fn(int $n) => ' ([#' . $n . '](' . self::URL . '/pull/' . $n . '))';
+        $cl = "# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- **images:** the handwritten note about the photo cap" . $pr(72) . "\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $section = "## [1.1.0] - 2026-10-13\n\n### Fixed\n\n- **autofill:** refuse an over-limit photo on suggest" . $pr(72) . "\n- **db:** another PR keeps its line" . $pr(71) . "\n\n### Maintenance\n\n- **autofill:** test: same PR, other section" . $pr(72) . "\n";
+        $out = rel_changelog_insert($cl, $section, '1.1.0', 'v1.0.0', self::URL);
+        $this->assertStringNotContainsString('refuse an over-limit photo on suggest', $out);
+        $this->assertStringContainsString('- **images:** the handwritten note about the photo cap' . $pr(72), $out);
+        $this->assertStringContainsString('- **db:** another PR keeps its line' . $pr(71), $out);
+        $this->assertStringContainsString('- **autofill:** test: same PR, other section' . $pr(72), $out);
+        $fixed = substr($out, (int)strpos($out, '### Fixed'), (int)strpos($out, '### Maintenance') - (int)strpos($out, '### Fixed'));
+        $this->assertSame(1, substr_count($fixed, '[#72]'));
+    }
+
     public function testChangelogFoldKeepsBlankLinesInsideNotes(): void
     {
         $cl = "# Changelog\n\n## [Unreleased]\n\nFirst paragraph.\n\nSecond paragraph.\n\n### Fixed\n\n- one\n\n- two\n\n```\nline\n\nline\n```\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
