@@ -8,7 +8,7 @@ return [
     'data_dir'     => __DIR__ . '/data',      // DATA_DIR      photos, thumbnails, sessions (and the SQLite file)
     'originals_dir' => '',                   // ORIGINALS_DIR camera uploads; empty = <data_dir>/originals (outside public/)
     'timezone'     => 'Europe/Athens',        // TZ            used for dates and statistics
-    'app_password' => '',                     // APP_PASSWORD  empty = no login (LAN only)
+    'app_password' => '',                     // APP_PASSWORD  empty = no login (Docker: needs ALLOW_NO_LOGIN=1)
 
     'db' => [
         'driver'      => 'sqlite',            // DB_DRIVER     sqlite | pgsql

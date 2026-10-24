@@ -34,7 +34,7 @@ migrations/NNNN_*.php     versioned schema steps
 bin/                      CLI: migrate.php, seed.php, backup.php, restore.php, settings.php
 docker/                   nginx.conf (template), fastcgi.conf, php-fpm.conf, php.ini, entrypoint.sh
 tests/                    run.sh, integration.php + lib.php, Unit/, Integration/, e2e/ (puppeteer), visual/ (Playwright)
-scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, docker-auth-checks.sh, imagick-policy-check.php, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, docker-auth-checks.sh, docker-signin-checks.sh, imagick-policy-check.php, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
 docs/                     this documentation and the README screenshots
 ```
 
