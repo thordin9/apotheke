@@ -8,9 +8,20 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.14] - 2026-10-24
+
 ### Fixed
 
 - **auth:** hardening: a new sign-in after a session was ended now starts a fresh session lifetime. ([#87](https://github.com/thordin9/apotheke/pull/87))
+
+### Maintenance
+
+- test: new sign-in after a dropped session gets a new time ([#87](https://github.com/thordin9/apotheke/pull/87))
+- docs: changelog entry for fresh sign-in time ([#87](https://github.com/thordin9/apotheke/pull/87))
+- **qa:** docs: add v2.6.12 release QA doc ([#87](https://github.com/thordin9/apotheke/pull/87))
+- test: cover remaining keepSignIn call sites ([#87](https://github.com/thordin9/apotheke/pull/87))
+- **qa:** docs: add v2.6.13 release QA doc ([#87](https://github.com/thordin9/apotheke/pull/87))
+- **qa:** docs: add PR 87 session re-sign-in QA doc ([#87](https://github.com/thordin9/apotheke/pull/87))
 
 ## [2.6.13] - 2026-10-24
 
@@ -338,7 +349,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.13...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.14...HEAD
+[2.6.14]: https://github.com/thordin9/apotheke/compare/v2.6.13...v2.6.14
 [2.6.13]: https://github.com/thordin9/apotheke/compare/v2.6.12...v2.6.13
 [2.6.12]: https://github.com/thordin9/apotheke/compare/v2.6.11...v2.6.12
 [2.6.11]: https://github.com/thordin9/apotheke/compare/v2.6.10...v2.6.11
