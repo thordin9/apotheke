@@ -43,6 +43,7 @@ starts() {
 echo "== no APP_PASSWORD: refuses to start"
 out=$(refused 78)
 grep -q 'sign-in is off' <<<"$out"
+grep -q 'php bin/settings.php password' <<<"$out"
 grep -q 'ALLOW_NO_LOGIN=1' <<<"$out"
 echo "   ok"
 

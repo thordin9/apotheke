@@ -137,7 +137,7 @@ Two defaults keep a new Docker install private (hardening, SEC-M3):
   `-p 127.0.0.1:9091:9091` or `-p 9091:9091` in the same way.
 * **Sign-in required.** Before it starts nginx and php-fpm, the entrypoint runs `bin/settings.php auth status` as
   `www-data`. That reads the database without creating, migrating or changing it. When sign-in would be off, the
-  container exits with code 78 and logs `sign-in is off`. Sign-in counts as on when the stored *Require sign-in*
+  container exits with code 78 and logs `sign-in is off` with both ways out (the `bin/settings.php password` command and `ALLOW_NO_LOGIN=1`). Sign-in counts as on when the stored *Require sign-in*
   setting is on and an account exists, or, on a new database, when `APP_PASSWORD` is set (it creates the account
   `admin` on the first request). The check waits up to 30 s for the database (PostgreSQL may still be starting) and
   then exits with code 78 too.

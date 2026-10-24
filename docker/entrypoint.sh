@@ -26,7 +26,8 @@ case "${ALLOW_NO_LOGIN:-}" in
       i=$((i + 1)); sleep 1
     done
     if [ "$rc" = 3 ]; then
-      echo "apotheke: sign-in is off. Set APP_PASSWORD (it creates the account admin), or set ALLOW_NO_LOGIN=1 to run without sign-in on a trusted network." >&2
+      echo "apotheke: sign-in is off. Turn it on with: docker compose run --rm -u www-data apotheke php bin/settings.php password" >&2
+      echo "apotheke: or set ALLOW_NO_LOGIN=1 to run without sign-in on a trusted network. A new install can also set APP_PASSWORD." >&2
       exit 78
     fi
     if [ "$rc" != 0 ]; then echo "apotheke: could not read the sign-in setting from the database (exit $rc)" >&2; exit 78; fi
