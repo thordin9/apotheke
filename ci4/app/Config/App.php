@@ -201,38 +201,22 @@ class App extends BaseConfig
     public bool $CSPEnabled = false;
 
     /**
-     * trust_proxy for this request. Read once here, because this config is built
-     * before CI4's connection is wired; the session filter reuses it instead of
-     * reading it again (SEC-N11). Config instances are per request, not static.
-     */
-    public bool $trustProxy = false;
-
-    /**
      * baseURL comes from PUBLIC_URL, or the request's scheme and a Host that
      * passes the allow-list (SEC-M3), else localhost; CI4 never builds URLs from
      * an unchecked Host. allowedHostnames lists PUBLIC_URL's host and
-     * ALLOWED_HOSTS. proxyIPs stays empty: the Secure cookie follows
-     * RequestScheme, not CI4's proxy list.
+     * ALLOWED_HOSTS. Nothing here reads the database: trust_proxy is read
+     * through the request's SettingsService where it matters (the session
+     * cookie), so the scheme here is the direct connection's. proxyIPs stays
+     * empty: X-Forwarded-For is never used for the client address here.
      */
     public function __construct()
     {
         parent::__construct();
         $config = \Apotheke\Core\Config\ApothekeConfig::fromEnvironment();
-        try {
-            $group = (new \Apotheke\Core\Config\DsnTranslator())->translate($config->database());
-        } catch (\Apotheke\Core\Config\DsnException $e) {
-            // startup.php already stopped the web request. Spark still has to
-            // reach apotheke:migrate, which prints the banner itself.
-            if (PHP_SAPI !== 'cli') {
-                throw $e;
-            }
-            $group = ['DBDriver' => 'SQLite3', 'database' => ':memory:'];
-        }
-        $this->trustProxy = (new \Apotheke\Core\Http\TrustProxyReader($group))->trusted();
         $hosts = new \Apotheke\Core\Http\HostAllowList((string)gethostname());
         $configured = $hosts->configured($config->publicUrl(), $config->allowedHosts());
         $this->allowedHostnames = array_values(array_filter($configured, static fn (string $h): bool => $h !== '*'));
-        $base = (new \Apotheke\Core\Http\RequestScheme($this->trustProxy))->publicBase(
+        $base = (new \Apotheke\Core\Http\RequestScheme(false))->publicBase(
             $_SERVER,
             static fn (string $host): bool => $hosts->allowed($host, $configured),
             $config->publicUrl(),
