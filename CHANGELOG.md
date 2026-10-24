@@ -39,6 +39,11 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** read `trust_proxy` from the `DB_SCHEMA` search path, on its own PostgreSQL connection, so closing that connection leaves CI4's connection open. ([#38](https://github.com/thordin9/apotheke/pull/38))
 - **ci4:** a role without CREATE can use an existing schema, and a concurrent create (42P06 / 23505) continues once the schema is there. Connection failures from `bin/migrate.php` and `apotheke:migrate` print only the driver, host, port, database name and schema. The image sets `zend.exception_ignore_args = On`. ([#53](https://github.com/thordin9/apotheke/pull/53))
 - **ci4:** CI4's schema setup reads the SQLSTATE (42501, 42P06, 23505) from the PostgreSQL driver instead of the English message text, so a server with a non-English `lc_messages` gets the same handling. ([#66](https://github.com/thordin9/apotheke/pull/66))
+- **ci4:** 404, 500 and `UserError` responses carry the same security headers as legacy error pages (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Content-Security-Policy`). SEC-N8. ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **ci4:** the session cookie lasts `session_days` (1–365, 30 when unset or unreadable), as on legacy, instead of a fixed 30 days. SEC-N9. ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **ci4:** `/health` and `/healthz` answer GET and HEAD only; other methods get the plain 404. SEC-N10. ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **ci4:** every POST, PUT, PATCH and DELETE needs the session CSRF token in the `csrf` field or the `X-CSRF-Token` header, with legacy's 419 answer (JSON for fetch clients). GET and HEAD never start a session for it. CI4's own cookie CSRF stays off. SEC-N10. ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **ci4:** `trust_proxy` is read once per request instead of twice, so a request opens one settings connection fewer. SEC-N11. ([#74](https://github.com/thordin9/apotheke/pull/74))
 
 ### Maintenance
 
