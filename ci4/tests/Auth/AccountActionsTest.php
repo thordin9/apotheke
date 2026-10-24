@@ -7,6 +7,7 @@ namespace Tests\Auth;
 use Apotheke\Auth\AdminGuard;
 use Apotheke\Auth\CurrentUser;
 use Apotheke\Auth\SessionEpoch;
+use Apotheke\Auth\SignOutEverywhere;
 use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -24,7 +25,8 @@ use Tests\Support\TestDatabase;
 
 /**
  * SEC-M1 (main #71): who counts as an admin, the admin-only account actions,
- * and the settings import gate with a real request user.
+ * and the settings import gate with a real request user. SEC-N6: sign out
+ * everywhere.
  */
 final class AccountActionsTest extends CIUnitTestCase
 {
@@ -119,6 +121,35 @@ final class AccountActionsTest extends CIUnitTestCase
         $cli->grant('admin');
         $cli->signInOff();
         $this->addToAssertionCount(5);
+    }
+
+    #[DataProvider('drivers')]
+    public function testSignOutEverywhere(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $root = $this->account('root', 'admin', 'placeholder-pass');
+        $this->signInOn();
+        $users = new UserRepository($this->database->db);
+        $this->signInAs($root);
+        $other = $this->requestSession;
+        $before = $users->find($root);
+        try {
+            (new SignOutEverywhere($users))->run($root, 'wrong-pass');
+            $this->fail('signed out everywhere without the password');
+        } catch (UserError $e) {
+            $this->assertSame(403, $e->getCode());
+        }
+        $this->assertSame($before, $users->find($root));
+
+        $epoch = (new SignOutEverywhere($users))->run($root, 'placeholder-pass');
+        $after = $users->find($root);
+        $this->assertNotNull($after);
+        $this->assertTrue(password_verify('placeholder-pass', $after['password_hash']), 'the password is unchanged');
+        $this->assertSame((new SessionEpoch())->of($after), $epoch);
+        $this->requestSession = $other;
+        $this->assertFalse($this->currentUser()->isAdmin(), 'another device is signed out');
+        $this->requestSession = ['uid' => $root, 'auth_epoch' => $epoch];
+        $this->assertTrue($this->currentUser()->isAdmin(), 'this session keeps the new epoch');
     }
 
     private function currentUser(): CurrentUser
