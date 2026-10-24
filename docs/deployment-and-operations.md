@@ -348,8 +348,15 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   can build an analysis JPEG from it. Imagick does the same white background and sRGB conversion before encoding.
   For a grayscale photo, only the reduced JPEG sent to autofill is 1-channel. The displayed copy is re-encoded
   by GD as 3-channel and stays within a few levels.
-  The GD path is unchanged. Only that analysis JPEG forces 4:2:0 chroma subsampling. A
-  GD-only install stores the HEIC and shows a plain placeholder, never the HEIC bytes. A guessed `/originals/…` URL,
+  Photos at or under 40 megapixels still go through GD. A larger JPEG is decoded already reduced, and that
+  decoded frame stays within 128 megapixels; a JPEG over 250 megapixels or 30,000 px on a side is refused
+  from the header. A larger PNG, WebP or GIF is refused. A HEIC/HEIF photo over 128 megapixels or 16,384 px
+  on a side is refused from the header before pixels are read. Imagick is limited to memory 256 MiB, map
+  256 MiB, disk 1 GiB, area 128 megapixels, and width and height 16,384 px, the same limits as the policy the
+  image ships ([ImageMagick policy](#imagemagick-policy)). Any decode
+  Imagick stops for a resource limit is the same refusal. Only that analysis JPEG forces 4:2:0 chroma subsampling. A
+  GD-only install stores the HEIC and shows a plain placeholder, never the HEIC bytes. A JPEG above 40
+  megapixels needs Imagick; without it that photo is refused. A guessed `/originals/…` URL,
   including `/Originals/` and `/ORIGINALS/`, is 404.
 * **Backups:** strict entry-name, size and schema validation before anything is written (see above).
 * **Password:** `APP_PASSWORD` is compared in constant time; a wrong password costs 0.4 s; the session id is
