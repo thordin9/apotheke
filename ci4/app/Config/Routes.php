@@ -12,3 +12,9 @@ $routes->match(['GET', 'HEAD'], 'labels.css', '\\Apotheke\\Settings\\Controllers
 $routes->match(['GET', 'HEAD'], 'manifest.webmanifest', '\\Apotheke\\Settings\\Controllers\\BrandingController::manifest');
 $routes->match(['GET', 'HEAD'], 'favicon.ico', '\\Apotheke\\Settings\\Controllers\\BrandingController::favicon');
 $routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\Controllers\\BrandingController::brand/$1');
+
+// Autofill client. POST only. Permission checks arrive with the Auth module.
+$routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestController::suggest');
+$routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token');
+$routes->post('settings/autofill/test', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::test');
+$routes->post('settings/autofill/test-photo', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::testPhoto');
