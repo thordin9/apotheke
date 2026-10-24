@@ -14,6 +14,8 @@ require_once dirname(__DIR__) . '/lib.php';
  */
 final class Ci4DatabaseDownTest extends TestCase
 {
+    use SkipsOutsideCi;
+
     private const USER = 'zzci4user7';
     private const PASSWORD = 'zzci4pass7';
     private const WHERE = 'host=127.0.0.1 port=1 dbname=keepdb';
@@ -71,12 +73,12 @@ final class Ci4DatabaseDownTest extends TestCase
         try {
             test_pg_admin();
         } catch (PDOException) {
-            $this->skipOutsideCi('PostgreSQL is not reachable');
+            $this->skipOutsideCi('PostgreSQL is not reachable', 'give the PostgreSQL service password auth (scram-sha-256 or md5).');
         }
         $wrong = 'wrong-ci4-' . bin2hex(random_bytes(4));
         try {
             new PDO('pgsql:host=' . $pg['host'] . ';port=' . $pg['port'] . ';dbname=' . $pg['name'], $pg['user'], $wrong);
-            $this->skipOutsideCi('PostgreSQL accepts any password (trust auth)');
+            $this->skipOutsideCi('PostgreSQL accepts any password (trust auth)', 'give the PostgreSQL service password auth (scram-sha-256 or md5).');
         } catch (PDOException) {
         }
         $dir = tmpdir('ci4-ci4connect');
@@ -180,16 +182,6 @@ final class Ci4DatabaseDownTest extends TestCase
         if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-    }
-
-    /** Skip locally; in CI (CI or GITHUB_ACTIONS set) the refused-connect path must run. */
-    private function skipOutsideCi(string $why): never
-    {
-        $ci = in_array(getenv('CI'), ['true', '1'], true) || getenv('GITHUB_ACTIONS') === 'true';
-        if ($ci) {
-            $this->fail($why . '. In CI the refused CI4 connect must run: give the PostgreSQL service password auth (scram-sha-256 or md5).');
-        }
-        $this->markTestSkipped($why);
     }
 
     private function assertNoSecrets(string $blob): void
