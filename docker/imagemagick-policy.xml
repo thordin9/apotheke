@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Apotheke: ImageMagick policy for the Docker image (hardening, S-M1 and S-L1).
+  Installed as /etc/ImageMagick-7/policy.xml; the Dockerfile checks at build time that it is in effect.
+  Imagick in the app only decodes HEIC/HEIF photos (GD handles JPEG, PNG, WebP and GIF).
+  - Resource limits keep one image from using more than a bounded amount of memory, disk and time.
+  - Coders that read text, vector or page formats, or fetch URLs, are off, and so are external delegates
+    and "@file" indirection.
+-->
+<policymap>
+  <policy domain="resource" name="width" value="16384"/>
+  <policy domain="resource" name="height" value="16384"/>
+  <policy domain="resource" name="area" value="128MP"/>
+  <policy domain="resource" name="memory" value="256MiB"/>
+  <policy domain="resource" name="map" value="256MiB"/>
+  <policy domain="resource" name="disk" value="1GiB"/>
+  <policy domain="resource" name="time" value="60"/>
+  <policy domain="delegate" rights="none" pattern="*"/>
+  <policy domain="coder" rights="none" pattern="{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,XPS,PS,EPS,PDF,SVG,MSVG,EPHEMERAL}"/>
+  <policy domain="path" rights="none" pattern="@*"/>
+</policymap>

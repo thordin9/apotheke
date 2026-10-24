@@ -65,10 +65,12 @@ function body_role_class(): string
     return implode(' ', $c);
 }
 
-function page_start(string $title, string $bodyClass = ''): void
+/** $session false: never start a session for this page (error pages); an existing session's token is still used. */
+function page_start(string $title, string $bodyClass = '', bool $session = true): void
 {
     $t = $title === '' ? app_name() . ' – ' . app_tagline() : $title . ' · ' . app_name();
     $theme = theme_pref();
+    $csrf = csrf_token($session); // before any output: may start the session (SEC-L2)
     ?><!doctype html>
 <html lang="en" data-theme="<?= h($theme) ?>">
 <head>
@@ -89,7 +91,7 @@ function page_start(string $title, string $bodyClass = ''): void
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="format-detection" content="telephone=no">
 <meta name="description" content="<?= h(app_name() . ', ' . app_tagline()) ?>">
-<meta name="csrf" content="<?= h(csrf_token()) ?>">
+<meta name="csrf" content="<?= h($csrf) ?>">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" href="<?= h(brand_favicon_svg_url()) ?>" type="image/svg+xml">
@@ -1347,7 +1349,7 @@ function view_error(int $code, string $msg): void
 {
     http_response_code($code);
     try {
-        page_start('Error');
+        page_start('Error', '', false);
         ?>
 <main class="wrap narrow login">
   <div class="empty"><?= icon('box') ?><p><?= h($msg) ?></p><a class="btn btn-primary" href="/">Back to catalog</a></div>
