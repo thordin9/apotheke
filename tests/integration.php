@@ -1479,6 +1479,76 @@ $ownC = $lifeCarry($ownS, $ownCookies);
 T::eq(303, $ownC->get('/')['status'], 'resetting this account\'s password does not extend session_days');
 $ownS->stop();
 
+// Your account: changing this account's password keeps the sign-in time.
+$acctDir = $newDir('acct-pw');
+[$acctS, $acctC] = $lifeSign($acctDir, '2027-08-01 00:00:00');
+T::eq(303, $lifeSec($acctC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'your account: session_days is 1');
+$acctBorn = strtotime('2027-08-01 00:00:00 UTC');
+T::eq($acctBorn, $keepAt($acctDir, $acctC->cookies['apothekesid']), 'your account starts from the real sign-in');
+$acctCookies = $acctC->cookies;
+$acctS->stop();
+$acctS = $lifeBoot($acctDir, '2027-08-01 23:00:00');
+$acctC = $lifeCarry($acctS, $acctCookies);
+$acctSet = $acctC->post('/account', ['csrf' => $acctC->csrf(), 'current' => 's3cret-pw', 'new' => 'acct-pass', 'confirm' => 'acct-pass']);
+T::ok(str_contains($acctSet['headers']['location'] ?? '', '/account?done=pw'), 'changing the password on your account just before expiry still works');
+T::eq(200, $acctC->get('/')['status'], 'this device stays signed in after the account password change');
+T::eq($acctBorn, $keepAt($acctDir, $acctC->cookies['apothekesid']), 'changing the password on your account keeps the sign-in time');
+$acctCookies = $acctC->cookies;
+$acctS->stop();
+$acctS = $lifeBoot($acctDir, '2027-08-02 00:00:01');
+$acctC = $lifeCarry($acctS, $acctCookies);
+T::eq(303, $acctC->get('/')['status'], 'changing the password on your account does not extend session_days');
+$acctS->stop();
+
+// Control Panel, Security: changing this account's password keeps the sign-in time.
+$panelDir = $newDir('panel-pw');
+[$panelS, $panelC] = $lifeSign($panelDir, '2027-09-01 00:00:00');
+T::eq(303, $lifeSec($panelC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'security password: session_days is 1');
+$panelBorn = strtotime('2027-09-01 00:00:00 UTC');
+T::eq($panelBorn, $keepAt($panelDir, $panelC->cookies['apothekesid']), 'security password starts from the real sign-in');
+$panelCookies = $panelC->cookies;
+$panelS->stop();
+$panelS = $lifeBoot($panelDir, '2027-09-01 23:00:00');
+$panelC = $lifeCarry($panelS, $panelCookies);
+$panelSet = $panelC->post('/settings/password', ['csrf' => $panelC->csrf(), 'mode' => 'change', 'current' => 's3cret-pw', 'new' => 'panel-pass', 'confirm' => 'panel-pass']);
+T::ok(str_contains($panelSet['headers']['location'] ?? '', '/settings/security?done=pw'), 'changing the password under Security just before expiry still works');
+T::eq(200, $panelC->get('/')['status'], 'this device stays signed in after the security password change');
+T::eq($panelBorn, $keepAt($panelDir, $panelC->cookies['apothekesid']), 'changing the password under Security keeps the sign-in time');
+$panelCookies = $panelC->cookies;
+$panelS->stop();
+$panelS = $lifeBoot($panelDir, '2027-09-02 00:00:01');
+$panelC = $lifeCarry($panelS, $panelCookies);
+T::eq(303, $panelC->get('/')['status'], 'changing the password under Security does not extend session_days');
+$panelS->stop();
+
+// Turning sign-in on starts a fresh sign-in time, even when this browser still holds the old one.
+$onDir = $newDir('sign-on');
+[$onS, $onC] = $lifeSign($onDir, '2027-10-01 00:00:00');
+T::eq(303, $lifeSec($onC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'turn sign-in on: session_days is 1');
+$onBorn = strtotime('2027-10-01 00:00:00 UTC');
+T::eq($onBorn, $keepAt($onDir, $onC->cookies['apothekesid']), 'turn sign-in on starts from the real sign-in');
+$onCookies = $onC->cookies;
+$onS->stop();
+$onS = $lifeBoot($onDir, '2027-10-01 20:00:00');
+$onC = $lifeCarry($onS, $onCookies);
+$onOff = $onC->post('/settings/password', ['csrf' => $onC->csrf(), 'mode' => 'disable', 'current' => 's3cret-pw']);
+T::ok(str_contains($onOff['headers']['location'] ?? '', 'done=pw-off'), 'sign-in is turned off');
+T::eq($onBorn, $keepAt($onDir, $onC->cookies['apothekesid']), 'turning sign-in off leaves the old sign-in time in this browser');
+$onCookies = $onC->cookies;
+$onS->stop();
+$onS = $lifeBoot($onDir, '2027-10-01 22:00:00');
+$onC = $lifeCarry($onS, $onCookies);
+$onOn = $onC->post('/settings/password', ['csrf' => $onC->csrf(), 'mode' => 'change', 'username' => 'admin', 'new' => 's3cret-pw']);
+T::ok(str_contains($onOn['headers']['location'] ?? '', 'done=pw'), 'turning sign-in on again signs this browser in');
+$onAt = strtotime('2027-10-01 22:00:00 UTC');
+T::eq($onAt, $keepAt($onDir, $onC->cookies['apothekesid']), 'turning sign-in on starts a fresh sign-in time');
+$onCookies = $onC->cookies;
+$onS->stop();
+$onS = $lifeBoot($onDir, '2027-10-02 00:00:01');
+$onC = $lifeCarry($onS, $onCookies);
+T::eq(200, $onC->get('/')['status'], 'that fresh sign-in is still valid after the old session_days');
+$onS->stop();
+
 // A real sign-in after that session was dropped starts session_days again, and only for the same account.
 $againDir = $newDir('again');
 [$againS, $againC] = $lifeSign($againDir, '2027-05-01 00:00:00');
