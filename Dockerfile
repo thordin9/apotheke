@@ -49,6 +49,19 @@ RUN set -eux; \
     php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'; \
     php -r 'exit(in_array("HEIC", array_map("strtoupper", Imagick::queryFormats()), true) ? 0 : 1);'
 
+# ImageMagick policy (hardening, S-M1 and S-L1): resource limits, risky coders and delegates off.
+# The build fails unless `magick -list policy` shows the file and Imagick reports the limits and refuses the coders.
+COPY docker/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+COPY scripts/imagick-policy-check.php /usr/local/lib/apotheke/imagick-policy-check.php
+RUN set -eux; \
+    magick -list policy > /tmp/im-policy.txt; \
+    grep -qF '/etc/ImageMagick-7/policy.xml' /tmp/im-policy.txt; \
+    for want in 16384 128MP 256MiB 1GiB '{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,XPS,PS,EPS,PDF,SVG,MSVG,EPHEMERAL}' '@*'; do \
+        grep -qF -- "$want" /tmp/im-policy.txt || { cat /tmp/im-policy.txt; echo "ImageMagick policy is missing $want" >&2; exit 1; }; \
+    done; \
+    rm /tmp/im-policy.txt; \
+    php /usr/local/lib/apotheke/imagick-policy-check.php
+
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-apotheke.ini
 COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zzz-apotheke.conf
 COPY docker/nginx.conf /etc/nginx/apotheke.conf.template

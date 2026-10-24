@@ -44,6 +44,12 @@ final class ConfigTest extends TestCase
         $this->assertSame(3650, config_load('/app', null, ['EXPIRY_SOON_DAYS' => '99999'])['expiry_soon_days']);
     }
 
+    public function testAllowedHostsFromEnv(): void
+    {
+        $this->assertSame('', config_load('/app', null, [])['allowed_hosts']);
+        $this->assertSame('apotheke.lan, nas', config_load('/app', null, ['ALLOWED_HOSTS' => ' apotheke.lan, nas '])['allowed_hosts']);
+    }
+
     public function testCurrencyFromEnv(): void
     {
         $this->assertSame('CHF', config_load('/app', null, ['CURRENCY' => ' CHF '])['currency']);

@@ -53,6 +53,22 @@ final class SessionCookieTest extends DatabaseTestCase
         $this->assertFalse(request_is_https());
     }
 
+    public function testHttpsPublicUrlMarksCookieSecureOnItsHost(): void
+    {
+        $_SERVER['HTTP_HOST'] = 'inv.example.org';
+        $this->assertFalse(session_cookie_secure(), 'no PUBLIC_URL: plain HTTP stays plain');
+        $this->set('public_url', json_encode('http://inv.example.org'));
+        $this->assertFalse(session_cookie_secure(), 'http:// PUBLIC_URL');
+        $this->set('public_url', json_encode('https://inv.example.org'));
+        $this->assertTrue(session_cookie_secure(), 'https:// PUBLIC_URL and its host: Secure without trust_proxy');
+        $_SERVER['HTTP_HOST'] = 'INV.example.org:443';
+        $this->assertTrue(session_cookie_secure(), 'case and port do not matter');
+        $_SERVER['HTTP_HOST'] = '192.168.1.10:9091';
+        $this->assertFalse(session_cookie_secure(), 'opened directly by address over HTTP: sign-in keeps working');
+        $_SERVER['HTTPS'] = 'on';
+        $this->assertTrue(session_cookie_secure(), 'direct HTTPS is always Secure');
+    }
+
     public function testLifetime(): void
     {
         $this->assertSame(30 * 86400, session_lifetime());

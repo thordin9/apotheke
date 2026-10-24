@@ -27,6 +27,7 @@ const CONFIG_ENV_MAP = [
     'IMAGE_THUMB_MAX' => 'uploads.thumb_max',
     'PAGE_SIZE'       => 'page_size',
     'PUBLIC_URL'      => 'public_url',
+    'ALLOWED_HOSTS'   => 'allowed_hosts',
     'CURRENCY'        => 'currency',
     'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
     'SEED_DEFAULTS'   => 'seed_defaults',
@@ -60,6 +61,7 @@ function config_defaults(string $root): array
         'currency'      => 'EUR',            // shown next to item values (ISO code or symbol)
         'expiry_soon_days' => 30,          // "Expiring soon" = expires within this many days
         'public_url'    => '',             // base URL printed in QR labels; default: from the request
+        'allowed_hosts' => '',             // extra host names the app answers to (comma-separated), besides PUBLIC_URL's
         'seed_defaults' => true,         // starter locations/categories on a brand-new database
         'originals_dir' => '',           // camera uploads; empty = <data_dir>/originals (outside public/)
         'trusted_proxies' => [],         // addresses allowed to set X-Forwarded-For when trust_proxy is on
@@ -95,6 +97,7 @@ function config_load(string $root, ?string $file, array $env): array
     foreach (['max_mb', 'full_max', 'thumb_max'] as $k) $cfg['uploads'][$k] = max(1, (int)$cfg['uploads'][$k]);
     $cfg['page_size'] = max(1, (int)$cfg['page_size']);
     $cfg['public_url'] = rtrim((string)$cfg['public_url'], '/');
+    $cfg['allowed_hosts'] = trim((string)($cfg['allowed_hosts'] ?? ''));
     $cfg['currency'] = mb_substr(trim((string)$cfg['currency']), 0, 8) ?: 'EUR';
     $cfg['expiry_soon_days'] = min(3650, max(1, (int)$cfg['expiry_soon_days']));
     $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;

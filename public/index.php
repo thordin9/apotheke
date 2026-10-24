@@ -40,6 +40,9 @@ if ($method === 'HEAD') {
     $method = 'GET';
 }
 
+// Host allow-list (SEC-M3): addresses, localhost, this machine's name, PUBLIC_URL's host and ALLOWED_HOSTS.
+if (!request_host_ok()) request_host_refuse();
+
 if ($path === '/healthz') {
     header('Content-Type: text/plain');
     header('X-Apotheke-Version: ' . app_version());
@@ -95,6 +98,20 @@ if ($method === 'POST' && empty($_POST) && empty($_FILES) && (int)($_SERVER['CON
 init_session();
 
 try {
+    // With sign-in off, a state-changing request must come from the app's own pages (SEC-M3).
+    if (!method_is_safe($method) && !auth_enabled() && !request_same_origin($_SERVER, request_is_https(), (string)setting('public_url'))) {
+        throw new UserError('This request came from another site and was refused. Open the app directly and try again.', 403);
+    }
+
+    // nginx asks this before it accepts a large backup upload (auth_request, docker/nginx.conf; SEC-L2).
+    // 204 = may restore; 401/403 otherwise. Never starts a session.
+    if ($path === '/backup/restore/check' && $method === 'GET') {
+        no_store();
+        $me = current_user();
+        http_response_code(user_can('backup') ? 204 : ($me === null || $me['anon'] ? 401 : 403));
+        exit;
+    }
+
     /* ---- auth ---- */
     if ($path === '/login') {
         if (!auth_enabled() || signed_in()) redirect('/');

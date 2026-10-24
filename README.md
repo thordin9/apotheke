@@ -334,6 +334,7 @@ compose file never wipes a value from `config.php`.
 | `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Set it if you open the app under a different name than your phone will. |
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
+| `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost` and `PUBLIC_URL`'s host always work; other names get 421. See [Host names](docs/deployment-and-operations.md#host-names). |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). With *Trust the reverse proxy* on, the sign-in limit reads `X-Forwarded-For` only from these. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
@@ -489,7 +490,7 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 | Tests | PHP 8.3 × SQLite / PostgreSQL 17 service: migrations + seeding via the CLI, PHPUnit with a coverage artifact |
 | Headless mobile checks | `tests/e2e/mobile.mjs` at 375 and 390 px |
 | Visual E2E | Playwright suite in 3 shards inside the Playwright image, `retries=1`; report, traces and screenshot diffs uploaded on failure |
-| Docker build + smoke test | builds the image, checks Imagick lists HEIC (`scripts/docker-heic.sh`), runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits), a graceful-stop check and the Playwright `@smoke` subset against the image |
+| Docker build + smoke test | builds the image, checks Imagick lists HEIC (`scripts/docker-heic.sh`), checks the ImageMagick policy, runs `scripts/smoke.sh` on SQLite and PostgreSQL, `scripts/docker-checks.sh` (nginx routing, blocked paths, headers, gzip, body limits, Host check), `scripts/docker-auth-checks.sh` (sign-in mode: sessions, restore limit), a graceful-stop check and the Playwright `@smoke` subset against the image |
 | Conventional Commits | PRs only: `scripts/check-commits.sh` on every commit |
 | Secret scan | pinned gitleaks CLI (`gitleaks git --log-opts=--all`) over every ref in the full git history; the job fails if it finds a secret |
 
@@ -539,6 +540,7 @@ src/qr.php                    loads the QR encoder after the function-JIT guard
 src/qr-encode.php             pure-PHP QR encoder (SVG)
 src/seed.php                  idempotent starter/demo seeding
 src/bootstrap.php             sessions, auth, CSRF, helpers
+src/hosts.php                 Host allow-list, same-origin rule (no-login mode)
 src/views.php                 HTML templates
 tests/run.sh, integration.php lint + HTTP integration suite (no Composer)
 tests/Unit/, Integration/     PHPUnit suites

@@ -29,6 +29,9 @@ a trailing `(#N)` in a squash commit.
 The changelog groups entries as *Breaking changes*, *Added* (`feat`), *Fixed* (`fix`), *Performance* (`perf`) and
 *Maintenance* (everything else). The new section goes below `## [Unreleased]`, and the compare links at the bottom are
 updated. Notes written by hand under `## [Unreleased]` move into that section, and `## [Unreleased]` is left empty.
+Text written by hand under `## [Unreleased]` before its first `###` heading (for example an **Upgrade note:**
+paragraph with a code block) becomes the first block of that section, so it opens the GitHub Release body. Keep
+it free of `- ` bullets, or give each bullet its pull-request link.
 A handwritten bullet replaces a generated bullet in that same section when both start with the same scope
 (`- **autofill:** …`), so the notes do not list one change twice. A generated bullet with a different scope, or
 the same scope under a different heading, stays. A handwritten bullet under `## [Unreleased]` keeps its pull
