@@ -15,14 +15,15 @@ chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 if [ "$#" -gt 0 ] && [ "$1" != "apotheke" ]; then exec "$@"; fi
 
 # Sign-in must be on unless ALLOW_NO_LOGIN says otherwise. `auth status` asks the app itself (as www-data, so a new
-# SQLite file belongs to it): 0 = on, 3 = off, anything else = no answer (PostgreSQL may still be starting).
+# SQLite file belongs to it): 0 = on, 3 = off, 4 = APP_PASSWORD too short (it says so on stderr), anything else = no
+# answer (PostgreSQL may still be starting).
 case "${ALLOW_NO_LOGIN:-}" in
   1|true|yes) echo "apotheke: ALLOW_NO_LOGIN is set, sign-in is not required" ;;
   ''|0|false|no)
     i=0
     while :; do
       rc=0; su -p -s /bin/sh www-data -c 'php /var/www/app/bin/settings.php auth status' >/dev/null || rc=$?
-      if [ "$rc" = 0 ] || [ "$rc" = 3 ] || [ "$i" -ge 30 ]; then break; fi
+      if [ "$rc" = 0 ] || [ "$rc" = 3 ] || [ "$rc" = 4 ] || [ "$i" -ge 30 ]; then break; fi
       i=$((i + 1)); sleep 1
     done
     if [ "$rc" = 3 ]; then
@@ -30,6 +31,7 @@ case "${ALLOW_NO_LOGIN:-}" in
       echo "apotheke: or set ALLOW_NO_LOGIN=1 to run without sign-in on a trusted network. A new install can also set APP_PASSWORD." >&2
       exit 78
     fi
+    if [ "$rc" = 4 ]; then exit 78; fi
     if [ "$rc" != 0 ]; then echo "apotheke: could not read the sign-in setting from the database (exit $rc)" >&2; exit 78; fi
     ;;
   *) echo "ALLOW_NO_LOGIN must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
