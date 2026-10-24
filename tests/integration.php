@@ -1431,6 +1431,53 @@ T::ok(str_contains($everyOther->get('/')['headers']['location'] ?? '', '/login')
 T::eq(303, $everyC->post('/login', ['csrf' => $everyC->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'the same password still signs in after the CLI');
 $everyS->stop();
 
+// Re-signing this device does not start session_days again.
+$keepAt = function (string $dir, string $id): int {
+    $body = is_file($dir . '/sessions/sess_' . $id) ? (string)file_get_contents($dir . '/sessions/sess_' . $id) : '';
+    return preg_match('/signed_in_at\|i:(\d+);/', $body, $m) ? (int)$m[1] : 0;
+};
+$keepDir = $newDir('keep-out');
+[$keepS, $keepC] = $lifeSign($keepDir, '2027-02-01 00:00:00');
+T::eq(303, $lifeSec($keepC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'sign out everywhere: session_days is 1');
+$keepBorn = strtotime('2027-02-01 00:00:00 UTC');
+T::eq($keepBorn, $keepAt($keepDir, $keepC->cookies['apothekesid']), 'sign out everywhere starts from the real sign-in');
+$keepCookies = $keepC->cookies;
+$keepS->stop();
+$keepS = $lifeBoot($keepDir, '2027-02-01 23:00:00');
+$keepC = $lifeCarry($keepS, $keepCookies);
+$keepGo = $keepC->post('/account/signout', ['csrf' => $keepC->csrf()]);
+T::ok(str_contains($keepGo['headers']['location'] ?? '', '/account?done=out'), 'sign out everywhere just before expiry still works');
+T::eq(200, $keepC->get('/')['status'], 'this device stays signed in after signing out everywhere');
+T::eq($keepBorn, $keepAt($keepDir, $keepC->cookies['apothekesid']), 'sign out everywhere keeps the original sign-in time');
+$keepCookies = $keepC->cookies;
+$keepS->stop();
+$keepS = $lifeBoot($keepDir, '2027-02-02 00:00:01');
+$keepC = $lifeCarry($keepS, $keepCookies);
+T::eq(303, $keepC->get('/')['status'], 'sign out everywhere does not extend session_days');
+$keepS->stop();
+
+$ownDir = $newDir('own-pw');
+[$ownS, $ownC] = $lifeSign($ownDir, '2027-03-01 00:00:00');
+T::eq(303, $lifeSec($ownC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'own password: session_days is 1');
+$ownBorn = strtotime('2027-03-01 00:00:00 UTC');
+$ownPage = $ownC->get('/settings/security');
+T::eq(200, $ownPage['status'], 'the users page opens');
+T::ok(preg_match('/id="user-(\d+)"[\s\S]*?\(you\)/', $ownPage['body'], $ownM) === 1, 'the users page marks this account');
+$ownCookies = $ownC->cookies;
+$ownS->stop();
+$ownS = $lifeBoot($ownDir, '2027-03-01 23:00:00');
+$ownC = $lifeCarry($ownS, $ownCookies);
+$ownSet = $ownC->post('/settings/users/' . $ownM[1] . '/password', ['csrf' => $ownC->csrf(), 'new' => 'fresh-pass', 'confirm' => 'fresh-pass']);
+T::ok(str_contains($ownSet['headers']['location'] ?? '', '/settings/security'), 'resetting this account\'s password just before expiry still works');
+T::eq(200, $ownC->get('/')['status'], 'this device stays signed in after its own password reset');
+T::eq($ownBorn, $keepAt($ownDir, $ownC->cookies['apothekesid']), 'resetting this account\'s password keeps the original sign-in time');
+$ownCookies = $ownC->cookies;
+$ownS->stop();
+$ownS = $lifeBoot($ownDir, '2027-03-02 00:00:01');
+$ownC = $lifeCarry($ownS, $ownCookies);
+T::eq(303, $ownC->get('/')['status'], 'resetting this account\'s password does not extend session_days');
+$ownS->stop();
+
 T::section('List pagination (PAGE_SIZE)');
 $pgDir = $newDir('page');
 $pgS = new Server($pgDir, ['PAGE_SIZE' => '2', 'SEED_DEFAULTS' => '0']);
