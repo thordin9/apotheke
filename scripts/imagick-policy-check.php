@@ -14,8 +14,8 @@ $say = static function (bool $ok, string $what) use (&$fail): void {
 };
 if (!class_exists('Imagick')) { fwrite(STDERR, "Imagick missing\n"); exit(1); }
 
-// KP and MP are decimal (16KP = 16000 px); MiB and GiB are binary.
-$want = ['WIDTH' => 16000, 'HEIGHT' => 16000, 'AREA' => 128000000, 'MEMORY' => 268435456, 'MAP' => 268435456, 'DISK' => 1073741824];
+// Width and height are plain pixel counts (16384; note that 16KP would mean 16000). MP is decimal; MiB and GiB are binary.
+$want = ['WIDTH' => 16384, 'HEIGHT' => 16384, 'AREA' => 128000000, 'MEMORY' => 268435456, 'MAP' => 268435456, 'DISK' => 1073741824];
 foreach ($want as $name => $limit) {
     $c = 'Imagick::RESOURCETYPE_' . $name;
     $got = defined($c) ? (int)Imagick::getResourceLimit(constant($c)) : -1;
@@ -37,13 +37,13 @@ foreach (['TXT', 'TEXT', 'MVG', 'MSL', 'LABEL', 'CAPTION', 'HTTP', 'HTTPS', 'FTP
 
 $wide = '';
 try {
-    $g = imagecreatetruecolor(16001, 1);
+    $g = imagecreatetruecolor(16385, 1);
     ob_start(); imagepng($g); $wide = (string)ob_get_clean();
     (new Imagick())->readImageBlob($wide);
-    $say(false, 'a 16001 px wide image is refused (it was read)');
+    $say(false, 'a 16385 px wide image is refused (it was read)');
 } catch (ImagickException $e) {
     // ImageMagick says "exceeds limit"; its PNG reader passes the limit to libpng, which says "Invalid IHDR data"
-    $say(true, 'a 16001 px wide image is refused (' . substr($e->getMessage(), 0, 60) . ')');
+    $say(true, 'a 16385 px wide image is refused (' . substr($e->getMessage(), 0, 60) . ')');
 }
 
 try {

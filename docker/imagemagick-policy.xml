@@ -8,8 +8,8 @@
     and "@file" indirection.
 -->
 <policymap>
-  <policy domain="resource" name="width" value="16KP"/>
-  <policy domain="resource" name="height" value="16KP"/>
+  <policy domain="resource" name="width" value="16384"/>
+  <policy domain="resource" name="height" value="16384"/>
   <policy domain="resource" name="area" value="128MP"/>
   <policy domain="resource" name="memory" value="256MiB"/>
   <policy domain="resource" name="map" value="256MiB"/>

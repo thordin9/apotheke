@@ -258,7 +258,7 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
 ### ImageMagick policy
 
 The Docker image ships a restrictive ImageMagick policy in `/etc/ImageMagick-7/policy.xml` (hardening, S-M1 and
-S-L1, from [`docker/imagemagick-policy.xml`](../docker/imagemagick-policy.xml)). It caps an image at 16,000 px
+S-L1, from [`docker/imagemagick-policy.xml`](../docker/imagemagick-policy.xml)). It caps an image at 16,384 px
 wide or high and 128 MP, ImageMagick's memory and map at 256 MiB, its disk cache at 1 GiB and its time at 60
 seconds, and it turns off the coders that read text, vector or page formats or fetch URLs, all external delegates
 and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as before. The image build fails if the

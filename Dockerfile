@@ -56,7 +56,7 @@ COPY scripts/imagick-policy-check.php /usr/local/lib/apotheke/imagick-policy-che
 RUN set -eux; \
     magick -list policy > /tmp/im-policy.txt; \
     grep -qF '/etc/ImageMagick-7/policy.xml' /tmp/im-policy.txt; \
-    for want in 16KP 128MP 256MiB 1GiB '{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,XPS,PS,EPS,PDF,SVG,MSVG,EPHEMERAL}' '@*'; do \
+    for want in 16384 128MP 256MiB 1GiB '{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,XPS,PS,EPS,PDF,SVG,MSVG,EPHEMERAL}' '@*'; do \
         grep -qF -- "$want" /tmp/im-policy.txt || { cat /tmp/im-policy.txt; echo "ImageMagick policy is missing $want" >&2; exit 1; }; \
     done; \
     rm /tmp/im-policy.txt; \

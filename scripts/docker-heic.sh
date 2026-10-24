@@ -24,6 +24,11 @@ docker run --rm --entrypoint php "$image" -r 'if (!class_exists("Imagick")) { fw
 
 echo "== ImageMagick policy (limits, refused coders; S-M1, S-L1)"
 docker run --rm --entrypoint php "$image" /usr/local/lib/apotheke/imagick-policy-check.php
+policy=$(docker run --rm --entrypoint magick "$image" -list policy)
+printf '%s\n' "$policy"
+for want in 16384 128MP 256MiB 1GiB; do
+  if ! grep -qF -- "$want" <<<"$policy"; then echo "magick -list policy does not show $want" >&2; exit 1; fi
+done
 
 echo "== HEIC upload round-trip"
 docker run --rm --entrypoint php \
