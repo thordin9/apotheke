@@ -57,7 +57,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * Backup → all repositories, plus Media and Settings
   * Autofill → Media (read-only `originalPathOrServed`), Settings, Taxonomy (context names)
 * **Constructor injection.** Services, models and commands take their collaborators through constructors.
-* **`service()` only in controllers.** `service()` and `Services::` are allowed only in controllers and in `Config/Services.php` factories.
+* **`service()` only in controllers and filters.** `service()` and `Services::` are allowed only in controllers, in filters (CI4 builds them without constructor arguments) and in `Config/Services.php` factories.
 
 ## Local run
 

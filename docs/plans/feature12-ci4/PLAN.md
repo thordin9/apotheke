@@ -177,8 +177,8 @@ bin/*.php                      thin wrappers calling spark (argv, output and exi
   Undo; Favourites → Catalog; Lending/Stocktake/Labels → Catalog, Taxonomy; ImportExport → Catalog, Taxonomy;
   Backup → all repositories + Media + Settings; Autofill → Media (read-only `originalPathOrServed`), Settings,
   Taxonomy (context names). No cycles; Core depends on nothing. A violation fails the Lint job.
-* **Constructor injection everywhere.** `service()` / `Services::` calls are allowed **only in controllers** (and
-  `Config/Services.php` factories). Services, models and commands get their collaborators through constructors. A
+* **Constructor injection everywhere.** `service()` / `Services::` calls are allowed **only in controllers** and
+  filters, which CI4 builds without constructor arguments (and `Config/Services.php` factories). Services, models and commands get their collaborators through constructors. A
   PHPStan rule enforces this (L-1).
 * Thin controllers. Services hold the rules and are shared by CLI and web. CI4 `Model` for single-id tables, Query
   Builder repositories for composite/text keys. Filters for cross-cutting concerns. Views ported verbatim. No inline

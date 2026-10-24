@@ -13,7 +13,11 @@ use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 
-/** service() and Services:: belong in controllers and Config/Services.php only. */
+/**
+ * service() and Services:: belong in controllers, filters and Config/Services.php only.
+ * CI4 builds filters with `new $class()`, so like controllers they have no constructor
+ * injection and take collaborators from the shared (per-request) services.
+ */
 final class NoServiceRule implements Rule
 {
     public function getNodeType(): string
@@ -41,12 +45,12 @@ final class NoServiceRule implements Rule
     private function violation(Scope $scope, string $what): array
     {
         $file = str_replace('\\', '/', $scope->getFile());
-        if (str_contains($file, '/Controllers/') || str_ends_with($file, '/app/Config/Services.php')) {
+        if (str_contains($file, '/Controllers/') || str_contains($file, '/Filters/') || str_ends_with($file, '/app/Config/Services.php')) {
             return [];
         }
 
         return [
-            RuleErrorBuilder::message($what . ' is only allowed in controllers and Config/Services.php')
+            RuleErrorBuilder::message($what . ' is only allowed in controllers, filters and Config/Services.php')
                 ->identifier('apotheke.noService')
                 ->build(),
         ];

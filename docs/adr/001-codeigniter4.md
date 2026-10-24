@@ -26,7 +26,7 @@ or the behaviour users already rely on.
    on a LAN. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 
 Module boundaries for the port (dependency graph enforced by deptrac, constructor injection, `service()`
-only in controllers) are in [AGENTS.md](../../AGENTS.md#ci4-module-rules).
+only in controllers and filters) are in [AGENTS.md](../../AGENTS.md#ci4-module-rules).
 
 ## Consequences
 
