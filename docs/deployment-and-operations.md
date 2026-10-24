@@ -378,9 +378,12 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   can build an analysis JPEG from it. Imagick does the same white background and sRGB conversion before encoding.
   For a grayscale photo, only the reduced JPEG sent to autofill is 1-channel. The displayed copy is re-encoded
   by GD as 3-channel and stays within a few levels.
-  Photos at or under 40 megapixels still go through GD. A larger JPEG is decoded already reduced, and that
+  A PNG of at most 26 megapixels, and a WebP or GIF of at most 40 megapixels, still go through GD.
+  That PNG cap is the size an alpha PNG still fits under the image's `memory_limit` of 256M, measured with
+  the upload held in memory (peak 231931904 bytes). A larger JPEG is decoded already reduced, and that
   decoded frame stays within 128 megapixels; a JPEG over 250 megapixels or 30,000 px on a side is refused
-  from the header. A larger PNG, WebP or GIF is refused. A HEIC/HEIF photo over 128 megapixels or 16,384 px
+  from the header. A larger PNG, WebP or GIF is refused from the header. A camera file saved before a
+  decode dies is removed before the request ends. A HEIC/HEIF photo over 128 megapixels or 16,384 px
   on a side is refused from the header before pixels are read. Imagick is limited to memory 256 MiB, map
   256 MiB, disk 1 GiB, area 128 megapixels, and width and height 16,384 px, the same limits as the policy the
   image ships ([ImageMagick policy](#imagemagick-policy)). Any decode

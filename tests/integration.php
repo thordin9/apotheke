@@ -1448,6 +1448,9 @@ T::ok(str_contains((string)$cli('set page_size 0'), 'between 1 and 500'), 'CLI v
 T::eq('33', trim((string)$cli('get page_size')), 'CLI get');
 T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI recovery: set a password');
 T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
+T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI: sign-in on again');
+T::ok(str_contains((string)$cli('set auth_guest_disabled 0'), 'auth_guest_disabled = false'), 'CLI: guest browsing on');
+T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI password --off with sign-in and guest browsing both on');
 
 T::section('Users & roles');
 $ud = $newDir('users');
