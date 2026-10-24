@@ -114,12 +114,12 @@ final class Ci4SettingsSchemaTest extends DatabaseTestCase
         }
         $this->assertSame('autofill', $schema->definitions()['autofill_max_image_bytes'][0]);
         $this->assertSame('auto', $schema->default('autofill_max_image_bytes', []));
-        foreach (['', 'auto', 'AUTO', ' Auto '] as $raw) {
+        foreach (['', 'auto', 'AUTO', ' Auto ', null] as $raw) {
             $this->assertSame('auto', $schema->validate('autofill_max_image_bytes', $raw));
         }
         $this->assertSame(65536, $schema->validate('autofill_max_image_bytes', '65536'));
         $this->assertSame(10485760, $schema->validate('autofill_max_image_bytes', 10485760));
-        foreach (['65535', '10485761', '1e6', '-1', 'big', null, ['x']] as $raw) {
+        foreach (['65535', '10485761', '1e6', '-1', 'big', ['x']] as $raw) {
             try {
                 $schema->validate('autofill_max_image_bytes', $raw);
                 $this->fail('accepted ' . json_encode($raw));
