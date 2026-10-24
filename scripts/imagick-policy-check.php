@@ -4,7 +4,8 @@ declare(strict_types=1);
 /*
  * Checks that the ImageMagick policy (docker/imagemagick-policy.xml) is in effect for Imagick (S-M1, S-L1).
  * Run in the image: at build time from the Dockerfile and again in CI (scripts/docker-heic.sh).
- * Exit 0 when every limit matches and the denied coders are refused, 1 otherwise.
+ * Exit 0 when every limit matches, the denied coders are refused and `magick -list policy` shows no rights for
+ * delegates or "@file" paths and a time limit of 60 s or less; 1 otherwise.
  */
 
 $fail = 0;
@@ -56,6 +57,29 @@ try {
 } catch (Throwable $e) {
     $say(false, 'an ordinary PNG still decodes: ' . $e->getMessage());
 }
+// Rights and the time limit come from `magick -list policy` (Imagick can't report them): delegates and "@file"
+// paths must have no rights at all, and the time limit must be 60 s or less. A saved listing can be passed as the
+// first argument instead (for testing the check itself).
+$listing = isset($argv[1]) ? (string)@file_get_contents($argv[1]) : (string)shell_exec('magick -list policy 2>/dev/null');
+$blocks = [];
+foreach (preg_split('/^\s*Policy:\s*/m', $listing) ?: [] as $i => $chunk) {
+    if ($i === 0) continue;
+    $b = ['domain' => strtolower(trim(strtok($chunk, "\n")))];
+    if (preg_match_all('/^\s*(name|value|rights|pattern):\s*(.*?)\s*$/m', $chunk, $m, PREG_SET_ORDER)) {
+        foreach ($m as [, $k, $v]) $b[$k] = $v;
+    }
+    $blocks[] = $b;
+}
+$say($blocks !== [], 'magick -list policy shows the policy');
+foreach (['delegate' => '*', 'path' => '@*'] as $domain => $pattern) {
+    $rules = array_filter($blocks, static fn(array $b): bool => $b['domain'] === $domain && ($b['pattern'] ?? '') === $pattern);
+    $none = $rules !== [] && array_filter($rules, static fn(array $b): bool => strcasecmp($b['rights'] ?? '', 'None') !== 0) === [];
+    $say($none, "$domain $pattern has rights None");
+}
+$times = array_map(static fn(array $b): string => $b['value'] ?? '', array_filter($blocks, static fn(array $b): bool => $b['domain'] === 'resource' && strcasecmp($b['name'] ?? '', 'time') === 0));
+$timeOk = $times !== [] && array_filter($times, static fn(string $v): bool => !ctype_digit($v) || (int)$v > 60 || (int)$v === 0) === [];
+$say($timeOk, 'limit TIME <= 60 s (got ' . ($times === [] ? 'none' : implode(', ', $times)) . ')');
+
 $fmts = array_map('strtoupper', Imagick::queryFormats());
 $say(in_array('HEIC', $fmts, true) || in_array('HEIF', $fmts, true), 'HEIC/HEIF still listed');
 
