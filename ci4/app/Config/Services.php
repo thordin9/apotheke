@@ -47,4 +47,35 @@ class Services extends BaseService
 
         return $db;
     }
+
+    /**
+     * Settings for this request. The shared instance is the per-request
+     * cache: CI4 resets shared services between worker requests.
+     */
+    public static function settings(bool $getShared = true): \Apotheke\Settings\SettingsService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('settings');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Settings\SettingsService(
+            new \Apotheke\Settings\SettingsRepository($db),
+            new \Apotheke\Settings\SettingsSchema(),
+            static::brandStore(),
+            new \Apotheke\Core\Libraries\Clock(),
+            static::apothekeConfig()->values(),
+        );
+    }
+
+    /** Logo and icon files: DATA_DIR/brand on local disk. */
+    public static function brandStore(bool $getShared = true): \Apotheke\Settings\BrandStore
+    {
+        if ($getShared) {
+            return static::getSharedInstance('brandStore');
+        }
+
+        return new \Apotheke\Settings\LocalBrandStore(static::apothekeConfig()->dataDir() . '/brand');
+    }
 }

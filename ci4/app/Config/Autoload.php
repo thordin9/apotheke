@@ -41,6 +41,7 @@ class Autoload extends AutoloadConfig
         APP_NAMESPACE => APPPATH,
         'Apotheke' => ROOTPATH . 'modules',
         'Apotheke\Migrations' => ROOTPATH . 'modules/Migrations',
+        'Apotheke\Settings' => ROOTPATH . 'modules/Settings',
     ];
 
     /**
