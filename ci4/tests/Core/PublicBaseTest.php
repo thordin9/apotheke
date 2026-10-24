@@ -29,6 +29,8 @@ final class PublicBaseTest extends CIUnitTestCase
 {
     private ?TestDatabase $database = null;
 
+    private ?IncomingRequest $lastRequest = null;
+
     /** @return iterable<string,array{0:string}> */
     public static function drivers(): iterable
     {
@@ -101,6 +103,47 @@ final class PublicBaseTest extends CIUnitTestCase
         $this->assertSame('http://127.0.0.1:9091/labels', $this->request(['HTTP_HOST' => '127.0.0.1:9091'])->baseUrl('labels'));
     }
 
+    /**
+     * #82 L-1: the request URI gets the public scheme, host and port, so
+     * current_url() never mixes the public host with the request's scheme or port.
+     */
+    #[DataProvider('drivers')]
+    public function testCurrentUrlFollowsThePublicBase(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $this->save(['public_url' => 'https://shelf.example']);
+        $uri = $this->request(['HTTP_HOST' => '127.0.0.1:9826']);
+        $this->assertSame('https://shelf.example/items', (string)$uri, 'default https port left out');
+        $this->assertSame('https://shelf.example/items', current_url(false, $this->lastRequest));
+        $this->save(['public_url' => 'http://set.example:9091']);
+        $uri = $this->request(['HTTP_HOST' => 'localhost', 'HTTPS' => 'on']);
+        $this->assertSame('http://set.example:9091/items', current_url(false, $this->lastRequest));
+        $this->assertSame('http://set.example:9091/items', (string)$uri);
+        $this->save(['public_url' => '']);
+        $this->request(['HTTP_HOST' => '127.0.0.1:9091']);
+        $this->assertSame('http://127.0.0.1:9091/items', current_url(false, $this->lastRequest), 'no address: the allowed request host');
+    }
+
+    /**
+     * #82 N-1: when the settings cannot be read, the base is PUBLIC_URL with
+     * trust_proxy off (deviation 2 of #82), or the request's own scheme.
+     */
+    public function testTheFallbackWhenTheSettingsCannotBeRead(): void
+    {
+        $before = getenv('PUBLIC_URL');
+        try {
+            putenv('PUBLIC_URL=https://env.example:8443');
+            $uri = $this->request(['HTTP_HOST' => '127.0.0.1:9091', 'HTTP_X_FORWARDED_PROTO' => 'https'], [], 'items', true);
+            $this->assertSame('https://env.example:8443/labels', $uri->baseUrl('labels'), 'PUBLIC_URL');
+            $this->assertSame('https://env.example:8443/items', current_url(false, $this->lastRequest));
+            putenv('PUBLIC_URL');
+            $uri = $this->request(['HTTP_HOST' => '127.0.0.1:9091', 'HTTP_X_FORWARDED_PROTO' => 'https'], [], 'items', true);
+            $this->assertSame('http://127.0.0.1:9091/labels', $uri->baseUrl('labels'), 'no PUBLIC_URL: trust_proxy counts as off');
+        } finally {
+            putenv($before === false ? 'PUBLIC_URL' : 'PUBLIC_URL=' . $before);
+        }
+    }
+
     #[DataProvider('drivers')]
     public function testHealthIsLeftAlone(string $driver): void
     {
@@ -133,16 +176,19 @@ final class PublicBaseTest extends CIUnitTestCase
      * @param array<string,string> $server
      * @param array<string,mixed> $config
      */
-    private function request(array $server, array $config = [], string $path = 'items'): SiteURI
+    private function request(array $server, array $config = [], string $path = 'items', bool $unreadable = false): SiteURI
     {
         Services::reset();
         \CodeIgniter\Config\Factories::reset('config');
-        Services::injectMock('settings', $this->settings($config));
+        // Unreadable: Services::settings() fails, as with a database that cannot be opened.
+        Services::injectMock('settings', $unreadable ? new \stdClass() : $this->settings($config));
         $app = config(App::class);
         $uri = new SiteURI($app, $path);
         $request = new IncomingRequest($app, $uri, null, new UserAgent());
         $request->setGlobal('server', $server);
         $this->assertNull((new PublicBaseFilter())->before($request));
+        $this->lastRequest = $request;
+        helper('url');
 
         return $uri;
     }
