@@ -11,7 +11,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **ci4 (security):** with `APOTHEKE_APP=ci4`, `php bin/settings.php get autofill_token` and `get password_hash` no longer print the stored secret; they exit 1 with `“KEY” is write-only.` Scripts that read the token must stop doing so. To rotate the AI autofill token, set the new `AUTOFILL_TOKEN` on the autofill service, then enter it under **Control Panel → AI autofill → Access token → Replace the token** and press **Save token** (**Clear token** removes it). `bin/settings.php set autofill_token` is refused on legacy and CI4 alike, so the Control Panel is the supported path. Passwords are per account: `php bin/settings.php user password NAME` or **Settings → Users & sign-in**. ([#64](https://github.com/thordin9/apotheke/pull/64))
 
-### Intentional deviations (settings CLI, `APOTHEKE_APP=ci4`)
+### Intentional deviations (settings CLI, `APOTHEKE_APP=ci4`, [#64](https://github.com/thordin9/apotheke/pull/64))
 
 1. **Secrets are write-only.** `get autofill_token` and `get password_hash` print `“KEY” is write-only.` on stderr and exit 1; legacy printed the stored value.
 2. **`get` of an unknown key** prints `Unknown setting “KEY”.` and exits 1; legacy stopped with an uncaught exception (PHP fatal, exit 255).
