@@ -27,14 +27,31 @@ final class DsnBootErrorTest extends TestCase
                 'log' => 'Database pgsql host=db.example port=5432 dbname=catalog',
                 'absent' => ['s9d44', 'password', 'mysql'],
             ],
-            // Spaces around "=" are the password, as libpq does. The canary and the
-            // word password stay out of the body, the log, and stderr. startup.php
-            // does not connect; a connect that fails on db.example must be the
-            // generic 500 and the allowlisted log line.
+            // Spaces around "=" are allowed, as libpq does, so the DSN is valid.
+            // startup.php does not connect: boot goes on (the harness router then
+            // sends an empty 200) and nothing is logged. The canary and the word
+            // password stay out of the body, the log, and stderr.
             'spaces' => [
                 'dsn' => 'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44',
-                'onConnect' => 'Database pgsql host=db.example port=5432 dbname=catalog',
-                'absent' => ['s9d44', 'password'],
+                'accepted' => true,
+                'absent' => ['s9d44', 'password', 'could not be used'],
+            ],
+            // user= or password= text inside another value is fine: the resolved
+            // user and password are written into the DSN, not passed to PDO.
+            'credential-text' => [
+                'dsn' => "pgsql:host=db.example;port=5432;dbname=catalog;options='-c x=password=s9d44'",
+                'accepted' => true,
+                'absent' => ['s9d44', 'u9d44', 'could not be used'],
+            ],
+            // A ";" in DB_PASSWORD cannot go inside the DSN (PDO turns it into a
+            // space), and PDO 8.4 ignores a passed password once the DSN has the
+            // text password=, so boot stops with a message that names no values.
+            'semicolon-credential' => [
+                'dsn' => "pgsql:host=db.example;port=5432;dbname=catalog;options='-c x=password=s9d44'",
+                'password' => 'u9;d44',
+                'body' => 'The database settings could not be used: DB_USER or DB_PASSWORD contains ";"',
+                'log' => 'Database pgsql host=db.example port=5432 dbname=catalog. The database settings could not be used: DB_USER',
+                'absent' => ['s9d44', 'u9;d44', 'u9 d44', 'zzu', '-c x'],
             ],
             'semicolon' => [
                 'dsn' => 'pgsql:host=db.example;port=5432;dbname=catalog;password=q9;w8zz',
@@ -43,21 +60,24 @@ final class DsnBootErrorTest extends TestCase
             ],
         ];
         foreach ($cases as $name => $case) {
-            $hit = $this->boot($case['dsn']);
+            $hit = $this->boot($case['dsn'], $case['password'] ?? 'u9d44');
             $shown = $hit['body'] . $hit['log'] . $hit['err'];
             foreach ($case['absent'] as $needle) {
                 $this->assertStringNotContainsString($needle, $shown, $name . $shown);
             }
             $this->assertStringNotContainsString($case['dsn'], $shown, $name);
-            if (isset($case['onConnect'])) {
-                if ($hit['status'] === 500) {
-                    $this->assertSame('The database settings could not be used.', $hit['body'], $name);
-                    $this->assertStringContainsString($case['onConnect'], $hit['log'], $name . $hit['log']);
-                }
+            if (isset($case['accepted'])) {
+                $this->assertSame(200, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
+                $this->assertSame('', $hit['body'], $name);
+                $this->assertSame('', $hit['log'], $name . $hit['log']);
                 continue;
             }
             $this->assertSame(500, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
-            $this->assertSame('The database settings could not be used.', $hit['body'], $name);
+            if (isset($case['body'])) {
+                $this->assertStringStartsWith($case['body'], $hit['body'], $name);
+            } else {
+                $this->assertSame('The database settings could not be used.', $hit['body'], $name);
+            }
             $this->assertStringContainsString($case['log'], $hit['log'], $name . $hit['log']);
             if ($name === 'unsupported-prefix') {
                 $this->assertStringNotContainsString('mysql', $hit['log'], $name);
@@ -66,7 +86,7 @@ final class DsnBootErrorTest extends TestCase
     }
 
     /** @return array{status:int,body:string,log:string,err:string} */
-    private function boot(string $dsn): array
+    private function boot(string $dsn, string $password): array
     {
         $dir = tmpdir('dsn-boot');
         $log = $dir . '/error.log';
@@ -84,6 +104,9 @@ final class DsnBootErrorTest extends TestCase
             '-d', 'log_errors=1',
             '-d', 'error_log=' . $log,
             '-d', 'zend.exception_ignore_args=0',
+            // The CI runner enables JIT with coverage extensions loaded; its startup
+            // warning would otherwise land in the log this test expects to be empty.
+            '-d', 'opcache.jit=disable',
             '-S', '127.0.0.1:' . $port,
             '-t', $dir,
             $router,
@@ -98,7 +121,7 @@ final class DsnBootErrorTest extends TestCase
             'DB_PORT' => '5432',
             'DB_NAME' => 'catalog',
             'DB_USER' => 'zzu',
-            'DB_PASSWORD' => 'u9d44',
+            'DB_PASSWORD' => $password,
         ];
         $proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $err, 'a'], 2 => ['file', $err, 'a']], $pipes, $dir, $env);
         $this->assertIsResource($proc);

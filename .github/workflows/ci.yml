@@ -376,6 +376,10 @@ jobs:
             apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8081
+      - name: Legacy DSN credential precedence (golden cases a-e2)
+        run: |
+          docker run --rm --network host --entrypoint php -e APP_ROOT=/var/www/app -e TEST_PG_PASSWORD=apotheke \
+            -v "$PWD/scripts/legacy-dsn-precedence.php:/tmp/legacy-dsn-precedence.php:ro" apotheke:ci /tmp/legacy-dsn-precedence.php
       - name: Graceful stop (SIGTERM reaches nginx and php-fpm, exit code 0)
         run: |
           start=$(date +%s)

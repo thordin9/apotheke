@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Migrations;
 
+use Apotheke\Core\Config\DsnException;
+use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Config\PdoSchemaSession;
 use Apotheke\Core\Config\PgsqlSchema;
 use Apotheke\Core\Exceptions\DatabaseUnavailable;
@@ -13,11 +15,15 @@ use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . '/../Core/Config/PgsqlSchema.php';
+require_once __DIR__ . '/../Core/Config/DsnTranslator.php';
 require_once __DIR__ . '/../Core/Exceptions/DatabaseUnavailable.php';
 
 /** Port of migrate(): one transaction, the legacy lock, and the v1–v3 adopt path. */
 final class PdoMigrationRunner
 {
+    public const CREDENTIALS_DIFFER = 'DB_DSN sets a user or password that differs from DB_USER / DB_PASSWORD. '
+        . 'DB_USER and DB_PASSWORD are used, as the legacy app does on PHP 8.3.';
+
     public function __construct(private string $migrationsDir)
     {
         // config.php defines cfg(). The shim fills in only what is still missing.
@@ -30,17 +36,31 @@ final class PdoMigrationRunner
         return dirname(__DIR__, 3);
     }
 
+    /** Warn once per PHP process (a request under php-fpm or php -S, one run under spark); config does not change within it. */
+    private static bool $warnedCredentialsDiffer = false;
+
     /** @param array<string,mixed> $db */
     public function connect(array $db): PDO
     {
         self::loadConfig();
         $driver = (string)($db['driver'] ?? '');
-        $password = $driver === 'pgsql' ? (string)($db['password'] ?? '') : null;
-        $user = $driver === 'pgsql' ? (string)($db['user'] ?? '') : null;
-        $withoutSecret = $db;
-        unset($withoutSecret['password'], $withoutSecret['user']);
+        $dsn = config_dsn($db);
+        $user = null;
+        $password = null;
+        if ($driver === 'pgsql') {
+            try {
+                [$dsn, $user, $password, $differs] = DsnTranslator::forPdo($dsn, $db);
+            } catch (DsnException $e) {
+                throw new MigrateConnectException($e->getMessage());
+            }
+            if ($differs && !self::$warnedCredentialsDiffer) {
+                self::$warnedCredentialsDiffer = true;
+                error_log('[apotheke] ' . self::CREDENTIALS_DIFFER);
+            }
+        }
+        unset($db['password']);
         try {
-            $pdo = new PDO(config_dsn($withoutSecret), $user, $password, [
+            $pdo = new PDO($dsn, $user, $password, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_STRINGIFY_FETCHES => false,

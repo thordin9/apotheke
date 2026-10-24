@@ -191,6 +191,55 @@ final class Ci4SchemaTest extends TestCase
         $this->assertNotSame($schema, $pdo->pdo->query('SELECT current_schema()')->fetchColumn());
     }
 
+    /**
+     * QA #53 N-A: on a server whose lc_messages is not English, CI4's Postgre
+     * error() carries localized text and an empty code. The SQLSTATE must come
+     * from the driver, so a role without CREATE still gets the clear error.
+     */
+    public function testLocalizedServerMessagesStillMapTheSqlstate(): void
+    {
+        if (!function_exists('pg_connect')) {
+            $this->markTestSkipped('ext/pgsql is required');
+        }
+        $schema = 'l_' . bin2hex(random_bytes(4));
+        $role = $this->role(null);
+        $pg = test_pg_params();
+        $conn = new Ci4LocalizedPostgre(sprintf(
+            "host='%s' port='%s' dbname='%s' user='%s' password='%s'",
+            $pg['host'],
+            $pg['port'],
+            $pg['name'],
+            $role['user'],
+            $role['password']
+        ));
+        try {
+            $this->applyFactory($conn, $schema);
+            $this->fail('connected without the schema');
+        } catch (PDOException $e) {
+            $this->fail('raised a raw database error (SQLSTATE "' . $e->getCode() . '") instead of the missing-schema message');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('cannot create', $e->getMessage());
+        }
+    }
+
+    /** The driver code decides, whatever the message says. */
+    public function testDuplicateCreateIsReadFromTheCodeNotTheMessage(): void
+    {
+        $conn = new Ci4ScriptedConnection(['code' => '42P06', 'message' => 'FEHLER:  Schema existiert bereits']);
+        (new PgsqlSchema())->apply(new Ci4SchemaSession($conn), 'raced');
+        $this->assertSame(['SET search_path TO "raced"'], $conn->ran);
+
+        $refused = new Ci4ScriptedConnection(['code' => '42501', 'message' => 'FEHLER:  keine Berechtigung'], false);
+        try {
+            (new PgsqlSchema())->apply(new Ci4SchemaSession($refused), 'nope');
+            $this->fail('a refused CREATE was ignored');
+        } catch (PDOException $e) {
+            $this->fail('42501 was not mapped: SQLSTATE "' . $e->getCode() . '"');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('cannot create', $e->getMessage());
+        }
+    }
+
     public function testHealthzRejectsAMissingSchemaAndAcceptsAnExistingOne(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -276,7 +325,7 @@ final class Ci4SchemaTest extends TestCase
         return new Ci4PdoConnection($pdo, '', false);
     }
 
-    private function applyFactory(Ci4PdoConnection $connection, string $schema): void
+    private function applyFactory(object $connection, string $schema): void
     {
         $config = ApothekeConfig::load(ROOT, null, [
             'DB_DRIVER' => 'pgsql',
@@ -358,14 +407,20 @@ final class Ci4SchemaTest extends TestCase
     }
 }
 
-/** PDO shaped like CI4's connection so DatabaseFactory can run on PHP 8.3. */
+/** PDO shaped like CI4's connection so DatabaseFactory can run on PHP 8.3. It has no connID, so Ci4SchemaSession reads error()['code']. */
 final class Ci4PdoConnection
 {
     public string $DBDriver = 'Postgre';
     public bool $failSearchPath = false;
     private string $error = '';
+    private string $code = '';
 
     public function __construct(public PDO $pdo, private string $sqlstate, private bool $createFirst)
+    {
+    }
+
+    /** Already connected, as CI4's initialize() is once connID is set. */
+    public function initialize(): void
     {
     }
 
@@ -377,7 +432,8 @@ final class Ci4PdoConnection
     public function query(string $sql): Ci4PdoResult|false
     {
         if ($this->failSearchPath && str_starts_with($sql, 'SET search_path')) {
-            $this->error = 'ERROR: permission denied for schema SQLSTATE[42501]';
+            $this->error = 'FEHLER:  keine Berechtigung für Schema';
+            $this->code = '42501';
 
             return false;
         }
@@ -385,9 +441,8 @@ final class Ci4PdoConnection
             if ($this->createFirst) {
                 $this->pdo->exec($sql);
             }
-            $this->error = $this->sqlstate === '23505'
-                ? 'duplicate key value violates unique constraint "pg_namespace_nspname_index"'
-                : 'schema "' . 'x' . '" already exists';
+            $this->error = 'FEHLER:  simuliert';
+            $this->code = $this->sqlstate;
 
             return false;
         }
@@ -401,17 +456,17 @@ final class Ci4PdoConnection
 
             return new Ci4PdoResult($statement instanceof PDOStatement ? $statement : null);
         } catch (PDOException $e) {
-            $code = (string)$e->getCode();
-            $this->error = $e->getMessage() . ($code !== '' ? ' SQLSTATE[' . $code . ']' : '');
+            $this->error = 'FEHLER:  ' . $e->getMessage();
+            $this->code = (string)$e->getCode();
 
             return false;
         }
     }
 
-    /** @return array{message:string} */
+    /** Like a CI4 driver that fills in the code (Postgre leaves it ''); the message is localized. */
     public function error(): array
     {
-        return ['message' => $this->error];
+        return ['code' => $this->code, 'message' => $this->error];
     }
 }
 
@@ -451,5 +506,119 @@ final class Ci4SchemaRacePdo extends PDO
         }
 
         return parent::exec($statement);
+    }
+}
+
+/**
+ * The parts of CI4's Postgre connection that Ci4SchemaSession uses: a public
+ * PgSql\Connection in connID, query() that returns false on error, and
+ * error() with an empty code. The message is what a German server sends.
+ */
+final class Ci4LocalizedPostgre
+{
+    public string $DBDriver = 'Postgre';
+    public PgSql\Connection $connID;
+
+    public function __construct(string $dsn)
+    {
+        $link = pg_connect($dsn, PGSQL_CONNECT_FORCE_NEW);
+        if (!$link instanceof PgSql\Connection) {
+            throw new RuntimeException('pg_connect failed');
+        }
+        $this->connID = $link;
+    }
+
+    /** Already connected, as CI4's initialize() is once connID is set. */
+    public function initialize(): void
+    {
+    }
+
+    public function escape(string $value): string
+    {
+        return "'" . pg_escape_string($this->connID, $value) . "'";
+    }
+
+    public function query(string $sql): Ci4LocalizedResult|false
+    {
+        $result = @pg_query($this->connID, $sql);
+
+        return $result === false ? false : new Ci4LocalizedResult($result);
+    }
+
+    /** @return array{code:string,message:string} */
+    public function error(): array
+    {
+        return ['code' => '', 'message' => 'FEHLER:  keine Berechtigung'];
+    }
+}
+
+final class Ci4LocalizedResult
+{
+    public function __construct(private PgSql\Result $result)
+    {
+    }
+
+    /** @return array<string,mixed> */
+    public function getRowArray(): array
+    {
+        $row = pg_fetch_assoc($this->result);
+
+        return is_array($row) ? $row : [];
+    }
+}
+
+/** No database: the schema is missing, CREATE fails with $error, and afterwards the schema exists when $raced. */
+final class Ci4ScriptedConnection
+{
+    /** @var list<string> */
+    public array $ran = [];
+    private bool $created = false;
+
+    /** @param array{code:string,message:string} $error */
+    public function __construct(private array $error, private bool $raced = true)
+    {
+    }
+
+    public function escape(string $value): string
+    {
+        return "'" . str_replace("'", "''", $value) . "'";
+    }
+
+    public function query(string $sql): Ci4ScriptedResult|false
+    {
+        if (str_starts_with($sql, 'CREATE SCHEMA')) {
+            $this->created = $this->raced;
+
+            return false;
+        }
+        if (str_contains($sql, 'pg_namespace')) {
+            return new Ci4ScriptedResult($this->created ? ['present' => 1] : []);
+        }
+        if (str_starts_with($sql, 'SELECT current_schema()')) {
+            return new Ci4ScriptedResult(['schema' => 'raced']);
+        }
+        $this->ran[] = $sql;
+
+        return new Ci4ScriptedResult([]);
+    }
+
+    /** @return array{code:string,message:string} */
+    public function error(): array
+    {
+        return $this->error;
+    }
+}
+
+final class Ci4ScriptedResult
+{
+    /** @param array<string,mixed> $row */
+    public function __construct(private array $row)
+    {
+    }
+
+    /** @return array<string,mixed> */
+    public function getRowArray(): array
+    {
+        return $this->row;
     }
 }

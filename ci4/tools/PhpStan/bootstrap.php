@@ -50,6 +50,13 @@ if (!function_exists('config_dsn_public_fields')) {
         return null;
     }
 }
+if (!function_exists('config_dsn_keywords')) {
+    /** @return array<string,string>|null */
+    function config_dsn_keywords(string $rest): ?array
+    {
+        return null;
+    }
+}
 if (!function_exists('now_utc')) {
     function now_utc(): string
     {
