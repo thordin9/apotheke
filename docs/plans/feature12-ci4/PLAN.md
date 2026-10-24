@@ -114,7 +114,8 @@ ci4/
     Config/  App.php (baseURL from PUBLIC_URL or the request; proxyIPs EMPTY — see Core/Http/RequestScheme)
              Autoload.php (PSR-4 Apotheke\ => modules/), Database.php (built by Core DatabaseFactory),
              Filters.php, Routing.php (autoRoute off), Session.php (FileHandler, DATA_DIR/sessions, cookie
-             apothekesid, Secure flag from RequestScheme), Security.php (CI4 CSRF off), Toolbar.php (off outside
+             apothekesid, Secure flag from RequestScheme, lifetime from session_days through Core/Http/SessionLifetime,
+             SEC-N9), Security.php (CI4 CSRF off), Toolbar.php (off outside
              development), Exceptions.php (UserError → 4xx; else 500 "Server error"), Services.php (factories only)
   modules/
     Core/        Config/ApothekeConfig (defaults < config.php < env, same env map incl. DB_DSN, ORIGINALS_DIR)

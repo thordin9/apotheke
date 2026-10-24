@@ -82,6 +82,16 @@ class Services extends BaseService
         );
     }
 
+    /** Session cookie lifetime from session_days, read once per request (SEC-N9). */
+    public static function sessionLifetime(bool $getShared = true): \Apotheke\Core\Http\SessionLifetime
+    {
+        if ($getShared) {
+            return static::getSharedInstance('sessionLifetime');
+        }
+
+        return new \Apotheke\Core\Http\SessionLifetime(static fn (): mixed => static::settings()->get('session_days'));
+    }
+
     /**
      * Spark's command runner, with the Apotheke commands that need
      * collaborators built here (constructor injection, no service() in commands).

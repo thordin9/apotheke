@@ -206,6 +206,44 @@ final class Ci4HttpTest extends TestCase
         }
     }
 
+    /** SEC-N9: the CI4 session cookie lasts session_days, like legacy. */
+    public function testSessionCookieFollowsSessionDays(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $legacyDir = tmpdir('ci4-days-leg');
+        $ci4Dir = tmpdir('ci4-days');
+        $legacy = new Server($legacyDir, [], 'legacy');
+        $ci4 = new Server($ci4Dir, [], 'ci4');
+        try {
+            $this->assertSame(200, $legacy->client()->get('/healthz')['status']);
+            $this->assertSame(200, $ci4->client()->get('/healthz')['status'], (string)@file_get_contents($ci4->log));
+            $this->assertStringContainsString('max-age=2592000', strtolower($this->cookieLine($ci4->client()->get('/'))));
+            foreach (['7' => 604800, '400' => 2592000] as $days => $maxAge) {
+                // 400 is outside 1–365: the stored value is invalid, so both fall back to 30 days.
+                foreach ([$legacyDir, $ci4Dir] as $dir) {
+                    $pdo = testdb($dir);
+                    $pdo->exec("DELETE FROM settings WHERE name = 'session_days'");
+                    $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('session_days', '" . $days . "', '2026-01-01')");
+                }
+                $left = strtolower($this->cookieLine($legacy->client()->get('/')));
+                $right = strtolower($this->cookieLine($ci4->client()->get('/')));
+                $this->assertStringContainsString('max-age=' . $maxAge, $left, 'legacy ' . $days);
+                $this->assertStringContainsString('max-age=' . $maxAge, $right, 'ci4 ' . $days);
+            }
+        } finally {
+            $legacy->stop();
+            $ci4->stop();
+            testdb_drop($legacyDir);
+            testdb_drop($ci4Dir);
+            rrmdir($legacyDir);
+            rrmdir($ci4Dir);
+            @unlink($legacyDir . '.server.log');
+            @unlink($ci4Dir . '.server.log');
+        }
+    }
+
     public function testHealthzAcceptsABackslashPasswordOnPostgres(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
