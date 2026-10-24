@@ -7,6 +7,18 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+**Upgrade note:** a new install's `APP_PASSWORD` now needs at least 8 characters, not only spaces (hardening, #75 QA L-2). A shorter one stops the first start with a message that doesn't show it. An install that already has an account is unaffected.
+
+### Fixed
+
+- **auth:** hardening (#75 QA L-2): `APP_PASSWORD` meets the same 8-character minimum as every other password. A shorter value stops the Docker start check (exit 78), `bin/migrate.php` and the first-account seed, and the value is never logged. ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docker:** hardening (#75 QA L-1, N-2; #73 QA N-1, N-2): the start check is tested for a database that can't be read, and each try waits at most 5 s for PostgreSQL. The ImageMagick policy check fails on any delegate or `@file` path rule that grants rights. nginx's 421 on the restore upload has the app's short plain-text body. ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **release:** a handwritten Fixed bullet replaces the lines generated from the same PR's `fix:` commits, whatever their scope (v2.6.5 release QA L-1). ([#81](https://github.com/thordin9/apotheke/pull/81))
+
+### Maintenance
+
+- **docs:** health checks follow the Host rule from 2.6.2, `PUBLIC_URL` only works on a new install (an existing one uses Control Panel → General), the `/health` example uses a version placeholder, the 1.x upgrade port examples bind to `127.0.0.1`, and the start check's wording says what it may change (#73 QA L-1, v2.6.2 release QA L-1 and N-4, #75 QA N-1 and N-3). ([#81](https://github.com/thordin9/apotheke/pull/81))
+
 ## [2.6.7] - 2026-10-24
 
 **Upgrade note:** Docker installs are private by default (hardening, SEC-M3). Compose publishes the app on `127.0.0.1:9091` only: if phones or other machines open it directly, change the port line in `docker-compose.yml` to `"9091:9091"` (all interfaces) or `"<LAN-IP>:9091:9091"` on purpose; a reverse proxy on the same server needs no change. The container also refuses to start with sign-in off. An install with sign-in on starts unchanged. Without sign-in, either turn it on with `docker compose run --rm -u www-data apotheke php bin/settings.php password` (setting `APP_PASSWORD` alone doesn't, once the database exists), or set `ALLOW_NO_LOGIN=1` to keep running without sign-in. A new install needs `APP_PASSWORD` or `ALLOW_NO_LOGIN=1`.
