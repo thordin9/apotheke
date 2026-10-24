@@ -336,7 +336,7 @@ compose file never wipes a value from `config.php`.
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
 | `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost` and `PUBLIC_URL`'s host always work; other names get 421. See [Host names](docs/deployment-and-operations.md#host-names). |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
-| `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). With *Trust the reverse proxy* on, the sign-in limit reads `X-Forwarded-For` only from these. |
+| `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed here. The client is the rightmost hop that isn't itself listed. With `trust_proxy` on and an empty list, the connecting address is used. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
 ## Command-line tools

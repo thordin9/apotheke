@@ -86,10 +86,9 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
 manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account
 from one client) and registration (5 / hour per address). One client's attempts against one account do not use up the
-limit for anyone else. With **Trust the reverse proxy** on, the client address is taken from `X-Forwarded-For` only
-when the connection comes from an address in `trusted_proxies` (`TRUSTED_PROXIES`); the client is the rightmost hop
-that is not itself in that list. Otherwise the limit uses the address that connected to Apotheke, and
-`X-Forwarded-For` is ignored. See [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
+limit for anyone else. `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in
+`trusted_proxies` / `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With
+`trust_proxy` on and an empty list, the connecting address is used. See [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
 
 Accounts with the *Users* permission see this section. Rules: user names are 1–40 letters, digits and `. _ @ -`
 (case-insensitive, unique); passwords at least 8 characters; the last admin can't be demoted or deleted; you can't

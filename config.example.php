@@ -36,8 +36,9 @@ return [
     'public_url'    => '',                    // PUBLIC_URL     base URL in QR labels, e.g. http://192.168.1.10:9091 (default: from the request)
     'allowed_hosts' => '',                    // ALLOWED_HOSTS  extra host names, comma-separated (addresses, localhost and PUBLIC_URL's host always work)
     'seed_defaults' => true,                  // SEED_DEFAULTS  starter locations/categories on a new database
-    // Addresses of your own reverse proxies (comma-separated in TRUSTED_PROXIES). Used only when
-    // Control Panel → Users & sign-in → Trust the reverse proxy is on, and only for the sign-in
-    // limit: X-Forwarded-For is read when the connection comes from one of these addresses.
+    // Addresses of your own reverse proxies (comma-separated in TRUSTED_PROXIES). X-Forwarded-For
+    // is read only when trust_proxy is on and the connecting peer is listed here. The client is
+    // the rightmost hop that isn't itself listed. With trust_proxy on and an empty list, the
+    // connecting address is used.
     'trusted_proxies' => [],                  // TRUSTED_PROXIES  e.g. ['127.0.0.1', '192.0.2.0/24']
 ];

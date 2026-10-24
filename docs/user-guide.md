@@ -515,10 +515,9 @@ role. A custom role with *Users* cannot do those. It can still change other acco
   accounts get the **Role for new registrations** (default Viewer; never Admin). With **Registrations need an admin’s
   approval** they show up under Users as *Waiting for approval* and can sign in once an admin taps *Approve account*.
   Sign-in is limited to 10 tries per 15 minutes **for that account from that client**, and registration to 5 per hour
-  per address. Attempts against one account do not block a different account. Behind your own proxy, list that proxy
-  in `trusted_proxies` / `TRUSTED_PROXIES` and turn on *Trust the reverse proxy*; the limit then uses
-  `X-Forwarded-For` (the rightmost address that is not itself one of those proxies). Otherwise it uses the address
-  that connected to Apotheke.
+  per address. Attempts against one account do not block a different account. `X-Forwarded-For` is read only when
+  `trust_proxy` is on and the connecting peer is listed in `trusted_proxies` / `TRUSTED_PROXIES`. The client is the
+  rightmost hop that isn't itself a listed proxy. With `trust_proxy` on and an empty list, the connecting address is used.
 * Turning accounts off (*Turn sign-in off*) makes everyone an anonymous guest with admin rights again. Only an admin
   account can do this.
 Tap a user to change the role, rename the account, set a new password (signs that user out on every device) or delete it.
