@@ -31,6 +31,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 
 ### Fixed
 
+- **ci4 (security):** stored secrets are encrypted at rest when `APP_KEY` (or `APP_KEY_FILE`) is set, as on `main` (S-L5). CI4 reads and writes the same `enc:v1:` values as legacy, seals a plaintext AI autofill token the first time it reads it with a key, and logs the same once-per-request lines. A key that is set but cannot be used (malformed, unreadable, inside the data directory, or no sodium extension) refuses the token save with a 422 that names the cause and keeps the stored value. The settings CLI prints the same `APP_KEY` notice as legacy. `key generate` and `key rotate` stay in `bin/settings.php`. ([#89](https://github.com/thordin9/apotheke/pull/89))
 - **ci4:** `Services::apothekeDb` brings the schema up to date once per process and database, not on every request in a long-lived worker. Under php-fpm and spark that is once per request or command, as legacy `db()` does; `apotheke:migrate` stays the explicit way. The settings cache lives in the per-request `SettingsService`, not in a static. ([#64](https://github.com/thordin9/apotheke/pull/64))
 - **ci4:** `get` of an unknown key or of a write-only key exits 1 with a message instead of a PHP fatal or printing the secret. ([#64](https://github.com/thordin9/apotheke/pull/64))
 - **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects. ([#38](https://github.com/thordin9/apotheke/pull/38))
