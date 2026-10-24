@@ -174,44 +174,72 @@ final class Ci4DsnCredentialsTest extends TestCase
         }
     }
 
-    /** CI4 does not depend on PDO adding the credentials: the runner and /healthz log in as DB_USER. */
-    public function testValuesMentioningUserOrPasswordDoNotDropTheCredentials(): void
+    /**
+     * user= or password= text inside another setting stops CI4 instead of
+     * letting PDO 8.4 drop the credentials: the runner (CLI) refuses on every
+     * PHP version, and on PHP 8.4 /healthz returns the value-free boot error.
+     */
+    public function testCredentialTextInsideAnotherSettingIsRefused(): void
     {
         $pg = test_pg_params();
         $env = $this->roles['env'];
         $tails = [
             'application_name' => "application_name='a user=b password=c'",
             'options' => "options='-c search_path=user=x'",
-            'sslpassword keyword' => 'sslpassword=placeholder',
+            'sslpassword keyword' => 'sslpassword=k7canary',
         ];
         $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
-        $pgpass = getenv('PGPASSWORD');
-        putenv('PGPASSWORD');
-        putenv('PGPASSFILE=/nonexistent');
-        try {
-            foreach ($tails as $label => $tail) {
-                $db = [
-                    'driver' => 'pgsql',
-                    'dsn' => sprintf('pgsql:host=%s;port=%s;dbname=%s;', $pg['host'], $pg['port'], $pg['name']) . $tail,
-                    'user' => $env['user'],
-                    'password' => $env['password'],
-                    'schema' => '',
-                ];
-                $pdo = $runner->connect($db);
-                $this->assertSame($env['user'], $pdo->query('SELECT current_user')->fetchColumn(), $label);
-                $runner->close($pdo);
+        foreach ($tails as $label => $tail) {
+            $db = [
+                'driver' => 'pgsql',
+                'dsn' => sprintf('pgsql:host=%s;port=%s;dbname=%s;', $pg['host'], $pg['port'], $pg['name']) . $tail,
+                'user' => $env['user'],
+                'password' => $env['password'],
+                'schema' => '',
+            ];
+            try {
+                $runner->connect($db);
+                $this->fail($label . ': the runner connected');
+            } catch (Apotheke\Migrations\MigrateConnectException $e) {
+                $this->assertSame(Apotheke\Core\Config\DsnException::CREDENTIAL_TEXT, $e->getMessage(), $label);
             }
-        } finally {
-            putenv($pgpass === false ? 'PGPASSWORD' : 'PGPASSWORD=' . $pgpass);
-            putenv('PGPASSFILE');
         }
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             return;
         }
         foreach ($tails as $label => $tail) {
             $hit = $this->boot('dbname=' . $pg['name'] . ';' . $tail, '%eu', '%ep');
-            $this->assertSame(200, $hit['status'], $label . ': ' . $hit['body'] . $hit['log']);
+            $this->assertSame(500, $hit['status'], $label . ': ' . $hit['body'] . $hit['log']);
+            $this->assertSame(Apotheke\Core\Config\DsnException::CREDENTIAL_TEXT, $hit['body'], $label);
+            $this->assertStringContainsString('Database pgsql host=', $hit['log'], $label);
+            foreach (['k7canary', 'search_path', $env['password'], $env['user']] as $value) {
+                $this->assertStringNotContainsString($value, $hit['body'] . $hit['log'], $label);
+            }
         }
+    }
+
+    /** Case c pinned on its own: DSN user/password plus DB_USER/DB_PASSWORD boots and logs in as DB_USER. */
+    public function testCaseCBootsAsTheEnvRole(): void
+    {
+        $pg = test_pg_params();
+        $env = $this->roles['env'];
+        $dsn = $this->roles['dsn'];
+        $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
+        $pdo = $runner->connect([
+            'driver' => 'pgsql',
+            'dsn' => sprintf('pgsql:host=%s;port=%s;dbname=%s;user=%s;password=%s', $pg['host'], $pg['port'], $pg['name'], $dsn['user'], $dsn['password']),
+            'user' => $env['user'],
+            'password' => $env['password'],
+            'schema' => '',
+        ]);
+        $this->assertSame($env['user'], $pdo->query('SELECT current_user')->fetchColumn());
+        $runner->close($pdo);
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            return;
+        }
+        $hit = $this->boot('dbname=' . $pg['name'] . ';user=%du;password=%dp', '%eu', '%ep');
+        $this->assertSame(200, $hit['status'], $hit['body'] . $hit['log']);
+        $this->assertSame('ok', $hit['body']);
     }
 
     /** One warning, with no user names or passwords, when DB_DSN's credentials differ from the ones used. */

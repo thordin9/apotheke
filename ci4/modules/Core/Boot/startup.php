@@ -26,7 +26,8 @@ try {
     // allowlisted connect line. A web request stops here.
     if (PHP_SAPI !== 'cli') {
         $driver = (string)($config->database()['driver'] ?? '');
-        BootError::send(DsnException::PUBLIC_MESSAGE, DsnTranslator::logLine($driver, $e->dsn));
+        $log = DsnTranslator::logLine($driver, $e->dsn);
+        BootError::send($e->getMessage(), $e->getMessage() === DsnException::PUBLIC_MESSAGE ? $log : $log . '. ' . $e->getMessage());
     }
 }
 try {

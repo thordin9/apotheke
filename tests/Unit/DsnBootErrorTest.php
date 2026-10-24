@@ -36,6 +36,14 @@ final class DsnBootErrorTest extends TestCase
                 'accepted' => true,
                 'absent' => ['s9d44', 'password', 'could not be used'],
             ],
+            // user= or password= inside another value: PDO 8.4 would drop DB_USER and
+            // DB_PASSWORD, so boot stops with a message that names no values.
+            'credential-text' => [
+                'dsn' => "pgsql:host=db.example;port=5432;dbname=catalog;options='-c x=password=s9d44'",
+                'body' => 'The database settings could not be used: DB_DSN has user= or password= inside another',
+                'log' => 'Database pgsql host=db.example port=5432 dbname=catalog. The database settings could not be used: DB_DSN has',
+                'absent' => ['s9d44', '-c x'],
+            ],
             'semicolon' => [
                 'dsn' => 'pgsql:host=db.example;port=5432;dbname=catalog;password=q9;w8zz',
                 'log' => 'Database pgsql',
@@ -56,7 +64,11 @@ final class DsnBootErrorTest extends TestCase
                 continue;
             }
             $this->assertSame(500, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
-            $this->assertSame('The database settings could not be used.', $hit['body'], $name);
+            if (isset($case['body'])) {
+                $this->assertStringStartsWith($case['body'], $hit['body'], $name);
+            } else {
+                $this->assertSame('The database settings could not be used.', $hit['body'], $name);
+            }
             $this->assertStringContainsString($case['log'], $hit['log'], $name . $hit['log']);
             if ($name === 'unsupported-prefix') {
                 $this->assertStringNotContainsString('mysql', $hit['log'], $name);

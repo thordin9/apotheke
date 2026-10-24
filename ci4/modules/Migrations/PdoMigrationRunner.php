@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Migrations;
 
+use Apotheke\Core\Config\DsnException;
 use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Config\PdoSchemaSession;
 use Apotheke\Core\Config\PgsqlSchema;
@@ -42,7 +43,11 @@ final class PdoMigrationRunner
         $user = null;
         $password = null;
         if ($driver === 'pgsql') {
-            [$dsn, $user, $password, $differs] = DsnTranslator::forPdo($dsn, $db);
+            try {
+                [$dsn, $user, $password, $differs] = DsnTranslator::forPdo($dsn, $db);
+            } catch (DsnException $e) {
+                throw new MigrateConnectException($e->getMessage());
+            }
             if ($differs) {
                 error_log('[apotheke] ' . self::CREDENTIALS_DIFFER);
             }
