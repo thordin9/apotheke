@@ -273,12 +273,14 @@ function user_can(string $perm, ?array $u = null): bool
     return role_has($u['role'], $perm);
 }
 
-/** An admin account, or the command line. Granting admin, turning sign-in off, and changing an admin account need this. */
-function actor_is_admin(): bool
+/** An admin account, or the command line. Granting admin, turning sign-in off, and changing an admin account need this.
+ * $sapi defaults to this process. Tests pass a web SAPI to show the anonymous guest is not an admin there. */
+function actor_is_admin(?string $sapi = null): bool
 {
+    $sapi ??= PHP_SAPI;
     $u = current_user();
     // Guest browsing returns the anonymous guest instead of null. On the command line that is still nobody signed in.
-    if ($u === null || !empty($u['anon'])) return PHP_SAPI === 'cli';
+    if ($u === null || !empty($u['anon'])) return $sapi === 'cli';
     return ($u['role'] ?? '') === 'admin';
 }
 

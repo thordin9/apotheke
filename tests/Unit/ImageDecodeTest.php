@@ -142,6 +142,198 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertSame($before, $this->tree(DATA_DIR));
     }
 
+    /**
+     * A PNG between the PNG budget and the 40 MP GD budget is refused from the header.
+     * WebP and GIF at 40 MP stay on the GD budget. Nothing is written.
+     */
+    public function testPngOverThePngBudgetIsRefusedBeforeDecode(): void
+    {
+        $this->assertSame(26_000_000, IMAGE_PNG_MAX_PIXELS);
+        $this->assertLessThan(IMAGE_GD_MAX_PIXELS, IMAGE_PNG_MAX_PIXELS);
+        $this->assertFalse(image_raster_header_over_limit(5000, 5200, IMAGETYPE_PNG));
+        $this->assertSame(26_000_000, 5000 * 5200);
+        $this->assertTrue(image_raster_header_over_limit(6000, 5000, IMAGETYPE_PNG));
+        $this->assertSame(30_000_000, 6000 * 5000);
+        $this->assertLessThan(IMAGE_GD_MAX_PIXELS, 6000 * 5000);
+        $this->assertFalse(image_raster_header_over_limit(6400, 6250, IMAGETYPE_WEBP));
+        $this->assertFalse(image_raster_header_over_limit(6400, 6250, IMAGETYPE_GIF));
+        $this->assertSame(40_000_000, 6400 * 6250);
+
+        $before = $this->tree(DATA_DIR);
+        try {
+            $this->store($this->pngHeader(6000, 5000), 'png-30mp.png');
+            $this->fail('a PNG over the PNG budget was stored');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+
+        settings_store(['autofill_enabled' => true, 'autofill_url' => 'http://127.0.0.1:9', 'autofill_timeout' => 3]);
+        $path = tempnam(sys_get_temp_dir(), 'png');
+        $this->assertNotFalse($path);
+        file_put_contents($path, $this->pngHeader(6000, 5000));
+        try {
+            autofill_suggest_path($path);
+            $this->fail('a PNG over the PNG budget was sent to suggest');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+            $this->assertSame(422, $e->getCode());
+        } finally {
+            @unlink($path);
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+
+        try {
+            $this->store($this->pngHeader(5000, 5200), 'png-26mp.png');
+            $this->fail('a truncated PNG at the PNG budget was stored');
+        } catch (UserError $e) {
+            $this->assertNotSame('Image dimensions are too large.', $e->getMessage());
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+    }
+
+    /** A fatal error during decode removes the camera file this request already wrote. */
+    public function testCameraFileIsRemovedWhenDecodeFatals(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $data = sys_get_temp_dir() . '/apotheke-fatal-' . bin2hex(random_bytes(4));
+        $png = tempnam(sys_get_temp_dir(), 'png');
+        $this->assertNotFalse($png);
+        file_put_contents($png, $this->pngHeader(8, 8));
+        $script = tempnam(sys_get_temp_dir(), 'fatal');
+        $this->assertNotFalse($script);
+        file_put_contents($script, <<<'PHP'
+<?php
+declare(strict_types=1);
+$data = $argv[1];
+$png = $argv[2];
+$root = $argv[3];
+putenv('DATA_DIR=' . $data);
+putenv('APOTHEKE_CONFIG=/nonexistent');
+putenv('SEED_DEFAULTS=0');
+require $root . '/src/bootstrap.php';
+require $root . '/src/items.php';
+set_error_handler(static function (int $severity, string $message): bool {
+    if (str_contains($message, 'imagecreatefrompng')) {
+        fwrite(STDERR, "decode-entered\n");
+        trigger_error('decode stopped', E_USER_ERROR);
+    }
+    return true;
+});
+$tmp = tempnam(sys_get_temp_dir(), 'up');
+if ($tmp === false) {
+    fwrite(STDERR, "no temp\n");
+    exit(2);
+}
+copy($png, $tmp);
+image_store(['error' => UPLOAD_ERR_OK, 'tmp_name' => $tmp, 'size' => (int)filesize($tmp), 'name' => 'bad.png']);
+PHP);
+        $proc = proc_open(
+            [PHP_BINARY, $script, $data, $png, $root],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        $this->assertIsResource($proc);
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $code = proc_close($proc);
+        @unlink($png);
+        @unlink($script);
+        $this->assertSame(255, $code, $stderr . $stdout);
+        $this->assertStringContainsString('decode-entered', $stderr);
+        $this->assertStringContainsString('decode stopped', $stderr);
+        $left = [];
+        $originals = $data . '/originals';
+        if (is_dir($originals)) {
+            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($originals, FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $f) {
+                if ($f->isFile() && $f->getFilename() !== '.htaccess') $left[] = $f->getPathname();
+            }
+        }
+        $this->assertSame([], $left, "camera file left behind:\n" . implode("\n", $left));
+        $this->removeTree($data);
+    }
+
+    /**
+     * A HEIC whose header is inside the limit, and which Imagick then refuses for a resource limit,
+     * is the same 422 on suggest as on upload.
+     */
+    public function testSuggestHeicDecodeResourceLimitIsTheDimensionError(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        $fixture = dirname(__DIR__) . '/fixtures/tiny-gps.heic';
+        if (!is_file($fixture)) $this->markTestSkipped('HEIC fixture is missing');
+        $bytes = (string)file_get_contents($fixture);
+        $width = (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH);
+        Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, 8);
+        try {
+            $dims = null;
+            try {
+                $dims = image_ping_heic($bytes);
+            } catch (UserError) {
+                $dims = null;
+            }
+            if (!is_array($dims) || !imagick_frame_exceeds_policy($dims[0], $dims[1])) {
+                $this->markTestSkipped('this build does not refuse the fixture from its header');
+            }
+            $readLimited = false;
+            try {
+                $im = imagick_read_explicit($bytes, 'HEIC');
+                $im->clear();
+            } catch (Throwable $e) {
+                $readLimited = imagick_failure_is_too_large($e, $dims[0], $dims[1]);
+            }
+            if (!$readLimited) $this->markTestSkipped('decoder did not report a resource limit');
+            settings_store(['autofill_enabled' => true, 'autofill_url' => 'http://127.0.0.1:9', 'autofill_timeout' => 3]);
+            $path = tempnam(sys_get_temp_dir(), 'heic');
+            $this->assertNotFalse($path);
+            file_put_contents($path, $bytes);
+            try {
+                $r = autofill_suggest_path($path);
+                $this->fail('suggest returned ' . json_encode($r));
+            } catch (UserError $e) {
+                $this->assertSame('Image dimensions are too large.', $e->getMessage());
+                $this->assertSame(422, $e->getCode());
+            } finally {
+                @unlink($path);
+            }
+        } finally {
+            Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, $width);
+        }
+    }
+
+    /**
+     * Header accepted, then Imagick refuses the decode. Suggest uses the same dimension error as upload.
+     * The JPEG is over the GD budget, so suggest decodes it with Imagick; the width limit makes that read fail.
+     */
+    public function testSuggestDecodeResourceLimitIsTheDimensionError(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        settings_store(['autofill_enabled' => true, 'autofill_url' => 'http://127.0.0.1:9', 'autofill_timeout' => 3]);
+        $jpeg = $this->solidJpeg(8000, 5008);
+        $this->assertGreaterThan(IMAGE_GD_MAX_PIXELS, 8000 * 5008);
+        $this->assertFalse(image_raster_header_over_limit(8000, 5008, IMAGETYPE_JPEG));
+        $width = (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH);
+        Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, 8);
+        $path = tempnam(sys_get_temp_dir(), 'jpg');
+        $this->assertNotFalse($path);
+        file_put_contents($path, $jpeg);
+        try {
+            try {
+                $r = autofill_suggest_path($path);
+                $this->fail('suggest returned ' . json_encode($r));
+            } catch (UserError $e) {
+                $this->assertSame('Image dimensions are too large.', $e->getMessage());
+                $this->assertSame(422, $e->getCode());
+            }
+        } finally {
+            Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, $width);
+            @unlink($path);
+        }
+    }
+
     public function testJustOverThePixelCapIsRefusedFromTheHeader(): void
     {
         $before = $this->tree(DATA_DIR);

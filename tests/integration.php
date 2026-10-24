@@ -1525,6 +1525,9 @@ T::ok(str_contains((string)$cli('set session_idle_hours 24'), 'session_idle_hour
 T::eq('24', trim((string)$cli('get session_idle_hours')), 'CLI get after set');
 T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI recovery: set a password');
 T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
+T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI: sign-in on again');
+T::ok(str_contains((string)$cli('set auth_guest_disabled 0'), 'auth_guest_disabled = false'), 'CLI: guest browsing on');
+T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI password --off with sign-in and guest browsing both on');
 
 T::section('Users & roles');
 $ud = $newDir('users');

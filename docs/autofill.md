@@ -259,7 +259,7 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Photo too large (`413`, or the analysis copy cannot be made to fit the byte cap) | *the photo is too large (max N MiB / N bytes)* — the cap after `auto`, or after an explicit size capped to `enforced_image_bytes` then `max_image_bytes`. A limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB). An HTTP 413 refetches `GET /v1/info` once, clamps again, and uploads once more. A second 413 stops. The token is not logged. 0.9 MiB / 983040 bytes is the `auto` cap when `/v1/info` has not been seen |
 | Image type not supported (`415`) | *cannot read this kind of image* |
 | Not an image, or a photo that cannot be turned into a stripped JPEG (no GD/Imagick, HEIC without libheif, broken file) | *cannot be read as a photo* – checked locally, nothing is sent |
-| Header over the same dimension limit as an upload | *Image dimensions are too large.* HTTP 422. Nothing is stored or sent |
+| Header over the same dimension limit as an upload, or a decode refused as too large (a PNG above 26 megapixels, a WebP or GIF above 40, or a HEIC the decoder will not allocate) | *Image dimensions are too large.* HTTP 422. Nothing is stored or sent |
 | `200 {}` | *No suggestions for this photo.* |
 
 **Saving never waits for a suggestion** – the browser asks `/autofill/suggest` separately. But a pending
