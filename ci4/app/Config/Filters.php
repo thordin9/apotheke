@@ -40,6 +40,8 @@ class Filters extends BaseFilters
         'securityheaders' => \Apotheke\Core\Filters\SecurityHeaders::class,
         'posttoolarge' => \Apotheke\Core\Filters\PostTooLargeFilter::class,
         'session' => \Apotheke\Core\Filters\SessionCookie::class,
+        // Legacy check_csrf() (session token). CI4's cookie CSRF ('csrf') stays off.
+        'sessioncsrf' => \Apotheke\Core\Filters\CsrfFilter::class,
     ];
 
     /**
@@ -78,6 +80,7 @@ class Filters extends BaseFilters
      */
     public array $globals = [
         'before' => [
+            'sessioncsrf',
         ],
         'after' => [
             'securityheaders',

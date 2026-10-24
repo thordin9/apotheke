@@ -6,6 +6,7 @@ namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Config\DsnTranslator;
+use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\RequestScheme;
 use Apotheke\Core\Http\TrustProxyReader;
 use CodeIgniter\Filters\FilterInterface;
@@ -53,6 +54,10 @@ final class SessionCookie implements FilterInterface
             'secure' => $secure,
         ]);
         session_start();
+        // Legacy init_session(): every session has a CSRF token for CsrfFilter.
+        if (!is_string($_SESSION['csrf'] ?? null) || $_SESSION['csrf'] === '') {
+            $_SESSION['csrf'] = (new CsrfCheck())->newToken();
+        }
 
         return null;
     }

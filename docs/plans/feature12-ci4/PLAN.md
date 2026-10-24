@@ -125,7 +125,9 @@ ci4/
                    Postgre: UTC, DB_SCHEMA create + search_path), Database/Dialect
                  Http/RequestScheme (port of request_is_https(): HTTPS/port 443, or trust_proxy ON and the first
                    X-Forwarded-Proto value == https; drives Secure cookies and public_url; NOT CI4 proxyIPs, M-2)
-                 Filters/ OriginalsGuard (first), SecurityHeaders, HeadAsGet, PostTooLarge, JsonNegotiation
+                 Filters/ OriginalsGuard (first), SecurityHeaders, HeadAsGet, PostTooLarge, JsonNegotiation,
+                   CsrfFilter (global before-filter, SEC-N10: legacy check_csrf() on every non-safe method;
+                   session token from the `csrf` field or `X-CSRF-Token`, 419; never starts a session)
                  Boot/StoragePreflight (ORIGINALS_DIR vs FCPATH, generic refusal page (N-6), error_log (N-7))
                  Helpers/apotheke_helper.php, Exceptions/UserError, Libraries/Clock + Responder, Views/layout…
     Migrations/  Apotheke\Migrations — the PDO runner in its own module (PM decision, H-1)
@@ -139,7 +141,8 @@ ci4/
                                       delegate to Settings\SettingsSchema (single source), golden-tested against legacy
                  Commands/ apotheke:migrate [--status]; bin/migrate.php wrapper
     Auth/        Login/Register/Account/Logout controllers; UserModel, RoleModel, AuthAttemptModel; AuthService,
-                 Permissions, RateLimiter; filters Csrf (419), Permission (`perm:<name>`), SessionRelease
+                 Permissions, RateLimiter; filters Permission (`perm:<name>`), SessionRelease (Csrf is Core's
+                 CsrfFilter)
     Settings/    SettingsSchema (62 keys), SettingsService, SettingsRepository, Branding; Control Panel;
                  Commands/SettingsCommand (all 19 forms) + bin/settings.php wrapper
     Taxonomy/    LocationModel, CategoryModel, TagModel, ItemTagRepository, LocationTree; controllers

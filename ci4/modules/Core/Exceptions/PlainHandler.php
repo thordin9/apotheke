@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Exceptions;
 
+use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\SecurityPolicy;
 use CodeIgniter\Debug\ExceptionHandlerInterface;
 use CodeIgniter\Exceptions\PageNotFoundException;
@@ -41,7 +42,7 @@ final class PlainHandler implements ExceptionHandlerInterface
     public function render(Throwable $exception, ResponseInterface $response): ResponseInterface
     {
         [$status, $body] = $this->status($exception);
-        $response->setStatusCode($status);
+        $response->setStatusCode($status, $status === CsrfCheck::STATUS ? CsrfCheck::REASON : '');
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
             // A route that already set its own, stricter CSP keeps it (as SecurityHeaders does).
             if ($name === 'Content-Security-Policy' && $response->hasHeader($name)) {

@@ -121,6 +121,7 @@ final class Ci4HttpTest extends TestCase
             $this->router($ci4, $asset);
             $this->head($ci4);
             $this->healthVerbs($ci4);
+            $this->sessionToken($ci4);
         } finally {
             $legacy->stop();
             $ci4->stop();
@@ -482,5 +483,17 @@ final class Ci4HttpTest extends TestCase
             $post = $server->client()->post($path);
             $this->assertContains($post['status'], [404, 405], 'POST ' . $path);
         }
+    }
+
+    /** Like legacy init_session(), a CI4 session holds a CSRF token for CsrfFilter (SEC-N10). */
+    private function sessionToken(Server $server): void
+    {
+        $client = $server->client();
+        $client->get('/');
+        $sid = (string)($client->cookies['apothekesid'] ?? '');
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9,-]+$/', $sid);
+        $file = $server->dataDir . '/sessions/sess_' . $sid;
+        $this->assertFileExists($file);
+        $this->assertMatchesRegularExpression('/csrf\|s:64:"[0-9a-f]{64}"/', (string)file_get_contents($file));
     }
 }

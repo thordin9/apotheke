@@ -24,6 +24,7 @@ final class PlainHandlerTest extends CIUnitTestCase
         yield '404' => [PageNotFoundException::forPageNotFound(), 404, 'Not found'];
         yield '500' => [new RuntimeException('internal detail'), 500, 'Server error'];
         yield 'UserError' => [new UserError('Name is required.', 422), 422, 'Name is required.'];
+        yield 'UserError 419' => [new UserError('Your session expired. Reload the page and try again.', 419), 419, 'Your session expired. Reload the page and try again.'];
         yield 'UserError without status' => [new UserError('Bad input.'), 400, 'Bad input.'];
     }
 
