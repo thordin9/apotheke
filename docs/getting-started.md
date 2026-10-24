@@ -38,9 +38,9 @@ Run `docker compose up -d` again after changing it. The compose file passes `TZ`
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` through; to set any other variable from
 [Configuration](configuration.md), add it under `environment:`.
 
-**What's in the image:** `php:8.3-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
-`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). That default is the shipped 2.5.x image.
-`docker build --build-arg PHP_VERSION=8.4` builds the CI test image from the same Dockerfile, including Imagick. Compose and the published image keep the default. Imagick is built from its
+**What's in the image:** `php:8.3.36-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
+`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). That default (`ARG PHP_VERSION=8.3.36`) is the shipped image.
+`docker build --build-arg PHP_VERSION=8.4.27` builds the CI test image from the same Dockerfile, including Imagick. Compose and the published image keep the default. Imagick is built from its
 GitHub release tag, with pecl.php.net as a second source. Each is pinned by its own sha256 (`IMAGICK_SHA256` and
 `IMAGICK_PECL_SHA256` in the `Dockerfile`, next to `IMAGICK_VERSION`), and the build fails if neither download matches.
 To upgrade it, change all three. Opcache is on and JIT is
@@ -62,6 +62,8 @@ A `HEALTHCHECK` polls `/healthz`.
 git pull
 docker compose up -d --build
 ```
+
+After a PHP security release, fetch the new base image and restart: `docker compose build --pull`, then `docker compose up -d`.
 
 Pending database migrations run automatically on the first request. See
 [Deployment and operations](deployment-and-operations.md#upgrades).
@@ -97,7 +99,7 @@ include the password or the DSN. The browser shows a generic page, and `/healthz
 ## Plain `docker run`
 
 ```bash
-docker build -t apotheke .
+docker build --pull -t apotheke .
 docker run -d --name apotheke -p 9091:9091 -v "$PWD/data:/data" -e TZ=Europe/Athens apotheke
 ```
 

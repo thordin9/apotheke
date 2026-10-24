@@ -173,7 +173,7 @@ final class MigrateDsnTest extends TestCase
             $secrets = $row[2];
             $where = $row[3];
             $dbUser = $row[4] ?? 'apotheke';
-            $run = $this->migrate($dsn, $dbPassword, 'pgsql', $dbUser, true);
+            $run = $this->migrate($dsn, $dbPassword, 'pgsql', $dbUser, [], [], true);
             $this->assertNotSame(0, $run['code'], $name . $run['out'] . $run['err']);
             $this->assertSame('Database: pgsql – ' . $where . "\n", $run['out'], $name . $run['err']);
             foreach ($secrets as $secret) {
@@ -191,8 +191,7 @@ final class MigrateDsnTest extends TestCase
             $password,
             'pgsql',
             $user,
-            false,
-            ['zend.exception_ignore_args=0']
+            ['zend.exception_ignore_args' => '0']
         );
         $this->assertConnectFailureIsAllowlisted($legacy, $user, $password);
         if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php')) {
@@ -203,8 +202,9 @@ final class MigrateDsnTest extends TestCase
             $password,
             'pgsql',
             $user,
-            true,
-            ['zend.exception_ignore_args=0']
+            ['zend.exception_ignore_args' => '0'],
+            [],
+            true
         );
         $this->assertConnectFailureIsAllowlisted($ci4, $user, $password);
     }
@@ -223,10 +223,73 @@ final class MigrateDsnTest extends TestCase
     }
 
     /**
-     * @param list<string> $ini
+     * A refused PostgreSQL connection must not reveal the login.
+     * libpq names the user ("password authentication failed for user …").
+     * With zend.exception_ignore_args off, the trace includes the DSN and the
+     * user. On PHP 8.2 and newer the password argument is SensitiveParameterValue;
+     * the password text appears only when it is embedded in the DSN and
+     * zend.exception_string_param_max_len is raised. This test turns that limit
+     * up and checks stdout, stderr, and the error log.
+     */
+    public function testConnectFailureOmitsUserPasswordAndDsn(): void
+    {
+        $user = 'canaryuser';
+        $password = 'canarypass';
+        $log = tempnam(sys_get_temp_dir(), 'apotheke-mig-');
+        $this->assertNotFalse($log);
+        $dsn = 'pgsql:host=127.0.0.1;port=5432;dbname=keepdb;user=' . $user . ';password=' . $password;
+        $where = 'host=127.0.0.1 port=5432 dbname=keepdb (schema app)';
+        try {
+            $run = $this->migrate($dsn, $password, 'pgsql', $user, [
+                'zend.exception_ignore_args' => '0',
+                'zend.exception_string_param_max_len' => '1000000',
+                'log_errors' => '1',
+                'display_errors' => 'stderr',
+                'error_log' => $log,
+            ], [
+                'DB_HOST' => '127.0.0.1',
+                'DB_PORT' => '5432',
+                'DB_NAME' => 'keepdb',
+            ]);
+            $logged = is_file($log) ? (string)file_get_contents($log) : '';
+            $blob = $run['out'] . "\n" . $run['err'] . "\n" . $logged;
+            $this->assertStringNotContainsString($user, $run['out']);
+            $this->assertStringNotContainsString($user, $run['err']);
+            $this->assertStringNotContainsString($user, $logged);
+            $this->assertStringNotContainsString($password, $run['out']);
+            $this->assertStringNotContainsString($password, $run['err']);
+            $this->assertStringNotContainsString($password, $logged);
+            $this->assertStringNotContainsString($dsn, $blob);
+            $this->assertStringNotContainsString('password authentication failed', $blob);
+            $this->assertStringNotContainsString('PDOException', $blob);
+            $this->assertStringNotContainsString('Stack trace', $blob);
+            $this->assertSame(1, $run['code'], $blob);
+            $this->assertSame('Database: pgsql – ' . $where . "\n", $run['out']);
+            $this->assertSame('Could not connect to the database (pgsql – ' . $where . ").\n", $run['err']);
+        } finally {
+            @unlink((string)$log);
+        }
+    }
+
+    /** SQLite open errors stay the raw engine message. PostgreSQL is the path that names a user. */
+    public function testSqliteOpenErrorStaysUnchanged(): void
+    {
+        $run = $this->migrate(null, 'canarypass', 'sqlite', 'canaryuser', [], [
+            'SQLITE_PATH' => '/proc/no-such-migrate-dir/catalog.sqlite',
+        ]);
+        $blob = $run['out'] . "\n" . $run['err'];
+        $this->assertNotSame(0, $run['code']);
+        $this->assertStringContainsString('unable to open database file', $blob);
+        $this->assertStringNotContainsString('Could not connect to the database', $blob);
+    }
+
+    /**
+     * @param array<string,string> $ini
+     * @param array<string,string> $envExtra
+     * @param bool $ci4 run bin/migrate.php with APOTHEKE_APP=ci4
      * @return array{out:string,err:string,code:int,data:string}
      */
-    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke', bool $ci4 = false, array $ini = []): array
+    private function migrate(?string $dsn, string $dbPassword, string $driver = 'pgsql', string $dbUser = 'apotheke', array $ini = [], array $envExtra = [], bool $ci4 = false): array
     {
         $root = dirname(__DIR__, 2);
         $data = sys_get_temp_dir() . '/apotheke-migrate-' . bin2hex(random_bytes(4));
@@ -246,10 +309,11 @@ final class MigrateDsnTest extends TestCase
         ];
         if ($dsn !== null) $env['DB_DSN'] = $dsn;
         if ($ci4) $env['APOTHEKE_APP'] = 'ci4';
+        $env = array_merge($env, $envExtra);
         $cmd = [PHP_BINARY];
-        foreach ($ini as $setting) {
+        foreach ($ini as $key => $value) {
             $cmd[] = '-d';
-            $cmd[] = $setting;
+            $cmd[] = $key . '=' . $value;
         }
         $cmd[] = $root . '/bin/migrate.php';
         $cmd[] = '--status';
