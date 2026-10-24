@@ -296,6 +296,14 @@ final class Ci4HttpTest extends TestCase
         $this->assertSame(404, $plain['status']);
         $this->assertSame('Not found', $plain['body']);
         $this->assertArrayHasKey('set-cookie', $plain['headers']);
+        // SEC-N8: the error page carries the same security headers as legacy view_error().
+        $legacyPage = $legacy->get('/no-such-page');
+        $this->assertSame(404, $legacyPage['status']);
+        $this->assertSame('nosniff', $plain['headers']['x-content-type-options'] ?? '');
+        foreach (['x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'] as $name) {
+            $this->assertNotSame('', $legacyPage['headers'][$name] ?? '', $name);
+            $this->assertSame($legacyPage['headers'][$name], $plain['headers'][$name] ?? '', $name);
+        }
     }
 
     private function seedTrust(string $dir): void
