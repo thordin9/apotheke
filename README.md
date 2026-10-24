@@ -84,7 +84,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   and to sort by recent, name, location, category, quantity or value. Active filters show as removable chips with *Clear all*.
 * **Multiple photos** per item (up to 12): take one with the camera or pick from the library, drag to reorder, choose the cover,
   crop and rotate in the browser (canvas, no libraries; saved as a new version with a fresh thumbnail), delete; browse with ‹ › arrows, thumbnails or the ← → keys (plain links, so it works without JavaScript too). The file you pick is
-  uploaded unchanged when it fits the upload limit (20 MB by default). A larger file is reduced in the browser, and the page says the original is not kept. The server stores whatever it received byte for byte and serves a
+  uploaded unchanged when it fits the upload limit (20 MB by default). A larger file is reduced in the browser, and the page says the original is not kept. A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels, is refused. The server stores whatever it received byte for byte and serves a
   separate JPEG (EXIF/GPS stripped, longest side at most 1600 px) plus a 480 px thumbnail. Deleting or replacing a photo removes the camera file, the
   JPEG and the thumbnail.
 * **Tags and custom fields**: any number of tags per item (Enter or comma to add, autocomplete, tag chips link to a filtered
@@ -165,7 +165,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   **Library** picks an existing photo.
 * This works over plain `http://` on your LAN. HTTPS is only needed for the live-camera `getUserMedia` API, which
   Apotheke does not use.
-* The photo you pick is uploaded untouched when it fits the upload limit. The browser shrinks it only when it is over that limit, and the page says the original is not kept. The server stores the file it received byte for byte and serves a separate JPEG with EXIF and GPS removed. HEIC is decoded on the server when Imagick lists HEIC (the Docker image does, via libheif). Without Imagick the HEIC file is still kept and the page shows a grey placeholder.
+* The photo you pick is uploaded untouched when it fits the upload limit. The browser shrinks it only when it is over that limit, and the page says the original is not kept. A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels, is refused. The server stores the file it received byte for byte and serves a separate JPEG with EXIF and GPS removed. HEIC is decoded on the server when Imagick lists HEIC (the Docker image does, via libheif). Without Imagick the HEIC file is still kept and the page shows a grey placeholder.
 
 ## Screenshots
 

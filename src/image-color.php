@@ -13,8 +13,15 @@ declare(strict_types=1);
  * IMAGE_HEIC_MAX_SIDE must equal docker/imagemagick-policy.xml width and height, the policy the image ships. That value is exactly 16384 px.
  * A 48 MP frame (8064×6048) is inside both. A 200 MP sensor (16384×12288) is inside the JPEG cap and
  * outside the HEIC cap.
- * IMAGE_GD_MAX_PIXELS is 40 megapixels: GD truecolor is 4 bytes a pixel, so 40 MP is 160 MB and fits under
- * memory_limit 256M. Larger JPEG photos are decoded already reduced. Larger PNG, WebP and GIF photos are refused.
+ * IMAGE_GD_MAX_PIXELS is 40 megapixels: GD truecolor is 4 bytes a pixel, so 40 MP is 160 MB.
+ * WebP and GIF at 40 MP (6400×6250) still decode under the Docker image's memory_limit of 256M
+ * (peak 195035136 bytes on its bundled GD). A PNG does not. An alpha PNG is a second full frame:
+ * 32 MP exhausts 256M during decode, and 40 MP does too even without alpha.
+ * IMAGE_PNG_MAX_PIXELS is 26 megapixels. On that same GD, a 26 MP alpha PNG with a 20 MB copy of the
+ * file held (the upload cap), then fitted and JPEG-encoded, peaked at 231931904 bytes, about 35 MB
+ * under 256M. At 27 MP the same path left about 9 MB, which the rest of the request can use.
+ * Larger JPEG photos are decoded already reduced. A PNG above 26 megapixels is refused, and a
+ * WebP or GIF above 40 megapixels is refused.
  * Imagick's memory, map, disk, area and side limits match that policy: 256 MiB, 256 MiB, 1 GiB, 128 MP, 16,384 px.
  */
 
@@ -24,6 +31,7 @@ const IMAGE_HEIC_MAX_PIXELS = 128_000_000;
 // Must equal docker/imagemagick-policy.xml width and height. The shipped value is exactly 16384 px.
 const IMAGE_HEIC_MAX_SIDE = 16384;
 const IMAGE_GD_MAX_PIXELS = 40_000_000;
+const IMAGE_PNG_MAX_PIXELS = 26_000_000;
 
 const IMAGICK_LIMIT_MEMORY = 256 * 1024 * 1024;
 const IMAGICK_LIMIT_MAP = 256 * 1024 * 1024;
@@ -57,11 +65,13 @@ function image_heic_dimensions_too_large(int $w, int $h): bool
     return (float)$w * (float)$h > (float)IMAGE_HEIC_MAX_PIXELS;
 }
 
-/** Same header stop image_store() uses for a JPEG, PNG, WebP or GIF. JPEG above the GD budget is not over this limit. */
+/** Same header stop image_store() uses for a JPEG, PNG, WebP or GIF. JPEG above the GD budget is not over this limit. A PNG stops at IMAGE_PNG_MAX_PIXELS. */
 function image_raster_header_over_limit(int $w, int $h, int $type): bool
 {
-    return image_dimensions_too_large($w, $h)
-        || ((float)$w * (float)$h > (float)IMAGE_GD_MAX_PIXELS && $type !== IMAGETYPE_JPEG);
+    if (image_dimensions_too_large($w, $h)) return true;
+    $px = (float)$w * (float)$h;
+    if ($type === IMAGETYPE_PNG) return $px > (float)IMAGE_PNG_MAX_PIXELS;
+    return $px > (float)IMAGE_GD_MAX_PIXELS && $type !== IMAGETYPE_JPEG;
 }
 
 /** Same header stop image_store() uses for HEIC/HEIF. Null means the header could not be read, which is not this refusal. */
