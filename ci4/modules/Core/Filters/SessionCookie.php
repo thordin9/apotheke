@@ -5,13 +5,12 @@ declare(strict_types=1);
 namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
-use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\RequestScheme;
-use Apotheke\Core\Http\TrustProxyReader;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
+use Config\App;
 use Config\Cookie;
 use Config\Services;
 use Config\Session;
@@ -29,10 +28,7 @@ final class SessionCookie implements FilterInterface
             return null;
         }
         $config = ApothekeConfig::fromEnvironment();
-        $group = (new DsnTranslator())->translate($config->database());
-        $server = $request->getServer();
-        $server = is_array($server) ? $server : [];
-        $secure = (new RequestScheme((new TrustProxyReader($group))->trusted()))->secureCookie($server);
+        $secure = $this->secureCookie($request);
         $cookie = config(Cookie::class);
         $cookie->secure = $secure;
         $lifetime = Services::sessionLifetime()->seconds();
@@ -62,6 +58,17 @@ final class SessionCookie implements FilterInterface
         }
 
         return null;
+    }
+
+    /**
+     * Secure flag from RequestScheme, with the trust_proxy value Config\App read
+     * for this request: no second settings read or connection (SEC-N11).
+     */
+    public function secureCookie(RequestInterface $request): bool
+    {
+        $server = $request->getServer();
+
+        return (new RequestScheme(config(App::class)->trustProxy))->secureCookie(is_array($server) ? $server : []);
     }
 
     private function isHealth(RequestInterface $request): bool

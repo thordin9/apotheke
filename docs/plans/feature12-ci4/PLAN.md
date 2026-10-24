@@ -111,7 +111,8 @@ Shown as during the branch (`ci4/`). After cutover the same tree sits at the roo
 ```
 ci4/
   app/                         thin CI4 shell: only framework glue
-    Config/  App.php (baseURL from PUBLIC_URL or the request; proxyIPs EMPTY — see Core/Http/RequestScheme)
+    Config/  App.php (baseURL from PUBLIC_URL or the request; proxyIPs EMPTY — see Core/Http/RequestScheme;
+             reads trust_proxy once per request and the session filter reuses it, SEC-N11)
              Autoload.php (PSR-4 Apotheke\ => modules/), Database.php (built by Core DatabaseFactory),
              Filters.php, Routing.php (autoRoute off), Session.php (FileHandler, DATA_DIR/sessions, cookie
              apothekesid, Secure flag from RequestScheme, lifetime from session_days through Core/Http/SessionLifetime,
