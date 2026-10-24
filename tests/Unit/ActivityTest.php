@@ -19,6 +19,13 @@ final class ActivityTest extends DatabaseTestCase
         return array_column(array_reverse(activity_list($id)), 'action');
     }
 
+    public function testAHugePageReturnsNoRows(): void
+    {
+        $id = item_save(null, $this->in(), null, false);
+        $this->assertSame([], activity_list($id, PHP_INT_MAX));
+        $this->assertSame(['created'], array_column(activity_list($id, 1), 'action'));
+    }
+
     public function testEveryKindOfChangeIsLogged(): void
     {
         $a = tax_create('location', 'Shelf A')['id'];

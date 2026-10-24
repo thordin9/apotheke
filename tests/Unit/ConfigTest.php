@@ -110,6 +110,18 @@ final class ConfigTest extends TestCase
         config_load('/app', $this->file, []);
     }
 
+    public function testTrustedProxiesFromEnvAndFile(): void
+    {
+        $this->assertSame([], config_load('/app', null, [])['trusted_proxies']);
+        $this->assertSame(['192.0.2.1', '192.0.2.0/24'], config_load('/app', null, ['TRUSTED_PROXIES' => '192.0.2.1, 192.0.2.0/24 , not-an-ip'])['trusted_proxies']);
+        $this->assertSame(['198.51.100.1'], config_load('/app', $this->write(['trusted_proxies' => ['198.51.100.1']]), ['TRUSTED_PROXIES' => ''])['trusted_proxies']);
+        $this->assertSame(['203.0.113.5'], config_load('/app', $this->write(['trusted_proxies' => ['198.51.100.1']]), ['TRUSTED_PROXIES' => '203.0.113.5'])['trusted_proxies']);
+        $this->assertTrue(config_ip_matches('192.0.2.15', '192.0.2.0/24'));
+        $this->assertFalse(config_ip_matches('192.0.3.15', '192.0.2.0/24'));
+        $this->assertTrue(config_ip_matches('192.0.2.1', '192.0.2.1'));
+        $this->assertFalse(config_ip_matches('192.0.2.2', '192.0.2.1'));
+    }
+
     public function testExampleConfigLoads(): void
     {
         $c = config_load('/app', dirname(__DIR__, 2) . '/config.example.php', []);

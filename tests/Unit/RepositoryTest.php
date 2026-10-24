@@ -16,6 +16,15 @@ final class RepositoryTest extends DatabaseTestCase
 
     private function photoName(int $n): string { return str_pad((string)$n, 32, '0', STR_PAD_LEFT) . '.jpg'; }
 
+    public function testAHugePageDoesNotFailTheQuery(): void
+    {
+        $this->item('Only');
+        $res = items_search('', ['loc' => '', 'cat' => ''], 'name', PHP_INT_MAX);
+        $this->assertSame(1, $res['total']);
+        $this->assertSame([], $res['items']);
+        $this->assertSame(['Only'], array_column(items_search('', ['loc' => '', 'cat' => ''], 'name', 1)['items'], 'name'));
+    }
+
     public function testPhotosCoverReorderDeleteKeepItemsImageInSync(): void
     {
         $id = item_save(null, ['name' => 'p', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $this->photoName(1), false);

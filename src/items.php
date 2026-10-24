@@ -559,7 +559,7 @@ function items_search(string $q, array $f, string $sort, int $page, ?int $pageSi
     $st->execute($args);
     $total = (int)$st->fetchColumn();
 
-    $page   = max(1, $page);
+    $page   = clamp_page($page);
     $pageSize ??= page_size();
     $offset = ($page - 1) * $pageSize;
     $st = db()->prepare("SELECT i.id, i.name, i.location_id, COALESCE(l.name, '') AS location, i.category_id, COALESCE(c.name, '') AS category, i.quantity, i.min_qty, i.image, i.lent_to, i.lent_due, i.expires_on, i.favourite "
@@ -609,6 +609,12 @@ function db_tx(callable $fn): mixed
 /* ---------- activity log (written inside the same transaction as the change) ---------- */
 
 const ACTIVITY_PAGE = 50;
+const PAGE_MAX = 100000;
+
+function clamp_page(int $page): int
+{
+    return max(1, min(PAGE_MAX, $page));
+}
 
 function activity_log(int $itemId, string $itemName, string $action, array $details = []): void
 {
@@ -619,7 +625,7 @@ function activity_log(int $itemId, string $itemName, string $action, array $deta
 /** @return array<int,array{id:int,item_id:?int,item_name:string,action:string,details:array,created_at:string,exists:bool}> */
 function activity_list(?int $itemId = null, int $page = 1, int $per = ACTIVITY_PAGE): array
 {
-    $page = max(1, $page);
+    $page = clamp_page($page);
     $sql = 'SELECT a.id, a.item_id, a.item_name, a.action, a.details, a.created_at, a.actor, CASE WHEN i.id IS NULL THEN 0 ELSE 1 END AS item_exists
             FROM activity a LEFT JOIN items i ON i.id = a.item_id' . ($itemId !== null ? ' WHERE a.item_id = ?' : '')
          . ' ORDER BY a.id DESC LIMIT ' . ($per + 1) . ' OFFSET ' . (($page - 1) * $per);

@@ -152,6 +152,7 @@ server {
     location / {
         proxy_pass http://127.0.0.1:9091;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
     }
@@ -170,7 +171,11 @@ Behind a TLS proxy:
   Users & sign-in, off by default) is on. With it on, a request the proxy marks as HTTPS counts as HTTPS, which
   also marks the session cookie `Secure`. Turn it on only when every request reaches the app through your own
   proxy that sets that header; leave it off when the app is also reachable directly;
-* the session cookie is always `HttpOnly` and `SameSite=Lax`.
+* the session cookie is always `HttpOnly` and `SameSite=Lax`;
+* `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in `trusted_proxies` /
+  `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With `trust_proxy` on and an
+  empty list, the connecting address is used. The sign-in limit is 10 attempts per 15 minutes for one account from
+  that client.
 
 ### Host names
 
