@@ -526,7 +526,7 @@ your own account. User names ignore upper/lower case.
 
 Everybody can change their own password under **☰ → (your name)**. The history records who made each change
 ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
-only needs an admin's user name and password. Sessions last 30 days by default (Control Panel → Users & sign-in → “Stay signed in for”). Locked out? On the server:
+only needs an admin's user name and password. A sign-in lasts at most 30 days (Control Panel → Users & sign-in → “Stay signed in for”), counted from sign-in, and it ends sooner when the browser sends no request for 7 days (“Sign out after idle”, 1–8760 hours). Later visits do not extend the 30-day limit. Locked out? On the server:
 `php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
 `roles reset` to restore the built-in roles, `auth off` to turn accounts off).
 
@@ -540,7 +540,7 @@ the *Expiring soon* window, the default loan period, limits for saved filters an
 *Backup & data* exports/imports the settings as JSON next to the backup and CSV links. Each section can be reset to its
 defaults. A settings file and a backup both include the sign-in options, but those are applied only when an **admin**
 does the import or restore. A Settings, Users, or Backup account keeps guest browsing, registration, the registration
-role, approval, the session length and *Trust the reverse proxy* as they were; the import says those keys were left
+role, approval, the session length, the idle limit and *Trust the reverse proxy* as they were; the import says those keys were left
 out. A restore never replaces accounts, roles, or role permissions, and a file that names those tables is refused.
 The command line still applies the sign-in options. Details: [control-panel.md](control-panel.md).
 
