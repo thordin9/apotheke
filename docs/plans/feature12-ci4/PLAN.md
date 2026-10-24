@@ -111,8 +111,9 @@ Shown as during the branch (`ci4/`). After cutover the same tree sits at the roo
 ```
 ci4/
   app/                         thin CI4 shell: only framework glue
-    Config/  App.php (baseURL from PUBLIC_URL or the request; proxyIPs EMPTY — see Core/Http/RequestScheme;
-             reads trust_proxy once per request and the session filter reuses it, SEC-N11)
+    Config/  App.php (no database read; allowedHostnames from PUBLIC_URL + ALLOWED_HOSTS, baseURL from PUBLIC_URL or
+             an allowed Host, else localhost, SEC-M3; proxyIPs EMPTY — see Core/Http/RequestScheme and ClientAddress;
+             trust_proxy and public_url are read through the request's SettingsService on CI4's connection, #74 N-2)
              Autoload.php (PSR-4 Apotheke\ => modules/), Database.php (built by Core DatabaseFactory),
              Filters.php, Routing.php (autoRoute off), Session.php (FileHandler, DATA_DIR/sessions, cookie
              apothekesid, Secure flag from RequestScheme, lifetime from session_days through Core/Http/SessionLifetime,
@@ -129,7 +130,17 @@ ci4/
                    X-Forwarded-Proto value == https; drives Secure cookies and public_url; NOT CI4 proxyIPs, M-2)
                  Filters/ OriginalsGuard (first), SecurityHeaders, HeadAsGet, PostTooLarge, JsonNegotiation,
                    CsrfFilter (global before-filter, SEC-N10: legacy check_csrf() on every non-safe method;
-                   session token from the `csrf` field or `X-CSRF-Token`, 419; never starts a session)
+                   session token from the `csrf` field or `X-CSRF-Token`, 419; never starts a session),
+                   HostFilter (required, before session: Host allow-list of hosts.php, 421 without echoing the name;
+                   IP literals, localhost/*.localhost, the container name, PUBLIC_URL's host, ALLOWED_HOSTS, `*` = off;
+                   /healthz included, SEC-M3), SessionCookie (cookie params; resumes only an existing, well-formed
+                   session, ends it after session_days without a request, SEC-L2/SEC-N6), SameOriginFilter (sign-in
+                   off: a non-safe method needs a same-origin Sec-Fetch-Site or Origin, else 403; neither header is
+                   allowed, SEC-M3)
+                 Http/HostAllowList + HostCheck, SameOrigin, SessionGate (resume/idle), SessionToken (csrf_token(),
+                   starts the session on demand), ProxyList + ClientAddress (TRUSTED_PROXIES; X-Forwarded-For only
+                   when trust_proxy is on and the peer is a configured proxy; rightmost non-proxy hop, SEC-M2)
+                 Security/ActorGate (isAdmin; CommandLine = CLI, unrestricted; Nobody = default)
                  Boot/StoragePreflight (ORIGINALS_DIR vs FCPATH, generic refusal page (N-6), error_log (N-7))
                  Helpers/apotheke_helper.php, Exceptions/UserError, Libraries/Clock + Responder, Views/layout…
     Migrations/  Apotheke\Migrations — the PDO runner in its own module (PM decision, H-1)
@@ -144,7 +155,11 @@ ci4/
                  Commands/ apotheke:migrate [--status]; bin/migrate.php wrapper
     Auth/        Login/Register/Account/Logout controllers; UserModel, RoleModel, AuthAttemptModel; AuthService,
                  Permissions, RateLimiter; filters Permission (`perm:<name>`), SessionRelease (Csrf is Core's
-                 CsrfFilter)
+                 CsrfFilter). In place (PR 7a): UserRepository, CurrentUser (port of current_user(), the ActorGate
+                 for SettingsService), AdminGuard (SEC-M1: only admins change sign-in settings, grant admin, or edit
+                 or delete admin accounts; the CLI is unrestricted), SessionEpoch + SignOutEverywhere (SEC-N6).
+                 Backup restore (PR 14) refuses the users and roles tables and restores settings only through
+                 SettingsService::import() with the restoring actor, so non-admins cannot change sign-in settings
     Settings/    SettingsSchema (62 keys), SettingsService, SettingsRepository, Branding; Control Panel;
                  Commands/SettingsCommand (all 19 forms) + bin/settings.php wrapper
     Taxonomy/    LocationModel, CategoryModel, TagModel, ItemTagRepository, LocationTree; controllers
@@ -433,7 +448,7 @@ FTS5, type round-trips and the DSN translator table.
 ### 5.4 Security tests
 
 CSP on every response and a CSP listener; CSRF 419 on every POST; blocked paths (`vendor/`, `writable/`, `.env`, `spark`,
-`app/`, `modules/`, `/originals` in any case including nested); startup refusal; Secure-cookie matrix (trust_proxy);
+`app/`, `modules/`, `/originals` in any case including nested); startup refusal; Secure-cookie matrix (trust_proxy); Host 421 and cross-site 403 (SEC-M3); no session for anonymous requests (SEC-L2);
 upload rejection corpus; token-leak grep; gitleaks; `composer audit`.
 
 ---
@@ -487,6 +502,7 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
 
 ## Changelog of this plan
 
+* **PR 7a, request and auth hardening (2026-10-24):** Host allow-list (421) and same-origin writes with sign-in off (SEC-M3); sessions start on demand and are resumed only when the cookie names an existing session (SEC-L2); an idle session ends after `session_days` without a request, and "sign out everywhere" renews the session epoch by rehashing the password, with no schema change (SEC-N6); `SettingsService` takes an `ActorGate` and `import()` ignores the security section for non-admins (SEC-M1); `TRUSTED_PROXIES` and `ClientAddress` (SEC-M2). `Config\App` no longer opens a connection; `trust_proxy` is read through the shared `SettingsService` (#74 N-2). `FilterStateTest` rejects static locals in filters and `Services` factories (#74 L-1). `/backup/restore/check` arrives with the Backup module. Login, Users and the sign-out UI arrive with PR 7.
 * **PR 6, Settings core (2026-10-24):** `SettingsSchema` is the single source of the 62 keys; `settings_schema`, `setting_default` and `setting_validate` in `LegacyFunctions.php` delegate to it and `settings_cache` keeps no state. `SettingsService` replaces the static cache. `/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/{file}` are byte-identical to legacy. `apotheke:settings` covers 6 of the 19 forms (goldens compare argv → stdout, stderr, exit code and the `settings` rows); the account and sign-in forms move to PR 7 with the Auth module. `Services::apothekeDb` migrates once per process (`BootMigration`). Deptrac: Settings → Core; Migrations → Core, Settings. Not here: Control Panel pages, `/settings/export.json`, `/settings/import`, logo upload.
 * **PR 4 (2026-10-20):** CodeIgniter 4.7.5 skeleton and Core (`ApothekeConfig`, `DsnTranslator`, `DatabaseFactory`, `RequestScheme`, `OriginalsGuard`, security filters, `StoragePreflight`, DevServer router, `/healthz`, `/health`). The ci4 leg runs PHPUnit. deptrac and the DI rule check Core and DevServer from `vendor/bin`. Issue #33 stays on `main`.
 * **PR 3 (2026-10-20):** lint, headless mobile checks, Playwright and Docker build + smoke run on PHP 8.4 and stay on PHP 8.3. The parity recorder steps are install, healthz and settings. `fix(php84)` turns PHP 8.4 function JIT off before the QR encoder loads, so `opcache.jit=1235` returns the interpreter matrix; the legacy comparison is [php84-legacy-diff.md](php84-legacy-diff.md). N-4 says "Docker build + smoke" in row 3 and restores the L-b and rev. 3 sentences below. N-5 walks all of `docs/` in the link checker.

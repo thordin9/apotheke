@@ -47,7 +47,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
 
 * **Dependency graph.** Every module may depend on Core. Core depends on nothing. No cycles. An edge `A → B` means A may depend on B:
   * Migrations → Settings (schema only)
-  * Auth → Settings
+  * Auth → Settings (Auth holds the actor gate for settings, `CurrentUser`, and the admin guards)
   * Media → Settings
   * Catalog → Taxonomy, Media, Search, Activity, Undo, Notes, Settings
   * BulkMerge → Catalog, Taxonomy, Media, Activity, Undo
@@ -56,6 +56,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * ImportExport → Catalog, Taxonomy
   * Backup → all repositories, plus Media and Settings
   * Autofill → Media (read-only `originalPathOrServed`), Settings, Taxonomy (context names)
+* **Request hardening.** Required before-filters run in a fixed order (`ci4/app/Config/Filters.php`): Host allow-list (421), session parameters (sessions start on demand only, idle ones end), then same-origin writes when sign-in is off (403). Do not start a session in a filter; use `SessionToken` where a page needs a CSRF token. Read the client address through `ClientAddress`, never `X-Forwarded-For` directly. See [ADR 001](docs/adr/001-codeigniter4.md).
 * **Constructor injection.** Services, models and commands take their collaborators through constructors.
 * **`service()` only in controllers and filters.** `service()` and `Services::` are allowed only in controllers, in filters (CI4 builds them without constructor arguments; only inside `before()`/`after()`, with no properties or statics, see [ADR 001](docs/adr/001-codeigniter4.md)) and in `Config/Services.php` factories.
 
