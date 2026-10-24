@@ -1,9 +1,14 @@
 # Core depends on nothing. DevServer and Settings may depend on Core.
+# Auth may depend on Core and Settings.
 # Migrations may depend on Core and on Settings (schema only).
 deptrac:
   paths:
     - ci4/modules
   layers:
+    - name: Auth
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Auth\\
     - name: Core
       collectors:
         - type: classLike
@@ -21,6 +26,9 @@ deptrac:
         - type: classLike
           value: ^Apotheke\\Settings\\
   ruleset:
+    Auth:
+      - Core
+      - Settings
     Core: []
     DevServer:
       - Core

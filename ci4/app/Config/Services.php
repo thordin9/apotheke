@@ -63,11 +63,13 @@ class Services extends BaseService
 
     /**
      * Settings for this request. The shared instance is the per-request
-     * cache: CI4 resets shared services between worker requests.
+     * cache: CI4 resets shared services between worker requests. $actor
+     * decides who may import sign-in settings (SEC-M1): the request's user
+     * by default, or the command line for spark.
      */
-    public static function settings(bool $getShared = true): \Apotheke\Settings\SettingsService
+    public static function settings(bool $getShared = true, ?\Apotheke\Core\Security\ActorGate $actor = null): \Apotheke\Settings\SettingsService
     {
-        if ($getShared) {
+        if ($getShared && $actor === null) {
             return static::getSharedInstance('settings');
         }
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
@@ -79,6 +81,27 @@ class Services extends BaseService
             static::brandStore(),
             new \Apotheke\Core\Libraries\Clock(),
             static::apothekeConfig()->values(),
+            null,
+            $actor ?? static::currentUser(),
+        );
+    }
+
+    /**
+     * The request's user (legacy current_user()). It keeps nothing: each call
+     * reads this request's $_SESSION and SettingsService again.
+     */
+    public static function currentUser(bool $getShared = true): \Apotheke\Auth\CurrentUser
+    {
+        if ($getShared) {
+            return static::getSharedInstance('currentUser');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\CurrentUser(
+            static fn (): \Apotheke\Settings\SettingsService => static::settings(),
+            new \Apotheke\Auth\UserRepository($db),
+            static fn (): array => $_SESSION ?? [],
         );
     }
 
@@ -133,7 +156,7 @@ class Services extends BaseService
 
         return new \Apotheke\Core\Cli\WiredCommands(null, [
             \Apotheke\Settings\Commands\SettingsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
-                => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings()),
+                => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings(false, new \Apotheke\Core\Security\CommandLine())),
         ]);
     }
 

@@ -164,6 +164,12 @@ final class SettingsSchema
         return array_keys(self::DEFINITIONS);
     }
 
+    /** The section a key belongs to (legacy settings_schema()[$key][0]). */
+    public function section(string $key): ?string
+    {
+        return self::DEFINITIONS[$key][0] ?? null;
+    }
+
     public function type(string $key): ?string
     {
         return self::DEFINITIONS[$key][2] ?? null;

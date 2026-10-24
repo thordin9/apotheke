@@ -60,6 +60,8 @@ final class Ci4SettingsCliTest extends TestCase
             [['reset', 'nope']], [['reset']], [['reset', 'list']], [['reset', 'appearance']], [['reset', 'system']],
             [['export']], [['import', $import]], [['list']],
             [['import'], '{"format":"apotheke-settings","settings":{"currency":"CHF","jpeg_quality":"200"}}'],
+            // The command line may import sign-in settings (SEC-M1 limits only web users).
+            [['import'], '{"format":"apotheke-settings","settings":{"session_days":7,"auth_register_disabled":false,"trust_proxy":true}}'],
             [['import'], 'not json'], [['import'], '{"format":"other","settings":{}}'],
             [['frob']], [['--help']], [['export']],
         ];
