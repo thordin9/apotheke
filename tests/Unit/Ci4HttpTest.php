@@ -120,6 +120,7 @@ final class Ci4HttpTest extends TestCase
             $this->assertSame(0640, fileperms($ci4Dir . '/originals/.htaccess') & 0777);
             $this->router($ci4, $asset);
             $this->head($ci4);
+            $this->healthVerbs($ci4);
         } finally {
             $legacy->stop();
             $ci4->stop();
@@ -466,5 +467,20 @@ final class Ci4HttpTest extends TestCase
         $response = $server->client()->req('HEAD', '/healthz');
         $this->assertSame(200, $response['status']);
         $this->assertNotSame('', $response['headers']['x-apotheke-version'] ?? '');
+    }
+
+    /** SEC-N10: /health and /healthz answer GET (and HEAD) only. */
+    private function healthVerbs(Server $server): void
+    {
+        foreach (['/health', '/healthz'] as $path) {
+            $this->assertSame(200, $server->client()->get($path)['status'], $path);
+            foreach (['DELETE', 'PUT', 'PATCH'] as $method) {
+                $response = $server->client()->req($method, $path);
+                $this->assertContains($response['status'], [404, 405], $method . ' ' . $path);
+                $this->assertStringNotContainsString('ok', $response['body'], $method . ' ' . $path);
+            }
+            $post = $server->client()->post($path);
+            $this->assertContains($post['status'], [404, 405], 'POST ' . $path);
+        }
     }
 }
