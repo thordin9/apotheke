@@ -8,6 +8,7 @@ declare(strict_types=1);
  *                                                    since the last vX.Y.Z tag); prints key=value lines
  *   php scripts/release.php apply --notes=FILE [--date=YYYY-MM-DD]
  *                                                    write VERSION + CHANGELOG.md, put the release notes in FILE
+ *   php scripts/release.php check-links              fail when an Unreleased handwritten bullet has no PR link
  *
  * Bump rules: a breaking change (`!` after the type or a `BREAKING CHANGE:` footer) = major, `feat` = minor,
  * `fix`/`perf` = patch. Commits of other types only (docs, test, ci, build, chore, style, refactor) = no release.
@@ -168,6 +169,23 @@ function rel_drop_scoped_generated(string $generated, string $hand): string
     return rel_trim_blank_edges($kept);
 }
 
+/**
+ * Handwritten bullets under ## [Unreleased] that have no pull-request link.
+ * A link looks like `([#60](https://github.com/thordin9/apotheke/pull/60))`.
+ * Released sections are left alone. An empty Unreleased section has none.
+ * @return list<string>
+ */
+function rel_unreleased_missing_pr_links(string $changelog): array
+{
+    if (!preg_match('/^## \[Unreleased\][^\n]*\n(.*?)(?=^## \[|^\[[^\]]+\]: |\z)/ms', $changelog, $m)) return [];
+    $missing = [];
+    foreach (preg_split("/\n/", $m[1]) as $line) {
+        if (!preg_match('/^- /', $line)) continue;
+        if (!preg_match('/\(\[#\d+\]\(https:\/\/github\.com\/[^)\s]+\/pull\/\d+\)\)/', $line)) $missing[] = $line;
+    }
+    return $missing;
+}
+
 /** Drop blank lines at the ends of a block and keep the ones in the middle. */
 function rel_trim_blank_edges(array $lines): string
 {
@@ -232,6 +250,14 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     $root = dirname(__DIR__);
     chdir($root);
     $cmd = $argv[1] ?? '';
+    if ($cmd === 'check-links') {
+        $missing = rel_unreleased_missing_pr_links((string)file_get_contents("$root/CHANGELOG.md"));
+        if ($missing !== []) {
+            fwrite(STDERR, "Unreleased bullets need a pull-request link:\n" . implode("\n", $missing) . "\n");
+            exit(1);
+        }
+        exit(0);
+    }
     $opt = [];
     foreach (array_slice($argv, 2) as $a) if (preg_match('/^--([a-z-]+)(?:=(.*))?$/', $a, $m)) $opt[$m[1]] = $m[2] ?? true;
     $current = trim((string)@file_get_contents("$root/VERSION"));
@@ -260,6 +286,6 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         echo "version=$next\n";
         exit(0);
     }
-    fwrite(STDERR, "usage: php scripts/release.php plan [--github-output] | apply --notes=FILE [--date=YYYY-MM-DD]\n");
+    fwrite(STDERR, "usage: php scripts/release.php plan [--github-output] | apply --notes=FILE [--date=YYYY-MM-DD] | check-links\n");
     exit(2);
 }

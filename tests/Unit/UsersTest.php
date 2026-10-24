@@ -49,6 +49,195 @@ final class UsersTest extends DatabaseTestCase
         $this->assertSame(1, users_count());
     }
 
+    public function testOnlyAnAdminCanGrantTheAdminRole(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        try {
+            try {
+                user_set_role($id, 'admin');
+                $this->fail('a Users account granted itself admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertSame($desk, user_get($id)['role']);
+            try {
+                user_create('extra', 'long-enough', 'admin');
+                $this->fail('a Users account created an admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertNull(user_by_name('extra'));
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            user_set_role($id, 'admin');
+            $this->assertSame('admin', user_get($id)['role']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testOnlyAnAdminCanChangeAnAdminAccount(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $second = user_create('second', 'long-enough', 'admin');
+        $editor = user_create('ed', 'long-enough', 'editor');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        $pending = user_create('waiting', 'long-enough', 'admin', null, 'pending');
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        $hash = user_get($root)['password_hash'];
+        try {
+            foreach ([
+                fn() => user_set_role($root, 'viewer'),
+                fn() => user_set_role($root, 'admin'),
+                fn() => user_set_password($root, 'another-one', 'another-one'),
+                fn() => user_rename($root, 'renamed'),
+                fn() => user_delete($root),
+                fn() => user_approve($pending),
+            ] as $act) {
+                try {
+                    $act();
+                    $this->fail('a Users account changed an admin');
+                } catch (UserError $e) {
+                    $this->assertSame(403, $e->getCode());
+                }
+            }
+            $this->assertSame('admin', user_get($root)['role']);
+            $this->assertSame('root', user_get($root)['username']);
+            $this->assertSame($hash, user_get($root)['password_hash']);
+            $this->assertNotNull(user_verify('root', 'long-enough'));
+            $this->assertSame('pending', user_get($pending)['status']);
+            user_set_role($editor, 'viewer');
+            user_set_password($editor, 'another-one', 'another-one');
+            user_rename($editor, 'eddie');
+            $this->assertSame(['eddie', 'viewer'], [user_get($editor)['username'], user_get($editor)['role']]);
+            $this->assertNotNull(user_verify('eddie', 'another-one'));
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            user_set_role($second, 'viewer');
+            user_set_password($second, 'fresh-pass', 'fresh-pass');
+            user_rename($second, 'former');
+            user_approve($pending);
+            $this->assertSame('viewer', user_get($second)['role']);
+            $this->assertSame('former', user_get($second)['username']);
+            $this->assertNotNull(user_verify('former', 'fresh-pass'));
+            $this->assertSame('active', user_get($pending)['status']);
+            user_delete($second);
+            $this->assertNull(user_get($second));
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testOnlyAnAdminCanTurnSignInOff(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        try {
+            try {
+                auth_turn_off();
+                $this->fail('a Users account turned sign-in off');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            settings_cache(null, true);
+            $this->assertTrue(auth_enabled());
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            auth_turn_off();
+            settings_cache(null, true);
+            $this->assertFalse(auth_enabled());
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testCommandLineIsAdminWhenGuestBrowsingIsOn(): void
+    {
+        $this->assertSame('cli', PHP_SAPI);
+        $root = user_create('root', 'long-enough', 'admin');
+        $editor = user_create('ed', 'long-enough', 'editor');
+        $deskRole = role_create('Helpdesk', ['view', 'users']);
+        $desk = user_create('desk', 'long-enough', $deskRole);
+        auth_turn_on();
+        settings_store(['auth_guest_disabled' => false]);
+        settings_cache(null, true);
+        current_user(null, true);
+        try {
+            $guest = current_user();
+            $this->assertSame(['guest', true, true], [$guest['role'], $guest['guest'], $guest['anon']], 'guest browsing is the current user on the command line');
+            $this->assertTrue(actor_is_admin(), 'the command line is an admin when the current user is the anonymous guest');
+            auth_turn_off();
+            settings_cache(null, true);
+            $this->assertFalse(auth_enabled(), 'the command line can turn sign-in off while guest browsing is on');
+            auth_turn_on();
+            settings_store(['auth_guest_disabled' => false]);
+            settings_cache(null, true);
+            current_user(null, true);
+            user_set_password($root, 'fresh-pass');
+            $this->assertNotNull(user_verify('root', 'fresh-pass'), 'the command line can change an admin password');
+            user_set_role($editor, 'admin');
+            $this->assertSame('admin', user_get($editor)['role'], 'the command line can grant admin');
+
+            current_user(user_get($desk) + ['guest' => false, 'anon' => false]);
+            $this->assertFalse(actor_is_admin(), 'a signed-in non-admin is still not an admin');
+            try {
+                user_set_password($root, 'other-pass');
+                $this->fail('a signed-in non-admin changed an admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertNotNull(user_verify('root', 'fresh-pass'));
+            try {
+                user_set_role($desk, 'admin');
+                $this->fail('a signed-in non-admin granted admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertSame($deskRole, user_get($desk)['role']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    /** A web SAPI does not treat the anonymous guest as admin, even when that guest's role is admin. The command line does. */
+    public function testAnonymousGuestIsNotAdminOnAWebSapi(): void
+    {
+        current_user([
+            'id' => null,
+            'username' => '',
+            'role' => 'admin',
+            'status' => 'active',
+            'guest' => true,
+            'anon' => true,
+        ]);
+        try {
+            $this->assertFalse(actor_is_admin('fpm-fcgi'));
+            $this->assertFalse(actor_is_admin('cli-server'));
+            $this->assertTrue(actor_is_admin('cli'));
+            $this->assertTrue(actor_is_admin());
+            current_user([
+                'id' => null,
+                'username' => '',
+                'role' => 'admin',
+                'status' => 'active',
+                'guest' => true,
+                'anon' => false,
+            ]);
+            $this->assertTrue(actor_is_admin('fpm-fcgi'), 'with sign-in off, the anonymous admin stays an admin on the web');
+        } finally {
+            current_user(null, true);
+        }
+    }
+
     public function testPasswordChangeInvalidatesEpoch(): void
     {
         $id = user_create('pat', 'long-enough', 'viewer');

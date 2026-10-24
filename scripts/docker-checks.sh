@@ -35,11 +35,23 @@ check "CSP on pages"                  1 "$(hdr Content-Security-Policy "$base/" 
 check "nosniff on pages"              nosniff "$(hdr X-Content-Type-Options "$base/")"
 check "no server version"             nginx "$(hdr Server "$base/")"
 check "no X-Powered-By"               "" "$(hdr X-Powered-By "$base/")"
+# Host allow-list (SEC-M3): addresses and localhost work with nothing configured, other names get 421
+check "unknown Host refused"          421 "$(code -H 'Host: other.example' "$base/")"
+check "localhost Host accepted"       200 "$(code -H 'Host: localhost' "$base/")"
+check "IPv6 address Host accepted"    200 "$(code -H 'Host: [::1]:9091' "$base/")"
+# sign-in is off in this container: a cross-site form post is refused, a plain one is not
+check "cross-site POST refused"       403 "$(code -X POST -H 'Sec-Fetch-Site: cross-site' -d 'name=x' "$base/locations")"
+check "plain POST reaches the app"    419 "$(code -X POST -d 'name=x' "$base/locations")"
+# sessions on demand (SEC-L2): no cookie for a 404 or static branding
+check "404 sets no session cookie"    "" "$(hdr Set-Cookie "$base/no/such/page")"
+check "favicon sets no cookie"        "" "$(hdr Set-Cookie "$base/favicon.ico")"
+check "restore check (sign-in off)"   204 "$(code "$base/backup/restore/check")"
+check "restore check is not public"   404 "$(code "$base/_restore_check")"
 
 big=$(mktemp); trap 'rm -f "$big"' EXIT
 head -c $((30 * 1024 * 1024)) /dev/zero > "$big"
 check "30 MB body rejected on /save (22m limit)" 413 "$(code -X POST -F "photo=@$big" "$base/save")"
 # /backup/restore accepts it at the HTTP layer (the app then rejects the CSRF/zip, but not with 413)
-r=$(code -X POST -F "backup=@$big" "$base/backup/restore")
-check "30 MB body accepted by /backup/restore" 1 "$([[ $r != 413 && $r != 000 ]] && echo 1 || echo "$r")"
+# (sign-in is off here, so the restore check lets it through; the app then refuses the missing CSRF token with 419)
+check "30 MB body accepted by /backup/restore" 419 "$(code -X POST -F "backup=@$big" "$base/backup/restore")"
 exit $fail

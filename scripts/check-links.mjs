@@ -64,6 +64,7 @@ for (const rel of files) {
     for (const m of code.matchAll(/!?\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
       const target = m[1];
       if (/^(https?:|mailto:)/.test(target)) continue;
+      if (target.startsWith('…')) continue; // an elided placeholder such as (…#anchor) in a quoted suggestion
       checked++;
       const [p, hash] = target.split('#');
       const dest = p ? path.resolve(path.dirname(file), decodeURIComponent(p)) : file;

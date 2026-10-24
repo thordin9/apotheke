@@ -1203,6 +1203,86 @@ final class AutofillTest extends DatabaseTestCase
         }
     }
 
+    public function testFirstPostSendsAJpegThatExactlyFitsTheCap(): void
+    {
+        [$prevQ, $prevS] = $this->clearUploadSizeEnv();
+        try {
+            $this->clearUploads();
+            @unlink(DATA_DIR . '/autofill-info.json');
+            $source = $this->jpeg(80, 60);
+            $limit = $this->jpegCap($source);
+            settings_store(['autofill_enabled' => true, 'autofill_url' => self::$stubBase, 'autofill_timeout' => 5, 'autofill_max_image_bytes' => 'auto']);
+            autofill_info_cache(['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => $limit, 'enforced_image_bytes' => null, 'ready' => true]);
+            $r = autofill_suggest($source);
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame(1, $this->suggestCount(), 'the first POST sends the JPEG that fills the cap');
+            $ups = $this->uploads();
+            $this->assertCount(1, $ups);
+            $this->assertSame($limit, $ups[0]['bytes']);
+            $this->assertGreaterThan($limit, $ups[0]['content_length'], 'the multipart body is over the cap');
+        } finally {
+            $this->restoreUploadSizeEnv($prevQ, $prevS);
+            @unlink(DATA_DIR . '/autofill-info.json');
+        }
+    }
+
+    public function testRetryPostSendsAJpegThatExactlyFitsTheCap(): void
+    {
+        [$prevQ, $prevS] = $this->clearUploadSizeEnv();
+        try {
+            $this->clearUploads();
+            @unlink(DATA_DIR . '/autofill-info.json');
+            $source = $this->jpeg(80, 60);
+            $limit = $this->jpegCap($source);
+            settings_store([
+                'autofill_enabled' => true,
+                'autofill_url' => self::$stubBase . '/m/clamp/e/' . $limit,
+                'autofill_timeout' => 5,
+                'autofill_max_image_bytes' => 'auto',
+            ]);
+            autofill_info_cache(['name' => 'echo', 'version' => '1', 'capabilities' => [], 'backend' => null, 'max_image_bytes' => 10485760, 'enforced_image_bytes' => null, 'ready' => true]);
+            $r = autofill_suggest($source);
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertSame($limit, autofill_service_image_limit(), 'the refetch cap is the JPEG size');
+            $this->assertSame(2, $this->suggestCount(), 'the 413 retry sends the JPEG that fills the new cap');
+            $ups = $this->uploads();
+            $this->assertCount(2, $ups);
+            $this->assertSame($limit, $ups[1]['bytes']);
+            $this->assertGreaterThan($limit, $ups[1]['content_length'], 'the retry body is over the cap');
+        } finally {
+            $this->restoreUploadSizeEnv($prevQ, $prevS);
+            @unlink(DATA_DIR . '/autofill-info.json');
+        }
+    }
+
+    /** @return array{0:string|false,1:string|false} */
+    private function clearUploadSizeEnv(): array
+    {
+        $prev = [getenv('AUTOFILL_UPLOAD_JPEG_QUALITY'), getenv('AUTOFILL_UPLOAD_MAX_SIDE')];
+        putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        putenv('AUTOFILL_UPLOAD_MAX_SIDE');
+        return $prev;
+    }
+
+    private function restoreUploadSizeEnv(string|false $quality, string|false $side): void
+    {
+        if ($quality === false) putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
+        else putenv('AUTOFILL_UPLOAD_JPEG_QUALITY=' . $quality);
+        if ($side === false) putenv('AUTOFILL_UPLOAD_MAX_SIDE');
+        else putenv('AUTOFILL_UPLOAD_MAX_SIDE=' . $side);
+    }
+
+    /** Byte length of the analysis JPEG autofill_suggest() builds for $source when the cap is that length. */
+    private function jpegCap(string $source): int
+    {
+        $side = min(AUTOFILL_IMAGE_SIDE, autofill_upload_max_side());
+        $jpeg = autofill_analysis_jpeg($source, $side, autofill_upload_jpeg_quality());
+        $this->assertNotNull($jpeg);
+        $limit = strlen($jpeg);
+        $this->assertGreaterThan($limit, strlen(autofill_multipart_body($jpeg, '{}')['body']));
+        return $limit;
+    }
+
     /**
      * A service that advertises max_image_bytes 524288 and no image_sizes. The analysis copy is still built with the
      * existing q80, then q70, then q60 step-down. The whole multipart body has to land on or under that limit.

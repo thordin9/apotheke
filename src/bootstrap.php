@@ -11,9 +11,12 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/qr.php';
 require_once __DIR__ . '/settings.php';
+require_once __DIR__ . '/image-color.php';
+imagick_set_resource_limits();
 require_once __DIR__ . '/autofill.php';
 require_once __DIR__ . '/roles.php';
 require_once __DIR__ . '/users.php';
+require_once __DIR__ . '/hosts.php';
 define('DATA_DIR', cfg()['data_dir']);
 define('IMG_DIR', DATA_DIR . '/images');
 define('THUMB_DIR', DATA_DIR . '/thumbs');
@@ -158,11 +161,52 @@ function request_is_https(): bool
     return $p === 'https';
 }
 
-/** Session cookie lifetime in seconds (setting “session_days”, 1–365). */
+/** Absolute session cookie lifetime in seconds (setting “session_days”, 1–365). Not extended by later visits. */
 function session_lifetime(): int
 {
     try { $d = (int)setting('session_days'); } catch (Throwable) { $d = 30; }
     return 86400 * max(1, min(365, $d ?: 30));
+}
+
+/** Idle limit in seconds (setting “session_idle_hours”, 1–8760). Default 168 hours. */
+function session_idle_seconds(): int
+{
+    try { $h = (int)setting('session_idle_hours'); } catch (Throwable) { $h = 168; }
+    return 3600 * max(1, min(8760, $h ?: 168));
+}
+
+/**
+ * True when this signed-in session has had no request for longer than session_idle_hours.
+ * A session with no stamp yet is not idle: this request is the first one recorded.
+ */
+function session_idle_expired(): bool
+{
+    if ((int)($_SESSION['uid'] ?? 0) <= 0) return false;
+    $last = (int)($_SESSION['last_activity'] ?? 0);
+    if ($last <= 0) return false;
+    return (app_time() - $last) > session_idle_seconds();
+}
+
+/** Remember this request on a signed-in session. Stored in the session file, not in the database. */
+function session_touch(): void
+{
+    if ((int)($_SESSION['uid'] ?? 0) <= 0) return;
+    $_SESSION['last_activity'] = app_time();
+}
+
+/**
+ * Mark the session cookie Secure? Yes over HTTPS (see request_is_https()), and also when PUBLIC_URL is https://
+ * and the request uses PUBLIC_URL's host: then the app is reached through that HTTPS address even if the
+ * proxy in front is not trusted. Opening the app directly by address keeps working over plain HTTP.
+ */
+function session_cookie_secure(): bool
+{
+    if (request_is_https()) return true;
+    try { $pu = (string)setting('public_url'); } catch (Throwable) { $pu = (string)(cfg()['public_url'] ?? ''); }
+    if (!str_starts_with(strtolower($pu), 'https://')) return false;
+    $want = parse_url($pu, PHP_URL_HOST);
+    $got = host_split((string)($_SERVER['HTTP_HOST'] ?? ''));
+    return is_string($want) && $got !== null && strtolower(trim($want, '[]')) === $got[0];
 }
 
 function start_session(): void
@@ -178,15 +222,36 @@ function start_session(): void
         'path'     => '/',
         'httponly' => true,
         'samesite' => 'Lax',
-        'secure'   => request_is_https(),
+        'secure'   => session_cookie_secure(),
     ]);
     session_start();
 }
 
-/** Open session, make sure a CSRF token exists, then release the lock so parallel requests (images!) never queue. */
+/** The request carries a session cookie whose session file still exists. */
+function session_cookie_live(): bool
+{
+    $id = (string)($_COOKIE['apothekesid'] ?? '');
+    return preg_match('/^[A-Za-z0-9,-]{22,256}$/D', $id) === 1 && is_file(SESS_DIR . '/sess_' . $id);
+}
+
+/**
+ * Load an existing session (if the request has one), end it when the signed-in idle limit has passed, record
+ * this request as activity, make sure a CSRF token exists, then release the lock so parallel requests (images!)
+ * never queue. A request without a live session gets none here: 404s, branding, redirects and other anonymous
+ * pages without a form leave nothing on disk (SEC-L2). The session starts on demand when a form needs a token
+ * (csrf_token()) or someone signs in. Activity is stored in the session file.
+ */
 function init_session(): void
 {
+    if (!session_cookie_live()) return;
     start_session();
+    // Idle sign-out uses the same end as a manual sign-out: the request is no longer signed in.
+    if (session_idle_expired()) {
+        logout();
+        current_user(null, true);
+        return;
+    }
+    session_touch();
     if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
     session_write_close();
 }
@@ -220,6 +285,7 @@ function login_session(int $uid): void
     $_SESSION['uid'] = $u['id'];
     $_SESSION['auth_epoch'] = user_epoch($u);
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    $_SESSION['last_activity'] = app_time();
     session_write_close();
     current_user(null, true);
 }
@@ -234,15 +300,25 @@ function logout(): void
 
 /* ---------- CSRF ---------- */
 
-function csrf_token(): string
+/**
+ * The session's CSRF token. A page that renders a form calls this before any output, which starts the session
+ * on demand. With $create false (error pages) or once output has started, it never starts one.
+ */
+function csrf_token(bool $create = true): string
 {
-    return (string)($_SESSION['csrf'] ?? '');
+    $tok = (string)($_SESSION['csrf'] ?? '');
+    if ($tok !== '' || !$create || headers_sent()) return $tok;
+    start_session();
+    if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    session_write_close();
+    return (string)$_SESSION['csrf'];
 }
 
 function check_csrf(): void
 {
     $sent = (string)($_POST['csrf'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
-    if (csrf_token() === '' || !hash_equals(csrf_token(), $sent)) {
+    $tok = csrf_token(false);
+    if ($tok === '' || !hash_equals($tok, $sent)) {
         throw new UserError('Your session expired. Reload the page and try again.', 419);
     }
 }
@@ -395,10 +471,11 @@ function public_url(string $path): string
 {
     $base = (string)setting('public_url');
     if ($base === '') {
+        // Only a Host that passes the allow-list (hosts.php) is ever printed; anything else becomes localhost.
         $https = request_is_https();
-        $host = (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
-        if (!preg_match('/^[A-Za-z0-9.\-\[\]:]+$/', $host)) $host = 'localhost';
-        $base = ($https ? 'https' : 'http') . '://' . $host;
+        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+        if ($host === '' || !host_allowed($host, request_configured_hosts(...), (string)gethostname())) $host = 'localhost';
+        $base = ($https ? 'https' : 'http') . '://' . strtolower($host);
     }
     return $base . $path;
 }

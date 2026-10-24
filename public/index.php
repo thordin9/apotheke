@@ -40,6 +40,9 @@ if ($method === 'HEAD') {
     $method = 'GET';
 }
 
+// Host allow-list (SEC-M3): addresses, localhost, this machine's name, PUBLIC_URL's host and ALLOWED_HOSTS.
+if (!request_host_ok()) request_host_refuse();
+
 if ($path === '/healthz') {
     header('Content-Type: text/plain');
     header('X-Apotheke-Version: ' . app_version());
@@ -95,6 +98,20 @@ if ($method === 'POST' && empty($_POST) && empty($_FILES) && (int)($_SERVER['CON
 init_session();
 
 try {
+    // With sign-in off, a state-changing request must come from the app's own pages (SEC-M3).
+    if (!method_is_safe($method) && !auth_enabled() && !request_same_origin($_SERVER, request_is_https(), (string)setting('public_url'))) {
+        throw new UserError('This request came from another site and was refused. Open the app directly and try again.', 403);
+    }
+
+    // nginx asks this before it accepts a large backup upload (auth_request, docker/nginx.conf; SEC-L2).
+    // 204 = may restore; 401/403 otherwise. Never starts a session.
+    if ($path === '/backup/restore/check' && $method === 'GET') {
+        no_store();
+        $me = current_user();
+        http_response_code(user_can('backup') ? 204 : ($me === null || $me['anon'] ? 401 : 403));
+        exit;
+    }
+
     /* ---- auth ---- */
     if ($path === '/login') {
         if (!auth_enabled() || signed_in()) redirect('/');
@@ -102,8 +119,8 @@ try {
             check_csrf();
             $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
             try {
-                rate_limit('login');
-                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login'); redirect('/'); }
+                rate_limit('login', $who);
+                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); redirect('/'); }
                 usleep(400000);
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
@@ -206,7 +223,7 @@ try {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
         $f    = filters_from($_GET);
         $sort = is_string($_GET['sort'] ?? null) && isset(SORTS[$_GET['sort']]) ? $_GET['sort'] : default_sort();
-        $page = max(1, (int)($_GET['page'] ?? 1));
+        $page = clamp_page((int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
@@ -690,31 +707,36 @@ try {
     if ($path === '/autofill/suggest' && $method === 'POST') {
         check_csrf();
         no_store();
-        // either a photo picked on the form (image), or one of the item's stored photos (photo_id, the edit form)
-        $pid = (string)($_POST['photo_id'] ?? '');
-        if ($pid !== '') {
-            $st = db()->prepare('SELECT file FROM item_photos WHERE id = ?');
-            $st->execute([ctype_digit($pid) ? (int)$pid : 0]);
-            $file = (string)$st->fetchColumn();
-            if ($file === '' || !valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) {
-                json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No suggestions: that photo no longer exists.', 'error' => 'No suggestions: that photo no longer exists.']);
+        try {
+            // either a photo picked on the form (image), or one of the item's stored photos (photo_id, the edit form)
+            $pid = (string)($_POST['photo_id'] ?? '');
+            if ($pid !== '') {
+                $st = db()->prepare('SELECT file FROM item_photos WHERE id = ?');
+                $st->execute([ctype_digit($pid) ? (int)$pid : 0]);
+                $file = (string)$st->fetchColumn();
+                if ($file === '' || !valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) {
+                    json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No suggestions: that photo no longer exists.', 'error' => 'No suggestions: that photo no longer exists.']);
+                }
+                // Analyze the kept upload when there is one. The file under images/ is only the stripped copy and is not rewritten.
+                $r = autofill_suggest_path(image_original_path($file) ?? (IMG_DIR . '/' . $file));
+                json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
             }
-            // Analyze the kept upload when there is one. The file under images/ is only the stripped copy and is not rewritten.
-            $r = autofill_suggest_path(image_original_path($file) ?? (IMG_DIR . '/' . $file));
+            $f = $_FILES['image'] ?? null;
+            if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
+                json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
+            }
+            // the browser already resized the photo. State the tighter of the upload cap and the autofill byte cap
+            // (the Maximum image size setting, auto → max_image_bytes or 983040, then enforced_image_bytes).
+            // The stored photo is saved later, by the item form.
+            if ((int)$f['size'] > max_upload()) {
+                json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
+            }
+            $r = autofill_suggest_path((string)$f['tmp_name']);
             json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
+        } catch (UserError $e) {
+            $msg = $e->getMessage();
+            json_out(['ok' => false, 'error' => $msg, 'message' => $msg], $e->getCode() >= 400 ? (int)$e->getCode() : 422);
         }
-        $f = $_FILES['image'] ?? null;
-        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
-            json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
-        }
-        // the browser already resized the photo. State the tighter of the upload cap and the autofill byte cap
-        // (the Maximum image size setting, auto → max_image_bytes or 983040, then enforced_image_bytes).
-        // The stored photo is saved later, by the item form.
-        if ((int)$f['size'] > max_upload()) {
-            json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
-        }
-        $r = autofill_suggest_path((string)$f['tmp_name']);
-        json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
     }
     if ($path === '/settings/autofill/token' && $method === 'POST') {
         check_csrf();
@@ -1055,7 +1077,7 @@ try {
     /* ---- activity log ---- */
     if ($path === '/activity' && $method === 'GET') {
         no_store();
-        $page = max(1, (int)($_GET['page'] ?? 1));
+        $page = clamp_page((int)($_GET['page'] ?? 1));
         $item = ctype_digit((string)($_GET['item'] ?? '')) ? (int)$_GET['item'] : null;
         $itemRow = null;
         if ($item !== null) {

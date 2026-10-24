@@ -26,6 +26,7 @@ Human docs: [README](README.md) and [`docs/`](docs/index.md). Feature workflow: 
 public/index.php          front controller / router (treats HEAD like GET for reads)
 public/assets/            app.css, app.js, theme.js, icons
 src/bootstrap.php         sessions, auth, CSRF, helpers (incl. item_noun / stats_brief / no_store)
+src/hosts.php             Host allow-list, same-origin rule for no-login mode
 src/config.php            config loader (defaults < config.php < env)
 src/db.php                PDO, dialects, migrations
 src/items.php             domain: items, locations, categories, search, images
@@ -70,7 +71,7 @@ php bin/migrate.php
 php -S 127.0.0.1:9091 -t public public/index.php
 ```
 
-Optional password: `APP_PASSWORD`. Optional Postgres: set `DB_DRIVER=pgsql` and use the Compose `postgres` profile (see README).
+Password: `APP_PASSWORD` (the Docker image refuses to start with sign-in off unless `ALLOW_NO_LOGIN=1`; compose binds `127.0.0.1:9091`). Optional Postgres: set `DB_DRIVER=pgsql` and use the Compose `postgres` profile (see README).
 
 **Note:** Compose only mounts `./data`. Code changes require `docker compose up -d --build` (or a bind-mount) to appear in the container.
 
