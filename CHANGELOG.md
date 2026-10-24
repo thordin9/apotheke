@@ -7,9 +7,17 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.6.6] - 2026-10-24
+
 ### Fixed
 
 - **auth:** the command line can change sign-in settings and admin accounts when guest browsing is on. ([#77](https://github.com/thordin9/apotheke/pull/77))
+
+### Maintenance
+
+- **changelog:** docs: note the CLI guest-browsing admin fix ([#77](https://github.com/thordin9/apotheke/pull/77))
+- **changelog:** docs: keep the CLI admin note out of v2.6.4 ([#77](https://github.com/thordin9/apotheke/pull/77))
+- **qa:** docs: add the #77 CLI admin with guest browsing QA report ([#77](https://github.com/thordin9/apotheke/pull/77))
 
 ## [2.6.5] - 2026-10-24
 
@@ -521,7 +529,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.5...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.6...HEAD
+[2.6.6]: https://github.com/thordin9/apotheke/compare/v2.6.5...v2.6.6
 [2.6.5]: https://github.com/thordin9/apotheke/compare/v2.6.4...v2.6.5
 [2.6.4]: https://github.com/thordin9/apotheke/compare/v2.6.3...v2.6.4
 [2.6.3]: https://github.com/thordin9/apotheke/compare/v2.6.2...v2.6.3
