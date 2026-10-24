@@ -42,8 +42,8 @@ final class Ci4MigrateTest extends TestCase
             $this->assertSame([], $ci4['src']);
             $this->assertNotSame([], $legacy['applied']);
             $this->assertSame($this->dumpSqlite($left), $this->dumpSqlite($right));
-            $this->assertCount(25, $ci4['applied']);
-            $this->assertCount(62, $this->dumpSqlite($right)['data']['settings'] ?? []);
+            $this->assertCount(26, $ci4['applied']);
+            $this->assertCount(63, $this->dumpSqlite($right)['data']['settings'] ?? []);
         } finally {
             rrmdir($left);
             rrmdir($right);
@@ -60,8 +60,8 @@ final class Ci4MigrateTest extends TestCase
             $ci4 = $this->worker('run', 'ci4', $this->pgEnv($dirB, $schemaB, true));
             $this->assertSame([], $ci4['src']);
             $this->assertSame($this->dumpPgsql($schemaA), $this->dumpPgsql($schemaB));
-            $this->assertCount(25, $legacy['applied']);
-            $this->assertCount(62, $this->dumpPgsql($schemaB)['data']['settings'] ?? []);
+            $this->assertCount(26, $legacy['applied']);
+            $this->assertCount(63, $this->dumpPgsql($schemaB)['data']['settings'] ?? []);
         } finally {
             rrmdir($dirA);
             rrmdir($dirB);
@@ -132,7 +132,7 @@ final class Ci4MigrateTest extends TestCase
             $legacy = $this->worker('golden', 'legacy', $env);
             $ci4 = $this->worker('golden', 'ci4', $env);
             $this->assertSame($legacy, $ci4);
-            $this->assertCount(62, $ci4['schema']);
+            $this->assertCount(63, $ci4['schema']);
             $this->assertSame('', $ci4['defaults']['password_hash']);
             $this->assertSame('2020-06-15 12:00:00', $ci4['now']);
         } finally {
@@ -166,8 +166,8 @@ final class Ci4MigrateTest extends TestCase
     {
         $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
         sort($files, SORT_STRING);
-        $this->assertCount(25, $files);
-        for ($n = 1; $n <= 25; $n++) {
+        $this->assertCount(26, $files);
+        for ($n = 1; $n <= 26; $n++) {
             $slice = $this->slice($files, $n);
             try {
                 if ($driver === 'sqlite') {
@@ -279,7 +279,7 @@ final class Ci4MigrateTest extends TestCase
             $versions = $driver === 'sqlite'
                 ? sqlite($dir . '/catalog.sqlite')->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN)
                 : $this->pgPdo((string)$env['DB_SCHEMA'])->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);
-            $this->assertCount(25, $versions, $driver);
+            $this->assertCount(26, $versions, $driver);
         } finally {
             if ($server instanceof Server) {
                 $server->stop();

@@ -7,7 +7,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
 version="${1:-8.3}"
-# Launchpad's PPA host returns short bursts of 503s. apt retries each download with its own backoff,
+# Mirrors and Launchpad's PPA host return short bursts of errors. apt retries each download with its own backoff,
 # and retry() reruns a whole step a few times with a growing pause before the job fails.
 apt_opts=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
 retry() {

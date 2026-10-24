@@ -61,6 +61,31 @@ if (!function_exists('ci4_test_arm_pgsql_probe')) {
     }
 }
 
+if (!function_exists('ci4_test_arm_wrong_ci4_password')) {
+    /**
+     * Test only. APOTHEKE_TEST_CI4_WRONG_PASSWORD gives CI4's own Postgre
+     * connection a different password from the one the migration runner uses,
+     * so the runner connects and CI4's lazy connect is refused.
+     */
+    function ci4_test_arm_wrong_ci4_password(): void
+    {
+        $wrong = getenv('APOTHEKE_TEST_CI4_WRONG_PASSWORD');
+        if (!is_string($wrong) || $wrong === '') {
+            return;
+        }
+        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        \CodeIgniter\Events\Events::on(
+            'pre_system',
+            static function () use ($wrong): void {
+                $database = config(\Config\Database::class);
+                $database->default['DSN'] = trim((string)($database->default['DSN'] ?? '')) . " password='" . addcslashes($wrong, "'\\") . "'";
+            },
+            \CodeIgniter\Events\Events::PRIORITY_LOW
+        );
+    }
+}
+
 ci4_test_arm_pgsql_probe();
+ci4_test_arm_wrong_ci4_password();
 
 return require dirname(__DIR__) . '/ci4/public/router.php';

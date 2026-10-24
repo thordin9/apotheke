@@ -23,8 +23,8 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 ### Added
 
 - **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, and camera originals stay unserved. Photo storage inside the web root stops boot with the same message as the legacy app. A bad DSN stops boot. The page says the database settings could not be used, with no DSN parts. The log line lists only the driver, host, port and database name. The dev server router is `ci4/public/router.php`.
-- **ci4:** Migrations module. `apotheke:migrate` and `bin/migrate.php` (when `APOTHEKE_APP=ci4`) apply the 25 migrations through a PDO runner. CI4 checks `pg_namespace` before `CREATE SCHEMA`. A missing schema does not return `/healthz` 200.
-- **ci4:** Settings module. `SettingsSchema` is the single source of the 62 settings keys (defaults and validation); the migration shim's `settings_schema`, `setting_default` and `setting_validate` delegate to it. `SettingsService` (all, get, save, reset a section, export, import up to 256 KiB, the write-only autofill token with its own getter, token cleared when the service address moves) is built per request by `Config\Services`. `/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico` and `/brand/{file}` match the legacy bytes and headers and start no session; brand files sit behind a `BrandStore` interface. `apotheke:settings` and `bin/settings.php` (when `APOTHEKE_APP=ci4`) run `list`, `get`, `set`, `reset`, `export` and `import` with the legacy output and exit codes; the account and sign-in forms stay on legacy until the Auth module.
+- **ci4:** Migrations module. `apotheke:migrate` and `bin/migrate.php` (when `APOTHEKE_APP=ci4`) apply the 26 migrations through a PDO runner. CI4 checks `pg_namespace` before `CREATE SCHEMA`. A missing schema does not return `/healthz` 200.
+- **ci4:** Settings module. `SettingsSchema` is the single source of the 63 settings keys (defaults and validation); the migration shim's `settings_schema`, `setting_default` and `setting_validate` delegate to it. `SettingsService` (all, get, save, reset a section, export, import up to 256 KiB, the write-only autofill token with its own getter, token cleared when the service address moves) is built per request by `Config\Services`. `/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico` and `/brand/{file}` match the legacy bytes and headers and start no session; brand files sit behind a `BrandStore` interface. `apotheke:settings` and `bin/settings.php` (when `APOTHEKE_APP=ci4`) run `list`, `get`, `set`, `reset`, `export` and `import` with the legacy output and exit codes; the account and sign-in forms stay on legacy until the Auth module.
 
 ### Fixed
 
@@ -44,6 +44,107 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci:** run lint, headless mobile checks, Playwright and the Docker build + smoke test on PHP 8.4 as well as PHP 8.3. The shipped image stays PHP 8.3. `PHP_VERSION=8.4` builds the test image from the same Dockerfile. Markdown link checks walk all of `docs/`.
 - **test:** compare two legacy installs (fresh install, `/healthz`, a settings save) and record the four parity quirks (N-2, QA L-2, N-4, I-3).
 - **fix:** QR labels finish under PHP 8.4 function JIT (`opcache.jit=1235`). The guard disables opcache JIT for the whole PHP worker from the first request, not only for QR encoding. The cost is negligible. `opcache_jit_blacklist()` does not help. The matrix matches the interpreter.
+- **ci4:** sync `main` e2628f2 (2.6.1) into `feature/ci4`. Migration 0026 (`autofill_max_image_bytes`) is in the CI4 settings schema copy. CI4 database connect failures print the same `Could not connect to the database (driver – host port dbname (schema …))` line as `bin/migrate.php`, `/healthz` and `/health` answer 500 with an empty body and log only that line while the database is down, as legacy does, and an unwritable data dir exits 1. The Dockerfile pins `ARG PHP_VERSION=8.3.36`; the CI 8.4 leg builds `8.4.27`, and the pin assert reads the ARG default.
+
+## [2.6.1] - 2026-10-24
+
+### Fixed
+
+- **release:** a handwritten changelog bullet replaces the generated bullet with the same scope, so the release notes do not list that change twice.
+- **autofill:** an image-limit clamp is logged once per distinct pair of sizes. A later photo, and the rebuild after an HTTP 413, does not log that pair again. The line still has no token.
+- **autofill:** JPEG quality steps down by 10 from the configured quality. 60 is still tried before the long edge shrinks, so a quality of 95 no longer jumps straight to 70.
+- **autofill:** the byte cap is applied to the JPEG the service limits. The multipart wrapper, about 320 bytes, is not counted.
+- **autofill:** a limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB).
+
+### Maintenance
+
+- **autofill:** docs: say the clamp warning is once per pair ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **autofill:** docs: describe the ten-point quality step ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **autofill:** docs: say a tiny limit is shown in KB ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **qa:** docs: add the #60 max image size nits QA report ([#60](https://github.com/thordin9/apotheke/pull/60))
+- **qa:** docs: add the v2.6.0 release QA report ([#60](https://github.com/thordin9/apotheke/pull/60))
+
+## [2.6.0] - 2026-10-23
+
+### Added
+
+- **autofill:** add a configurable maximum image size ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **autofill:** Control Panel → AI autofill has **Maximum image size (bytes)** (`autofill_max_image_bytes`, default `auto`). `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when that answer is unavailable. An explicit value must be a whole number from 65536 to 10485760. There is no environment override. An explicit value is capped to `enforced_image_bytes` when that field is present, otherwise to `max_image_bytes`, and used as stored only when neither is known. A lower cap logs a warning and never the token. An HTTP 413 refetches `/v1/info` once, clamps again, and retries the upload once. The copy is a hard maximum: JPEG quality steps down, then the long edge, until it fits. The stored photo stays byte-identical. ([#59](https://github.com/thordin9/apotheke/pull/59))
+
+### Fixed
+
+- **release:** build the release body from the full section ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **release:** keep blank lines inside changelog notes ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **bootstrap:** write the data-dir error to stderr ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **bootstrap:** avoid the STDERR constant under php-fpm ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **autofill:** cap an explicit size to the service limit ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged.
+
+### Maintenance
+
+- **e2e:** test: update autofill settings screenshot baselines ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **db:** docs: record the 500 while the database is down ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **changelog:** docs: drop the duplicate docker and db lines ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **qa:** docs: add the v2.5.8 release QA report ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **release:** test: run apply and check the notes file ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **changelog:** docs: link the image-size note to #59 ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **autofill:** docs: say a blank image size saves as auto ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **e2e:** test: update autofill settings baselines ([#59](https://github.com/thordin9/apotheke/pull/59))
+- **qa:** docs: add the v2.6.0 max image size QA report ([#59](https://github.com/thordin9/apotheke/pull/59))
+
+## [2.5.8] - 2026-10-23
+
+### Fixed
+
+- **release:** move handwritten Unreleased notes into the version ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **db:** seed, backup, restore and settings exit 1 when they can't connect to the database, and name only the driver, host, port, dbname and DB_SCHEMA. The database user and the server's error text are not printed or logged. /healthz logs that same line and answers as before. SQLite open errors are unchanged. ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **bootstrap:** a data directory that is not writable exits 1.
+- **docker:** exception traces in the image omit function arguments, so a password passed into a call is not copied into the trace.
+
+### Maintenance
+
+- test: disable JIT in the healthz connect log ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **changelog:** docs: add the 2.5.7 PHP rebuild note ([#58](https://github.com/thordin9/apotheke/pull/58))
+- docs: add --pull to the plain docker build ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **docker:** test: align the PHP pin check with CI ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **docker:** ci: print the expected PHP pin on mismatch ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **qa:** docs: add the v2.5.7 release QA report ([#58](https://github.com/thordin9/apotheke/pull/58))
+- **qa:** docs: add the PR 58 v2.5.8 fix QA report ([#58](https://github.com/thordin9/apotheke/pull/58))
+
+## [2.5.7] - 2026-10-23
+
+Apotheke publishes no image, so rebuild with `docker compose build --pull && docker compose up -d`,
+and `docker compose exec apotheke php -v` should then show 8.3.36.
+
+### Fixed
+
+- **docker:** the Docker image now builds on PHP 8.3.36, which fixes the PHP security issues released on 21 Oct 2026. Self-hosters should rebuild with `docker compose build --pull` and restart. ([#57](https://github.com/thordin9/apotheke/pull/57))
+
+### Maintenance
+
+- **changelog:** docs: write the 2.5.6 notes in plain language ([#56](https://github.com/thordin9/apotheke/pull/56))
+- **qa:** docs: add the v2.5.6 release QA report ([#56](https://github.com/thordin9/apotheke/pull/56))
+- **docker:** ci: assert the image runs the pinned PHP patch ([#57](https://github.com/thordin9/apotheke/pull/57))
+- **qa:** docs: add the PR 57 PHP pin QA report ([#57](https://github.com/thordin9/apotheke/pull/57))
+
+## [2.5.6] - 2026-10-22
+
+### Fixed
+
+- **migrate:** bin/migrate.php exits 1 when the database refuses the connection and prints only the driver, host, port, dbname and DB_SCHEMA. The server's error text (it names the database user), the password and the full DSN are not printed or logged. SQLite open errors are unchanged. ([#55](https://github.com/thordin9/apotheke/pull/55))
+
+### Maintenance
+
+- **docker:** the image builds Imagick from a pinned source tarball, falls back to a second pinned tarball from PECL, and fetches both over https only ([#48](https://github.com/thordin9/apotheke/pull/48))
+- **qa:** docs: add QA report for #48 imagick PECL fallback ([#48](https://github.com/thordin9/apotheke/pull/48))
+- **changelog:** the 2.5.5 notes describe, in plain language, the schema fix, the migrate banner, the QR helper rename and the pinned Imagick build ([#49](https://github.com/thordin9/apotheke/pull/49))
+- **config:** tests call the migrate banner in this process, so coverage includes it ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **ci:** the secret scan allowlists the migrate DSN test placeholder only in that test file ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qr:** the QR helper comment again says that function JIT is turned off before the encoder loads ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qa:** docs: add the v2.5.5 release QA report ([#50](https://github.com/thordin9/apotheke/pull/50))
+- **qa:** docs: add the PR #50 cleanup QA report ([#50](https://github.com/thordin9/apotheke/pull/50))
+- ci: add job timeouts and retry the zbar and E2E apt installs ([#54](https://github.com/thordin9/apotheke/pull/54))
+- **qa:** docs: add the PR #55 fix(migrate) QA report ([#55](https://github.com/thordin9/apotheke/pull/55))
 
 ## [2.5.5] - 2026-10-21
 
@@ -368,7 +469,12 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.5.5...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.1...HEAD
+[2.6.1]: https://github.com/thordin9/apotheke/compare/v2.6.0...v2.6.1
+[2.6.0]: https://github.com/thordin9/apotheke/compare/v2.5.8...v2.6.0
+[2.5.8]: https://github.com/thordin9/apotheke/compare/v2.5.7...v2.5.8
+[2.5.7]: https://github.com/thordin9/apotheke/compare/v2.5.6...v2.5.7
+[2.5.6]: https://github.com/thordin9/apotheke/compare/v2.5.5...v2.5.6
 [2.5.5]: https://github.com/thordin9/apotheke/compare/v2.5.4...v2.5.5
 [2.5.4]: https://github.com/thordin9/apotheke/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/thordin9/apotheke/compare/v2.5.2...v2.5.3

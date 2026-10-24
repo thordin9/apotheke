@@ -6,12 +6,14 @@ namespace Apotheke\Migrations;
 
 use Apotheke\Core\Config\PdoSchemaSession;
 use Apotheke\Core\Config\PgsqlSchema;
+use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use PDO;
 use PDOException;
 use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . '/../Core/Config/PgsqlSchema.php';
+require_once __DIR__ . '/../Core/Exceptions/DatabaseUnavailable.php';
 
 /** Port of migrate(): one transaction, the legacy lock, and the v1–v3 adopt path. */
 final class PdoMigrationRunner
@@ -64,7 +66,8 @@ final class PdoMigrationRunner
     {
         self::loadConfig();
 
-        return 'Could not connect to the database (' . $db['driver'] . ' ' . config_migrate_where($db) . ').';
+        // Same line as legacy db_connect_failure_message() in src/db.php.
+        return 'Could not connect to the database (' . $db['driver'] . ' – ' . config_migrate_where($db) . ').';
     }
 
     /** @param array<string,mixed> $db */
@@ -214,6 +217,6 @@ final class PdoMigrationRunner
     }
 }
 
-final class MigrateConnectException extends RuntimeException
+final class MigrateConnectException extends DatabaseUnavailable
 {
 }

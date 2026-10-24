@@ -26,11 +26,14 @@ Control Panel → **AI autofill** (`/settings/autofill`, needs the *Settings* pe
 | Timeout (seconds) | 50 | 3–60. Set it about 5 s above the service's own timeout: 50 for the default Jetson setup, where the service gives up after 45 s (`BACKEND_TIMEOUT_S`). A `Retry-After` is honoured only when it is at most 60 s and no longer than this timeout. Upgrading from 2.2 moves a stored 30 (the old default) to 50 (migration 0024); any other value is kept. |
 | Model | service default | **New in 2.4.** A dropdown of the service's `models` from `/v1/info` (API v1.2): *Service default (…)* or one model, with *loaded* and its typical time when the service says so. *loaded* is what the service reports; Apotheke does not rely on it, and any photo can still be a cold start, so the progress bar and its hint always allow for the full timeout. Sent as `context.model`. Hidden when the service lists no models; then no model is sent. With exactly **one** model (`ALLOWED_MODELS` unset on the service) it is shown with that model, disabled, with the hint *More models appear when ALLOWED_MODELS is set on the service.*; two or more models make it selectable. |
 | Image size | recommended | **New in 2.4.** A dropdown of the service's `image_sizes` (long edge in px): *Recommended (N px)* or one size. The suggestion copy is resized to it and never enlarged. The stored upload is the file you picked, unless that file is over the upload limit. Hidden when the service lists no sizes; then the suggestion copy goes at 1024 px as before (2.3 already resized every photo to 1024 px, so an older service gets what it got before). The Jetson runs with `IMAGE_SIZES=448,560*,1024`, so *Recommended* is 560 px there. |
+| Maximum image size (bytes) | `auto` | **New in 2.6.** `autofill_max_image_bytes`. `auto` uses `max_image_bytes` from `GET /v1/info`, or 983040 when that answer is unavailable. An empty value is saved as `auto`. An explicit value is a whole number of bytes from 65536 to 10485760; anything outside that range is rejected with that range in the message. There is no environment override. It is capped to `enforced_image_bytes` when `/v1/info` includes it, otherwise to `max_image_bytes` when that field is present, and used as stored only when neither is known. A lower cap logs a warning once until that pair of sizes changes, and never the token. The stored upload is not resized. |
 | Access token | none | Only if the service runs with `AUTOFILL_TOKEN`. See below. |
 
 All values live in the `settings` table like every other Control Panel option (`autofill_auto`, `autofill_model`
-— `''` = the service's default —, `autofill_image_size` — `0` = the recommended size). Model and image size are
-exported and imported with the other settings.
+— `''` = the service's default —, `autofill_image_size` — `0` = the recommended size,
+`autofill_max_image_bytes` — `auto` or a byte count). Model, image size and the byte cap are
+exported and imported with the other settings. Migration **0026** inserts `auto` when the row is missing and does
+not replace a value an admin already saved.
 
 ### Model and image size (API v1.2)
 
@@ -80,7 +83,8 @@ when the copy is older than 10 minutes. Apotheke reads these fields; unknown fie
 |---|---|---|
 | `name`, `version`, `capabilities` | yes | Test connection |
 | `backend` | optional | shown by Test connection |
-| `max_image_bytes` | optional | photos larger than this are not sent |
+| `max_image_bytes` | optional | when Maximum image size is `auto`, the byte cap for the JPEG that is sent. Missing: 983040 |
+| `enforced_image_bytes` | **optional, new in Apotheke 2.6** | a positive integer. When it is smaller than the configured cap, the JPEG is clamped to it and a warning is logged once for that pair of sizes (the two sizes only, never the token). A wrong shape is ignored and does not reject `/v1/info` |
 | `ready` | optional (default `true`) | *still warming up* |
 | `avg_latency_ms` | **optional, new in Apotheke 2.3** | the progress estimate on the item form (*Typical answer* in Test connection). A non-negative integer: the service's recent average time per suggestion in milliseconds. Anything else, or a service that does not send it, is ignored: the form then shows a spinner instead of a percentage. |
 | `models` | **optional, API v1.2, new in Apotheke 2.4** | the Model dropdown and per-model estimates. A list of `{id, default?, loaded?, avg_latency_ms?}`: `id` a non-empty string (≤ 120 characters), `default`/`loaded` booleans, `avg_latency_ms` as above. Entries of the wrong shape are skipped, duplicates merged, at most one default (the first marked; none marked: the first listed), at most 50. A list with nothing usable counts as absent. |
@@ -159,12 +163,17 @@ permission) gets **Analyze** buttons, a status line and a progress bar under the
    survives. A small JPEG that would only grow by re-encoding is sent as it is. That copy is posted to Apotheke's
    `POST /autofill/suggest` (same-origin, CSRF token). It is the suggestion request only. Saving the item uploads
    the picked file unchanged when it fits *Photos & uploads → Maximum upload* (default 20 MB). Over that limit the
-   browser saves a smaller JPEG and the form says the original is not kept. Until `/v1/info` is cached, Apotheke
-   uses 983040 bytes (0.9 MiB) when checking the suggestion body; a cached `max_image_bytes` replaces it.
+   browser saves a smaller JPEG and the form says the original is not kept. The byte cap for the suggestion is
+   **Maximum image size**: `auto` uses a cached `max_image_bytes`, or 983040 bytes (0.9 MiB) when `/v1/info` has
+   not been seen. An explicit value is capped to `enforced_image_bytes` when that field is present, otherwise to
+   `max_image_bytes`, and used as stored only when neither is known.
 2. The server does not send that upload on. It builds a **separate** JPEG from the camera file when one exists,
    otherwise from the served file: EXIF orientation first, long side at most `min(chosen size, 1600)`, never
-   enlarged, quality about 80 (then 70, then 60 if the full multipart body is still over the limit), metadata
-   stripped. GD is used first, Imagick if GD cannot read the file. Imagick flattens transparency onto white and
+   enlarged, quality about 80. If that JPEG is still over the byte cap, quality steps down by 10 (60 is
+   always tried) and then the long edge is reduced and those qualities are tried again, until the JPEG fits.
+   The service limits that JPEG. The multipart wrapper (boundaries and the context part, about 320 bytes) is not
+   counted. If the JPEG cannot be made to fit, nothing is sent.
+   Metadata is stripped. GD is used first, Imagick if GD cannot read the file. Imagick flattens transparency onto white and
    converts CMYK to sRGB, then strips colour profiles, so that JPEG matches what GD would have written. For a
    grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. GD's encoder
    is left as it is. That analysis JPEG forces 4:2:0 chroma subsampling (`jpeg:sampling-factor` `2x2,1x1,1x1`), so a
@@ -247,7 +256,7 @@ Every problem means "no suggestions" plus a short reason in the status line; not
 | Model loading (`503` + `Retry-After`, "model … is loading / warming up") | *Model is warming up… retrying in N s*, one retry; then *the model is warming up. Try again in N s* |
 | Queue full (`503` + `Retry-After` ≤ 60 s, e.g. "backend busy, queue full") | *Service is busy… retrying in N s*, one retry; then *the service is busy. Try again in N s* |
 | `Retry-After` over 60 s (a daily cap) | *the service is busy or not ready*, no retry, save at once |
-| Photo too large (`413`, larger than `max_image_bytes` from the last Test connection, or over the upload cap) | *the photo is too large (max N MiB / N bytes)* — the cached service limit, or 0.9 MiB / 983040 bytes when `/v1/info` has not been cached, or the upload cap when that is smaller |
+| Photo too large (`413`, or the analysis copy cannot be made to fit the byte cap) | *the photo is too large (max N MiB / N bytes)* — the cap after `auto`, or after an explicit size capped to `enforced_image_bytes` then `max_image_bytes`. A limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB). An HTTP 413 refetches `GET /v1/info` once, clamps again, and uploads once more. A second 413 stops. The token is not logged. 0.9 MiB / 983040 bytes is the `auto` cap when `/v1/info` has not been seen |
 | Image type not supported (`415`) | *cannot read this kind of image* |
 | Not an image, or a photo that cannot be turned into a stripped JPEG (no GD/Imagick, HEIC without libheif, broken file) | *cannot be read as a photo* – checked locally, nothing is sent |
 | `200 {}` | *No suggestions for this photo.* |

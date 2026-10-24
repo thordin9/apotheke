@@ -30,6 +30,12 @@ if (!defined('ACCENT_DEFAULT')) {
 if (!defined('AUTOFILL_SIDE_MIN')) {
     define('AUTOFILL_SIDE_MIN', Apotheke\Settings\SettingsSchema::AUTOFILL_SIDE_MIN);
 }
+if (!defined('AUTOFILL_IMAGE_BYTES_MIN')) {
+    define('AUTOFILL_IMAGE_BYTES_MIN', Apotheke\Settings\SettingsSchema::AUTOFILL_IMAGE_BYTES_MIN);
+}
+if (!defined('AUTOFILL_IMAGE_BYTES_MAX')) {
+    define('AUTOFILL_IMAGE_BYTES_MAX', Apotheke\Settings\SettingsSchema::AUTOFILL_IMAGE_BYTES_MAX);
+}
 if (!defined('SORTS')) {
     define('SORTS', Apotheke\Settings\SettingsSchema::SORTS);
 }
