@@ -126,15 +126,35 @@ final class SettingsTest extends DatabaseTestCase
         }
     }
 
-    public function testImportAppliesSignInSettingsWithUsersPermission(): void
+    public function testImportSkipsSignInSettingsWithOnlyUsersPermission(): void
     {
-        user_create('root', 'long-enough', 'admin');
+        $root = user_create('root', 'long-enough', 'admin');
         $desk = role_create('Helpdesk', ['view', 'users']);
         $id = user_create('desk', 'long-enough', $desk);
         auth_turn_on();
         settings_cache(null, true);
         current_user(user_get($id) + ['guest' => false, 'anon' => false]);
         try {
+            $r = settings_import(json_encode([
+                'format' => 'apotheke-settings',
+                'settings' => [
+                    'app_name' => 'Shed',
+                    'auth_register_disabled' => false,
+                    'auth_guest_disabled' => false,
+                    'auth_register_role' => 'editor',
+                    'auth_enabled' => false,
+                ],
+            ]));
+            settings_cache(null, true);
+            $this->assertSame('Shed', setting('app_name'));
+            $this->assertTrue(setting('auth_register_disabled'));
+            $this->assertTrue(setting('auth_guest_disabled'));
+            $this->assertSame('viewer', setting('auth_register_role'));
+            $this->assertTrue(auth_enabled());
+            foreach (['auth_register_disabled', 'auth_guest_disabled', 'auth_register_role', 'auth_enabled'] as $k) {
+                $this->assertContains($k, $r['ignored']);
+            }
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
             settings_import(json_encode([
                 'format' => 'apotheke-settings',
                 'settings' => ['auth_register_disabled' => false, 'auth_register_role' => 'editor'],

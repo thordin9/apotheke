@@ -410,8 +410,8 @@ function settings_import(string $json): array
         $k = (string)$k;
         $def = settings_schema()[$k] ?? null;
         if ($def === null || in_array($def[2], ['secret', 'internal'], true)) { $ignored[] = $k; continue; }
-        // Sign-in settings belong to the Users permission, same as Control Panel → Users & sign-in.
-        if ($def[0] === 'security' && !caller_has('users')) { $ignored[] = $k; continue; }
+        // Sign-in settings are the same actions as granting admin and turning sign-in off: an admin account, or the command line.
+        if ($def[0] === 'security' && !actor_is_admin()) { $ignored[] = $k; continue; }
         try { $ok[$k] = setting_validate($k, is_bool($v) ? $v : (is_scalar($v) || $v === null ? (string)$v : $v)); }
         catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }

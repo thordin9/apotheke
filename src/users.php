@@ -95,7 +95,8 @@ function user_create(string $name, string $password, string $role, ?string $conf
 /** Approve a self-registered account waiting for an admin. */
 function user_approve(int $id): void
 {
-    user_get($id) ?? throw new UserError('User not found.', 404);
+    $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     db()->prepare("UPDATE users SET status = 'active' WHERE id = ?")->execute([$id]);
 }
 
@@ -112,6 +113,7 @@ function user_set_role(int $id, string $role): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
     $role = user_role_valid($role);
+    guard_admin_target($u);
     if ($role === 'admin' && !actor_is_admin()) throw new UserError('Only an admin can grant the admin role.', 403);
     user_guard_admin($u, $role);
     db()->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $id]);
@@ -121,14 +123,16 @@ function user_set_role(int $id, string $role): void
 /** New password; every session of that user has to sign in again. */
 function user_set_password(int $id, string $password, ?string $confirm = null): void
 {
-    user_get($id) ?? throw new UserError('User not found.', 404);
+    $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     $password = user_password_valid($password, $confirm);
     db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([password_hash($password, PASSWORD_DEFAULT), $id]);
 }
 
 function user_rename(int $id, string $name): void
 {
-    user_get($id) ?? throw new UserError('User not found.', 404);
+    $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     $name = user_name_valid($name, $id);
     db()->prepare('UPDATE users SET username = ?, username_key = ? WHERE id = ?')->execute([$name, user_key($name), $id]);
 }
@@ -136,6 +140,7 @@ function user_rename(int $id, string $name): void
 function user_delete(int $id): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
+    guard_admin_target($u);
     if ($u['role'] === 'admin' && $u['status'] === 'active' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin and cannot be deleted.', 409);
     db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
     roles(true);
@@ -241,20 +246,20 @@ function user_can(string $perm, ?array $u = null): bool
     return role_has($u['role'], $perm);
 }
 
-/** The signed-in account has $perm. The command line does; a request with nobody signed in does not. */
-function caller_has(string $perm): bool
-{
-    $u = current_user();
-    if ($u === null) return PHP_SAPI === 'cli';
-    return user_can($perm, $u);
-}
-
-/** An admin account, or the command line. Granting admin and turning sign-in off need this. */
+/** An admin account, or the command line. Granting admin, turning sign-in off, and changing an admin account need this. */
 function actor_is_admin(): bool
 {
     $u = current_user();
     if ($u === null) return PHP_SAPI === 'cli';
     return ($u['role'] ?? '') === 'admin';
+}
+
+/** A non-admin cannot change an admin account (role, name, password, approval, or deletion). The command line can. */
+function guard_admin_target(array $u): void
+{
+    if (($u['role'] ?? '') === 'admin' && !actor_is_admin()) {
+        throw new UserError('Only an admin can change an admin account.', 403);
+    }
 }
 
 /* ---------- rate limiting (sign-in, registration) ---------- */

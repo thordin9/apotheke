@@ -80,6 +80,60 @@ final class UsersTest extends DatabaseTestCase
         }
     }
 
+    public function testOnlyAnAdminCanChangeAnAdminAccount(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $second = user_create('second', 'long-enough', 'admin');
+        $editor = user_create('ed', 'long-enough', 'editor');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        $pending = user_create('waiting', 'long-enough', 'admin', null, 'pending');
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        $hash = user_get($root)['password_hash'];
+        try {
+            foreach ([
+                fn() => user_set_role($root, 'viewer'),
+                fn() => user_set_role($root, 'admin'),
+                fn() => user_set_password($root, 'another-one', 'another-one'),
+                fn() => user_rename($root, 'renamed'),
+                fn() => user_delete($root),
+                fn() => user_approve($pending),
+            ] as $act) {
+                try {
+                    $act();
+                    $this->fail('a Users account changed an admin');
+                } catch (UserError $e) {
+                    $this->assertSame(403, $e->getCode());
+                }
+            }
+            $this->assertSame('admin', user_get($root)['role']);
+            $this->assertSame('root', user_get($root)['username']);
+            $this->assertSame($hash, user_get($root)['password_hash']);
+            $this->assertNotNull(user_verify('root', 'long-enough'));
+            $this->assertSame('pending', user_get($pending)['status']);
+            user_set_role($editor, 'viewer');
+            user_set_password($editor, 'another-one', 'another-one');
+            user_rename($editor, 'eddie');
+            $this->assertSame(['eddie', 'viewer'], [user_get($editor)['username'], user_get($editor)['role']]);
+            $this->assertNotNull(user_verify('eddie', 'another-one'));
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            user_set_role($second, 'viewer');
+            user_set_password($second, 'fresh-pass', 'fresh-pass');
+            user_rename($second, 'former');
+            user_approve($pending);
+            $this->assertSame('viewer', user_get($second)['role']);
+            $this->assertSame('former', user_get($second)['username']);
+            $this->assertNotNull(user_verify('former', 'fresh-pass'));
+            $this->assertSame('active', user_get($pending)['status']);
+            user_delete($second);
+            $this->assertNull(user_get($second));
+        } finally {
+            current_user(null, true);
+        }
+    }
+
     public function testOnlyAnAdminCanTurnSignInOff(): void
     {
         $root = user_create('root', 'long-enough', 'admin');
