@@ -138,6 +138,7 @@ function rel_changelog_fold(string $section, string $hand): string
         if ($text === '') continue;
         if (!isset($content[$name])) $order[] = $name;
         $prior = $content[$name] ?? '';
+        if ($prior !== '' && $name === REL_GROUPS['fix']) $prior = rel_drop_pr_generated($prior, $text);
         $content[$name] = $prior !== '' ? trim(rel_drop_scoped_generated($prior, $text) . "\n" . $text) : $text;
     }
     $out = $parts[1];
@@ -164,6 +165,23 @@ function rel_drop_scoped_generated(string $generated, string $hand): string
     $kept = [];
     foreach (preg_split("/\n/", $generated) as $line) {
         if (preg_match('/^- \*\*([^*]+):\*\* /', $line, $m) && isset($scopes[$m[1]])) continue;
+        $kept[] = $line;
+    }
+    return rel_trim_blank_edges($kept);
+}
+
+/**
+ * Under Fixed, a handwritten bullet that links a PR replaces the bullets generated from that PR's `fix:` commits,
+ * whatever their scope, so a follow-up commit in the PR does not add a second line for the same fix.
+ */
+function rel_drop_pr_generated(string $generated, string $hand): string
+{
+    $prs = [];
+    if (preg_match_all('/^- .*\(\[#(\d+)\]\([^)\s]+\/pull\/\d+\)\)\s*$/m', $hand, $m)) $prs = array_flip($m[1]);
+    if ($prs === []) return $generated;
+    $kept = [];
+    foreach (preg_split("/\n/", $generated) as $line) {
+        if (preg_match('/^- .*\(\[#(\d+)\]\([^)\s]+\/pull\/\d+\)\)\s*$/', $line, $mm) && isset($prs[$mm[1]])) continue;
         $kept[] = $line;
     }
     return rel_trim_blank_edges($kept);

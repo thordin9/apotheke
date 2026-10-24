@@ -244,8 +244,10 @@ IP). In Safari tap Share → **Add to Home Screen**. To use another host port, c
 
 > **Upgrading from 1.x (port 8080):** the image now listens on **9091** (was 80 inside the container) and the compose
 > file maps host port **9091** (was 8080). Update bookmarks, home-screen icons, reverse proxies and `PUBLIC_URL`;
-> QR labels printed with `:8080` in them need reprinting (or keep the old address with `ports: ["8080:9091"]`).
-> `docker run -p 8080:80 …` becomes `-p 9091:9091` (or `-p 8080:9091`). `PORT` still overrides the container port.
+> QR labels printed with `:8080` in them need reprinting (or keep the old address with
+> `ports: ["127.0.0.1:8080:9091"]`). `docker run -p 8080:80 …` becomes `-p 127.0.0.1:9091:9091` (or
+> `-p 127.0.0.1:8080:9091`). `PORT` still overrides the container port. To reach it from your network, see
+> [Docker defaults](docs/deployment-and-operations.md#docker-defaults-localhost-and-sign-in).
 
 The image (about 100 MB) is `php:8.3.36-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
 `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
@@ -326,7 +328,7 @@ compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
+| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on; at least 8 characters, or the first start stops); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
 | `ALLOW_NO_LOGIN` | *(empty)* | Docker only: `1` lets the container start with sign-in off. Without it the container exits unless `APP_PASSWORD` is set or sign-in is on in the database. |
 | `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
 | `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
