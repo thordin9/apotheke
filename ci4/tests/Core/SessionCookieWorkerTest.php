@@ -102,12 +102,10 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
         $config = config(App::class);
         $request = new IncomingRequest($config, new SiteURI($config, 'items'), null, new UserAgent());
         $this->assertNull($filter->before($request));
-        $this->assertSame(PHP_SESSION_ACTIVE, session_status());
+        // No session cookie, so no session is started (SEC-L2); the settings are in place for one.
+        $this->assertNotSame(PHP_SESSION_ACTIVE, session_status());
         $lifetime = session_get_cookie_params()['lifetime'];
         $this->assertSame((string)$lifetime, ini_get('session.gc_maxlifetime'));
-        // End of the worker request.
-        session_write_close();
-        $_SESSION = [];
 
         return $lifetime;
     }

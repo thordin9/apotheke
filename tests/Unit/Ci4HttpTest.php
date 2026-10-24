@@ -9,6 +9,13 @@ require_once dirname(__DIR__) . '/lib.php';
 /** The CI4 dev server against the legacy health contract. */
 final class Ci4HttpTest extends TestCase
 {
+    /**
+     * CI4 has no page with a form yet. This test hook (tests/ci4-router.php) asks
+     * for the CSRF token as such a page will, so a request gets a fresh session
+     * and its Set-Cookie line, as legacy's GET / does (SEC-L2).
+     */
+    private const ON_DEMAND = ['APOTHEKE_TEST_SESSION_ON_DEMAND' => '1'];
+
     public function testShippedBootDoesNotWriteThePgsqlProbe(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -101,7 +108,7 @@ final class Ci4HttpTest extends TestCase
         $legacyDir = tmpdir('ci4-leg');
         $ci4Dir = tmpdir('ci4-app');
         $legacy = new Server($legacyDir, [], 'legacy');
-        $ci4 = new Server($ci4Dir, [], 'ci4');
+        $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
         $asset = dirname(__DIR__, 2) . '/ci4/public/assets/ping.txt';
         try {
             $this->compareHealth($legacy, $ci4);
@@ -178,7 +185,7 @@ final class Ci4HttpTest extends TestCase
         $legacyDir = tmpdir('ci4-trust-leg');
         $ci4Dir = tmpdir('ci4-trust');
         $legacy = new Server($legacyDir, [], 'legacy');
-        $ci4 = new Server($ci4Dir, [], 'ci4');
+        $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
         try {
             $this->assertNotSame('', test_db_env($ci4Dir)['DB_SCHEMA']);
             $this->assertNotSame('public', test_db_env($ci4Dir)['DB_SCHEMA']);
@@ -215,7 +222,7 @@ final class Ci4HttpTest extends TestCase
         $legacyDir = tmpdir('ci4-days-leg');
         $ci4Dir = tmpdir('ci4-days');
         $legacy = new Server($legacyDir, [], 'legacy');
-        $ci4 = new Server($ci4Dir, [], 'ci4');
+        $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
         try {
             $this->assertSame(200, $legacy->client()->get('/healthz')['status']);
             $this->assertSame(200, $ci4->client()->get('/healthz')['status'], (string)@file_get_contents($ci4->log));

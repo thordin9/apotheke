@@ -6,7 +6,11 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
 
-/** SEC-M3 on the CI4 dev server: the Host allow-list in front of /healthz and every route, and the same-origin rule with sign-in off. */
+/**
+ * The CI4 dev server: the Host allow-list in front of /healthz and every route
+ * and the same-origin rule with sign-in off (SEC-M3), sessions on demand
+ * (SEC-L2) and the idle limit (SEC-N6).
+ */
 final class Ci4RequestHardeningHttpTest extends TestCase
 {
     private const CROSS_SITE = 'This request came from another site and was refused. Open the app directly and try again.';
@@ -95,6 +99,53 @@ final class Ci4RequestHardeningHttpTest extends TestCase
             $pdo->exec("DELETE FROM settings WHERE name = 'auth_enabled'");
             $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('auth_enabled', 'true', '2026-01-01')");
             $this->assertSame(404, $client->post('/no-such-page', [], [], ['Origin: http://other.example'])['status']);
+        });
+    }
+
+    public function testAnonymousRequestsLeaveNoSession(): void
+    {
+        $this->withServer([], function (Server $server, string $dir): void {
+            $client = $server->client();
+            foreach (['/', '/no-such-page', '/theme.css', '/healthz'] as $path) {
+                $this->assertArrayNotHasKey('set-cookie', $client->get($path)['headers'], $path);
+            }
+            // A cookie whose session is gone (expired, or made up) does not create one either.
+            $client->cookies['apothekesid'] = str_repeat('d', 26);
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
+            $this->assertSame([], glob($dir . '/sessions/sess_*') ?: []);
+            // A live session is loaded, stamped and given a token, without a new cookie.
+            $id = str_repeat('e', 26);
+            file_put_contents($dir . '/sessions/sess_' . $id, 'uid|i:3;');
+            $client->cookies['apothekesid'] = $id;
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
+            $data = (string)file_get_contents($dir . '/sessions/sess_' . $id);
+            $this->assertMatchesRegularExpression('/csrf\|s:64:"[0-9a-f]{64}"/', $data);
+            $this->assertMatchesRegularExpression('/last_seen\|i:\d+;/', $data);
+            $this->assertStringContainsString('uid|i:3;', $data);
+        });
+    }
+
+    public function testAnIdleSessionEnds(): void
+    {
+        $this->withServer(['APOTHEKE_TEST_SESSION_ON_DEMAND' => '1'], function (Server $server, string $dir): void {
+            $client = $server->client();
+            $first = $client->get('/');
+            $this->assertStringContainsString('apothekesid=', $first['headers']['set-cookie'] ?? '');
+            $id = (string)$client->cookies['apothekesid'];
+            $file = $dir . '/sessions/sess_' . $id;
+            $this->assertFileExists($file);
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers'], 'the same session');
+            // Used 29 days ago: still inside session_days (30), so it is kept and re-stamped.
+            $recent = time() - 29 * 86400;
+            file_put_contents($file, preg_replace('/last_seen\|i:\d+;/', 'last_seen|i:' . $recent . ';', (string)file_get_contents($file)));
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
+            $this->assertDoesNotMatchRegularExpression('/last_seen\|i:' . $recent . ';/', (string)file_get_contents($file));
+            // Not used for 31 days: emptied and removed; this request gets a new session.
+            file_put_contents($file, preg_replace('/last_seen\|i:\d+;/', 'last_seen|i:' . (time() - 31 * 86400) . ';', (string)file_get_contents($file)));
+            $after = $client->get('/');
+            $this->assertFileDoesNotExist($file);
+            $this->assertStringContainsString('apothekesid=', $after['headers']['set-cookie'] ?? '');
+            $this->assertNotSame($id, $client->cookies['apothekesid']);
         });
     }
 
