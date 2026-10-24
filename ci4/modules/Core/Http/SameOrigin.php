@@ -1,0 +1,57 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Apotheke\Core\Http;
+
+/**
+ * With sign-in off, a state-changing request must come from the app's own pages
+ * (SEC-M3). Port of legacy method_is_safe() and request_same_origin().
+ */
+final class SameOrigin
+{
+    public const STATUS = 403;
+
+    public const MESSAGE = 'This request came from another site and was refused. Open the app directly and try again.';
+
+    /** GET, HEAD and OPTIONS never change anything. */
+    public function isSafe(string $method): bool
+    {
+        return in_array(strtoupper($method), ['GET', 'HEAD', 'OPTIONS'], true);
+    }
+
+    /**
+     * Sec-Fetch-Site decides when the browser sends it (same-origin, or none for
+     * a typed or bookmarked address). Otherwise Origin must be this request's
+     * scheme and host, or PUBLIC_URL's origin. Without either header (curl,
+     * scripts, old clients) the request is allowed.
+     *
+     * @param array<string,mixed> $server
+     */
+    public function check(array $server, bool $https, string $publicUrl = ''): bool
+    {
+        $site = strtolower(trim((string)($server['HTTP_SEC_FETCH_SITE'] ?? '')));
+        if ($site !== '') {
+            return $site === 'same-origin' || $site === 'none';
+        }
+        $origin = strtolower(trim((string)($server['HTTP_ORIGIN'] ?? '')));
+        if ($origin === '') {
+            return true;
+        }
+        $own = [($https ? 'https' : 'http') . '://' . strtolower((string)($server['HTTP_HOST'] ?? ''))];
+        $p = $publicUrl !== '' ? parse_url($publicUrl) : false;
+        if (is_array($p) && isset($p['scheme'], $p['host'])) {
+            $host = str_contains($p['host'], ':') && $p['host'][0] !== '[' ? '[' . $p['host'] . ']' : $p['host'];
+            $own[] = strtolower($p['scheme'] . '://' . $host . (isset($p['port']) ? ':' . $p['port'] : ''));
+        }
+
+        return in_array(rtrim($origin, '/'), $own, true);
+    }
+
+    public function jsonBody(): string
+    {
+        $json = json_encode(['ok' => false, 'error' => self::MESSAGE], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return is_string($json) ? $json : '{"ok":false}';
+    }
+}
