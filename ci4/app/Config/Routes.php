@@ -2,20 +2,27 @@
 
 use CodeIgniter\Router\RouteCollection;
 
-/** @var RouteCollection $routes */
-$routes->get('healthz', '\\Apotheke\\Core\\Controllers\\HealthController::healthz');
-$routes->get('health', '\\Apotheke\\Core\\Controllers\\HealthController::health');
+/**
+ * Every route records the permission legacy route_perm() gives it (`permission`
+ * option). The required Permission filter (Auth) reads it from the route the
+ * router matches; a route without one is refused to everyone. `none`: legacy
+ * answers it before its permission check.
+ *
+ * @var RouteCollection $routes
+ */
+$none = ['permission' => 'none'];
+$routes->get('healthz', '\\Apotheke\\Core\\Controllers\\HealthController::healthz', $none);
+$routes->get('health', '\\Apotheke\\Core\\Controllers\\HealthController::health', $none);
 
 // Public branding (Settings module). GET; HEAD is answered like GET.
-$routes->match(['GET', 'HEAD'], 'theme.css', '\\Apotheke\\Settings\\Controllers\\BrandingController::theme');
-$routes->match(['GET', 'HEAD'], 'labels.css', '\\Apotheke\\Settings\\Controllers\\BrandingController::labels');
-$routes->match(['GET', 'HEAD'], 'manifest.webmanifest', '\\Apotheke\\Settings\\Controllers\\BrandingController::manifest');
-$routes->match(['GET', 'HEAD'], 'favicon.ico', '\\Apotheke\\Settings\\Controllers\\BrandingController::favicon');
-$routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\Controllers\\BrandingController::brand/$1');
+$routes->match(['GET', 'HEAD'], 'theme.css', '\\Apotheke\\Settings\\Controllers\\BrandingController::theme', $none);
+$routes->match(['GET', 'HEAD'], 'labels.css', '\\Apotheke\\Settings\\Controllers\\BrandingController::labels', $none);
+$routes->match(['GET', 'HEAD'], 'manifest.webmanifest', '\\Apotheke\\Settings\\Controllers\\BrandingController::manifest', $none);
+$routes->match(['GET', 'HEAD'], 'favicon.ico', '\\Apotheke\\Settings\\Controllers\\BrandingController::favicon', $none);
+$routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\Controllers\\BrandingController::brand/$1', $none);
 
-// Autofill client. POST only. The required Permission filter (Auth) checks every
-// route by method and path, as legacy route_perm(): create here, settings below.
-$routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestController::suggest');
-$routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token');
-$routes->post('settings/autofill/test', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::test');
-$routes->post('settings/autofill/test-photo', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::testPhoto');
+// Autofill client. POST only.
+$routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestController::suggest', ['permission' => 'create']);
+$routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token', ['permission' => 'settings']);
+$routes->post('settings/autofill/test', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::test', ['permission' => 'settings']);
+$routes->post('settings/autofill/test-photo', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::testPhoto', ['permission' => 'settings']);

@@ -11,6 +11,19 @@ namespace Apotheke\Auth;
  */
 final class RoutePermission
 {
+    /**
+     * The path CI4's router matches, from IncomingRequest::getPath() (relative
+     * to the base URL, still URL-encoded): decoded with urldecode() and trimmed
+     * of slashes and spaces, as Router::handle() and checkRoutes() do, with
+     * one leading slash, as legacy paths have.
+     */
+    public function routed(string $requestPath): string
+    {
+        $path = urldecode($requestPath === '' ? '/' : $requestPath);
+
+        return $path === '/' ? '/' : '/' . trim($path, '/ ');
+    }
+
     /** @param array<array-key,mixed> $post */
     public function need(string $method, string $path, array $post = []): string
     {

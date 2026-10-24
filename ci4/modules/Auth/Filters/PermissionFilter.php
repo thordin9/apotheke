@@ -5,14 +5,18 @@ declare(strict_types=1);
 namespace Apotheke\Auth\Filters;
 
 use Apotheke\Auth\PermissionCheck;
+use Apotheke\Auth\Permissions;
 use Apotheke\Auth\RoutePermission;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
+use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\Filters\FilterInterface;
+use CodeIgniter\HTTP\Exceptions\BadRequestException;
 use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\Response;
 use CodeIgniter\HTTP\ResponseInterface;
+use CodeIgniter\Router\Router;
 use Config\App;
 use Config\Services;
 
@@ -20,8 +24,17 @@ use Config\Services;
  * Legacy's per-route permission check (route_perm() and user_can() in
  * public/index.php). A required before filter after `session` and
  * `sameorigin`, so it runs for every request, routed or not, before the CSRF
- * check, in legacy's order. The permission comes from the method and path,
- * as in legacy, so a new route is covered without being listed.
+ * check, in legacy's order.
+ *
+ * The permission is derived from the routed path. CI4's own router matches
+ * the request first (a fresh Router on the shared route collection, so the
+ * dispatch later is untouched): a matched route gives its recorded
+ * `permission` option, and a matched route without one is refused to
+ * everyone (fail closed). A request no route matches gets legacy
+ * route_perm() for the path the router tried, normalised as the router does
+ * (decoded, slashes and spaces trimmed, relative to the base URL), and then
+ * CI4's 404 once allowed. The method is the effective one (after HEAD → GET
+ * and the `_method` override).
  *
  * Refusals match legacy: nobody or the anonymous guest gets 401 JSON for a
  * fetch, a bare 401 under /media/, otherwise 303 to /login; a signed-in role
@@ -36,14 +49,21 @@ final class PermissionFilter implements FilterInterface
     {
         $method = strtoupper($request->getMethod());
         $method = $method === 'HEAD' ? 'GET' : $method;
-        // The path CI4 routes (dot segments resolved), decoded as legacy's.
-        $path = '/' . ltrim(rawurldecode($request->getUri()->getPath()), '/');
-        $routes = new RoutePermission();
-        if ($routes->isBeforeCheck($method, $path)) {
+        $requestPath = $request instanceof IncomingRequest ? $request->getPath() : ltrim($request->getUri()->getPath(), '/');
+        $rules = new RoutePermission();
+        $path = $rules->routed($requestPath);
+        $need = $request instanceof IncomingRequest
+            ? $this->routeOption(Services::router(Services::routes()->loadRoutes(), $request, false), $requestPath)
+            : null;
+        if ($need === null) {
+            if ($rules->isBeforeCheck($method, $path)) {
+                return null;
+            }
+            $post = $request instanceof IncomingRequest ? $request->getPost() : [];
+            $need = $rules->need($method, $path, is_array($post) ? $post : []);
+        } elseif ($need === Permissions::NONE) {
             return null;
         }
-        $post = $request instanceof IncomingRequest ? $request->getPost() : [];
-        $need = $routes->need($method, $path, is_array($post) ? $post : []);
         $refusal = (new PermissionCheck(Services::roles()))->refusal(Services::currentUser()->resolve(), $need);
         if ($refusal === null) {
             return null;
@@ -77,6 +97,26 @@ final class PermissionFilter implements FilterInterface
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): null
     {
         return null;
+    }
+
+    /**
+     * The `permission` option of the route CI4's router matches for this
+     * request: UNMAPPED when the route has none, null when no route matches.
+     * $router is a fresh one for this request, not the one that dispatches.
+     */
+    private function routeOption(Router $router, string $requestPath): ?string
+    {
+        try {
+            $router->handle($requestPath);
+        } catch (PageNotFoundException|BadRequestException) {
+            return null;
+        }
+        if ($router->getMatchedRoute() === null) {
+            return null;
+        }
+        $option = ($router->getMatchedRouteOptions() ?? [])['permission'] ?? null;
+
+        return is_string($option) && $option !== '' ? $option : Permissions::UNMAPPED;
     }
 
     /** @param array<string,mixed> $data legacy json_out() */

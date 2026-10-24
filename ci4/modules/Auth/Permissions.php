@@ -16,6 +16,12 @@ final class Permissions
     /** Any signed-in account, not the guest or the anonymous admin (own account pages). */
     public const SELF = 'self';
 
+    /** A route legacy answers before its permission check (health, branding): the route's `permission` option. */
+    public const NONE = 'none';
+
+    /** A routed request whose route records no permission: refused to everyone, the admin included. */
+    public const UNMAPPED = 'unmapped';
+
     /** @var array<string,array{0:string,1:string}> key => [name, description] */
     public const ALL = [
         'view'      => ['View', 'look at items, locations, history and photos'],
