@@ -730,6 +730,7 @@ dialog.scan video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;bor
 .logo-form{display:grid;gap:12px}
 .pw-state{display:flex;gap:8px;align-items:center;margin:0;font-weight:600}
 .pw-state .i{color:var(--accent);flex:none}
+.set-warn{background:var(--badge-soft);color:var(--badge);border-radius:var(--radius-sm);padding:10px 12px;margin:0 0 12px;font-weight:600}
 .systable{width:100%;border-collapse:collapse;font-size:14.5px}
 .systable th{text-align:left;font-weight:600;padding:10px 8px 10px 0;vertical-align:top;width:40%}
 .systable td{padding:10px 0;display:grid;gap:2px;word-break:break-all}
