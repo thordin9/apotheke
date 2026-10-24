@@ -155,7 +155,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
   every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
   with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
-  admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. A sign-in lasts at most `session_days` (default 30) and ends after `session_idle_hours` hours with no request (default 168, at most 8760). Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
+  admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. A sign-in lasts at most `session_days` (default 30), counted from sign-in: later visits do not extend it, and the server ends it when that time has passed. It also ends after `session_idle_hours` hours with no request (default 168, at most 8760). **Sign out everywhere** is on the account page; `php bin/settings.php user signout NAME` ends every session of that account. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   The Docker image needs it (or sign-in already on) to start; `ALLOW_NO_LOGIN=1` runs it without sign-in on purpose.
 
@@ -446,11 +446,11 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 <!-- coverage:start -->
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 97.0 % | 97.0 % |
+| Front controller & routes | – | 97.1 % | 97.1 % |
 | Items, search, bulk, lending | 88.9 % | 90.6 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 94.1 % | 89.4 % | 96.9 % |
+| Users & roles | 94.3 % | 89.7 % | 97.0 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
@@ -458,9 +458,9 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Views (HTML) | 12.7 % | 99.4 % | 99.3 % |
 | Control Panel settings | 73.2 % | 88.2 % | 92.9 % |
 | Backup & restore | 87.7 % | 89.8 % | 96.9 % |
-| Database, migrations, legacy | 80.2 % | 80.8 % | 91.2 % |
-| Bootstrap, config, QR, seed | 73.4 % | 75.1 % | 91.0 % |
-| **All PHP** (7440 lines) | **66.4 %** | **89.3 %** | **95.4 %** |
+| Database, migrations, legacy | 80.7 % | 81.1 % | 91.4 % |
+| Bootstrap, config, QR, seed | 73.5 % | 75.5 % | 91.0 % |
+| **All PHP** (7494 lines) | **66.5 %** | **89.3 %** | **95.4 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
