@@ -13,7 +13,8 @@ $routes->match(['GET', 'HEAD'], 'manifest.webmanifest', '\\Apotheke\\Settings\\C
 $routes->match(['GET', 'HEAD'], 'favicon.ico', '\\Apotheke\\Settings\\Controllers\\BrandingController::favicon');
 $routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\Controllers\\BrandingController::brand/$1');
 
-// Autofill client. POST only. Permission checks arrive with the Auth module.
+// Autofill client. POST only. The required Permission filter (Auth) checks every
+// route by method and path, as legacy route_perm(): create here, settings below.
 $routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestController::suggest');
 $routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token');
 $routes->post('settings/autofill/test', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::test');
