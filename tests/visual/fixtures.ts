@@ -165,3 +165,12 @@ export const test = base.extend<TestOpts, WorkerOpts>({
 });
 
 export { expect };
+
+/**
+ * Screenshots mask `.app-version`, but the footer is centred, so a longer version (v2.6.10 after v2.6.9) still shifts
+ * the links beside it. Before a screenshot, show the version the baselines were made with, so a release bump never
+ * changes them. The mask stays on.
+ */
+export const BASELINE_VERSION = 'v2.6.9';
+export const pinVersionLabel = (page: Page) =>
+  page.locator('.app-version').evaluateAll((els, v) => els.forEach(e => { e.textContent = v; }), BASELINE_VERSION);
