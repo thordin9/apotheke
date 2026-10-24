@@ -25,20 +25,24 @@ final class LogRedactor
         ($this->sink)('apotheke autofill: ' . $this->redact($message));
     }
 
-    /** At most 80 characters, with the bearer token removed. For a response body inside a log line. */
-    public function snippet(string $body): string
+    /**
+     * At most 80 characters, with the bearer token removed. For a response body inside a log line.
+     * $also is a token from this request (the one typed into the form) when it is not the stored token.
+     */
+    public function snippet(string $body, string $also = ''): string
     {
-        $s = trim(preg_replace('/\s+/u', ' ', $this->redact($body)) ?? '');
+        $s = trim(preg_replace('/\s+/u', ' ', $this->redact($body, $also)) ?? '');
 
         return mb_substr($s, 0, 80);
     }
 
-    private function redact(string $message): string
+    private function redact(string $message, string $also = ''): string
     {
         $message = preg_replace('/Bearer\s+\S+/i', 'Bearer [redacted]', $message) ?? '';
-        $token = ($this->token)();
-        if ($token !== '') {
-            $message = str_replace($token, '[redacted]', $message);
+        foreach ([$also, ($this->token)()] as $secret) {
+            if ($secret !== '') {
+                $message = str_replace($secret, '[redacted]', $message);
+            }
         }
 
         return $message;

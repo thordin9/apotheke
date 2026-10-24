@@ -541,6 +541,154 @@ final class AutofillTest extends CIUnitTestCase
         $this->assertSame([], glob($writable . '/*/autofill*') ?: []);
     }
 
+    /**
+     * A browser form (no fetch, no Accept: application/json) saves and clears
+     * the token with 303. The redirect must not start CI4's session beside
+     * the native one.
+     */
+    public function testPlainFormSavesAndClearsTheTokenWith303(): void
+    {
+        $af = $this->stack();
+        Services::injectMock('settings', $this->settings);
+        Services::injectMock('autofill', $af);
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        // SessionCookie sets this save path, then CI4's FileHandler ini_sets it
+        // while that native session is still active.
+        $sessions = $this->database->dataDir() . '/sessions';
+        mkdir($sessions, 0775, true);
+        config(\Config\Session::class)->savePath = $sessions;
+        \CodeIgniter\Config\Services::resetSingle('session');
+        $saved = $this->withSession(['csrf' => 'csrf-test-token'])->post('settings/autofill/token', [
+            'token' => 'form-token-placeholder',
+            'csrf' => 'csrf-test-token',
+        ]);
+        $saved->assertStatus(303);
+        $location = $saved->response()->getHeaderLine('Location');
+        $this->assertStringContainsString('/settings/autofill?done=token-saved', $location);
+        $this->assertStringContainsString('no-store', $saved->response()->getHeaderLine('Cache-Control'));
+        $this->assertStringNotContainsString('form-token-placeholder', $saved->response()->getBody());
+        $this->assertArrayNotHasKey('_ci_previous_url', $_SESSION);
+        $this->assertSame('form-token-placeholder', $this->settings->autofillToken());
+
+        \CodeIgniter\Config\Services::resetSingle('session');
+        $cleared = $this->withSession(['csrf' => 'csrf-test-token'])->post('settings/autofill/token', [
+            'action' => 'clear',
+            'csrf' => 'csrf-test-token',
+        ]);
+        $cleared->assertStatus(303);
+        $this->assertStringContainsString('/settings/autofill?done=token-cleared', $cleared->response()->getHeaderLine('Location'));
+        $this->assertArrayNotHasKey('_ci_previous_url', $_SESSION);
+        $this->assertSame('', $this->settings->autofillToken());
+    }
+
+    public function testTypedPhotoTokenIsRedactedFromServerErrorLogs(): void
+    {
+        $typed = 'typed-photo-token';
+        foreach ([500, 503] as $status) {
+            $this->database?->drop();
+            $calls = [];
+            $info = (string)json_encode($this->info(10485760, null));
+            $af = $this->stack($this->script($calls, [
+                $this->http(200, 'ok', 'text/plain'),
+                $this->http(200, $info),
+                $this->http($status, 'boom ' . $typed . ' Bearer ' . $typed, 'text/plain'),
+            ]));
+            $this->settings->store([
+                'autofill_enabled' => true,
+                'autofill_url' => 'http://autofill.test',
+                'autofill_timeout' => 8,
+                'autofill_token' => self::TOKEN,
+                'autofill_max_image_bytes' => 1048576,
+            ]);
+            $r = $af->testPhoto('http://autofill.test', 8, $typed);
+            $this->assertFalse($r['ok'], 'HTTP ' . $status);
+            $text = implode("\n", $this->logged);
+            $this->assertStringNotContainsString($typed, $text, 'HTTP ' . $status);
+            $this->assertStringNotContainsString(self::TOKEN, $text, 'HTTP ' . $status);
+            $this->assertStringContainsString('[redacted]', $text, 'HTTP ' . $status);
+        }
+    }
+
+    public function testAFailed413RebuildDoesNotPostAgain(): void
+    {
+        $posts = 0;
+        $af = $this->stack(function (string $method, string $url, ?string $body, string $token, int $timeout, string $type) use (&$posts): array {
+            if ($method === 'GET') {
+                return $this->http(200, (string)json_encode($this->info(1048576, null)));
+            }
+            $posts++;
+
+            return $this->http(413, '{"error":{"code":"payload_too_large","message":"too big"}}');
+        });
+        $this->settings->store([
+            'autofill_enabled' => true,
+            'autofill_url' => 'http://autofill.test',
+            'autofill_timeout' => 5,
+            'autofill_max_image_bytes' => 1048576,
+            'autofill_token' => self::TOKEN,
+        ]);
+        $opened = [
+            'ok' => true,
+            'body' => 'not-a-multipart',
+            'content_type' => 'multipart/form-data; boundary=x',
+            'jpeg' => 'jj',
+            'path' => 'autofill/tmp/autofill-0123456789abcdef.jpg',
+        ];
+        [$r] = $af->postAnalysis('http://autofill.test', self::TOKEN, 5, $opened, static fn (): array => [
+            'ok' => false,
+            'code' => 'unsupported',
+            'message' => 'could not rebuild',
+        ]);
+        $this->assertSame(1, $posts);
+        $this->assertFalse($r['ok']);
+        $this->assertSame('unsupported', $r['code']);
+        $this->assertSame('could not rebuild', $r['message']);
+    }
+
+    public function testA413RetryReleasesTheFirstTempWhenRefetchFails(): void
+    {
+        $posts = 0;
+        $af = $this->stack(function (string $method, string $url, ?string $body, string $token, int $timeout, string $type) use (&$posts): array {
+            if ($method === 'GET') {
+                return $this->http(503, 'info down', 'text/plain');
+            }
+            $posts++;
+
+            return $posts === 1 ? $this->http(413, '{}') : $this->okSuggest();
+        });
+        $this->settings->store([
+            'autofill_enabled' => true,
+            'autofill_url' => 'http://autofill.test',
+            'autofill_timeout' => 5,
+            'autofill_max_image_bytes' => 1048576,
+            'autofill_token' => self::TOKEN,
+        ]);
+        $old = 'autofill/tmp/autofill-0123456789abcdef.jpg';
+        $new = 'autofill/tmp/autofill-fedcba9876543210.jpg';
+        $this->storage->write($old, 'old-jpeg');
+        $this->storage->write($new, 'new-jpeg');
+        [$r] = $af->postAnalysis('http://autofill.test', self::TOKEN, 5, [
+            'ok' => true,
+            'body' => 'b1',
+            'content_type' => 'multipart/form-data',
+            'jpeg' => 'jj',
+            'path' => $old,
+        ], static fn (): array => [
+            'ok' => true,
+            'body' => 'b2',
+            'content_type' => 'multipart/form-data',
+            'jpeg' => 'kk',
+            'path' => $new,
+        ]);
+        $this->assertSame(2, $posts, 'a failed refetch still retries once');
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $this->assertNull($this->storage->read($old));
+        $this->assertSame('new-jpeg', $this->storage->read($new));
+        $this->assertStringNotContainsString(self::TOKEN, implode("\n", $this->logged));
+    }
+
     public function testAutofillSourcesDoNotNameWritable(): void
     {
         $dir = dirname(__DIR__, 2) . '/modules/Autofill';

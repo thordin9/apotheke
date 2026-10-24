@@ -92,13 +92,11 @@ final class SettingsAutofillController extends Controller
         if ($this->wantsJson()) {
             return $this->json(['ok' => true, 'redirect' => $to]);
         }
-        $response = service('response');
-        $response->setStatusCode(303);
-        $response->setHeader('Location', $to);
-        $response->setHeader('Cache-Control', 'no-store');
-        $response->setBody('');
+        // A plain 303 is text/html, so storePreviousURL() builds CI4's session
+        // beside the native one and FileHandler's ini_set() fails.
+        helper('url');
 
-        return $response;
+        return redirect()->to($to, 303)->setHeader('Cache-Control', 'no-store');
     }
 
     /** @param array<string,mixed> $data */

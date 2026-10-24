@@ -343,7 +343,7 @@ final class ResponseClassifier
         switch ($http['status']) {
             case 200:
                 if (!$this->suggestBodyOk($http['content_type'], $http['body'])) {
-                    $log->warning('suggest: unexpected body (' . $log->snippet($http['body']) . ')');
+                    $log->warning('suggest: unexpected body (' . $log->snippet($http['body'], $token) . ')');
 
                     return $down();
                 }
@@ -365,7 +365,7 @@ final class ResponseClassifier
             case 503:
                 $api = $this->apiError($http['content_type'], $http['body']);
                 if ($api === null) {
-                    $log->warning('suggest: HTTP 503 (' . $log->snippet($http['body']) . ')');
+                    $log->warning('suggest: HTTP 503 (' . $log->snippet($http['body'], $token) . ')');
 
                     return $down();
                 }
@@ -392,7 +392,7 @@ final class ResponseClassifier
                 return $fail('busy', 'No suggestions: the service is busy or not ready. Try again later.');
             default:
                 if ($http['status'] >= 500) {
-                    $log->warning('suggest: HTTP ' . $http['status'] . ' (' . $log->snippet($http['body']) . ')');
+                    $log->warning('suggest: HTTP ' . $http['status'] . ' (' . $log->snippet($http['body'], $token) . ')');
 
                     return $down();
                 }
@@ -402,7 +402,7 @@ final class ResponseClassifier
         }
         $s = $this->parseSuggestion($http['body']);
         if ($s === null) {
-            $log->warning('suggest: unexpected body (' . $log->snippet($http['body']) . ')');
+            $log->warning('suggest: unexpected body (' . $log->snippet($http['body'], $token) . ')');
 
             return $down();
         }
