@@ -340,13 +340,14 @@ final class Ci4DsnCredentialsTest extends TestCase
         $this->assertSame('ok', $hit['body']);
     }
 
-    /** One warning, with no user names or passwords, when DB_DSN's credentials differ from the ones used. */
+    /** One warning per request, with no user names or passwords, when DB_DSN's credentials differ from the ones used. */
     public function testDifferingCredentialsLogOneWarningWithoutValues(): void
     {
         $name = test_pg_params()['name'];
-        $differ = $this->boot('dbname=' . $name . ';user=%du;password=%dp', '%eu', '%ep');
+        $differ = $this->boot('dbname=' . $name . ';user=%du;password=%dp', '%eu', '%ep', 2);
         $this->assertSame(200, $differ['status'], $differ['body'] . $differ['log']);
-        $this->assertSame(1, substr_count($differ['log'], PdoMigrationRunner::CREDENTIALS_DIFFER), $differ['log']);
+        // Once per request: php -S, like php-fpm, starts each request with fresh statics.
+        $this->assertSame(2, substr_count($differ['log'], PdoMigrationRunner::CREDENTIALS_DIFFER), $differ['log']);
         foreach ($this->roles as $role) {
             $this->assertStringNotContainsString($role['password'], $differ['log']);
             $this->assertStringNotContainsString($role['user'], $differ['log']);
@@ -396,13 +397,13 @@ final class Ci4DsnCredentialsTest extends TestCase
     }
 
     /**
-     * One request to /healthz. In the DSN tail and the env values, %eu/%ep are
+     * $requests requests to /healthz on one server; the last is returned. In the DSN tail and the env values, %eu/%ep are
      * the env role's user and password and %du/%dp the dsn role's. Null unsets
      * DB_USER or DB_PASSWORD; libpq's own fallbacks (PGPASSWORD, ~/.pgpass) are off.
      *
      * @return array{status:int,body:string,log:string}
      */
-    private function boot(string $tail, ?string $user, ?string $password): array
+    private function boot(string $tail, ?string $user, ?string $password, int $requests = 1): array
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
@@ -432,6 +433,9 @@ final class Ci4DsnCredentialsTest extends TestCase
         ], 'ci4', dirname(__DIR__, 2) . '/ci4/public/router.php');
         try {
             $response = $server->client()->get('/healthz');
+            for ($i = 1; $i < $requests; $i++) {
+                $response = $server->client()->get('/healthz');
+            }
 
             return [
                 'status' => $response['status'],
