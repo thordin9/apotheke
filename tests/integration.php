@@ -1478,6 +1478,22 @@ $ownC = $lifeCarry($ownS, $ownCookies);
 T::eq(303, $ownC->get('/')['status'], 'resetting this account\'s password does not extend session_days');
 $ownS->stop();
 
+// The other device is no longer signed in, but its session file is still there until sign-out destroys it.
+$dropDir = $newDir('drop');
+[$dropS, $dropC] = $lifeSign($dropDir, '2027-04-01 00:00:00');
+$dropOther = $dropS->client();
+T::eq(303, $dropOther->post('/login', ['csrf' => $dropOther->csrf(), 'username' => 'admin', 'password' => 's3cret-pw'])['status'], 'a second device signs in before sign out everywhere');
+$dropOld = $dropOther->cookies['apothekesid'];
+T::ok(is_file($dropDir . '/sessions/sess_' . $dropOld), 'the other device still has a session file');
+T::ok(str_contains($dropC->post('/account/signout', ['csrf' => $dropC->csrf()])['headers']['location'] ?? '', '/account?done=out'), 'this device signs out everywhere');
+$dropOut = $dropOther->post('/logout', []);
+T::eq(303, $dropOut['status'], 'the other device can sign out without the old token');
+$dropNew = $dropOther->cookies['apothekesid'] ?? '';
+T::ok($dropNew !== '' && $dropNew !== $dropOld, 'that sign-out issues a new session id');
+clearstatcache(true);
+T::ok(!is_file($dropDir . '/sessions/sess_' . $dropOld), 'that sign-out deletes the old session file');
+$dropS->stop();
+
 T::section('List pagination (PAGE_SIZE)');
 $pgDir = $newDir('page');
 $pgS = new Server($pgDir, ['PAGE_SIZE' => '2', 'SEED_DEFAULTS' => '0']);
