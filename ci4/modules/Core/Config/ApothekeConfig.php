@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Config;
 
+use Apotheke\Core\Http\ProxyList;
 use RuntimeException;
+
+// Loaded before Composer's autoloader (Core/Boot/startup.php, root tests).
+require_once dirname(__DIR__) . '/Http/ProxyList.php';
 
 /**
  * defaults < config.php < environment, the same map and normalisation as src/config.php.
@@ -40,6 +44,7 @@ final class ApothekeConfig
         'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
         'SEED_DEFAULTS' => 'seed_defaults',
         'ORIGINALS_DIR' => 'originals_dir',
+        'TRUSTED_PROXIES' => 'trusted_proxies',
     ];
 
     public static function repoRoot(): string
@@ -86,6 +91,7 @@ final class ApothekeConfig
         $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
         $cfg['app_password'] = (string)$cfg['app_password'];
         $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
+        $cfg['trusted_proxies'] = (new ProxyList())->parse($cfg['trusted_proxies'] ?? []);
 
         return new self($cfg);
     }
@@ -124,6 +130,19 @@ final class ApothekeConfig
         }
 
         return rtrim($dir, '/');
+    }
+
+    /**
+     * TRUSTED_PROXIES: addresses and blocks allowed to set X-Forwarded-For when
+     * trust_proxy is on (SEC-M2).
+     *
+     * @return list<string>
+     */
+    public function trustedProxies(): array
+    {
+        $list = $this->values['trusted_proxies'] ?? [];
+
+        return is_array($list) ? array_values(array_filter($list, 'is_string')) : [];
     }
 
     /** @return array<string,mixed> */
@@ -175,6 +194,7 @@ final class ApothekeConfig
             'allowed_hosts' => '',
             'seed_defaults' => true,
             'originals_dir' => '',
+            'trusted_proxies' => [],
         ];
     }
 

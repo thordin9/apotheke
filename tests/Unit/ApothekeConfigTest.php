@@ -10,7 +10,7 @@ require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/ApothekeConfig.php'
 final class ApothekeConfigTest extends TestCase
 {
     /** @var array<string,mixed> */
-    private const FROM_MAIN = ['allowed_hosts' => ''];
+    private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => []];
 
     public function testLoadMatchesTheLegacyLoader(): void
     {
@@ -70,5 +70,21 @@ final class ApothekeConfigTest extends TestCase
         $config = ApothekeConfig::load($root, null, ['ALLOWED_HOSTS' => '  apotheke.lan, shelf.lan  ']);
         $this->assertSame('apotheke.lan, shelf.lan', $config->allowedHosts());
         $this->assertSame('', ApothekeConfig::load($root, null, [])->allowedHosts());
+    }
+
+    /** SEC-M2: main's config_proxy_list() keeps addresses and blocks only. */
+    public function testTrustedProxiesKeepAddressesAndBlocks(): void
+    {
+        $root = sys_get_temp_dir() . '/apo-cfg-' . bin2hex(random_bytes(3));
+        $config = ApothekeConfig::load($root, null, ['TRUSTED_PROXIES' => ' 127.0.0.1, 192.0.2.0/24 [::1] fd00::/8 not-an-ip 10.0.0.0/33 10.0.0.0/ 127.0.0.1']);
+        $this->assertSame(['127.0.0.1', '192.0.2.0/24', '[::1]', 'fd00::/8'], $config->trustedProxies());
+        $this->assertSame([], ApothekeConfig::load($root, null, [])->trustedProxies());
+        $file = $root . '-proxies.php';
+        file_put_contents($file, "<?php\nreturn ['trusted_proxies' => ['198.51.100.7', 5, 'x', '2001:db8::/32']];\n");
+        try {
+            $this->assertSame(['198.51.100.7', '2001:db8::/32'], ApothekeConfig::load($root, $file, [])->trustedProxies());
+        } finally {
+            unlink($file);
+        }
     }
 }
