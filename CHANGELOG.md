@@ -10,6 +10,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Fixed
 
 - **auth:** a sign-in ends on the server once it is older than `session_days`, counted from sign-in. A session from before the upgrade is stamped on its next request instead of being ended. The idle stamp moves at most once a minute. Sign-out of an already ended session redirects. Sign out everywhere (Your account, and `php bin/settings.php user signout NAME`) and a new password replace the account's session epoch (migration 0028), so older sessions are dropped. SEC-N6. ([#84](https://github.com/thordin9/apotheke/pull/84))
+- **auth:** hardening: a new sign-in after a session was ended now starts a fresh session lifetime. ([#87](https://github.com/thordin9/apotheke/pull/87))
 
 ## [2.6.11] - 2026-10-24
 
