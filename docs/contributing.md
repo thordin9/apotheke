@@ -55,8 +55,8 @@ Using a new item field as the example:
    * HTTP tests in `tests/integration.php` (they run on SQLite and PostgreSQL, standalone and inside PHPUnit);
    * a Playwright spec in `tests/visual/` that also calls `app.noOverflow()` and `app.tapTargets()`, and a screenshot
      in `visual.spec.ts` for new screens.
-7. **Docs**: the README feature list, the relevant pages here (usually the [user guide](user-guide.md)), and the
-   README screenshots in `docs/screenshots/` if a new screen deserves one.
+7. **Docs**: the relevant pages here (usually the [user guide](user-guide.md)), and a screenshot in
+   `docs/screenshots/` if a new screen deserves one.
 
 ## Project conventions
 

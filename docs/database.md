@@ -221,16 +221,18 @@ Notes:
 | 0020 | `0020_import.php` | `imports` (CSV import history: file, mapping, options, result) |
 | 0021 | `0021_photo_versions.php` | `item_photos.version`, `item_photos.edited_at` (crop/rotate versions) |
 | 0022 | `0022_roles.php` | `roles` (built-in + custom permission sets), `users.status`, `auth_attempts` (rate limits) |
+| 0023 | `0023_autofill.php` | AI autofill settings (off by default); no schema change |
+| 0024 | `0024_autofill_timeout.php` | autofill timeout default 30 s → 50 s (a stored 30 moves to 50) |
+| 0025 | `0025_autofill_on_demand.php` | `autofill_auto` (off on every install), `autofill_model`, `autofill_image_size` |
+| 0026 | `0026_autofill_max_image_bytes.php` | `autofill_max_image_bytes` (`auto`) |
+| 0027 | `0027_session_idle_hours.php` | `session_idle_hours` (default 168) |
+| 0028 | `0028_session_epoch.php` | `users.session_epoch` (sign out everywhere, new passwords), filled so existing sessions stay valid |
 
 ## PostgreSQL schema and roles
 
-With `DB_SCHEMA` set, the connection's `search_path` is that schema. On connect, Apotheke reads
-`pg_catalog.pg_namespace` and runs `CREATE SCHEMA` only when the name is absent. PostgreSQL would otherwise
-check CREATE on the database first and reject a role without that privilege even when the schema already
-exists. The role still needs USAGE on the schema, and CREATE on the schema when a migration adds tables.
-If the schema is missing and the role cannot create it, connect fails with an error that names the schema
-and does not include the password or the DSN. See
-[Deployment and operations](deployment-and-operations.md#postgresql-role).
+With `DB_SCHEMA` set, the connection's `search_path` is that schema, and `CREATE SCHEMA` runs only when the name is
+missing, so the role needs no CREATE on the database. See
+[PostgreSQL role](deployment-and-operations.md#postgresql-role).
 
 ## How migrations run
 

@@ -13,7 +13,7 @@ app becomes a version, with no manual steps.
 ## How the version is chosen
 
 [`scripts/release.php`](../scripts/release.php) reads the commits since the last `v*` tag (`git log <tag>..HEAD
---no-merges`) and applies the [Conventional Commits](contributing.md) rules:
+--no-merges`) and applies the [Conventional Commits](ci.md#commit-rules) rules:
 
 | Commits since the last tag | Bump | Example |
 |---|---|---|
@@ -73,5 +73,5 @@ gh release create "v$(cat VERSION)" --notes-file /tmp/notes.md
 
 ## History
 
-Version **1.0.0** is the baseline: tag `v1.0.0` marks `main` after pull requests #1–#13, and its changelog section was
-written by hand. Everything after it is released by the workflow.
+Version 1.0.0 (pull requests #1–#13) was written by hand; everything after it is released by the workflow. Tags and
+GitHub Releases start at `v2.6.0`; the changelog summarises earlier releases once per minor version.
