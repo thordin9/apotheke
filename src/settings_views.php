@@ -71,6 +71,8 @@ function setting_field_html(string $key, mixed $value, ?string $error): string
                 . '<input type="text" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="7" pattern="#?[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?" autocomplete="off" spellcheck="false"' . $aria . '></div>' . $wrapD . $err . '</div>';
         case 'url':
             return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="url" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="200" placeholder="' . h($o['placeholder'] ?? public_url('')) . '" autocomplete="off"' . $aria . '>' . $wrapD . $err . '</div>';
+        case 'af_bytes':
+            return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="text" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="10" spellcheck="false" autocomplete="off" placeholder="auto"' . $aria . '>' . $wrapD . $err . '</div>';
         default:
             return '<div class="' . $cls . '"><label class="field-l" for="' . $id . '">' . h($label) . '</label><input type="text" name="' . $key . '" id="' . $id . '" value="' . h((string)$value) . '" maxlength="' . (int)($o['max'] ?? 200) . '"' . (!empty($o['required']) ? ' required' : '') . ' autocomplete="off"' . $aria . '>' . $wrapD . $err . '</div>';
     }

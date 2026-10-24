@@ -9,7 +9,7 @@ declare(strict_types=1);
  *   http://127.0.0.1:8090                      echo, no token
  *   http://127.0.0.1:8090/m/<mode>             ok | error (503) | malformed (200 "{not json") | slow (sleeps STUB_SLOW_S)
  *                                              | badinfo (/v1/info not API v1) | warming (/v1/info ready:false)
- *                                              | toolarge (413) | unsupported (415) | empty (200 {})
+ *                                              | toolarge (413) | clamp (413 once, then /e/ is enforced) | unsupported (415) | empty (200 {})
  *                                              | busy (503 backend_unavailable + Retry-After, always)
  *                                              | fault (503 backend_error: the model failed on this photo)
  *                                              | warmup (503 backend_unavailable "model … is warming up" + Retry-After)
@@ -26,6 +26,10 @@ declare(strict_types=1);
  *              /v1/suggest then answers with model_used: context.model when listed, else the default (unknown → default).
  *   /z/<sizes>   API v1.2: GET /v1/info lists these image_sizes (long edges), `*` marks the recommended one,
  *              e.g. /z/448,672*,1024
+ *   /b/<bytes>   GET /v1/info reports max_image_bytes, and a larger /v1/suggest is HTTP 413. Without it,
+ *              STUB_MAX_BYTES applies (default 10 MiB). No enforced_image_bytes unless /e/ is set too.
+ *   /e/<bytes>   GET /v1/info includes enforced_image_bytes. Mode clamp omits it until the first /v1/suggest,
+ *              which answers 413; the next /v1/info includes it and later suggests are handled normally.
  * Mode `switch` (with /n/): the stub remembers which model is "loaded" (the default at first). A /v1/suggest for
  * another model answers 503 backend_unavailable "model '<id>' is loading" + Retry-After (/r/) once and loads it, so
  * Apotheke's single retry gets the answer – a model switch is a cold start. /v1/info marks the loaded model.
@@ -40,17 +44,17 @@ declare(strict_types=1);
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $mode = 'ok';
 $token = '';
-$opt = ['r' => 1, 'l' => null, 'd' => 0];
+$opt = ['r' => 1, 'l' => null, 'd' => 0, 'e' => null, 'b' => null];
 if (preg_match('#^/m/([a-z]+)(/.*)?$#D', $path, $m)) { $mode = $m[1]; $path = $m[2] ?? '/'; }
 $opt['s'] = $opt['n'] = $opt['z'] = null;
 while (true) {
-    if (preg_match('#^/([rld])/(\d{1,7})(/.*)?$#D', $path, $m)) { $opt[$m[1]] = (int)$m[2]; $path = $m[3] ?? '/'; }
+    if (preg_match('#^/([rldeb])/(\d{1,8})(/.*)?$#D', $path, $m)) { $opt[$m[1]] = (int)$m[2]; $path = $m[3] ?? '/'; }
     elseif (preg_match('#^/s/([^/]+)(/.*)?$#D', $path, $m)) { $opt['s'] = rawurldecode($m[1]); $path = $m[2] ?? '/'; }
     elseif (preg_match('#^/([nz])/([^/]+)(/.*)?$#D', $path, $m)) { $opt[$m[1]] = rawurldecode($m[2]); $path = $m[3] ?? '/'; }
     else break;
 }
 if (preg_match('#^/t/([^/]+)(/.*)?$#D', $path, $m)) { $token = rawurldecode($m[1]); $path = $m[2] ?? '/'; }
-$maxBytes = (int)(getenv('STUB_MAX_BYTES') ?: 10485760);
+$maxBytes = $opt['b'] ?? (int)(getenv('STUB_MAX_BYTES') ?: 10485760);
 
 function out(int $status, mixed $body, array $headers = []): never
 {
@@ -103,7 +107,7 @@ if ($loaded !== null && !isset($models[$loaded])) $loaded = $defaultModel;
 
 if ($path === '/healthz') out(200, ['status' => 'ok']);
 if ($path === '/_stub/uploads') {
-    if ($_SERVER['REQUEST_METHOD'] === 'DELETE') { @unlink($stateBase . '.jsonl'); @unlink($loadedFile); @unlink($stateBase . '.count'); out(200, ['cleared' => true]); }
+    if ($_SERVER['REQUEST_METHOD'] === 'DELETE') { @unlink($stateBase . '.jsonl'); @unlink($loadedFile); @unlink($stateBase . '.count'); @unlink($stateBase . '.clamp'); out(200, ['cleared' => true]); }
     $lines = is_file($stateBase . '.jsonl') ? file($stateBase . '.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     out(200, array_map(fn($l) => json_decode($l, true), array_slice($lines, -50)));
 }
@@ -127,6 +131,7 @@ if ($path === '/v1/info' && $_SERVER['REQUEST_METHOD'] === 'GET') {
             + ($x['lat'] !== null ? ['avg_latency_ms' => $x['lat']] : []), $models));
     }
     if ($sizes) $info['image_sizes'] = $sizes;
+    if ($opt['e'] !== null && ($mode !== 'clamp' || is_file($stateBase . '.clamp'))) $info['enforced_image_bytes'] = $opt['e'];
     out(200, $info);
 }
 if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -150,6 +155,7 @@ if ($path === '/v1/suggest' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($mode === 'text') raw(200, 'service exploded', 'text/plain; charset=UTF-8');
     if ($mode === 'truncated') raw(200, '{"name":{"value":"Hammer"', 'application/json');
     if ($mode === 'jsonerr') raw(502, '{"error":"Worker exceeded CPU","code":1102}', 'application/json');
+    if ($mode === 'clamp' && !is_file($stateBase . '.clamp')) { touch($stateBase . '.clamp'); fail(413, 'payload_too_large', 'image too large'); }
     if ($mode === 'toolarge' || strlen($data) > $maxBytes) fail(413, 'payload_too_large', 'image too large');
     if ($mode === 'unsupported' || $kind === null) fail(415, 'unsupported_media_type', 'image must be JPEG, PNG or WebP');
     if (!is_array($ctx)) fail(400, 'bad_request', 'context must be a JSON object');

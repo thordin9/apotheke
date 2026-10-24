@@ -52,9 +52,11 @@ Both dropdowns appear only when the service offers a choice (API v1.2: `models` 
 **Why 1024 px for an older service:** 2.3 already resized every photo to a 1024 px long edge, so an older service
 gets that size when it lists no `image_sizes` (never enlarged). A v1.2 service decides through its recommended size
 instead. Either way the copy that leaves Apotheke is capped at 1600 px (`AUTOFILL_UPLOAD_MAX_SIDE`) and is a JPEG
-at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that multipart body is
-still larger than the service's `max_image_bytes`, Apotheke tries quality 70 and then 60. Until `/v1/info` has been
-cached, the limit used for that check is 983040 bytes (0.9 MiB). The original upload is never sent.
+at about quality 80 (`AUTOFILL_UPLOAD_JPEG_QUALITY`), with EXIF (including GPS) removed. If that JPEG is
+still larger than the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the JPEG fits.
+The service limits that JPEG, so the multipart wrapper (about 320 bytes) is not counted.
+The cap is **Maximum image size** (below). Until `/v1/info` has been cached and the setting is `auto`, that cap is
+983040 bytes (0.9 MiB). The original upload is never sent.
 
 **The Jetson setup** (from the service benchmarks): the service runs with `IMAGE_SIZES=448,560*,1024` and
 `ALLOWED_MODELS` unset, so Image size shows *Recommended (560 px)*, 448, 560 and 1024 px. The Model dropdown shows
@@ -74,12 +76,33 @@ service sends no `models` at all).
 
 The progress bar on the item form estimates with the chosen model's own typical time.
 
+## 4. Maximum image size
+
+**Maximum image size (bytes)** is on the same page, under the image-size dropdown. It is stored as
+`autofill_max_image_bytes`. The default is `auto`. There is no environment variable and no `config.php` key for it.
+
+| Value | What is sent |
+|---|---|
+| `auto` (default) | `max_image_bytes` from the service’s last `GET /v1/info`. When that answer has not been seen, 983040 bytes. |
+| a whole number | That many bytes, from 65536 to 10485760. An empty value is saved as `auto`. Capped to `enforced_image_bytes` when `/v1/info` includes it, otherwise to `max_image_bytes` when that field is present, and used as stored only when neither is known. Anything outside that range is rejected when you save, with the allowed range in the message. |
+
+This is a hard maximum for the JPEG that leaves Apotheke. The app lowers JPEG quality by 10 from the configured
+quality (60 is always tried) and then shortens the long edge until that JPEG fits. The multipart wrapper is not
+counted. If it still does not fit, Analyze says the photo is too large and nothing is sent. The file stored with
+the item is not changed.
+
+A lower service cap is logged as a warning with the two sizes, once until that pair of sizes changes. The access token is not in that line.
+
+If the service answers **HTTP 413**, Apotheke fetches `/v1/info` once, applies the clamp again, and uploads once
+more. It does not keep retrying. A second 413 is the same “too large” message, using the limit from that refetch.
+A limit that would display as 0 MiB is shown in KB (1000 bytes is 1 KB).
+
 Defaults: until you choose, Apotheke uses the service's default model and recommended size. Which model and size suit
 your hardware best is measured in the service's benchmarks (`docs/benchmarks.md` in the service repository); set the
 service's defaults from there, and leave these two on *Service default* / *Recommended* unless you want something
 else for this Apotheke.
 
-## 4. The test buttons
+## 5. The test buttons
 
 Both use the values **as currently typed** (address, timeout, model, image size) and save nothing, so you can try a
 model or a new address before saving.
@@ -104,7 +127,7 @@ Typical results and what to do:
 | *Still warming up* / *Model not ready* | The service is loading its model; try again in a minute. |
 | *Model used: X (asked for Y)* | Model Y is not allowed or not installed on the service; pick another or ask whoever runs the service. |
 
-## 5. Upgrading from 2.3
+## 6. Upgrading from 2.3
 
 - After the upgrade (migration 0025), **Analyze photos automatically is off**, even if autofill was on before:
   people tap **Analyze** on a photo to get suggestions.

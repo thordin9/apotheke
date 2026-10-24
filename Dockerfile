@@ -1,5 +1,6 @@
-# Default stays the shipped 2.5.x image. CI passes PHP_VERSION=8.4 for the test image.
-ARG PHP_VERSION=8.3
+# Default is the shipped image. Bump this patch pin on each PHP security release.
+# CI's 8.4 leg passes an exact PHP_VERSION build-arg (see .github/workflows/ci.yml).
+ARG PHP_VERSION=8.3.36
 FROM php:${PHP_VERSION}-fpm-alpine
 
 LABEL org.opencontainers.image.title="Apotheke" \
