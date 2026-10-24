@@ -137,10 +137,12 @@ bumps the photo's version and deletes the previous served file (unless an undo s
 and copied onto the new version; the editor shows the stripped JPEG, not that camera file. Without JavaScript, *Exact values*
 offers the same as a rotation menu and crop fields in percent.
 
-The file you pick is uploaded as it is when it fits the upload limit (20 MB by default). It is kept byte for byte
+The file you pick is uploaded as it is when it fits the upload limit (20 MB by default), and it is kept byte for byte
 (about as much disk again as the file you sent) under a name that is not the one in the page, outside the web root.
 A larger file is reduced in the browser first, and the form says *This photo is over the upload limit, so a smaller
-copy will be saved. The original file is not kept.* What you see and what a thumbnail shows is a separate JPEG: EXIF
+copy will be saved. The original file is not kept.* A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels,
+is turned away with *Image dimensions are too large.* A JPEG of up to 250 megapixels is kept. The same message
+is used when the server cannot decode a photo that large. What you see and what a thumbnail shows is a separate JPEG: EXIF
 orientation applied, longest side at most 1600 px, GPS and camera details removed. A backup stores that camera file
 together with the JPEG, and restoring puts both back. CSV export only names the served photo and does not include
 the camera file. Deleting a photo, replacing it, or deleting the item (after undo expires) removes the camera file,
@@ -526,7 +528,7 @@ your own account. User names ignore upper/lower case.
 
 Everybody can change their own password under **☰ → (your name)**. The history records who made each change
 ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
-only needs an admin's user name and password. Sessions last 30 days by default (Control Panel → Users & sign-in → “Stay signed in for”). Locked out? On the server:
+only needs an admin's user name and password. A sign-in lasts at most 30 days (Control Panel → Users & sign-in → “Stay signed in for”), counted from sign-in, and it ends sooner when the browser sends no request for 7 days (“Sign out after idle”, 1–8760 hours). Later visits do not extend the 30-day limit. Locked out? On the server:
 `php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
 `roles reset` to restore the built-in roles, `auth off` to turn accounts off).
 
@@ -540,7 +542,7 @@ the *Expiring soon* window, the default loan period, limits for saved filters an
 *Backup & data* exports/imports the settings as JSON next to the backup and CSV links. Each section can be reset to its
 defaults. A settings file and a backup both include the sign-in options, but those are applied only when an **admin**
 does the import or restore. A Settings, Users, or Backup account keeps guest browsing, registration, the registration
-role, approval, the session length and *Trust the reverse proxy* as they were; the import says those keys were left
+role, approval, the session length, the idle limit and *Trust the reverse proxy* as they were; the import says those keys were left
 out. A restore never replaces accounts, roles, or role permissions, and a file that names those tables is refused.
 The command line still applies the sign-in options. Details: [control-panel.md](control-panel.md).
 

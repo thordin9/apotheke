@@ -175,6 +175,13 @@ final class UsersTest extends DatabaseTestCase
             $guest = current_user();
             $this->assertSame(['guest', true, true], [$guest['role'], $guest['guest'], $guest['anon']], 'guest browsing is the current user on the command line');
             $this->assertTrue(actor_is_admin(), 'the command line is an admin when the current user is the anonymous guest');
+            auth_turn_off();
+            settings_cache(null, true);
+            $this->assertFalse(auth_enabled(), 'the command line can turn sign-in off while guest browsing is on');
+            auth_turn_on();
+            settings_store(['auth_guest_disabled' => false]);
+            settings_cache(null, true);
+            current_user(null, true);
             user_set_password($root, 'fresh-pass');
             $this->assertNotNull(user_verify('root', 'fresh-pass'), 'the command line can change an admin password');
             user_set_role($editor, 'admin');
@@ -196,6 +203,36 @@ final class UsersTest extends DatabaseTestCase
                 $this->assertSame(403, $e->getCode());
             }
             $this->assertSame($deskRole, user_get($desk)['role']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    /** A web SAPI does not treat the anonymous guest as admin, even when that guest's role is admin. The command line does. */
+    public function testAnonymousGuestIsNotAdminOnAWebSapi(): void
+    {
+        current_user([
+            'id' => null,
+            'username' => '',
+            'role' => 'admin',
+            'status' => 'active',
+            'guest' => true,
+            'anon' => true,
+        ]);
+        try {
+            $this->assertFalse(actor_is_admin('fpm-fcgi'));
+            $this->assertFalse(actor_is_admin('cli-server'));
+            $this->assertTrue(actor_is_admin('cli'));
+            $this->assertTrue(actor_is_admin());
+            current_user([
+                'id' => null,
+                'username' => '',
+                'role' => 'admin',
+                'status' => 'active',
+                'guest' => true,
+                'anon' => false,
+            ]);
+            $this->assertTrue(actor_is_admin('fpm-fcgi'), 'with sign-in off, the anonymous admin stays an admin on the web');
         } finally {
             current_user(null, true);
         }

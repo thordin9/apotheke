@@ -884,8 +884,10 @@ function pick_upload(array $fields): ?array
  * HEIC/HEIF is kept as the original; when it cannot be converted the served file is a plain placeholder, never the HEIC.
  * Dimensions come from the header before any full decode. A frame over IMAGE_MAX_PIXELS or IMAGE_MAX_SIDE is refused.
  * HEIC/HEIF is also refused above IMAGE_HEIC_MAX_PIXELS or IMAGE_HEIC_MAX_SIDE, before Imagick reads pixels.
- * JPEG above IMAGE_GD_MAX_PIXELS is decoded already reduced. PNG, WebP and GIF above that are refused.
+ * JPEG above IMAGE_GD_MAX_PIXELS is decoded already reduced. A PNG above IMAGE_PNG_MAX_PIXELS is refused.
+ * WebP and GIF above IMAGE_GD_MAX_PIXELS are refused.
  * An Imagick resource-limit failure is the same "too large" error, not a server error.
+ * If decoding dies after the camera file is saved, that file is removed before the request ends.
  */
 function image_store(array $file): string
 {
@@ -913,44 +915,103 @@ function image_store(array $file): string
 
     $name = bin2hex(random_bytes(16)) . '.jpg';
     if (!image_original_save($name, $tmp, $ext)) throw new UserError('Server could not save the image.');
-    if ($heic) {
-        try {
-            $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
-        } catch (UserError $e) {
+    image_upload_cleanup_arm($name);
+    try {
+        if ($heic) {
+            try {
+                $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
+            } catch (UserError $e) {
+                image_delete($name);
+                throw $e;
+            }
+        } elseif ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
+            try {
+                $gd = image_gd_from_scaled_jpeg((string)file_get_contents($tmp), image_full_max());
+            } catch (UserError $e) {
+                image_delete($name);
+                throw $e;
+            }
+            if (!$gd || !image_write_pair($gd, $name)) {
+                image_delete($name);
+                throw new UserError(class_exists('Imagick') ? 'Could not read that image.' : 'Image dimensions are too large.');
+            }
+            $ok = true;
+        } else {
+            $src = match ($info[2]) {
+                IMAGETYPE_JPEG => @imagecreatefromjpeg($tmp),
+                IMAGETYPE_PNG  => @imagecreatefrompng($tmp),
+                IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tmp) : false,
+                IMAGETYPE_GIF  => @imagecreatefromgif($tmp),
+            };
+            if (!$src) { image_delete($name); throw new UserError('Could not read that image.'); }
+            if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
+                $exif = @exif_read_data($tmp);
+                $src  = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
+            }
+            $ok = image_write_pair($src, $name);
+        }
+        if (!$ok) {
             image_delete($name);
-            throw $e;
+            throw new UserError('Server could not save the image.');
         }
-    } elseif ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
-        try {
-            $gd = image_gd_from_scaled_jpeg((string)file_get_contents($tmp), image_full_max());
-        } catch (UserError $e) {
+        image_upload_cleanup_disarm($name);
+        return $name;
+    } finally {
+        if (image_upload_cleanup_armed($name)) {
             image_delete($name);
-            throw $e;
+            image_upload_cleanup_disarm($name);
         }
-        if (!$gd || !image_write_pair($gd, $name)) {
-            image_delete($name);
-            throw new UserError(class_exists('Imagick') ? 'Could not read that image.' : 'Image dimensions are too large.');
-        }
-        $ok = true;
-    } else {
-        $src = match ($info[2]) {
-            IMAGETYPE_JPEG => @imagecreatefromjpeg($tmp),
-            IMAGETYPE_PNG  => @imagecreatefrompng($tmp),
-            IMAGETYPE_WEBP => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($tmp) : false,
-            IMAGETYPE_GIF  => @imagecreatefromgif($tmp),
-        };
-        if (!$src) { image_delete($name); throw new UserError('Could not read that image.'); }
-        if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
-            $exif = @exif_read_data($tmp);
-            $src  = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
-        }
-        $ok = image_write_pair($src, $name);
     }
-    if (!$ok) {
-        image_delete($name);
-        throw new UserError('Server could not save the image.');
-    }
-    return $name;
+}
+
+/**
+ * Paths to drop if this request dies after the camera file is saved and before the display copy is ready.
+ * A fatal error does not run finally, so the shutdown function unlinks the paths recorded here.
+ *
+ * @return array<string, array{orig:string,map:string,img:string,thumb:string}>
+ */
+function &image_upload_cleanup_list(): array
+{
+    static $pending = [];
+    return $pending;
+}
+
+function image_upload_cleanup_arm(string $name): void
+{
+    static $hooked = false;
+    $orig = image_original_path($name);
+    $map = image_original_map_path($name);
+    if (!is_string($orig) || $orig === '' || !is_string($map) || $map === '') return;
+    $pending = &image_upload_cleanup_list();
+    $pending[$name] = [
+        'orig' => $orig,
+        'map' => $map,
+        'img' => IMG_DIR . '/' . $name,
+        'thumb' => THUMB_DIR . '/' . $name,
+    ];
+    if ($hooked) return;
+    $hooked = true;
+    register_shutdown_function(static function () use (&$pending): void {
+        foreach ($pending as $paths) {
+            @unlink($paths['orig']);
+            @unlink($paths['map']);
+            @unlink($paths['img']);
+            @unlink($paths['thumb']);
+        }
+        $pending = [];
+    });
+}
+
+function image_upload_cleanup_disarm(string $name): void
+{
+    $pending = &image_upload_cleanup_list();
+    unset($pending[$name]);
+}
+
+function image_upload_cleanup_armed(string $name): bool
+{
+    $pending = &image_upload_cleanup_list();
+    return isset($pending[$name]);
 }
 
 /** HEIC/HEIF container (ISO BMFF "ftyp" box with a HEIF brand)? $head is the first 12 bytes. */

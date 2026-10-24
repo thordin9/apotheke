@@ -523,6 +523,7 @@ function autofill_image_engines(string $bytes): array
 /**
  * A metadata-stripped JPEG for the service. Long side at most $maxSide (never enlarged), EXIF orientation applied
  * first. Null when no listed engine can read the bytes — the original is never returned.
+ * A decode Imagick refuses as too large throws UserError.
  * $engines overrides runtime detection (tests). Default $maxSide is the upload cap (1600), not the model size.
  * @param list<string>|null $engines
  */
@@ -557,6 +558,7 @@ function autofill_analysis_gd(string $bytes, int $maxSide, int $quality, ?string
     $info = @getimagesizefromstring($bytes);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
     if (!$info || !in_array($info[2], $types, true) || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
+    if ((int)$info[2] === IMAGETYPE_PNG && (float)$info[0] * (float)$info[1] > (float)IMAGE_PNG_MAX_PIXELS) return null;
     if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) return null;
     $src = @imagecreatefromstring($bytes);
     if (!$src) return null;
@@ -578,6 +580,8 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
     $format = image_explicit_format($bytes);
     if ($format === null) return null;
     $jpegSize = null;
+    $frameW = 0;
+    $frameH = 0;
     if ($format === 'HEIC' || $format === 'HEIF') {
         try {
             $dims = image_ping_heic($bytes);
@@ -585,11 +589,16 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
             return null;
         }
         if ($dims === null || image_heic_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1])) return null;
+        $frameW = $dims[0];
+        $frameH = $dims[1];
     } else {
         $info = @getimagesizefromstring($bytes);
         if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
-        if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return null;
-        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint((int)$info[0], (int)$info[1], $maxSide);
+        $frameW = (int)$info[0];
+        $frameH = (int)$info[1];
+        if ((int)$info[2] === IMAGETYPE_PNG && (float)$frameW * (float)$frameH > (float)IMAGE_PNG_MAX_PIXELS) return null;
+        if ((float)$frameW * (float)$frameH > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return null;
+        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint($frameW, $frameH, $maxSide);
     }
     try {
         $im = imagick_read_explicit($bytes, $format, $jpegSize);
@@ -619,7 +628,10 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
         $out = $im->getImageBlob();
         $im->clear();
         return is_string($out) && str_starts_with($out, "\xFF\xD8") ? $out : null;
-    } catch (Throwable) {
+    } catch (UserError $e) {
+        throw $e;
+    } catch (Throwable $e) {
+        if (imagick_failure_is_too_large($e, $frameW, $frameH)) throw new UserError('Image dimensions are too large.', 422);
         return null;
     }
 }
@@ -755,8 +767,8 @@ function autofill_api_error(string $contentType, string $body): ?array
  * A JPEG normally; a PNG when the photo has transparency (PNG with an alpha channel or tRNS, WebP with alpha, GIF with
  * a transparent colour), so the alpha survives instead of being flattened onto white.
  * HEIC/HEIF is passed through unchanged when its header fits; a header over the hard limit is null.
- * A JPEG above the GD pixel budget is decoded already reduced. PNG, WebP and GIF above that budget, and any
- * other frame over the hard limit, are null.
+ * A JPEG above the GD pixel budget is decoded already reduced. A PNG above IMAGE_PNG_MAX_PIXELS, a WebP or
+ * GIF above the GD budget, and any other frame over the hard limit, are null.
  * @return array{data:string,mime:string,converted:bool,width:?int,height:?int}|null
  */
 function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE): ?array
@@ -774,6 +786,7 @@ function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE):
     $info = @getimagesizefromstring($bytes);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
     if (!$info || !in_array($info[2], $types, true) || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
+    if ((int)$info[2] === IMAGETYPE_PNG && (float)$info[0] * (float)$info[1] > (float)IMAGE_PNG_MAX_PIXELS) return null;
     if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
         if ((int)$info[2] !== IMAGETYPE_JPEG) return null;
         try {
@@ -928,7 +941,8 @@ function autofill_parse_confidence(string $body): array
 
 /**
  * Photo bytes → suggestions. Copies the bytes to a temp file and calls autofill_suggest_path; never rewrites a stored
- * photo. Never throws. $engines overrides library detection (tests).
+ * photo. Throws UserError when the photo is over the dimension limit (header or a resource limit at decode).
+ * $engines overrides library detection (tests).
  * @param list<string>|null $engines
  * @return array{ok:bool,code:string,message:string,suggestions?:array,retry_after?:int,avg_latency_ms:?int,model_used?:?string,image?:array}
  */
@@ -955,7 +969,8 @@ function autofill_suggest(string $imageBytes, ?array $engines = null): array
 
 /**
  * Suggestions from a file on disk. Reads $source and never writes it back: the analysis JPEG is a different temp file,
- * deleted before this returns (including on errors). $engines overrides library detection.
+ * deleted before this returns (including on errors). Throws UserError when the photo is over the dimension limit
+ * (header or a resource limit at decode). $engines overrides library detection.
  * @param list<string>|null $engines
  * @return array{ok:bool,code:string,message:string,suggestions?:array,retry_after?:int,avg_latency_ms:?int,model_used?:?string,image?:array}
  */
@@ -986,6 +1001,8 @@ function autofill_suggest_path(string $source, ?array $engines = null): array
         if ($r['ok'] && autofill_info_cache(null, 600) === null) autofill_refresh_info($base, $token);
         unset($r['confidence'], $r['elapsed_ms']);
         return $r + ['avg_latency_ms' => autofill_expected_ms(), 'image' => $sent];
+    } catch (UserError $e) {
+        throw $e;
     } catch (Throwable $e) {
         autofill_log('suggest: failed (' . $e::class . ')');
         return $fail('unavailable', autofill_unavailable_message());
