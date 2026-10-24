@@ -322,16 +322,16 @@ function login(string $username, string $pw): bool
 }
 
 /**
- * Mark this session as signed in as user $uid (also after the user changed their own password,
- * or signed out everywhere and kept this device). Re-signing the account already in this session
- * keeps signed_in_at, so those actions do not start session_days again. A real sign-in does.
+ * Mark this session as signed in as user $uid.
+ * $keepSignIn keeps signed_in_at only for the account already in this session (sign out everywhere,
+ * or the user changed their own password). A real sign-in always starts session_days again.
  */
-function login_session(int $uid): void
+function login_session(int $uid, bool $keepSignIn = false): void
 {
     $u = user_get($uid);
     if (!$u) return;
     start_session();
-    $kept = ((int)($_SESSION['uid'] ?? 0) === $u['id']) ? (int)($_SESSION['signed_in_at'] ?? 0) : 0;
+    $kept = ($keepSignIn && (int)($_SESSION['uid'] ?? 0) === $u['id']) ? (int)($_SESSION['signed_in_at'] ?? 0) : 0;
     session_regenerate_id(true);
     $_SESSION['uid'] = $u['id'];
     $_SESSION['auth_epoch'] = user_epoch($u);
