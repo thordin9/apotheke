@@ -22,6 +22,9 @@ trap cleanup EXIT
 echo "== Imagick lists HEIC"
 docker run --rm --entrypoint php "$image" -r 'if (!class_exists("Imagick")) { fwrite(STDERR, "Imagick missing\n"); exit(1); } $f = array_map("strtoupper", Imagick::queryFormats()); foreach (["HEIC", "HEIF"] as $want) { if (in_array($want, $f, true)) { echo "ok $want\n"; exit(0); } } fwrite(STDERR, "formats: ".implode(" ", $f)."\n"); exit(1);'
 
+echo "== ImageMagick policy (limits, refused coders; S-M1, S-L1)"
+docker run --rm --entrypoint php "$image" /usr/local/lib/apotheke/imagick-policy-check.php
+
 echo "== HEIC upload round-trip"
 docker run --rm --entrypoint php \
   -e DATA_DIR=/tmp/heic-data \
