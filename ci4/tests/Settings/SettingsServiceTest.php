@@ -8,6 +8,8 @@ use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
 use Apotheke\Core\Security\CommandLine;
+use Apotheke\Core\Security\SecretBox;
+use Apotheke\Core\Security\SecretKey;
 use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
@@ -152,11 +154,12 @@ final class SettingsServiceTest extends CIUnitTestCase
         $this->assertSame([], $service->save(['autofill_url' => 'https://autofill.example']));
         $this->assertTrue($service->tokenCleared());
         $this->assertSame('', $service->autofillToken());
-        $this->assertSame(['apotheke autofill: token cleared: the service address changed'], $this->logged);
+        // No APP_KEY: the token stays plaintext and the notice is logged once, as on legacy (S-L5).
+        $this->assertSame(['apotheke: set APP_KEY to encrypt stored secrets', 'apotheke autofill: token cleared: the service address changed'], $this->logged);
         // Nothing to clear: no flag, no log line.
         $this->assertSame([], $service->save(['autofill_url' => 'http://192.0.2.9']));
         $this->assertFalse($service->tokenCleared());
-        $this->assertCount(1, $this->logged);
+        $this->assertCount(2, $this->logged);
         // Reset and import move the address too.
         $service->setAutofillToken('placeholder-token');
         $service->resetSection('autofill');
@@ -334,6 +337,102 @@ final class SettingsServiceTest extends CIUnitTestCase
         $service->save(['app_name' => 'X']);
     }
 
+    #[DataProvider('drivers')]
+    public function testWithAKeyTheTokenIsSealedAtRest(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $service = $this->fresh([], null, $this->box(self::KEY_A));
+        $service->setAutofillToken('placeholder-token');
+        $row = $this->tokenRow();
+        $this->assertStringStartsWith('"enc:v1:', $row);
+        $this->assertStringNotContainsString('placeholder-token', $row);
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(self::KEY_A))->autofillToken());
+        $this->assertSame([], $this->logged, 'a usable key logs nothing');
+        // Export and list never carry the token, sealed or not.
+        $this->assertArrayNotHasKey('autofill_token', $service->export()['settings']);
+        $service->clearAutofillToken();
+        $this->assertSame('""', $this->tokenRow());
+    }
+
+    #[DataProvider('drivers')]
+    public function testALegacyPlaintextRowIsSealedOnRead(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        (new SettingsRepository($this->database->db))->replace(['autofill_token' => '"placeholder-token"'], '2026-01-01 00:00:00');
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(self::KEY_A))->autofillToken());
+        $this->assertStringStartsWith('"enc:v1:', $this->tokenRow());
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(self::KEY_A))->autofillToken());
+        // Without a key a plaintext row is read as is and left alone.
+        (new SettingsRepository($this->database->db))->replace(['autofill_token' => '"placeholder-token"'], '2026-01-01 00:00:00');
+        $this->assertSame('placeholder-token', $this->fresh()->autofillToken());
+        $this->assertSame('"placeholder-token"', $this->tokenRow());
+    }
+
+    #[DataProvider('drivers')]
+    public function testAWrongKeyReadsAsUnsetAndTheAddressMoveStillClearsIt(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $this->assertSame([], $this->fresh()->save(['autofill_url' => 'http://192.0.2.1:8080']));
+        $this->fresh([], null, $this->box(self::KEY_A))->setAutofillToken('placeholder-token');
+        $other = $this->fresh([], null, $this->box(self::KEY_B));
+        $this->assertSame('', $other->autofillToken());
+        $this->assertSame(['apotheke: setting autofill_token could not be decrypted and is treated as unset.'], $this->logged);
+        $this->assertSame([], $other->save(['autofill_url' => 'http://192.0.2.2:8080']));
+        $this->assertTrue($other->tokenCleared(), 'the stored row moves with the address even when it does not open');
+        $this->assertSame('""', $this->tokenRow());
+    }
+
+    /** @return iterable<string,array{string,SecretKey,string,string}> */
+    public static function unusableKeys(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield "$driver malformed" => [$driver, SecretKey::unusable('malformed'), 'APP_KEY is not a 32-byte key', 'APP_KEY is not a 32-byte key'];
+            yield "$driver sodium" => [$driver, SecretKey::unusable('sodium'), 'The sodium extension is missing', 'sodium extension is missing'];
+        }
+    }
+
+    /** #78 M-1: a configured key that cannot be used refuses the save with a 422 and keeps the old row. */
+    #[DataProvider('unusableKeys')]
+    public function testAnUnusableKeyRefusesTheSave(string $driver, SecretKey $key, string $label, string $phrase): void
+    {
+        $this->database = TestDatabase::create($driver);
+        (new SettingsRepository($this->database->db))->replace(['autofill_token' => '"enc:v1:preserved"'], '2026-01-01 00:00:00');
+        $service = $this->fresh([], null, new SecretBox(static fn (): SecretKey => $key, true, function (string $message): void {
+            $this->logged[] = $message;
+        }));
+        try {
+            $service->setAutofillToken('placeholder-token');
+            $this->fail('saved with an unusable key');
+        } catch (UserError $e) {
+            $this->assertSame($label . '. The secret was not saved.', $e->getMessage());
+            $this->assertSame(422, $e->getCode());
+        }
+        $this->assertSame('"enc:v1:preserved"', $this->tokenRow());
+        $this->assertSame(['autofill_token' => $label . '. The secret was not saved.'], $service->save(['autofill_timeout' => '20'], ['autofill_token' => 'placeholder-token']));
+        $this->assertContains('apotheke: ' . $phrase . '; stored secrets will not be saved.', $this->logged);
+        $this->assertNotContains('apotheke: set APP_KEY to encrypt stored secrets', $this->logged);
+        $this->assertNotSame('20', (new SettingsRepository($this->database->db))->rows()['autofill_timeout'] ?? null, 'nothing of that save is written');
+        // Clearing writes no secret, so it still works.
+        $service->clearAutofillToken();
+        $this->assertSame('""', $this->tokenRow());
+    }
+
+    private const KEY_A = 'cGxhY2Vob2xkZXIta2V5LWEtMzItYnl0ZXMtbG9uZyE=';
+
+    private const KEY_B = 'cGxhY2Vob2xkZXIta2V5LWItMzItYnl0ZXMtbG9uZyE=';
+
+    private function box(string $appKey): SecretBox
+    {
+        return SecretBox::fromEnvironment(['APP_KEY' => $appKey], [], function (string $message): void {
+            $this->logged[] = $message;
+        });
+    }
+
+    private function tokenRow(): string
+    {
+        return (string)((new SettingsRepository($this->database->db))->rows()['autofill_token'] ?? '');
+    }
+
     private function service(string $driver): SettingsService
     {
         $this->database = TestDatabase::create($driver);
@@ -342,7 +441,7 @@ final class SettingsServiceTest extends CIUnitTestCase
     }
 
     /** @param array<string,mixed> $config */
-    private function fresh(array $config = [], ?ActorGate $actor = null): SettingsService
+    private function fresh(array $config = [], ?ActorGate $actor = null, ?SecretBox $secrets = null): SettingsService
     {
         return new SettingsService(
             new SettingsRepository($this->database->db),
@@ -354,6 +453,7 @@ final class SettingsServiceTest extends CIUnitTestCase
                 $this->logged[] = $message;
             },
             $actor,
+            $secrets,
         );
     }
 }

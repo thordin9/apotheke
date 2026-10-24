@@ -21,8 +21,8 @@ final class SettingsCli
 {
     private const JSON = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
 
-    /** Forms that move to the Auth module. */
-    public const AUTH_FORMS = ['users', 'user', 'roles', 'auth', 'password'];
+    /** Forms that stay in bin/settings.php for now: the Auth module's, and key generate|rotate (S-L5). */
+    public const AUTH_FORMS = ['users', 'user', 'roles', 'auth', 'password', 'key'];
 
     private ?SettingsService $settings = null;
 

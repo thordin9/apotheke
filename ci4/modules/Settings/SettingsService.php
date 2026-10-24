@@ -8,8 +8,10 @@ use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
 use Apotheke\Core\Security\Nobody;
+use Apotheke\Core\Security\SecretBox;
 use Closure;
 use LogicException;
+use Throwable;
 
 /**
  * Control Panel settings: read, save, reset, export and import, with the
@@ -22,6 +24,11 @@ use LogicException;
  *
  * autofill_token is write-only: all(), get() and export() never return it;
  * autofillToken() is the one getter, for the autofill client.
+ *
+ * Recoverable secrets (secret-type keys except password_hash) are sealed at
+ * rest through SecretBox when APP_KEY is set (S-L5, legacy src/secretbox.php):
+ * a legacy plaintext row is sealed on read, and a configured key that cannot
+ * be used refuses the save with a 422.
  */
 final class SettingsService
 {
@@ -44,10 +51,13 @@ final class SettingsService
 
     private readonly ActorGate $actor;
 
+    private readonly SecretBox $secrets;
+
     /**
      * @param array<string,mixed> $config ApothekeConfig values (for config-backed defaults)
      * @param (Closure(string):void)|null $log warning sink; error_log() like legacy autofill_log()
      * @param ?ActorGate $actor who imports (SEC-M1); none = not an admin
+     * @param ?SecretBox $secrets at-rest sealing; none = APP_KEY and APP_KEY_FILE from the environment
      */
     public function __construct(
         private readonly SettingsRepository $repository,
@@ -57,11 +67,41 @@ final class SettingsService
         private readonly array $config,
         ?Closure $log = null,
         ?ActorGate $actor = null,
+        ?SecretBox $secrets = null,
     ) {
         $this->log = $log ?? static function (string $message): void {
             error_log($message);
         };
         $this->actor = $actor ?? new Nobody();
+        $this->secrets = $secrets ?? SecretBox::fromEnvironment(getenv(), self::backupRoots($config), $this->log);
+    }
+
+    /**
+     * The data directory and every directory a backup can contain, where
+     * APP_KEY_FILE is refused (legacy secret_backup_roots()).
+     *
+     * @param array<string,mixed> $config ApothekeConfig values
+     * @return list<string>
+     */
+    public static function backupRoots(array $config): array
+    {
+        $data = rtrim((string)($config['data_dir'] ?? ''), '/');
+        if ($data === '') {
+            return [];
+        }
+        $roots = [$data, $data . '/images', $data . '/thumbs', $data . '/files', $data . '/originals'];
+        $originals = trim((string)($config['originals_dir'] ?? ''));
+        if ($originals !== '') {
+            $roots[] = rtrim($originals[0] === '/' ? $originals : dirname(__DIR__, 3) . '/' . $originals, '/');
+        }
+
+        return array_values(array_unique($roots));
+    }
+
+    /** Whether $key is a recoverable secret sealed at rest (legacy secret_is_at_rest()). */
+    public function isAtRest(string $key): bool
+    {
+        return $key !== 'password_hash' && $this->schema->isSecret($key);
     }
 
     /** The schema, validating `role` settings against the install's account roles. */
@@ -167,7 +207,11 @@ final class SettingsService
             }
         }
         if ($err === []) {
-            $this->store($ok + $extra);
+            try {
+                $this->store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
+            } catch (UserError $e) {
+                $err['autofill_token'] = $e->getMessage();   // a configured key that cannot be used (#78 M-1)
+            }
         }
 
         return $err;
@@ -269,6 +313,9 @@ final class SettingsService
         $oldUrl = $moves ? (string)$this->values()['autofill_url'] : '';
         $encoded = [];
         foreach ($values as $key => $value) {
+            if ($this->isAtRest((string)$key) && is_string($value) && $value !== '') {
+                $value = $this->secrets->seal($value);   // throws before anything is written
+            }
             $encoded[$key] = (string)json_encode($value, self::JSON);
         }
         $this->repository->replace($encoded, $this->clock->now());
@@ -287,10 +334,19 @@ final class SettingsService
         }
         $rows = $this->repository->rows();
         $out = [];
+        $upgrade = [];
         foreach ($this->schema->keys() as $key) {
             if (array_key_exists($key, $rows)) {
                 try {
-                    $out[$key] = $this->schema()->validate($key, json_decode($rows[$key], true));
+                    $decoded = json_decode($rows[$key], true);
+                    if ($this->isAtRest($key) && is_string($decoded) && $decoded !== '') {
+                        if (SecretBox::isSealed($decoded)) {
+                            $decoded = $this->secrets->open($key, $decoded);
+                        } elseif ($this->secrets->key() !== null) {
+                            $upgrade[$key] = $decoded;   // legacy plaintext row: seal it now
+                        }
+                    }
+                    $out[$key] = $this->schema()->validate($key, $decoded);
                     continue;
                 } catch (UserError) {
                     // invalid row: default
@@ -298,13 +354,52 @@ final class SettingsService
             }
             $out[$key] = $this->schema->default($key, $this->config);
         }
+        $this->values = $out;
+        if ($upgrade !== []) {
+            $this->sealPlaintextRows($upgrade);
+        }
 
-        return $this->values = $out;
+        return $out;
+    }
+
+    /**
+     * Seal legacy plaintext secret rows in place (legacy secret_persist()).
+     * A failure leaves the row; the next save seals it.
+     *
+     * @param array<string,string> $plainByName
+     */
+    private function sealPlaintextRows(array $plainByName): void
+    {
+        try {
+            $encoded = [];
+            foreach ($plainByName as $key => $plain) {
+                if ($this->secrets->key() === null) {
+                    continue;
+                }
+                $encoded[$key] = (string)json_encode($this->secrets->seal($plain), self::JSON);
+            }
+            $this->repository->replace($encoded, $this->clock->now());
+        } catch (Throwable) {
+            // leave the legacy row
+        }
+    }
+
+    /** Whether the settings row of $name holds a non-empty string, before decryption (legacy secret_setting_nonempty()). */
+    private function rowNonEmpty(string $name): bool
+    {
+        $row = $this->repository->rows()[$name] ?? null;
+        if (!is_string($row)) {
+            return false;
+        }
+        $decoded = json_decode($row, true);
+
+        return is_string($decoded) && $decoded !== '';
     }
 
     private function dropTokenIfMoved(string $oldUrl): bool
     {
-        if ($this->autofillToken() === '') {
+        // The stored row, not the decrypted value: a token sealed with another key still moves with the address.
+        if (!$this->rowNonEmpty('autofill_token')) {
             return false;
         }
         if (self::normaliseUrl($oldUrl) === self::normaliseUrl((string)$this->values()['autofill_url'])) {

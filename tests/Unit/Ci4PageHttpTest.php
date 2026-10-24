@@ -80,6 +80,44 @@ final class Ci4PageHttpTest extends TestCase
         });
     }
 
+    /**
+     * S-L5 (#78 M-1): with a configured key that cannot be used, the token
+     * save is refused with a 422 that names the cause, the old row stays, and
+     * neither the answer nor the log holds the token or the key. With a
+     * usable key the token is stored sealed. Placeholder keys only.
+     */
+    public function testTheTokenIsSealedAndAnUnusableKeyRefusesTheSave(): void
+    {
+        $badKey = 'malformed-key-placeholder';
+        $this->withServer(['APOTHEKE_TEST_SESSION_ON_DEMAND' => '1', 'APOTHEKE_TEST_HTML_PAGE' => '1', 'APP_KEY' => $badKey], function (Server $server, string $dir) use ($badKey): void {
+            $client = $server->client();
+            $client->get('/test-html-page');
+            $csrf = $this->csrf($dir . '/sessions/sess_' . $client->cookies['apothekesid']);
+            $this->setting($dir, 'autofill_token', json_encode('enc:v1:preserved'));
+            $r = $client->post('/settings/autofill/token', ['csrf' => $csrf, 'token' => 'form-token-placeholder']);
+            $this->assertSame(422, $r['status'], $r['body']);
+            $this->assertSame(['ok' => false, 'error' => 'APP_KEY is not a 32-byte key. The secret was not saved.'], json_decode($r['body'], true));
+            $this->assertSame(json_encode('enc:v1:preserved'), testdb($dir)->query("SELECT value FROM settings WHERE name = 'autofill_token'")->fetchColumn());
+            $this->assertTrue($server->logHas('apotheke: APP_KEY is not a 32-byte key; stored secrets will not be saved.'));
+            $this->assertFalse($server->logHas('set APP_KEY to encrypt stored secrets'));
+            foreach (['form-token-placeholder', $badKey] as $secret) {
+                $this->assertStringNotContainsString($secret, $r['body']);
+                $this->assertFalse($server->logHas($secret), $secret);
+            }
+        });
+        $this->withServer(['APOTHEKE_TEST_SESSION_ON_DEMAND' => '1', 'APOTHEKE_TEST_HTML_PAGE' => '1', 'APP_KEY' => base64_encode(str_repeat('k', 32))], function (Server $server, string $dir): void {
+            $client = $server->client();
+            $client->get('/test-html-page');
+            $csrf = $this->csrf($dir . '/sessions/sess_' . $client->cookies['apothekesid']);
+            $r = $client->post('/settings/autofill/token', ['csrf' => $csrf, 'token' => 'form-token-placeholder']);
+            $this->assertSame(303, $r['status'], $r['body']);
+            $row = (string)testdb($dir)->query("SELECT value FROM settings WHERE name = 'autofill_token'")->fetchColumn();
+            $this->assertStringStartsWith('"enc:v1:', $row);
+            $this->assertStringNotContainsString('form-token-placeholder', $row);
+            $this->assertFalse($server->logHas('form-token-placeholder'));
+        });
+    }
+
     /** #76 L-2: without an address, the scheme follows trust_proxy (legacy request_is_https()). */
     public function testWithoutAnAddressTheSchemeFollowsTrustProxy(): void
     {
