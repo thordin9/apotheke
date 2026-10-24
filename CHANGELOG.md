@@ -10,6 +10,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Fixed
 
 - **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. A configured but unusable key refuses secret saves. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **ui:** the footer version label has a fixed width, so a release bump no longer shifts the centred footer links. ([#86](https://github.com/thordin9/apotheke/pull/86))
 
 ## [2.6.10] - 2026-10-24
 
