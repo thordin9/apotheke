@@ -57,6 +57,7 @@ vendor/bin/phpunit                                            # SQLite
 DB_DRIVER=pgsql TEST_PG_PASSWORD=secret vendor/bin/phpunit    # PostgreSQL
 vendor/bin/phpunit --filter LendingTest                       # one class
 vendor/bin/phpunit --coverage-html coverage/html              # needs pcov or xdebug
+vendor/bin/phpunit -c ci4/phpunit.xml.dist                    # CI4 module tests only (needs ci4/vendor, PHP 8.4)
 ```
 
 * `tests/Unit/` holds the unit tests. Database tests extend `DatabaseTestCase`, which gives every test a fresh SQLite

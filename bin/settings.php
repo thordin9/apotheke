@@ -24,6 +24,18 @@ declare(strict_types=1);
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
+// APOTHEKE_APP=ci4: the settings forms run as `spark apotheke:settings` (same output and exit codes).
+// users, user, roles, auth and password stay here until the CI4 Auth module has them.
+if (getenv('APOTHEKE_APP') === 'ci4' && in_array($argv[1] ?? 'list', ['list', 'get', 'set', 'reset', 'export', 'import'], true)) {
+    $spark = dirname(__DIR__) . '/ci4/spark';
+    if (!file_exists($spark)) {
+        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
+        exit(1);
+    }
+    $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, 'apotheke:settings', '--no-header', ...array_slice($argv, 1)]));
+    passthru($command, $code);
+    exit($code);
+}
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 

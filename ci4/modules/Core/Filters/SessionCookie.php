@@ -23,7 +23,7 @@ final class SessionCookie implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null): null
     {
-        if ($this->isHealth($request) || session_status() === PHP_SESSION_ACTIVE) {
+        if ($this->isHealth($request) || $this->isPublicAsset($request) || session_status() === PHP_SESSION_ACTIVE) {
             return null;
         }
         $config = ApothekeConfig::fromEnvironment();
@@ -62,6 +62,19 @@ final class SessionCookie implements FilterInterface
         $path = strtolower(trim($request->getUri()->getPath(), '/'));
 
         return $path === 'healthz' || $path === 'health';
+    }
+
+    /**
+     * Branding output the legacy front controller serves before it starts a
+     * session: /theme.css, /labels.css, /manifest.webmanifest, /favicon.ico
+     * and /brand/<name> (the legacy name pattern). No session, so no cookie.
+     */
+    private function isPublicAsset(RequestInterface $request): bool
+    {
+        $path = trim($request->getUri()->getPath(), '/');
+
+        return in_array($path, ['theme.css', 'labels.css', 'manifest.webmanifest', 'favicon.ico'], true)
+            || preg_match('#^brand/[a-z0-9.\-]+$#D', $path) === 1;
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): null

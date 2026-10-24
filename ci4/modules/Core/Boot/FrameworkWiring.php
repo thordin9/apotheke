@@ -9,12 +9,18 @@ use Apotheke\Core\Config\DatabaseFactory;
 use Apotheke\Core\Config\DsnTranslator;
 use Config\Database;
 
-/** Copies the translated DSN into CI4's default connection group before routing. */
+/**
+ * Copies the translated DSN into CI4's default connection group: before
+ * routing on the web (pre_system), and from Services::apothekeDb, because
+ * spark does not fire pre_system. Not idempotent: each call overwrites the
+ * group, so Services::apothekeDb calls it only under spark (PHP_SAPI 'cli'),
+ * where nothing else has touched the group.
+ */
 final class FrameworkWiring
 {
-    public static function apply(): void
+    public static function apply(?ApothekeConfig $config = null): void
     {
-        $config = ApothekeConfig::fromEnvironment();
+        $config ??= ApothekeConfig::fromEnvironment();
         $group = (new DatabaseFactory($config, new DsnTranslator()))->group();
         $database = config(Database::class);
         $database->default = array_merge($database->default, $group);

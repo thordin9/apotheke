@@ -7,13 +7,29 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **ci4 (security):** with `APOTHEKE_APP=ci4`, `php bin/settings.php get autofill_token` and `get password_hash` no longer print the stored secret; they exit 1 with `“KEY” is write-only.` Scripts that read the token must stop doing so. To rotate the AI autofill token, set the new `AUTOFILL_TOKEN` on the autofill service, then enter it under **Control Panel → AI autofill → Access token → Replace the token** and press **Save token** (**Clear token** removes it). `bin/settings.php set autofill_token` is refused on legacy and CI4 alike, so the Control Panel is the supported path. Passwords are per account: `php bin/settings.php user password NAME` or **Settings → Users & sign-in**. ([#64](https://github.com/thordin9/apotheke/pull/64))
+
+### Intentional deviations (settings CLI, `APOTHEKE_APP=ci4`)
+
+1. **Secrets are write-only.** `get autofill_token` and `get password_hash` print `“KEY” is write-only.` on stderr and exit 1; legacy printed the stored value.
+2. **`get` of an unknown key** prints `Unknown setting “KEY”.` and exits 1; legacy stopped with an uncaught exception (PHP fatal, exit 255).
+3. **`import` of a missing file** prints the same message and exits 1 like legacy, without PHP's `file_get_contents(…)` warning line.
+4. **`list` is read-only.** It does not create the account `admin` from `APP_PASSWORD` (sign-in on, no accounts yet), so its `users` line can show 0 where legacy shows 1 until the Auth PR ports that bootstrap. The `sign-in` line is the same.
+
+Every other form, output and exit code is byte-identical to legacy (`tests/Unit/Ci4SettingsCliTest.php`).
+
 ### Added
 
 - **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, and camera originals stay unserved. Photo storage inside the web root stops boot with the same message as the legacy app. A bad DSN stops boot. The page says the database settings could not be used, with no DSN parts. The log line lists only the driver, host, port and database name. The dev server router is `ci4/public/router.php`.
 - **ci4:** Migrations module. `apotheke:migrate` and `bin/migrate.php` (when `APOTHEKE_APP=ci4`) apply the 26 migrations through a PDO runner. CI4 checks `pg_namespace` before `CREATE SCHEMA`. A missing schema does not return `/healthz` 200.
+- **ci4:** Settings module. `SettingsSchema` is the single source of the 63 settings keys (defaults and validation); the migration shim's `settings_schema`, `setting_default` and `setting_validate` delegate to it. `SettingsService` (all, get, save, reset a section, export, import up to 256 KiB, the write-only autofill token with its own getter, token cleared when the service address moves) is built per request by `Config\Services`. `/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico` and `/brand/{file}` match the legacy bytes and headers and start no session; brand files sit behind a `BrandStore` interface. `apotheke:settings` and `bin/settings.php` (when `APOTHEKE_APP=ci4`) run `list`, `get`, `set`, `reset`, `export` and `import` with the legacy output and exit codes; the account and sign-in forms stay on legacy until the Auth module. ([#64](https://github.com/thordin9/apotheke/pull/64))
 
 ### Fixed
 
+- **ci4:** `Services::apothekeDb` brings the schema up to date once per process and database, not on every request in a long-lived worker. Under php-fpm and spark that is once per request or command, as legacy `db()` does; `apotheke:migrate` stays the explicit way. The settings cache lives in the per-request `SettingsService`, not in a static. ([#64](https://github.com/thordin9/apotheke/pull/64))
+- **ci4:** `get` of an unknown key or of a write-only key exits 1 with a message instead of a PHP fatal or printing the secret. ([#64](https://github.com/thordin9/apotheke/pull/64))
 - **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects.
 - **ci4:** a PostgreSQL DSN may have spaces around `=`, as libpq does. The log line still lists only the driver, host, port and database name. ([#66](https://github.com/thordin9/apotheke/pull/66))
 - **ci4:** DSN values are read as PDO and libpq read them, so a trailing space before `;` or at the end is dropped, a single-quoted value is unquoted, and `host = db.example ; port = 5432 ;` boots as it does on legacy. ([#66](https://github.com/thordin9/apotheke/pull/66))
@@ -27,6 +43,7 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Maintenance
 
 - **ci:** `scripts/ci4-pgsql-proof.php` reports SQLSTATE 42P01 as a missing probe table. Any other SQLSTATE is a connection or query failure. The script does not print the DSN or the password.
+- **test:** CI4 module tests (`ci4/phpunit.xml.dist`, CIUnitTestCase) run inside the main PHPUnit run on SQLite and PostgreSQL. Goldens compare the settings schema, the settings CLI and the branding routes with legacy. ([#64](https://github.com/thordin9/apotheke/pull/64))
 - **test:** a production CI4 boot with `APOTHEKE_TEST_DB` unset returns 200 and does not create the probe table, on SQLite and as a PostgreSQL role without CREATE.
 - **ci:** run CI on pushes to `feature/ci4` and on pull requests into it. A PHP 8.4 matrix covers `legacy` and `ci4` on SQLite and PostgreSQL; legacy@8.3 stays the upgrade/rollback reference. The ci4 leg runs PHPUnit against the CI4 server. `APOTHEKE_TEST_DB` selects that server's database. The pgsql probe is written by `tests/ci4-router.php`, and the ci4@pgsql job checks `public.apotheke_ci4_pgsql_probe`. deptrac and the DI rule check the Core and DevServer modules. Releases stay on `main` only.
 - **ci:** run lint, headless mobile checks, Playwright and the Docker build + smoke test on PHP 8.4 as well as PHP 8.3. The shipped image stays PHP 8.3 (`ARG PHP_VERSION=8.3.36`). The 8.4 leg passes `PHP_VERSION=8.4.27` and builds the test image from the same Dockerfile. Markdown link checks walk all of `docs/`.
