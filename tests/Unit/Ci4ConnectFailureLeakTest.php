@@ -159,8 +159,8 @@ final class Ci4ConnectFailureLeakTest extends TestCase
         $this->assertSame('', $hit['body']);
         $this->assertStringContainsString('Could not connect to the database (pgsql – ', $hit['log']);
         // With pg_connect muted, CI4 has no libpq text to log: nothing reaches writable/logs.
-        $this->assertStringNotContainsString('password authentication failed', $hit['log'] . $logs);
-        $this->assertStringNotContainsString('Error connecting to the database', $logs);
+        $this->assertStringNotContainsString('password authentication failed', $hit['log']);
+        $this->assertSame('', $logs, 'CI4 wrote to writable/logs on a refused connect');
         $this->assertNoValues('pg_connect', $hit['body'] . "\n" . $hit['log'] . "\n" . $logs, $case);
     }
 
