@@ -7,6 +7,8 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-10-24
+
 **Upgrade note:** Apotheke now answers only to IP addresses, `localhost`, the machine's own host name, the host of
 `PUBLIC_URL` and the names in the new `ALLOWED_HOSTS` setting. Any other host name gets *Unknown host name* (421).
 If you open the app by a name, for example `http://nas.local:9091` or `https://apotheke.example`, add that name
@@ -32,6 +34,11 @@ Setting `PUBLIC_URL` to that address works too. Opening the app by its IP addres
 
 ### Maintenance
 
+- **autofill:** test: post a JPEG that exactly fills the cap ([#62](https://github.com/thordin9/apotheke/pull/62))
+- **release:** ci: reject an Unreleased bullet with no PR link ([#62](https://github.com/thordin9/apotheke/pull/62))
+- **qa:** docs: add the v2.6.1 release QA report ([#62](https://github.com/thordin9/apotheke/pull/62))
+- **qa:** docs: add the #62 v2.6.1 follow-ups QA report ([#62](https://github.com/thordin9/apotheke/pull/62))
+- **qa:** docs: add QA2 review for #70 security hardening ([#70](https://github.com/thordin9/apotheke/pull/70))
 - **docker:** hardening (S-M1, S-L1): the image ships a restrictive ImageMagick policy (size, memory, disk and time limits; text, vector, page and URL coders, delegates and `@file` off), and the build fails if it is not in effect. ([#70](https://github.com/thordin9/apotheke/pull/70))
 - **deploy:** docs: describe `trust_proxy`, Host names, the restore limit and the ImageMagick policy, and add HSTS to the Caddy and nginx examples (SEC-L3). ([#70](https://github.com/thordin9/apotheke/pull/70))
 
@@ -460,7 +467,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.2...HEAD
+[2.6.2]: https://github.com/thordin9/apotheke/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/thordin9/apotheke/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/thordin9/apotheke/compare/v2.5.8...v2.6.0
 [2.5.8]: https://github.com/thordin9/apotheke/compare/v2.5.7...v2.5.8
