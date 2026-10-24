@@ -138,4 +138,43 @@ class Services extends BaseService
             new \Apotheke\Core\Libraries\AssetUrl(\Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/public/assets'),
         );
     }
+
+    /**
+     * Autofill client for this request. Settings and the token come from
+     * SettingsService. The warn-once file and temporary analysis JPEGs go
+     * through Storage (local disk under DATA_DIR). The shared instance is
+     * per request; the warn-once pair is the file, not this object.
+     */
+    public static function autofill(bool $getShared = true): \Apotheke\Autofill\AutofillService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('autofill');
+        }
+        $settings = static::settings();
+        $config = static::apothekeConfig();
+        $now = static fn (): int => time();
+        $log = new \Apotheke\Autofill\LogRedactor(
+            static function (string $message): void {
+                error_log($message);
+            },
+            static fn (): string => $settings->autofillToken(),
+        );
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Autofill\AutofillService(
+            $settings,
+            new \Apotheke\Core\Storage\LocalStorage($config->dataDir()),
+            new \Apotheke\Autofill\AutofillClient($now),
+            $log,
+            $db,
+            $config->dataDir() . '/images',
+            $config->originalsDir(),
+            \Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/public/assets/autofill-sample.jpg',
+            static function (int $seconds): void {
+                sleep($seconds);
+            },
+            $now,
+        );
+    }
 }

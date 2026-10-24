@@ -1,5 +1,6 @@
-# Core depends on nothing. DevServer and Settings may depend on Core.
+# Core depends on nothing. DevServer, Settings and Autofill may depend on Core.
 # Migrations may depend on Core and on Settings (schema only).
+# Autofill may depend on Settings. Media and Taxonomy are not modules yet.
 deptrac:
   paths:
     - ci4/modules
@@ -20,6 +21,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Settings\\
+    - name: Autofill
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Autofill\\
   ruleset:
     Core: []
     DevServer:
@@ -29,3 +34,6 @@ deptrac:
       - Settings
     Settings:
       - Core
+    Autofill:
+      - Core
+      - Settings

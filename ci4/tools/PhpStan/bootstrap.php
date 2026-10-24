@@ -12,6 +12,17 @@ $ci4 = dirname(__DIR__, 2) . '/vendor/autoload.php';
 if (is_file($ci4)) {
     require_once $ci4;
 }
+if (!function_exists('helper')) {
+    function helper(string|array $filenames): void
+    {
+    }
+}
+if (!function_exists('redirect')) {
+    function redirect(?string $route = null): CodeIgniter\HTTP\RedirectResponse
+    {
+        return new CodeIgniter\HTTP\RedirectResponse(new Config\App());
+    }
+}
 if (!function_exists('service')) {
     function service(string $name, mixed ...$params): mixed
     {

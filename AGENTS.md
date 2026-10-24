@@ -55,7 +55,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * Lending, Stocktake and Labels → Catalog, Taxonomy
   * ImportExport → Catalog, Taxonomy
   * Backup → all repositories, plus Media and Settings
-  * Autofill → Media (read-only `originalPathOrServed`), Settings, Taxonomy (context names)
+  * Autofill → Media (read-only `originalPathOrServed`), Settings, Taxonomy (context names). Until Media and Taxonomy exist, deptrac allows Autofill → Core and Settings only. Photo lookup and category/tag names are SQL, and bytes go through `Apotheke\Core\Storage\Storage` (local disk under `DATA_DIR`). Media should implement that interface later rather than add a second one.
 * **Constructor injection.** Services, models and commands take their collaborators through constructors.
 * **`service()` only in controllers and filters.** `service()` and `Services::` are allowed only in controllers, in filters (CI4 builds them without constructor arguments; only inside `before()`/`after()`, with no properties or statics, see [ADR 001](docs/adr/001-codeigniter4.md)) and in `Config/Services.php` factories.
 
