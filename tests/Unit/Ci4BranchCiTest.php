@@ -158,7 +158,7 @@ final class Ci4BranchCiTest extends TestCase
     public function testLintMobilePlaywrightAndDockerRunOnPhp83AndPhp84(): void
     {
         $yml = $this->ci();
-        foreach (['lint:', 'mobile-checks:', 'e2e:', 'docker:'] as $job) {
+        foreach (['lint:', 'mobile-checks:', 'e2e:'] as $job) {
             $this->assertMatchesRegularExpression(
                 '/' . preg_quote($job, '/') . "\\n(?:    .*\\n)*?    strategy:\\n      fail-fast: false\\n      matrix:\\n        php: \\['8\\.3', '8\\.4'\\]/",
                 $yml,
@@ -170,12 +170,21 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('name: Visual E2E (Playwright, PHP ${{ matrix.php }}, shard ${{ matrix.shard }}/3)', $yml);
         $this->assertStringContainsString('name: Docker build + smoke test (PHP ${{ matrix.php }})', $yml);
         $this->assertStringContainsString('scripts/e2e-container-setup.sh "${{ matrix.php }}"', $yml);
-        $this->assertStringContainsString('PHP_VERSION=${{ matrix.php }}', $yml);
+        // docker: exact patches as the PHP_VERSION build-arg. 8.3 is the Dockerfile default.
+        $this->assertMatchesRegularExpression(
+            "/docker:\\n(?:    .*\\n)*?    strategy:\\n      fail-fast: false\\n      matrix:\\n(?:        #.*\\n)*        include:\\n"
+            . "          - php: '8\\.3'\\n            php_patch: '(8\\.3\\.\\d+)'\\n"
+            . "          - php: '8\\.4'\\n            php_patch: '8\\.4\\.\\d+'\\n/",
+            $yml,
+            'docker keeps PHP 8.3 and adds PHP 8.4, each as an exact patch'
+        );
+        preg_match("/php: '8\\.3'\\n            php_patch: '(8\\.3\\.\\d+)'/", $yml, $patch);
+        $this->assertStringContainsString('PHP_VERSION=${{ matrix.php_patch }}', $yml);
         $this->assertStringContainsString("shard: [1, 2, 3]", $yml);
         $this->assertStringNotContainsString('stay on 8.3 until PR 3', $yml);
 
         $docker = (string)file_get_contents($this->root() . '/Dockerfile');
-        $this->assertStringContainsString('ARG PHP_VERSION=8.3', $docker);
+        $this->assertStringContainsString('ARG PHP_VERSION=' . $patch[1] . "\n", $docker);
         $this->assertStringContainsString('FROM php:${PHP_VERSION}-fpm-alpine', $docker);
         $this->assertStringNotContainsString('FROM php:8.4', $docker);
 
