@@ -93,7 +93,7 @@ Important routes:
 ### Sessions, auth and CSRF
 
 `init_session()` opens the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
-`SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; lifetime from `session_days`, default 30), makes sure a CSRF token exists, and **closes the session right away** so parallel
+`SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; lifetime from `session_days`, default 30, not extended by later visits). A signed-in session also ends when no request has arrived for `session_idle_hours` hours (default 168, at most 8760). That last-request time is kept in the session file and updated when the session is opened. `init_session()` makes sure a CSRF token exists, and **closes the session right away** so parallel
 requests (photos, instant search) never wait for the session lock. Every state-changing route calls `check_csrf()`
 (form field `csrf` or header `X-CSRF-Token`). When sign-in is on (Settings → Users & sign-in; `APP_PASSWORD` creates the account `admin`), everything except `/login`, `/healthz` and
 the branding routes (`/theme.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) requires a signed-in session (`uid`) whose

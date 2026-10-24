@@ -107,6 +107,7 @@ final class SettingsTest extends DatabaseTestCase
                     'auth_register_role' => 'editor',
                     'auth_register_approval' => true,
                     'session_days' => 7,
+                    'session_idle_hours' => 12,
                     'trust_proxy' => true,
                 ],
             ]));
@@ -117,8 +118,9 @@ final class SettingsTest extends DatabaseTestCase
             $this->assertSame('viewer', setting('auth_register_role'));
             $this->assertFalse(setting('auth_register_approval'));
             $this->assertSame(30, setting('session_days'));
+            $this->assertSame(168, setting('session_idle_hours'));
             $this->assertFalse(setting('trust_proxy'));
-            foreach (['auth_register_disabled', 'auth_guest_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'] as $k) {
+            foreach (['auth_register_disabled', 'auth_guest_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'session_idle_hours', 'trust_proxy'] as $k) {
                 $this->assertContains($k, $r['ignored']);
             }
         } finally {
@@ -157,11 +159,12 @@ final class SettingsTest extends DatabaseTestCase
             current_user(user_get($root) + ['guest' => false, 'anon' => false]);
             settings_import(json_encode([
                 'format' => 'apotheke-settings',
-                'settings' => ['auth_register_disabled' => false, 'auth_register_role' => 'editor'],
+                'settings' => ['auth_register_disabled' => false, 'auth_register_role' => 'editor', 'session_idle_hours' => 12],
             ]));
             settings_cache(null, true);
             $this->assertFalse(setting('auth_register_disabled'));
             $this->assertSame('editor', setting('auth_register_role'));
+            $this->assertSame(12, setting('session_idle_hours'));
         } finally {
             current_user(null, true);
         }
