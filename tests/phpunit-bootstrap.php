@@ -5,6 +5,7 @@ declare(strict_types=1);
 $tmp = sys_get_temp_dir() . '/apotheke-phpunit-' . getmypid();
 @mkdir($tmp, 0775, true);
 foreach (['DATA_DIR' => $tmp, 'APOTHEKE_CONFIG' => '/nonexistent', 'SEED_DEFAULTS' => '0', 'TZ' => 'Europe/Athens'] as $k => $v) putenv("$k=$v");
+foreach (['APP_KEY', 'APP_KEY_FILE', 'APP_KEY_NEW'] as $k) putenv($k);
 if (getenv('DB_DRIVER') === 'pgsql') {
     foreach (['DB_HOST' => 'TEST_PG_HOST', 'DB_PORT' => 'TEST_PG_PORT', 'DB_NAME' => 'TEST_PG_DB', 'DB_USER' => 'TEST_PG_USER', 'DB_PASSWORD' => 'TEST_PG_PASSWORD'] as $k => $t) {
         if (getenv($k) === false && getenv($t) !== false) putenv("$k=" . getenv($t));

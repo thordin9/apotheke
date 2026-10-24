@@ -3,6 +3,10 @@
  * Apotheke configuration. Copy to config.php (git-ignored) and adjust.
  * Every value can also be set with an environment variable (shown on the right), which
  * wins over this file. Empty environment variables are ignored.
+ *
+ * APP_KEY and APP_KEY_FILE are environment-only (they are not keys in this file).
+ * APP_KEY is base64 of 32 bytes and is the recommended way to encrypt stored secrets.
+ * Leave it unset and those secrets stay unencrypted. See docs/configuration.md.
  */
 return [
     'data_dir'     => __DIR__ . '/data',      // DATA_DIR      photos, thumbnails, sessions (and the SQLite file)

@@ -7,7 +7,8 @@
         "php": ">=8.2",
         "ext-gd": "*",
         "ext-mbstring": "*",
-        "ext-pdo": "*"
+        "ext-pdo": "*",
+        "ext-sodium": "*"
     },
     "suggest": {
         "ext-pdo_sqlite": "SQLite storage (default)",

@@ -152,6 +152,8 @@ Notes:
   "due": "…"}` for a loan, `{"from": "Drill", "from_id": 7, "quantity": [2, 5], "photos": 1}` for a merge, `{"from": "Maria", "days": 12}` for a return, `{"copied_from": "Drill", …}` for a duplicate.
 * `settings` (migration 0013) holds the Control Panel values, one row per key, the value JSON-encoded (`60`, `"#C8502D"`,
   `true`, `null`). The migration seeds every key from `config.php` / the environment; afterwards the table wins.
+  A recoverable secret (the autofill access token) is still a JSON string; with `APP_KEY` set that string is the
+  `enc:v1:` envelope in [configuration.md](configuration.md#stored-secrets). Password hashes are not stored that way.
   `auth_enabled` switches sign-in on; the old shared `password_hash` is empty since migration 0018. See [control-panel.md](control-panel.md).
 * `users` (migration 0018): `username` as typed, `username_key` (lower-case, unique) for lookups, `password_hash`
   (`password_hash()`), `role` (`admin`, `editor`, `viewer`), `created_at`, `last_login_at`. The migration turns an existing

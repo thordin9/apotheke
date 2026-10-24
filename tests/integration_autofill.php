@@ -25,6 +25,7 @@ T::eq(200, $page['status'], 'GET /settings/autofill → 200');
 T::ok(str_contains($page['body'], 'name="autofill_enabled"') && str_contains($page['body'], 'name="autofill_url"') && str_contains($page['body'], 'name="autofill_timeout"'), 'section shows switch, address and timeout');
 T::ok(str_contains($page['body'], 'id="af-test"') && str_contains($page['body'], 'id="af-token-form"'), 'Test connection button and token form');
 T::ok(str_contains($page['body'], 'No token set.'), 'no token by default');
+T::ok(str_contains($page['body'], 'id="secret-key-warn"') && str_contains($page['body'], 'Set APP_KEY to encrypt stored secrets.'), 'no key: the access token section says to set APP_KEY');
 T::ok(str_contains($af->get('/settings')['body'], 'href="/settings/autofill"'), 'Control Panel home links the AI autofill section');
 T::ok($afGet('autofill_enabled') === false || $afGet('autofill_enabled') === null, 'autofill is off by default');
 
