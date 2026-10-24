@@ -136,7 +136,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
     {
         $this->needCi4();
         if ($this->admin->query('SELECT rolsuper FROM pg_roles WHERE rolname = current_user')->fetchColumn() !== true) {
-            $this->markTestSkipped('a login event trigger needs a superuser');
+            $this->skipOutsideCi('a login event trigger needs a superuser');
         }
         $pg = test_pg_params();
         $fn = 'lk_login_' . $this->tag;
@@ -162,6 +162,19 @@ final class Ci4ConnectFailureLeakTest extends TestCase
         $this->assertStringNotContainsString('password authentication failed', $hit['log'] . $logs);
         $this->assertStringNotContainsString('Error connecting to the database', $logs);
         $this->assertNoValues('pg_connect', $hit['body'] . "\n" . $hit['log'] . "\n" . $logs, $case);
+    }
+
+    /**
+     * This is the test that reads writable/logs on a refused CI4 connect, so in CI
+     * (CI or GITHUB_ACTIONS set) it fails rather than skips.
+     */
+    private function skipOutsideCi(string $why): never
+    {
+        $ci = in_array(getenv('CI'), ['true', '1'], true) || getenv('GITHUB_ACTIONS') === 'true';
+        if ($ci) {
+            $this->fail($why . '. In CI the refused CI4 connect must run: connect the test PostgreSQL as a superuser.');
+        }
+        $this->markTestSkipped($why);
     }
 
     private function needCi4(): void
