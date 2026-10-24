@@ -57,6 +57,36 @@ function image_heic_dimensions_too_large(int $w, int $h): bool
     return (float)$w * (float)$h > (float)IMAGE_HEIC_MAX_PIXELS;
 }
 
+/** Same header stop image_store() uses for a JPEG, PNG, WebP or GIF. JPEG above the GD budget is not over this limit. */
+function image_raster_header_over_limit(int $w, int $h, int $type): bool
+{
+    return image_dimensions_too_large($w, $h)
+        || ((float)$w * (float)$h > (float)IMAGE_GD_MAX_PIXELS && $type !== IMAGETYPE_JPEG);
+}
+
+/** Same header stop image_store() uses for HEIC/HEIF. Null means the header could not be read, which is not this refusal. */
+function image_heic_header_over_limit(?array $dims): bool
+{
+    return $dims !== null && (image_heic_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]));
+}
+
+/**
+ * Header only, no pixel decode. The upload path and /autofill/suggest both refuse with this error.
+ * A resource-limit failure while reading a HEIC header is the same error.
+ */
+function image_assert_bytes_within_limits(string $bytes): void
+{
+    if ($bytes === '') return;
+    if (function_exists('autofill_is_heic') && autofill_is_heic($bytes)) {
+        if (image_heic_header_over_limit(image_ping_heic($bytes))) throw new UserError('Image dimensions are too large.', 422);
+        return;
+    }
+    $info = @getimagesizefromstring($bytes);
+    if ($info && image_raster_header_over_limit((int)$info[0], (int)$info[1], (int)$info[2])) {
+        throw new UserError('Image dimensions are too large.', 422);
+    }
+}
+
 /**
  * A full-frame decode (HEIC/HEIF) against the limits Imagick will actually enforce.
  * Width and height refuse the read. Area does not: a frame over the area limit spills to disk.

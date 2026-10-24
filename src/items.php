@@ -898,12 +898,10 @@ function image_store(array $file): string
         else throw new UserError('Unsupported image. Please use JPEG, PNG, WebP or GIF (on iPhone, HEIC photos are converted automatically).');
     }
     if ($heic) {
-        $dims = image_ping_heic((string)@file_get_contents($tmp));
-        if ($dims !== null && (image_heic_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) {
+        if (image_heic_header_over_limit(image_ping_heic((string)@file_get_contents($tmp)))) {
             throw new UserError('Image dimensions are too large.');
         }
-    } elseif (image_dimensions_too_large((int)$info[0], (int)$info[1])
-        || ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG)) {
+    } elseif (image_raster_header_over_limit((int)$info[0], (int)$info[1], (int)$info[2])) {
         throw new UserError('Image dimensions are too large.');
     }
 

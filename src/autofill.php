@@ -944,6 +944,8 @@ function autofill_suggest(string $imageBytes, ?array $engines = null): array
         $src = $dir . '/autofill-src-' . bin2hex(random_bytes(8));
         if (file_put_contents($src, $imageBytes) === false) return $fail('unavailable', autofill_unavailable_message());
         return autofill_suggest_path($src, $engines);
+    } catch (UserError $e) {
+        throw $e;
     } catch (Throwable) {
         return $fail('unavailable', autofill_unavailable_message());
     } finally {
@@ -964,6 +966,7 @@ function autofill_suggest_path(string $source, ?array $engines = null): array
     if (!is_file($source)) return $fail('no_image', 'No photo.');
     $bytes = (string)@file_get_contents($source);
     if ($bytes === '') return $fail('no_image', 'No photo.');
+    image_assert_bytes_within_limits($bytes);
     $known = autofill_known_info();
     $side = min(autofill_image_side($known), autofill_upload_max_side());
     $ctx = json_encode(autofill_context(autofill_chosen_model($known)), JSON_UNESCAPED_UNICODE);

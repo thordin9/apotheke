@@ -84,6 +84,40 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertNull(autofill_analysis_jpeg($ppm, 32, 80, ['imagick']));
     }
 
+    /** /autofill/suggest uses the upload header stop. Nothing is stored and the service is not called. */
+    public function testSuggestRefusesAnOverLimitHeader(): void
+    {
+        settings_store(['autofill_enabled' => true, 'autofill_url' => 'http://127.0.0.1:9', 'autofill_timeout' => 3]);
+        $before = $this->tree(DATA_DIR);
+        $jpeg = tempnam(sys_get_temp_dir(), 'af');
+        $this->assertNotFalse($jpeg);
+        file_put_contents($jpeg, $this->jpegSof(16000, 15632));
+        try {
+            autofill_suggest_path($jpeg);
+            $this->fail('an over-limit JPEG was sent to suggest');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+            $this->assertSame(422, $e->getCode());
+        } finally {
+            @unlink($jpeg);
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+        if (!class_exists('Imagick')) return;
+        $heic = tempnam(sys_get_temp_dir(), 'af');
+        $this->assertNotFalse($heic);
+        file_put_contents($heic, $this->withIspe($this->heicSample(), 16384, 12288));
+        try {
+            autofill_suggest_path($heic);
+            $this->fail('an over-limit HEIC header was sent to suggest');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+            $this->assertSame(422, $e->getCode());
+        } finally {
+            @unlink($heic);
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+    }
+
     public function testSideOverTheLimitIsRefusedFromTheHeader(): void
     {
         $before = $this->tree(DATA_DIR);

@@ -707,31 +707,36 @@ try {
     if ($path === '/autofill/suggest' && $method === 'POST') {
         check_csrf();
         no_store();
-        // either a photo picked on the form (image), or one of the item's stored photos (photo_id, the edit form)
-        $pid = (string)($_POST['photo_id'] ?? '');
-        if ($pid !== '') {
-            $st = db()->prepare('SELECT file FROM item_photos WHERE id = ?');
-            $st->execute([ctype_digit($pid) ? (int)$pid : 0]);
-            $file = (string)$st->fetchColumn();
-            if ($file === '' || !valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) {
-                json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No suggestions: that photo no longer exists.', 'error' => 'No suggestions: that photo no longer exists.']);
+        try {
+            // either a photo picked on the form (image), or one of the item's stored photos (photo_id, the edit form)
+            $pid = (string)($_POST['photo_id'] ?? '');
+            if ($pid !== '') {
+                $st = db()->prepare('SELECT file FROM item_photos WHERE id = ?');
+                $st->execute([ctype_digit($pid) ? (int)$pid : 0]);
+                $file = (string)$st->fetchColumn();
+                if ($file === '' || !valid_image_name($file) || !is_file(IMG_DIR . '/' . $file)) {
+                    json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No suggestions: that photo no longer exists.', 'error' => 'No suggestions: that photo no longer exists.']);
+                }
+                // Analyze the kept upload when there is one. The file under images/ is only the stripped copy and is not rewritten.
+                $r = autofill_suggest_path(image_original_path($file) ?? (IMG_DIR . '/' . $file));
+                json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
             }
-            // Analyze the kept upload when there is one. The file under images/ is only the stripped copy and is not rewritten.
-            $r = autofill_suggest_path(image_original_path($file) ?? (IMG_DIR . '/' . $file));
+            $f = $_FILES['image'] ?? null;
+            if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
+                json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
+            }
+            // the browser already resized the photo. State the tighter of the upload cap and the autofill byte cap
+            // (the Maximum image size setting, auto → max_image_bytes or 983040, then enforced_image_bytes).
+            // The stored photo is saved later, by the item form.
+            if ((int)$f['size'] > max_upload()) {
+                json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
+            }
+            $r = autofill_suggest_path((string)$f['tmp_name']);
             json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
+        } catch (UserError $e) {
+            $msg = $e->getMessage();
+            json_out(['ok' => false, 'error' => $msg, 'message' => $msg], $e->getCode() >= 400 ? (int)$e->getCode() : 422);
         }
-        $f = $_FILES['image'] ?? null;
-        if (!is_array($f) || ($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file((string)$f['tmp_name'])) {
-            json_out(['ok' => false, 'code' => 'no_image', 'message' => 'No photo.']);
-        }
-        // the browser already resized the photo. State the tighter of the upload cap and the autofill byte cap
-        // (the Maximum image size setting, auto → max_image_bytes or 983040, then enforced_image_bytes).
-        // The stored photo is saved later, by the item form.
-        if ((int)$f['size'] > max_upload()) {
-            json_out(['ok' => false, 'code' => 'too_large', 'message' => autofill_too_large_message(min(max_upload(), autofill_service_image_limit()))]);
-        }
-        $r = autofill_suggest_path((string)$f['tmp_name']);
-        json_out($r + ['error' => $r['ok'] ? null : $r['message']]);
     }
     if ($path === '/settings/autofill/token' && $method === 'POST') {
         check_csrf();
