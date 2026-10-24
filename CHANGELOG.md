@@ -7,6 +7,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **auth:** hardening: a new sign-in after a session was ended now starts a fresh session lifetime. ([#87](https://github.com/thordin9/apotheke/pull/87))
+
 ## [2.6.13] - 2026-10-24
 
 ### Fixed
