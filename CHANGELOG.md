@@ -7,6 +7,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Maintenance
+
+- **changelog:** the first upload and the 413 retry are tested with a JPEG that fills the cap, and a handwritten bullet must link its pull request. ([#62](https://github.com/thordin9/apotheke/pull/62))
+
 ## [2.6.1] - 2026-10-24
 
 ### Fixed
