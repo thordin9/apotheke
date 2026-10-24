@@ -4,7 +4,8 @@ declare(strict_types=1);
 /**
  * Header limits and reduced decode for large photos.
  * A 48 MP phone frame is 8064×6048. A 200 MP sensor is 16384×12288.
- * The hard stop is 250 megapixels and 30,000 px on a side, which keeps both and refuses a wider frame.
+ * JPEG may reach 250 megapixels because jpeg:size keeps the decoded frame within 128 megapixels.
+ * HEIC is refused from the header above 128 megapixels or above 20,000 px on a side.
  */
 final class ImageDecodeTest extends DatabaseTestCase
 {
@@ -23,9 +24,14 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertSame(IMAGICK_LIMIT_MEMORY, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_MEMORY));
         $this->assertSame(IMAGICK_LIMIT_MAP, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_MAP));
         $this->assertSame(IMAGICK_LIMIT_DISK, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_DISK));
-        $this->assertSame(IMAGE_MAX_PIXELS, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_AREA));
-        $this->assertSame(IMAGE_MAX_SIDE, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH));
-        $this->assertSame(IMAGE_MAX_SIDE, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_HEIGHT));
+        $this->assertSame(IMAGICK_LIMIT_AREA, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_AREA));
+        $this->assertSame(IMAGICK_LIMIT_WIDTH, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH));
+        $this->assertSame(IMAGICK_LIMIT_HEIGHT, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_HEIGHT));
+        $this->assertSame(128_000_000, IMAGICK_LIMIT_AREA);
+        $this->assertSame(20000, IMAGICK_LIMIT_WIDTH);
+        $this->assertSame(256 * 1024 * 1024, IMAGICK_LIMIT_MEMORY);
+        $this->assertSame(256 * 1024 * 1024, IMAGICK_LIMIT_MAP);
+        $this->assertSame(1024 * 1024 * 1024, IMAGICK_LIMIT_DISK);
     }
 
     public function testSmallJpegUsesGdOnly(): void
@@ -102,7 +108,20 @@ final class ImageDecodeTest extends DatabaseTestCase
     public function testTwoHundredMegapixelJpegIsDownscaled(): void
     {
         if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
-        $this->assertDownscaled($this->solidJpeg(16384, 12288), 16384, 12288);
+        $w = 16384;
+        $h = 12288;
+        $this->assertGreaterThan(IMAGE_HEIC_MAX_PIXELS, $w * $h);
+        $this->assertLessThanOrEqual(IMAGE_MAX_PIXELS, $w * $h);
+        $this->assertFalse(image_dimensions_too_large($w, $h));
+        $jpeg = $this->solidJpeg($w, $h);
+        $hint = image_jpeg_size_hint($w, $h, image_full_max());
+        $this->assertNotNull($hint);
+        $im = imagick_read_explicit($jpeg, 'JPEG', $hint);
+        $decoded = $im->getImageWidth() * $im->getImageHeight();
+        $im->clear();
+        $this->assertLessThanOrEqual(IMAGE_HEIC_MAX_PIXELS, $decoded);
+        $this->assertLessThan($w * $h, $decoded);
+        $this->assertDownscaled($jpeg, $w, $h);
     }
 
     public function testJustUnderThePixelCapIsDownscaled(): void
@@ -189,6 +208,49 @@ final class ImageDecodeTest extends DatabaseTestCase
             $this->assertSame('Image dimensions are too large.', $e->getMessage());
         }
         $this->assertSame($before, $this->tree(DATA_DIR));
+    }
+
+    /** 20,008 px is inside the JPEG side cap and outside the HEIC side cap. The header refuses it before a read. */
+    public function testHeicOver20000PxIsRefusedBeforeDecode(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        $this->assertFalse(image_dimensions_too_large(20008, 8));
+        $this->assertTrue(image_heic_dimensions_too_large(20008, 8));
+        $this->assertFalse(image_heic_dimensions_too_large(20000, 8));
+        $bytes = $this->withIspe($this->heicSample(), 20008, 8);
+        $this->assertSame([20008, 8], image_ping_heic($bytes));
+        $before = $this->tree(DATA_DIR);
+        try {
+            $this->store($bytes, 'heic-side.heic');
+            $this->fail('a HEIC wider than 20000 px was stored');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+    }
+
+    /** A 200 MP HEIC is over 128 megapixels. JPEG of that size is still accepted. */
+    public function testHeicOver128MegapixelsIsRefusedBeforeDecode(): void
+    {
+        if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
+        $this->assertSame(201_326_592, 16384 * 12288);
+        $this->assertFalse(image_dimensions_too_large(16384, 12288));
+        $this->assertTrue(image_heic_dimensions_too_large(16384, 12288));
+        $this->assertFalse(image_heic_dimensions_too_large(8064, 6048));
+        $this->assertFalse(image_heic_dimensions_too_large(16000, 8000));
+        $this->assertSame(128_000_000, 16000 * 8000);
+        $this->assertTrue(image_heic_dimensions_too_large(16000, 8008));
+        $bytes = $this->withIspe($this->heicSample(), 16384, 12288);
+        $this->assertSame([16384, 12288], image_ping_heic($bytes));
+        $before = $this->tree(DATA_DIR);
+        try {
+            $this->store($bytes, 'heic-200.heic');
+            $this->fail('a HEIC over 128 megapixels was stored');
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+        }
+        $this->assertSame($before, $this->tree(DATA_DIR));
+        $this->assertNull(autofill_analysis_jpeg($bytes, 160, 80, ['imagick']));
     }
 
     /**
@@ -278,7 +340,8 @@ final class ImageDecodeTest extends DatabaseTestCase
     }
 
     /**
-     * A declared 48 MP or 200 MP HEIC header is inside the hard limit.
+     * A declared 48 MP HEIC header is inside the HEIC limit. A declared 200 MP HEIC header is not:
+     * there is no reduced decode for HEIC, so 128 megapixels is the header stop.
      * This build has no HEVC encoder, and ImageMagick does not scale HEIC while decoding, so the test does not
      * decode a real 48 MP HEIC frame. The memory bound for that size is the JPEG case. The small uncompressed
      * sample is stored when this Imagick can read it.
@@ -291,8 +354,8 @@ final class ImageDecodeTest extends DatabaseTestCase
         $sensor = image_ping_heic($this->withIspe($sample, 16384, 12288));
         $this->assertSame([8064, 6048], $phone);
         $this->assertSame([16384, 12288], $sensor);
-        $this->assertFalse(image_dimensions_too_large(8064, 6048));
-        $this->assertFalse(image_dimensions_too_large(16384, 12288));
+        $this->assertFalse(image_heic_dimensions_too_large(8064, 6048));
+        $this->assertTrue(image_heic_dimensions_too_large(16384, 12288));
         $this->assertSame(48_771_072, 8064 * 6048);
         $this->assertSame(201_326_592, 16384 * 12288);
 

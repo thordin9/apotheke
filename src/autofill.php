@@ -584,7 +584,7 @@ function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?
         } catch (UserError) {
             return null;
         }
-        if ($dims === null || image_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1])) return null;
+        if ($dims === null || image_heic_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1])) return null;
     } else {
         $info = @getimagesizefromstring($bytes);
         if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
@@ -768,7 +768,7 @@ function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE):
         } catch (UserError) {
             return null;
         }
-        if ($dims !== null && (image_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) return null;
+        if ($dims !== null && (image_heic_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) return null;
         return ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false, 'width' => null, 'height' => null];
     }
     $info = @getimagesizefromstring($bytes);

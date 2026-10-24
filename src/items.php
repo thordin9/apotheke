@@ -877,7 +877,7 @@ function pick_upload(array $fields): ?array
  * stripped. Returns that served file name. An existing images/*.jpg with no originals/ sibling is left alone (no migration).
  * HEIC/HEIF is kept as the original; when it cannot be converted the served file is a plain placeholder, never the HEIC.
  * Dimensions come from the header before any full decode. A frame over IMAGE_MAX_PIXELS or IMAGE_MAX_SIDE is refused.
- * A HEIC/HEIF frame outside Imagick's own width, height or cache budget is refused the same way.
+ * HEIC/HEIF is also refused above IMAGE_HEIC_MAX_PIXELS or IMAGE_HEIC_MAX_SIDE, before Imagick reads pixels.
  * JPEG above IMAGE_GD_MAX_PIXELS is decoded already reduced. PNG, WebP and GIF above that are refused.
  * An Imagick resource-limit failure is the same "too large" error, not a server error.
  */
@@ -899,7 +899,7 @@ function image_store(array $file): string
     }
     if ($heic) {
         $dims = image_ping_heic((string)@file_get_contents($tmp));
-        if ($dims !== null && (image_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) {
+        if ($dims !== null && (image_heic_dimensions_too_large($dims[0], $dims[1]) || imagick_frame_exceeds_policy($dims[0], $dims[1]))) {
             throw new UserError('Image dimensions are too large.');
         }
     } elseif (image_dimensions_too_large((int)$info[0], (int)$info[1])
@@ -1061,7 +1061,7 @@ function image_store_heic(string $path, string $name): bool
         if ($dims === null) return false;
         $frameW = $dims[0];
         $frameH = $dims[1];
-        if (image_dimensions_too_large($frameW, $frameH) || imagick_frame_exceeds_policy($frameW, $frameH)) {
+        if (image_heic_dimensions_too_large($frameW, $frameH) || imagick_frame_exceeds_policy($frameW, $frameH)) {
             throw new UserError('Image dimensions are too large.');
         }
     } else {
