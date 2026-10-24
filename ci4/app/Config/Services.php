@@ -37,8 +37,17 @@ class Services extends BaseService
             $runner->close($pdo);
         }
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, new \Apotheke\Core\Config\DsnTranslator());
-        $db = \Config\Database::connect();
-        $factory->apply($db);
+        try {
+            $db = \Config\Database::connect();
+            $factory->apply($db);
+        } catch (\CodeIgniter\Database\Exceptions\DatabaseException $e) {
+            // CI4 connects lazily, on apply()'s first query. A refused connect carries
+            // libpq's text, which names the user. Report it as the sanitized line.
+            if (($dbConfig['driver'] ?? '') !== 'pgsql' || !isset($db) || $db->connID !== false) {
+                throw $e;
+            }
+            throw new \Apotheke\Migrations\MigrateConnectException(\Apotheke\Migrations\PdoMigrationRunner::connectFailure($dbConfig));
+        }
 
         return $db;
     }

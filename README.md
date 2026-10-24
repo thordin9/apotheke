@@ -73,7 +73,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   stripped JPEG, not the camera file. **On demand**: each photo on the item form has an *Analyze* button and
   nothing is sent until you tap it (auto-analyze is an admin option, off by default). Only empty fields are filled,
   never what you typed; one analysis at a time with a progress estimate. The admin picks the model and image size from
-  what the service offers. See the [admin guide](docs/autofill-admin-guide.md) and [docs/autofill.md](docs/autofill.md).
+  what the service offers, and can cap the JPEG that is sent (`auto` follows the service; an explicit size is still capped to the service’s enforced limit, otherwise the limit it advertises). The camera file stays as
+  uploaded. See the [admin guide](docs/autofill-admin-guide.md) and [docs/autofill.md](docs/autofill.md).
 * **Dark mode** with an explicit **Auto / Light / Dark** switch in the ☰ menu. The choice is saved (cookie + localStorage)
   and rendered by the server, so pages never flash the wrong theme. Auto follows the phone's setting.
 * **Full-text search**, instant, across name, notes, tags, serial number, barcode, borrower, category and the whole
@@ -250,7 +251,7 @@ Then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` sho
 > QR labels printed with `:8080` in them need reprinting (or keep the old address with `ports: ["8080:9091"]`).
 > `docker run -p 8080:80 …` becomes `-p 9091:9091` (or `-p 8080:9091`). `PORT` still overrides the container port.
 
-The image (about 100 MB) is `php:8.3-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
+The image (about 100 MB) is `php:8.3.36-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
 `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
 stops both gracefully on `docker stop` and exits if either dies (so `restart: unless-stopped` brings it back). nginx
 listens on port 9091 inside the container; set `PORT` to change that (e.g. with `--network host`). The entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
@@ -294,7 +295,8 @@ Its data lives in `./data/postgres`. For an existing server set `DB_HOST`, `DB_P
 
 ### Update
 
-Pull the new version (keep `data/`), then `docker compose up -d --build`. Migrations run automatically; see
+Pull the new version (keep `data/`), then `docker compose up -d --build`. After a PHP security release, use
+`docker compose build --pull` and `docker compose up -d` so the new base image is fetched. Migrations run automatically; see
 [Upgrading](#upgrading).
 
 ## Install without Docker
@@ -380,6 +382,8 @@ that restored data doesn't reference stay in `data/images` and `originals/` and 
 
 On first start after an update the database is upgraded automatically (or run `php bin/migrate.php`).
 
+After a PHP security release, rebuild the image so the new base is fetched, then restart: `docker compose build --pull` and `docker compose up -d`.
+
 * **Pre-migration SQLite installs (schema v1–v3)** are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
   converted and adopted into the migration system in one transaction: if anything fails, nothing changes.
   * From the very first version (free-text locations), the distinct location texts become managed locations (trimmed,
@@ -436,12 +440,12 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 10.4 % | 99.4 % | 99.3 % |
-| Control Panel settings | 74.1 % | 97.2 % | 97.2 % |
+| Views (HTML) | 11.8 % | 99.4 % | 99.3 % |
+| Control Panel settings | 74.7 % | 96.0 % | 97.3 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 85.5 % | 86.7 % | 97.8 % |
-| Bootstrap, config, QR, seed | 60.6 % | 76.1 % | 79.1 % |
-| **All PHP** (6689 lines) | **62.5 %** | **92.1 %** | **95.3 %** |
+| Database, migrations, legacy | 79.7 % | 81.0 % | 91.0 % |
+| Bootstrap, config, QR, seed | 71.9 % | 75.9 % | 90.1 % |
+| **All PHP** (6814 lines) | **64.3 %** | **91.5 %** | **96.0 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
@@ -530,7 +534,7 @@ Release ([docs/releasing.md](docs/releasing.md)). A green CI run on `feature/ci4
 ## Project layout
 
 ```
-Dockerfile                    php:8.3-fpm-alpine by default (build arg PHP_VERSION) + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
+Dockerfile                    php:8.3.36-fpm-alpine by default (ARG PHP_VERSION) + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
 docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)

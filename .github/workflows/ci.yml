@@ -18,6 +18,7 @@ jobs:
   lint:
     name: Lint (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -74,12 +75,15 @@ jobs:
   test:
     name: Tests (${{ matrix.app }} @ PHP ${{ matrix.php }}, ${{ matrix.db }})
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         # PHP 8.4 × both apps. scripts/ci4-leg.sh accepts only legacy and ci4.
         # legacy@8.4 runs the same PHPUnit suite as legacy@8.3.
         # Lint, mobile, Playwright and Docker also run on 8.3 and 8.4.
+        # ci4 requires PHP ^8.4 (ci4/composer.json), so the 8.3 legs test legacy only.
+        # For ci4, the migration runner goldens run on 8.3 and the /healthz goldens on 8.4.
         app: [legacy, ci4]
         php: ['8.4']
         db: [sqlite, pgsql]
@@ -134,7 +138,20 @@ jobs:
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests)
         if: steps.suite.outputs.run == 'true'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zbar-tools
+        # A hung mirror once kept this step running for hours. Each apt call gets its own timeout,
+        # the whole install is retried 3 times, and the step itself stops after 15 minutes.
+        timeout-minutes: 15
+        run: |
+          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          for i in 1 2 3; do
+            if timeout 120 sudo apt-get "${apt_opts[@]}" update -qq \
+              && timeout 180 sudo apt-get "${apt_opts[@]}" install -y -qq zbar-tools; then
+              exit 0
+            fi
+            echo "zbar-tools install failed (attempt $i/3)" >&2
+            [ "$i" -lt 3 ] && sleep $((i * 15))
+          done
+          exit 1
       - name: Install dev dependencies
         if: steps.suite.outputs.run == 'true'
         run: composer install --no-interaction --no-progress --prefer-dist
@@ -183,6 +200,7 @@ jobs:
   mobile-checks:
     name: Headless mobile checks (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -266,7 +284,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        # Exact PHP patches, passed as the PHP_VERSION build-arg. 8.3 is the shipped
+        # default (Dockerfile ARG PHP_VERSION) and must match it; 8.4 is the ci4 image.
+        # ci4 requires PHP ^8.4 (ci4/composer.json), so the 8.3 leg tests legacy only.
+        include:
+          - php: '8.3'
+            php_patch: '8.3.36'
+          - php: '8.4'
+            php_patch: '8.4.27'
     services:
       postgres:
         image: postgres:17
@@ -287,9 +312,53 @@ jobs:
           load: true
           tags: apotheke:ci
           build-args: |
-            PHP_VERSION=${{ matrix.php }}
+            PHP_VERSION=${{ matrix.php_patch }}
           cache-from: type=gha,scope=php${{ matrix.php }}
           cache-to: type=gha,mode=max,scope=php${{ matrix.php }}
+      - name: Assert the image runs the pinned PHP patch
+        env:
+          BUILT: ${{ matrix.php_patch }}
+        run: |
+          set -euo pipefail
+          # The pin is the ARG PHP_VERSION default; every FROM php: line must use it.
+          # Instruction keywords are case-insensitive, as in Docker.
+          pins=$(sed -nE 's/^[Aa][Rr][Gg] PHP_VERSION=([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' Dockerfile)
+          if [ -z "$pins" ] || [ "$(printf '%s\n' "$pins" | wc -l)" -ne 1 ]; then
+            echo "Dockerfile does not pin exactly one ARG PHP_VERSION=X.Y.Z" >&2
+            exit 1
+          fi
+          pin=$pins
+          froms=0
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+              [Ff][Rr][Oo][Mm]' php:'*)
+                froms=$((froms + 1))
+                # shellcheck disable=SC2016 # a literal ${PHP_VERSION}, not an expansion
+                case "$line" in
+                  [Ff][Rr][Oo][Mm]' php:${PHP_VERSION}-fpm-alpine') ;;
+                  *)
+                    echo "Dockerfile FROM line does not use the pinned ARG PHP_VERSION" >&2
+                    exit 1
+                    ;;
+                esac
+                ;;
+            esac
+          done < Dockerfile
+          if [ "$froms" -ne 1 ]; then
+            echo "Dockerfile needs exactly one FROM php:\${PHP_VERSION}-fpm-alpine line" >&2
+            exit 1
+          fi
+          # The default must be what the same-minor leg builds, so a bump can't skip CI.
+          if [ "${BUILT%.*}" = "${pin%.*}" ] && [ "$BUILT" != "$pin" ]; then
+            echo "Dockerfile default $pin differs from the $BUILT build-arg in ci.yml" >&2
+            exit 1
+          fi
+          # Check the patch this leg actually built (the build-arg), not a fixed value.
+          pin=$BUILT
+          if ! docker run --rm -e PIN="$pin" apotheke:ci php -r 'echo "PHP_VERSION=".PHP_VERSION, PHP_EOL; exit(version_compare(PHP_VERSION, getenv("PIN"), "==") ? 0 : 1);'; then
+            echo "expected $pin" >&2
+            exit 1
+          fi
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: HEIC (Imagick lists HEIC) and startup refusal
@@ -349,6 +418,7 @@ jobs:
     name: Conventional Commits
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -360,6 +430,7 @@ jobs:
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:

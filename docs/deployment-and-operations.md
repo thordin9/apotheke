@@ -79,6 +79,13 @@ while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
 3. Pending migrations run automatically on the first request, in one transaction under a lock; or run
    `php bin/migrate.php` yourself and check with `php bin/migrate.php --status`.
 
+Bump the pinned PHP patch in the Dockerfile on each PHP security release, then rebuild with `docker compose build --pull` and restart. CI checks that the built image's PHP version matches that pin.
+
+```bash
+docker compose build --pull
+docker compose up -d
+```
+
 Notes:
 
 * **Pre-migration SQLite installs** (schema v1–v3) are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
@@ -178,9 +185,14 @@ not include the password or the DSN. The browser shows the generic error page.
 
 `php bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user
 or the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`. With `APOTHEKE_APP=ci4` the same banner comes from `apotheke:migrate`. If that variable is set and `ci4/spark` is not in the install, the command prints `APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.` and exits 1. That line has no DSN. A failed connection
-prints that same allowlist. The image sets `zend.exception_ignore_args = On`, so the exception text does not
-add the user or the password either.
+`<unparsed dsn>`. With `APOTHEKE_APP=ci4` the same banner comes from `apotheke:migrate`. If that variable is set and `ci4/spark` is not in the install, the command prints `APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.` and exits 1. That line has no DSN. When it can't connect to the database, the command prints `Could not connect to the database`
+with those same fields and exits with status 1. It does not print or log the server's own error text (that
+text names the database user), the password, or the full DSN, including when PHP includes exception arguments
+in stack traces. `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and `bin/settings.php` exit 1 with that
+same line, and `/healthz` logs it. While the database is down, every route, including CSS, the manifest and `/login`, returns 500 and the log has only that sanitized line. A SQLite file that cannot be opened still reports the engine's own error.
+With `APOTHEKE_APP=ci4`, `bin/migrate.php` and `apotheke:migrate` print the same line and exit 1, `/healthz` and `/health` answer the same
+500 with an empty body and log only that line, and an unwritable data directory exits 1 with the same message.
+The image sets `zend.exception_ignore_args = On`, so the exception text does not add the user or the password either.
 
 ## Security
 
