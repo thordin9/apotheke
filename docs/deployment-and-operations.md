@@ -265,8 +265,9 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
    first location (the Docker image uses [`docker/fastcgi.conf`](../docker/fastcgi.conf)). Keep
    `client_max_body_size 520m` in **both** locations: the check is a subrequest that sees the upload's
    `Content-Length`, and with a smaller limit nginx refuses the check itself and answers 500. nginx also turns
-   any other answer from the check into 500; the `@restore_check_failed` location passes the app's 421 for an
-   unknown host name on (hardening, #70 N-3), and nginx still logs *auth request unexpected status: 421*.
+   any other answer from the check into 500; the `@restore_check_failed` location answers 421 for an
+   unknown host name instead, with the same short text as the app's 421 (hardening, #70 N-3, #73 QA N-2), and nginx
+   still logs *auth request unexpected status: 421*.
 
    ```nginx
    location = /backup/restore {
@@ -306,7 +307,10 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
        fastcgi_param HTTP_PROXY "";
    }
    location @restore_check_failed {
-       if ($restore_check = 421) { return 421; }
+       default_type text/plain;
+       charset utf-8;
+       add_header Cache-Control no-store always;
+       if ($restore_check = 421) { return 421 "Unknown host name. Open the app by its address, or add this name to ALLOWED_HOSTS (or PUBLIC_URL).\n"; }
        return 500;
    }
    ```

@@ -54,6 +54,13 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('su -p -s /bin/sh www-data', $sh);
     }
 
+    public function testNginx421HasTheAppsText(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $this->assertSame(1, preg_match('/echo "(Unknown host name\.[^"]*)\\\\n";/', (string)file_get_contents($root . '/src/hosts.php'), $app));
+        $this->assertStringContainsString('return 421 "' . $app[1] . '\n";', (string)file_get_contents($root . '/docker/nginx.conf'), '#73 QA N-2');
+    }
+
     /** One exact X.Y.Z line, and every FROM php line is that line. Mirrors the CI sed. */
     private function pinOk(string $docker): bool
     {
