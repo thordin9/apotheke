@@ -395,6 +395,10 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   request must come from the app's own pages; see [Host names](#host-names).
 * **HSTS:** the app does not send `Strict-Transport-Security` itself, because it often runs on plain HTTP on a LAN.
   Add it in your TLS proxy (see the Caddy and nginx examples above).
+* **Stored secrets:** with `APP_KEY` set, recoverable secrets (the autofill access token) are encrypted in the
+  database. Password hashes stay hashes. The database file itself and the upload directories (photos, thumbnails,
+  camera originals, attachments) are not encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR`
+  and, for PostgreSQL, the database volume. See [Stored secrets](configuration.md#stored-secrets).
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.

@@ -157,8 +157,19 @@ function backup_create(PDO $pdo, string $driver, string $dataDir, string $zipPat
         if (!is_file($full)) { $missing[] = $f; continue; }
         $zip->addFile($full, "files/$f");
     }
+    // Catalog files are added by name. The data directory is not walked, and a key file is not an entry.
+    backup_drop_key_entries($zip);
     if (!$zip->close()) throw new RuntimeException("Cannot write $zipPath");
     return ['tables' => array_map(fn($t) => count($t['rows']), $dump['tables']), 'photos' => $n, 'missing' => $missing, 'bytes' => (int)filesize($zipPath)];
+}
+
+/** Drop a key file if one was ever added under that name. */
+function backup_drop_key_entries(ZipArchive $zip): void
+{
+    for ($i = $zip->numFiles - 1; $i >= 0; $i--) {
+        $n = str_replace('\\', '/', (string)$zip->getNameIndex($i));
+        if ($n === 'app.key' || str_ends_with($n, '/app.key')) $zip->deleteIndex($i);
+    }
 }
 
 /**

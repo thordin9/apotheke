@@ -16,6 +16,11 @@ services:
       # Without it the container refuses to start unless sign-in is already on, or ALLOW_NO_LOGIN=1 is set.
       APP_PASSWORD: ${APP_PASSWORD:-}
       ALLOW_NO_LOGIN: ${ALLOW_NO_LOGIN:-}
+      # Base64 of 32 bytes. Recommended so stored secrets are encrypted. Empty keeps them unencrypted.
+      # Generate: php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
+      APP_KEY: ${APP_KEY:-}
+      # Optional file mounted from outside the data volume. Ignored when APP_KEY is set.
+      APP_KEY_FILE: ${APP_KEY_FILE:-}
       # sqlite (default, stored in ./data/catalog.sqlite) or pgsql (start with: docker compose --profile postgres up -d)
       DB_DRIVER: ${DB_DRIVER:-sqlite}
       DB_HOST: ${DB_HOST:-postgres}
