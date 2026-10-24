@@ -61,7 +61,7 @@ final class DsnTranslatorTest extends TestCase
         ];
         foreach ($passwords as $password => $fragment) {
             $group = $this->translator->fromPdoDsn(
-                'pgsql:host=db.example;port=5432;dbname=apotheke;application_name=my app',
+                "pgsql:host=db.example;port=5432;dbname=apotheke;application_name='my app'",
                 ['user' => 'apotheke', 'password' => $password]
             );
             $dsn = (string)$group['DSN'];
@@ -92,16 +92,53 @@ final class DsnTranslatorTest extends TestCase
         $this->assertStringContainsString("host='db.example'", (string)$group['DSN']);
         $this->assertStringContainsString("password='s9d44'", (string)$group['DSN']);
 
-        $kept = $this->translator->fromPdoDsn(
+        $trailing = $this->translator->fromPdoDsn(
             'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44 ',
             []
         );
-        $this->assertSame('s9d44 ', $kept['password']);
+        $this->assertSame('s9d44', $trailing['password']);
 
         $log = DsnTranslator::logLine('pgsql', $dsn);
         $this->assertSame('Database pgsql host=db.example port=5432 dbname=catalog', $log);
         $this->assertStringNotContainsString('s9d44', $log);
         $this->assertStringNotContainsString('password', $log);
+    }
+
+    /** PDO turns ";" into a space; libpq ends an unquoted value at whitespace and unquotes a quoted one (QA #53 L-D). */
+    public function testValuesAreReadTheWayLibpqReadsThem(): void
+    {
+        $base = 'pgsql:host=db.example;port=5432;dbname=catalog;';
+        $passwords = [
+            'password=PwA1 ;sslmode=disable' => 'PwA1',
+            'password = PwA1 ' => 'PwA1',
+            "password='Pw A1'" => 'Pw A1',
+            "password='it\\'s;x'" => "it's x",
+            'password=a\\ b' => 'a b',
+            'password=PwA1;password = PwA2' => 'PwA2',
+        ];
+        foreach ($passwords as $tail => $expected) {
+            $group = $this->translator->fromPdoDsn($base . $tail, []);
+            $this->assertSame($expected, $group['password'], $tail);
+            $this->assertStringContainsString($this->libpqPassword($expected), (string)$group['DSN'], $tail);
+        }
+
+        $sslmode = $this->translator->fromPdoDsn($base . 'password=PwA1 ;sslmode=disable', []);
+        $this->assertSame('disable', $sslmode['sslmode']);
+
+        $empty = $this->translator->fromPdoDsn($base . 'password =', ['password' => 'fromEnv']);
+        $this->assertSame('', $empty['password']);
+        $this->assertStringNotContainsString('password=', (string)$empty['DSN']);
+
+        $spaced = $this->translator->fromPdoDsn('pgsql:host = db.example ; port = 5432 ; dbname = catalog ;', []);
+        $this->assertSame('db.example', $spaced['hostname']);
+        $this->assertSame(5432, $spaced['port']);
+        $this->assertSame('catalog', $spaced['database']);
+
+        // libpq rejects these as syntax errors, so boot stops on them too.
+        $this->expectBad($base . 'password=Pw A1');
+        $this->expectBad($base . "password='PwA1");
+        $this->expectBad($base . '=PwA1');
+        $this->expectBad($base . 'password');
     }
 
     public function testSpacedUserMapsToTheUsername(): void
@@ -146,6 +183,11 @@ final class DsnTranslatorTest extends TestCase
             $this->assertSame('Database pgsql host=localhost dbname=app', $log);
             $this->assertStringNotContainsString('s3cret', $log);
         }
+    }
+
+    private function libpqPassword(string $value): string
+    {
+        return "password='" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
     }
 
     private function expectBad(string $dsn): void

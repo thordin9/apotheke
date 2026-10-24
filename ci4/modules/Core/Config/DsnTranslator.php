@@ -134,29 +134,19 @@ final class DsnTranslator
     }
 
     /**
-     * PDO still splits on ";". libpq ignores whitespace around a key and around "=".
-     * Only the whitespace after "=" is removed from the value.
+     * Keywords the way PDO pgsql and libpq read them: PDO turns every ";" into a
+     * space, then libpq ignores whitespace around a key and "=", ends an unquoted
+     * value at whitespace, and unquotes and unescapes a quoted one. The parser is
+     * the legacy config_dsn_keywords(), so the log line and the connect string
+     * read the same values. Keys come back lower-cased.
      *
      * @return array<string,string>
      */
     private function pairs(string $body, string $dsn): array
     {
-        $out = [];
-        foreach (explode(';', $body) as $part) {
-            if ($part === '') {
-                continue;
-            }
-            $bits = explode('=', $part, 2);
-            if (count($bits) !== 2) {
-                $this->bad($dsn);
-            }
-            $key = trim($bits[0]);
-            if ($key === '') {
-                $this->bad($dsn);
-            }
-            $out[$key] = ltrim($bits[1]);
-        }
-        if ($out === []) {
+        require_once dirname(__DIR__, 4) . '/src/config.php';
+        $out = config_dsn_keywords(str_replace(';', ' ', $body));
+        if ($out === null || $out === []) {
             $this->bad($dsn);
         }
 
