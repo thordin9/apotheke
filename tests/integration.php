@@ -44,6 +44,8 @@ T::eq(0, (int)$db->query('SELECT COUNT(*) FROM locations')->fetchColumn() + (int
 T::eq([], glob("$dir/catalog-v*-backup-*.sqlite"), 'no backup snapshot on fresh install');
 $r = $c->get('/');
 T::eq(200, $r['status'], 'list page renders');
+T::eq(200, $c->get('/?page=9223372036854775807')['status'], 'a very large catalog page is a normal page');
+T::eq(200, $c->get('/activity?page=9223372036854775807')['status'], 'a very large activity page is a normal page');
 T::ok(str_contains($r['body'], '<title>Apotheke – the storehouse for your stuff</title>'), 'branded <title>');
 T::ok(!str_contains($r['body'], 'stats-box'), 'Overview hidden while catalog is empty');
 T::ok(str_contains($r['body'], 'Your catalog is empty'), 'friendly empty state');
@@ -2303,6 +2305,122 @@ if (test_driver() !== 'pgsql') {
     $srv2->stop();
 }
 
+
+T::section('Sign-in settings follow the caller');
+$hd = $newDir('harden');
+$hs = new Server($hd, ['TRUSTED_PROXIES' => '127.0.0.1,192.0.2.1']);
+$hc = $hs->client();
+$ht = $hc->csrf();
+T::eq(303, $hc->post('/settings/password', ['csrf' => $ht, 'mode' => 'change', 'username' => 'root', 'new' => 'root-password', 'confirm' => 'root-password'])['status'], 'accounts on for the permission checks');
+$hdb = testdb($hd);
+$ht = $hc->csrf();
+foreach (['Panel' => ['view', 'settings'], 'Helpdesk' => ['view', 'users', 'settings'], 'Archivist' => ['view', 'backup']] as $name => $perms) {
+    T::ok(str_contains($hc->post('/settings/roles', ['csrf' => $ht, 'name' => $name, 'perms' => $perms])['headers']['location'] ?? '', 'done=role-added'), "role $name created");
+}
+foreach (['panel' => 'panel', 'help' => 'helpdesk', 'arch' => 'archivist'] as $user => $role) {
+    T::ok(str_contains($hc->post('/settings/users', ['csrf' => $ht, 'username' => $user, 'role' => $role, 'new' => 'role-password', 'confirm' => 'role-password'])['headers']['location'] ?? '', 'done=user-added'), "user $user created");
+}
+$sign = function (string $name) use ($hs): Client {
+    $c = $hs->client();
+    $c->post('/login', ['csrf' => $c->csrf(), 'username' => $name, 'password' => $name === 'root' ? 'root-password' : 'role-password']);
+    return $c;
+};
+$help = $sign('help');
+$helpId = (int)$hdb->query("SELECT id FROM users WHERE username = 'help'")->fetchColumn();
+T::eq(403, $help->post('/settings/users/' . $helpId . '/role', ['csrf' => $help->csrf(), 'role' => 'admin'])['status'], 'Users permission cannot grant admin');
+T::eq('helpdesk', $hdb->query("SELECT role FROM users WHERE username = 'help'")->fetchColumn(), 'the account stays helpdesk');
+T::eq(403, $help->post('/settings/password', ['csrf' => $help->csrf(), 'mode' => 'disable', 'current' => 'role-password'])['status'], 'Users permission cannot turn sign-in off');
+T::ok(auth_on_db($hdb), 'sign-in stays on');
+T::ok(str_contains($hc->post('/settings/users/' . $helpId . '/role', ['csrf' => $ht, 'role' => 'admin'])['headers']['location'] ?? '', 'done=user-role'), 'an admin can still grant admin');
+T::eq('admin', $hdb->query("SELECT role FROM users WHERE id = $helpId")->fetchColumn(), 'the account is admin');
+$hc->post('/settings/users/' . $helpId . '/role', ['csrf' => $ht, 'role' => 'helpdesk']);
+$panel = $sign('panel');
+$import = ['format' => 'apotheke-settings', 'settings' => [
+    'app_name' => 'Panel shed', 'auth_register_disabled' => false, 'auth_guest_disabled' => false,
+    'auth_register_role' => 'editor', 'auth_register_approval' => true, 'session_days' => 7, 'trust_proxy' => true,
+]];
+$im = $panel->post('/settings/import', ['csrf' => $panel->csrf(), 'json' => json_encode($import)]);
+T::ok(str_contains($im['body'], 'Imported') && str_contains($im['body'], 'auth_register_disabled'), 'a Settings account is told the sign-in keys were left out');
+T::eq('Panel shed', json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'app_name'")->fetchColumn(), true), 'other settings still import');
+T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_disabled'")->fetchColumn(), true), 'registration stays closed');
+T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_guest_disabled'")->fetchColumn(), true), 'guest browsing stays off');
+T::eq('viewer', json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_role'")->fetchColumn(), true), 'the registration role stays viewer');
+$help = $sign('help');
+$helpImport = ['format' => 'apotheke-settings', 'settings' => ['auth_register_disabled' => false, 'auth_guest_disabled' => false]];
+T::ok(str_contains($help->post('/settings/import', ['csrf' => $help->csrf(), 'json' => json_encode($helpImport)])['body'], 'Imported 2'), 'Users permission can import sign-in settings');
+T::eq(false, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_disabled'")->fetchColumn(), true), 'registration setting changed');
+$hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '0']);
+$zipBytes = $sign('arch')->get('/backup.zip')['body'];
+$zpath = tempnam(sys_get_temp_dir(), 'hz');
+file_put_contents($zpath, $zipBytes);
+$z = new ZipArchive();
+T::ok($z->open($zpath) === true, 'backup zip opens');
+$zdump = json_decode((string)$z->getFromName('backup.json'), true);
+$zdump['settings']['app_name'] = 'From zip';
+$zdump['settings']['auth_guest_disabled'] = false;
+$zdump['settings']['auth_register_disabled'] = false;
+$z->deleteName('backup.json');
+$z->addFromString('backup.json', json_encode($zdump));
+$z->close();
+$edited = (string)file_get_contents($zpath);
+@unlink($zpath);
+$restore = function (Client $c, string $bytes) {
+    $prev = $c->post('/backup/restore', ['csrf' => $c->csrf()], ['backup' => ['name' => 'b.zip', 'type' => 'application/zip', 'data' => $bytes]]);
+    T::ok(preg_match('/name="token" value="([a-f0-9]+)"/', $prev['body'], $m) === 1, 'restore preview has a token');
+    return $c->post('/backup/restore/confirm', ['csrf' => $c->csrf(), 'token' => $m[1] ?? '', 'confirm' => '1']);
+};
+$arch = $sign('arch');
+T::ok(str_contains($restore($arch, $edited)['headers']['location'] ?? '', 'restored='), 'a Backup account can restore');
+T::eq('From zip', json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'app_name'")->fetchColumn(), true), 'restore applies the catalog settings');
+T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_guest_disabled'")->fetchColumn(), true), 'restore leaves guest browsing alone');
+T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_disabled'")->fetchColumn(), true), 'restore leaves registration alone');
+$hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '0']);
+$rootAgain = $sign('root');
+T::ok(str_contains($restore($rootAgain, $edited)['headers']['location'] ?? '', 'restored='), 'an admin restore applies the file');
+T::eq(false, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_guest_disabled'")->fetchColumn(), true), 'an admin restore can change guest browsing');
+// sign-in limit: one client, two accounts
+$hdb->exec('DELETE FROM auth_attempts');
+$codes = [];
+for ($i = 0; $i < 10; $i++) $codes[] = ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'])['status'];
+T::eq(401, $codes[0], 'a wrong password is refused');
+$other = $hs->client();
+T::eq(401, $other->post('/login', ['csrf' => $other->csrf(), 'username' => 'panel', 'password' => 'wrong'])['status'], 'another account is not blocked by those attempts');
+T::eq(429, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'])['status'], 'that account is limited');
+// X-Forwarded-For is ignored until the proxy is trusted
+$hdb->exec('DELETE FROM auth_attempts');
+for ($i = 0; $i < 10; $i++) ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.20']);
+T::eq(429, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.21'])['status'], 'without trust_proxy the forwarded address is not the client');
+T::eq(303, $hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '1'])['status'], 'trust the proxy');
+$hdb->exec('DELETE FROM auth_attempts');
+for ($i = 0; $i < 10; $i++) ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.20']);
+T::eq(401, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.21'])['status'], 'a different forwarded client has its own limit');
+T::eq(429, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 203.0.113.9, 192.0.2.20'])['status'], 'the rightmost untrusted hop is the client');
+$hdb->exec('DELETE FROM auth_attempts');
+for ($i = 0; $i < 10; $i++) ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 203.0.113.9, 198.51.100.8']);
+T::eq(429, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.50, 198.51.100.8'])['status'], 'a spoofed left-hand address does not change the client');
+T::eq(401, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 198.51.100.9'])['status'], 'a different rightmost hop is a different client');
+$hs->stop();
+$ud = $newDir('untrusted-proxy');
+$us = new Server($ud, ['TRUSTED_PROXIES' => '192.0.2.10']);
+$uc = $us->client();
+$uc->post('/settings/password', ['csrf' => $uc->csrf(), 'mode' => 'change', 'username' => 'root', 'new' => 'root-password', 'confirm' => 'root-password']);
+$ut = $uc->csrf();
+$uc->post('/settings/security', ['csrf' => $ut, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '1']);
+$udb = testdb($ud);
+$udb->exec('DELETE FROM auth_attempts');
+for ($i = 0; $i < 10; $i++) ($x = $us->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.20']);
+T::eq(429, ($x = $us->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.21'])['status'], 'a forwarded address from an unconfigured peer is ignored');
+$us->stop();
+
+T::section('Database line hides the password');
+$dsnDir = $newDir('dsn-label');
+$dsn = 'pgsql:host=192.0.2.10; port = 5432; password = spaced-secret; dbname=catalog';
+$dsnCode = 'require "src/bootstrap.php"; foreach (settings_bootstrap_info() as $row) echo $row[0], "=", $row[1], "\n";';
+$dsnEnv = 'DATA_DIR=' . escapeshellarg($dsnDir) . ' APOTHEKE_CONFIG=/nonexistent DB_DRIVER=pgsql DB_DSN=' . escapeshellarg($dsn);
+$dsnOut = (string)shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . $dsnEnv . ' php -r ' . escapeshellarg($dsnCode) . ' 2>/dev/null');
+T::ok(str_contains($dsnOut, 'host=192.0.2.10') && str_contains($dsnOut, 'port=5432') && str_contains($dsnOut, 'dbname=catalog'), 'the database line shows host, port and dbname', $dsnOut);
+T::ok(!str_contains($dsnOut, 'spaced-secret'), 'the database line omits the password', $dsnOut);
+
 if (test_driver() !== 'sqlite') { fwrite(STDOUT, "\n  - skipped legacy SQLite v1/v2 upgrade tests (driver " . test_driver() . ")\n"); exit(T::summary()); }
 
 /* ======================================================================= */
@@ -2387,6 +2505,7 @@ $p = sqlite("$mr/catalog.sqlite");
 T::eq(2, (int)$p->query('PRAGMA user_version')->fetchColumn(), 'database left at v2');
 T::eq(0, (int)$p->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('categories', 'schema_migrations')")->fetchColumn(), 'partial changes rolled back (no categories, no schema_migrations)');
 T::eq(3, (int)$p->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'no items lost');
+
 
 require __DIR__ . '/integration_autofill.php';
 

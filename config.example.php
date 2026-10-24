@@ -35,4 +35,8 @@ return [
     'expiry_soon_days' => 30,                 // EXPIRY_SOON_DAYS  "Expiring soon" window in days (1–3650)
     'public_url'    => '',                    // PUBLIC_URL     base URL in QR labels, e.g. http://192.168.1.10:9091 (default: from the request)
     'seed_defaults' => true,                  // SEED_DEFAULTS  starter locations/categories on a new database
+    // Addresses of your own reverse proxies (comma-separated in TRUSTED_PROXIES). Used only when
+    // Control Panel → Users & sign-in → Trust the reverse proxy is on, and only for the sign-in
+    // limit: X-Forwarded-For is read when the connection comes from one of these addresses.
+    'trusted_proxies' => [],                  // TRUSTED_PROXIES  e.g. ['127.0.0.1', '192.0.2.0/24']
 ];

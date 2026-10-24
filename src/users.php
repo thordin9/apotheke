@@ -84,6 +84,7 @@ function user_create(string $name, string $password, string $role, ?string $conf
 {
     $name = user_name_valid($name);
     $role = user_role_valid($role);
+    if ($role === 'admin' && !actor_is_admin()) throw new UserError('Only an admin can grant the admin role.', 403);
     $password = user_password_valid($password, $confirm);
     $id = db_insert(db(), 'INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?,?,?,?,?,?)',
         [$name, user_key($name), password_hash($password, PASSWORD_DEFAULT), $role, $status === 'pending' ? 'pending' : 'active', now_utc()]);
@@ -111,6 +112,7 @@ function user_set_role(int $id, string $role): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
     $role = user_role_valid($role);
+    if ($role === 'admin' && !actor_is_admin()) throw new UserError('Only an admin can grant the admin role.', 403);
     user_guard_admin($u, $role);
     db()->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $id]);
     roles(true);
@@ -180,6 +182,7 @@ function auth_turn_on(): void
 
 function auth_turn_off(): void
 {
+    if (!actor_is_admin()) throw new UserError('Only an admin can turn sign-in off.', 403);
     settings_store(['auth_enabled' => false]);
 }
 
@@ -238,33 +241,97 @@ function user_can(string $perm, ?array $u = null): bool
     return role_has($u['role'], $perm);
 }
 
+/** The signed-in account has $perm. The command line does; a request with nobody signed in does not. */
+function caller_has(string $perm): bool
+{
+    $u = current_user();
+    if ($u === null) return PHP_SAPI === 'cli';
+    return user_can($perm, $u);
+}
+
+/** An admin account, or the command line. Granting admin and turning sign-in off need this. */
+function actor_is_admin(): bool
+{
+    $u = current_user();
+    if ($u === null) return PHP_SAPI === 'cli';
+    return ($u['role'] ?? '') === 'admin';
+}
+
 /* ---------- rate limiting (sign-in, registration) ---------- */
 
 const RATE_LIMITS = ['login' => [10, 900], 'register' => [5, 3600]];
 
-function client_key(): string
+/**
+ * Address of the browser. X-Forwarded-For counts only when “Trust the reverse proxy” is on and the
+ * connection came from a configured proxy (trusted_proxies). The client is then the rightmost hop
+ * that is not itself a configured proxy. Otherwise this is REMOTE_ADDR.
+ * @param list<string> $proxies
+ */
+function client_address_from(string $remote, string $forwarded, bool $trustProxy, array $proxies): string
 {
-    return substr(hash('sha256', (string)($_SERVER['REMOTE_ADDR'] ?? 'cli')), 0, 32);
+    $remote = trim($remote);
+    if ($remote === '') $remote = 'cli';
+    $pick = static function (string $ip): string {
+        $norm = config_ip_normalize($ip);
+        return $norm ?? $ip;
+    };
+    if (!$trustProxy || $proxies === [] || !config_proxy_allows($remote, $proxies)) return $pick($remote);
+    $hops = [];
+    foreach (explode(',', $forwarded) as $part) {
+        $part = trim($part);
+        if ($part !== '') $hops[] = $part;
+    }
+    $hops[] = $remote;
+    $untrusted = [];
+    foreach ($hops as $hop) if (!config_proxy_allows($hop, $proxies)) $untrusted[] = $hop;
+    if ($untrusted === []) return $pick($remote);
+    return $pick($untrusted[array_key_last($untrusted)]);
 }
 
-/** Throws 429 when $kind was tried too often from this address; otherwise records the attempt. */
-function rate_limit(string $kind): void
+function client_address(): string
+{
+    try { $trust = (bool)setting('trust_proxy'); } catch (Throwable) { $trust = false; }
+    $proxies = cfg()['trusted_proxies'] ?? [];
+    return client_address_from(
+        (string)($_SERVER['REMOTE_ADDR'] ?? ''),
+        (string)($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''),
+        $trust,
+        is_array($proxies) ? $proxies : []
+    );
+}
+
+/** Sign-in includes the account, so one client cannot use up the limit for every account. */
+function client_key(?string $account = null): string
+{
+    $material = $account === null ? client_address() : client_address() . "\0" . $account;
+    return substr(hash('sha256', $material), 0, 32);
+}
+
+function rate_bucket(string $kind, ?string $account): string
+{
+    return client_key($kind === 'login' ? user_key((string)$account) : null);
+}
+
+/** Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the attempt. */
+function rate_limit(string $kind, ?string $account = null): void
 {
     [$max, $window] = RATE_LIMITS[$kind];
     $now = app_time();
+    $key = rate_bucket($kind, $account);
     $pdo = db();
     $pdo->prepare('DELETE FROM auth_attempts WHERE at < ?')->execute([$now - 86400]);
     $st = $pdo->prepare('SELECT COUNT(*) FROM auth_attempts WHERE kind = ? AND client = ? AND at >= ?');
-    $st->execute([$kind, client_key(), $now - $window]);
+    $st->execute([$kind, $key, $now - $window]);
     if ((int)$st->fetchColumn() >= $max) {
-        throw new UserError('Too many attempts from this address – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
+        $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
+        throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
     }
-    $pdo->prepare('INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)')->execute([$kind, client_key(), $now]);
+    $pdo->prepare('INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)')->execute([$kind, $key, $now]);
 }
 
-function rate_limit_clear(string $kind): void
+function rate_limit_clear(string $kind, ?string $account = null): void
 {
-    db()->prepare('DELETE FROM auth_attempts WHERE kind = ? AND client = ?')->execute([$kind, client_key()]);
+    db()->prepare('DELETE FROM auth_attempts WHERE kind = ? AND client = ?')->execute([$kind, rate_bucket($kind, $account)]);
 }
 
 /** Self-registration: creates an account with the configured role (pending when approval is required). */

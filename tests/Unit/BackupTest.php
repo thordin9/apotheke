@@ -89,6 +89,43 @@ final class BackupTest extends DatabaseTestCase
         return ['pgsql', $this->other];
     }
 
+    public function testRestoreSkipsSignInSettingsWithoutUsersPermission(): void
+    {
+        settings_cache(null, true);
+        roles(true);
+        current_user(null, true);
+        user_create('root', 'long-enough', 'admin');
+        $backup = role_create('Archivist', ['view', 'backup']);
+        $desk = role_create('Helpdesk', ['view', 'users', 'backup']);
+        $archivist = user_create('archivist', 'long-enough', $backup);
+        $help = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        $this->assertTrue(setting('auth_guest_disabled'));
+        $dump = backup_dump($this->pdo, $this->driver);
+        $dump['settings']['app_name'] = 'From backup';
+        $dump['settings']['auth_guest_disabled'] = false;
+        $dump['settings']['auth_register_disabled'] = false;
+        $zip = $this->zipWith(['backup.json' => $dump]);
+        try {
+            current_user(user_get($archivist) + ['guest' => false, 'anon' => false]);
+            backup_restore($this->pdo, $this->driver, $this->dataDir(), $zip);
+            settings_cache(null, true);
+            $this->assertSame('From backup', setting('app_name'));
+            $this->assertTrue(setting('auth_guest_disabled'));
+            $this->assertTrue(setting('auth_register_disabled'));
+            current_user(user_get($help) + ['guest' => false, 'anon' => false]);
+            backup_restore($this->pdo, $this->driver, $this->dataDir(), $zip);
+            settings_cache(null, true);
+            $this->assertFalse(setting('auth_guest_disabled'));
+            $this->assertFalse(setting('auth_register_disabled'));
+        } finally {
+            current_user(null, true);
+            roles(true);
+            settings_cache(null, true);
+        }
+    }
+
     public function testRoundTripRestoresEverythingExactly(): void
     {
         $src = $this->dataDir();

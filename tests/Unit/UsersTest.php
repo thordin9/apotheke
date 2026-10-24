@@ -49,6 +49,63 @@ final class UsersTest extends DatabaseTestCase
         $this->assertSame(1, users_count());
     }
 
+    public function testOnlyAnAdminCanGrantTheAdminRole(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        try {
+            try {
+                user_set_role($id, 'admin');
+                $this->fail('a Users account granted itself admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertSame($desk, user_get($id)['role']);
+            try {
+                user_create('extra', 'long-enough', 'admin');
+                $this->fail('a Users account created an admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertNull(user_by_name('extra'));
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            user_set_role($id, 'admin');
+            $this->assertSame('admin', user_get($id)['role']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
+    public function testOnlyAnAdminCanTurnSignInOff(): void
+    {
+        $root = user_create('root', 'long-enough', 'admin');
+        $desk = role_create('Helpdesk', ['view', 'users']);
+        $id = user_create('desk', 'long-enough', $desk);
+        auth_turn_on();
+        settings_cache(null, true);
+        current_user(user_get($id) + ['guest' => false, 'anon' => false]);
+        try {
+            try {
+                auth_turn_off();
+                $this->fail('a Users account turned sign-in off');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            settings_cache(null, true);
+            $this->assertTrue(auth_enabled());
+            current_user(user_get($root) + ['guest' => false, 'anon' => false]);
+            auth_turn_off();
+            settings_cache(null, true);
+            $this->assertFalse(auth_enabled());
+        } finally {
+            current_user(null, true);
+        }
+    }
+
     public function testPasswordChangeInvalidatesEpoch(): void
     {
         $id = user_create('pat', 'long-enough', 'viewer');

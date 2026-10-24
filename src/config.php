@@ -31,6 +31,7 @@ const CONFIG_ENV_MAP = [
     'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
     'SEED_DEFAULTS'   => 'seed_defaults',
     'ORIGINALS_DIR'   => 'originals_dir',
+    'TRUSTED_PROXIES' => 'trusted_proxies',
 ];
 
 function config_defaults(string $root): array
@@ -61,6 +62,7 @@ function config_defaults(string $root): array
         'public_url'    => '',             // base URL printed in QR labels; default: from the request
         'seed_defaults' => true,         // starter locations/categories on a brand-new database
         'originals_dir' => '',           // camera uploads; empty = <data_dir>/originals (outside public/)
+        'trusted_proxies' => [],         // addresses allowed to set X-Forwarded-For when trust_proxy is on
     ];
 }
 
@@ -98,6 +100,7 @@ function config_load(string $root, ?string $file, array $env): array
     $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
     $cfg['app_password'] = (string)$cfg['app_password'];
     $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
+    $cfg['trusted_proxies'] = config_proxy_list($cfg['trusted_proxies'] ?? []);
     return $cfg;
 }
 
@@ -225,6 +228,74 @@ function config_dsn_keywords(string $rest): ?array
 function config_dsn_is_sep(string $ch): bool
 {
     return $ch === ';' || ctype_space($ch);
+}
+
+/** @return list<string> IP addresses and CIDR blocks. Anything else is dropped. */
+function config_proxy_list(mixed $raw): array
+{
+    if (is_string($raw)) $raw = preg_split('/[\s,]+/', trim($raw), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    if (!is_array($raw)) return [];
+    $out = [];
+    foreach ($raw as $item) {
+        if (!is_string($item) && !is_int($item)) continue;
+        $item = trim((string)$item);
+        if ($item === '' || !config_proxy_rule_ok($item)) continue;
+        $out[] = $item;
+    }
+    return array_values(array_unique($out));
+}
+
+function config_proxy_rule_ok(string $rule): bool
+{
+    if (!str_contains($rule, '/')) return config_ip_normalize($rule) !== null;
+    [$net, $bits] = explode('/', $rule, 2);
+    if ($bits === '' || !ctype_digit($bits)) return false;
+    $ip = config_ip_normalize($net);
+    if ($ip === null) return false;
+    return (int)$bits <= (str_contains($ip, ':') ? 128 : 32);
+}
+
+/** Canonical IPv4 or IPv6 text, or null when $ip is not an address. */
+function config_ip_normalize(string $ip): ?string
+{
+    $ip = trim($ip);
+    if ($ip !== '' && $ip[0] === '[' && str_ends_with($ip, ']')) $ip = substr($ip, 1, -1);
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) return $ip;
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) return null;
+    $packed = inet_pton($ip);
+    return $packed === false ? null : inet_ntop($packed);
+}
+
+function config_ip_matches(string $ip, string $rule): bool
+{
+    $ip = config_ip_normalize($ip);
+    if ($ip === null) return false;
+    if (!str_contains($rule, '/')) {
+        $ruleIp = config_ip_normalize($rule);
+        return $ruleIp !== null && $ip === $ruleIp;
+    }
+    [$net, $bits] = explode('/', $rule, 2);
+    if ($bits === '' || !ctype_digit($bits)) return false;
+    $netIp = config_ip_normalize($net);
+    if ($netIp === null) return false;
+    $ipBin = inet_pton($ip);
+    $netBin = inet_pton($netIp);
+    if ($ipBin === false || $netBin === false || strlen($ipBin) !== strlen($netBin)) return false;
+    $bitsN = (int)$bits;
+    $max = strlen($ipBin) * 8;
+    if ($bitsN > $max) return false;
+    $bytes = intdiv($bitsN, 8);
+    $rest = $bitsN % 8;
+    if ($bytes > 0 && substr($ipBin, 0, $bytes) !== substr($netBin, 0, $bytes)) return false;
+    if ($rest === 0) return true;
+    $mask = (0xFF << (8 - $rest)) & 0xFF;
+    return (ord($ipBin[$bytes]) & $mask) === (ord($netBin[$bytes]) & $mask);
+}
+
+function config_proxy_allows(string $ip, array $proxies): bool
+{
+    foreach ($proxies as $rule) if (is_string($rule) && config_ip_matches($ip, $rule)) return true;
+    return false;
 }
 
 /** The process-wide configuration (read once per request from getenv()). */

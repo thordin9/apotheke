@@ -168,6 +168,56 @@ final class PermissionsTest extends DatabaseTestCase
         unset($_SERVER['REMOTE_ADDR']);
     }
 
+    public function testSignInLimitIsPerClientAndAccount(): void
+    {
+        $_SERVER['REMOTE_ADDR'] = '192.0.2.8';
+        unset($_SERVER['HTTP_X_FORWARDED_FOR']);
+        try {
+            for ($i = 0; $i < 10; $i++) rate_limit('login', 'Ada');
+            try {
+                rate_limit('login', 'ada');
+                $this->fail('the same account was not limited');
+            } catch (UserError $e) {
+                $this->assertSame(429, $e->getCode());
+            }
+            rate_limit('login', 'bea');
+            $this->addToAssertionCount(1);
+            rate_limit_clear('login', 'bea');
+            try {
+                rate_limit('login', 'ada');
+                $this->fail('clearing another account cleared this one');
+            } catch (UserError $e) {
+                $this->assertSame(429, $e->getCode());
+            }
+            $_SERVER['REMOTE_ADDR'] = '192.0.2.9';
+            rate_limit('login', 'ada');
+            $this->addToAssertionCount(1);
+            for ($i = 0; $i < 5; $i++) rate_limit('register', 'user' . $i);
+            try {
+                rate_limit('register', 'user-new');
+                $this->fail('registration limit followed the account name');
+            } catch (UserError $e) {
+                $this->assertSame(429, $e->getCode());
+            }
+        } finally {
+            unset($_SERVER['REMOTE_ADDR'], $_SERVER['HTTP_X_FORWARDED_FOR']);
+        }
+    }
+
+    public function testClientAddressUsesForwardedForOnlyFromConfiguredProxies(): void
+    {
+        $proxies = ['192.0.2.1', '2001:db8::1', '192.0.2.0/24'];
+        $this->assertSame('192.0.2.1', client_address_from('192.0.2.1', '198.51.100.20', false, $proxies));
+        $this->assertSame('203.0.113.4', client_address_from('203.0.113.4', '198.51.100.20', true, $proxies));
+        $this->assertSame('192.0.2.1', client_address_from('192.0.2.1', '198.51.100.20', true, []));
+        $this->assertSame('198.51.100.20', client_address_from('192.0.2.1', '198.51.100.20', true, $proxies));
+        $this->assertSame('198.51.100.20', client_address_from('192.0.2.1', '203.0.113.9, 198.51.100.20', true, $proxies));
+        $this->assertSame('198.51.100.20', client_address_from('192.0.2.1', '198.51.100.20, 2001:db8::1', true, $proxies));
+        $this->assertSame('198.51.100.20', client_address_from('192.0.2.15', '198.51.100.20', true, $proxies));
+        $this->assertSame('192.0.3.15', client_address_from('192.0.3.15', '198.51.100.20', true, $proxies));
+        $this->assertSame('192.0.2.1', client_address_from('192.0.2.1', '192.0.2.1', true, $proxies));
+    }
+
     public function testMigrationConvertsRoles(): void
     {
         $this->assertSame(['admin', 'editor', 'viewer', 'guest'], array_keys(roles()));
