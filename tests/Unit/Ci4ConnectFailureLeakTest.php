@@ -154,8 +154,13 @@ final class Ci4ConnectFailureLeakTest extends TestCase
         $logs = $this->ci4LogsSince($before);
         // Two logins got in (trust_proxy, runner); CI4's third was refused before the trigger.
         $this->assertSame(2, (int)$this->admin->query('SELECT last_value FROM public.lk_seq_' . $this->tag)->fetchColumn());
-        $this->assertNotSame(200, $hit['status'], $hit['body'] . $hit['log'] . $logs);
-        $this->assertStringContainsString('Unable to connect to the database.', $hit['log'] . $logs);
+        // Like legacy db(): 500, an empty body and only the allowlisted line (#58).
+        $this->assertSame(500, $hit['status'], $hit['body'] . $hit['log'] . $logs);
+        $this->assertSame('', $hit['body']);
+        $this->assertStringContainsString('Could not connect to the database (pgsql – ', $hit['log']);
+        // With pg_connect muted, CI4 has no libpq text to log: nothing reaches writable/logs.
+        $this->assertStringNotContainsString('password authentication failed', $hit['log'] . $logs);
+        $this->assertStringNotContainsString('Error connecting to the database', $logs);
         $this->assertNoValues('pg_connect', $hit['body'] . "\n" . $hit['log'] . "\n" . $logs, $case);
     }
 
