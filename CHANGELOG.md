@@ -7,6 +7,8 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.6.10] - 2026-10-24
+
 **Upgrade note:** a new install's `APP_PASSWORD` now needs at least 8 characters, not only spaces (hardening, #75 QA L-2). A shorter one stops the first start with a message that doesn't show it. An install that already has an account is unaffected.
 
 ### Fixed
@@ -17,6 +19,20 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ### Maintenance
 
+- **docker:** test: cover the exit 78 when the database can't be read ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** docs: say what the sign-in start check may change ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docker:** docs: bind the 1.x upgrade port examples to 127.0.0.1 ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **hosts:** docs: name the 2.6.2 Host rule that health checks follow ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **hosts:** docs: say PUBLIC_URL only works on a new install ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **health:** docs: use a version placeholder in the /health example ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: cover a failing account query and the admin seed ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: give the APP_PASSWORD fixtures 8 or more characters ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **docker:** test: rewrap the sign-in checks header ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **changelog:** docs: record the SEC-M3 follow-up hardening ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: settings CLI exits 1 on a short APP_PASSWORD ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **auth:** test: give the idle-session fixture an 8-character password ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **qa:** docs: add v2.6.9 release QA ([#81](https://github.com/thordin9/apotheke/pull/81))
+- **qa:** docs: add PR #81 SEC-M3 follow-up QA ([#81](https://github.com/thordin9/apotheke/pull/81))
 - **docs:** health checks follow the Host rule from 2.6.2, `PUBLIC_URL` only works on a new install (an existing one uses Control Panel → General), the `/health` example uses a version placeholder, the 1.x upgrade port examples bind to `127.0.0.1`, and the start check's wording says what it may change (#73 QA L-1, v2.6.2 release QA L-1 and N-4, #75 QA N-1 and N-3). ([#81](https://github.com/thordin9/apotheke/pull/81))
 
 ## [2.6.9] - 2026-10-24
@@ -589,7 +605,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.9...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.10...HEAD
+[2.6.10]: https://github.com/thordin9/apotheke/compare/v2.6.9...v2.6.10
 [2.6.9]: https://github.com/thordin9/apotheke/compare/v2.6.8...v2.6.9
 [2.6.8]: https://github.com/thordin9/apotheke/compare/v2.6.7...v2.6.8
 [2.6.7]: https://github.com/thordin9/apotheke/compare/v2.6.6...v2.6.7

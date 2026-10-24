@@ -435,7 +435,7 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Items, search, bulk, lending | 88.9 % | 90.6 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 93.6 % | 90.0 % | 96.4 % |
+| Users & roles | 94.1 % | 89.4 % | 96.9 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
@@ -443,9 +443,9 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Views (HTML) | 11.8 % | 99.4 % | 99.3 % |
 | Control Panel settings | 75.4 % | 94.6 % | 97.5 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 80.1 % | 80.7 % | 91.1 % |
+| Database, migrations, legacy | 80.2 % | 80.8 % | 91.2 % |
 | Bootstrap, config, QR, seed | 73.4 % | 75.1 % | 91.0 % |
-| **All PHP** (7236 lines) | **65.6 %** | **89.9 %** | **95.7 %** |
+| **All PHP** (7244 lines) | **65.7 %** | **89.9 %** | **95.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
