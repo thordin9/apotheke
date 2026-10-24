@@ -419,6 +419,11 @@ final class Ci4PdoConnection
     {
     }
 
+    /** Already connected, as CI4's initialize() is once connID is set. */
+    public function initialize(): void
+    {
+    }
+
     public function escape(string $value): string
     {
         return $this->pdo->quote($value);
@@ -521,6 +526,11 @@ final class Ci4LocalizedPostgre
             throw new RuntimeException('pg_connect failed');
         }
         $this->connID = $link;
+    }
+
+    /** Already connected, as CI4's initialize() is once connID is set. */
+    public function initialize(): void
+    {
     }
 
     public function escape(string $value): string
