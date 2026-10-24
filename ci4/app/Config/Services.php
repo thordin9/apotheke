@@ -97,6 +97,31 @@ class Services extends BaseService
     }
 
     /**
+     * The Host check for this request (SEC-M3). Built-in names (addresses,
+     * localhost, this machine) never read settings; any other name reads
+     * public_url through this request's SettingsService, or PUBLIC_URL when the
+     * database cannot be read, as legacy request_configured_hosts() does.
+     */
+    public static function hostCheck(bool $getShared = true): \Apotheke\Core\Http\HostCheck
+    {
+        if ($getShared) {
+            return static::getSharedInstance('hostCheck');
+        }
+        $list = new \Apotheke\Core\Http\HostAllowList((string)gethostname());
+
+        return new \Apotheke\Core\Http\HostCheck($list, static function () use ($list): array {
+            $config = static::apothekeConfig();
+            try {
+                $publicUrl = (string)static::settings()->get('public_url');
+            } catch (\Throwable) {
+                $publicUrl = $config->publicUrl();
+            }
+
+            return $list->configured($publicUrl, $config->allowedHosts());
+        });
+    }
+
+    /**
      * Spark's command runner, with the Apotheke commands that need
      * collaborators built here (constructor injection, no service() in commands).
      */

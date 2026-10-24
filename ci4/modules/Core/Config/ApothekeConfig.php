@@ -35,6 +35,7 @@ final class ApothekeConfig
         'IMAGE_THUMB_MAX' => 'uploads.thumb_max',
         'PAGE_SIZE' => 'page_size',
         'PUBLIC_URL' => 'public_url',
+        'ALLOWED_HOSTS' => 'allowed_hosts',
         'CURRENCY' => 'currency',
         'EXPIRY_SOON_DAYS' => 'expiry_soon_days',
         'SEED_DEFAULTS' => 'seed_defaults',
@@ -79,6 +80,7 @@ final class ApothekeConfig
         }
         $cfg['page_size'] = max(1, (int)$cfg['page_size']);
         $cfg['public_url'] = rtrim((string)$cfg['public_url'], '/');
+        $cfg['allowed_hosts'] = trim((string)($cfg['allowed_hosts'] ?? ''));
         $cfg['currency'] = mb_substr(trim((string)$cfg['currency']), 0, 8) ?: 'EUR';
         $cfg['expiry_soon_days'] = min(3650, max(1, (int)$cfg['expiry_soon_days']));
         $cfg['seed_defaults'] = filter_var($cfg['seed_defaults'], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) ?? true;
@@ -137,6 +139,12 @@ final class ApothekeConfig
         return (string)$this->values['public_url'];
     }
 
+    /** ALLOWED_HOSTS: extra host names besides PUBLIC_URL's (SEC-M3). */
+    public function allowedHosts(): string
+    {
+        return (string)$this->values['allowed_hosts'];
+    }
+
     /** @return array<string,mixed> */
     private static function defaults(string $root): array
     {
@@ -164,6 +172,7 @@ final class ApothekeConfig
             'currency' => 'EUR',
             'expiry_soon_days' => 30,
             'public_url' => '',
+            'allowed_hosts' => '',
             'seed_defaults' => true,
             'originals_dir' => '',
         ];

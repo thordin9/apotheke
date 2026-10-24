@@ -208,8 +208,11 @@ class App extends BaseConfig
     public bool $trustProxy = false;
 
     /**
-     * baseURL comes from PUBLIC_URL or the request. proxyIPs stays empty:
-     * the Secure cookie follows RequestScheme, not CI4's proxy list.
+     * baseURL comes from PUBLIC_URL, or the request's scheme and a Host that
+     * passes the allow-list (SEC-M3), else localhost; CI4 never builds URLs from
+     * an unchecked Host. allowedHostnames lists PUBLIC_URL's host and
+     * ALLOWED_HOSTS. proxyIPs stays empty: the Secure cookie follows
+     * RequestScheme, not CI4's proxy list.
      */
     public function __construct()
     {
@@ -226,7 +229,14 @@ class App extends BaseConfig
             $group = ['DBDriver' => 'SQLite3', 'database' => ':memory:'];
         }
         $this->trustProxy = (new \Apotheke\Core\Http\TrustProxyReader($group))->trusted();
-        $base = (new \Apotheke\Core\Http\RequestScheme($this->trustProxy))->publicBase($_SERVER, $config->publicUrl());
+        $hosts = new \Apotheke\Core\Http\HostAllowList((string)gethostname());
+        $configured = $hosts->configured($config->publicUrl(), $config->allowedHosts());
+        $this->allowedHostnames = array_values(array_filter($configured, static fn (string $h): bool => $h !== '*'));
+        $base = (new \Apotheke\Core\Http\RequestScheme($this->trustProxy))->publicBase(
+            $_SERVER,
+            static fn (string $host): bool => $hosts->allowed($host, $configured),
+            $config->publicUrl(),
+        );
         $this->baseURL = $base . '/';
     }
 }
