@@ -74,15 +74,18 @@ class Services extends BaseService
         }
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
+        $config = static::apothekeConfig()->values();
 
         return new \Apotheke\Settings\SettingsService(
             new \Apotheke\Settings\SettingsRepository($db),
             new \Apotheke\Settings\SettingsSchema(),
             static::brandStore(),
             new \Apotheke\Core\Libraries\Clock(),
-            static::apothekeConfig()->values(),
+            $config,
             null,
             $actor ?? static::currentUser(),
+            // S-L5: APP_KEY / APP_KEY_FILE, resolved on first use and once per request.
+            \Apotheke\Core\Security\SecretBox::fromEnvironment(getenv(), \Apotheke\Settings\SettingsService::backupRoots($config)),
         );
     }
 
