@@ -38,19 +38,30 @@ one request's state into the next:
 2. **No cached request or settings state.** A service a filter uses keeps nothing across requests: for
    example `Services::sessionLifetime()` reads `session_days` through the request's `SettingsService` on
    every call (`ci4/tests/Core/SessionCookieWorkerTest.php`).
+   `$_SESSION` counts too: the session filter starts every request with an empty array, so a request
+   without a live cookie never sees the previous request's session (#76 L-3).
 3. **Exact match in the rule.** The PHPStan `NoServiceRule` allows only files directly in
    `ci4/modules/<Module>/Filters/`, inside `before()`/`after()`. Any other class is still flagged
    (`tests/Unit/Ci4DiRuleTest.php`).
 
 Request hardening ported from `main` (SEC-M3, SEC-L2, SEC-N6, SEC-M1, SEC-M2):
 
-* **Required before-filters, in order:** `headasget`, `harness`, `originalsguard`, `hostcheck`, `posttoolarge`,
-  `session`, `sameorigin`. Required filters run before routing, so the Host check also covers `/healthz` and
-  unknown paths. The Host check answers 421 and never echoes the name. `Config\App` sets `allowedHostnames`
-  from `PUBLIC_URL` and `ALLOWED_HOSTS`, and its `baseURL` never takes a Host that is not allowed.
+* **Required before-filters, in order:** `headasget`, `harness`, `originalsguard`, `hostcheck`, `publicbase`,
+  `posttoolarge`, `session`, `sameorigin`. Required filters run before routing, so the Host check also covers
+  `/healthz` and unknown paths. The Host check answers 421 and never echoes the name. `Config\App` sets
+  `allowedHostnames` from `PUBLIC_URL` and `ALLOWED_HOSTS`, and its `baseURL` is only a fallback that reads no
+  database.
+* **Base URL per request (#76 L-2).** `publicbase` builds CI4's base URL the way legacy `public_url()` does:
+  the `public_url` setting (its default is `PUBLIC_URL`), else this request's scheme with `trust_proxy` and a
+  Host that passed the allow-list, else `localhost`. It sets the request's `App` config and URI, which CI4
+  rebuilds for every request, so `base_url()`, `site_url()` and `redirect()->to()` follow the Control Panel.
+  Apotheke's own redirects send a relative `Location`, as legacy does.
 * **Sessions on demand.** The session filter only sets cookie parameters. It resumes a session only when the
   cookie names an existing, well-formed session file. `SessionToken` (the port of `csrf_token()`) starts one
   when a page needs a token. An anonymous request leaves no session file and no cookie.
+  CI4's `session` service is `NativeSession` (#76 L-1): it works on the native session's `$_SESSION` and never
+  starts, regenerates or destroys a handler-backed session of its own, so `storePreviousURL()` on an HTML
+  answer cannot add a second session file or change the id.
 * **Idle limit.** `SessionGate` stamps `last_seen` on every resumed request and ends a session that has had no
   request for `session_days`. A separate, shorter idle setting would need a new settings key; that is left
   to a later decision so that the settings stay identical to legacy.
@@ -60,10 +71,14 @@ Request hardening ported from `main` (SEC-M3, SEC-L2, SEC-N6, SEC-M1, SEC-M2):
 * **Actor gate.** `SettingsService` takes an `ActorGate`. On the web it is the signed-in user (`CurrentUser`);
   without one it is `Nobody`. The spark commands pass `CommandLine`, which is unrestricted, as on legacy's CLI.
   `import()` ignores the sign-in (security) section for an actor that is not an admin.
+  `CurrentUser` never counts nobody or the anonymous guest as admin, whatever role it carries (main #77). Main
+  decides that by `PHP_SAPI`; CI4 has no SAPI check, because the command line is admin only as `CommandLine`.
 * **Client address.** CI4's `proxyIPs` stays empty. `ClientAddress` reads `X-Forwarded-For` only when
   `trust_proxy` is on and the peer is in `TRUSTED_PROXIES`, and takes the rightmost hop that is not a proxy.
 * **One connection per request.** `Config\App` reads nothing from the database. `trust_proxy` and `public_url`
-  are read through the request's `SettingsService` on CI4's own connection; `/healthz` reads no settings.
+  are read through the request's `SettingsService` on CI4's own connection. `/healthz` reads no settings for
+  built-in host names (addresses, `localhost`, this machine); for any other name the Host check reads
+  `public_url` (#76 N-3).
 
 ## Consequences
 
