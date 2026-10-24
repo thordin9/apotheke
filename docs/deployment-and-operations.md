@@ -126,7 +126,8 @@ tested example (static assets with long-lived caching and gzip, blocked paths, t
 `/backup/restore`, granted through `auth_request`).
 
 Upgrading from 1.x: the image listens on port 9091 (it was 80) and compose publishes 9091 (it was 8080) — point your
-reverse proxy at the new port, or publish the old one with `ports: ["8080:9091"]`.
+reverse proxy at the new port, or publish the old one with `ports: ["127.0.0.1:8080:9091"]` (see
+[Docker defaults](#docker-defaults-localhost-and-sign-in) to reach it from your network).
 
 ### Docker defaults: localhost and sign-in
 
