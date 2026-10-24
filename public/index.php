@@ -119,8 +119,8 @@ try {
             check_csrf();
             $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
             try {
-                rate_limit('login');
-                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login'); redirect('/'); }
+                rate_limit('login', $who);
+                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); redirect('/'); }
                 usleep(400000);
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
@@ -223,7 +223,7 @@ try {
         $q    = clean_line((string)($_GET['q'] ?? ''), 200);
         $f    = filters_from($_GET);
         $sort = is_string($_GET['sort'] ?? null) && isset(SORTS[$_GET['sort']]) ? $_GET['sort'] : default_sort();
-        $page = max(1, (int)($_GET['page'] ?? 1));
+        $page = clamp_page((int)($_GET['page'] ?? 1));
         $res  = items_search($q, $f, $sort, $page);
         if (wants_json()) {
             json_out(['ok' => true, 'html' => cards_html($res['items'], ($_GET['select'] ?? '') === '1'), 'total' => $res['total'],
@@ -1077,7 +1077,7 @@ try {
     /* ---- activity log ---- */
     if ($path === '/activity' && $method === 'GET') {
         no_store();
-        $page = max(1, (int)($_GET['page'] ?? 1));
+        $page = clamp_page((int)($_GET['page'] ?? 1));
         $item = ctype_digit((string)($_GET['item'] ?? '')) ? (int)$_GET['item'] : null;
         $itemRow = null;
         if ($item !== null) {

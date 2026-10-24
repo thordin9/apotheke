@@ -154,7 +154,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   (change the catalog), *viewer* (look only) or your own **custom roles** built from 14 granular permissions (view, add,
   edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
   every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
-  with a default role, admin approval and rate limiting — both off by default. The history shows who changed
+  with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
+  admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   Empty means no login, fine on a trusted LAN.
 
@@ -335,6 +336,7 @@ compose file never wipes a value from `config.php`.
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
 | `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost` and `PUBLIC_URL`'s host always work; other names get 421. See [Host names](docs/deployment-and-operations.md#host-names). |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
+| `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed here. The client is the rightmost hop that isn't itself listed. With `trust_proxy` on and an empty list, the connecting address is used. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
 ## Command-line tools
@@ -421,20 +423,20 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
 | Front controller & routes | – | 97.0 % | 97.0 % |
-| Items, search, bulk, lending | 89.9 % | 93.5 % | 97.0 % |
+| Items, search, bulk, lending | 89.9 % | 93.6 % | 97.0 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 91.3 % | 93.8 % | 96.4 % |
+| Users & roles | 94.1 % | 94.9 % | 97.0 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 11.8 % | 99.4 % | 99.3 % |
-| Control Panel settings | 74.7 % | 96.0 % | 97.3 % |
+| Control Panel settings | 75.1 % | 94.6 % | 97.3 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
 | Database, migrations, legacy | 79.7 % | 81.0 % | 91.0 % |
-| Bootstrap, config, QR, seed | 71.9 % | 75.9 % | 90.1 % |
-| **All PHP** (6814 lines) | **64.3 %** | **91.5 %** | **96.0 %** |
+| Bootstrap, config, QR, seed | 74.0 % | 74.5 % | 90.8 % |
+| **All PHP** (6987 lines) | **65.1 %** | **91.3 %** | **96.1 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

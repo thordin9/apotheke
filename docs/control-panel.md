@@ -10,7 +10,7 @@ Values are stored in the database (`settings` table), take effect on the next re
 
 | Kind | Examples | Lives in | Changed with |
 |---|---|---|---|
-| **Bootstrap** | `DATA_DIR`, `DB_DRIVER`, `DB_HOST` … `DB_PASSWORD`, `DB_SCHEMA`, `SQLITE_PATH`, `SEED_DEFAULTS`, `APOTHEKE_CONFIG` | `config.php` / environment | editing the file or the environment, then restarting. Shown read-only under **Settings → System** (the DB password only as "set"). |
+| **Bootstrap** | `DATA_DIR`, `DB_DRIVER`, `DB_HOST` … `DB_PASSWORD`, `DB_SCHEMA`, `SQLITE_PATH`, `SEED_DEFAULTS`, `APOTHEKE_CONFIG`, `TRUSTED_PROXIES` | `config.php` / environment | editing the file or the environment, then restarting. Shown read-only under **Settings → System** (the DB password only as "set"; a DSN is shown as host, port and database name). |
 | **Everything else** | name, accent, currency, page size, time zone, upload limits, password … | database (`settings`) | the Control Panel, `bin/settings.php`, or importing a settings JSON |
 
 The first time the `0013_settings` migration runs (a new install or an upgrade) it **copies the current `config.php` /
@@ -84,13 +84,21 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 | `auth_register_approval` | off | new accounts are `pending` until an admin approves them |
 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
-manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 / 15 min) and registration.
+manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account
+from one client) and registration (5 / hour per address). One client's attempts against one account do not use up the
+limit for anyone else. `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in
+`trusted_proxies` / `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With
+`trust_proxy` on and an empty list, the connecting address is used. See [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
 
-Only admins see this section. Rules: user names are 1–40 letters, digits and `. _ @ -` (case-insensitive, unique);
-passwords at least 8 characters; the last admin can't be demoted or deleted; you can't delete yourself. A new password
-signs that user out on every device (sessions carry a fingerprint of the hash); changing your own keeps this device
-signed in. Turning sign-in off keeps the accounts. Accounts are **not** part of backups or the settings export, so a
-restore never locks you out.
+Accounts with the *Users* permission see this section. Rules: user names are 1–40 letters, digits and `. _ @ -`
+(case-insensitive, unique); passwords at least 8 characters; the last admin can't be demoted or deleted; you can't
+delete yourself. A new password signs that user out on every device (sessions carry a fingerprint of the hash);
+changing your own keeps this device signed in. **Only an admin account can grant the admin role, turn sign-in
+off, or change an existing admin account** (its role, name, password, approval, or deletion). The *Users* permission
+on its own is not enough for any of those. Setting a password signs that account out everywhere, so a non-admin
+cannot do it to an admin. An account with Users can still change other accounts, roles, and sign-in options. Turning sign-in off keeps the accounts.
+Accounts, roles and permissions are **not** part of backups or the settings export. A zip that names the `users` or
+`roles` table is refused, so a restore never replaces them.
 
 Locked out? On the server:
 
@@ -116,8 +124,16 @@ php bin/settings.php password                       # shortcut: password of "adm
 ```
 
 Import validates every value: valid ones are applied, invalid ones are listed and skipped, unknown keys and the
-password are ignored. Full backups (`backup.zip`) also contain the settings (never the password) and a restore applies
-them; backups made before this version restore without touching the settings.
+password are ignored. Sign-in settings (`auth_guest_disabled`, `auth_register_disabled`, `auth_register_role`,
+`auth_register_approval`, `session_days`, `trust_proxy`) are applied only for an admin account. Without that they
+are skipped and named with the other protected keys; the rest of the file is still applied. `auth_enabled` is not
+in the export, so a file cannot turn sign-in off. `php bin/settings.php import` applies the sign-in settings too
+(the command runs on the server).
+
+Full backups (`backup.zip`) also contain the settings (never the password) and a restore applies them with the same
+rule: only an admin restore changes those sign-in settings. A Backup or Users account does not. The zip has no
+accounts or roles; a file that adds a `users` or `roles` table is refused. Backups made before
+this version restore without touching the settings.
 
 ## Command line
 
