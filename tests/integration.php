@@ -1215,7 +1215,7 @@ $idleS->stop();
 
 T::section('Session lifetime');
 $lifeBoot = function (string $dir, string $clock): Server {
-    return new Server($dir, ['APP_PASSWORD' => 's3cret', 'APOTHEKE_CLOCK' => $clock]);
+    return new Server($dir, ['APP_PASSWORD' => 's3cret-pw', 'APOTHEKE_CLOCK' => $clock]);
 };
 $lifeCarry = function (Server $srv, array $cookies): Client {
     $c = $srv->client();
@@ -1225,7 +1225,7 @@ $lifeCarry = function (Server $srv, array $cookies): Client {
 $lifeSign = function (string $dir, string $clock) use ($lifeBoot): array {
     $s = $lifeBoot($dir, $clock);
     $c = $s->client();
-    T::eq(303, $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], "sign in at $clock");
+    T::eq(303, $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret-pw'])['status'], "sign in at $clock");
     return [$s, $c];
 };
 $lifeFile = function (string $dir, string $id): string {
@@ -1407,7 +1407,7 @@ $outS->stop();
 $everyDir = $newDir('everywhere');
 [$everyS, $everyC] = $lifeSign($everyDir, '2026-12-01 00:00:00');
 $everyOther = $everyS->client();
-T::eq(303, $everyOther->post('/login', ['csrf' => $everyOther->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'a second device signs in');
+T::eq(303, $everyOther->post('/login', ['csrf' => $everyOther->csrf(), 'username' => 'admin', 'password' => 's3cret-pw'])['status'], 'a second device signs in');
 T::eq(200, $everyOther->get('/')['status'], 'the second device is signed in');
 $everyPage = $everyC->get('/account');
 T::eq(200, $everyPage['status'], 'the account page opens');
@@ -1422,13 +1422,13 @@ T::ok(str_contains($everyGo['headers']['location'] ?? '', '/account?done=out'), 
 T::eq(200, $everyC->get('/')['status'], 'this device stays signed in');
 T::ok(str_contains($everyC->get('/account?done=out')['body'], 'Signed out on every other device'), 'the account page says the other sessions ended');
 T::ok(str_contains($everyOther->get('/')['headers']['location'] ?? '', '/login'), 'the other device is signed out');
-T::eq(303, $everyOther->post('/login', ['csrf' => $everyOther->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'the password is unchanged');
+T::eq(303, $everyOther->post('/login', ['csrf' => $everyOther->csrf(), 'username' => 'admin', 'password' => 's3cret-pw'])['status'], 'the password is unchanged');
 T::eq(200, $everyOther->get('/')['status'], 'the other device can sign in again');
 T::ok(str_contains($lifeCli($everyDir, 'user signout admin'), 'every device'), 'CLI signs the account out everywhere');
 T::ok(str_contains($lifeCli($everyDir, 'user signout nobody'), 'No user'), 'CLI sign-out names an unknown account');
 T::ok(str_contains($everyC->get('/')['headers']['location'] ?? '', '/login'), 'the CLI signs out this device');
 T::ok(str_contains($everyOther->get('/')['headers']['location'] ?? '', '/login'), 'and the other device');
-T::eq(303, $everyC->post('/login', ['csrf' => $everyC->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'the same password still signs in after the CLI');
+T::eq(303, $everyC->post('/login', ['csrf' => $everyC->csrf(), 'username' => 'admin', 'password' => 's3cret-pw'])['status'], 'the same password still signs in after the CLI');
 $everyS->stop();
 
 // Re-signing this device does not start session_days again.
