@@ -209,8 +209,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 **Runtime** (the Docker image has all of this):
 
-* PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring` and
-  `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
+* PHP **8.2+** (the Docker image and CI use 8.3) with `pdo_sqlite` **or** `pdo_pgsql`, `gd` (JPEG + WebP), `mbstring`,
+  `sodium` (stored secrets) and `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed.
   Function JIT can miscompile QR labels on PHP 8.2, 8.3 and 8.4, so `src/qr.php` turns it off for the whole worker on the first request
   (tracing JIT stays on; the Docker image never enables JIT). `opcache_jit_blacklist()` does not help.
   The Docker image also includes Imagick built with HEIC/HEIF (`libheif`). Imagick flattens transparent areas onto
@@ -250,7 +250,7 @@ IP). In Safari tap Share → **Add to Home Screen**. To use another host port, c
 > [Docker defaults](docs/deployment-and-operations.md#docker-defaults-localhost-and-sign-in).
 
 The image (about 100 MB) is `php:8.3.36-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
-`pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
+`pdo_pgsql` and `zip` added (`pdo_sqlite` and `sodium` are part of the PHP image). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
 stops both gracefully on `docker stop` and exits if either dies (so `restart: unless-stopped` brings it back). nginx
 listens on port 9091 inside the container; set `PORT` to change that (e.g. with `--network host`). The entrypoint creates `images/`, `thumbs/` and `sessions/` in the data volume and makes them writable by `www-data`; a
 `HEALTHCHECK` polls `/healthz`. Everything is stored in `./data` next to `docker-compose.yml`:
@@ -264,14 +264,23 @@ data/
   postgres/           # only with the postgres profile
 ```
 
-Settings go into a `.env` file next to `docker-compose.yml` (see [Configuration](#configuration)), e.g.
+Settings go into a `.env` file next to `docker-compose.yml` (see [Configuration](#configuration) and
+[`.env.example`](.env.example)). Generate an `APP_KEY` so stored secrets are encrypted. The example file leaves
+`APP_KEY` empty on purpose; do not commit a real key.
+
+```bash
+php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
+```
 
 ```
+APP_KEY=(paste the line above)
 APP_PASSWORD=change-me
 TZ=Europe/Athens
 ```
 
-then `docker compose up -d` again.
+After the first start, `docker compose exec apotheke php /var/www/app/bin/settings.php key generate` prints a key
+and stores nothing. Put it in `.env`, then `docker compose up -d` again. `APP_KEY` is the right place for Docker:
+the key stays out of the `./data` volume. See [Stored secrets](docs/configuration.md#stored-secrets).
 
 ### PostgreSQL (optional)
 
@@ -304,6 +313,8 @@ With PHP and the extensions from [Requirements](#requirements):
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
 cp config.example.php config.php        # optional; edit, or use environment variables
+php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'   # or: php bin/settings.php key generate
+export APP_KEY='(paste that line)'      # empty keeps stored secrets unencrypted
 php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:9091 -t public public/index.php
 ```
 
@@ -330,6 +341,8 @@ compose file never wipes a value from `config.php`.
 |---|---|---|
 | `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on; at least 8 characters, or the first start stops); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
 | `ALLOW_NO_LOGIN` | *(empty)* | Docker only: `1` lets the container start with sign-in off. Without it the container exits unless `APP_PASSWORD` is set or sign-in is on in the database. |
+| `APP_KEY` | *(empty)* | Base64 of 32 bytes. Encrypts stored secrets (the autofill access token). Recommended, including for Docker. Empty leaves them unencrypted and shows a Control Panel warning. Not a `config.php` key. |
+| `APP_KEY_FILE` | *(unset)* | Optional file with that same key text, outside the data directory and outside backup paths. Ignored when `APP_KEY` is set. A path inside the data directory is refused. |
 | `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
 | `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
 | `DB_DRIVER` | `sqlite` | `sqlite` or `pgsql`. |
@@ -366,6 +379,8 @@ php bin/restore.php home.zip --yes       # no prompt (scripts)
 php bin/settings.php list                # Control Panel settings (get KEY / set KEY VALUE / reset SECTION / export / import FILE)
 php bin/settings.php users               # accounts · user add|password|role|approve|rename|delete NAME … · roles [reset] · auth on|off
 php bin/settings.php user password admin # locked out? new password for admin
+php bin/settings.php key generate        # print a new APP_KEY; stores nothing
+APP_KEY_NEW='(new key)' php bin/settings.php key rotate   # re-encrypt stored secrets, then swap APP_KEY and restart
 ```
 
 The schema is versioned: numbered files in [`migrations/`](migrations), recorded in a `schema_migrations` table. Pending

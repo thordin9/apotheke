@@ -62,7 +62,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, pdo_pgsql, exif, mbstring, dom, zip, imagick
+          extensions: gd, pdo_sqlite, pdo_pgsql, exif, mbstring, dom, zip, imagick, sodium
           coverage: pcov
           tools: composer:v2
       - name: Composer cache dir
@@ -132,7 +132,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: gd, pdo_sqlite, exif, mbstring, zip
+          extensions: gd, pdo_sqlite, exif, mbstring, zip, sodium
           coverage: none
           tools: none
       - uses: actions/setup-node@v4

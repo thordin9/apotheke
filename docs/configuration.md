@@ -91,6 +91,9 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | `AUTOFILL_UPLOAD_MAX_SIDE` | autofill | Longest side of the JPEG sent to the autofill service. Default `1600`, clamped to 64–4096. Never enlarges a smaller photo. The model’s image size, when the service lists one, is still the cap when it is smaller. |
 | `AUTOFILL_UPLOAD_JPEG_QUALITY` | autofill | JPEG quality of that copy. Default `80`, clamped to 40–95. If the JPEG is still over the byte cap, quality steps down by 10 (60 is always tried), then the long edge shortens, until the JPEG fits. The cap applies to that JPEG, which is what the service limits; the multipart wrapper is not counted. This does not set the byte cap (`autofill_max_image_bytes` in the Control Panel). |
 | `APOTHEKE_CONFIG` | app, CLI | Path of the config file instead of `<project>/config.php`. |
+| `APP_KEY` | app, CLI | Base64 of 32 bytes. Encrypts stored secrets. Recommended, including for Docker. Empty leaves them unencrypted. A value that is set but unusable refuses secret saves. See [Stored secrets](#stored-secrets). |
+| `APP_KEY_FILE` | app, CLI | Optional file with the same key text, outside the data directory and outside backup paths, readable by the app user. Ignored when `APP_KEY` is set. |
+| `APP_KEY_NEW` | `bin/settings.php key rotate` | Replacement key for one rotation. Never put it in the command arguments. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
 | `ALLOW_NO_LOGIN` | Docker image | `1`, `true` or `yes` lets the container start with sign-in off (no `APP_PASSWORD`, no sign-in in the database). Use it only on a trusted network. Empty, `0`, `false` or `no` (the default) keeps the start-up check (hardening, SEC-M3): `bin/settings.php auth status` reads the database without migrating or seeding it (it may create an empty `DB_SCHEMA` or switch an older SQLite file to WAL, as the app does), and the container exits with code 78 when sign-in is off. Any other value exits with code 64. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |
@@ -99,6 +102,71 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | `KEEP_TEST_DATA` | `tests/integration.php` | Keep the temporary data directories after the run. |
 | `E2E_DOCKER_IMAGE` | Playwright | Adds the `docker-smoke` project, which runs the `@smoke` tests against that image instead of `php -S`. |
 | `CI` | Playwright | CI mode: retries, the GitHub reporter, `forbidOnly`. |
+
+## Stored secrets
+
+Recoverable secrets the app stores are encrypted when a key is configured. Today that is the AI autofill access token (`autofill_token`). Password hashes are left as hashes. The whole database and the upload directories are not encrypted here; see [Deployment and operations](deployment-and-operations.md#security).
+
+`APP_KEY` and `APP_KEY_FILE` are environment variables only. They are not keys in `config.php`, and they are not copied into the database.
+
+### Envelope
+
+The `settings` value is still a JSON string. With a key, the string is:
+
+```
+enc:v1:<base64>
+```
+
+`<base64>` is standard base64 (RFC 4648, with `=` padding) of a 24-byte nonce followed by the libsodium secretbox ciphertext. The nonce is new on every write (`random_bytes(24)`, `SODIUM_CRYPTO_SECRETBOX_NONCEBYTES`). The ciphertext is `sodium_crypto_secretbox`: the plaintext with a 16-byte Poly1305 tag at the end. The key is 32 raw bytes. A value without the `enc:v1:` prefix is older plaintext and is still read.
+
+A port that reads this database, including a CodeIgniter 4 port, uses the same envelope and the same key source: strip `enc:v1:`, base64-decode, take the first 24 bytes as the nonce, and open the rest with `crypto_secretbox_open` and the 32-byte key from `APP_KEY` or from the file named by `APP_KEY_FILE`. The key is not in the database and not in a backup.
+
+### Key
+
+`APP_KEY` is the recommended source, and the one to use with Docker, so the key is not on the data volume. It is the standard base64 of 32 bytes. An optional `base64:` prefix is accepted, and surrounding space is ignored. Generate one before you save a secret. The placeholder in [`.env.example`](../.env.example) is empty; do not commit a real key.
+
+```bash
+php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
+php bin/settings.php key generate
+```
+
+`key generate` prints a key and stores nothing.
+
+A non-empty `APP_KEY` wins over `APP_KEY_FILE`, including when `APP_KEY` does not decode. A configured key that cannot be used does not fall back to plaintext. The save is refused, the previous row stays as it was, and the Control Panel names the cause. The log names that same cause and does not include the key. A malformed `APP_KEY` logs `apotheke: APP_KEY is not a 32-byte key; stored secrets will not be saved.`
+
+`APP_KEY_FILE` points at a file you create, with the same text. Keep it outside the data directory and outside every directory a backup can include (the data directory, `images/`, `thumbs/`, `files/`, `originals/`, and `ORIGINALS_DIR` when that path is elsewhere). The file has to be readable by the user the app runs as. Inside the image that user is `www-data` (uid 82, gid 82). `chown` runs on the host, where `www-data` is gid 33 on Debian and Ubuntu and some hosts have no such group, so use the number: `chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside Swarm, plain `docker compose` bind-mounts a `file:` secret with the host file's owner and mode and ignores uid, gid and mode. The same `root:82` and `0440` apply to that file. A path inside the refused directories is not used, including a symlink that resolves inside them, and a secret save is refused. The log says `apotheke: APP_KEY_FILE is inside the data directory or a backup path; stored secrets will not be saved.` A file the app cannot read is refused the same way (`apotheke: APP_KEY_FILE could not be read; stored secrets will not be saved.`). Apotheke does not create a key file for you.
+
+PHP's `sodium` extension does the encryption. It is part of the Docker image. With a key configured and the extension missing, secret saves are refused and the log says `apotheke: sodium extension is missing; stored secrets will not be saved.` With no key configured, a missing extension leaves secrets plaintext, as in [No key](#no-key), and the log says `apotheke: ext-sodium is missing; stored secrets stay unencrypted.`
+
+### No key
+
+The app still starts, and those secrets stay plaintext. The Control Panel shows *Set APP_KEY to encrypt stored secrets.* next to the access token, and each process logs `apotheke: set APP_KEY to encrypt stored secrets` once. After a key is set, the next save writes the envelope. Reading a plaintext value rewrites it encrypted as well. That plaintext path is only when `APP_KEY` and `APP_KEY_FILE` are both unset. A key that is set but unusable shows a warning that names the cause, and refuses the save.
+
+### Wrong or lost key
+
+An `enc:v1:` value that does not open counts as unset. The secret is not shown, the request does not fail, and the stored text is left unchanged. The log names the setting and not the value: `apotheke: setting autofill_token could not be decrypted and is treated as unset.`
+
+### Rotation
+
+1. Generate a new key and keep it aside. Leave the current `APP_KEY` or `APP_KEY_FILE` in place.
+2. Re-encrypt. The new key comes from `APP_KEY_NEW`, or from stdin when that variable is empty. It is not read from the command arguments.
+
+```bash
+APP_KEY_NEW='(new key)' php bin/settings.php key rotate
+printf '%s' '(new key)' | php bin/settings.php key rotate
+```
+
+In Docker the current key is already in the container, and the new one is passed for that command only:
+
+```bash
+docker compose exec -e APP_KEY_NEW='(new key)' apotheke php /var/www/app/bin/settings.php key rotate
+```
+
+The command prints `rotated N, encrypted M` and no secret. `rotated` counts values that were already envelopes. `encrypted` counts older plaintext. If any envelope does not open with the current key, the command exits 1, names that setting, and changes nothing.
+
+3. Put the new key in `APP_KEY` (or replace the file `APP_KEY_FILE` names), remove `APP_KEY_NEW`, and restart.
+
+Backups and settings exports omit stored secrets and do not include the key.
 
 ## PHP and web server limits
 
