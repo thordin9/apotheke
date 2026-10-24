@@ -17,6 +17,10 @@ use PHPStan\Rules\RuleErrorBuilder;
  * service() and Services:: belong in controllers, filters and Config/Services.php only.
  * CI4 builds filters with `new $class()`, so like controllers they have no constructor
  * injection and take collaborators from the shared (per-request) services.
+ *
+ * Filters are matched exactly: a file directly in ci4/modules/<Module>/Filters/, and
+ * only inside its before() or after() method, so a filter never holds a service in a
+ * static, a property or its constructor.
  */
 final class NoServiceRule implements Rule
 {
@@ -45,7 +49,7 @@ final class NoServiceRule implements Rule
     private function violation(Scope $scope, string $what): array
     {
         $file = str_replace('\\', '/', $scope->getFile());
-        if (str_contains($file, '/Controllers/') || str_contains($file, '/Filters/') || str_ends_with($file, '/app/Config/Services.php')) {
+        if (str_contains($file, '/Controllers/') || str_ends_with($file, '/app/Config/Services.php') || $this->inFilterHook($file, $scope)) {
             return [];
         }
 
@@ -54,5 +58,19 @@ final class NoServiceRule implements Rule
                 ->identifier('apotheke.noService')
                 ->build(),
         ];
+    }
+
+    /** A call inside before() or after() of a class file directly in ci4/modules/<Module>/Filters/. */
+    private function inFilterHook(string $file, Scope $scope): bool
+    {
+        if (preg_match('#/ci4/modules/[A-Za-z0-9]+/Filters/[A-Za-z0-9]+\.php$#D', $file) !== 1) {
+            return false;
+        }
+        if (!$scope->isInClass() || $scope->isInAnonymousFunction()) {
+            return false;
+        }
+        $function = $scope->getFunction();
+
+        return $function !== null && in_array($function->getName(), ['before', 'after'], true);
     }
 }
