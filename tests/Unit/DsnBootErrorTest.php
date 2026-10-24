@@ -27,14 +27,14 @@ final class DsnBootErrorTest extends TestCase
                 'log' => 'Database pgsql host=db.example port=5432 dbname=catalog',
                 'absent' => ['s9d44', 'password', 'mysql'],
             ],
-            // Spaces around "=" are the password, as libpq does. The canary and the
-            // word password stay out of the body, the log, and stderr. startup.php
-            // does not connect; a connect that fails on db.example must be the
-            // generic 500 and the allowlisted log line.
+            // Spaces around "=" are the password, as libpq does, so the DSN is valid.
+            // startup.php does not connect: boot goes on (the harness router then
+            // sends an empty 200) and nothing is logged. The canary and the word
+            // password stay out of the body, the log, and stderr.
             'spaces' => [
                 'dsn' => 'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44',
-                'onConnect' => 'Database pgsql host=db.example port=5432 dbname=catalog',
-                'absent' => ['s9d44', 'password'],
+                'accepted' => true,
+                'absent' => ['s9d44', 'password', 'could not be used'],
             ],
             'semicolon' => [
                 'dsn' => 'pgsql:host=db.example;port=5432;dbname=catalog;password=q9;w8zz',
@@ -49,11 +49,10 @@ final class DsnBootErrorTest extends TestCase
                 $this->assertStringNotContainsString($needle, $shown, $name . $shown);
             }
             $this->assertStringNotContainsString($case['dsn'], $shown, $name);
-            if (isset($case['onConnect'])) {
-                if ($hit['status'] === 500) {
-                    $this->assertSame('The database settings could not be used.', $hit['body'], $name);
-                    $this->assertStringContainsString($case['onConnect'], $hit['log'], $name . $hit['log']);
-                }
+            if (isset($case['accepted'])) {
+                $this->assertSame(200, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
+                $this->assertSame('', $hit['body'], $name);
+                $this->assertSame('', $hit['log'], $name . $hit['log']);
                 continue;
             }
             $this->assertSame(500, $hit['status'], $name . $hit['body'] . $hit['log'] . $hit['err']);
