@@ -30,7 +30,7 @@ database. Use the panel (or `bin/settings.php`) instead.
 | **QR labels** | Label width and height (mm), labels per row, gap (mm), print the subtitle / link line, dashed cut lines |
 | **Thresholds & limits** | *Expiring soon* window (days), default loan period (pre-fills *Due back*), max saved filters, **undo window** (seconds, 0–3600, 0 = no undo), max photos per item |
 | **Photos & uploads** | Upload limit per photo (MB), stored photo size, thumbnail size, JPEG quality (thumbnails use quality − 6); attachments: allowed types (PDF + images / PDF only / images only), max size per file (MB), max files per item |
-| **AI autofill** | Suggestions from a photo by your own autofill service: on/off, *Analyze photos automatically* (off by default), service address, timeout, model and image size (shown when the service offers them), maximum image size in bytes (default `auto`; an explicit number is capped to `enforced_image_bytes`, otherwise `max_image_bytes`, and used as stored only when neither is known), write-only access token, Test connection / Test with a photo. See the [admin guide](autofill-admin-guide.md) |
+| **AI autofill** | Suggestions from a photo by your own autofill service: on/off, *Analyze photos automatically* (off by default), service address, timeout, model and image size (shown when the service offers them), maximum image size in bytes (default `auto`), write-only access token, Test connection / Test with a photo. See [AI autofill](autofill.md) |
 | **Users & sign-in** | Turn sign-in on/off (the first time creates an admin account), change your password, add users with a role (admin / editor / viewer), change roles, rename, set passwords, delete accounts |
 | **Backup & data** | Backup / restore, CSV export, CSV import (and whether it pre-ticks *create missing locations, categories and tags*), settings export / import (JSON) |
 | **System** | Read-only bootstrap values, PHP version, schema version |
@@ -88,9 +88,8 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
 manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account
 from one client) and registration (5 / hour per address). One client's attempts against one account do not use up the
-limit for anyone else. `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in
-`trusted_proxies` / `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With
-`trust_proxy` on and an empty list, the connecting address is used. See [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
+limit for anyone else. How the client address is found behind a proxy (`trust_proxy`, `TRUSTED_PROXIES`):
+[Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
 
 Accounts with the *Users* permission see this section. Rules: user names are 1–40 letters, digits and `. _ @ -`
 (case-insensitive, unique); passwords at least 8 characters; the last admin can't be demoted or deleted; you can't

@@ -43,7 +43,7 @@ return [
 | `data_dir` | `DATA_DIR` | `<project>/data` (`/data` in the Docker image) | bootstrap | Served photos (`images/`), thumbnails (`thumbs/`), sessions (`sessions/`), temporary files (`tmp/`) and, by default, the SQLite file and the camera uploads (`originals/`). Created if missing. |
 | `originals_dir` | `ORIGINALS_DIR` | *(empty → `<data_dir>/originals`)* | bootstrap | Byte-identical camera uploads. Empty, or a relative path, stays outside `public/`. An absolute path is used as given. Not served over HTTP. |
 | `timezone` | `TZ` | `UTC` (`Europe/Athens` in `docker-compose.yml`) | DB — Currency, dates & time → Time zone | Time zone for displayed times, the statistics buckets and "today" (lending due dates). |
-| `app_password` | `APP_PASSWORD` | *(empty)* | DB — Users | Password of the first account `admin` (stored as a hash when the database is created; sign-in on). Like every password it needs at least 8 characters, not only spaces: a shorter value stops the first start (Docker exit 78) or `bin/migrate.php` with a message that doesn't show it (hardening, #75 QA L-2). Empty means no login; the Docker image then refuses to start unless sign-in is already on in the database or `ALLOW_NO_LOGIN=1` is set (hardening, SEC-M3). Later: Settings → Users & sign-in or `php bin/settings.php user password admin`. |
+| `app_password` | `APP_PASSWORD` | *(empty)* | DB — Users | Password of the first account `admin` (stored as a hash when the database is created; sign-in on). Like every password it needs at least 8 characters, not only spaces: a shorter value stops the first start (Docker exit 78) or `bin/migrate.php` with a message that doesn't show it. Empty means no login; the Docker image then refuses to start unless sign-in is already on in the database or `ALLOW_NO_LOGIN=1` is set. Later: Settings → Users & sign-in or `php bin/settings.php user password admin`. |
 | `db.driver` | `DB_DRIVER` | `sqlite` | bootstrap | `sqlite` or `pgsql`; anything else is an error. |
 | `db.sqlite_path` | `SQLITE_PATH` | `<data_dir>/catalog.sqlite` | bootstrap | SQLite database file. |
 | `db.dsn` | `DB_DSN` | *(empty)* | bootstrap | Full PDO DSN for PostgreSQL; overrides host, port and name. |
@@ -74,15 +74,8 @@ many hours with no request. The idle clock moves at most once a minute, and lowe
 request. The favicon, the manifest, the theme and label styles, and `/healthz` and `/health` do not refresh it.
 There is no `config.php` key for either.
 
-**AI autofill image bytes** (`autofill_max_image_bytes`) is one of those. It lives only in the `settings` table
-(Control Panel → AI autofill → Maximum image size). Default `auto`. There is no `config.php` key and no environment
-variable. `auto` uses `max_image_bytes` from the service’s `GET /v1/info`, or 983040 bytes when `/v1/info` has not
-been seen. An empty value is saved as `auto`. An explicit value is a whole number of bytes from 65536 to 10485760. It is capped to
-`enforced_image_bytes` when `/v1/info` includes it, otherwise to `max_image_bytes` when that field is present,
-and used as stored only when neither is known. A lower cap logs a warning once until that pair of sizes changes, and never the token. The database
-connection itself stays the DSN in `db.dsn` / `DB_DSN` (or host, port and name). `AUTOFILL_UPLOAD_MAX_SIDE` and
-`AUTOFILL_UPLOAD_JPEG_QUALITY` still choose the starting long edge and the first JPEG quality. They do not replace
-this byte cap.
+The AI autofill byte cap (`autofill_max_image_bytes`, default `auto`) is one of those; see
+[Maximum image size](autofill.md#maximum-image-size).
 
 Values are normalised after loading: `data_dir` and `public_url` lose a trailing `/`, the numeric upload settings and
 `page_size` are at least `1`, `seed_defaults` accepts the usual boolean spellings (`true/false`, `1/0`, `yes/no`,
@@ -99,7 +92,7 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | `APP_KEY_FILE` | app, CLI | Optional file with the same key text, outside the data directory and outside backup paths, readable by the app user. Ignored when `APP_KEY` is set. |
 | `APP_KEY_NEW` | `bin/settings.php key rotate` | Replacement key for one rotation. Never put it in the command arguments. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
-| `ALLOW_NO_LOGIN` | Docker image | `1`, `true` or `yes` lets the container start with sign-in off (no `APP_PASSWORD`, no sign-in in the database). Use it only on a trusted network. Empty, `0`, `false` or `no` (the default) keeps the start-up check (hardening, SEC-M3): `bin/settings.php auth status` reads the database without migrating or seeding it (it may create an empty `DB_SCHEMA` or switch an older SQLite file to WAL, as the app does), and the container exits with code 78 when sign-in is off. Any other value exits with code 64. |
+| `ALLOW_NO_LOGIN` | Docker image | `1`, `true` or `yes` lets the container start with sign-in off (no `APP_PASSWORD`, no sign-in in the database). Use it only on a trusted network. Empty, `0`, `false` or `no` (the default) keeps the start-up check, which exits with code 78 when sign-in is off ([Docker defaults](deployment-and-operations.md#docker-defaults-localhost-and-sign-in)). Any other value exits with code 64. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |
 | `TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER`, `TEST_PG_PASSWORD` | tests | PostgreSQL used by PHPUnit, `tests/run.sh` and the Playwright `pgsql-smoke` project. Defaults `127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. |
 | `DB_DRIVER` | tests | `pgsql` runs PHPUnit / `tests/run.sh` against PostgreSQL. |
@@ -183,10 +176,10 @@ is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
 through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
 in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
-`docker/php.ini` enables opcache and leaves JIT off. Installs that turn function JIT on are covered by `src/qr.php`:
-the first request sets `opcache.jit=disable` for the whole worker. Tracing JIT stays on. The cost is negligible, and
-`opcache_jit_blacklist()` does not help. On 2.5.x, function JIT on PHP 8.2, 8.3 and 8.4 could write a wrong QR code
-on installs outside Docker that enabled it.
+`docker/php.ini` enables opcache and leaves JIT off. Function JIT can miscompile the QR encoder on PHP 8.2 to 8.4,
+so when a function-JIT mode is active (`1235`, `function`, or any four-digit CRTO value whose trigger digit is not 5)
+`src/qr.php` sets `opcache.jit=disable` for the whole worker on the first request. Tracing JIT stays on, and
+`opcache_jit_blacklist()` does not help.
 
 ## Examples
 
@@ -209,20 +202,8 @@ DB_PASSWORD=secret
 DB_SCHEMA=apotheke
 ```
 
-Apotheke looks the schema up in `pg_namespace` and runs `CREATE SCHEMA` only when that name is missing.
-PostgreSQL checks CREATE on the database before it checks whether the schema exists, so a role without CREATE
-used to fail at startup even when the schema was already there. A role without CREATE on the database can use
-an existing schema. Create the schema first and grant that role USAGE on it, plus CREATE on the schema when
-migrations need to add tables. If the schema is missing and the role cannot create it, startup fails. The log
-line (`[apotheke] …`) and the CLI error name the schema. They do not include the password or the DSN.
-`bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user or
-the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`. When it can't connect to the database, the command prints `Could not connect to the database`
-with those same fields and exits with status 1. It does not print or log the server's own error text (that
-text names the database user), the password, or the full DSN, including when PHP includes exception arguments
-in stack traces. `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and `bin/settings.php` exit 1 with that
-same line, and `/healthz` logs it. While the database is down, every route, including CSS, the manifest and `/login`, returns 500 and the log has only that sanitized line. A SQLite file that cannot be opened still
-reports the engine's own error. The browser shows the generic error page.
+The role needs USAGE on an existing schema (and CREATE on it for migrations), but not CREATE on the database; see
+[PostgreSQL role](deployment-and-operations.md#postgresql-role).
 
 QR labels that should point at a fixed address:
 
