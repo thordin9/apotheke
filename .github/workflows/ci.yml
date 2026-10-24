@@ -250,8 +250,10 @@ jobs:
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: HEIC, ImageMagick policy and startup refusal
         run: bash scripts/docker-heic.sh apotheke:ci
+      - name: Sign-in required at start (SEC-M3; refuses without APP_PASSWORD, starts with it or ALLOW_NO_LOGIN=1)
+        run: bash scripts/docker-signin-checks.sh apotheke:ci
       - name: Run container (SQLite)
-        run: docker run -d --name apotheke -p 9091:9091 apotheke:ci
+        run: docker run -d --name apotheke -p 9091:9091 -e ALLOW_NO_LOGIN=1 apotheke:ci
       - name: Smoke test SQLite (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:9091
       - name: Web server checks (routing, blocked paths, headers, gzip, body limits)
@@ -267,7 +269,7 @@ jobs:
           docker rm -f apotheke-auth >/dev/null
       - name: Run container (PostgreSQL)
         run: |
-          docker run -d --name apotheke-pg --network host -e PORT=8081 \
+          docker run -d --name apotheke-pg --network host -e PORT=8081 -e ALLOW_NO_LOGIN=1 \
             -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_NAME=apotheke -e DB_USER=apotheke -e DB_PASSWORD=apotheke \
             apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)

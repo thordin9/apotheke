@@ -30,6 +30,28 @@ final class DockerfileTest extends TestCase
         $this->assertFalse($this->pinOk($good . $good));
     }
 
+    /** Hardening (SEC-M3): compose publishes the app on localhost only, and the image needs sign-in to start. */
+    public function testComposeBindsLocalhostAndPassesTheSignInVariables(): void
+    {
+        $compose = (string)file_get_contents(dirname(__DIR__, 2) . '/docker-compose.yml');
+        $this->assertSame(1, preg_match('/^services:\n  apotheke:\n(?:    .*\n|\s*\n)*?    ports:\n((?:      .*\n)+)/m', $compose, $m), $compose);
+        preg_match_all('/^      - "([^"]+)"$/m', $m[1], $ports);
+        $this->assertSame(['127.0.0.1:9091:9091'], $ports[1], 'the only published port is bound to 127.0.0.1');
+        $this->assertStringContainsString('      APP_PASSWORD: ${APP_PASSWORD:-}', $compose);
+        $this->assertStringContainsString('      ALLOW_NO_LOGIN: ${ALLOW_NO_LOGIN:-}', $compose);
+    }
+
+    public function testEntrypointRefusesToStartWithSignInOff(): void
+    {
+        $sh = (string)file_get_contents(dirname(__DIR__, 2) . '/docker/entrypoint.sh');
+        $check = strpos($sh, "bin/settings.php auth status");
+        $this->assertNotFalse($check);
+        $this->assertLessThan(strpos($sh, 'php-fpm -F &'), $check, 'checked before php-fpm starts');
+        $this->assertGreaterThan(strpos($sh, 'exec "$@"'), $check, 'other commands (recovery) still run');
+        $this->assertStringContainsString('exit 78', $sh);
+        $this->assertStringContainsString('su -p -s /bin/sh www-data', $sh);
+    }
+
     /** One exact X.Y.Z line, and every FROM php line is that line. Mirrors the CI sed. */
     private function pinOk(string $docker): bool
     {
