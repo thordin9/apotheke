@@ -5,19 +5,20 @@ declare(strict_types=1);
 namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
-use Apotheke\Core\Config\DsnTranslator;
+use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\RequestScheme;
-use Apotheke\Core\Http\TrustProxyReader;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
+use Config\App;
 use Config\Cookie;
+use Config\Services;
 use Config\Session;
 
 /**
  * Opens the apothekesid session the same way the legacy app does.
  * CI4's Session service is configured to match, and started with PHP's session
- * API so this filter does not call service().
+ * API. The lifetime follows session_days (SEC-N9).
  */
 final class SessionCookie implements FilterInterface
 {
@@ -27,34 +28,47 @@ final class SessionCookie implements FilterInterface
             return null;
         }
         $config = ApothekeConfig::fromEnvironment();
-        $group = (new DsnTranslator())->translate($config->database());
-        $server = $request->getServer();
-        $server = is_array($server) ? $server : [];
-        $secure = (new RequestScheme((new TrustProxyReader($group))->trusted()))->secureCookie($server);
+        $secure = $this->secureCookie($request);
         $cookie = config(Cookie::class);
         $cookie->secure = $secure;
+        $lifetime = Services::sessionLifetime(false)->seconds();
         $session = config(Session::class);
         $session->cookieName = 'apothekesid';
-        $session->expiration = 2592000;
+        $session->expiration = $lifetime;
         $save = $config->dataDir() . '/sessions';
         if (!is_dir($save)) {
             @mkdir($save, 0775, true);
         }
         $session->savePath = $save;
-        ini_set('session.gc_maxlifetime', '2592000');
+        ini_set('session.gc_maxlifetime', (string)$lifetime);
         ini_set('session.use_strict_mode', '1');
         session_save_path($save);
         session_name('apothekesid');
         session_set_cookie_params([
-            'lifetime' => 2592000,
+            'lifetime' => $lifetime,
             'path' => '/',
             'httponly' => true,
             'samesite' => 'Lax',
             'secure' => $secure,
         ]);
         session_start();
+        // Legacy init_session(): every session has a CSRF token for CsrfFilter.
+        if (!is_string($_SESSION['csrf'] ?? null) || $_SESSION['csrf'] === '') {
+            $_SESSION['csrf'] = (new CsrfCheck())->newToken();
+        }
 
         return null;
+    }
+
+    /**
+     * Secure flag from RequestScheme, with the trust_proxy value Config\App read
+     * for this request: no second settings read or connection (SEC-N11).
+     */
+    public function secureCookie(RequestInterface $request): bool
+    {
+        $server = $request->getServer();
+
+        return (new RequestScheme(config(App::class)->trustProxy))->secureCookie(is_array($server) ? $server : []);
     }
 
     private function isHealth(RequestInterface $request): bool

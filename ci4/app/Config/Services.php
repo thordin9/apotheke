@@ -83,6 +83,20 @@ class Services extends BaseService
     }
 
     /**
+     * Session cookie lifetime from session_days (SEC-N9). It keeps no value:
+     * each seconds() call reads through this request's SettingsService.
+     * SessionCookie asks for a new instance (false) every time.
+     */
+    public static function sessionLifetime(bool $getShared = true): \Apotheke\Core\Http\SessionLifetime
+    {
+        if ($getShared) {
+            return static::getSharedInstance('sessionLifetime');
+        }
+
+        return new \Apotheke\Core\Http\SessionLifetime(static fn (): mixed => static::settings()->get('session_days'));
+    }
+
+    /**
      * Spark's command runner, with the Apotheke commands that need
      * collaborators built here (constructor injection, no service() in commands).
      */
