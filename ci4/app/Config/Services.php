@@ -40,7 +40,7 @@ class Services extends BaseService
         }
         $config = static::apothekeConfig();
         \Apotheke\Migrations\BootMigration::ensure($config);
-        if (is_cli()) {
+        if (PHP_SAPI === 'cli') {
             // spark fires no pre_system; on the web Events.php has already wired the group.
             \Apotheke\Core\Boot\FrameworkWiring::apply($config);
         }
