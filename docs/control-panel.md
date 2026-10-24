@@ -144,7 +144,11 @@ this version restore without touching the settings.
 
 ```
 php bin/settings.php list | get KEY | set KEY VALUE | reset SECTION | export | import FILE | password [--off]
+php bin/settings.php key generate | key rotate
 ```
+
+`key generate` prints a new `APP_KEY` and stores nothing. `key rotate` re-encrypts stored secrets; the new key
+comes from `APP_KEY_NEW` or stdin, never from the command arguments. See [Stored secrets](configuration.md#stored-secrets).
 
 `set` validates exactly like the form.
 

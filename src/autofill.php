@@ -414,7 +414,7 @@ function autofill_test_token(string $url, string $typed = ''): string
  */
 function autofill_drop_token_if_moved(string $oldUrl): bool
 {
-    if (autofill_token() === '') return false;
+    if (!secret_setting_nonempty('autofill_token')) return false;
     if (autofill_normalise_url($oldUrl) === autofill_normalise_url((string)setting('autofill_url'))) return false;
     settings_store(['autofill_token' => '']);
     autofill_log('token cleared: the service address changed');

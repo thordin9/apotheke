@@ -11,6 +11,29 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 - **auth:** a sign-in ends on the server once it is older than `session_days`, counted from sign-in. A session from before the upgrade is stamped on its next request instead of being ended. The idle stamp moves at most once a minute. Sign-out of an already ended session redirects. Sign out everywhere (Your account, and `php bin/settings.php user signout NAME`) and a new password replace the account's session epoch (migration 0028), so older sessions are dropped. SEC-N6. ([#84](https://github.com/thordin9/apotheke/pull/84))
 
+## [2.6.11] - 2026-10-24
+
+### Fixed
+
+- **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. A configured but unusable key refuses secret saves. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
+
+### Changed
+
+- **security:** refuse secret saves with an unusable key ([#78](https://github.com/thordin9/apotheke/pull/78))
+
+### Maintenance
+
+- **changelog:** docs: link stored-secret encryption pull request ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **visual:** test: refresh autofill screenshots for the key warning ([#78](https://github.com/thordin9/apotheke/pull/78))
+- ci: assert the sodium extension in the image ([#78](https://github.com/thordin9/apotheke/pull/78))
+- docs: show APP_KEY_FILE mount and key backup advice ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **security:** test: cover unusable-key and moved-address cases ([#78](https://github.com/thordin9/apotheke/pull/78))
+- docs: correct key file permissions ([#78](https://github.com/thordin9/apotheke/pull/78))
+- docs: use numeric gid 82 for key file permissions ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **visual:** test: re-render baselines for the wider v2.6.10 footer ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **qa:** docs: add v2.6.10 release QA doc ([#78](https://github.com/thordin9/apotheke/pull/78))
+- **qa:** docs: add PR 78 stored-secret encryption QA doc ([#78](https://github.com/thordin9/apotheke/pull/78))
+
 ## [2.6.10] - 2026-10-24
 
 **Upgrade note:** a new install's `APP_PASSWORD` now needs at least 8 characters, not only spaces (hardening, #75 QA L-2). A shorter one stops the first start with a message that doesn't show it. An install that already has an account is unaffected.
@@ -609,7 +632,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.10...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.11...HEAD
+[2.6.11]: https://github.com/thordin9/apotheke/compare/v2.6.10...v2.6.11
 [2.6.10]: https://github.com/thordin9/apotheke/compare/v2.6.9...v2.6.10
 [2.6.9]: https://github.com/thordin9/apotheke/compare/v2.6.8...v2.6.9
 [2.6.8]: https://github.com/thordin9/apotheke/compare/v2.6.7...v2.6.8

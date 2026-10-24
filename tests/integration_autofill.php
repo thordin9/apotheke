@@ -25,6 +25,7 @@ T::eq(200, $page['status'], 'GET /settings/autofill → 200');
 T::ok(str_contains($page['body'], 'name="autofill_enabled"') && str_contains($page['body'], 'name="autofill_url"') && str_contains($page['body'], 'name="autofill_timeout"'), 'section shows switch, address and timeout');
 T::ok(str_contains($page['body'], 'id="af-test"') && str_contains($page['body'], 'id="af-token-form"'), 'Test connection button and token form');
 T::ok(str_contains($page['body'], 'No token set.'), 'no token by default');
+T::ok(str_contains($page['body'], 'id="secret-key-warn"') && str_contains($page['body'], 'Set APP_KEY to encrypt stored secrets.'), 'no key: the access token section says to set APP_KEY');
 T::ok(str_contains($af->get('/settings')['body'], 'href="/settings/autofill"'), 'Control Panel home links the AI autofill section');
 T::ok($afGet('autofill_enabled') === false || $afGet('autofill_enabled') === null, 'autofill is off by default');
 
@@ -558,3 +559,43 @@ T::ok(($r['json']['code'] ?? '') === 'busy' && count($ups) === 1 && microtime(tr
 T::ok(!$afs->logHas($secret), 'token never written to the server log');
 $afs->stop();
 $stub->stop();
+
+T::section('Stored secrets: a configured but unusable key refuses the save');
+$refuseSecret = function (string $label, array $env, string $phrase, array $forbidden, ?callable $prep = null) use ($newDir): void {
+    $dir = $newDir('unusable-key');
+    if ($prep) $env = $prep($dir) + $env;
+    $srv = new Server($dir, $env);
+    $c = $srv->client();
+    $page = $c->get('/settings/autofill');
+    T::ok($page['status'] === 200 && str_contains($page['body'], 'id="secret-key-warn"') && str_contains($page['body'], $phrase) && str_contains($page['body'], 'Stored secrets cannot be saved.') && !str_contains($page['body'], 'Set APP_KEY'), "$label: warning names the cause");
+    $db = testdb($dir);
+    $old = json_encode('enc:v1:preserved');
+    $db->prepare('DELETE FROM settings WHERE name = ?')->execute(['autofill_token']);
+    $db->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)')->execute(['autofill_token', $old, gmdate('Y-m-d H:i:s')]);
+    $token = 'new-token-' . bin2hex(random_bytes(3));
+    $r = $c->post('/settings/autofill/token', ['csrf' => $c->csrf(), 'action' => 'set', 'token' => $token]);
+    T::eq(422, $r['status'], "$label: save is refused");
+    T::ok(str_contains($r['body'], 'id="af-token-err"') && str_contains($r['body'], $phrase) && str_contains($r['body'], 'The secret was not saved.'), "$label: Control Panel error names the cause", substr($r['body'], 0, 400));
+    T::ok(!str_contains($r['body'], $token), "$label: the page does not echo the token");
+    foreach ($forbidden as $secret) T::ok(!str_contains($r['body'], $secret) && !$srv->logHas($secret), "$label: the page and the log omit the key");
+    T::eq($old, $db->query("SELECT value FROM settings WHERE name = 'autofill_token'")->fetchColumn(), "$label: the previous row is kept");
+    T::ok($srv->logHas('apotheke: ' . $phrase . '; stored secrets will not be saved.'), "$label: log names the cause");
+    T::ok(!$srv->logHas('set APP_KEY to encrypt stored secrets') && !$srv->logHas($token), "$label: log does not say to set APP_KEY and does not contain the token");
+    $srv->stop();
+};
+$badKey = 'malformed-key-' . bin2hex(random_bytes(4));
+$refuseSecret('malformed APP_KEY', ['APP_KEY' => $badKey, 'APP_KEY_FILE' => ''], 'APP_KEY is not a 32-byte key', [$badKey]);
+$unread = sys_get_temp_dir() . '/apotheke-unreadable-key-' . bin2hex(random_bytes(3));
+$unreadKey = base64_encode(random_bytes(32));
+file_put_contents($unread, $unreadKey . "\n");
+chmod($unread, 0000);
+$refuseSecret('unreadable APP_KEY_FILE', ['APP_KEY' => '', 'APP_KEY_FILE' => $unread], 'APP_KEY_FILE could not be read', [$unreadKey]);
+chmod($unread, 0644);
+@unlink($unread);
+$insideKey = base64_encode(random_bytes(32));
+$refuseSecret('APP_KEY_FILE in the data directory', ['APP_KEY' => ''], 'APP_KEY_FILE is inside the data directory or a backup path', [$insideKey], function (string $dir) use ($insideKey): array {
+    file_put_contents($dir . '/app.key', $insideKey . "\n");
+    return ['APP_KEY_FILE' => $dir . '/app.key'];
+});
+$sodiumKey = base64_encode(random_bytes(32));
+$refuseSecret('sodium missing', ['APP_KEY' => $sodiumKey, 'APP_KEY_FILE' => '', 'APOTHEKE_SODIUM' => '0'], 'sodium extension is missing', [$sodiumKey]);

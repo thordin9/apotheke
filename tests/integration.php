@@ -7,6 +7,7 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/lib.php';
+foreach (['APP_KEY', 'APP_KEY_FILE', 'APP_KEY_NEW'] as $k) putenv($k);
 
 foreach (['pdo_sqlite', 'gd', 'mbstring'] as $ext) {
     if (!extension_loaded($ext)) { fwrite(STDERR, "missing PHP extension: $ext\n"); exit(2); }
