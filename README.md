@@ -255,8 +255,10 @@ IP). In Safari tap Share → **Add to Home Screen**. To use another host port, c
 
 > **Upgrading from 1.x (port 8080):** the image now listens on **9091** (was 80 inside the container) and the compose
 > file maps host port **9091** (was 8080). Update bookmarks, home-screen icons, reverse proxies and `PUBLIC_URL`;
-> QR labels printed with `:8080` in them need reprinting (or keep the old address with `ports: ["8080:9091"]`).
-> `docker run -p 8080:80 …` becomes `-p 9091:9091` (or `-p 8080:9091`). `PORT` still overrides the container port.
+> QR labels printed with `:8080` in them need reprinting (or keep the old address with
+> `ports: ["127.0.0.1:8080:9091"]`). `docker run -p 8080:80 …` becomes `-p 127.0.0.1:9091:9091` (or
+> `-p 127.0.0.1:8080:9091`). `PORT` still overrides the container port. To reach it from your network, see
+> [Docker defaults](docs/deployment-and-operations.md#docker-defaults-localhost-and-sign-in).
 
 The image (about 100 MB) is `php:8.3.36-fpm-alpine` with **nginx** in the same container and `gd`, `exif`, `opcache`,
 `pdo_pgsql` and `zip` added (`pdo_sqlite` is built in). `tini` is PID 1; a small entrypoint runs php-fpm and nginx,
@@ -337,7 +339,7 @@ compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
+| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on; at least 8 characters, or the first start stops); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
 | `ALLOW_NO_LOGIN` | *(empty)* | Docker only: `1` lets the container start with sign-in off. Without it the container exits unless `APP_PASSWORD` is set or sign-in is on in the database. |
 | `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
 | `DATA_DIR` | `./data` (`/data` in the container) | Photos, thumbnails, sessions and the SQLite file. |
@@ -445,7 +447,7 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Items, search, bulk, lending | 88.9 % | 90.6 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 93.6 % | 90.0 % | 96.4 % |
+| Users & roles | 94.1 % | 89.4 % | 96.9 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
@@ -453,9 +455,9 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Views (HTML) | 11.8 % | 99.4 % | 99.3 % |
 | Control Panel settings | 75.4 % | 94.6 % | 97.5 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 80.1 % | 80.7 % | 91.1 % |
+| Database, migrations, legacy | 80.2 % | 80.8 % | 91.2 % |
 | Bootstrap, config, QR, seed | 73.4 % | 75.1 % | 91.0 % |
-| **All PHP** (7236 lines) | **65.6 %** | **89.9 %** | **95.7 %** |
+| **All PHP** (7244 lines) | **65.7 %** | **89.9 %** | **95.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

@@ -63,7 +63,16 @@ final class DockerfileTest extends TestCase
         $this->assertLessThan(strpos($sh, 'php-fpm -F &'), $check, 'checked before php-fpm starts');
         $this->assertGreaterThan(strpos($sh, 'exec "$@"'), $check, 'other commands (recovery) still run');
         $this->assertStringContainsString('exit 78', $sh);
+        // no answer from the database fails closed too (#75 QA L-1)
+        $this->assertMatchesRegularExpression('/^\s*if \[ "\$rc" != 0 \]; then echo "apotheke: could not read the sign-in setting[^\n]*exit 78; fi$/m', $sh);
         $this->assertStringContainsString('su -p -s /bin/sh www-data', $sh);
+    }
+
+    public function testNginx421HasTheAppsText(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $this->assertSame(1, preg_match('/echo "(Unknown host name\.[^"]*)\\\\n";/', (string)file_get_contents($root . '/src/hosts.php'), $app));
+        $this->assertStringContainsString('return 421 "' . $app[1] . '\n";', (string)file_get_contents($root . '/docker/nginx.conf'), '#73 QA N-2');
     }
 
     private function dockerfile(): string

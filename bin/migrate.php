@@ -54,5 +54,10 @@ if (in_array('--status', $argv, true)) {
     exit(0);
 }
 
-$done = migrate($pdo, $driver, ['data_dir' => $c['data_dir'], 'seed' => $c['seed_defaults'], 'log' => fn(string $m) => print("  $m\n")]);
+try {
+    $done = migrate($pdo, $driver, ['data_dir' => $c['data_dir'], 'seed' => $c['seed_defaults'], 'log' => fn(string $m) => print("  $m\n")]);
+} catch (AppPasswordError $e) {
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+}
 echo $done ? 'Done: ' . count($done) . " step(s).\n" : "Already up to date.\n";

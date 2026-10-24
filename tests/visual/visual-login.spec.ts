@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
  * Visual regression baselines (per project = device × colour scheme). Data and server clock are fixed;
  * timestamps are masked anyway, animations/caret are disabled in playwright.config.ts.
  */
-test.use({ appPassword: 'pw' });
+test.use({ appPassword: 'pw-visual' });
 
 const shot = async (page: Page, name: string, fullPage = false) => {
   await page.evaluate(() => document.fonts.ready);
