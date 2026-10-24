@@ -1,4 +1,5 @@
-# Core depends on nothing. DevServer and Migrations may depend on Core.
+# Core depends on nothing. DevServer and Settings may depend on Core.
+# Migrations may depend on Core and on Settings (schema only).
 deptrac:
   paths:
     - ci4/modules
@@ -15,9 +16,16 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Migrations\\
+    - name: Settings
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Settings\\
   ruleset:
     Core: []
     DevServer:
       - Core
     Migrations:
+      - Core
+      - Settings
+    Settings:
       - Core
