@@ -206,12 +206,10 @@ final class ReleaseTest extends TestCase
         $out = rel_changelog_insert($cl, "## [9.9.9] - 2099-01-01\n\n### Fixed\n\n- x\n", '9.9.9', 'v1.0.0', self::URL);
         $notes = rel_release_notes($out, '9.9.9', self::URL . '/compare/v1.0.0...v9.9.9');
         $this->assertStringStartsWith('**Upgrade note:**', $notes);
-        $this->assertStringContainsString("ALLOWED_HOSTS=nas.local,apotheke.example\n", $notes);
-        $this->assertLessThan(strpos($notes, '### Fixed'), strpos($notes, 'ALLOWED_HOSTS='));
-        // health probes need an allowed host too (#70 L-2), and that line stays in the note
-        $health = strpos($notes, 'Health checks (`/healthz`, `/health`)');
-        $this->assertNotFalse($health);
-        $this->assertLessThan(strpos($notes, '### Fixed'), $health);
+        // the whole note, as written under Unreleased, opens the notes ahead of the first section
+        $unreleased = substr($cl, strpos($cl, "## [Unreleased]\n\n") + strlen("## [Unreleased]\n\n"));
+        $note = trim(substr($unreleased, 0, (int)strpos($unreleased, "\n### ")));
+        $this->assertStringStartsWith($note . "\n\n### ", $notes);
     }
 
     public function testCommitsFromAGitHistory(): void
