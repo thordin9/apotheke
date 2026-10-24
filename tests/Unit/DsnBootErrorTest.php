@@ -104,6 +104,9 @@ final class DsnBootErrorTest extends TestCase
             '-d', 'log_errors=1',
             '-d', 'error_log=' . $log,
             '-d', 'zend.exception_ignore_args=0',
+            // The CI runner enables JIT with coverage extensions loaded; its startup
+            // warning would otherwise land in the log this test expects to be empty.
+            '-d', 'opcache.jit=disable',
             '-S', '127.0.0.1:' . $port,
             '-t', $dir,
             $router,
