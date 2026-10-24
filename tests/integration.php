@@ -1151,7 +1151,7 @@ $ps->stop();
 T::section('Idle sign-in');
 $idleDir = $newDir('idle');
 $idleBoot = function (string $clock) use ($idleDir): Server {
-    return new Server($idleDir, ['APP_PASSWORD' => 's3cret', 'APOTHEKE_CLOCK' => $clock]);
+    return new Server($idleDir, ['APP_PASSWORD' => 's3cret-pw', 'APOTHEKE_CLOCK' => $clock]);
 };
 $idleCarry = function (Server $srv, array $cookies): Client {
     $c = $srv->client();
@@ -1161,7 +1161,7 @@ $idleCarry = function (Server $srv, array $cookies): Client {
 $idleSign = function (string $clock) use ($idleBoot): array {
     $s = $idleBoot($clock);
     $c = $s->client();
-    $r = $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret']);
+    $r = $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret-pw']);
     T::eq(303, $r['status'], "sign in at $clock");
     return [$s, $c];
 };
