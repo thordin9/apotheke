@@ -48,6 +48,8 @@ class Filters extends BaseFilters
         'sameorigin' => \Apotheke\Core\Filters\SameOriginFilter::class,
         // Legacy check_csrf() (session token). CI4's cookie CSRF ('csrf') stays off.
         'sessioncsrf' => \Apotheke\Core\Filters\CsrfFilter::class,
+        // Legacy route_perm()/user_can(): every request, routed or not, before CSRF (PLAN PR 7).
+        'permission' => \Apotheke\Auth\Filters\PermissionFilter::class,
     ];
 
     /**
@@ -73,6 +75,7 @@ class Filters extends BaseFilters
             'posttoolarge',
             'session',
             'sameorigin',
+            'permission',
         ],
         'after' => [
         ],

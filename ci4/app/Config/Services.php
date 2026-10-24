@@ -125,6 +125,18 @@ class Services extends BaseService
         );
     }
 
+    /** The roles table (Auth). Stateless: every call reads the table. */
+    public static function roles(bool $getShared = true): \Apotheke\Auth\RoleRepository
+    {
+        if ($getShared) {
+            return static::getSharedInstance('roles');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\RoleRepository($db);
+    }
+
     /**
      * Session cookie lifetime from session_days (SEC-N9). It keeps no value:
      * each seconds() call reads through this request's SettingsService.

@@ -131,7 +131,7 @@ if (!function_exists('ci4_test_arm_html_page')) {
                     helper('url');
 
                     return '<!doctype html><title>test</title><p>' . htmlspecialchars(base_url('labels')) . '</p>';
-                });
+                }, ['permission' => 'view']);
             },
             \CodeIgniter\Events\Events::PRIORITY_LOW
         );
