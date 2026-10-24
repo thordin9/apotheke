@@ -341,12 +341,12 @@ final class SettingsServiceTest extends CIUnitTestCase
     public function testWithAKeyTheTokenIsSealedAtRest(string $driver): void
     {
         $this->database = TestDatabase::create($driver);
-        $service = $this->fresh([], null, $this->box(self::KEY_A));
+        $service = $this->fresh([], null, $this->box(base64_encode(self::KEY_A)));
         $service->setAutofillToken('placeholder-token');
         $row = $this->tokenRow();
         $this->assertStringStartsWith('"enc:v1:', $row);
         $this->assertStringNotContainsString('placeholder-token', $row);
-        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(self::KEY_A))->autofillToken());
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->autofillToken());
         $this->assertSame([], $this->logged, 'a usable key logs nothing');
         // Export and list never carry the token, sealed or not.
         $this->assertArrayNotHasKey('autofill_token', $service->export()['settings']);
@@ -359,9 +359,9 @@ final class SettingsServiceTest extends CIUnitTestCase
     {
         $this->database = TestDatabase::create($driver);
         (new SettingsRepository($this->database->db))->replace(['autofill_token' => '"placeholder-token"'], '2026-01-01 00:00:00');
-        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(self::KEY_A))->autofillToken());
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->autofillToken());
         $this->assertStringStartsWith('"enc:v1:', $this->tokenRow());
-        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(self::KEY_A))->autofillToken());
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->autofillToken());
         // Without a key a plaintext row is read as is and left alone.
         (new SettingsRepository($this->database->db))->replace(['autofill_token' => '"placeholder-token"'], '2026-01-01 00:00:00');
         $this->assertSame('placeholder-token', $this->fresh()->autofillToken());
@@ -373,8 +373,8 @@ final class SettingsServiceTest extends CIUnitTestCase
     {
         $this->database = TestDatabase::create($driver);
         $this->assertSame([], $this->fresh()->save(['autofill_url' => 'http://192.0.2.1:8080']));
-        $this->fresh([], null, $this->box(self::KEY_A))->setAutofillToken('placeholder-token');
-        $other = $this->fresh([], null, $this->box(self::KEY_B));
+        $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->setAutofillToken('placeholder-token');
+        $other = $this->fresh([], null, $this->box(base64_encode(self::KEY_B)));
         $this->assertSame('', $other->autofillToken());
         $this->assertSame(['apotheke: setting autofill_token could not be decrypted and is treated as unset.'], $this->logged);
         $this->assertSame([], $other->save(['autofill_url' => 'http://192.0.2.2:8080']));
@@ -417,9 +417,9 @@ final class SettingsServiceTest extends CIUnitTestCase
         $this->assertSame('""', $this->tokenRow());
     }
 
-    private const KEY_A = 'cGxhY2Vob2xkZXIta2V5LWEtMzItYnl0ZXMtbG9uZyE=';
+    private const KEY_A = 'placeholder-key-a-32-bytes-long!';
 
-    private const KEY_B = 'cGxhY2Vob2xkZXIta2V5LWItMzItYnl0ZXMtbG9uZyE=';
+    private const KEY_B = 'placeholder-key-b-32-bytes-long!';
 
     private function box(string $appKey): SecretBox
     {

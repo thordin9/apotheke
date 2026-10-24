@@ -15,7 +15,7 @@ use CodeIgniter\Test\CIUnitTestCase;
  */
 final class SecretBoxTest extends CIUnitTestCase
 {
-    private const KEY = 'cGxhY2Vob2xkZXIta2V5LWEtMzItYnl0ZXMtbG9uZyE=';
+    private const RAW = 'placeholder-key-a-32-bytes-long!';
 
     private string $dir = '';
 
@@ -45,22 +45,22 @@ final class SecretBoxTest extends CIUnitTestCase
     public function testKeyResolutionMatchesLegacy(): void
     {
         $roots = [$this->dir . '/data'];
-        $raw = (string)base64_decode(self::KEY, true);
+        $raw = self::RAW;
         $this->assertSame([null, null], $this->state([], $roots));
-        $this->assertSame([$raw, null], $this->state(['APP_KEY' => self::KEY], $roots));
-        $this->assertSame([$raw, null], $this->state(['APP_KEY' => ' base64:' . self::KEY . "\n"], $roots));
+        $this->assertSame([$raw, null], $this->state(['APP_KEY' => $this->key()], $roots));
+        $this->assertSame([$raw, null], $this->state(['APP_KEY' => ' base64:' . $this->key() . "\n"], $roots));
         $this->assertSame([null, 'malformed'], $this->state(['APP_KEY' => 'not-a-key-placeholder'], $roots));
         $this->assertSame([null, 'malformed'], $this->state(['APP_KEY' => base64_encode('short')], $roots));
-        $this->assertSame([null, 'sodium'], $this->state(['APP_KEY' => self::KEY, 'APOTHEKE_SODIUM' => '0'], $roots));
+        $this->assertSame([null, 'sodium'], $this->state(['APP_KEY' => $this->key(), 'APOTHEKE_SODIUM' => '0'], $roots));
 
-        file_put_contents($this->dir . '/outside/app.key', self::KEY . "\n");
+        file_put_contents($this->dir . '/outside/app.key', $this->key() . "\n");
         $this->assertSame([$raw, null], $this->state(['APP_KEY_FILE' => $this->dir . '/outside/app.key'], $roots));
         // A non-empty APP_KEY wins over the file, even when it does not decode.
         $this->assertSame([null, 'malformed'], $this->state(['APP_KEY' => 'x', 'APP_KEY_FILE' => $this->dir . '/outside/app.key'], $roots));
         file_put_contents($this->dir . '/outside/bad.key', "placeholder\n");
         $this->assertSame([null, 'malformed_file'], $this->state(['APP_KEY_FILE' => $this->dir . '/outside/bad.key'], $roots));
         $this->assertSame([null, 'unreadable'], $this->state(['APP_KEY_FILE' => $this->dir . '/outside/missing.key'], $roots));
-        file_put_contents($this->dir . '/data/app.key', self::KEY . "\n");
+        file_put_contents($this->dir . '/data/app.key', $this->key() . "\n");
         $this->assertSame([null, 'inside_data'], $this->state(['APP_KEY_FILE' => $this->dir . '/data/app.key'], $roots));
         $this->assertSame([null, 'inside_data'], $this->state(['APP_KEY_FILE' => $this->dir . '/outside/../data/app.key'], $roots));
         $this->assertSame([null, 'inside_data'], $this->state(['APP_KEY_FILE' => $this->dir . '/data'], $roots));
@@ -68,7 +68,7 @@ final class SecretBoxTest extends CIUnitTestCase
 
     public function testSealAndOpen(): void
     {
-        $box = $this->box(['APP_KEY' => self::KEY]);
+        $box = $this->box(['APP_KEY' => $this->key()]);
         $sealed = $box->seal('placeholder-secret');
         $this->assertStringStartsWith(SecretBox::ENVELOPE, $sealed);
         $this->assertStringNotContainsString('placeholder-secret', $sealed);
@@ -99,7 +99,7 @@ final class SecretBoxTest extends CIUnitTestCase
     {
         $cases = [
             'malformed' => [['APP_KEY' => 'malformed-placeholder'], 'APP_KEY is not a 32-byte key', 'APP_KEY is not a 32-byte key'],
-            'sodium' => [['APP_KEY' => self::KEY, 'APOTHEKE_SODIUM' => '0'], 'The sodium extension is missing', 'sodium extension is missing'],
+            'sodium' => [['APP_KEY' => $this->key(), 'APOTHEKE_SODIUM' => '0'], 'The sodium extension is missing', 'sodium extension is missing'],
             'unreadable' => [['APP_KEY_FILE' => $this->dir . '/outside/missing.key'], 'APP_KEY_FILE could not be read', 'APP_KEY_FILE could not be read'],
         ];
         foreach ($cases as $name => [$env, $label, $phrase]) {
@@ -114,7 +114,7 @@ final class SecretBoxTest extends CIUnitTestCase
             }
             $this->assertNull($box->key(), $name);
             $this->assertSame(['apotheke: ' . $phrase . '; stored secrets will not be saved.'], $this->logged, $name);
-            $this->assertStringNotContainsString(self::KEY, implode("\n", $this->logged));
+            $this->assertStringNotContainsString($this->key(), implode("\n", $this->logged));
             $this->assertStringNotContainsString('malformed-placeholder', implode("\n", $this->logged));
         }
     }
@@ -133,6 +133,12 @@ final class SecretBoxTest extends CIUnitTestCase
         $box->seal('b');
         $box->key();
         $this->assertSame(1, $calls);
+    }
+
+    /** A placeholder APP_KEY: base64 of 32 readable bytes. */
+    private function key(): string
+    {
+        return base64_encode(self::RAW);
     }
 
     /**
