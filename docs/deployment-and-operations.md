@@ -410,7 +410,7 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
 
 * `GET /healthz` returns `ok` after connecting to the database (the Docker `HEALTHCHECK` uses it) and sends the running
   version in `X-Apotheke-Version`.
-* `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
+* `GET /health` returns `{"status":"ok","version":"X.Y.Z"}` (JSON, no login needed; `version` is the running release from `VERSION`) for monitoring tools.
 * Both health endpoints are behind the [Host check](#host-names): a probe must use an IP address, `localhost`, the
   container's host name, the Public URL's host or an `ALLOWED_HOSTS` entry, or it gets 421.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
