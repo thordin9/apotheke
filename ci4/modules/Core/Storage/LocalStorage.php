@@ -39,7 +39,28 @@ final class LocalStorage implements Storage
         if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
             throw new RuntimeException('Could not store the file.');
         }
-        if (@file_put_contents($path, $bytes) === false) {
+        if ($this->path($key) === null) {
+            throw new InvalidArgumentException('Invalid storage key.');
+        }
+        $tmp = $dir . '/.' . basename($path) . '.tmp-' . bin2hex(random_bytes(8));
+        $fh = @fopen($tmp, 'xb');
+        if ($fh === false) {
+            throw new RuntimeException('Could not store the file.');
+        }
+        $written = 0;
+        $len = strlen($bytes);
+        while ($written < $len) {
+            $n = fwrite($fh, substr($bytes, $written));
+            if ($n === false || $n === 0) {
+                fclose($fh);
+                @unlink($tmp);
+                throw new RuntimeException('Could not store the file.');
+            }
+            $written += $n;
+        }
+        fclose($fh);
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
             throw new RuntimeException('Could not store the file.');
         }
     }
@@ -65,12 +86,17 @@ final class LocalStorage implements Storage
         if ($key === '' || str_contains($key, "\0") || str_contains($key, '\\') || str_starts_with($key, '/')) {
             return null;
         }
+        $acc = rtrim($this->root, '/');
         foreach (explode('/', $key) as $part) {
             if ($part === '' || $part === '.' || $part === '..') {
                 return null;
             }
+            $acc .= '/' . $part;
+            if (is_link($acc)) {
+                return null;
+            }
         }
 
-        return rtrim($this->root, '/') . '/' . $key;
+        return $acc;
     }
 }

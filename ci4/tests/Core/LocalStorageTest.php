@@ -60,4 +60,54 @@ final class LocalStorageTest extends CIUnitTestCase
         }
         $this->assertSame([], glob($this->root . '/*') ?: []);
     }
+
+    public function testASymlinkIsNotFollowed(): void
+    {
+        $outside = sys_get_temp_dir() . '/apotheke-outside-' . bin2hex(random_bytes(4));
+        $outDir = sys_get_temp_dir() . '/apotheke-outdir-' . bin2hex(random_bytes(4));
+        file_put_contents($outside, 'secret');
+        mkdir($outDir, 0700);
+        file_put_contents($outDir . '/info.json', 'keep');
+        try {
+            $store = new LocalStorage($this->root);
+            mkdir($this->root . '/autofill', 0700);
+            symlink($outside, $this->root . '/autofill/info.json');
+            try {
+                $store->write('autofill/info.json', 'nope');
+                $this->fail('wrote through a file symlink');
+            } catch (InvalidArgumentException) {
+                $this->assertSame('secret', (string)file_get_contents($outside));
+                $this->assertNull($store->read('autofill/info.json'));
+                $this->assertFalse($store->exists('autofill/info.json'));
+            }
+            $store->delete('autofill/info.json');
+            $this->assertSame('secret', (string)file_get_contents($outside));
+            $this->assertTrue(is_link($this->root . '/autofill/info.json'));
+
+            symlink($outDir, $this->root . '/linked');
+            try {
+                $store->write('linked/info.json', 'nope');
+                $this->fail('wrote through a directory symlink');
+            } catch (InvalidArgumentException) {
+                $this->assertSame('keep', (string)file_get_contents($outDir . '/info.json'));
+                $this->assertNull($store->read('linked/info.json'));
+            }
+        } finally {
+            @unlink($outside);
+            @unlink($outDir . '/info.json');
+            @rmdir($outDir);
+        }
+    }
+
+    public function testRewriteReplacesAReadOnlyFileWithoutATempLeftBehind(): void
+    {
+        $store = new LocalStorage($this->root);
+        $store->write('autofill/info.json', 'old');
+        $path = $this->root . '/autofill/info.json';
+        chmod($path, 0444);
+        $store->write('autofill/info.json', 'new');
+        $this->assertSame('new', (string)file_get_contents($path));
+        $names = array_map('basename', glob($this->root . '/autofill/{,.}*', GLOB_BRACE) ?: []);
+        $this->assertSame(['info.json'], array_values(array_filter($names, static fn (string $n): bool => $n !== '.' && $n !== '..')));
+    }
 }
