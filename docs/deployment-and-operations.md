@@ -417,6 +417,17 @@ The image sets `zend.exception_ignore_args = On`, so the exception text does not
   request must come from the app's own pages; see [Host names](#host-names).
 * **HSTS:** the app does not send `Strict-Transport-Security` itself, because it often runs on plain HTTP on a LAN.
   Add it in your TLS proxy (see the Caddy and nginx examples above).
+* **Stored secrets:** with `APP_KEY` set, recoverable secrets (the autofill access token) are encrypted in the
+  database. A configured key that cannot be used (malformed, unreadable, inside the data directory, or the sodium
+  extension missing) refuses secret saves. With no key configured, they stay plaintext. Password hashes stay hashes.
+  The database file itself and the upload directories (photos, thumbnails, camera originals, attachments) are not
+  encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR` and, for PostgreSQL, the database volume.
+  See [Stored secrets](configuration.md#stored-secrets). If the key is lost, stored secrets count as unset, so keep the
+  key out of the data volume and its backups. An `APP_KEY_FILE` must be readable by the app user. Inside the image
+  that user is `www-data` (uid 82, gid 82). `chown` runs on the host, where `www-data` is gid 33 on Debian and Ubuntu
+  and some hosts have no such group, so use `chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside
+  Swarm, plain `docker compose` bind-mounts a `file:` secret with the host file's owner and mode and ignores uid, gid
+  and mode. The same `root:82` and `0440` apply to that file.
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.

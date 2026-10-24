@@ -47,6 +47,7 @@ RUN set -eux; \
     rm -rf /tmp/pear /usr/local/etc/php-fpm.d/www.conf.default; \
     php -m | grep -qi pdo_sqlite; \
     php -m | grep -qi imagick; \
+    php -m | grep -qx sodium; \
     php -r "exit(phpversion('imagick') === '${IMAGICK_VERSION}' ? 0 : 1);"; \
     php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'; \
     php -r 'exit(in_array("HEIC", array_map("strtoupper", Imagick::queryFormats()), true) ? 0 : 1);'

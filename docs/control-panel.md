@@ -82,8 +82,8 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 | `auth_register_disabled` | on | off: public `/register` (CSRF + 5 per hour per address) |
 | `auth_register_role` | viewer | role of self-registered accounts (any but admin) |
 | `auth_register_approval` | off | new accounts are `pending` until an admin approves them |
-| `session_days` | 30 | longest a sign-in lasts, counted from sign-in. Later visits do not extend it. 1–365. Applies from the next sign-in |
-| `session_idle_hours` | 168 | end a sign-in after this many hours with no request. 1–8760 (365 days). The stay-signed-in limit still applies |
+| `session_days` | 30 | longest a sign-in lasts, counted from sign-in. Later visits do not extend it. The server ends it when this time has passed. 1–365. A session from before the upgrade is stamped on its next request |
+| `session_idle_hours` | 168 | end a sign-in after this many hours with no request. 1–8760 (365 days). Lowering it applies on the next request. The clock moves at most once a minute. The favicon, the manifest, the theme and label styles, and the health checks do not count. The stay-signed-in limit still applies |
 
 **CI4 build (`APOTHEKE_APP=ci4`), until the session port lands:** CI4 does not enforce these two limits as described above
 yet. It ends a sign-in only after `session_days` with no request, so a sign-in in use is not ended `session_days` after
@@ -98,8 +98,10 @@ limit for anyone else. `X-Forwarded-For` is read only when `trust_proxy` is on a
 
 Accounts with the *Users* permission see this section. Rules: user names are 1–40 letters, digits and `. _ @ -`
 (case-insensitive, unique); passwords at least 8 characters; the last admin can't be demoted or deleted; you can't
-delete yourself. A new password signs that user out on every device (sessions carry a fingerprint of the hash);
-changing your own keeps this device signed in. **Only an admin account can grant the admin role, turn sign-in
+delete yourself. A new password signs that user out on every device (each account has a session epoch; a session
+is valid only while it holds the current one). Changing your own password keeps this device signed in.
+**Sign out everywhere** on Your account (☰ → your name) does the same for the other sessions and keeps this
+device. The command line ends every session of that account, including this one. **Only an admin account can grant the admin role, turn sign-in
 off, or change an existing admin account** (its role, name, password, approval, or deletion). The *Users* permission
 on its own is not enough for any of those. Setting a password signs that account out everywhere, so a non-admin
 cannot do it to an admin. An account with Users can still change other accounts, roles, and sign-in options. Turning sign-in off keeps the accounts.
@@ -113,6 +115,7 @@ php bin/settings.php users                          # accounts, roles, last sign
 php bin/settings.php roles                          # roles and their permissions · roles reset (restore built-ins)
 php bin/settings.php user role NAME admin           # make someone an admin · user approve NAME
 php bin/settings.php user password admin            # new password (asks twice; or pass it as the next argument)
+php bin/settings.php user signout NAME              # end every session of that account
 php bin/settings.php user add anna editor           # roles: admin, editor, viewer
 php bin/settings.php user role anna admin           # · user rename OLD NEW · user delete NAME
 php bin/settings.php auth off                       # no sign-in (auth on: back on, needs an admin)
@@ -162,7 +165,11 @@ this version restore without touching the settings.
 
 ```
 php bin/settings.php list | get KEY | set KEY VALUE | reset SECTION | export | import FILE | password [--off]
+php bin/settings.php key generate | key rotate
 ```
+
+`key generate` prints a new `APP_KEY` and stores nothing. `key rotate` re-encrypts stored secrets; the new key
+comes from `APP_KEY_NEW` or stdin, never from the command arguments. See [Stored secrets](configuration.md#stored-secrets).
 
 `set` validates exactly like the form.
 

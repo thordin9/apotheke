@@ -104,6 +104,72 @@ final class SessionCookieTest extends DatabaseTestCase
         }
     }
 
+    public function testIdleSecondsClampsAndFallsBack(): void
+    {
+        settings_store(['session_idle_hours' => 0]);
+        settings_cache(null, true);
+        $this->assertSame(168 * 3600, session_idle_seconds(), '0 falls back to 168 hours');
+        settings_store(['session_idle_hours' => -5]);
+        settings_cache(null, true);
+        $this->assertSame(3600, session_idle_seconds(), 'a negative value is at least 1 hour');
+        settings_store(['session_idle_hours' => 99999]);
+        settings_cache(null, true);
+        $this->assertSame(8760 * 3600, session_idle_seconds(), 'a huge value is at most 8760 hours');
+        settings_store(['session_idle_hours' => 2]);
+        settings_cache(null, true);
+        $this->assertSame(2 * 3600, session_idle_seconds(), 'a value inside the range is kept');
+    }
+
+    public function testActivityStampRefreshesAtMostOnceAMinute(): void
+    {
+        $saved = $GLOBALS['_SESSION'] ?? [];
+        try {
+            $now = app_time();
+            $_SESSION = ['uid' => 1, 'last_activity' => $now - 59];
+            session_touch();
+            $this->assertSame($now - 59, $_SESSION['last_activity'], 'a stamp under a minute old is kept');
+            $_SESSION['last_activity'] = $now - 60;
+            session_touch();
+            $this->assertSame($now, $_SESSION['last_activity'], 'a stamp a minute old is refreshed');
+            $_SESSION = ['uid' => 0];
+            session_touch();
+            $this->assertArrayNotHasKey('last_activity', $_SESSION);
+        } finally {
+            $_SESSION = $saved;
+        }
+    }
+
+    public function testAbsoluteExpiryUsesTheSignInTime(): void
+    {
+        $saved = $GLOBALS['_SESSION'] ?? [];
+        try {
+            $_SESSION = [];
+            $this->assertFalse(session_absolute_expired());
+            session_stamp_sign_in();
+            $this->assertArrayNotHasKey('signed_in_at', $_SESSION, 'an anonymous session has no sign-in time');
+
+            $_SESSION = ['uid' => 1];
+            $this->assertFalse(session_absolute_expired(), 'a session with no sign-in time is not past the limit');
+            session_stamp_sign_in();
+            $stamped = $_SESSION['signed_in_at'];
+            $this->assertGreaterThan(0, $stamped);
+            session_stamp_sign_in();
+            $this->assertSame($stamped, $_SESSION['signed_in_at'], 'a later request does not move the sign-in time');
+
+            settings_store(['session_days' => 1]);
+            settings_cache(null, true);
+            $_SESSION['signed_in_at'] = app_time() - 86400;
+            $this->assertFalse(session_absolute_expired(), 'exactly session_days is still signed in');
+            $_SESSION['signed_in_at'] = app_time() - 86400 - 1;
+            $this->assertTrue(session_absolute_expired(), 'one second past session_days ends the session');
+            $_SESSION['last_activity'] = app_time();
+            $this->assertTrue(session_absolute_expired(), 'a recent request does not extend session_days');
+        } finally {
+            $_SESSION = $saved;
+            settings_cache(null, true);
+        }
+    }
+
     public function testIdleExpiryAndActivityStamp(): void
     {
         $saved = $GLOBALS['_SESSION'] ?? [];

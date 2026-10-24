@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/secretbox.php';
+
 /*
  * Apotheke – Control Panel settings.
  *
@@ -118,13 +120,107 @@ function settings_schema(): array
         'auth_register_disabled' => ['security', 'Disable registrations', 'bool', true, 'Off: anyone who can reach this address can create an account at /register (limited to 5 per hour per address).', []],
         'auth_register_role' => ['security', 'Role for new registrations', 'role', 'viewer', 'Admin cannot be chosen.', []],
         'auth_register_approval' => ['security', 'Registrations need an admin’s approval', 'bool', false, 'New accounts can only sign in once an admin approves them under Users.', []],
-        'session_days' => ['security', 'Stay signed in for (days)', 'int', 30, 'The longest a sign-in lasts, counted from sign-in. Later visits do not extend it. Applies from the next sign-in.', ['min' => 1, 'max' => 365]],
+        'session_days' => ['security', 'Stay signed in for (days)', 'int', 30, 'The longest a sign-in lasts, counted from sign-in. Later visits do not extend it. The server ends it when this time has passed.', ['min' => 1, 'max' => 365]],
         'session_idle_hours' => ['security', 'Sign out after idle (hours)', 'int', 168, 'End a sign-in after this many hours with no request. 1–8760 (365 days). The stay-signed-in limit above still applies.', ['min' => 1, 'max' => 8760]],
         'trust_proxy' => ['security', 'Trust the reverse proxy', 'bool', false, 'Turn on only when the app sits behind your own HTTPS proxy (nginx, Caddy, Traefik) that sets X-Forwarded-Proto. Then sign-in cookies are marked Secure. Leave off when the app is reachable directly.', []],
         'import_create_missing' => ['data', 'CSV import creates missing entries', 'bool', true, 'Pre-ticks “Create missing locations, categories and tags” on the import screen.', []],
         'password_hash'    => ['security', 'Password (before accounts; moved to the user “admin” by migration 0018)', 'secret', 'cfg_hash', '', []],
     ];
     return $s;
+}
+
+/**
+ * Recoverable secrets stored in `settings` (not password hashes).
+ * @return list<string>
+ */
+function secret_at_rest_names(): array
+{
+    $names = [];
+    foreach (settings_schema() as $k => $d) {
+        if (($d[2] ?? '') !== 'secret' || $k === 'password_hash') continue;
+        $names[] = $k;
+    }
+    return $names;
+}
+
+function secret_is_at_rest(string $key): bool
+{
+    return in_array($key, secret_at_rest_names(), true);
+}
+
+/** True when the settings row holds a non-empty string, before decryption. */
+function secret_setting_nonempty(string $name): bool
+{
+    $st = db()->prepare('SELECT value FROM settings WHERE name = ?');
+    $st->execute([$name]);
+    $col = $st->fetchColumn();
+    if (!is_string($col)) return false;
+    $decoded = json_decode($col, true);
+    return is_string($decoded) && $decoded !== '';
+}
+
+/**
+ * @return array{0:mixed,1:bool} value to validate, and whether a legacy plaintext row should be sealed
+ */
+function secret_prepare_read(string $name, mixed $decoded): array
+{
+    if (!is_string($decoded) || $decoded === '') return [$decoded, false];
+    if (!str_starts_with($decoded, SECRET_ENVELOPE)) return [$decoded, secret_key() !== null];
+    return [secret_open($name, $decoded), false];
+}
+
+/** @param array<string,string> $plainByName */
+function secret_persist(array $plainByName): void
+{
+    db_tx(function (PDO $pdo) use ($plainByName): void {
+        $del = $pdo->prepare('DELETE FROM settings WHERE name = ?');
+        $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
+        foreach ($plainByName as $k => $plain) {
+            if (!secret_is_at_rest($k) || !is_string($plain) || $plain === '' || secret_key() === null) continue;
+            $del->execute([$k]);
+            $ins->execute([$k, json_encode(secret_seal($plain), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), now_utc()]);
+        }
+    });
+}
+
+/**
+ * Re-encrypt every recoverable secret with $newRaw (base64 of 32 bytes).
+ * An enc:v1: value that does not open with the current key aborts the transaction.
+ * @return array{rotated:int,encrypted:int}
+ */
+function secret_rotate(string $newRaw): array
+{
+    $new = secret_key_decode($newRaw);
+    if ($new === null) throw new UserError('The new key must be base64 of 32 bytes.');
+    $old = secret_key();
+    $counts = ['rotated' => 0, 'encrypted' => 0];
+    db_tx(function (PDO $pdo) use ($old, $new, &$counts): void {
+        $plan = [];
+        $sel = $pdo->prepare('SELECT value FROM settings WHERE name = ?');
+        foreach (secret_at_rest_names() as $name) {
+            $sel->execute([$name]);
+            $col = $sel->fetchColumn();
+            if ($col === false) continue;
+            $decoded = json_decode((string)$col, true);
+            if (!is_string($decoded) || $decoded === '') continue;
+            if (str_starts_with($decoded, SECRET_ENVELOPE)) {
+                $plain = secret_open_with($name, $decoded, $old, false);
+                if ($plain === null) throw new UserError($name . ' could not be decrypted. Nothing was changed.');
+                $plan[] = [$name, secret_seal_with($plain, $new), 'rotated'];
+            } else {
+                $plan[] = [$name, secret_seal_with($decoded, $new), 'encrypted'];
+            }
+        }
+        $del = $pdo->prepare('DELETE FROM settings WHERE name = ?');
+        $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
+        foreach ($plan as [$name, $stored, $kind]) {
+            $del->execute([$name]);
+            $ins->execute([$name, json_encode($stored, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), now_utc()]);
+            $counts[$kind]++;
+        }
+    });
+    settings_cache(null, true);
+    return $counts;
 }
 
 /** Bootstrap settings shown read-only: [label, value, source]. Never includes the database password. */
@@ -291,13 +387,26 @@ function settings_all(): array
         foreach (db()->query('SELECT name, value FROM settings') as $r) $rows[(string)$r['name']] = (string)$r['value'];
     } catch (PDOException) { /* table missing (mid-migration): defaults */ }
     $out = [];
+    $upgrade = [];
     foreach (settings_schema() as $k => $_) {
         if (array_key_exists($k, $rows)) {
-            try { $out[$k] = setting_validate($k, json_decode($rows[$k], true)); continue; } catch (UserError) { /* invalid row: default */ }
+            try {
+                $decoded = json_decode($rows[$k], true);
+                if (secret_is_at_rest($k)) {
+                    [$decoded, $seal] = secret_prepare_read($k, $decoded);
+                    if ($seal && is_string($decoded) && $decoded !== '') $upgrade[$k] = $decoded;
+                }
+                $out[$k] = setting_validate($k, $decoded);
+                continue;
+            } catch (UserError) { /* invalid row: default */ }
         }
         $out[$k] = setting_default($k);
     }
-    return settings_cache($out);
+    settings_cache($out);
+    if ($upgrade) {
+        try { secret_persist($upgrade); } catch (Throwable) { /* leave the legacy row; the next save seals it */ }
+    }
+    return $out;
 }
 
 function setting(string $key): mixed
@@ -325,6 +434,7 @@ function settings_store(array $values): bool
         $del = $pdo->prepare('DELETE FROM settings WHERE name = ?');
         $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
         foreach ($values as $k => $v) {
+            if (secret_is_at_rest((string)$k) && is_string($v) && $v !== '') $v = secret_seal($v);
             $del->execute([$k]);
             $ins->execute([$k, json_encode($v, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), now_utc()]);
         }
@@ -354,7 +464,13 @@ function settings_save(array $raw, array $extra = []): array
     foreach ($raw as $k => $v) {
         try { $ok[$k] = setting_validate((string)$k, $v); } catch (UserError $e) { $err[$k] = $e->getMessage(); }
     }
-    if (!$err) settings_store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
+    if (!$err) {
+        try {
+            settings_store($ok + $extra);   // $extra: already-validated values saved together (e.g. a new token)
+        } catch (UserError $e) {
+            $err['autofill_token'] = $e->getMessage();
+        }
+    }
     return $err;
 }
 

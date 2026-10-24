@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   php bin/settings.php user add NAME ROLE [PASSWORD]   ROLE: admin, editor, viewer or a custom role key (asks for the password if not given)
  *   php bin/settings.php user approve NAME    approve a self-registered account
  *   php bin/settings.php user password NAME [PASSWORD]   set a new password (signs that user out everywhere)
+ *   php bin/settings.php user signout NAME    end every session of that account
  *   php bin/settings.php user role NAME ROLE
  *   php bin/settings.php user rename NAME NEWNAME
  *   php bin/settings.php user delete NAME
@@ -22,6 +23,8 @@ declare(strict_types=1);
  *   php bin/settings.php password [PASSWORD]  recovery shortcut: set the password of "admin" (created if missing) and turn sign-in on
  *   php bin/settings.php password --off       turn sign-in off
  *   php bin/settings.php export > s.json      /  import s.json
+ *   php bin/settings.php key generate         print a new APP_KEY (base64 of 32 bytes) and store nothing
+ *   php bin/settings.php key rotate           re-encrypt stored secrets; new key from APP_KEY_NEW or stdin, never argv
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
@@ -100,8 +103,12 @@ try {
                     user_delete($find()['id']);
                     echo "Deleted {$name}.\n";
                     break;
+                case 'signout':
+                    user_sign_out_everywhere($find()['id']);
+                    echo "Signed {$name} out on every device.\n";
+                    break;
                 default:
-                    throw new UserError('Use: user add|password|role|approve|rename|delete NAME …');
+                    throw new UserError('Use: user add|password|role|approve|rename|delete|signout NAME …');
             }
             break;
         case 'roles':
@@ -155,6 +162,24 @@ try {
         case 'export':
             echo json_encode(settings_export(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), "\n";
             break;
+        case 'key':
+            $sub = (string)($argv[2] ?? '');
+            if ($sub === 'generate') {
+                echo base64_encode(random_bytes(32)), "\n";
+                break;
+            }
+            if ($sub === 'rotate') {
+                if (isset($argv[3])) throw new UserError('The new key is not read from the command line. Set APP_KEY_NEW or pass it on stdin.');
+                $new = getenv('APP_KEY_NEW');
+                if (!is_string($new) || $new === '') {
+                    $new = stream_get_contents(STDIN);
+                    if (!is_string($new)) $new = '';
+                }
+                $c = secret_rotate($new);
+                echo 'rotated ' . $c['rotated'] . ', encrypted ' . $c['encrypted'] . "\n";
+                break;
+            }
+            throw new UserError('Use: key generate | key rotate');
         case 'import':
             $r = settings_import((string)file_get_contents((string)($argv[2] ?? 'php://stdin')));
             echo "Imported {$r['applied']} settings.\n";

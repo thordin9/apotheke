@@ -155,9 +155,15 @@ try {
         exit;
     }
     if ($path === '/logout' && $method === 'POST') {
-        check_csrf();
-        logout();
-        redirect('/login');
+        // A live session still needs the token. One that already ended (idle, absolute, or an old epoch)
+        // has nothing left to protect, so the open page can sign out instead of answering 419.
+        if (signed_in()) {
+            check_csrf();
+            logout();
+        } elseif (session_cookie_live() || session_status() === PHP_SESSION_ACTIVE) {
+            logout();
+        }
+        redirect(auth_enabled() ? '/login' : '/');
     }
     // every route needs a permission of the user's role (see route_perm() in roles.php)
     $need = route_perm($method, $path, $_POST);
@@ -175,7 +181,14 @@ try {
         exit;
     }
 
-    /* ---- your account: own password ---- */
+    /* ---- your account: own password, sign out everywhere ---- */
+    if ($path === '/account/signout' && $method === 'POST') {
+        check_csrf();
+        $me = current_user();
+        user_sign_out_everywhere((int)$me['id']);
+        login_session((int)$me['id']);
+        redirect('/account?done=out');
+    }
     if ($path === '/account') {
         $me = current_user();
         if ($me['guest']) redirect(user_can('users') ? '/settings/security' : '/');
@@ -193,7 +206,9 @@ try {
             redirect('/account?done=pw');
         }
         no_store();
-        view_account($me, null, isset($_GET['done']) ? 'Password changed' : null);
+        $done = (string)($_GET['done'] ?? '');
+        $toast = $done === 'pw' ? 'Password changed' : ($done === 'out' ? 'Signed out on every other device' : null);
+        view_account($me, null, $toast);
         exit;
     }
 
@@ -750,7 +765,13 @@ try {
             view_settings_section('autofill', [], ['autofill_token' => 'Token: 1–512 printable characters, no spaces.'], null);
             exit;
         }
-        settings_store(['autofill_token' => $t]);
+        try {
+            settings_store(['autofill_token' => $t]);
+        } catch (UserError $e) {
+            http_response_code(422);
+            view_settings_section('autofill', [], ['autofill_token' => $e->getMessage()], null);
+            exit;
+        }
         autofill_prime_info();   // a token-protected service: cache its /v1/info now (at most 5 s, failures ignored)
         redirect('/settings/autofill?done=token-saved');
     }

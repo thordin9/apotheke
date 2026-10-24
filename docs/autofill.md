@@ -126,7 +126,9 @@ are not followed and only http(s) is allowed; for a home-network app that is acc
 
 - It is saved through its own form and **never shown again**: the page only says whether a token is set.
 - It is a `secret` setting: not in the settings export, not in backups, cannot be set by a settings import,
-  never written to logs and never sent to the browser. Suggestions go through Apotheke's server, so the
+  never written to logs and never sent to the browser. With `APP_KEY` set it is stored as an `enc:v1:` envelope.
+  Without a key it stays plaintext and the Control Panel says to set `APP_KEY`. See
+  [Stored secrets](configuration.md#stored-secrets). Suggestions go through Apotheke's server, so the
   browser never talks to the service directly.
 - **Clear token** removes it.
 - Saving a **different service address** (same comparison as above) clears the stored token in the same

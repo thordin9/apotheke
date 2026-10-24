@@ -5,6 +5,7 @@ declare(strict_types=1);
 $tmp = sys_get_temp_dir() . '/apotheke-phpunit-' . getmypid();
 @mkdir($tmp, 0775, true);
 foreach (['DATA_DIR' => $tmp, 'APOTHEKE_CONFIG' => '/nonexistent', 'SEED_DEFAULTS' => '0', 'TZ' => 'Europe/Athens'] as $k => $v) putenv("$k=$v");
+foreach (['APP_KEY', 'APP_KEY_FILE', 'APP_KEY_NEW'] as $k) putenv($k);
 if (getenv('APOTHEKE_TEST_DB') !== 'pgsql' && getenv('APOTHEKE_TEST_DB') !== 'sqlite') {
     putenv('APOTHEKE_TEST_DB=' . (getenv('DB_DRIVER') === 'pgsql' ? 'pgsql' : 'sqlite'));
 }

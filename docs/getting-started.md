@@ -35,19 +35,34 @@ data/
   postgres/           only when the postgres profile is used
 ```
 
-Settings go into a `.env` file next to `docker-compose.yml`, for example:
+Settings go into a `.env` file next to `docker-compose.yml` (copy [`.env.example`](../.env.example)). Generate an
+`APP_KEY` so stored secrets are encrypted, and leave the example's empty value only when you mean to keep them
+unencrypted. Do not commit a real key.
+
+```bash
+php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
+```
 
 ```
+APP_KEY=(paste the line above)
 APP_PASSWORD=change-me
 TZ=Europe/Athens
 ```
 
-Run `docker compose up -d` again after changing it. The compose file passes `TZ`, `APP_PASSWORD`, `ALLOW_NO_LOGIN`, `DB_DRIVER`,
+After the container is up, `docker compose exec apotheke php /var/www/app/bin/settings.php key generate` prints a key
+the same way and stores nothing. Put that line in `.env` and start again. Run `docker compose up -d` again after
+changing `.env`. The compose file passes `TZ`, `APP_PASSWORD`, `ALLOW_NO_LOGIN`, `APP_KEY`, `APP_KEY_FILE`, `DB_DRIVER`,
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` through; to set any other variable from
-[Configuration](configuration.md), add it under `environment:`.
+[Configuration](configuration.md), add it under `environment:`. `APP_KEY` is the key to use with Docker: it stays
+out of the `./data` volume. An `APP_KEY_FILE` must be readable by the app user. Inside the image that is `www-data`
+with gid 82. `chown` runs on the host, where that name is a different group or missing, so use
+`chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside Swarm, plain `docker compose` bind-mounts a
+`file:` secret with the host file's owner and mode and ignores uid, gid and mode, so the same `root:82` and `0440`
+apply to that file. Details: [Stored secrets](configuration.md#stored-secrets).
 
 **What's in the image:** `php:8.3.36-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
-`libheif`), `exif`, `opcache`, `pdo_pgsql` and `zip` extensions (`pdo_sqlite` is built in). That default (`ARG PHP_VERSION=8.3.36`) is the shipped image.
+`libheif`), `exif`, `opcache`, `pdo_pgsql`, `sodium` and `zip` extensions (`pdo_sqlite` and `sodium` are part of the
+official PHP image). That default (`ARG PHP_VERSION=8.3.36`) is the shipped image.
 `docker build --build-arg PHP_VERSION=8.4.27` builds the CI test image from the same Dockerfile, including Imagick. Compose and the published image keep the default. Imagick is built from its
 GitHub release tag, with pecl.php.net as a second source. Each is pinned by its own sha256 (`IMAGICK_SHA256` and
 `IMAGICK_PECL_SHA256` in the `Dockerfile`, next to `IMAGICK_VERSION`), and the build fails if neither download matches.
@@ -106,10 +121,13 @@ include the password or the DSN. The browser shows a generic page, and `/healthz
 
 ## Plain `docker run`
 
+Generate a key the same way as for Compose (`php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'`), then pass it
+with `-e`. An empty `APP_KEY` leaves stored secrets unencrypted.
+
 ```bash
 docker build --pull -t apotheke .
-docker run -d --name apotheke -p 127.0.0.1:9091:9091 -v "$PWD/data:/data" -e TZ=Europe/Athens \
-  -e APP_PASSWORD=change-me apotheke
+docker run -d --name apotheke -p 127.0.0.1:9091:9091 -v "$PWD/data:/data" \
+  -e TZ=Europe/Athens -e APP_PASSWORD=change-me -e APP_KEY='(paste the generated key)' apotheke
 ```
 
 `-p 127.0.0.1:9091:9091` keeps the app on the server itself; use `-p 9091:9091` to reach it from your network. Without
@@ -120,7 +138,7 @@ With `--network host`, set `-e PORT=8081` (or any free port) so nginx listens th
 
 ## Without Docker
 
-Requirements: PHP 8.2+ with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP), `mbstring` and `zip`; `exif` is
+Requirements: PHP 8.2+ with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP), `mbstring`, `sodium` and `zip`; `exif` is
 recommended (photo orientation), `dom` for SVG logo uploads, `opcache` for speed. Optional `imagick` reads HEIC and
 files GD cannot; it uses the same white background and sRGB JPEG as GD, and does not change the GD path.
 For a grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. Leave
@@ -133,8 +151,13 @@ print a wrong QR code.
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
 cp config.example.php config.php        # optional
+php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'   # or: php bin/settings.php key generate
+export APP_KEY='(paste that line)'      # empty keeps stored secrets unencrypted; do not commit the key
 php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:9091 -t public public/index.php
 ```
+
+`APP_KEY` is environment-only. [Stored secrets](configuration.md#stored-secrets) covers the file alternative, what
+happens with no key, and how to rotate.
 
 `public/index.php` doubles as the router script for PHP's built-in server: real files under `public/` are served
 directly, everything else goes through the app. For Apache or nginx see

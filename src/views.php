@@ -1337,6 +1337,12 @@ function view_account(array $me, ?string $error, ?string $toast): void
       <label class="field"><span>Repeat new password</span><input type="password" name="confirm" id="acct-confirm" autocomplete="new-password" minlength="<?= PASSWORD_MIN ?>" required></label>
       <button class="btn btn-primary btn-wide" id="acct-save">Change password</button>
     </form>
+    <form method="post" action="/account/signout" id="acct-signout">
+      <input type="hidden" name="csrf" value="<?= $tok ?>">
+      <h2 class="set-h">Sign out everywhere</h2>
+      <p class="hint" id="acct-signout-hint">Ends this account's other sessions. This device stays signed in.</p>
+      <button class="btn btn-wide" type="submit" id="acct-signout-go">Sign out everywhere</button>
+    </form>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="<?= $tok ?>"><button class="btn btn-wide" id="acct-logout"><?= icon('logout') ?> Sign out</button></form>
   </section>
 </main>

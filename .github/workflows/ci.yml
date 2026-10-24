@@ -120,7 +120,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, dom, zip, imagick
+          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, dom, zip, imagick, sodium
           coverage: pcov
           tools: composer:v2
       - name: Decide whether this leg runs the suite
@@ -210,7 +210,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, exif, mbstring, zip
+          extensions: gd, pdo_sqlite, exif, mbstring, zip, sodium
           coverage: none
           tools: none
       - uses: actions/setup-node@v4
