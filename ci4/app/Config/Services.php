@@ -137,6 +137,21 @@ class Services extends BaseService
     }
 
     /**
+     * Idle limit from session_idle_hours (legacy session_idle_seconds() on
+     * main). It keeps no value: each seconds() call reads the stored row
+     * through this request's SettingsService. SessionCookie asks for a new
+     * instance (false) every time.
+     */
+    public static function sessionIdle(bool $getShared = true): \Apotheke\Core\Http\SessionIdle
+    {
+        if ($getShared) {
+            return static::getSharedInstance('sessionIdle');
+        }
+
+        return new \Apotheke\Core\Http\SessionIdle(static fn (): mixed => static::settings()->stored('session_idle_hours'));
+    }
+
+    /**
      * The Host check for this request (SEC-M3). Built-in names (addresses,
      * localhost, this machine) never read settings; any other name reads
      * public_url through this request's SettingsService, or PUBLIC_URL when the

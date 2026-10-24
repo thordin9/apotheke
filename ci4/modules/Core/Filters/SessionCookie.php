@@ -22,15 +22,20 @@ use Throwable;
  * init_session() on main); SessionToken starts one on demand. CI4's Session
  * service is configured to match, and PHP's session API does the work. The
  * lifetime follows session_days (SEC-N9); the Secure flag follows trust_proxy
- * and public_url (legacy session_cookie_secure()). Each request starts with
- * an empty $_SESSION, so a worker never carries one over (#76 L-3).
+ * and public_url (legacy session_cookie_secure()). A signed-in session ends
+ * after session_idle_hours without a request or session_days after sign-in
+ * (SessionGate, legacy init_session() on main #84). Each request starts with
+ * an empty $_SESSION, so a worker never carries one over (#76 L-3); a session
+ * an earlier request left open is closed first (#82 L-2).
  */
 final class SessionCookie implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null): null
     {
+        // #82 L-2: an error path can leave the previous request's session open in a
+        // long-lived worker. Close it, as PHP does at the end of a normal request.
         if (session_status() === PHP_SESSION_ACTIVE) {
-            return null;
+            session_write_close();
         }
         // #76 L-3: a long-lived worker keeps $_SESSION from the previous request.
         // Every request starts without one; only a live cookie loads it again.
@@ -74,12 +79,13 @@ final class SessionCookie implements FilterInterface
             'samesite' => 'Lax',
             'secure' => $secure,
         ]);
-        // SEC-L2: only a cookie that names a live session loads one. SEC-N6: an
-        // idle session ends after session_days without use.
+        // SEC-L2: only a cookie that names a live session loads one. A signed-in
+        // session ends after session_idle_hours idle or session_days after sign-in;
+        // any other session after session_days without use (SEC-N6).
         $id = $request instanceof IncomingRequest ? $request->getCookie(SessionGate::COOKIE) : ($_COOKIE[SessionGate::COOKIE] ?? null);
         $gate = new SessionGate(time());
         if (is_string($id) && $gate->isLive($id, $save)) {
-            $gate->resume($lifetime);
+            $gate->resume(Services::sessionIdle(false)->seconds(), $lifetime);
         }
 
         return null;

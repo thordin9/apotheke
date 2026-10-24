@@ -88,11 +88,27 @@ final class AutofillTest extends CIUnitTestCase
         parent::tearDownAfterClass();
     }
 
+    /**
+     * A stored session holding $csrf, named by the request's apothekesid cookie,
+     * as a browser that loaded the form sends it. SessionCookie loads it.
+     */
+    private function liveSession(string $csrf): void
+    {
+        $save = (string)getenv('DATA_DIR') . '/sessions';
+        if (!is_dir($save)) {
+            mkdir($save, 0775, true);
+        }
+        $id = bin2hex(random_bytes(16));
+        file_put_contents($save . '/sess_' . $id, 'csrf|s:' . strlen($csrf) . ':"' . $csrf . '";last_activity|i:' . time() . ';');
+        $_COOKIE['apothekesid'] = $id;
+    }
+
     protected function tearDown(): void
     {
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_write_close();
         }
+        unset($_COOKIE['apothekesid']);
         $this->database?->drop();
         $this->database = null;
         putenv('AUTOFILL_UPLOAD_JPEG_QUALITY');
@@ -510,11 +526,8 @@ final class AutofillTest extends CIUnitTestCase
         $photoId = (int)$db->insertID();
         Services::injectMock('settings', $this->settings);
         Services::injectMock('autofill', $af);
-        // SessionCookie skips session_start when a session is already open, so the
-        // token from withSession is the one CsrfFilter checks.
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
+        // The token CsrfFilter checks comes from a live session that SessionCookie loads.
+        $this->liveSession('csrf-test-token');
         $response = $this->withSession(['csrf' => 'csrf-test-token'])->post('autofill/suggest', [
             'photo_id' => (string)$photoId,
             'csrf' => 'csrf-test-token',
@@ -551,9 +564,7 @@ final class AutofillTest extends CIUnitTestCase
         $af = $this->stack();
         Services::injectMock('settings', $this->settings);
         Services::injectMock('autofill', $af);
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
+        $this->liveSession('csrf-test-token');
         // SessionCookie sets this save path, then CI4's FileHandler ini_sets it
         // while that native session is still active.
         $sessions = $this->database->dataDir() . '/sessions';
@@ -573,6 +584,7 @@ final class AutofillTest extends CIUnitTestCase
         $this->assertSame('form-token-placeholder', $this->settings->autofillToken());
 
         \CodeIgniter\Config\Services::resetSingle('session');
+        $this->liveSession('csrf-test-token');
         $cleared = $this->withSession(['csrf' => 'csrf-test-token'])->post('settings/autofill/token', [
             'action' => 'clear',
             'csrf' => 'csrf-test-token',

@@ -100,6 +100,24 @@ final class SettingsService
         return $values[$key];
     }
 
+    /**
+     * The stored row of a public setting, decoded but not validated: null when
+     * there is none. For limits whose reader clamps the stored number itself
+     * (session_idle_hours, legacy session_idle_seconds() on main).
+     */
+    public function stored(string $key): mixed
+    {
+        if (!$this->schema->has($key)) {
+            throw new LogicException("Unknown setting $key");
+        }
+        if ($this->schema->isSecret($key)) {
+            throw new LogicException("Setting $key is write-only");
+        }
+        $rows = $this->repository->rows();
+
+        return array_key_exists($key, $rows) ? json_decode($rows[$key], true) : null;
+    }
+
     /** The stored AI autofill token ('' = none). Only the autofill client should call this. */
     public function autofillToken(): string
     {
