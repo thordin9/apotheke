@@ -39,4 +39,4 @@ PDO on PHP 8.4 no longer treats a backslash as a placeholder escape. SQL in this
 
 ## Image
 
-The shipped image stays `php:8.3-fpm-alpine`. `ARG PHP_VERSION=8.3` lets CI pass `PHP_VERSION=8.4` and build a throwaway test image from the same Dockerfile. The CI4 image moves to PHP 8.4 in a later pull request.
+The shipped image stays on PHP 8.3, pinned to the exact patch by the Dockerfile default `ARG PHP_VERSION=8.3.36` (`FROM php:${PHP_VERSION}-fpm-alpine`). CI's 8.4 leg passes `PHP_VERSION=8.4.27` and builds a throwaway test image from the same Dockerfile. The CI4 image moves to PHP 8.4 in a later pull request.
