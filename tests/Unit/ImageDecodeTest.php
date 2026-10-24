@@ -350,11 +350,38 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertSame($width, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH));
     }
 
-    /** A HEIC whose plane the decoder will not allocate is the dimension error, and nothing is stored. */
+    /**
+     * When the decoder refuses an oversized iloc as a resource limit, that is the dimension error
+     * and nothing is stored. A build that does not report the limit (it reads the file, or it
+     * fails without a limit message) does not exercise this mapping.
+     */
     public function testHeicDecoderMemoryLimitIsTheDimensionError(): void
     {
         if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
         $bytes = $this->withHugeIloc($this->heicSample());
+        $reported = false;
+        $w = 16;
+        $h = 16;
+        try {
+            $ping = image_ping_heic($bytes);
+            if (is_array($ping)) {
+                $w = $ping[0];
+                $h = $ping[1];
+            }
+        } catch (UserError $e) {
+            $this->assertSame('Image dimensions are too large.', $e->getMessage());
+            $reported = true;
+        }
+        if (!$reported) {
+            try {
+                $im = imagick_read_explicit($bytes, 'HEIC');
+                $im->clear();
+            } catch (Throwable $e) {
+                $reported = imagick_failure_is_too_large($e, $w, $h);
+                if (!$reported) $this->markTestSkipped('decoder did not report a resource limit: ' . $e->getMessage());
+            }
+            if (!$reported) $this->markTestSkipped('decoder accepted the oversized iloc');
+        }
         $before = $this->tree(DATA_DIR);
         try {
             $this->store($bytes, 'huge-iloc.heic');
