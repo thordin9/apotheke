@@ -404,9 +404,11 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   The database file itself and the upload directories (photos, thumbnails, camera originals, attachments) are not
   encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR` and, for PostgreSQL, the database volume.
   See [Stored secrets](configuration.md#stored-secrets). If the key is lost, stored secrets count as unset, so keep the
-  key out of the data volume and its backups. An `APP_KEY_FILE` must be readable by the app user. In this image that
-  is `www-data` (uid 82, gid 82): `chown root:www-data` and `chmod 0440`. A Compose `secrets:` file is readable by
-  that user.
+  key out of the data volume and its backups. An `APP_KEY_FILE` must be readable by the app user. Inside the image
+  that user is `www-data` (uid 82, gid 82). `chown` runs on the host, where `www-data` is gid 33 on Debian and Ubuntu
+  and some hosts have no such group, so use `chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside
+  Swarm, plain `docker compose` bind-mounts a `file:` secret with the host file's owner and mode and ignores uid, gid
+  and mode. The same `root:82` and `0440` apply to that file.
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.

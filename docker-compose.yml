@@ -11,9 +11,11 @@ services:
     volumes:
       - ./data:/data
       # APP_KEY_FILE example: keep the key file outside ./data so it is not in the data volume or its backups.
-      # php-fpm runs as www-data (uid 82, gid 82). The file must be readable by that user, for example
-      #   chown root:www-data secrets/app_key && chmod 0440 secrets/app_key
-      # The Compose secrets: block below is readable by the container user and needs no extra mode.
+      # php-fpm runs as www-data inside the image (uid 82, gid 82). chown runs on the host, where www-data
+      # is gid 33 on Debian and Ubuntu, and some hosts have no www-data group, so use the number:
+      #   chown root:82 secrets/app_key && chmod 0440 secrets/app_key
+      # Outside Swarm, plain docker compose bind-mounts a file: secret with the host file's owner and mode
+      # and ignores uid, gid and mode. The same root:82 and 0440 apply to that file.
       # - ./secrets/app_key:/run/secrets/app_key:ro
     # Or as a Compose secret (mounted read-only at /run/secrets/app_key), with the top-level secrets: block below.
     # secrets:
@@ -58,6 +60,8 @@ services:
       retries: 10
 
 # APP_KEY_FILE as a Compose secret: uncomment together with the service's secrets: entry above.
+# Outside Swarm this bind-mounts the host file and ignores uid, gid and mode. Use the same owner and mode:
+#   chown root:82 secrets/app_key && chmod 0440 secrets/app_key
 # secrets:
 #   app_key:
 #     file: ./secrets/app_key

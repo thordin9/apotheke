@@ -54,8 +54,11 @@ the same way and stores nothing. Put that line in `.env` and start again. Run `d
 changing `.env`. The compose file passes `TZ`, `APP_PASSWORD`, `ALLOW_NO_LOGIN`, `APP_KEY`, `APP_KEY_FILE`, `DB_DRIVER`,
 `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` through; to set any other variable from
 [Configuration](configuration.md), add it under `environment:`. `APP_KEY` is the key to use with Docker: it stays
-out of the `./data` volume. An `APP_KEY_FILE` must be readable by `www-data` (uid 82, gid 82): `chown root:www-data`
-and `chmod 0440`, or use the Compose `secrets:` mount. Details: [Stored secrets](configuration.md#stored-secrets).
+out of the `./data` volume. An `APP_KEY_FILE` must be readable by the app user. Inside the image that is `www-data`
+with gid 82. `chown` runs on the host, where that name is a different group or missing, so use
+`chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside Swarm, plain `docker compose` bind-mounts a
+`file:` secret with the host file's owner and mode and ignores uid, gid and mode, so the same `root:82` and `0440`
+apply to that file. Details: [Stored secrets](configuration.md#stored-secrets).
 
 **What's in the image:** `php:8.3.36-fpm-alpine` plus nginx in the same container, with the `gd`, `imagick` (HEIC/HEIF via
 `libheif`), `exif`, `opcache`, `pdo_pgsql`, `sodium` and `zip` extensions (`pdo_sqlite` and `sodium` are part of the
