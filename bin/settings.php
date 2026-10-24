@@ -12,6 +12,7 @@ declare(strict_types=1);
  *   php bin/settings.php user add NAME ROLE [PASSWORD]   ROLE: admin, editor, viewer or a custom role key (asks for the password if not given)
  *   php bin/settings.php user approve NAME    approve a self-registered account
  *   php bin/settings.php user password NAME [PASSWORD]   set a new password (signs that user out everywhere)
+ *   php bin/settings.php user signout NAME    end every session of that account
  *   php bin/settings.php user role NAME ROLE
  *   php bin/settings.php user rename NAME NEWNAME
  *   php bin/settings.php user delete NAME
@@ -90,8 +91,12 @@ try {
                     user_delete($find()['id']);
                     echo "Deleted {$name}.\n";
                     break;
+                case 'signout':
+                    user_sign_out_everywhere($find()['id']);
+                    echo "Signed {$name} out on every device.\n";
+                    break;
                 default:
-                    throw new UserError('Use: user add|password|role|approve|rename|delete NAME …');
+                    throw new UserError('Use: user add|password|role|approve|rename|delete|signout NAME …');
             }
             break;
         case 'roles':

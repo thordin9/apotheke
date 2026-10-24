@@ -241,10 +241,72 @@ final class UsersTest extends DatabaseTestCase
     public function testPasswordChangeInvalidatesEpoch(): void
     {
         $id = user_create('pat', 'long-enough', 'viewer');
-        $before = user_epoch(user_get($id));
+        $this->pdo->prepare('UPDATE users SET session_epoch = ? WHERE id = ?')->execute(['aaaaaaaaaaaaaaaa', $id]);
+        settings_store(['auth_enabled' => true]);
+        settings_cache(null, true);
+        $_SESSION = ['uid' => $id, 'auth_epoch' => 'aaaaaaaaaaaaaaaa'];
+        current_user(null, true);
+        $this->assertSame($id, current_user()['id']);
         user_set_password($id, 'another-one');
-        $this->assertNotSame($before, user_epoch(user_get($id)));
+        $this->assertNotSame('aaaaaaaaaaaaaaaa', user_epoch(user_get($id)));
+        current_user(null, true);
+        $this->assertNull(current_user(), 'a session from before the password change is dropped');
         $this->assertNotNull(user_verify('pat', 'another-one'));
+        $_SESSION = [];
+        current_user(null, true);
+    }
+
+    public function testSignOutEverywhereRenewsTheEpochAndDropsOlderSessions(): void
+    {
+        $id = user_create('pat', 'long-enough', 'viewer');
+        settings_store(['auth_enabled' => true]);
+        settings_cache(null, true);
+        $epoch = user_epoch(user_get($id));
+        $_SESSION = ['uid' => $id, 'auth_epoch' => $epoch];
+        current_user(null, true);
+        $this->assertSame($id, current_user()['id']);
+
+        $other = $_SESSION;
+        user_sign_out_everywhere($id);
+        $renewed = user_epoch(user_get($id));
+        $this->assertNotSame($epoch, $renewed);
+        $this->assertNotNull(user_verify('pat', 'long-enough'), 'the password stays the same');
+
+        $_SESSION = $other;
+        current_user(null, true);
+        $this->assertNull(current_user(), 'a session from before the action is dropped');
+
+        $_SESSION['auth_epoch'] = $renewed;
+        current_user(null, true);
+        $this->assertSame($id, current_user()['id'], 'a session that holds the new epoch stays signed in');
+        $_SESSION = [];
+        current_user(null, true);
+    }
+
+    public function testMigration0028StoresAnEpochWithoutChangingTheCurrentOne(): void
+    {
+        $id = user_create('pat', 'long-enough', 'viewer');
+        $hash = user_get($id)['password_hash'];
+        $legacy = substr(hash('sha256', $hash . '|' . $id), 0, 16);
+        $this->pdo->prepare("UPDATE users SET session_epoch = '' WHERE id = ?")->execute([$id]);
+        $run = require migrations_dir() . '/0028_session_epoch.php';
+        $run($this->pdo, $this->driver);
+        $this->assertSame($legacy, (string)user_get($id)['session_epoch'], 'an empty epoch becomes the one existing sessions already hold');
+        $this->assertSame($legacy, user_epoch(user_get($id)));
+        user_sign_out_everywhere($id);
+        $renewed = (string)user_get($id)['session_epoch'];
+        $this->assertNotSame($legacy, $renewed);
+        $run($this->pdo, $this->driver);
+        $this->assertSame($renewed, (string)user_get($id)['session_epoch'], 'a second run does not replace a renewed epoch');
+        if ($this->driver === 'pgsql') {
+            $have = $this->pdo->query("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'session_epoch'")->fetchColumn();
+        } else {
+            $have = false;
+            foreach ($this->pdo->query('PRAGMA table_info(users)') as $col) {
+                if ($col['name'] === 'session_epoch') $have = true;
+            }
+        }
+        $this->assertNotEmpty($have);
     }
 
     public function testModeAndGuest(): void

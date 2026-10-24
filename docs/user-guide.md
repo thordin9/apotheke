@@ -526,11 +526,18 @@ Tap a user to change the role, rename the account, set a new password (signs tha
 Those actions on an **admin** account need an admin. The last admin can't be demoted or deleted, and you can't delete
 your own account. User names ignore upper/lower case.
 
-Everybody can change their own password under **☰ → (your name)**. The history records who made each change
-("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
-only needs an admin's user name and password. A sign-in lasts at most 30 days (Control Panel → Users & sign-in → “Stay signed in for”), counted from sign-in, and it ends sooner when the browser sends no request for 7 days (“Sign out after idle”, 1–8760 hours). Later visits do not extend the 30-day limit. Locked out? On the server:
-`php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`, `user approve NAME`,
-`roles reset` to restore the built-in roles, `auth off` to turn accounts off).
+Everybody can change their own password under **☰ → (your name)**. That page also has **Sign out everywhere**:
+it ends this account's other sessions and keeps this device. On the server,
+`php bin/settings.php user signout NAME` ends every session of that account. A new password does the same. The
+history records who made each change ("· anna"); the name stays when the account is deleted. *Turn sign-in off*
+keeps the accounts, so turning it on again only needs an admin's user name and password. A sign-in lasts at most
+30 days (Control Panel → Users & sign-in → “Stay signed in for”), counted from sign-in. The server ends it when
+that time has passed, and later visits do not extend it. It ends sooner when the browser sends no request for 7
+days (“Sign out after idle”, 1–8760 hours). A shorter idle limit applies on the next request. The icon, the
+home-screen manifest, the theme and label styles, and the health checks do not count as a request. Locked out?
+On the server: `php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`,
+`user approve NAME`, `user signout NAME`, `roles reset` to restore the built-in roles, `auth off` to turn
+accounts off).
 
 ## Settings (Control Panel)
 
