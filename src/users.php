@@ -197,7 +197,7 @@ function auth_enabled(): bool
 }
 
 /**
- * Whether sign-in will be on, read without creating, migrating or seeding anything (the Docker entrypoint asks this
+ * Whether sign-in will be on, read without migrating or seeding (the Docker entrypoint asks this
  * before it starts the app; hardening, SEC-M3). Same answer as auth_enabled(): the stored auth_enabled setting, else
  * APP_PASSWORD (the first migration seeds the setting from it); an empty account list counts only with APP_PASSWORD,
  * which then creates the account admin. $pdo is null when there is no database yet; $appPassword is cfg()['app_password'].

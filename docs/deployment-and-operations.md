@@ -137,7 +137,9 @@ Two defaults keep a new Docker install private (hardening, SEC-M3):
   `"9091:9091"` (all interfaces) or `"192.0.2.10:9091:9091"` (one LAN address of the server). With `docker run`, use
   `-p 127.0.0.1:9091:9091` or `-p 9091:9091` in the same way.
 * **Sign-in required.** Before it starts nginx and php-fpm, the entrypoint runs `bin/settings.php auth status` as
-  `www-data`. That reads the database without creating, migrating or changing it. When sign-in would be off, the
+  `www-data`. That reads the database without migrating or seeding it, and a missing SQLite file stays missing. Like
+  the app a moment later, it may create an empty `DB_SCHEMA` that doesn't exist yet and switch an older SQLite file to
+  WAL mode. When sign-in would be off, the
   container exits with code 78 and logs `sign-in is off` with both ways out (the `bin/settings.php password` command and `ALLOW_NO_LOGIN=1`). Sign-in counts as on when the stored *Require sign-in*
   setting is on and an account exists, or, on a new database, when `APP_PASSWORD` is set (it creates the account
   `admin` on the first request; it needs at least 8 characters, not only spaces, or the container exits with code 78
