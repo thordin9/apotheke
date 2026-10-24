@@ -1,4 +1,4 @@
-import { test, expect, pinVersionLabel } from './fixtures';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /*
@@ -9,7 +9,6 @@ test.use({ appPassword: 'pw-visual' });
 
 const shot = async (page: Page, name: string, fullPage = false) => {
   await page.evaluate(() => document.fonts.ready);
-  await pinVersionLabel(page);
   await page.locator('img').evaluateAll(imgs => Promise.all(imgs.map(i => (i as HTMLImageElement).decode().catch(() => {}))));
   await expect(page).toHaveScreenshot(name + '.png', { fullPage, mask: [page.locator('.app-version'), page.locator('time'), page.locator('.times')] });
 };

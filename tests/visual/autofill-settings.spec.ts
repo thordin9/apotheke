@@ -1,4 +1,4 @@
-import { test, expect, pinVersionLabel } from './fixtures';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 import { AutofillStub } from './autofill-stub';
 
@@ -10,7 +10,6 @@ test.afterAll(() => stub.stop());
 const shot = async (page: Page, name: string) => {
   if (test.info().project.name.endsWith('-smoke')) return;   // smoke projects (Docker, PostgreSQL) have no baselines
   await page.evaluate(() => document.fonts.ready);
-  await pinVersionLabel(page);
   await expect(page).toHaveScreenshot(name + '.png', { fullPage: true, mask: [page.locator('.app-version'), page.locator('#s-autofill_url')] });
 };
 async function configure(page: Page, url: string, timeout = '5') {
@@ -117,7 +116,6 @@ test.describe('AI autofill settings', () => {
     await page.locator('.toast').evaluateAll(t => t.forEach(e => e.remove()));
     if (!test.info().project.name.endsWith('-smoke')) {
       await page.evaluate(() => document.fonts.ready);
-      await pinVersionLabel(page);
       await expect(page).toHaveScreenshot('autofill-test-photo.png', { fullPage: true,
         mask: [page.locator('.app-version'), page.locator('#s-autofill_url'), page.locator('#af-s-name'), page.locator('#af-s-description'), page.locator('#af-s-elapsed')] });
     }

@@ -1,10 +1,9 @@
-import { test, expect, pinVersionLabel } from './fixtures';
+import { test, expect } from './fixtures';
 import type { Page } from '@playwright/test';
 
 /* Visual baselines for the Control Panel (light + dark projects), a custom accent and a custom logo. */
 const shot = async (page: Page, name: string, fullPage = true) => {
   await page.evaluate(() => document.fonts.ready);
-  await pinVersionLabel(page);
   await page.locator('img').evaluateAll(imgs => Promise.race([
     Promise.all(imgs.map(i => { const im = i as HTMLImageElement; im.loading = 'eager'; return im.decode().catch(() => {}); })),
     new Promise(r => setTimeout(r, 3000)),
