@@ -155,7 +155,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
   every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
   with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
-  admin role or turn sign-in off. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
+  admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   Empty means no login, fine on a trusted LAN.
 

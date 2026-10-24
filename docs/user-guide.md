@@ -503,8 +503,9 @@ role you choose. Guests can never get Settings, Users or Backup.
 The permissions are checked by the server on every page and action (a refused page says which permission it needs);
 the buttons a role can't use are hidden. Moving an item (changing its location in the form, a bulk move, stocktake
 moves) needs *Move* on top of *Edit*; bulk actions need *Bulk actions* plus the permission of the action.
-*Users* covers accounts, roles and the sign-in options. Granting the **admin** role, and *Turn sign-in off*, need an
-account that already has the admin role. A custom role with *Users* cannot do either.
+*Users* covers accounts, roles and the sign-in options. Granting the **admin** role, *Turn sign-in off*, and any change
+to an existing admin account (role, name, password, approval, or deletion) need an account that already has the admin
+role. A custom role with *Users* cannot do those. It can still change other accounts.
 
 **Sign-in options** (same page):
 
@@ -521,7 +522,8 @@ account that already has the admin role. A custom role with *Users* cannot do ei
 * Turning accounts off (*Turn sign-in off*) makes everyone an anonymous guest with admin rights again. Only an admin
   account can do this.
 Tap a user to change the role, rename the account, set a new password (signs that user out on every device) or delete it.
-The last admin can't be demoted or deleted, and you can't delete your own account. User names ignore upper/lower case.
+Those actions on an **admin** account need an admin. The last admin can't be demoted or deleted, and you can't delete
+your own account. User names ignore upper/lower case.
 
 Everybody can change their own password under **☰ → (your name)**. The history records who made each change
 ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts, so turning it on again
@@ -537,10 +539,11 @@ icon and favicon), currency and number/date/time formats, time zone, items per p
 view, defaults for new items (quantity, low-stock threshold, tags, notes, purchase date, expiry, location, category),
 the *Expiring soon* window, the default loan period, limits for saved filters and photos, photo sizes and the password.
 *Backup & data* exports/imports the settings as JSON next to the backup and CSV links. Each section can be reset to its
-defaults. A settings file and a backup both include the sign-in options, but those are applied only when the account
-doing the import or restore has *Users* (an admin does). A Settings-only or Backup-only account keeps guest browsing,
-registration, the registration role, approval, the session length and *Trust the reverse proxy* as they were; the
-import says those keys were left out. The command line still applies them. Details: [control-panel.md](control-panel.md).
+defaults. A settings file and a backup both include the sign-in options, but those are applied only when an **admin**
+does the import or restore. A Settings, Users, or Backup account keeps guest browsing, registration, the registration
+role, approval, the session length and *Trust the reverse proxy* as they were; the import says those keys were left
+out. A restore never replaces accounts, roles, or role permissions, and a file that names those tables is refused.
+The command line still applies the sign-in options. Details: [control-panel.md](control-panel.md).
 
 ![Settings](screenshots/settings-light.png) ![Accent colour](screenshots/settings-appearance-dark.png)
 
