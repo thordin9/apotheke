@@ -93,12 +93,14 @@ final class Ci4RequestHardeningHttpTest extends TestCase
                 $this->assertSame(404, $client->post('/no-such-page', [], [], $headers)['status'], implode(' ', $headers));
             }
             $this->assertSame(404, $client->get('/no-such-page', ['Origin: http://other.example', 'Sec-Fetch-Site: cross-site'])['status']);
-            // Sign-in on: sign-in and the session CSRF token protect writes, not this rule.
+            // Sign-in on: sign-in and the session CSRF token protect writes, not this rule. Not signed in,
+            // the Permission filter sends the request to /login, as legacy does.
             $pdo = testdb($dir);
             $pdo->exec("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES ('root', 'root', 'x', 'admin', 'active', '2026-01-01')");
             $pdo->exec("DELETE FROM settings WHERE name = 'auth_enabled'");
             $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('auth_enabled', 'true', '2026-01-01')");
-            $this->assertSame(404, $client->post('/no-such-page', [], [], ['Origin: http://other.example'])['status']);
+            $signedOut = $client->post('/no-such-page', [], [], ['Origin: http://other.example']);
+            $this->assertSame([303, '/login'], [$signedOut['status'], $signedOut['headers']['location'] ?? null]);
         });
     }
 
