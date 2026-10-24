@@ -69,6 +69,22 @@ class Services extends BaseService
         );
     }
 
+    /**
+     * Spark's command runner, with the Apotheke commands that need
+     * collaborators built here (constructor injection, no service() in commands).
+     */
+    public static function commands(bool $getShared = true): \CodeIgniter\CLI\Commands
+    {
+        if ($getShared) {
+            return static::getSharedInstance('commands');
+        }
+
+        return new \Apotheke\Core\Cli\WiredCommands(null, [
+            \Apotheke\Settings\Commands\SettingsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings()),
+        ]);
+    }
+
     /** Logo and icon files: DATA_DIR/brand on local disk. */
     public static function brandStore(bool $getShared = true): \Apotheke\Settings\BrandStore
     {
