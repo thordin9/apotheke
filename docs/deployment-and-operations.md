@@ -144,16 +144,26 @@ server {
     location / {
         proxy_pass http://127.0.0.1:9091;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
     }
 }
 ```
 
-Apotheke does not read `X-Forwarded-*` headers. Behind a TLS proxy, therefore:
+Turn on **Trust the reverse proxy** (Control Panel → Users & sign-in) only for a proxy you run. Then:
 
-* set **`PUBLIC_URL=https://apotheke.example.lan`** so QR labels use the public HTTPS address;
-* the session cookie's `Secure` flag is only set when PHP itself sees HTTPS; the cookie is still `HttpOnly` and
-  `SameSite=Lax`.
+* `X-Forwarded-Proto: https` marks the session cookie `Secure`. The cookie is always `HttpOnly` and `SameSite=Lax`.
+* The sign-in limit reads `X-Forwarded-For` **only if** the connection comes from an address listed in
+  `trusted_proxies` / `TRUSTED_PROXIES` (an address or a CIDR block, for example `127.0.0.1` or `192.0.2.0/24`).
+  The client is the rightmost address in that header that is not itself in the list. The proxy's own address is
+  included. If every hop is listed, or the list is empty, or the connection is not from a listed address, the limit
+  uses the address that connected to Apotheke and ignores `X-Forwarded-For`.
+* The limit is 10 sign-in attempts per 15 minutes for one account from one client. A different account is counted
+  separately, so one client cannot use up the limit for everybody sharing the proxy.
+
+Also set **`PUBLIC_URL=https://apotheke.example.lan`** so QR labels use the public HTTPS address. Leave *Trust the
+reverse proxy* off when phones talk to Apotheke directly.
 
 ## HTTPS
 

@@ -61,6 +61,7 @@ return [
 | `expiry_soon_days` | `EXPIRY_SOON_DAYS` | `30` | DB — Thresholds & limits | Window for *Expiring soon*: an item whose expiry/warranty date is between today and today + N days. Clamped to 1–3650. |
 | `public_url` | `PUBLIC_URL` | *(from the request)* | DB — General → Public URL | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Without it the scheme and `Host` of the current request are used. |
 | `seed_defaults` | `SEED_DEFAULTS` | `true` | bootstrap | On a brand-new database, create starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby, Clothing, Shoes, Books, Lighting). Only ever on a new database: upgrades never add categories. |
+| `trusted_proxies` | `TRUSTED_PROXIES` | *(none)* | bootstrap | Addresses or CIDR blocks of your own reverse proxies, comma-separated in the environment (`127.0.0.1, 192.0.2.0/24`). Used only when **Trust the reverse proxy** is on, and only for the sign-in limit: `X-Forwarded-For` is read when the connection comes from one of these addresses. The client is the rightmost hop that is not itself listed. An empty list means the header is ignored. |
 
 The Control Panel adds more DB settings with built-in defaults only (accent, logo, theme, number/date/time formats,
 list sort/view, new-item defaults, loan period, saved-filter and photo limits, JPEG quality); see

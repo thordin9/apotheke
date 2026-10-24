@@ -154,7 +154,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   (change the catalog), *viewer* (look only) or your own **custom roles** built from 14 granular permissions (view, add,
   edit, delete, move, bulk, lend, import, export, stocktake, labels, settings, users, backup), enforced by the server on
   every route. Optional **guest browsing** (look-only, configurable Guest role) and **self-registration** at `/register`
-  with a default role, admin approval and rate limiting — both off by default. The history shows who changed
+  with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
+  admin role or turn sign-in off. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
   Empty means no login, fine on a trusted LAN.
 
@@ -334,6 +335,7 @@ compose file never wipes a value from `config.php`.
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Set it if you open the app under a different name than your phone will. |
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
+| `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). With *Trust the reverse proxy* on, the sign-in limit reads `X-Forwarded-For` only from these. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
 
 ## Command-line tools
