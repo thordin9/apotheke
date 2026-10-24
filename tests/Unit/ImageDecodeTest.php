@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Header limits and reduced decode for large photos.
  * A 48 MP phone frame is 8064×6048. A 200 MP sensor is 16384×12288.
  * JPEG may reach 250 megapixels because jpeg:size keeps the decoded frame within 128 megapixels.
- * HEIC is refused from the header above 128 megapixels or above 20,000 px on a side.
+ * HEIC is refused from the header above 128 megapixels or above 16,384 px on a side.
  */
 final class ImageDecodeTest extends DatabaseTestCase
 {
@@ -28,7 +28,7 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertSame(IMAGICK_LIMIT_WIDTH, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_WIDTH));
         $this->assertSame(IMAGICK_LIMIT_HEIGHT, (int)Imagick::getResourceLimit(Imagick::RESOURCETYPE_HEIGHT));
         $this->assertSame(128_000_000, IMAGICK_LIMIT_AREA);
-        $this->assertSame(20000, IMAGICK_LIMIT_WIDTH);
+        $this->assertSame(16384, IMAGICK_LIMIT_WIDTH);
         $this->assertSame(256 * 1024 * 1024, IMAGICK_LIMIT_MEMORY);
         $this->assertSame(256 * 1024 * 1024, IMAGICK_LIMIT_MAP);
         $this->assertSame(1024 * 1024 * 1024, IMAGICK_LIMIT_DISK);
@@ -210,19 +210,19 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertSame($before, $this->tree(DATA_DIR));
     }
 
-    /** 20,008 px is inside the JPEG side cap and outside the HEIC side cap. The header refuses it before a read. */
-    public function testHeicOver20000PxIsRefusedBeforeDecode(): void
+    /** 16,392 px is inside the JPEG side cap and outside the HEIC side cap. The header refuses it before a read. */
+    public function testHeicOver16384PxIsRefusedBeforeDecode(): void
     {
         if (!class_exists('Imagick')) $this->markTestSkipped('Imagick is not available');
-        $this->assertFalse(image_dimensions_too_large(20008, 8));
-        $this->assertTrue(image_heic_dimensions_too_large(20008, 8));
-        $this->assertFalse(image_heic_dimensions_too_large(20000, 8));
-        $bytes = $this->withIspe($this->heicSample(), 20008, 8);
-        $this->assertSame([20008, 8], image_ping_heic($bytes));
+        $this->assertFalse(image_dimensions_too_large(16392, 8));
+        $this->assertTrue(image_heic_dimensions_too_large(16392, 8));
+        $this->assertFalse(image_heic_dimensions_too_large(16384, 8));
+        $bytes = $this->withIspe($this->heicSample(), 16392, 8);
+        $this->assertSame([16392, 8], image_ping_heic($bytes));
         $before = $this->tree(DATA_DIR);
         try {
             $this->store($bytes, 'heic-side.heic');
-            $this->fail('a HEIC wider than 20000 px was stored');
+            $this->fail('a HEIC wider than 16384 px was stored');
         } catch (UserError $e) {
             $this->assertSame('Image dimensions are too large.', $e->getMessage());
         }

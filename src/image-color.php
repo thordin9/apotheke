@@ -9,18 +9,18 @@ declare(strict_types=1);
  * IMAGE_MAX_PIXELS is 250 megapixels and IMAGE_MAX_SIDE is 30,000 px. A JPEG may use that whole range:
  * jpeg:size decodes it already reduced, and the decoded frame stays within 128 megapixels.
  * HEIC/HEIF has no reduced decode, so the header stops at the same bounds as the ImageMagick policy:
- * IMAGE_HEIC_MAX_PIXELS is 128 megapixels and IMAGE_HEIC_MAX_SIDE is 20,000 px (20KP).
+ * IMAGE_HEIC_MAX_PIXELS is 128 megapixels and IMAGE_HEIC_MAX_SIDE is 16,384 px.
  * A 48 MP frame (8064×6048) is inside both. A 200 MP sensor (16384×12288) is inside the JPEG cap and
  * outside the HEIC cap.
  * IMAGE_GD_MAX_PIXELS is 40 megapixels: GD truecolor is 4 bytes a pixel, so 40 MP is 160 MB and fits under
  * memory_limit 256M. Larger JPEG photos are decoded already reduced. Larger PNG, WebP and GIF photos are refused.
- * Imagick's memory, map, disk, area and side limits match that policy: 256 MiB, 256 MiB, 1 GiB, 128 MP, 20,000 px.
+ * Imagick's memory, map, disk, area and side limits match that policy: 256 MiB, 256 MiB, 1 GiB, 128 MP, 16,384 px.
  */
 
 const IMAGE_MAX_PIXELS = 250_000_000;
 const IMAGE_MAX_SIDE = 30000;
 const IMAGE_HEIC_MAX_PIXELS = 128_000_000;
-const IMAGE_HEIC_MAX_SIDE = 20000;
+const IMAGE_HEIC_MAX_SIDE = 16384;
 const IMAGE_GD_MAX_PIXELS = 40_000_000;
 
 const IMAGICK_LIMIT_MEMORY = 256 * 1024 * 1024;
@@ -48,7 +48,7 @@ function image_dimensions_too_large(int $w, int $h): bool
     return (float)$w * (float)$h > (float)IMAGE_MAX_PIXELS;
 }
 
-/** HEIC/HEIF is decoded in full, so the header stops at 128 megapixels and 20,000 px. JPEG does not use this. */
+/** HEIC/HEIF is decoded in full, so the header stops at 128 megapixels and 16,384 px. JPEG does not use this. */
 function image_heic_dimensions_too_large(int $w, int $h): bool
 {
     if ($w < 1 || $h < 1 || $w > IMAGE_HEIC_MAX_SIDE || $h > IMAGE_HEIC_MAX_SIDE) return true;
@@ -59,7 +59,7 @@ function image_heic_dimensions_too_large(int $w, int $h): bool
  * A full-frame decode (HEIC/HEIF) against the limits Imagick will actually enforce.
  * Width and height refuse the read. Area does not: a frame over the area limit spills to disk.
  * A Q16 pixel cache is about 8 bytes a pixel and has to fit in memory, map and disk together.
- * Do not use this on a JPEG header. jpeg:size opens the cache at the reduced size, so a 20,000 px
+ * Do not use this on a JPEG header. jpeg:size opens the cache at the reduced size, so a 16,384 px
  * host limit still accepts a wider JPEG.
  */
 function imagick_frame_exceeds_policy(int $w, int $h): bool
