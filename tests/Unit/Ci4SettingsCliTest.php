@@ -5,6 +5,11 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Exceptions/UserError.php';
+require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Libraries/Text.php';
+require_once dirname(__DIR__, 2) . '/ci4/modules/Settings/SettingsSchema.php';
+
+use Apotheke\Settings\SettingsSchema;
 
 /**
  * CLI goldens (plan PR 6, M-3): argv → stdout, stderr and exit code of
@@ -62,6 +67,71 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertSame($this->settingsRows($left), $this->settingsRows($right));
     }
 
+    /**
+     * Every other form and case, byte for byte: `get` of every readable key,
+     * `set` across every value type (valid, refused, normalised, dash values,
+     * protected keys, missing and extra arguments), `reset` of every section,
+     * `import` from stdin and files (empty, malformed, partial, over the web
+     * form's 256 KiB), unknown and mis-cased commands, and a final export.
+     */
+    public function testEveryOtherFormAndCaseMatchesLegacy(): void
+    {
+        [$left, $right] = $this->twins('cli-all');
+        $schema = new SettingsSchema();
+        $steps = [];
+        foreach ($schema->keys() as $key) {
+            if (!$schema->isSecret($key)) {
+                $steps[] = [['get', $key]];
+            }
+        }
+        $steps[] = [['get', 'app_name', 'extra']];
+        $sets = [
+            ['app_tagline', 'Ein Lager'], ['app_tagline', str_repeat('x', 300)], ['default_notes', "line 1\nline 2"],
+            ['public_url', 'ftp://example.com'], ['public_url', 'example.com'], ['public_url', 'https://example.com/box/'], ['public_url', ''],
+            ['accent', 'blue'], ['accent', '#abc'], ['accent', '0F766E'], ['icon_background', '#FFFFFF'], ['icon_background', 'white'],
+            ['theme_default', 'dark'], ['theme_default', 'DARK'], ['theme_default', 'nope'], ['list_view', 'list'], ['recent_scope', 'shared'],
+            ['search_typos', 'true'], ['search_typos', 'false'], ['search_typos', '1'], ['search_typos', '0'], ['search_typos', 'yes'],
+            ['search_typos', 'no'], ['search_typos', 'on'], ['search_typos', 'maybe'], ['search_typos', ''],
+            ['page_size', ' 30 '], ['page_size', '1e2'], ['page_size', '3.5'], ['page_size', '501'], ['page_size', '500'], ['page_size', 'abc'],
+            ['default_quantity', '-5'], ['default_quantity', '-0'], ['default_quantity', '1000001'],
+            ['default_min_qty', '0'], ['default_min_qty', 'x'], ['default_min_qty', ''], ['lend_due_days', '14'], ['default_expiry_months', '-1'],
+            ['default_tags', implode(',', range(1, 21))], ['default_tags', 'Ä, ä, Kabel'], ['default_tags', ''],
+            ['timezone', 'Europe/Athens'], ['timezone', 'europe/athens'], ['currency', 'eur'], ['currency', 'EURO'], ['currency', ''],
+            ['money_format', 'nope'], ['date_format', 'd.m.Y'], ['date_format', 'Y/m/d H'], ['time_format', 'nope'],
+            ['default_sort', 'name'], ['default_sort', 'nope'], ['attach_types', 'nope'], ['attach_types', 'any'],
+            ['jpeg_quality', '39'], ['image_full_max', '20000'], ['max_upload_mb', '0'],
+            ['autofill_url', 'http://192.0.2.1:8080'], ['autofill_url', 'not a url'], ['autofill_model', 'llava:7b'], ['autofill_model', 'bad model!'],
+            ['autofill_image_size', '63'], ['autofill_image_size', '64'], ['autofill_timeout', '2'], ['autofill_enabled', 'on'],
+            ['auth_register_role', 'admin'], ['auth_register_role', 'editor'], ['session_days', '0'], ['session_days', '365'],
+            ['trust_proxy', 'on'], ['import_create_missing', 'off'], ['label_columns', '0'], ['label_show_url', 'false'],
+            ['password_hash', 'x'], ['logo', 'png'],
+        ];
+        foreach ($sets as [$key, $value]) {
+            $steps[] = [['set', $key, $value]];
+        }
+        $steps[] = [['set', 'page_size', '5', 'extra']];
+        $steps[] = [['set', 'page_size', '']];
+        foreach (array_keys(SettingsSchema::SECTIONS) as $section) {
+            $steps[] = [['reset', $section]];
+        }
+        $steps[] = [['reset', 'APPEARANCE']];
+        $big = $left . '-big.json';
+        file_put_contents($big, json_encode(['format' => 'apotheke-settings', 'settings' => ['app_tagline' => 'big'], 'pad' => str_repeat('x', 300 * 1024)]));
+        $partial = $left . '-partial.json';
+        file_put_contents($partial, '{"format":"apotheke-settings","settings":{"page_size":"7","list_view":["x"],"accent":"#C8502D","undo_seconds":"nope"}}');
+        array_push(
+            $steps,
+            [['import'], ''], [['import'], '[]'], [['import'], '{"format":"apotheke-settings"}'],
+            [['import'], '{"format":"apotheke-settings","settings":[]}'], [['import'], '{"format":"apotheke-settings","settings":{}}'],
+            [['import', $partial]], [['import', $big]], [['import', 'php://stdin'], '{"format":"apotheke-settings","settings":{"currency":"USD"}}'],
+            [['LIST']], [['Get', 'app_name']], [['']], [['help']], [['-h']],
+            [['list']], [['export']],
+        );
+        $this->assertGreaterThan(150, count($steps));
+        $this->runBoth($left, $right, $steps);
+        $this->assertSame($this->settingsRows($left), $this->settingsRows($right));
+    }
+
     public function testAutofillTokenIsClearedWhenTheAddressMoves(): void
     {
         [$left, $right] = $this->twins('cli-token');
@@ -102,26 +172,78 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertStringContainsString("sign-in                  on\nusers                    1\n", $out['stdout']);
     }
 
-    /** Documented deviations: CI4 answers with a clean UserError (exit 1) where legacy differs. */
-    public function testDeviationsFromLegacy(): void
+    /**
+     * The four intentional deviations (signed off by the PM), each pinned on
+     * both sides so the difference is exactly the documented one.
+     */
+    public function testIntentionalDeviationsFromLegacy(): void
     {
-        [, $right] = $this->twins('cli-dev');
-        // Legacy: uncaught LogicException, PHP fatal error, exit 255.
-        $r = $this->cli($right, ['get', 'nope'], true);
-        $this->assertSame(['', "Unknown setting “nope”.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
-        // Legacy prints the stored token; the token is write-only in CI4.
+        [$left, $right] = $this->twins('cli-dev');
+        foreach ([$left, $right] as $dir) {
+            $this->cli($dir, ['list'], $dir === $right);   // create both databases
+            $this->storeToken($dir, 'placeholder-token');
+        }
+        // 1. Secrets are write-only. Legacy prints them.
+        $l = $this->cli($left, ['get', 'autofill_token'], false);
+        $this->assertSame(["\"placeholder-token\"\n", '', 0], [$l['stdout'], $l['stderr'], $l['exit']]);
         $r = $this->cli($right, ['get', 'autofill_token'], true);
         $this->assertSame(['', "“autofill_token” is write-only.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
-        // Legacy also prints PHP's warning for a missing file.
+        $l = $this->cli($left, ['get', 'password_hash'], false);
+        $this->assertSame(0, $l['exit']);
+        $r = $this->cli($right, ['get', 'password_hash'], true);
+        $this->assertSame(['', "“password_hash” is write-only.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
+
+        // 2. get of an unknown key: legacy dies with an uncaught exception (exit 255).
+        foreach ([['get', 'nope'], ['get']] as $args) {
+            $l = $this->cli($left, $args, false);
+            $this->assertSame(255, $l['exit'], implode(' ', $args));
+            $key = $args[1] ?? '';
+            $r = $this->cli($right, $args, true);
+            $this->assertSame(['', "Unknown setting “{$key}”.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
+        }
+
+        // 3. import of a missing file: the same message and exit code, minus PHP's warning line.
+        $l = $this->cli($left, ['import', '/nonexistent/settings.json'], false);
         $r = $this->cli($right, ['import', '/nonexistent/settings.json'], true);
+        $this->assertStringContainsString('file_get_contents(/nonexistent/settings.json)', $l['stdout'] . $l['stderr']);
+        $this->assertSame([$this->withoutPhpWarnings($l['stdout']), $this->withoutPhpWarnings($l['stderr']), $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']]);
         $this->assertSame(['', "That is not an Apotheke settings file.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
-        // The Auth forms stay on legacy through bin/settings.php; spark says where they are.
-        $r = $this->spark($right, ['users']);
-        $this->assertSame(2, $r['exit']);
-        $this->assertSame("The users command is not in apotheke:settings yet. Use php bin/settings.php users.\n", $r['stderr']);
+
+        // 4. list is read-only: with sign-in on, no accounts and APP_PASSWORD set, legacy
+        //    creates the account "admin" (auth_enabled()); CI4 does not until the Auth PR.
+        [$left, $right] = $this->twins('cli-dev-admin');
+        $extra = ['APP_PASSWORD' => 'placeholder-password'];
+        foreach ([$left, $right] as $dir) {
+            $this->cli($dir, ['list'], $dir === $right);
+            testdb($dir)->exec('DELETE FROM users');
+            testdb($dir)->exec("UPDATE settings SET value = 'true' WHERE name = 'auth_enabled'");
+        }
+        $l = $this->cli($left, ['list'], false, null, $extra);
+        $r = $this->cli($right, ['list'], true, null, $extra);
+        $this->assertStringEndsWith("sign-in                  on\nusers                    1\n", $l['stdout']);
+        $this->assertStringEndsWith("sign-in                  on\nusers                    0\n", $r['stdout']);
+        $this->assertSame(str_replace("users                    1\n", "users                    0\n", $l['stdout']), $r['stdout'], 'only the users count differs');
+        $this->assertSame(1, (int)testdb($left)->query('SELECT COUNT(*) FROM users')->fetchColumn());
+        $this->assertSame(0, (int)testdb($right)->query('SELECT COUNT(*) FROM users')->fetchColumn());
+    }
+
+    /** Spark-only behaviour of apotheke:settings (bin/settings.php keeps these forms on legacy). */
+    public function testSparkEntryPoint(): void
+    {
+        [, $right] = $this->twins('cli-spark');
+        foreach (['users', 'user', 'roles', 'auth', 'password'] as $form) {
+            $r = $this->spark($right, [$form]);
+            $this->assertSame(2, $r['exit']);
+            $this->assertSame("The {$form} command is not in apotheke:settings yet. Use php bin/settings.php {$form}.\n", $r['stderr']);
+        }
         // A value that starts with "-" reaches the command unchanged (CI4's parser would drop it).
         $r = $this->spark($right, ['set', 'default_quantity', '-5']);
         $this->assertSame("Quantity: between 0 and 1000000.\n", $r['stderr']);
+    }
+
+    private function withoutPhpWarnings(string $text): string
+    {
+        return (string)preg_replace('/^(PHP )?Warning: .*\R(\R)?/m', '', $text);
     }
 
     /**
@@ -143,11 +265,12 @@ final class Ci4SettingsCliTest extends TestCase
 
     /**
      * @param list<string> $args
+     * @param array<string,string> $extraEnv
      * @return array{stdout:string,stderr:string,exit:int}
      */
-    private function cli(string $dir, array $args, bool $ci4, ?string $stdin = null): array
+    private function cli(string $dir, array $args, bool $ci4, ?string $stdin = null, array $extraEnv = []): array
     {
-        return $this->proc([PHP_BINARY, ROOT . '/bin/settings.php', ...$args], $this->env($dir, $ci4), $stdin);
+        return $this->proc([PHP_BINARY, ROOT . '/bin/settings.php', ...$args], array_merge($this->env($dir, $ci4), $extraEnv), $stdin);
     }
 
     /**
