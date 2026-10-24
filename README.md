@@ -439,11 +439,11 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Photos | 59.6 % | 88.8 % | 88.8 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 11.8 % | 99.4 % | 99.3 % |
-| Control Panel settings | 75.1 % | 94.6 % | 97.3 % |
+| Control Panel settings | 75.4 % | 94.6 % | 97.5 % |
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
-| Database, migrations, legacy | 79.7 % | 81.0 % | 91.0 % |
-| Bootstrap, config, QR, seed | 73.7 % | 74.6 % | 90.8 % |
-| **All PHP** (7215 lines) | **65.6 %** | **89.9 %** | **95.7 %** |
+| Database, migrations, legacy | 80.1 % | 80.7 % | 91.1 % |
+| Bootstrap, config, QR, seed | 73.4 % | 75.1 % | 91.0 % |
+| **All PHP** (7236 lines) | **65.6 %** | **89.9 %** | **95.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
