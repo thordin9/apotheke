@@ -48,17 +48,19 @@ final class SessionLifetimeTest extends CIUnitTestCase
         $this->assertSame(2592000, $lifetime->seconds());
     }
 
-    public function testTheSettingIsReadOncePerInstance(): void
+    public function testEverySecondsCallReadsTheSettingAgain(): void
     {
         $reads = 0;
-        $lifetime = new SessionLifetime(static function () use (&$reads): mixed {
+        $days = 14;
+        $lifetime = new SessionLifetime(static function () use (&$reads, &$days): mixed {
             $reads++;
 
-            return 14;
+            return $days;
         });
         $this->assertSame(14 * 86400, $lifetime->seconds());
-        $this->assertSame(14 * 86400, $lifetime->seconds());
-        $this->assertSame(1, $reads);
+        $days = 3;
+        $this->assertSame(3 * 86400, $lifetime->seconds());
+        $this->assertSame(2, $reads);
     }
 
     /** @return iterable<string,array{0:string}> */
@@ -79,7 +81,6 @@ final class SessionLifetimeTest extends CIUnitTestCase
             $this->assertSame(30 * 86400, Services::sessionLifetime(false)->seconds(), 'default');
             $this->assertSame([], $settings->save(['session_days' => 7]));
             $this->assertSame(7 * 86400, Services::sessionLifetime(false)->seconds());
-            $this->assertSame(Services::sessionLifetime(), Services::sessionLifetime(), 'one instance per request');
         } finally {
             Services::reset();
             $database->drop();

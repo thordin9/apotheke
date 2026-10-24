@@ -10,14 +10,13 @@ use Throwable;
 /**
  * Session cookie lifetime in seconds, as legacy session_lifetime(): the
  * `session_days` setting clamped to 1–365, 30 when it is 0 or cannot be read
- * (SEC-N9). Config\Services builds one per request and reads the setting
- * through the shared SettingsService; the value is kept in this instance only.
+ * (SEC-N9). Every seconds() call reads the setting again through the closure
+ * (the request's SettingsService); nothing is kept here, so a long-lived worker
+ * sees a changed session_days on its next request.
  */
 final class SessionLifetime
 {
     public const DEFAULT_DAYS = 30;
-
-    private ?int $seconds = null;
 
     /** @param Closure():mixed $days reads session_days */
     public function __construct(private readonly Closure $days)
@@ -26,7 +25,7 @@ final class SessionLifetime
 
     public function seconds(): int
     {
-        return $this->seconds ??= 86400 * $this->days();
+        return 86400 * $this->days();
     }
 
     private function days(): int

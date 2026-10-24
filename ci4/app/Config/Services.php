@@ -82,7 +82,11 @@ class Services extends BaseService
         );
     }
 
-    /** Session cookie lifetime from session_days, read once per request (SEC-N9). */
+    /**
+     * Session cookie lifetime from session_days (SEC-N9). It keeps no value:
+     * each seconds() call reads through this request's SettingsService.
+     * SessionCookie asks for a new instance (false) every time.
+     */
     public static function sessionLifetime(bool $getShared = true): \Apotheke\Core\Http\SessionLifetime
     {
         if ($getShared) {

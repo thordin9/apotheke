@@ -31,7 +31,7 @@ final class SessionCookie implements FilterInterface
         $secure = $this->secureCookie($request);
         $cookie = config(Cookie::class);
         $cookie->secure = $secure;
-        $lifetime = Services::sessionLifetime()->seconds();
+        $lifetime = Services::sessionLifetime(false)->seconds();
         $session = config(Session::class);
         $session->cookieName = 'apothekesid';
         $session->expiration = $lifetime;
