@@ -38,7 +38,7 @@ final class LinkCheckTest extends TestCase
         file_put_contents($root . '/README.md', "[plan](docs/superpowers/plans/note.md)\n");
         file_put_contents($root . '/CONTRIBUTING.md', "# Contributing\n");
         file_put_contents($root . '/AGENTS.md', "# Agents\n");
-        file_put_contents($root . '/docs/qa/note.md', "# Note\n\n[missing](missing.md)\n\nSuggestion: [Host names](…#host-names)\n");
+        file_put_contents($root . '/docs/qa/note.md', "# Note\n\n[missing](missing.md)\n\nSuggestion: [Host names](…#host-names)\n\n[elided path](…/does-not-exist.md)\n\nSee ([#72](…)).\n");
         file_put_contents($root . '/docs/superpowers/plans/note.md', "# Plans\n\n[qa](../../qa/note.md)\n");
         $script = dirname(__DIR__, 2) . '/scripts/check-links.mjs';
         $out = [];
@@ -48,7 +48,10 @@ final class LinkCheckTest extends TestCase
         $this->assertSame(1, $code, $text);
         $this->assertStringContainsString('docs/qa/note.md', $text);
         $this->assertStringContainsString('missing file missing.md', $text);
-        $this->assertStringContainsString('1 broken', $text, 'an elided (…#anchor) placeholder is not a link');
+        $this->assertStringContainsString('missing file …/does-not-exist.md', $text, 'only (…) and (…#anchor) are skipped');
+        $this->assertStringNotContainsString('…#host-names', $text, 'an elided (…#anchor) placeholder is not a link');
+        $this->assertStringNotContainsString('missing file …' . "\n", $text . "\n", 'a fully elided (…) target is not a link');
+        $this->assertStringContainsString('2 broken', $text);
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
         foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
         @rmdir($root);
