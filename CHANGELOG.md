@@ -19,6 +19,9 @@ ALLOWED_HOSTS=nas.local,apotheke.example
 Setting `PUBLIC_URL` to that address works too. Opening the app by its IP address needs no change. Details:
 [Host names](https://github.com/thordin9/apotheke/blob/main/docs/deployment-and-operations.md#host-names).
 
+Health checks (`/healthz`, `/health`) follow the same rule: container and orchestrator health checks must use an
+allowed host (an IP address, `localhost`, the container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS` entry).
+
 ### Fixed
 
 - **security:** hardening (SEC-M3): the app answers only to IP addresses, `localhost`, its own host name, `PUBLIC_URL`'s host and the new `ALLOWED_HOSTS` list; other host names get 421, and label links never use an unlisted host. With sign-in off, a change must come from the app's own pages (`Sec-Fetch-Site` or `Origin`); requests without either header still work. If you open the app by a name, add it to `ALLOWED_HOSTS` or set `PUBLIC_URL`. ([#70](https://github.com/thordin9/apotheke/pull/70))

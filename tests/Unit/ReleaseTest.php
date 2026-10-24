@@ -208,6 +208,10 @@ final class ReleaseTest extends TestCase
         $this->assertStringStartsWith('**Upgrade note:**', $notes);
         $this->assertStringContainsString("ALLOWED_HOSTS=nas.local,apotheke.example\n", $notes);
         $this->assertLessThan(strpos($notes, '### Fixed'), strpos($notes, 'ALLOWED_HOSTS='));
+        // health probes need an allowed host too (#70 L-2), and that line stays in the note
+        $health = strpos($notes, 'Health checks (`/healthz`, `/health`)');
+        $this->assertNotFalse($health);
+        $this->assertLessThan(strpos($notes, '### Fixed'), $health);
     }
 
     public function testCommitsFromAGitHistory(): void
