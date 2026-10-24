@@ -98,7 +98,7 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
             $save = (string)getenv('DATA_DIR') . '/sessions';
             @mkdir($save, 0775, true);
             $id = str_repeat('f', 26);
-            file_put_contents($save . '/sess_' . $id, 'uid|i:3;auth_epoch|s:16:"0123456789abcdef";csrf|s:4:"tok1";last_seen|i:' . time() . ';');
+            file_put_contents($save . '/sess_' . $id, 'uid|i:3;auth_epoch|s:16:"0123456789abcdef";csrf|s:4:"tok1";last_activity|i:' . time() . ';');
             $filter = new SessionCookie();
 
             $this->request($filter, $database, null, [SessionGate::COOKIE => $id], false);
@@ -115,6 +115,90 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
             $_SESSION = ['uid' => 3];
             $this->request($filter, $database, null, [SessionGate::COOKIE => str_repeat('a', 26)]);
             $this->assertSame([], $_SESSION, 'a cookie whose session is gone loads nothing');
+        } finally {
+            Services::reset();
+            $database->drop();
+        }
+    }
+
+    /**
+     * #82 L-2: an error path left the previous request's session open. The
+     * worker loop's session()->close() and the next request's filter close it,
+     * and the next, cookieless request starts without its data.
+     */
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testASessionLeftOpenIsClosedAndNotSeenByTheNextRequest(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $save = (string)getenv('DATA_DIR') . '/sessions';
+            @mkdir($save, 0775, true);
+            $id = str_repeat('e', 26);
+            file_put_contents($save . '/sess_' . $id, 'uid|i:3;auth_epoch|s:16:"0123456789abcdef";csrf|s:4:"tok1";last_activity|i:' . time() . ';');
+            $filter = new SessionCookie();
+            $this->request($filter, $database, null, [SessionGate::COOKIE => $id], false);
+            // The request then reopened it and failed before releasing it.
+            session_id($id);
+            session_start();
+            $this->assertSame(PHP_SESSION_ACTIVE, session_status());
+            $this->assertSame(3, $_SESSION['uid'] ?? null);
+
+            $this->request($filter, $database);
+            $this->assertSame([], $_SESSION, 'the next request sees none of it');
+            $this->assertFileExists($save . '/sess_' . $id, 'closed, not ended');
+
+            session_id($id);
+            session_start();
+            Services::session()->close();
+            $this->assertNotSame(PHP_SESSION_ACTIVE, session_status(), "the worker loop's close() write-closes it");
+        } finally {
+            Services::reset();
+            $database->drop();
+        }
+    }
+
+    /**
+     * Main #84: a signed-in session ends after session_idle_hours with no
+     * request, and session_days after sign-in even while in use. A lower
+     * idle limit saved between two requests applies to the next one.
+     */
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testTheIdleAndAbsoluteLimitsEndASignedInSession(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $save = (string)getenv('DATA_DIR') . '/sessions';
+            @mkdir($save, 0775, true);
+            $filter = new SessionCookie();
+            $now = time();
+            $write = static function (string $id, int $seen, int $at) use ($save): void {
+                file_put_contents($save . '/sess_' . $id, 'uid|i:3;auth_epoch|s:3:"abc";csrf|s:4:"tok1";last_activity|i:' . $seen . ';signed_in_at|i:' . $at . ';');
+            };
+
+            $idle = str_repeat('1', 26);
+            $write($idle, $now - 2 * 3600, $now - 3 * 3600);
+            $this->request($filter, $database, null, [SessionGate::COOKIE => $idle], false);
+            $this->assertSame(3, $_SESSION['uid'] ?? null, 'two hours idle: within the default 168');
+            $this->assertSame([], $this->settings($database)->save(['session_idle_hours' => 1]));
+            $write($idle, $now - 2 * 3600, $now - 3 * 3600);
+            $this->request($filter, $database, null, [SessionGate::COOKIE => $idle]);
+            $this->assertFileDoesNotExist($save . '/sess_' . $idle, 'idle limit lowered to 1 hour: ended on the next request');
+
+            $old = str_repeat('2', 26);
+            $write($old, $now - 30, $now - 31 * 86400);
+            $this->request($filter, $database, null, [SessionGate::COOKIE => $old]);
+            $this->assertFileDoesNotExist($save . '/sess_' . $old, 'signed in 31 days ago: ended though in use');
+
+            // A hand-edited row outside 1–8760 is clamped, as legacy session_idle_seconds() does.
+            $database->db->table('settings')->where('name', 'session_idle_hours')->update(['value' => '99999']);
+            $long = str_repeat('3', 26);
+            $write($long, $now - 8000 * 3600, $now - 86400);
+            $this->request($filter, $database, null, [SessionGate::COOKIE => $long], false);
+            $this->assertSame(3, $_SESSION['uid'] ?? null, '8000 hours idle with the row clamped to 8760');
         } finally {
             Services::reset();
             $database->drop();

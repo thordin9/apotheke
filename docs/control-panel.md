@@ -85,9 +85,10 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 | `session_days` | 30 | longest a sign-in lasts, counted from sign-in. Later visits do not extend it. The server ends it when this time has passed. 1–365. A session from before the upgrade is stamped on its next request |
 | `session_idle_hours` | 168 | end a sign-in after this many hours with no request. 1–8760 (365 days). Lowering it applies on the next request. The clock moves at most once a minute. The favicon, the manifest, the theme and label styles, and the health checks do not count. The stay-signed-in limit still applies |
 
-**CI4 build (`APOTHEKE_APP=ci4`), until the session port lands:** CI4 does not enforce these two limits as described above
-yet. It ends a sign-in only after `session_days` with no request, so a sign-in in use is not ended `session_days` after
-sign-in, and `session_idle_hours` is stored but not applied. The shipped image runs the legacy app, which enforces both.
+**CI4 build (`APOTHEKE_APP=ci4`):** CI4 enforces both limits on the server, as the legacy app on `main` does. A sign-in
+ends `session_days` after sign-in, even while it is in use, and after `session_idle_hours` with no request. The legacy
+app on this branch applies `session_idle_hours` on the server and `session_days` only as the cookie lifetime, until
+the next `main` sync brings its server-side check.
 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
 manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account

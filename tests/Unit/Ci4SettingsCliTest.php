@@ -8,7 +8,10 @@ require_once dirname(__DIR__) . '/lib.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Exceptions/UserError.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Libraries/Text.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Settings/SettingsSchema.php';
+require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Security/SecretKey.php';
+require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Security/SecretBox.php';
 
+use Apotheke\Core\Security\SecretBox;
 use Apotheke\Settings\SettingsSchema;
 
 /**
@@ -185,9 +188,9 @@ final class Ci4SettingsCliTest extends TestCase
             $this->cli($dir, ['list'], $dir === $right);   // create both databases
             $this->storeToken($dir, 'placeholder-token');
         }
-        // 1. Secrets are write-only. Legacy prints them.
+        // 1. Secrets are write-only. Legacy prints them (with the S-L5 notice, as no APP_KEY is set).
         $l = $this->cli($left, ['get', 'autofill_token'], false);
-        $this->assertSame(["\"placeholder-token\"\n", '', 0], [$l['stdout'], $l['stderr'], $l['exit']]);
+        $this->assertSame(["\"placeholder-token\"\n", "apotheke: set APP_KEY to encrypt stored secrets\n", 0], [$l['stdout'], $l['stderr'], $l['exit']]);
         $r = $this->cli($right, ['get', 'autofill_token'], true);
         $this->assertSame(['', "“autofill_token” is write-only.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
         $l = $this->cli($left, ['get', 'password_hash'], false);
@@ -227,6 +230,65 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertSame(str_replace("users                    1\n", "users                    0\n", $l['stdout']), $r['stdout'], 'only the users count differs');
         $this->assertSame(1, (int)testdb($left)->query('SELECT COUNT(*) FROM users')->fetchColumn());
         $this->assertSame(0, (int)testdb($right)->query('SELECT COUNT(*) FROM users')->fetchColumn());
+    }
+
+    /**
+     * S-L5 (#78): with APP_KEY set, unusable or missing, both apps read the same
+     * enc:v1: rows and print the same log lines; a legacy plaintext token is
+     * sealed on read by both. Placeholder keys only.
+     */
+    public function testStoredSecretKeyHandlingMatchesLegacy(): void
+    {
+        $key = base64_encode(str_repeat('k', 32));
+        $other = base64_encode(str_repeat('o', 32));
+        $sealed = SecretBox::sealWith('placeholder-token', (string)base64_decode($key, true));
+        $cases = [
+            'usable key, sealed row' => [['APP_KEY' => $key], $sealed, ''],
+            'wrong key, sealed row' => [['APP_KEY' => $other], $sealed, "apotheke: setting autofill_token could not be decrypted and is treated as unset.\n"],
+            'no key, sealed row' => [[], $sealed, "apotheke: set APP_KEY to encrypt stored secrets\napotheke: setting autofill_token could not be decrypted and is treated as unset.\n"],
+            'malformed key, plain row' => [['APP_KEY' => 'malformed-placeholder'], 'placeholder-token', "apotheke: APP_KEY is not a 32-byte key; stored secrets will not be saved.\n"],
+            'sodium missing, plain row' => [['APP_KEY' => $key, 'APOTHEKE_SODIUM' => '0'], 'placeholder-token', "apotheke: sodium extension is missing; stored secrets will not be saved.\n"],
+            'key file in the data dir' => [['APP_KEY_FILE' => '{dir}/app.key'], 'placeholder-token', "apotheke: APP_KEY_FILE is inside the data directory or a backup path; stored secrets will not be saved.\n"],
+        ];
+        foreach ($cases as $label => [$extra, $stored, $listStderr]) {
+            [$left, $right] = $this->twins('cli-key');
+            foreach ([$left, $right] as $dir) {
+                $this->cli($dir, ['set', 'autofill_url', 'http://192.0.2.1:8080'], $dir === $right);
+                $this->storeToken($dir, $stored);
+                file_put_contents($dir . '/app.key', $key . "\n");
+            }
+            foreach ([['list'], ['set', 'autofill_url', 'HTTP://192.0.2.1:8080/'], ['set', 'autofill_url', 'http://192.0.2.2:8080']] as $args) {
+                $l = $this->cli($left, $args, false, null, str_replace('{dir}', $left, $extra));
+                $r = $this->cli($right, $args, true, null, str_replace('{dir}', $right, $extra));
+                $this->assertSame([$l['stdout'], $l['stderr'], $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']], "$label: " . implode(' ', $args));
+                $this->assertSame($this->settingsRows($left), $this->settingsRows($right), "$label: " . implode(' ', $args));
+                $this->assertStringNotContainsString('placeholder-token', $l['stdout'] . $l['stderr'] . $r['stdout'] . $r['stderr'], $label);
+                if ($args === ['list']) {
+                    $this->assertSame($listStderr, $r['stderr'], "$label: list log lines");
+                }
+            }
+            $this->assertSame('""', $this->settingsRows($right)['autofill_token'][0], "$label: the moved address cleared the token");
+        }
+
+        // A legacy plaintext row is sealed on read by both; the nonces differ, nothing else does.
+        [$left, $right] = $this->twins('cli-key-upgrade');
+        foreach ([$left, $right] as $dir) {
+            $this->cli($dir, ['list'], $dir === $right);
+            $this->storeToken($dir, 'placeholder-token');
+        }
+        $l = $this->cli($left, ['list'], false, null, ['APP_KEY' => $key]);
+        $r = $this->cli($right, ['list'], true, null, ['APP_KEY' => $key]);
+        $this->assertSame([$l['stdout'], $l['stderr'], $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']]);
+        $rows = [$this->settingsRows($left), $this->settingsRows($right)];
+        $box = SecretBox::fromEnvironment(['APP_KEY' => $key], [], static function (string $message): void {
+        });
+        foreach ($rows as $i => $set) {
+            $value = json_decode($set['autofill_token'][0], true);
+            $this->assertStringStartsWith(SecretBox::ENVELOPE, (string)$value, (string)$i);
+            $this->assertSame('placeholder-token', $box->open('autofill_token', (string)$value), (string)$i);
+        }
+        unset($rows[0]['autofill_token'][0], $rows[1]['autofill_token'][0]);
+        $this->assertSame($rows[0], $rows[1]);
     }
 
     /**

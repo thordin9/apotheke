@@ -120,7 +120,7 @@ final class Ci4RequestHardeningHttpTest extends TestCase
             $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
             $data = (string)file_get_contents($dir . '/sessions/sess_' . $id);
             $this->assertMatchesRegularExpression('/csrf\|s:64:"[0-9a-f]{64}"/', $data);
-            $this->assertMatchesRegularExpression('/last_seen\|i:\d+;/', $data);
+            $this->assertMatchesRegularExpression('/last_activity\|i:\d+;/', $data);
             $this->assertStringContainsString('uid|i:3;', $data);
         });
     }
@@ -137,15 +137,50 @@ final class Ci4RequestHardeningHttpTest extends TestCase
             $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers'], 'the same session');
             // Used 29 days ago: still inside session_days (30), so it is kept and re-stamped.
             $recent = time() - 29 * 86400;
-            file_put_contents($file, preg_replace('/last_seen\|i:\d+;/', 'last_seen|i:' . $recent . ';', (string)file_get_contents($file)));
+            file_put_contents($file, preg_replace('/last_activity\|i:\d+;/', 'last_activity|i:' . $recent . ';', (string)file_get_contents($file)));
             $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
-            $this->assertDoesNotMatchRegularExpression('/last_seen\|i:' . $recent . ';/', (string)file_get_contents($file));
+            $this->assertDoesNotMatchRegularExpression('/last_activity\|i:' . $recent . ';/', (string)file_get_contents($file));
             // Not used for 31 days: emptied and removed; this request gets a new session.
-            file_put_contents($file, preg_replace('/last_seen\|i:\d+;/', 'last_seen|i:' . (time() - 31 * 86400) . ';', (string)file_get_contents($file)));
+            file_put_contents($file, preg_replace('/last_activity\|i:\d+;/', 'last_activity|i:' . (time() - 31 * 86400) . ';', (string)file_get_contents($file)));
             $after = $client->get('/');
             $this->assertFileDoesNotExist($file);
             $this->assertStringContainsString('apothekesid=', $after['headers']['set-cookie'] ?? '');
             $this->assertNotSame($id, $client->cookies['apothekesid']);
+        });
+    }
+
+    /**
+     * Main #84 on CI4: a signed-in session ends after session_idle_hours with no
+     * request, and session_days after sign-in even while it is in use. A
+     * session from before the sign-in time existed gets one and stays.
+     */
+    public function testTheIdleAndAbsoluteLimitsEndASignedInSession(): void
+    {
+        $this->withServer([], function (Server $server, string $dir): void {
+            $client = $server->client();
+            $now = time();
+            $write = function (string $id, string $data) use ($dir, $client): string {
+                file_put_contents($dir . '/sessions/sess_' . $id, $data);
+                $client->cookies['apothekesid'] = $id;
+
+                return $dir . '/sessions/sess_' . $id;
+            };
+            $old = $write(str_repeat('a', 26), 'uid|i:3;last_activity|i:' . ($now - 30) . ';');
+            $client->get('/');
+            $this->assertMatchesRegularExpression('/signed_in_at\|i:\d+;/', (string)file_get_contents($old), 'stamped, not ended');
+
+            $pdo = testdb($dir);
+            $pdo->exec("UPDATE settings SET value = '1' WHERE name = 'session_idle_hours'");
+            $idle = $write(str_repeat('b', 26), 'uid|i:3;last_activity|i:' . ($now - 2 * 3600) . ';signed_in_at|i:' . ($now - 3 * 3600) . ';');
+            $client->get('/');
+            $this->assertFileDoesNotExist($idle, 'two hours idle with a one-hour limit');
+            $kept = $write(str_repeat('c', 26), 'uid|i:3;last_activity|i:' . ($now - 1800) . ';signed_in_at|i:' . ($now - 3 * 3600) . ';');
+            $client->get('/');
+            $this->assertFileExists($kept, 'half an hour idle');
+
+            $long = $write(str_repeat('d', 26), 'uid|i:3;last_activity|i:' . ($now - 30) . ';signed_in_at|i:' . ($now - 31 * 86400) . ';');
+            $client->get('/');
+            $this->assertFileDoesNotExist($long, 'signed in 31 days ago, in use');
         });
     }
 

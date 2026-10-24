@@ -74,15 +74,18 @@ class Services extends BaseService
         }
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
+        $config = static::apothekeConfig()->values();
 
         return new \Apotheke\Settings\SettingsService(
             new \Apotheke\Settings\SettingsRepository($db),
             new \Apotheke\Settings\SettingsSchema(),
             static::brandStore(),
             new \Apotheke\Core\Libraries\Clock(),
-            static::apothekeConfig()->values(),
+            $config,
             null,
             $actor ?? static::currentUser(),
+            // S-L5: APP_KEY / APP_KEY_FILE, resolved on first use and once per request.
+            \Apotheke\Core\Security\SecretBox::fromEnvironment(getenv(), \Apotheke\Settings\SettingsService::backupRoots($config)),
         );
     }
 
@@ -134,6 +137,21 @@ class Services extends BaseService
         }
 
         return new \Apotheke\Core\Http\SessionLifetime(static fn (): mixed => static::settings()->get('session_days'));
+    }
+
+    /**
+     * Idle limit from session_idle_hours (legacy session_idle_seconds() on
+     * main). It keeps no value: each seconds() call reads the stored row
+     * through this request's SettingsService. SessionCookie asks for a new
+     * instance (false) every time.
+     */
+    public static function sessionIdle(bool $getShared = true): \Apotheke\Core\Http\SessionIdle
+    {
+        if ($getShared) {
+            return static::getSharedInstance('sessionIdle');
+        }
+
+        return new \Apotheke\Core\Http\SessionIdle(static fn (): mixed => static::settings()->stored('session_idle_hours'));
     }
 
     /**
