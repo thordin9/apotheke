@@ -190,8 +190,8 @@ final class DsnTranslatorTest extends TestCase
             $this->assertStringNotContainsString('dsn', (string)$group['DSN'], $name);
 
             [$pdoDsn, $pdoUser, $pdoPassword, $pdoDiffers] = DsnTranslator::forPdo($dsn, $db);
-            $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog'", $pdoDsn, $name);
-            $this->assertSame([$user, $password, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
+            $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog' " . $this->libpqValue('user', $user) . ' ' . $this->libpqValue('password', $password), $pdoDsn, $name);
+            $this->assertSame([null, null, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
         }
 
         $this->assertSame(['sqlite:/x.sqlite', 'u', 'p', false], DsnTranslator::forPdo('sqlite:/x.sqlite', ['user' => 'u', 'password' => 'p']));
@@ -228,42 +228,60 @@ final class DsnTranslatorTest extends TestCase
     }
 
     /**
-     * PDO on PHP 8.4 drops the user and password passed to it when the DSN has
-     * the text "user=" or "password=" anywhere. After the top-level user and
-     * password keys are taken out, any such text left in another value or
-     * keyword stops boot with a message that names the problem, not the values.
+     * The resolved user and password are written into the PDO DSN as escaped
+     * top-level keys, so other settings may mention user= or password=. PDO
+     * turns every ";" into a space, so a credential with ";" is passed to PDO
+     * instead, and refused only when PHP 8.4's PDO would ignore it (the DSN has
+     * the matching user= or password= text). The message names no values.
      */
-    public function testCredentialTextInsideAnotherSettingIsRefused(): void
+    public function testCredentialsAreEmbeddedAndOnlyAnUnpassableSemicolonIsRefused(): void
     {
         $base = 'pgsql:host=db.example;port=5432;dbname=catalog;user = dsnu;password = dsnp;';
-        foreach ([
-            "options='-c search_path=user=q7canary'",
-            "application_name='x password=q7canary'",
-            'sslpassword=q7canary',
-        ] as $tail) {
+        $tails = [
+            'options' => "options='-c search_path=user=q7canary'",
+            'application_name' => "application_name='x user=q7canary password=q7canary'",
+            'sslpassword' => 'sslpassword=q7canary',
+        ];
+        foreach ($tails as $label => $tail) {
+            [$pdoDsn, $user, $password] = DsnTranslator::forPdo($base . $tail, ['user' => "e'u\\", 'password' => 'p w']);
+            $this->assertStringEndsWith(" user='e\\'u\\\\' password='p w'", $pdoDsn, $label);
+            $this->assertSame([null, null], [$user, $password], $label);
+            $this->assertSame("e'u\\", $this->translator->fromPdoDsn($base . $tail, ['user' => "e'u\\", 'password' => 'p w'])['username'], $label);
+        }
+
+        // A ";" credential goes to PDO, unless the DSN has the text that makes PHP 8.4 ignore it.
+        $refused = [
+            ['options', 'zu;7k', 'zp6k'], ['application_name', 'zu7k', 'zp;6k'], ['application_name', 'zu;7k', 'zp6k'], ['sslpassword', 'zu7k', 'zp;6k'],
+        ];
+        foreach ($refused as [$label, $envUser, $envPassword]) {
             foreach (['translator', 'forPdo'] as $path) {
                 try {
                     if ($path === 'translator') {
-                        $this->translator->fromPdoDsn($base . $tail, ['user' => 'envu', 'password' => 'envp']);
+                        $this->translator->fromPdoDsn($base . $tails[$label], ['user' => $envUser, 'password' => $envPassword]);
                     } else {
-                        DsnTranslator::forPdo($base . $tail, ['user' => 'envu', 'password' => 'envp']);
+                        DsnTranslator::forPdo($base . $tails[$label], ['user' => $envUser, 'password' => $envPassword]);
                     }
-                    $this->fail($path . ' accepted ' . $tail);
+                    $this->fail($path . ' accepted ' . $label);
                 } catch (DsnException $e) {
-                    $this->assertSame(DsnException::CREDENTIAL_TEXT, $e->getMessage(), $path . ' ' . $tail);
-                    foreach (['q7canary', 'dsnu', 'dsnp', 'envu', 'envp', 'db.example'] as $value) {
-                        $this->assertStringNotContainsString($value, $e->getMessage(), $path . ' ' . $tail);
+                    $this->assertSame(DsnException::SEMICOLON_CREDENTIAL, $e->getMessage(), $path . ' ' . $label);
+                    foreach (['q7canary', 'dsnu', 'dsnp', $envUser, $envPassword, 'db.example'] as $value) {
+                        $this->assertStringNotContainsString($value, $e->getMessage(), $path . ' ' . $label);
                     }
                 }
             }
         }
-
-        // The top-level keys themselves, spaced or not, are fine (case c).
-        [$pdoDsn, $user, $password] = DsnTranslator::forPdo($base . 'sslmode=disable', ['user' => 'envu', 'password' => 'envp']);
-        $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog' sslmode='disable'", $pdoDsn);
-        $this->assertSame(['envu', 'envp'], [$user, $password]);
-        $group = $this->translator->fromPdoDsn($base . 'sslmode=disable', ['user' => 'envu', 'password' => 'envp']);
-        $this->assertSame('envu', $group['username']);
+        $this->assertSame(
+            ["pgsql:host='db.example' port='5432' dbname='catalog' options='-c search_path=user=q7canary' user='u'", null, 'p;1', true],
+            DsnTranslator::forPdo($base . $tails['options'], ['user' => 'u', 'password' => 'p;1'])
+        );
+        $this->assertSame(
+            ["pgsql:host='db.example' port='5432' dbname='catalog' sslpassword='q7canary' password='p'", 'u;1', null, true],
+            DsnTranslator::forPdo($base . $tails['sslpassword'], ['user' => 'u;1', 'password' => 'p'])
+        );
+        $this->assertSame(
+            ["pgsql:host='db.example' port='5432' dbname='catalog'", 'u;1', 'p;1', true],
+            DsnTranslator::forPdo('pgsql:host=db.example;port=5432;dbname=catalog;user=x', ['user' => 'u;1', 'password' => 'p;1'])
+        );
     }
 
     private function expectBad(string $dsn): void

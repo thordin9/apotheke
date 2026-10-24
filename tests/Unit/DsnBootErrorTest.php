@@ -36,13 +36,22 @@ final class DsnBootErrorTest extends TestCase
                 'accepted' => true,
                 'absent' => ['s9d44', 'password', 'could not be used'],
             ],
-            // user= or password= inside another value: PDO 8.4 would drop DB_USER and
-            // DB_PASSWORD, so boot stops with a message that names no values.
+            // user= or password= text inside another value is fine: the resolved
+            // user and password are written into the DSN, not passed to PDO.
             'credential-text' => [
                 'dsn' => "pgsql:host=db.example;port=5432;dbname=catalog;options='-c x=password=s9d44'",
-                'body' => 'The database settings could not be used: DB_DSN has user= or password= inside another',
-                'log' => 'Database pgsql host=db.example port=5432 dbname=catalog. The database settings could not be used: DB_DSN has',
-                'absent' => ['s9d44', '-c x'],
+                'accepted' => true,
+                'absent' => ['s9d44', 'u9d44', 'could not be used'],
+            ],
+            // A ";" in DB_PASSWORD cannot go inside the DSN (PDO turns it into a
+            // space), and PDO 8.4 ignores a passed password once the DSN has the
+            // text password=, so boot stops with a message that names no values.
+            'semicolon-credential' => [
+                'dsn' => "pgsql:host=db.example;port=5432;dbname=catalog;options='-c x=password=s9d44'",
+                'password' => 'u9;d44',
+                'body' => 'The database settings could not be used: DB_USER or DB_PASSWORD contains ";"',
+                'log' => 'Database pgsql host=db.example port=5432 dbname=catalog. The database settings could not be used: DB_USER',
+                'absent' => ['s9d44', 'u9;d44', 'u9 d44', 'zzu', '-c x'],
             ],
             'semicolon' => [
                 'dsn' => 'pgsql:host=db.example;port=5432;dbname=catalog;password=q9;w8zz',
@@ -51,7 +60,7 @@ final class DsnBootErrorTest extends TestCase
             ],
         ];
         foreach ($cases as $name => $case) {
-            $hit = $this->boot($case['dsn']);
+            $hit = $this->boot($case['dsn'], $case['password'] ?? 'u9d44');
             $shown = $hit['body'] . $hit['log'] . $hit['err'];
             foreach ($case['absent'] as $needle) {
                 $this->assertStringNotContainsString($needle, $shown, $name . $shown);
@@ -77,7 +86,7 @@ final class DsnBootErrorTest extends TestCase
     }
 
     /** @return array{status:int,body:string,log:string,err:string} */
-    private function boot(string $dsn): array
+    private function boot(string $dsn, string $password): array
     {
         $dir = tmpdir('dsn-boot');
         $log = $dir . '/error.log';
@@ -109,7 +118,7 @@ final class DsnBootErrorTest extends TestCase
             'DB_PORT' => '5432',
             'DB_NAME' => 'catalog',
             'DB_USER' => 'zzu',
-            'DB_PASSWORD' => 'u9d44',
+            'DB_PASSWORD' => $password,
         ];
         $proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $err, 'a'], 2 => ['file', $err, 'a']], $pipes, $dir, $env);
         $this->assertIsResource($proc);

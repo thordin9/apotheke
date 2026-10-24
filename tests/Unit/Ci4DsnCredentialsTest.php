@@ -168,52 +168,101 @@ final class Ci4DsnCredentialsTest extends TestCase
             putenv('PGPASSFILE');
         }
         if (PHP_VERSION_ID >= 80400) {
-            $this->assertNull($connected, 'PDO 8.4 used the passed credentials; the guard in forPdo() may be unnecessary now');
+            $this->assertNull($connected, 'PDO 8.4 used the passed credentials; the ";" refusal in forPdo() may be unnecessary now');
         } else {
             $this->assertSame($env['user'], $connected);
         }
     }
 
     /**
-     * user= or password= text inside another setting stops CI4 instead of
-     * letting PDO 8.4 drop the credentials: the runner (CLI) refuses on every
-     * PHP version, and on PHP 8.4 /healthz returns the value-free boot error.
+     * QA's matrix: the resolved user and password are written into the PDO DSN
+     * as escaped top-level keys (null PDO arguments), and into CI4's pg_connect
+     * string. Quotes, backslashes (also trailing), spaces and unicode connect on
+     * both paths, also when application_name, options or sslpassword mention
+     * user= or password=. PDO turns every ";" into a space, so a ";" credential
+     * goes to PDO as an argument, and is refused (value-free) only where PHP
+     * 8.4's PDO would ignore it. An empty password is no password, as in legacy.
      */
-    public function testCredentialTextInsideAnotherSettingIsRefused(): void
+    public function testSpecialCharacterCredentialsOnBothPaths(): void
     {
         $pg = test_pg_params();
-        $env = $this->roles['env'];
-        $tails = [
-            'application_name' => "application_name='a user=b password=c'",
-            'options' => "options='-c search_path=user=x'",
-            'sslpassword keyword' => 'sslpassword=k7canary',
+        $tag = bin2hex(random_bytes(3));
+        $roles = [
+            'quote' => ['emq_' . $tag, "a'b"],
+            'backslash' => ['emb_' . $tag, 'a\\b'],
+            'semicolon' => ['ems_' . $tag, 'a;b'],
+            'space' => ['emp_' . $tag, 'a b'],
+            'mixed' => ['emx_' . $tag, "a\\'b;c d"],
+            'trailing backslash' => ['emt_' . $tag, 'abc\\'],
+            'unicode' => ['emu_' . $tag, "p\u{e4}\u{df}\u{20ac}\u{1f642}x"],
+            'empty' => ['eme_' . $tag, ''],
+            'user with space and quote' => ["us er'q" . $tag, 'plainpw1'],
+            'user with ;' => ['us;er' . $tag, 'plainpw2'],
         ];
-        $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
-        foreach ($tails as $label => $tail) {
-            $db = [
-                'driver' => 'pgsql',
-                'dsn' => sprintf('pgsql:host=%s;port=%s;dbname=%s;', $pg['host'], $pg['port'], $pg['name']) . $tail,
-                'user' => $env['user'],
-                'password' => $env['password'],
-                'schema' => '',
-            ];
-            try {
-                $runner->connect($db);
-                $this->fail($label . ': the runner connected');
-            } catch (Apotheke\Migrations\MigrateConnectException $e) {
-                $this->assertSame(Apotheke\Core\Config\DsnException::CREDENTIAL_TEXT, $e->getMessage(), $label);
+        $extras = [
+            'plain' => '',
+            'application_name' => ";application_name='a user=b password=c'",
+            'options' => ";options='-c search_path=user=x'",
+            'sslpassword' => ';sslpassword=placeholder',
+        ];
+        // Refused: a ";" credential whose user= / password= text is also in the DSN.
+        $refused = ['semicolon application_name', 'semicolon sslpassword', 'mixed application_name', 'mixed sslpassword',
+            'user with ; application_name', 'user with ; options'];
+        $quote = static fn (string $name): string => '"' . str_replace('"', '""', $name) . '"';
+        $i = 0;
+        foreach ($roles as $role => [$user, $password]) {
+            $this->admin->exec('CREATE ROLE ' . $quote($user) . ' LOGIN' . ($password === '' ? '' : ' PASSWORD ' . $this->admin->quote($password)));
+            $roles[$role][2] = 'ems' . $i++ . '_' . bin2hex(random_bytes(3));
+            $this->admin->exec('CREATE SCHEMA ' . $roles[$role][2] . ' AUTHORIZATION ' . $quote($user));
+        }
+        $pgpass = getenv('PGPASSWORD');
+        putenv('PGPASSWORD');
+        putenv('PGPASSFILE=/nonexistent');
+        try {
+            $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
+            $vendor = is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') && PHP_VERSION_ID >= 80400;
+            foreach ($roles as $role => [$user, $password, $schema]) {
+                foreach ($extras as $extra => $tail) {
+                    $label = $role . ' ' . $extra;
+                    $dsn = sprintf('pgsql:host=%s;port=%s;dbname=%s', $pg['host'], $pg['port'], $pg['name']) . $tail;
+                    $db = ['driver' => 'pgsql', 'dsn' => $dsn, 'user' => $user, 'password' => $password, 'schema' => ''];
+                    try {
+                        $pdo = $runner->connect($db);
+                        $got = $pdo->query('SELECT current_user')->fetchColumn();
+                        $runner->close($pdo);
+                        $this->assertNotContains($label, $refused, $label . ' connected');
+                        $this->assertNotSame('empty', $role, $label . ' connected without a password');
+                        $this->assertSame($user, $got, $label);
+                    } catch (Apotheke\Migrations\MigrateConnectException $e) {
+                        if (in_array($label, $refused, true)) {
+                            $this->assertSame(Apotheke\Core\Config\DsnException::SEMICOLON_CREDENTIAL, $e->getMessage(), $label);
+                        } else {
+                            $this->assertSame('empty', $role, $label . ': ' . $e->getMessage());
+                        }
+                    }
+                    if (!$vendor || $role === 'empty') {
+                        continue;
+                    }
+                    // CI4's pg_connect, through /healthz, in the role's own schema.
+                    $hit = $this->bootAs($dsn, $user, $password, $schema);
+                    if (in_array($label, $refused, true)) {
+                        $this->assertSame(500, $hit['status'], $label);
+                        $this->assertSame(Apotheke\Core\Config\DsnException::SEMICOLON_CREDENTIAL, $hit['body'], $label);
+                    } else {
+                        $this->assertSame(200, $hit['status'], $label . ': ' . $hit['body'] . $hit['log']);
+                        $this->assertSame('ok', $hit['body'], $label);
+                    }
+                    $this->assertStringNotContainsString($tag, $hit['body'] . $hit['log'], $label);
+                }
             }
-        }
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
-            return;
-        }
-        foreach ($tails as $label => $tail) {
-            $hit = $this->boot('dbname=' . $pg['name'] . ';' . $tail, '%eu', '%ep');
-            $this->assertSame(500, $hit['status'], $label . ': ' . $hit['body'] . $hit['log']);
-            $this->assertSame(Apotheke\Core\Config\DsnException::CREDENTIAL_TEXT, $hit['body'], $label);
-            $this->assertStringContainsString('Database pgsql host=', $hit['log'], $label);
-            foreach (['k7canary', 'search_path', $env['password'], $env['user']] as $value) {
-                $this->assertStringNotContainsString($value, $hit['body'] . $hit['log'], $label);
+        } finally {
+            putenv($pgpass === false ? 'PGPASSWORD' : 'PGPASSWORD=' . $pgpass);
+            putenv('PGPASSFILE');
+            foreach ($roles as [$user, , $schema]) {
+                if (is_string($schema ?? null)) {
+                    $this->admin->exec('DROP SCHEMA IF EXISTS ' . $schema . ' CASCADE');
+                }
+                $this->admin->exec('DROP ROLE IF EXISTS ' . $quote($user));
             }
         }
     }
@@ -257,6 +306,44 @@ final class Ci4DsnCredentialsTest extends TestCase
         $same = $this->boot('dbname=' . $name . ';user=%eu;password=%ep', '%eu', '%ep');
         $this->assertSame(200, $same['status'], $same['body'] . $same['log']);
         $this->assertStringNotContainsString(PdoMigrationRunner::CREDENTIALS_DIFFER, $same['log']);
+    }
+
+    /**
+     * /healthz with a literal DB_DSN, DB_USER and DB_PASSWORD.
+     *
+     * @return array{status:int,body:string,log:string}
+     */
+    private function bootAs(string $dsn, string $user, string $password, string $schema): array
+    {
+        $dir = tmpdir('ci4-dsn-boot');
+        $server = new Server($dir, [
+            'CI_ENVIRONMENT' => 'production',
+            'APOTHEKE_TEST_DB' => null,
+            'DB_DRIVER' => 'pgsql',
+            'DB_DSN' => $dsn,
+            'DB_HOST' => null,
+            'DB_PORT' => null,
+            'DB_NAME' => null,
+            'DB_USER' => $user,
+            'DB_PASSWORD' => $password,
+            'DB_SCHEMA' => $schema,
+            'PGPASSWORD' => null,
+            'PGUSER' => null,
+            'PGPASSFILE' => '/nonexistent',
+        ], 'ci4', dirname(__DIR__, 2) . '/ci4/public/router.php');
+        try {
+            $response = $server->client()->get('/healthz');
+
+            return [
+                'status' => $response['status'],
+                'body' => $response['body'],
+                'log' => is_file($server->log) ? (string)file_get_contents($server->log) : '',
+            ];
+        } finally {
+            $server->stop();
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
     }
 
     /**

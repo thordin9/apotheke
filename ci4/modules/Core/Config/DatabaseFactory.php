@@ -29,6 +29,16 @@ final class DatabaseFactory
             return;
         }
         if ($driver === 'Postgre') {
+            // CI4 logs pg_connect()'s warning, and libpq's text names the user.
+            // With warnings muted, a failed connect is only CI4's own
+            // "Unable to connect to the database." (the runner already logged
+            // in with the same settings, so this is rare).
+            set_error_handler(static fn (): bool => true);
+            try {
+                $connection->initialize();
+            } finally {
+                restore_error_handler();
+            }
             if ($connection->query("SET TIME ZONE 'UTC'") === false) {
                 throw new \RuntimeException('Could not set the database time zone.');
             }
