@@ -97,10 +97,11 @@ Notes:
   only analyzed when someone taps *Analyze*. An admin can turn it back on under Control Panel → AI autofill (see
   [Upgrading from 2.3](autofill.md#upgrading-from-23)).
 * **Host names (this version).** The app now answers only to IP addresses, `localhost`, the machine's own host
-  name, `PUBLIC_URL`'s host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
-  add that name to `ALLOWED_HOSTS` or set `PUBLIC_URL` before upgrading; otherwise the browser shows *Unknown host
-  name* (421). Health checks (`/healthz`, `/health`) follow the Host rule from 2.6.2
-  ([Host names](#host-names)): point container, orchestrator and monitoring probes at an allowed host.
+  name, the Public URL's host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
+  add that name to `ALLOWED_HOSTS` or set the Public URL under Control Panel → General before upgrading
+  (`PUBLIC_URL` only works on a new install); otherwise the browser shows *Unknown host name* (421). Health checks
+  (`/healthz`, `/health`) follow the Host rule from 2.6.2 ([Host names](#host-names)): point container,
+  orchestrator and monitoring probes at an allowed host.
 * Browsers pick up new CSS/JS immediately (`?v=` hashes).
 * Older backups can always be restored into a newer version.
 * **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
@@ -221,17 +222,18 @@ The app answers only to host names it knows (hardening, SEC-M3). A request with 
   with nothing configured;
 * `localhost` (and `*.localhost`), and the machine's own host name (in Docker, the container's host name: the
   container ID unless `hostname:` is set in the compose file);
-* the host of `PUBLIC_URL`;
+* the host of the Public URL (Control Panel → General; `PUBLIC_URL` sets it on a new install only);
 * every name in `ALLOWED_HOSTS` (comma-separated, for example `ALLOWED_HOSTS=apotheke.lan,nas.lan`; a port in an
   entry is ignored). `*` accepts any name and turns the check off.
 
-If you open the app by a name such as `apotheke.lan` or `nas.local`, set `PUBLIC_URL` to that address or add the name
-to `ALLOWED_HOSTS`. A reverse proxy must pass the original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy
-does by default) or a name on this list.
+If you open the app by a name such as `apotheke.lan` or `nas.local`, add the name to `ALLOWED_HOSTS` or make it the
+Public URL. `PUBLIC_URL` only works on a new install: the first start saves it in the database, and from then on an
+existing install sets the address under Control Panel → General (Public URL). A reverse proxy must pass the
+original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy does by default) or a name on this list.
 
 The health endpoints `/healthz` and `/health` follow the Host rule from 2.6.2 described above (#70 L-2). The image's own `HEALTHCHECK` uses
 `127.0.0.1` and keeps working, but a container or orchestrator health check, or an outside monitor, must use an
-allowed host: an IP address, `localhost`, the container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS`
+allowed host: an IP address, `localhost`, the container's host name, the Public URL's host or an `ALLOWED_HOSTS`
 entry. A probe that uses any other name gets 421.
 
 With sign-in off (no `APP_PASSWORD` and no accounts; in Docker only with `ALLOW_NO_LOGIN=1`), a request that changes something (anything but GET, HEAD and
@@ -410,7 +412,7 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   version in `X-Apotheke-Version`.
 * `GET /health` returns `{"status":"ok","version":"1.1.0"}` (JSON, no login needed) for monitoring tools.
 * Both health endpoints are behind the [Host check](#host-names): a probe must use an IP address, `localhost`, the
-  container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS` entry, or it gets 421.
+  container's host name, the Public URL's host or an `ALLOWED_HOSTS` entry, or it gets 421.
 * In Docker, nginx and php-fpm log to the container output: `docker compose logs -f apotheke`. Unexpected exceptions
   are logged as `[apotheke] …` and shown to the user as a generic error page.
 * Disk usage is mostly `data/originals` (about the size of each camera file), plus the smaller stripped JPEG in
