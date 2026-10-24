@@ -499,16 +499,14 @@ function autofill_heic_supported(): bool
 }
 
 /**
- * Which libraries may build the analysis copy. HEIC never uses GD. Anything else tries GD, then Imagick.
+ * Which libraries may build the analysis copy. HEIC uses Imagick. Anything else uses GD.
+ * A JPEG above IMAGE_GD_MAX_PIXELS is decoded reduced inside autofill_analysis_jpeg, not via this list.
  * @return list<string>
  */
 function autofill_pick_engines(bool $heic, bool $gd, bool $imagick, bool $heicOk): array
 {
     if ($heic) return $imagick && $heicOk ? ['imagick'] : [];
-    $out = [];
-    if ($gd) $out[] = 'gd';
-    if ($imagick) $out[] = 'imagick';
-    return $out;
+    return $gd ? ['gd'] : [];
 }
 
 /** @return list<string> */
@@ -533,6 +531,15 @@ function autofill_analysis_jpeg(string $bytes, ?int $maxSide = null, ?int $quali
     $maxSide ??= autofill_upload_max_side();
     $quality ??= autofill_upload_jpeg_quality();
     $engines ??= autofill_image_engines($bytes);
+    // A phone JPEG above the GD budget is decoded already reduced, even when the caller listed GD only.
+    if (!autofill_is_heic($bytes)) {
+        $gate = @getimagesizefromstring($bytes);
+        if ($gate && (int)$gate[2] === IMAGETYPE_JPEG
+            && !image_dimensions_too_large((int)$gate[0], (int)$gate[1])
+            && (float)$gate[0] * (float)$gate[1] > (float)IMAGE_GD_MAX_PIXELS) {
+            return autofill_analysis_imagick($bytes, $maxSide, $quality);
+        }
+    }
     foreach ($engines as $engine) {
         $out = match ($engine) {
             'gd' => autofill_analysis_gd($bytes, $maxSide, $quality, $exifPath),
@@ -549,7 +556,8 @@ function autofill_analysis_gd(string $bytes, int $maxSide, int $quality, ?string
     if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg')) return null;
     $info = @getimagesizefromstring($bytes);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
-    if (!$info || !in_array($info[2], $types, true) || $info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) return null;
+    if (!$info || !in_array($info[2], $types, true) || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
+    if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) return null;
     $src = @imagecreatefromstring($bytes);
     if (!$src) return null;
     if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
@@ -567,15 +575,26 @@ function autofill_analysis_gd(string $bytes, int $maxSide, int $quality, ?string
 function autofill_analysis_imagick(string $bytes, int $maxSide, int $quality): ?string
 {
     if (!class_exists('Imagick') || $bytes === '') return null;
+    $format = image_explicit_format($bytes);
+    if ($format === null) return null;
+    $jpegSize = null;
+    if ($format === 'HEIC' || $format === 'HEIF') {
+        $dims = image_ping_heic($bytes);
+        if ($dims === null || image_dimensions_too_large($dims[0], $dims[1])) return null;
+    } else {
+        $info = @getimagesizefromstring($bytes);
+        if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
+        if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return null;
+        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint((int)$info[0], (int)$info[1], $maxSide);
+    }
     try {
-        $im = new Imagick();
-        $im->readImageBlob($bytes);
+        $im = imagick_read_explicit($bytes, $format, $jpegSize);
         if (method_exists($im, 'setFirstIterator')) $im->setFirstIterator();
         if (method_exists($im, 'autoOrient')) $im->autoOrient();
         elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
         $w = $im->getImageWidth();
         $h = $im->getImageHeight();
-        if ($w < 1 || $h < 1 || $w * $h > 60_000_000) { $im->clear(); return null; }
+        if (image_dimensions_too_large($w, $h)) { $im->clear(); return null; }
         imagick_match_gd($im);
         $long = max($w, $h);
         if ($long > $maxSide) {
@@ -731,23 +750,37 @@ function autofill_api_error(string $contentType, string $body): ?array
  * The photo as the service wants it: about $side px on the long edge (never enlarged), EXIF orientation applied.
  * A JPEG normally; a PNG when the photo has transparency (PNG with an alpha channel or tRNS, WebP with alpha, GIF with
  * a transparent colour), so the alpha survives instead of being flattened onto white.
- * HEIC/HEIF (which GD cannot read but the service may) is passed through unchanged; anything else GD cannot read
- * (PDFs, broken or huge files…) is null: not sent at all.
+ * HEIC/HEIF is passed through unchanged when its header fits; a header over the hard limit is null.
+ * A JPEG above the GD pixel budget is decoded already reduced. PNG, WebP and GIF above that budget, and any
+ * other frame over the hard limit, are null.
  * @return array{data:string,mime:string,converted:bool,width:?int,height:?int}|null
  */
 function autofill_prepare_image(string $bytes, int $side = AUTOFILL_IMAGE_SIDE): ?array
 {
-    $pass = autofill_is_heic($bytes) ? ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false, 'width' => null, 'height' => null] : null;
+    $side = max(AUTOFILL_SIDE_MIN, min(AUTOFILL_SIDE_MAX, $side));
+    if (autofill_is_heic($bytes)) {
+        $dims = image_ping_heic($bytes);
+        if ($dims !== null && image_dimensions_too_large($dims[0], $dims[1])) return null;
+        return ['data' => $bytes, 'mime' => 'image/heic', 'converted' => false, 'width' => null, 'height' => null];
+    }
     $info = @getimagesizefromstring($bytes);
     $types = [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP, IMAGETYPE_GIF];
-    if (!$info || !in_array($info[2], $types, true) || $info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000) return $pass;
+    if (!$info || !in_array($info[2], $types, true) || image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
+    if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
+        if ((int)$info[2] !== IMAGETYPE_JPEG) return null;
+        $src = image_gd_from_scaled_jpeg($bytes, $side);
+        if (!$src) return null;
+        ob_start();
+        $im = image_fit($src, $side);
+        imagejpeg($im, null, AUTOFILL_IMAGE_QUALITY);
+        return ['data' => (string)ob_get_clean(), 'mime' => 'image/jpeg', 'converted' => true, 'width' => imagesx($im), 'height' => imagesy($im)];
+    }
     $src = @imagecreatefromstring($bytes);
-    if (!$src) return $pass;
+    if (!$src) return null;
     if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
         $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($bytes));
         if (is_array($exif)) $src = apply_orientation($src, (int)($exif['Orientation'] ?? 1));
     }
-    $side = max(AUTOFILL_SIDE_MIN, min(AUTOFILL_SIDE_MAX, $side));
     ob_start();
     if (autofill_has_alpha($bytes, $info[2], $src)) {
         $im = autofill_fit_alpha($src, $side);

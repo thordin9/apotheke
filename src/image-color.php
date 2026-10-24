@@ -4,7 +4,137 @@ declare(strict_types=1);
 /*
  * Imagick colour helpers shared by the display copy (items.php) and the analysis JPEG (autofill.php).
  * Neither of those files should load the other just to flatten transparency or convert CMYK.
+ *
+ * Dimension limits (header only, before a full decode):
+ * IMAGE_MAX_PIXELS is 250 megapixels. A 200 MP phone sensor is 16384×12288 (201,326,592 px) and a 48 MP
+ * frame is about 8064×6048, so both are kept. IMAGE_MAX_SIDE is 30,000 px, above that sensor's 16,384 px edge.
+ * IMAGE_GD_MAX_PIXELS is 40 megapixels: GD truecolor is 4 bytes a pixel, so 40 MP is 160 MB and fits under
+ * memory_limit 256M. Larger JPEG photos are decoded already reduced. Larger PNG, WebP and GIF photos are refused.
  */
+
+const IMAGE_MAX_PIXELS = 250_000_000;
+const IMAGE_MAX_SIDE = 30000;
+const IMAGE_GD_MAX_PIXELS = 40_000_000;
+
+const IMAGICK_LIMIT_MEMORY = 256 * 1024 * 1024;  // heap for the pixel cache
+const IMAGICK_LIMIT_MAP = 512 * 1024 * 1024;     // memory-mapped cache after the heap
+const IMAGICK_LIMIT_DISK = 2 * 1024 * 1024 * 1024; // a 200 MP Q16 frame is about 1.6 GiB; this stops a larger cache
+
+/** Once per process. Imagick's own allocator is outside PHP's memory_limit. */
+function imagick_set_resource_limits(): void
+{
+    if (!class_exists('Imagick')) return;
+    Imagick::setResourceLimit(Imagick::RESOURCETYPE_MEMORY, IMAGICK_LIMIT_MEMORY);
+    Imagick::setResourceLimit(Imagick::RESOURCETYPE_MAP, IMAGICK_LIMIT_MAP);
+    Imagick::setResourceLimit(Imagick::RESOURCETYPE_DISK, IMAGICK_LIMIT_DISK);
+    Imagick::setResourceLimit(Imagick::RESOURCETYPE_AREA, IMAGE_MAX_PIXELS);
+    Imagick::setResourceLimit(Imagick::RESOURCETYPE_WIDTH, IMAGE_MAX_SIDE);
+    Imagick::setResourceLimit(Imagick::RESOURCETYPE_HEIGHT, IMAGE_MAX_SIDE);
+}
+
+function image_dimensions_too_large(int $w, int $h): bool
+{
+    if ($w < 1 || $h < 1 || $w > IMAGE_MAX_SIDE || $h > IMAGE_MAX_SIDE) return true;
+    return (float)$w * (float)$h > (float)IMAGE_MAX_PIXELS;
+}
+
+/** Hint for libjpeg's scaled decode, or null when the frame is already within $maxSide. */
+function image_jpeg_size_hint(int $w, int $h, int $maxSide): ?string
+{
+    $long = max($w, $h);
+    if ($long < 1 || $maxSide < 1 || $long <= $maxSide) return null;
+    $s = $maxSide / $long;
+    return max(1, (int)round($w * $s)) . 'x' . max(1, (int)round($h * $s));
+}
+
+/** HEIC or HEIF from the ftyp brand. Same brands as image_bytes_heic(). */
+function image_heic_magick_format(string $bytes): string
+{
+    $brand = strlen($bytes) >= 12 ? substr($bytes, 8, 4) : '';
+    return in_array($brand, ['mif1', 'msf1'], true) ? 'HEIF' : 'HEIC';
+}
+
+/**
+ * Format we will name to Imagick. Null for anything else, so the blob is not sniffed.
+ * HEIC/HEIF, JPEG, PNG, GIF and WebP only.
+ */
+function image_explicit_format(string $bytes): ?string
+{
+    if (function_exists('autofill_is_heic') && autofill_is_heic($bytes)) return image_heic_magick_format($bytes);
+    $info = @getimagesizefromstring($bytes);
+    if (!$info) return null;
+    return match ((int)$info[2]) {
+        IMAGETYPE_JPEG => 'JPEG',
+        IMAGETYPE_PNG => 'PNG',
+        IMAGETYPE_GIF => 'GIF',
+        IMAGETYPE_WEBP => 'WEBP',
+        default => null,
+    };
+}
+
+/** Width and height from a HEIC/HEIF header, or null when the header cannot be read. Does not decode the frame. */
+function image_ping_heic(string $bytes): ?array
+{
+    if (!class_exists('Imagick') || $bytes === '' || !function_exists('autofill_is_heic') || !autofill_is_heic($bytes)) return null;
+    try {
+        $im = new Imagick();
+        $im->setFormat(image_heic_magick_format($bytes));
+        $im->pingImageBlob($bytes);
+        $w = $im->getImageWidth();
+        $h = $im->getImageHeight();
+        $im->clear();
+        return [$w, $h];
+    } catch (Throwable) {
+        return null;
+    }
+}
+
+/**
+ * Read $bytes as $format only, via the "FORMAT:" coder prefix (no format sniff).
+ * $jpegSize is the jpeg:size hint and must be set before the read. A HEIC/HEIF blob read with
+ * setFormat() can come back with pixels but an empty getImageBlob(); the prefix read exports.
+ */
+function imagick_read_explicit(string $bytes, string $format, ?string $jpegSize = null): Imagick
+{
+    $path = tempnam(sys_get_temp_dir(), 'img');
+    if ($path === false) throw new RuntimeException('temp');
+    try {
+        if (file_put_contents($path, $bytes) === false) throw new RuntimeException('temp');
+        $im = new Imagick();
+        if ($jpegSize !== null && $jpegSize !== '') $im->setOption('jpeg:size', $jpegSize);
+        $im->readImage($format . ':' . $path);
+        return $im;
+    } finally {
+        @unlink($path);
+    }
+}
+
+/**
+ * A GD image of a JPEG, decoded already reduced to about $maxSide on the long edge.
+ * Orientation is applied and the result is stripped. Null when Imagick cannot read it.
+ */
+function image_gd_from_scaled_jpeg(string $bytes, int $maxSide): ?GdImage
+{
+    if (!class_exists('Imagick') || $bytes === '') return null;
+    $info = @getimagesizefromstring($bytes);
+    if (!$info || (int)$info[2] !== IMAGETYPE_JPEG) return null;
+    if (image_dimensions_too_large((int)$info[0], (int)$info[1])) return null;
+    try {
+        $im = imagick_read_explicit($bytes, 'JPEG', image_jpeg_size_hint((int)$info[0], (int)$info[1], $maxSide));
+        if (method_exists($im, 'autoOrient')) $im->autoOrient();
+        elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
+        imagick_match_gd($im);
+        $im->setImageFormat('jpeg');
+        $im->stripImage();
+        $blob = $im->getImageBlob();
+        $im->clear();
+        if (!is_string($blob) || !str_starts_with($blob, "\xFF\xD8")) return null;
+        $gd = @imagecreatefromstring($blob);
+        return $gd instanceof GdImage ? $gd : null;
+    } catch (Throwable) {
+        return null;
+    }
+}
 
 /**
  * Imagick fallback, same result as GD. image_fit() paints white and composites onto it; without that,

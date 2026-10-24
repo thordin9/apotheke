@@ -876,6 +876,8 @@ function pick_upload(array $fields): ?array
  * EXIF orientation applied, longest side image_full_max() (1600 by default), JPEG at the jpeg_quality setting, metadata
  * stripped. Returns that served file name. An existing images/*.jpg with no originals/ sibling is left alone (no migration).
  * HEIC/HEIF is kept as the original; when it cannot be converted the served file is a plain placeholder, never the HEIC.
+ * Dimensions come from the header before any full decode. A frame over IMAGE_MAX_PIXELS or IMAGE_MAX_SIDE is refused.
+ * JPEG above IMAGE_GD_MAX_PIXELS is decoded already reduced. PNG, WebP and GIF above that are refused.
  */
 function image_store(array $file): string
 {
@@ -893,12 +895,25 @@ function image_store(array $file): string
         if (image_bytes_heic($head)) { $heic = true; $ext = 'heic'; }
         else throw new UserError('Unsupported image. Please use JPEG, PNG, WebP or GIF (on iPhone, HEIC photos are converted automatically).');
     }
-    if (!$heic && ($info[0] < 1 || $info[1] < 1 || $info[0] * $info[1] > 60_000_000)) throw new UserError('Image dimensions are too large.');
+    if ($heic) {
+        $dims = image_ping_heic((string)@file_get_contents($tmp));
+        if ($dims !== null && image_dimensions_too_large($dims[0], $dims[1])) throw new UserError('Image dimensions are too large.');
+    } elseif (image_dimensions_too_large((int)$info[0], (int)$info[1])
+        || ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG)) {
+        throw new UserError('Image dimensions are too large.');
+    }
 
     $name = bin2hex(random_bytes(16)) . '.jpg';
     if (!image_original_save($name, $tmp, $ext)) throw new UserError('Server could not save the image.');
     if ($heic) {
         $ok = image_store_heic($tmp, $name) || image_store_placeholder($name);
+    } elseif ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS) {
+        $gd = image_gd_from_scaled_jpeg((string)file_get_contents($tmp), image_full_max());
+        if (!$gd || !image_write_pair($gd, $name)) {
+            image_delete($name);
+            throw new UserError(class_exists('Imagick') ? 'Could not read that image.' : 'Image dimensions are too large.');
+        }
+        $ok = true;
     } else {
         $src = match ($info[2]) {
             IMAGETYPE_JPEG => @imagecreatefromjpeg($tmp),
@@ -1014,18 +1029,33 @@ function image_write_pair(GdImage $src, string $name): bool
     return imagejpeg($full, IMG_DIR . '/' . $name, $q) && imagejpeg($thumb, THUMB_DIR . '/' . $name, $q - 6);
 }
 
-/** HEIC → the same stripped JPEG as other photos, when Imagick has libheif. False leaves the caller to use a placeholder. */
+/**
+ * HEIC/HEIF, or a JPEG/PNG/GIF/WebP already known to the caller, → the same stripped JPEG as other photos.
+ * The format is named explicitly. False leaves the caller to use a placeholder. Does not force 4:2:0.
+ */
 function image_store_heic(string $path, string $name): bool
 {
     if (!class_exists('Imagick') || !function_exists('autofill_heic_supported') || !autofill_heic_supported()) return false;
+    $bytes = (string)@file_get_contents($path);
+    $format = $bytes === '' ? null : image_explicit_format($bytes);
+    if ($format === null) return false;
+    $jpegSize = null;
+    if ($format === 'HEIC' || $format === 'HEIF') {
+        $dims = image_ping_heic($bytes);
+        if ($dims === null || image_dimensions_too_large($dims[0], $dims[1])) return false;
+    } else {
+        $info = @getimagesizefromstring($bytes);
+        if (!$info || image_dimensions_too_large((int)$info[0], (int)$info[1])) return false;
+        if ((float)$info[0] * (float)$info[1] > (float)IMAGE_GD_MAX_PIXELS && (int)$info[2] !== IMAGETYPE_JPEG) return false;
+        if ((int)$info[2] === IMAGETYPE_JPEG) $jpegSize = image_jpeg_size_hint((int)$info[0], (int)$info[1], image_full_max());
+    }
     try {
-        $im = new Imagick();
-        $im->readImage($path);
+        $im = imagick_read_explicit($bytes, $format, $jpegSize);
         if (method_exists($im, 'autoOrient')) $im->autoOrient();
         elseif (method_exists($im, 'autoOrientImage')) $im->autoOrientImage();
         $w = $im->getImageWidth();
         $h = $im->getImageHeight();
-        if ($w < 1 || $h < 1 || $w * $h > 60_000_000) { $im->clear(); return false; }
+        if (image_dimensions_too_large($w, $h)) { $im->clear(); return false; }
         imagick_match_gd($im);
         $max = image_full_max();
         if (max($w, $h) > $max) {
