@@ -128,6 +128,36 @@ tested example (static assets with long-lived caching and gzip, blocked paths, t
 Upgrading from 1.x: the image listens on port 9091 (it was 80) and compose publishes 9091 (it was 8080) — point your
 reverse proxy at the new port, or publish the old one with `ports: ["8080:9091"]`.
 
+### Docker defaults: localhost and sign-in
+
+Two defaults keep a new Docker install private (hardening, SEC-M3):
+
+* **Localhost only.** `docker-compose.yml` publishes `127.0.0.1:9091:9091`, so only the server itself (and a reverse
+  proxy on it) reaches the app. To open it from phones on your network, change the port line on purpose to
+  `"9091:9091"` (all interfaces) or `"192.0.2.10:9091:9091"` (one LAN address of the server). With `docker run`, use
+  `-p 127.0.0.1:9091:9091` or `-p 9091:9091` in the same way.
+* **Sign-in required.** Before it starts nginx and php-fpm, the entrypoint runs `bin/settings.php auth status` as
+  `www-data`. That reads the database without creating, migrating or changing it. When sign-in would be off, the
+  container exits with code 78 and logs `sign-in is off` with both ways out (the `bin/settings.php password` command and `ALLOW_NO_LOGIN=1`). Sign-in counts as on when the stored *Require sign-in*
+  setting is on and an account exists, or, on a new database, when `APP_PASSWORD` is set (it creates the account
+  `admin` on the first request). The check waits up to 30 s for the database (PostgreSQL may still be starting) and
+  then exits with code 78 too.
+  * An install that already has sign-in on in its database starts without `APP_PASSWORD`; the variable is only used
+    on a new database.
+  * To run without sign-in on purpose, on a trusted network only, set `ALLOW_NO_LOGIN=1`. Any value other than
+    `1`, `true`, `yes`, `0`, `false`, `no` or empty exits with code 64.
+  * Turning sign-in off in Settings → Users & sign-in (or with `bin/settings.php auth off`) means the next start needs
+    `ALLOW_NO_LOGIN=1`.
+  * Other commands (`docker compose run --rm -u www-data apotheke php bin/settings.php …`) skip the check, so recovery
+    always works.
+
+**Upgrading an install that runs without sign-in:** after the update the container refuses to start. Either turn
+sign-in on: run `docker compose run --rm -u www-data apotheke php bin/settings.php password` (it asks for the new
+password of `admin`, creates that account if needed and turns sign-in on), then `docker compose up -d`. Setting
+`APP_PASSWORD` alone doesn't do this, because the database already says sign-in is off. Or keep running without
+sign-in: add `ALLOW_NO_LOGIN=1` to `.env`. If phones or other machines open the app directly, publish the port on your
+network again as shown above; a reverse proxy on the same server keeps working with `127.0.0.1:9091`.
+
 With the Docker image you usually only put a TLS-terminating reverse proxy in front of port 9091, for example Caddy:
 
 ```
@@ -199,7 +229,7 @@ The health endpoints `/healthz` and `/health` follow the same rule (#70 L-2). Th
 allowed host: an IP address, `localhost`, the container's host name, `PUBLIC_URL`'s host or an `ALLOWED_HOSTS`
 entry. A probe that uses any other name gets 421.
 
-With sign-in off (no `APP_PASSWORD` and no accounts), a request that changes something (anything but GET, HEAD and
+With sign-in off (no `APP_PASSWORD` and no accounts; in Docker only with `ALLOW_NO_LOGIN=1`), a request that changes something (anything but GET, HEAD and
 OPTIONS) must come from the app's own pages: the browser's `Sec-Fetch-Site` must be `same-origin` or `none`, or
 `Origin` must be the app's own address or `PUBLIC_URL`. Requests that send neither header, such as `curl` and
 scripts, are not affected. Behind a TLS proxy, set `PUBLIC_URL` to the `https://` address or turn on `trust_proxy`:
@@ -369,7 +399,9 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   database. Password hashes stay hashes. The database file itself and the upload directories (photos, thumbnails,
   camera originals, attachments) are not encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR`
   and, for PostgreSQL, the database volume. See [Stored secrets](configuration.md#stored-secrets).
-* Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and set `APP_PASSWORD`.
+* **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
+  off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
+* Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.
 
 ## Monitoring and logs
 

@@ -5,13 +5,17 @@ services:
     container_name: apotheke
     restart: unless-stopped
     ports:
-      - "9091:9091"
+      # Only this machine can reach the app. For phones on your network, publish it deliberately, e.g. "9091:9091"
+      # (all interfaces) or "192.0.2.10:9091:9091" (one LAN address), and keep sign-in on (hardening, SEC-M3).
+      - "127.0.0.1:9091:9091"
     volumes:
       - ./data:/data
     environment:
       TZ: ${TZ:-Europe/Athens}
-      # Leave empty for no login (LAN only). Set e.g. in a .env file: APP_PASSWORD=secret
+      # Required on the first start (creates the account admin), e.g. in a .env file: APP_PASSWORD=change-me
+      # Without it the container refuses to start unless sign-in is already on, or ALLOW_NO_LOGIN=1 is set.
       APP_PASSWORD: ${APP_PASSWORD:-}
+      ALLOW_NO_LOGIN: ${ALLOW_NO_LOGIN:-}
       # Base64 of 32 bytes. Recommended so stored secrets are encrypted. Empty keeps them unencrypted.
       # Generate: php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
       APP_KEY: ${APP_KEY:-}

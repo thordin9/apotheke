@@ -10,7 +10,37 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Fixed
 
 - **security:** stored secrets are encrypted at rest when `APP_KEY` is set (S-L5). With no key they stay plaintext and the Control Panel says to set one. `php bin/settings.php key rotate` re-encrypts them. ([#78](https://github.com/thordin9/apotheke/pull/78))
+
+## [2.6.7] - 2026-10-24
+
+**Upgrade note:** Docker installs are private by default (hardening, SEC-M3). Compose publishes the app on `127.0.0.1:9091` only: if phones or other machines open it directly, change the port line in `docker-compose.yml` to `"9091:9091"` (all interfaces) or `"<LAN-IP>:9091:9091"` on purpose; a reverse proxy on the same server needs no change. The container also refuses to start with sign-in off. An install with sign-in on starts unchanged. Without sign-in, either turn it on with `docker compose run --rm -u www-data apotheke php bin/settings.php password` (setting `APP_PASSWORD` alone doesn't, once the database exists), or set `ALLOW_NO_LOGIN=1` to keep running without sign-in. A new install needs `APP_PASSWORD` or `ALLOW_NO_LOGIN=1`.
+
+### Fixed
+
+- **docker:** hardening (SEC-M3): compose publishes the port on `127.0.0.1` only, and the container refuses to start with sign-in off unless `ALLOW_NO_LOGIN=1` is set. ([#75](https://github.com/thordin9/apotheke/pull/75))
+
+### Maintenance
+
+- **docker:** test: check the sign-in requirement at container start ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **docker:** docs: localhost port and required sign-in (SEC-M3) ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **changelog:** docs: record the SEC-M3 Docker defaults ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **docker:** test: hand the scratch volume back before deleting it ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **release:** test: check the whole upgrade note leads the notes ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **qa:** docs: add the v2.6.3 release QA report ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **qa:** docs: add the v2.6.4 release QA report ([#75](https://github.com/thordin9/apotheke/pull/75))
+- **qa:** docs: add the #75 docker localhost sign-in QA report ([#75](https://github.com/thordin9/apotheke/pull/75))
+
+## [2.6.6] - 2026-10-24
+
+### Fixed
+
 - **auth:** the command line can change sign-in settings and admin accounts when guest browsing is on. ([#77](https://github.com/thordin9/apotheke/pull/77))
+
+### Maintenance
+
+- **changelog:** docs: note the CLI guest-browsing admin fix ([#77](https://github.com/thordin9/apotheke/pull/77))
+- **changelog:** docs: keep the CLI admin note out of v2.6.4 ([#77](https://github.com/thordin9/apotheke/pull/77))
+- **qa:** docs: add the #77 CLI admin with guest browsing QA report ([#77](https://github.com/thordin9/apotheke/pull/77))
 
 ## [2.6.5] - 2026-10-24
 
@@ -522,7 +552,9 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.5...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.7...HEAD
+[2.6.7]: https://github.com/thordin9/apotheke/compare/v2.6.6...v2.6.7
+[2.6.6]: https://github.com/thordin9/apotheke/compare/v2.6.5...v2.6.6
 [2.6.5]: https://github.com/thordin9/apotheke/compare/v2.6.4...v2.6.5
 [2.6.4]: https://github.com/thordin9/apotheke/compare/v2.6.3...v2.6.4
 [2.6.3]: https://github.com/thordin9/apotheke/compare/v2.6.2...v2.6.3

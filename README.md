@@ -157,7 +157,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
   with a default role, admin approval and rate limiting — both off by default. Only an admin account can grant the
   admin role, change an admin account, turn sign-in off, or apply sign-in settings from an import or restore. Sign-in attempts are counted per client and account (10 in 15 minutes). The history shows who changed
   what; no-login mode stays available for a trusted LAN. `APP_PASSWORD` creates the first account `admin`.
-  Empty means no login, fine on a trusted LAN.
+  The Docker image needs it (or sign-in already on) to start; `ALLOW_NO_LOGIN=1` runs it without sign-in on purpose.
 
 ### iPhone camera notes
 
@@ -229,12 +229,18 @@ On the LAN server:
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
+echo 'APP_PASSWORD=change-me' > .env    # pick your own: the password of the account admin
 docker compose up -d --build
 ```
 
-Then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` shows the server IP). In Safari tap Share →
-**Add to Home Screen**. To use another host port, change the left side of `"9091:9091"` in `docker-compose.yml`
-(e.g. `"8080:9091"`).
+Docker installs are private by default (hardening, SEC-M3): the container refuses to start with sign-in off, and
+compose publishes the port on `127.0.0.1` only. To run without sign-in on a trusted LAN, set `ALLOW_NO_LOGIN=1` in
+`.env` instead of `APP_PASSWORD`. To open the app from your phone, change the port line in `docker-compose.yml` from
+`"127.0.0.1:9091:9091"` to `"9091:9091"` (or `"192.0.2.10:9091:9091"` for one LAN address of the server), run
+`docker compose up -d`, then open **http://SERVER-IP:9091** on your phone (same Wi-Fi; `hostname -I` shows the server
+IP). In Safari tap Share → **Add to Home Screen**. To use another host port, change the port before the last `:9091`
+(e.g. `"8080:9091"`). Upgrading an install that runs without sign-in: see
+[Docker defaults](docs/deployment-and-operations.md#docker-defaults-localhost-and-sign-in).
 
 > **Upgrading from 1.x (port 8080):** the image now listens on **9091** (was 80 inside the container) and the compose
 > file maps host port **9091** (was 8080). Update bookmarks, home-screen icons, reverse proxies and `PUBLIC_URL`;
@@ -331,7 +337,8 @@ compose file never wipes a value from `config.php`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN). |
+| `APP_PASSWORD` | *(empty)* | Password of the first account `admin` (created on the first start, sign-in on); afterwards Settings → Users & sign-in. Empty means no login (fine on a trusted LAN); the Docker image then needs `ALLOW_NO_LOGIN=1` to start. |
+| `ALLOW_NO_LOGIN` | *(empty)* | Docker only: `1` lets the container start with sign-in off. Without it the container exits unless `APP_PASSWORD` is set or sign-in is on in the database. |
 | `APP_KEY` | *(empty)* | Base64 of 32 bytes. Encrypts stored secrets (the autofill access token). Recommended, including for Docker. Empty leaves them unencrypted and shows a Control Panel warning. Not a `config.php` key. |
 | `APP_KEY_FILE` | *(unset)* | Optional file with that same key text, outside the data directory and outside backup paths. Ignored when `APP_KEY` is set. A path inside the data directory is refused. |
 | `TZ` | `UTC` (`Europe/Athens` in compose) | Initial time zone for dates and statistics (then Settings → Currency, dates & time). |
@@ -441,7 +448,7 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Items, search, bulk, lending | 89.1 % | 91.0 % | 95.9 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 94.1 % | 94.9 % | 97.0 % |
+| Users & roles | 93.6 % | 89.9 % | 96.4 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 88.8 % | 88.8 % |
@@ -451,7 +458,7 @@ CHROME="$(command -v google-chrome)" node tests/e2e/mobile.mjs http://127.0.0.1:
 | Backup & restore | 87.4 % | 89.6 % | 96.9 % |
 | Database, migrations, legacy | 79.7 % | 81.0 % | 91.0 % |
 | Bootstrap, config, QR, seed | 73.7 % | 74.6 % | 90.8 % |
-| **All PHP** (7153 lines) | **65.4 %** | **90.2 %** | **95.8 %** |
+| **All PHP** (7166 lines) | **65.4 %** | **90.1 %** | **95.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
@@ -539,7 +546,7 @@ Release ([docs/releasing.md](docs/releasing.md)). The running version is shown i
 
 ```
 Dockerfile                    php:8.3.36-fpm-alpine + nginx + tini; gd, imagick (HEIC), exif, opcache, pdo_pgsql, zip
-docker-compose.yml            port 9091, ./data volume, optional "postgres" profile
+docker-compose.yml            port 127.0.0.1:9091, ./data volume, optional "postgres" profile
 docker/                       nginx.conf, fastcgi.conf, php-fpm.conf, php.ini, entrypoint
 config.example.php            every setting (copy to config.php; env vars override)
 bin/                          migrate.php, seed.php, backup.php, restore.php
