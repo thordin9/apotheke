@@ -341,7 +341,7 @@ compose file never wipes a value from `config.php`.
 | `EXPIRY_SOON_DAYS` | `30` | An item is *Expiring soon* when its expiry/warranty date is within this many days (1–3650). |
 | `PUBLIC_URL` | *(from the request)* | Base URL encoded in QR labels, e.g. `http://192.168.1.10:9091`. Set it if you open the app under a different name than your phone will. |
 | `MAX_UPLOAD_MB` … `PUBLIC_URL` above | | Initial values only; edited in the Control Panel afterwards. |
-| `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost` and `PUBLIC_URL`'s host always work; other names get 421. See [Host names](docs/deployment-and-operations.md#host-names). |
+| `ALLOWED_HOSTS` | *(empty)* | Extra host names the app answers to, comma-separated (e.g. `apotheke.lan,nas.lan`). IP addresses, `localhost`, the machine's host name and `PUBLIC_URL`'s host always work; other names get 421, health checks (`/healthz`, `/health`) included. See [Host names](docs/deployment-and-operations.md#host-names). |
 | `SEED_DEFAULTS` | `true` | Create starter locations and categories on a brand-new database. |
 | `TRUSTED_PROXIES` | *(none)* | Your reverse proxies (addresses or CIDR, comma-separated). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed here. The client is the rightmost hop that isn't itself listed. With `trust_proxy` on and an empty list, the connecting address is used. |
 | `APOTHEKE_CONFIG` | `./config.php` | Path to an alternative config file. |
