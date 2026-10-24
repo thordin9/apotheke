@@ -10,6 +10,11 @@ services:
       - "127.0.0.1:9091:9091"
     volumes:
       - ./data:/data
+      # APP_KEY_FILE example: keep the key file outside ./data so it is not in the data volume or its backups.
+      # - ./secrets/app_key:/run/secrets/app_key:ro
+    # Or as a Compose secret (mounted read-only at /run/secrets/app_key), with the top-level secrets: block below.
+    # secrets:
+    #   - app_key
     environment:
       TZ: ${TZ:-Europe/Athens}
       # Required on the first start (creates the account admin), e.g. in a .env file: APP_PASSWORD=change-me
@@ -20,6 +25,7 @@ services:
       # Generate: php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
       APP_KEY: ${APP_KEY:-}
       # Optional file mounted from outside the data volume. Ignored when APP_KEY is set.
+      # With the bind mount or Compose secret above, set APP_KEY_FILE=/run/secrets/app_key in .env.
       APP_KEY_FILE: ${APP_KEY_FILE:-}
       # sqlite (default, stored in ./data/catalog.sqlite) or pgsql (start with: docker compose --profile postgres up -d)
       DB_DRIVER: ${DB_DRIVER:-sqlite}
@@ -47,3 +53,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+# APP_KEY_FILE as a Compose secret: uncomment together with the service's secrets: entry above.
+# secrets:
+#   app_key:
+#     file: ./secrets/app_key

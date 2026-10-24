@@ -402,6 +402,7 @@ same line, and `/healthz` logs it. While the database is down, every route, incl
   database. Password hashes stay hashes. The database file itself and the upload directories (photos, thumbnails,
   camera originals, attachments) are not encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR`
   and, for PostgreSQL, the database volume. See [Stored secrets](configuration.md#stored-secrets).
+  If the key is lost, stored secrets count as unset, so keep the key out of the data volume and its backups.
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.
