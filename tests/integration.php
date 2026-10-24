@@ -1119,7 +1119,7 @@ $bs->stop();
 
 T::section('Password mode (APP_PASSWORD)');
 $pdir = $newDir('pw');
-$ps = new Server($pdir, ['APP_PASSWORD' => 's3cret']);
+$ps = new Server($pdir, ['APP_PASSWORD' => 's3cret-pw']);
 $pc = $ps->client();
 $r = $pc->get('/');
 T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/login', 'anonymous → /login');
@@ -1129,16 +1129,16 @@ T::eq(303, $pc->get('/stats')['status'], 'stats fragment requires login');
 T::eq(303, $pc->get('/export.csv')['status'], 'CSV export requires login');
 T::eq(303, $pc->get('/backup.zip')['status'], 'backup zip requires login');
 $ptok = $pc->csrf();
-T::eq(419, $pc->post('/login', ['username' => 'admin', 'password' => 's3cret'])['status'], 'login without CSRF → 419');
+T::eq(419, $pc->post('/login', ['username' => 'admin', 'password' => 's3cret-pw'])['status'], 'login without CSRF → 419');
 $r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'admin', 'password' => '']);
 T::ok($r['status'] === 401 && str_contains($r['body'], 'Wrong user name or password'), 'empty password refused');
 $r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'admin', 'password' => 'wrong']);
 T::ok($r['status'] === 401 && str_contains($r['body'], 'Wrong user name or password'), 'wrong password refused');
-$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'nobody', 'password' => 's3cret']);
+$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'nobody', 'password' => 's3cret-pw']);
 T::ok($r['status'] === 401 && str_contains($r['body'], 'value="nobody"'), 'unknown user refused, name kept in the form');
 T::ok(str_contains($pc->get('/login')['body'], 'name="username"'), 'sign-in asks for a user name');
 $sidBefore = $pc->cookies['apothekesid'] ?? '';
-$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'Admin', 'password' => 's3cret']);
+$r = $pc->post('/login', ['csrf' => $ptok, 'username' => 'Admin', 'password' => 's3cret-pw']);
 T::ok($r['status'] === 303 && ($r['headers']['location'] ?? '') === '/', 'correct password → / (APP_PASSWORD became the account admin; names ignore case)');
 T::eq(1, (int)testdb($pdir)->query("SELECT COUNT(*) FROM users WHERE username = 'admin' AND role = 'admin' AND last_login_at IS NOT NULL")->fetchColumn(), 'admin account created from APP_PASSWORD, last sign-in recorded');
 T::ok(($pc->cookies['apothekesid'] ?? '') !== $sidBefore, 'session id regenerated on login');
@@ -1151,7 +1151,7 @@ $ps->stop();
 T::section('Idle sign-in');
 $idleDir = $newDir('idle');
 $idleBoot = function (string $clock) use ($idleDir): Server {
-    return new Server($idleDir, ['APP_PASSWORD' => 's3cret', 'APOTHEKE_CLOCK' => $clock]);
+    return new Server($idleDir, ['APP_PASSWORD' => 's3cret-pw', 'APOTHEKE_CLOCK' => $clock]);
 };
 $idleCarry = function (Server $srv, array $cookies): Client {
     $c = $srv->client();
@@ -1161,7 +1161,7 @@ $idleCarry = function (Server $srv, array $cookies): Client {
 $idleSign = function (string $clock) use ($idleBoot): array {
     $s = $idleBoot($clock);
     $c = $s->client();
-    $r = $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret']);
+    $r = $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret-pw']);
     T::eq(303, $r['status'], "sign in at $clock");
     return [$s, $c];
 };

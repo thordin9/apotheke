@@ -376,6 +376,7 @@ function settings_reset_section(string $section): void
 function settings_seed(PDO $pdo): void
 {
     $have = $pdo->query('SELECT name FROM settings')->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('password_hash', $have, true)) app_password_require();   // the hash is seeded from APP_PASSWORD
     $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
     foreach (settings_schema() as $k => $_) {
         if (in_array($k, $have, true)) continue;

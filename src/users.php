@@ -189,6 +189,23 @@ function user_sign_out_everywhere(int $id): void
 
 /* ---------- sign-in mode ---------- */
 
+/** APP_PASSWORD is set but too short or blank (hardening, #75 QA L-2). The message never contains the value. */
+final class AppPasswordError extends RuntimeException {}
+
+/** Why a non-empty APP_PASSWORD can't become a password (same PASSWORD_MIN as any other), or null when it can. */
+function app_password_problem(#[\SensitiveParameter] string $pw): ?string
+{
+    if ($pw === '' || (trim($pw) !== '' && mb_strlen($pw) >= PASSWORD_MIN)) return null;
+    return 'APP_PASSWORD is too short: use at least ' . PASSWORD_MIN . ' characters (not only spaces), or leave it empty.';
+}
+
+/** Throws AppPasswordError before APP_PASSWORD is stored as a password (seeding, or the first account "admin"). */
+function app_password_require(): void
+{
+    $problem = app_password_problem((string)cfg()['app_password']);
+    if ($problem !== null) throw new AppPasswordError($problem);
+}
+
 function auth_enabled(): bool
 {
     if (!setting('auth_enabled')) return false;
@@ -196,13 +213,14 @@ function auth_enabled(): bool
     // APP_PASSWORD (env/config) on an install without accounts: it becomes the password of the account "admin"
     $pw = (string)cfg()['app_password'];
     if ($pw === '' || mb_strlen($pw) < 1) return false;
+    app_password_require();
     db_insert(db(), 'INSERT INTO users (username, username_key, password_hash, role, created_at) VALUES (?,?,?,?,?)',
         ['admin', 'admin', password_hash($pw, PASSWORD_DEFAULT), 'admin', now_utc()]);
     return true;
 }
 
 /**
- * Whether sign-in will be on, read without creating, migrating or seeding anything (the Docker entrypoint asks this
+ * Whether sign-in will be on, read without migrating or seeding (the Docker entrypoint asks this
  * before it starts the app; hardening, SEC-M3). Same answer as auth_enabled(): the stored auth_enabled setting, else
  * APP_PASSWORD (the first migration seeds the setting from it); an empty account list counts only with APP_PASSWORD,
  * which then creates the account admin. $pdo is null when there is no database yet; $appPassword is cfg()['app_password'].

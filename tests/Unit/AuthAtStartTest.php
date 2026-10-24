@@ -33,6 +33,15 @@ final class AuthAtStartTest extends DatabaseTestCase
         $this->assertTrue(auth_on_at_start($this->pdo, ''), 'existing install with an account');
     }
 
+    public function testAFailingAccountQueryCountsAsNoAccount(): void
+    {
+        $this->migrateFresh(['seed' => false]);
+        settings_store(['auth_enabled' => true]);
+        $this->pdo->exec('DROP TABLE users');
+        $this->assertFalse(auth_on_at_start($this->pdo, ''), 'no readable account and no APP_PASSWORD: off');
+        $this->assertTrue(auth_on_at_start($this->pdo, 'change-me'));
+    }
+
     public function testMissingRowFollowsAppPassword(): void
     {
         $this->migrateFresh(['seed' => false]);
