@@ -350,3 +350,42 @@ A full v1.2 address for manual QA: `http://127.0.0.1:8090/m/switch/r/3/l/4000/n/
   unchanged, image preparation at a chosen size (orientation, transparency), Test with a photo with a model and size,
   the dropdowns shown and hidden. `tests/integration_autofill.php` covers the same end to end over HTTP, plus stored
   photos (`photo_id`).
+
+## CI4
+
+With `APOTHEKE_APP=ci4` the client is `ci4/modules/Autofill`, built per request by `Config\Services::autofill()`.
+Settings and the token are read only through `SettingsService`. The database is the existing DSN-driven connection.
+There is no static and no per-request memory for the warn-once pair: it lives in the storage file, so a new request
+sees it. Docs and examples keep the placeholder `https://autofill.example`. Do not commit a real token.
+
+**HTTP.** Every POST needs the session CSRF token (`csrf` or `X-CSRF-Token`), like the other CI4 routes. Responses
+that are JSON use `Content-Type: application/json; charset=utf-8` and `Cache-Control: no-store`.
+
+| Method and path | Body | Result |
+|---|---|---|
+| POST `/autofill/suggest` | `photo_id` of a stored photo, or an `image` upload | JSON. `error` is null or the message. The stored file is not written. |
+| POST `/settings/autofill/token` | `token` empty to clear, otherwise the new token | JSON `{ok,redirect}` for a fetch client, otherwise 303 to `/settings/autofill`. Invalid token is 422. |
+| POST `/settings/autofill/test` | `url`, `timeout`, optional `token` | Always JSON. |
+| POST `/settings/autofill/test-photo` | same, plus optional `model` and `size` | Always JSON. Uses `public/assets/autofill-sample.jpg`. |
+
+**Cap.** The limit is the JPEG, not the multipart wrapper. Order: `enforced_image_bytes` from `/v1/info` (one warning
+per distinct pair), then `autofill_max_image_bytes` (`auto` is `/v1/info` `max_image_bytes`, or 983040; an explicit
+value is 65536–10485760), then that value as stored when the service has not said. A higher enforced value does not
+raise the target. `AUTOFILL_MAX_IMAGE_BYTES` is ignored. `AUTOFILL_UPLOAD_MAX_SIDE` (64–4096, default 1600) and
+`AUTOFILL_UPLOAD_JPEG_QUALITY` (40–95, default 80) are environment variables. Quality steps down by 10, and 60 is
+tried before the long edge shrinks. On HTTP 413, `/v1/info` is fetched once and the upload is retried once.
+
+**Storage.** `Apotheke\Core\Storage\Storage`, implemented for now by `LocalStorage` with root `DATA_DIR`:
+
+| Key | Contents |
+|---|---|
+| `autofill/info.json` | Last `/v1/info` for the saved address, and the warn-once clamp pair |
+| `autofill/tmp/autofill-<16 hex>.jpg` | The resized JPEG, deleted after the request |
+
+Nothing in the module writes a `writable/` path. The legacy filename `autofill-info.json` is not read. Media should
+implement this same interface later (for example for R2) rather than add a second one.
+
+**Not in this module yet.** The Control Panel HTML and the item-form Analyze button stay on legacy. Permission checks
+arrive with Auth. Category and tag names, and which file to analyze (kept original, otherwise the served JPEG), are
+SQL until Taxonomy and Media exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker
+check. CI4 cases live in `ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`.
