@@ -7,6 +7,10 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+### Fixed
+
+- **ui:** the footer version label has a fixed width, so a release bump no longer shifts the centred footer links. ([#86](https://github.com/thordin9/apotheke/pull/86))
+
 ## [2.6.12] - 2026-10-24
 
 ### Fixed
