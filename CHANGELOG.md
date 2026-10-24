@@ -48,6 +48,9 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** every POST, PUT, PATCH and DELETE needs the session CSRF token in the `csrf` field or the `X-CSRF-Token` header, with legacy's 419 answer (JSON for fetch clients). GET and HEAD never start a session for it. CI4's own cookie CSRF stays off. SEC-N10. ([#74](https://github.com/thordin9/apotheke/pull/74))
 - **ci4:** `trust_proxy` is read once per request instead of twice, so a request opens one settings connection fewer. SEC-N11. ([#74](https://github.com/thordin9/apotheke/pull/74))
 - **ci4:** `Config\App` no longer opens its own database connection to read `trust_proxy`; the request's settings service reads it on CI4's connection (#74 N-2). ([#76](https://github.com/thordin9/apotheke/pull/76))
+- **ci4:** CodeIgniter's own session service no longer starts a second session beside Apotheke's session on HTML responses, so a signed-in session keeps its id and CSRF token (#76 L-1). ([#82](https://github.com/thordin9/apotheke/pull/82))
+- **ci4:** links and redirects built by CodeIgniter use the Control Panel's public address (or `PUBLIC_URL`), else the request's scheme with "Trust the reverse proxy" and an allowed host name, as the legacy app does. Saving or clearing the AI autofill token from a plain form redirects with a relative address (#76 L-2). ([#82](https://github.com/thordin9/apotheke/pull/82))
+- **ci4:** each request starts without session data, so a long-lived worker never carries one request's session into the next (#76 L-3). ([#82](https://github.com/thordin9/apotheke/pull/82))
 
 ### Maintenance
 
