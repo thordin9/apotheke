@@ -89,20 +89,16 @@ final class DsnTranslator
             $this->bad($dsn);
         }
         unset($params['host'], $params['port'], $params['dbname']);
-        $user = array_key_exists('user', $params) ? (string)$params['user'] : (string)($db['user'] ?? '');
-        $password = array_key_exists('password', $params) ? (string)$params['password'] : (string)($db['password'] ?? '');
+        [$user, $password] = self::credentials($params, $db);
         unset($params['user'], $params['password']);
 
-        $parts = [$this->libpq('host', $host), $this->libpq('port', $port), $this->libpq('dbname', $name)];
-        if ($user !== '') {
-            $parts[] = $this->libpq('user', $user);
-        }
-        if ($password !== '') {
-            $parts[] = $this->libpq('password', $password);
-        }
+        $parts = [self::libpq('host', $host), self::libpq('port', $port), self::libpq('dbname', $name)];
         foreach ($params as $key => $value) {
-            $parts[] = $this->libpq($key, $value);
+            $parts[] = self::libpq($key, $value);
         }
+        // Last, as legacy PDO on PHP 8.3 appends them: libpq takes the last duplicate.
+        $parts[] = self::libpq('user', $user);
+        $parts[] = self::libpq('password', $password);
 
         $group = [
             'DSN' => implode(' ', $parts),
@@ -125,8 +121,56 @@ final class DsnTranslator
         return $group;
     }
 
+    /**
+     * The one credential rule for every CI4 connection, on any PHP version.
+     * Legacy db_connect() hands DB_USER and DB_PASSWORD to PDO, and on PHP 8.3
+     * (the shipped image) PDO always appends them after the DSN, so they win
+     * over a user or password in DB_DSN, even an empty DB_PASSWORD and the
+     * default DB_USER. CI4 applies that itself.
+     *
+     * @param array<string,string> $keywords the DSN's keywords, as libpq reads them
+     * @param array<string,mixed> $db
+     * @return array{0:string,1:string,2:bool} user, password, and whether DB_DSN set one that differs
+     */
+    public static function credentials(array $keywords, array $db): array
+    {
+        $user = (string)($db['user'] ?? '');
+        $password = (string)($db['password'] ?? '');
+        $differs = (array_key_exists('user', $keywords) && $keywords['user'] !== $user)
+            || (array_key_exists('password', $keywords) && $keywords['password'] !== $password);
+
+        return [$user, $password, $differs];
+    }
+
+    /**
+     * What PdoMigrationRunner hands to PDO: the DSN without user or password,
+     * plus the resolved user and password as PDO arguments. With no user or
+     * password left in the DSN, PDO appends both on PHP 8.3 and 8.4 alike.
+     * A DSN that does not tokenise is returned as it is, for PDO to reject.
+     *
+     * @param array<string,mixed> $db
+     * @return array{0:string,1:string,2:string,3:bool} DSN, user, password, whether DB_DSN set one that differs
+     */
+    public static function forPdo(string $dsn, array $db): array
+    {
+        require_once dirname(__DIR__, 4) . '/src/config.php';
+        $keywords = str_starts_with($dsn, 'pgsql:') ? config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6))) : null;
+        [$user, $password, $differs] = self::credentials($keywords ?? [], $db);
+        if ($keywords !== null) {
+            $parts = [];
+            foreach ($keywords as $key => $value) {
+                if ($key !== 'user' && $key !== 'password') {
+                    $parts[] = self::libpq($key, $value);
+                }
+            }
+            $dsn = 'pgsql:' . implode(' ', $parts);
+        }
+
+        return [$dsn, $user, $password, $differs];
+    }
+
     /** libpq keyword/value: quote every value, escaping \ first and then '. */
-    private function libpq(string $key, string $value): string
+    private static function libpq(string $key, string $value): string
     {
         $value = str_replace(['\\', "'"], ['\\\\', "\\'"], $value);
 

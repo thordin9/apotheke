@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Migrations;
 
+use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Config\PdoSchemaSession;
 use Apotheke\Core\Config\PgsqlSchema;
 use Apotheke\Core\Exceptions\DatabaseUnavailable;
@@ -13,11 +14,15 @@ use RuntimeException;
 use Throwable;
 
 require_once __DIR__ . '/../Core/Config/PgsqlSchema.php';
+require_once __DIR__ . '/../Core/Config/DsnTranslator.php';
 require_once __DIR__ . '/../Core/Exceptions/DatabaseUnavailable.php';
 
 /** Port of migrate(): one transaction, the legacy lock, and the v1–v3 adopt path. */
 final class PdoMigrationRunner
 {
+    public const CREDENTIALS_DIFFER = 'DB_DSN sets a user or password that differs from DB_USER / DB_PASSWORD. '
+        . 'DB_USER and DB_PASSWORD are used, as the legacy app does on PHP 8.3.';
+
     public function __construct(private string $migrationsDir)
     {
         // config.php defines cfg(). The shim fills in only what is still missing.
@@ -35,11 +40,18 @@ final class PdoMigrationRunner
     {
         self::loadConfig();
         $driver = (string)($db['driver'] ?? '');
-        [$user, $password] = $driver === 'pgsql' ? self::credentials($db) : [null, null];
-        $withoutSecret = $db;
-        unset($withoutSecret['password'], $withoutSecret['user']);
+        $dsn = config_dsn($db);
+        $user = null;
+        $password = null;
+        if ($driver === 'pgsql') {
+            [$dsn, $user, $password, $differs] = DsnTranslator::forPdo($dsn, $db);
+            if ($differs) {
+                error_log('[apotheke] ' . self::CREDENTIALS_DIFFER);
+            }
+        }
+        unset($db['password']);
         try {
-            $pdo = new PDO(config_dsn($withoutSecret), $user, $password, [
+            $pdo = new PDO($dsn, $user, $password, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_STRINGIFY_FETCHES => false,
@@ -58,28 +70,6 @@ final class PdoMigrationRunner
         }
 
         return $pdo;
-    }
-
-    /**
-     * The user and password PDO should add to the DSN. A user or password in
-     * DB_DSN wins, as in DsnTranslator and in legacy on PHP 8.4. DB_USER and
-     * DB_PASSWORD fill in only what the DSN leaves out, and an empty one is not
-     * sent. The DSN is read as libpq reads it, so `password = x` counts as set.
-     *
-     * @param array<string,mixed> $db
-     * @return array{0:?string,1:?string}
-     */
-    private static function credentials(array $db): array
-    {
-        $dsn = config_dsn($db);
-        $inDsn = str_starts_with($dsn, 'pgsql:') ? (config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6))) ?? []) : [];
-        $pick = static function (string $key) use ($db, $inDsn): ?string {
-            $value = (string)($db[$key] ?? '');
-
-            return array_key_exists($key, $inDsn) || $value === '' ? null : $value;
-        };
-
-        return [$pick('user'), $pick('password')];
     }
 
     /** @param array<string,mixed> $db */

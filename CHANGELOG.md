@@ -15,9 +15,9 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 ### Fixed
 
 - **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects.
-- **ci4:** a PostgreSQL DSN may have spaces around `=`, as libpq does, so `password = …` and `user = …` are the password and the user. The log line still lists only the driver, host, port and database name.
+- **ci4:** a PostgreSQL DSN may have spaces around `=`, as libpq does. The log line still lists only the driver, host, port and database name.
 - **ci4:** DSN values are read as PDO and libpq read them, so a trailing space before `;` or at the end is dropped, a single-quoted value is unquoted, and `host = db.example ; port = 5432 ;` boots as it does on legacy.
-- **ci4:** the migration runner gives a `user` or `password` in `DB_DSN` the same precedence as CI4's own connection: the DSN wins, and `DB_USER` / `DB_PASSWORD` fill in only what it leaves out. A spaced `password = …` with `DB_PASSWORD` unset no longer fails boot.
+- **ci4:** both CI4 connections follow the shipped (PHP 8.3) credential rule on every PHP version: `DB_USER` and `DB_PASSWORD` win over a `user` or `password` in `DB_DSN`, including the default user and an empty password. A warning, without the values, is logged when they differ. Legacy on PHP 8.4 lets an exact `user=` / `password=` in the DSN win instead.
 - **ci4:** read `trust_proxy` from the `DB_SCHEMA` search path, on its own PostgreSQL connection, so closing that connection leaves CI4's connection open.
 - **ci4:** a role without CREATE can use an existing schema, and a concurrent create (42P06 / 23505) continues once the schema is there. Connection failures from `bin/migrate.php` and `apotheke:migrate` print only the driver, host, port, database name and schema. The image sets `zend.exception_ignore_args = On`.
 - **ci4:** CI4's schema setup reads the SQLSTATE (42501, 42P06, 23505) from the PostgreSQL driver instead of the English message text, so a server with a non-English `lc_messages` gets the same handling.

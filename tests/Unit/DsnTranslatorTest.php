@@ -84,19 +84,21 @@ final class DsnTranslatorTest extends TestCase
     public function testSpacedPgsqlKeysReachTheCi4Group(): void
     {
         $dsn = 'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44';
-        $group = $this->translator->fromPdoDsn($dsn, []);
+        $group = $this->translator->fromPdoDsn($dsn, ['user' => 'apotheke', 'password' => '']);
         $this->assertSame('db.example', $group['hostname']);
         $this->assertSame(5432, $group['port']);
         $this->assertSame('catalog', $group['database']);
-        $this->assertSame('s9d44', $group['password']);
         $this->assertStringContainsString("host='db.example'", (string)$group['DSN']);
-        $this->assertStringContainsString("password='s9d44'", (string)$group['DSN']);
+        // DB_PASSWORD (empty here) wins over the DSN's spaced password, as legacy on PHP 8.3.
+        $this->assertSame('', $group['password']);
+        $this->assertStringNotContainsString('s9d44', (string)$group['DSN']);
 
         $trailing = $this->translator->fromPdoDsn(
-            'pgsql:host = db.example;port = 5432;dbname = catalog;password = s9d44 ',
+            'pgsql:host = db.example;port = 5432 ;dbname = catalog ;application_name = app1 ',
             []
         );
-        $this->assertSame('s9d44', $trailing['password']);
+        $this->assertSame('catalog', $trailing['database']);
+        $this->assertStringContainsString("application_name='app1' ", (string)$trailing['DSN']);
 
         $log = DsnTranslator::logLine('pgsql', $dsn);
         $this->assertSame('Database pgsql host=db.example port=5432 dbname=catalog', $log);
@@ -108,31 +110,30 @@ final class DsnTranslatorTest extends TestCase
     public function testValuesAreReadTheWayLibpqReadsThem(): void
     {
         $base = 'pgsql:host=db.example;port=5432;dbname=catalog;';
-        $passwords = [
-            'password=PwA1 ;sslmode=disable' => 'PwA1',
-            'password = PwA1 ' => 'PwA1',
-            "password='Pw A1'" => 'Pw A1',
-            "password='it\\'s;x'" => "it's x",
-            'password=a\\ b' => 'a b',
-            'password=PwA1;password = PwA2' => 'PwA2',
+        $values = [
+            'application_name=PwA1 ;sslmode=disable' => 'PwA1',
+            'application_name = PwA1 ' => 'PwA1',
+            "application_name='Pw A1'" => 'Pw A1',
+            "application_name='it\\'s;x'" => "it's x",
+            'application_name=a\\ b' => 'a b',
+            'application_name=PwA1;application_name = PwA2' => 'PwA2',
         ];
-        foreach ($passwords as $tail => $expected) {
+        foreach ($values as $tail => $expected) {
             $group = $this->translator->fromPdoDsn($base . $tail, []);
-            $this->assertSame($expected, $group['password'], $tail);
-            $this->assertStringContainsString($this->libpqPassword($expected), (string)$group['DSN'], $tail);
+            $this->assertStringContainsString($this->libpqValue('application_name', $expected) . ' ', (string)$group['DSN'], $tail);
+            $this->assertSame(1, substr_count((string)$group['DSN'], 'application_name='), $tail);
         }
 
         $sslmode = $this->translator->fromPdoDsn($base . 'password=PwA1 ;sslmode=disable', []);
         $this->assertSame('disable', $sslmode['sslmode']);
 
-        $empty = $this->translator->fromPdoDsn($base . 'password =', ['password' => 'fromEnv']);
-        $this->assertSame('', $empty['password']);
-        $this->assertStringNotContainsString('password=', (string)$empty['DSN']);
-
         $spaced = $this->translator->fromPdoDsn('pgsql:host = db.example ; port = 5432 ; dbname = catalog ;', []);
         $this->assertSame('db.example', $spaced['hostname']);
         $this->assertSame(5432, $spaced['port']);
         $this->assertSame('catalog', $spaced['database']);
+
+        $quoted = $this->translator->fromPdoDsn("pgsql:host='db.example';port='5432';dbname='cat alog'", []);
+        $this->assertSame('cat alog', $quoted['database']);
 
         // libpq rejects these as syntax errors, so boot stops on them too.
         $this->expectBad($base . 'password=Pw A1');
@@ -141,24 +142,60 @@ final class DsnTranslatorTest extends TestCase
         $this->expectBad($base . 'password');
     }
 
-    public function testSpacedUserMapsToTheUsername(): void
+    public function testDbUserWinsOverASpacedDsnUser(): void
     {
         $group = $this->translator->fromPdoDsn(
             'pgsql:host=db.example;port=5432;dbname=catalog;user = zzu',
-            []
+            ['user' => 'apotheke', 'password' => 'x']
         );
-        $this->assertSame('zzu', $group['username']);
-        $this->assertStringContainsString("user='zzu'", (string)$group['DSN']);
+        $this->assertSame('apotheke', $group['username']);
+        $this->assertStringContainsString("user='apotheke'", (string)$group['DSN']);
+        $this->assertStringNotContainsString('zzu', (string)$group['DSN']);
     }
 
-    public function testPgsqlPasswordFromTheDsnIsQuotedInTheConnectString(): void
+    public function testDbPasswordIsQuotedInTheConnectStringAndTheDsnPasswordIsDropped(): void
     {
         $group = $this->translator->fromPdoDsn(
-            "pgsql:host=db.example;port=5432;dbname=apotheke;user=apotheke;password=s'ecret",
-            []
+            "pgsql:host=db.example;port=5432;dbname=apotheke;user=other;password=dsn'pw",
+            ['user' => 'apotheke', 'password' => "s'ecret"]
         );
         $this->assertSame("s'ecret", $group['password']);
         $this->assertStringContainsString("password='s\\'ecret'", (string)$group['DSN']);
+        $this->assertStringNotContainsString('dsn', (string)$group['DSN']);
+        $this->assertStringNotContainsString('other', (string)$group['DSN']);
+    }
+
+    /**
+     * Golden cases from legacy db_connect() on PHP 8.3.36 against PostgreSQL 17:
+     * DB_USER and DB_PASSWORD always win, the default user and an empty password
+     * included. The pg_connect string and the PDO arguments carry exactly them.
+     */
+    public function testCredentialsFollowLegacyOnPhp83(): void
+    {
+        $base = 'pgsql:host=db.example;port=5432;dbname=catalog';
+        $cases = [
+            'a DSN only (defaults)' => [$base . ';user=dsnu;password=dsnp', ['user' => 'apotheke', 'password' => ''], 'apotheke', '', true],
+            'b env only' => [$base, ['user' => 'envu', 'password' => 'envp'], 'envu', 'envp', false],
+            'c both, differing' => [$base . ';user=dsnu;password=dsnp', ['user' => 'envu', 'password' => 'envp'], 'envu', 'envp', true],
+            'd both, empty env password' => [$base . ';user = dsnu;password = dsnp', ['user' => 'envu', 'password' => ''], 'envu', '', true],
+            'same values' => [$base . ';user=envu;password=envp', ['user' => 'envu', 'password' => 'envp'], 'envu', 'envp', false],
+        ];
+        foreach ($cases as $name => [$dsn, $db, $user, $password, $differs]) {
+            $group = $this->translator->fromPdoDsn($dsn, $db);
+            $this->assertSame($user, $group['username'], $name);
+            $this->assertSame($password, $group['password'], $name);
+            $this->assertStringEndsWith($this->libpqValue('user', $user) . ' ' . $this->libpqValue('password', $password), (string)$group['DSN'], $name);
+            $this->assertSame(1, substr_count((string)$group['DSN'], 'user='), $name);
+            $this->assertSame(1, substr_count((string)$group['DSN'], 'password='), $name);
+            $this->assertStringNotContainsString('dsn', (string)$group['DSN'], $name);
+
+            [$pdoDsn, $pdoUser, $pdoPassword, $pdoDiffers] = DsnTranslator::forPdo($dsn, $db);
+            $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog'", $pdoDsn, $name);
+            $this->assertSame([$user, $password, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
+        }
+
+        $this->assertSame(['sqlite:/x.sqlite', 'u', 'p', false], DsnTranslator::forPdo('sqlite:/x.sqlite', ['user' => 'u', 'password' => 'p']));
+        $this->assertSame(["pgsql:host='unclosed", 'u', '', false], DsnTranslator::forPdo("pgsql:host='unclosed", ['user' => 'u']));
     }
 
     public function testMysqlEmptySqliteAndMissingDbnameFailAtTranslation(): void
@@ -185,9 +222,9 @@ final class DsnTranslatorTest extends TestCase
         }
     }
 
-    private function libpqPassword(string $value): string
+    private function libpqValue(string $key, string $value): string
     {
-        return "password='" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
+        return $key . "='" . str_replace(['\\', "'"], ['\\\\', "\\'"], $value) . "'";
     }
 
     private function expectBad(string $dsn): void
