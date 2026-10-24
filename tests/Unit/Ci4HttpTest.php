@@ -52,9 +52,16 @@ final class Ci4HttpTest extends TestCase
         $admin->exec('CREATE SCHEMA ' . $schema . ' AUTHORIZATION ' . $role);
         $plain = tmpdir('ci4-shipped');
         $marked = tmpdir('ci4-shipped-mark');
+        // The servers connect on boot, so they need the admin connection's host,
+        // port and database, not the 127.0.0.1:5432 default.
+        $pg = $this->adminEnv();
         $db = [
             'CI_ENVIRONMENT' => 'production',
             'DB_DRIVER' => 'pgsql',
+            'DB_HOST' => (string)$pg['DB_HOST'],
+            'DB_PORT' => (string)$pg['DB_PORT'],
+            'DB_NAME' => (string)$pg['DB_NAME'],
+            'DB_DSN' => null,
             'DB_USER' => $role,
             'DB_PASSWORD' => $password,
             'DB_SCHEMA' => $schema,
@@ -318,16 +325,7 @@ final class Ci4HttpTest extends TestCase
 
     private function adminPdo(): ?PDO
     {
-        $env = test_db_env(sys_get_temp_dir());
-        if (($env['DB_DRIVER'] ?? '') !== 'pgsql' && test_driver() !== 'pgsql') {
-            $env = [
-                'DB_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
-                'DB_PORT' => getenv('TEST_PG_PORT') ?: '5432',
-                'DB_NAME' => getenv('TEST_PG_DB') ?: 'apotheke',
-                'DB_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
-                'DB_PASSWORD' => getenv('TEST_PG_PASSWORD') ?: 'apotheke',
-            ];
-        }
+        $env = $this->adminEnv();
         try {
             return new PDO(
                 "pgsql:host={$env['DB_HOST']};port={$env['DB_PORT']};dbname={$env['DB_NAME']};connect_timeout=3",
@@ -338,6 +336,23 @@ final class Ci4HttpTest extends TestCase
         } catch (PDOException) {
             return null;
         }
+    }
+
+    /** @return array<string,string> the admin connection's DB_HOST, DB_PORT, DB_NAME, DB_USER and DB_PASSWORD */
+    private function adminEnv(): array
+    {
+        $env = test_db_env(sys_get_temp_dir());
+        if (($env['DB_DRIVER'] ?? '') !== 'pgsql' && test_driver() !== 'pgsql') {
+            $env = [
+                'DB_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
+                'DB_PORT' => getenv('TEST_PG_PORT') ?: '5432',
+                'DB_NAME' => getenv('TEST_PG_DB') ?: 'apotheke',
+                'DB_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
+                'DB_PASSWORD' => getenv('TEST_PG_PASSWORD') ?: 'apotheke',
+            ];
+        }
+
+        return $env;
     }
 
     private function publicCanCreate(PDO $pdo): bool
