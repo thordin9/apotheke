@@ -510,7 +510,15 @@ final class AutofillTest extends CIUnitTestCase
         $photoId = (int)$db->insertID();
         Services::injectMock('settings', $this->settings);
         Services::injectMock('autofill', $af);
-        $response = $this->post('autofill/suggest', ['photo_id' => (string)$photoId]);
+        // SessionCookie skips session_start when a session is already open, so the
+        // token from withSession is the one CsrfFilter checks.
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        $response = $this->withSession(['csrf' => 'csrf-test-token'])->post('autofill/suggest', [
+            'photo_id' => (string)$photoId,
+            'csrf' => 'csrf-test-token',
+        ]);
         $response->assertStatus(200);
         $body = json_decode($response->response()->getBody(), true);
         $this->assertTrue($body['ok'], $body['message'] ?? $response->response()->getBody());
