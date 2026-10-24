@@ -10,3 +10,12 @@ description = "Migrate DSN test placeholder flagged by generic-api-key."
 condition = "AND"
 paths = ['''^tests/Unit/MigrateDsnTest\.php$''']
 regexes = ['''^SecretMissingEq99$''']
+
+# Placeholder APP_KEY values (base64 of "placeholder-key-a-32-bytes-long!" and
+# "...-b-...") from the first S-L5 CI4 commit. The tests now build them at run
+# time; that commit stays in history. Both the path and the exact value must match.
+[[allowlists]]
+description = "S-L5 CI4 test placeholder keys flagged by generic-api-key."
+condition = "AND"
+paths = ['''^ci4/tests/(Core/SecretBoxTest|Settings/SettingsServiceTest)\.php$''']
+regexes = ['''^cGxhY2Vob2xkZXIta2V5LW[EI]tMzItYnl0ZXMtbG9uZyE=$''']
