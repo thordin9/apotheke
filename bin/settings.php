@@ -103,6 +103,7 @@ try {
                 // no migration or seeding, and a missing SQLite file stays missing (connecting may still create an empty
                 // DB_SCHEMA or switch an older SQLite file to WAL, as the app does)
                 $db = cfg()['db'];
+                $db['connect_timeout'] = 5;   // each try of the entrypoint's wait (#75 QA N-2)
                 try {
                     $pdo = $db['driver'] === 'sqlite' && !is_file((string)$db['sqlite_path']) ? null : db_connect($db);
                 } catch (PDOException) {

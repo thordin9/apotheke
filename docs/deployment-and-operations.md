@@ -143,8 +143,9 @@ Two defaults keep a new Docker install private (hardening, SEC-M3):
   container exits with code 78 and logs `sign-in is off` with both ways out (the `bin/settings.php password` command and `ALLOW_NO_LOGIN=1`). Sign-in counts as on when the stored *Require sign-in*
   setting is on and an account exists, or, on a new database, when `APP_PASSWORD` is set (it creates the account
   `admin` on the first request; it needs at least 8 characters, not only spaces, or the container exits with code 78
-  and says `APP_PASSWORD is too short` without showing the value). The check waits up to 30 s for the database (PostgreSQL may still be starting) and
-  then exits with code 78 too.
+  and says `APP_PASSWORD is too short` without showing the value). The check tries for about 30 s while the database
+  may still be starting (30 tries, 1 s apart; a PostgreSQL address that doesn't answer makes each try wait 5 s, so up
+  to about 3 minutes) and then exits with code 78 too.
   * An install that already has sign-in on in its database starts without `APP_PASSWORD`; the variable is only used
     on a new database.
   * To run without sign-in on purpose, on a trusted network only, set `ALLOW_NO_LOGIN=1`. Any value other than
