@@ -152,7 +152,7 @@ try {
             fwrite(STDERR, "Unknown command. See the comment at the top of bin/settings.php.\n");
             exit(2);
     }
-} catch (UserError $e) {
+} catch (UserError|AppPasswordError $e) {   // a short APP_PASSWORD exits 1 with its message (#81 QA L-1)
     fwrite(STDERR, $e->getMessage() . "\n");
     exit(1);
 }
