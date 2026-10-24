@@ -190,8 +190,8 @@ final class DsnTranslatorTest extends TestCase
             $this->assertStringNotContainsString('dsn', (string)$group['DSN'], $name);
 
             [$pdoDsn, $pdoUser, $pdoPassword, $pdoDiffers] = DsnTranslator::forPdo($dsn, $db);
-            $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog' " . $this->libpqValue('user', $user) . ' ' . $this->libpqValue('password', $password), $pdoDsn, $name);
-            $this->assertSame([null, null, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
+            $this->assertSame("pgsql:host='db.example' port='5432' dbname='catalog'", $pdoDsn, $name);
+            $this->assertSame([$user, $password, $differs], [$pdoUser, $pdoPassword, $pdoDiffers], $name);
         }
 
         $this->assertSame(['sqlite:/x.sqlite', 'u', 'p', false], DsnTranslator::forPdo('sqlite:/x.sqlite', ['user' => 'u', 'password' => 'p']));
@@ -228,13 +228,13 @@ final class DsnTranslatorTest extends TestCase
     }
 
     /**
-     * The resolved user and password are written into the PDO DSN as escaped
-     * top-level keys, so other settings may mention user= or password=. PDO
+     * Only when another setting mentions user= or password= are the resolved
+     * user and password written into the PDO DSN as escaped top-level keys. PDO
      * turns every ";" into a space, so a credential with ";" is passed to PDO
      * instead, and refused only when PHP 8.4's PDO would ignore it (the DSN has
      * the matching user= or password= text). The message names no values.
      */
-    public function testCredentialsAreEmbeddedAndOnlyAnUnpassableSemicolonIsRefused(): void
+    public function testCredentialsAreEmbeddedOnlyWhenNeededAndAnUnpassableSemicolonIsRefused(): void
     {
         $base = 'pgsql:host=db.example;port=5432;dbname=catalog;user = dsnu;password = dsnp;';
         $tails = [
@@ -278,6 +278,7 @@ final class DsnTranslatorTest extends TestCase
             ["pgsql:host='db.example' port='5432' dbname='catalog' sslpassword='q7canary' password='p'", 'u;1', null, true],
             DsnTranslator::forPdo($base . $tails['sslpassword'], ['user' => 'u;1', 'password' => 'p'])
         );
+        // A plain DSN needs no embedding: the credentials, ";" included, go to PDO as 56f4efb did.
         $this->assertSame(
             ["pgsql:host='db.example' port='5432' dbname='catalog'", 'u;1', 'p;1', true],
             DsnTranslator::forPdo('pgsql:host=db.example;port=5432;dbname=catalog;user=x', ['user' => 'u;1', 'password' => 'p;1'])

@@ -175,9 +175,10 @@ final class Ci4DsnCredentialsTest extends TestCase
     }
 
     /**
-     * QA's matrix: the resolved user and password are written into the PDO DSN
-     * as escaped top-level keys (null PDO arguments), and into CI4's pg_connect
-     * string. Quotes, backslashes (also trailing), spaces and unicode connect on
+     * QA's matrix. A plain DSN passes the credentials to PDO; one whose other
+     * settings mention user= or password= gets them written in as escaped
+     * top-level keys (null PDO arguments). CI4's pg_connect string always has
+     * them as its last keys. Quotes, backslashes (also trailing), spaces and unicode connect on
      * both paths, also when application_name, options or sslpassword mention
      * user= or password=. PDO turns every ";" into a space, so a ";" credential
      * goes to PDO as an argument, and is refused (value-free) only where PHP
@@ -264,6 +265,51 @@ final class Ci4DsnCredentialsTest extends TestCase
                 }
                 $this->admin->exec('DROP ROLE IF EXISTS ' . $quote($user));
             }
+        }
+    }
+
+    /**
+     * QA's three pins, on PHP 8.3 and 8.4: a plain DSN with ";" in the password
+     * passes the credentials to PDO and connects; sslpassword with a normal
+     * password connects by embedding them; sslpassword with a ";" password
+     * (which PDO cannot read inside the DSN) gets the value-free refusal.
+     */
+    public function testEmbeddingIsOnlyUsedWhenTheDsnNeedsIt(): void
+    {
+        $pg = test_pg_params();
+        $base = sprintf('pgsql:host=%s;port=%s;dbname=%s', $pg['host'], $pg['port'], $pg['name']);
+        $env = $this->roles['env'];
+        $semi = 'sc;' . bin2hex(random_bytes(6));
+        $this->admin->exec('ALTER ROLE ' . $this->roles['dsn']['user'] . ' PASSWORD ' . $this->admin->quote($semi));
+        $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
+        $pgpass = getenv('PGPASSWORD');
+        putenv('PGPASSWORD');
+        putenv('PGPASSFILE=/nonexistent');
+        try {
+            $plain = ['driver' => 'pgsql', 'dsn' => $base, 'user' => $this->roles['dsn']['user'], 'password' => $semi, 'schema' => ''];
+            [, $pdoUser, $pdoPassword] = Apotheke\Core\Config\DsnTranslator::forPdo($base, $plain);
+            $this->assertSame([$this->roles['dsn']['user'], $semi], [$pdoUser, $pdoPassword], 'plain DSN: credentials as PDO arguments');
+            $pdo = $runner->connect($plain);
+            $this->assertSame($this->roles['dsn']['user'], $pdo->query('SELECT current_user')->fetchColumn());
+            $runner->close($pdo);
+
+            $ssl = ['driver' => 'pgsql', 'dsn' => $base . ';sslpassword=placeholder', 'user' => $env['user'], 'password' => $env['password'], 'schema' => ''];
+            [$pdoDsn, $pdoUser, $pdoPassword] = Apotheke\Core\Config\DsnTranslator::forPdo($ssl['dsn'], $ssl);
+            $this->assertSame([null, null], [$pdoUser, $pdoPassword], 'sslpassword: credentials embedded');
+            $this->assertStringEndsWith(" user='" . $env['user'] . "' password='" . $env['password'] . "'", $pdoDsn);
+            $pdo = $runner->connect($ssl);
+            $this->assertSame($env['user'], $pdo->query('SELECT current_user')->fetchColumn());
+            $runner->close($pdo);
+
+            try {
+                $runner->connect(['password' => $semi, 'user' => $this->roles['dsn']['user']] + $ssl);
+                $this->fail('sslpassword with a ";" password connected');
+            } catch (Apotheke\Migrations\MigrateConnectException $e) {
+                $this->assertSame(Apotheke\Core\Config\DsnException::SEMICOLON_CREDENTIAL, $e->getMessage());
+            }
+        } finally {
+            putenv($pgpass === false ? 'PGPASSWORD' : 'PGPASSWORD=' . $pgpass);
+            putenv('PGPASSFILE');
         }
     }
 

@@ -145,12 +145,13 @@ final class DsnTranslator
     }
 
     /**
-     * What PdoMigrationRunner hands to PDO. The resolved user and password are
-     * written into the DSN as the last top-level keys, quoted as for pg_connect,
-     * and PDO gets null for both, so it appends nothing on PHP 8.3 or 8.4 and
-     * other settings may mention user= or password=. A DSN that does not
-     * tokenise is returned as it is, with the credentials as PDO arguments, for
-     * PDO to reject as legacy does.
+     * What PdoMigrationRunner hands to PDO: the DSN without its top-level user
+     * and password, plus the resolved user and password as PDO arguments, so
+     * PDO appends them on PHP 8.3 and 8.4 alike. When the DSN still has
+     * user= or password= text in another setting, PDO 8.4 would drop those
+     * arguments, so the credentials are written into the DSN instead
+     * (pdoParts()). A DSN that does not tokenise is returned as it is, for PDO
+     * to reject as legacy does.
      *
      * @param array<string,mixed> $db
      * @return array{0:string,1:?string,2:?string,3:bool} DSN, PDO user, PDO password, whether DB_DSN set credentials that differ
@@ -168,11 +169,13 @@ final class DsnTranslator
     }
 
     /**
-     * PDO pgsql turns every ";" in the DSN into a space, quotes included, so a
-     * user or password with ";" cannot be written into it. That one goes to PDO
-     * as an argument instead. PHP 8.4's PDO ignores the argument when the DSN
-     * has the text "user=" (or "password=") anywhere, so in that case boot stops
-     * with a message that has no values. Nothing is stripped silently.
+     * Only a DSN with user= or password= text left in another setting
+     * (options, application_name, sslpassword) needs the credentials written
+     * into it, as the last quoted top-level keys, with null PDO arguments.
+     * PDO turns every ";" in the DSN into a space, quotes included, so a
+     * credential with ";" still goes to PDO as an argument; if the DSN has the
+     * text that makes PHP 8.4's PDO ignore that argument, boot stops with a
+     * message that has no values. Nothing is stripped silently.
      *
      * @param array<string,string> $keywords
      * @return array{0:string,1:?string,2:?string} DSN, PDO user, PDO password
@@ -183,6 +186,10 @@ final class DsnTranslator
         $parts = [];
         foreach ($keywords as $key => $value) {
             $parts[] = self::libpq($key, $value);
+        }
+        $rest = implode(' ', $parts);
+        if (!str_contains($rest, 'user=') && !str_contains($rest, 'password=')) {
+            return ['pgsql:' . $rest, $user, $password];
         }
         $args = ['user' => null, 'password' => null];
         foreach (['user' => $user, 'password' => $password] as $key => $value) {
