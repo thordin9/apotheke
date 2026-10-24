@@ -82,6 +82,8 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 | `auth_register_disabled` | on | off: public `/register` (CSRF + 5 per hour per address) |
 | `auth_register_role` | viewer | role of self-registered accounts (any but admin) |
 | `auth_register_approval` | off | new accounts are `pending` until an admin approves them |
+| `session_days` | 30 | longest a sign-in lasts, counted from sign-in. Later visits do not extend it. 1–365. Applies from the next sign-in |
+| `session_idle_hours` | 168 | end a sign-in after this many hours with no request. 1–8760 (365 days). The stay-signed-in limit still applies |
 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
 manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account
@@ -125,7 +127,7 @@ php bin/settings.php password                       # shortcut: password of "adm
 
 Import validates every value: valid ones are applied, invalid ones are listed and skipped, unknown keys and the
 password are ignored. Sign-in settings (`auth_guest_disabled`, `auth_register_disabled`, `auth_register_role`,
-`auth_register_approval`, `session_days`, `trust_proxy`) are applied only for an admin account. Without that they
+`auth_register_approval`, `session_days`, `session_idle_hours`, `trust_proxy`) are applied only for an admin account. Without that they
 are skipped and named with the other protected keys; the rest of the file is still applied. `auth_enabled` is not
 in the export, so a file cannot turn sign-in off. `php bin/settings.php import` applies the sign-in settings too
 (the command runs on the server).

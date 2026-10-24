@@ -1149,6 +1149,71 @@ T::eq(303, $pc->post('/logout', ['csrf' => $ptok])['status'], 'logout');
 T::eq(303, $pc->get('/')['status'], 'signed out again');
 $ps->stop();
 
+T::section('Idle sign-in');
+$idleDir = $newDir('idle');
+$idleBoot = function (string $clock) use ($idleDir): Server {
+    return new Server($idleDir, ['APP_PASSWORD' => 's3cret', 'APOTHEKE_CLOCK' => $clock]);
+};
+$idleCarry = function (Server $srv, array $cookies): Client {
+    $c = $srv->client();
+    $c->cookies = $cookies;
+    return $c;
+};
+$idleSign = function (string $clock) use ($idleBoot): array {
+    $s = $idleBoot($clock);
+    $c = $s->client();
+    $r = $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret']);
+    T::eq(303, $r['status'], "sign in at $clock");
+    return [$s, $c];
+};
+[$idleS, $idleC] = $idleSign('2026-01-01 00:00:00');
+$idleBorn = $idleC->cookies;
+$idleS->stop();
+$idleS = $idleBoot('2026-01-05 04:00:00'); // 100 hours later
+$idleC = $idleCarry($idleS, $idleBorn);
+T::eq(200, $idleC->get('/')['status'], 'a request inside 168 hours stays signed in');
+$idleTouched = $idleC->cookies;
+$idleS->stop();
+$idleS = $idleBoot('2026-01-09 08:00:00'); // 200 hours after sign-in, 100 after the last request
+$idleC = $idleCarry($idleS, $idleTouched);
+T::eq(200, $idleC->get('/')['status'], 'idle time counts from the last request');
+$idleS->stop();
+[$idleS, $idleC] = $idleSign('2026-01-01 00:00:00');
+$idleQuiet = $idleC->cookies;
+$idleS->stop();
+$idleS = $idleBoot('2026-01-08 00:00:00');
+$idleC = $idleCarry($idleS, $idleQuiet);
+T::eq(200, $idleC->get('/')['status'], 'exactly 168 hours is still signed in');
+$idleS->stop();
+[$idleS, $idleC] = $idleSign('2026-01-01 00:00:00');
+$idleQuiet = $idleC->cookies;
+$idleS->stop();
+$idleS = $idleBoot('2026-01-08 00:00:01');
+$idleC = $idleCarry($idleS, $idleQuiet);
+$idleHome = $idleC->get('/');
+T::eq(303, $idleHome['status'], 'one second past the idle limit signs out');
+T::eq('/login', $idleHome['headers']['location'] ?? '', 'idle sign-out uses the sign-in page');
+T::eq(401, $idleC->json('/?q=x')['status'], 'idle sign-out: JSON is 401');
+T::eq(401, $idleC->get('/media/thumb/' . str_repeat('a', 32) . '.jpg')['status'], 'idle sign-out: media is 401');
+T::eq(303, $idleC->get('/')['status'], 'the ended session stays signed out');
+$idleS->stop();
+[$idleS, $idleC] = $idleSign('2026-01-01 00:00:00');
+$idleTok = $idleC->csrf();
+T::eq(303, $idleC->post('/settings/security', ['csrf' => $idleTok, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '2', 'trust_proxy' => '0'])['status'], 'idle limit saved at 2 hours');
+$idleShort = $idleC->cookies;
+$idleS->stop();
+$idleS = $idleBoot('2026-01-01 01:00:00');
+$idleC = $idleCarry($idleS, $idleShort);
+T::eq(200, $idleC->get('/')['status'], 'under the configured idle limit stays signed in');
+$idleS->stop();
+[$idleS, $idleC] = $idleSign('2026-01-01 00:00:00');
+$idleShort = $idleC->cookies;
+$idleS->stop();
+$idleS = $idleBoot('2026-01-01 03:00:00');
+$idleC = $idleCarry($idleS, $idleShort);
+T::eq(303, $idleC->get('/')['status'], 'a shorter idle limit is what ends the session');
+$idleS->stop();
+
 T::section('List pagination (PAGE_SIZE)');
 $pgDir = $newDir('page');
 $pgS = new Server($pgDir, ['PAGE_SIZE' => '2', 'SEED_DEFAULTS' => '0']);
@@ -1202,7 +1267,7 @@ $secKeys = [
     'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
     'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
     'autofill' => ['autofill_enabled', 'autofill_auto', 'autofill_url', 'autofill_timeout', 'autofill_model', 'autofill_image_size', 'autofill_max_image_bytes'],
-    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'trust_proxy'], 'data' => ['import_create_missing'], 'system' => [],
+    'security' => ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval', 'session_days', 'session_idle_hours', 'trust_proxy'], 'data' => ['import_create_missing'], 'system' => [],
 ];
 $visible = array_merge(...array_values($secKeys));
 $settingsTotal = count($visible) + 4; // + logo, auth_enabled, password_hash, autofill_token
@@ -1248,6 +1313,14 @@ $bad = $save('list', ['page_size' => '0', 'default_sort' => 'name']);
 T::ok($bad['status'] === 422 && str_contains($bad['body'], 'between 1 and 500') && str_contains($bad['body'], 'aria-invalid'), 'invalid value → 422 with the message');
 T::eq(40, $cur()['page_size'], 'invalid save stores nothing');
 T::eq('recent', $cur()['default_sort'], 'all-or-nothing');
+T::eq(168, $cur()['session_idle_hours'], 'idle timeout defaults to 168 hours');
+$badIdle = $save('security', ['session_idle_hours' => '0']);
+T::ok($badIdle['status'] === 422 && str_contains($badIdle['body'], 'between 1 and 8760'), 'idle timeout of 0 is rejected');
+T::eq(422, $save('security', ['session_idle_hours' => '8761'])['status'], 'idle timeout above 8760 is rejected');
+T::eq(168, $cur()['session_idle_hours'], 'invalid idle timeout is not stored');
+T::ok(str_contains($save('security', ['session_idle_hours' => '48'])['headers']['location'] ?? '', 'done=saved'), 'idle timeout saved');
+T::eq(48, $cur()['session_idle_hours'], 'idle timeout is 48 hours');
+$save('security', ['session_idle_hours' => '168']);
 
 // general
 $r = $save('general', ['app_name' => 'Shed Stock', 'app_tagline' => 'tools & bits', 'public_url' => 'https://inv.example.org/']);
@@ -1447,6 +1520,10 @@ $cli = fn(string $a) => shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implo
 T::ok(str_contains((string)$cli('set page_size 33'), 'page_size = 33'), 'CLI set');
 T::ok(str_contains((string)$cli('set page_size 0'), 'between 1 and 500'), 'CLI validates');
 T::eq('33', trim((string)$cli('get page_size')), 'CLI get');
+T::eq('168', trim((string)$cli('get session_idle_hours')), 'CLI reads the idle timeout');
+T::ok(str_contains((string)$cli('set session_idle_hours 0'), 'between 1 and 8760'), 'CLI rejects an idle timeout of 0');
+T::ok(str_contains((string)$cli('set session_idle_hours 24'), 'session_idle_hours = 24'), 'CLI sets the idle timeout');
+T::eq('24', trim((string)$cli('get session_idle_hours')), 'CLI get after set');
 T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI recovery: set a password');
 T::ok(str_contains((string)$cli('password --off'), 'turned off') && !auth_on_db($sdb), 'CLI recovery: password off');
 T::ok(str_contains((string)$cli('password locksmith1'), 'password set') && auth_on_db($sdb), 'CLI: sign-in on again');
@@ -1646,7 +1723,7 @@ $home = $vb->get('/')['body'];
 T::ok(str_contains($home, 'no-create') && str_contains($home, 'no-edit') && !str_contains($home, ' no-export') && str_contains($home, 'id="menu-export"') && !str_contains($home, 'id="menu-labels"') && !str_contains($home, 'id="menu-import"'), 'body classes + menu follow the permissions');
 
 // guest browsing toggle
-T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30'])['status'], 'guest browsing allowed');
+T::eq(303, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '0', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168'])['status'], 'guest browsing allowed');
 $g = $rs->client();
 $gt = $g->csrf();
 T::eq(200, $g->get('/')['status'], 'guest may browse');
@@ -1664,7 +1741,7 @@ T::ok(str_contains($g->get('/login')['body'], 'id="login-guest"'), 'login page o
 $n = 0;
 foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach ([false, true] as $approval) {
     $n++;
-    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0', 'session_days' => '30']);
+    $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => $guestOff ? '1' : '0', 'auth_register_disabled' => $regOff ? '1' : '0', 'auth_register_role' => 'editor', 'auth_register_approval' => $approval ? '1' : '0', 'session_days' => '30', 'session_idle_hours' => '168']);
     $tag = 'guest ' . ($guestOff ? 'off' : 'on') . ', registration ' . ($regOff ? 'off' : 'on') . ', approval ' . ($approval ? 'on' : 'off');
     $a = $rs->client();
     $home = $a->get('/');
@@ -1691,8 +1768,8 @@ foreach ([false, true] as $guestOff) foreach ([false, true] as $regOff) foreach 
         T::eq(200, $a->get('/new')['status'], "$tag: … with the editor role");
     }
 }
-T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0', 'session_days' => '30'])['status'], 'admin cannot be the registration role');
-$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30']);
+T::eq(422, $root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'admin', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168'])['status'], 'admin cannot be the registration role');
+$root->post('/settings/security', ['csrf' => $rt, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '0', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168']);
 $x = $rs->client();
 T::eq(419, $x->post('/register', ['csrf' => 'wrong', 'username' => 'csrfless', 'new' => 'register-pass', 'confirm' => 'register-pass'])['status'], 'registration needs the CSRF token');
 // rate limits (5 registrations per hour per address; earlier tests used some)
@@ -2349,7 +2426,7 @@ $hc->post('/settings/users/' . $helpId . '/role', ['csrf' => $ht, 'role' => 'hel
 $panel = $sign('panel');
 $import = ['format' => 'apotheke-settings', 'settings' => [
     'app_name' => 'Panel shed', 'auth_register_disabled' => false, 'auth_guest_disabled' => false,
-    'auth_register_role' => 'editor', 'auth_register_approval' => true, 'session_days' => 7, 'trust_proxy' => true,
+    'auth_register_role' => 'editor', 'auth_register_approval' => true, 'session_days' => 7, 'session_idle_hours' => 12, 'trust_proxy' => true,
 ]];
 $im = $panel->post('/settings/import', ['csrf' => $panel->csrf(), 'json' => json_encode($import)]);
 T::ok(str_contains($im['body'], 'Imported') && str_contains($im['body'], 'auth_register_disabled'), 'a Settings account is told the sign-in keys were left out');
@@ -2357,6 +2434,8 @@ T::eq('Panel shed', json_decode((string)$hdb->query("SELECT value FROM settings 
 T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_disabled'")->fetchColumn(), true), 'registration stays closed');
 T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_guest_disabled'")->fetchColumn(), true), 'guest browsing stays off');
 T::eq('viewer', json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_role'")->fetchColumn(), true), 'the registration role stays viewer');
+T::ok(str_contains($im['body'], 'session_idle_hours'), 'a Settings account is told the idle timeout was left out');
+T::eq(168, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'session_idle_hours'")->fetchColumn(), true), 'idle timeout stays 168 hours');
 $help = $sign('help');
 $helpImport = ['format' => 'apotheke-settings', 'settings' => ['auth_register_disabled' => false, 'auth_guest_disabled' => false, 'auth_enabled' => false]];
 $helpBody = $help->post('/settings/import', ['csrf' => $help->csrf(), 'json' => json_encode($helpImport)])['body'];
@@ -2365,7 +2444,9 @@ T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE na
 T::ok(auth_on_db($hdb), 'an import cannot turn sign-in off');
 T::ok(str_contains($hc->post('/settings/import', ['csrf' => $hc->csrf(), 'json' => json_encode(['format' => 'apotheke-settings', 'settings' => ['auth_register_disabled' => false, 'auth_guest_disabled' => false]])])['body'], 'Imported 2'), 'an admin can import sign-in settings');
 T::eq(false, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_disabled'")->fetchColumn(), true), 'registration setting changed');
-$hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '0']);
+T::ok(str_contains($hc->post('/settings/import', ['csrf' => $hc->csrf(), 'json' => json_encode(['format' => 'apotheke-settings', 'settings' => ['session_idle_hours' => 12]])])['body'], 'Imported 1'), 'an admin can import the idle timeout');
+T::eq(12, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'session_idle_hours'")->fetchColumn(), true), 'admin import applies the idle timeout');
+$hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168', 'trust_proxy' => '0']);
 $zipBytes = $sign('arch')->get('/backup.zip')['body'];
 $zpath = tempnam(sys_get_temp_dir(), 'hz');
 file_put_contents($zpath, $zipBytes);
@@ -2375,6 +2456,7 @@ $zdump = json_decode((string)$z->getFromName('backup.json'), true);
 $zdump['settings']['app_name'] = 'From zip';
 $zdump['settings']['auth_guest_disabled'] = false;
 $zdump['settings']['auth_register_disabled'] = false;
+$zdump['settings']['session_idle_hours'] = 12;
 $z->deleteName('backup.json');
 $z->addFromString('backup.json', json_encode($zdump));
 $z->close();
@@ -2390,10 +2472,12 @@ T::ok(str_contains($restore($arch, $edited)['headers']['location'] ?? '', 'resto
 T::eq('From zip', json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'app_name'")->fetchColumn(), true), 'restore applies the catalog settings');
 T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_guest_disabled'")->fetchColumn(), true), 'restore leaves guest browsing alone');
 T::eq(true, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_register_disabled'")->fetchColumn(), true), 'restore leaves registration alone');
-$hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '0']);
+T::eq(168, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'session_idle_hours'")->fetchColumn(), true), 'restore leaves the idle timeout alone');
+$hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168', 'trust_proxy' => '0']);
 $rootAgain = $sign('root');
 T::ok(str_contains($restore($rootAgain, $edited)['headers']['location'] ?? '', 'restored='), 'an admin restore applies the file');
 T::eq(false, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'auth_guest_disabled'")->fetchColumn(), true), 'an admin restore can change guest browsing');
+T::eq(12, json_decode((string)$hdb->query("SELECT value FROM settings WHERE name = 'session_idle_hours'")->fetchColumn(), true), 'an admin restore can change the idle timeout');
 // sign-in limit: one client, two accounts
 $hdb->exec('DELETE FROM auth_attempts');
 $codes = [];
@@ -2406,7 +2490,7 @@ T::eq(429, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username
 $hdb->exec('DELETE FROM auth_attempts');
 for ($i = 0; $i < 10; $i++) ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.20']);
 T::eq(429, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.21'])['status'], 'without trust_proxy the forwarded address is not the client');
-T::eq(303, $hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '1'])['status'], 'trust the proxy');
+T::eq(303, $hc->post('/settings/security', ['csrf' => $ht, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168', 'trust_proxy' => '1'])['status'], 'trust the proxy');
 $hdb->exec('DELETE FROM auth_attempts');
 for ($i = 0; $i < 10; $i++) ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.20']);
 T::eq(401, ($x = $hs->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.21'])['status'], 'a different forwarded client has its own limit');
@@ -2421,7 +2505,7 @@ $us = new Server($ud, ['TRUSTED_PROXIES' => '192.0.2.10']);
 $uc = $us->client();
 $uc->post('/settings/password', ['csrf' => $uc->csrf(), 'mode' => 'change', 'username' => 'root', 'new' => 'root-password', 'confirm' => 'root-password']);
 $ut = $uc->csrf();
-$uc->post('/settings/security', ['csrf' => $ut, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'trust_proxy' => '1']);
+$uc->post('/settings/security', ['csrf' => $ut, 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168', 'trust_proxy' => '1']);
 $udb = testdb($ud);
 $udb->exec('DELETE FROM auth_attempts');
 for ($i = 0; $i < 10; $i++) ($x = $us->client())->post('/login', ['csrf' => $x->csrf(), 'username' => 'root', 'password' => 'wrong'], [], ['X-Forwarded-For: 192.0.2.20']);

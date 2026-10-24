@@ -161,11 +161,37 @@ function request_is_https(): bool
     return $p === 'https';
 }
 
-/** Session cookie lifetime in seconds (setting “session_days”, 1–365). */
+/** Absolute session cookie lifetime in seconds (setting “session_days”, 1–365). Not extended by later visits. */
 function session_lifetime(): int
 {
     try { $d = (int)setting('session_days'); } catch (Throwable) { $d = 30; }
     return 86400 * max(1, min(365, $d ?: 30));
+}
+
+/** Idle limit in seconds (setting “session_idle_hours”, 1–8760). Default 168 hours. */
+function session_idle_seconds(): int
+{
+    try { $h = (int)setting('session_idle_hours'); } catch (Throwable) { $h = 168; }
+    return 3600 * max(1, min(8760, $h ?: 168));
+}
+
+/**
+ * True when this signed-in session has had no request for longer than session_idle_hours.
+ * A session with no stamp yet is not idle: this request is the first one recorded.
+ */
+function session_idle_expired(): bool
+{
+    if ((int)($_SESSION['uid'] ?? 0) <= 0) return false;
+    $last = (int)($_SESSION['last_activity'] ?? 0);
+    if ($last <= 0) return false;
+    return (app_time() - $last) > session_idle_seconds();
+}
+
+/** Remember this request on a signed-in session. Stored in the session file, not in the database. */
+function session_touch(): void
+{
+    if ((int)($_SESSION['uid'] ?? 0) <= 0) return;
+    $_SESSION['last_activity'] = app_time();
 }
 
 /**
@@ -209,15 +235,23 @@ function session_cookie_live(): bool
 }
 
 /**
- * Load an existing session (if the request has one), make sure it has a CSRF token, then release the lock so
- * parallel requests (images!) never queue. A request without a live session gets none here: 404s, branding,
- * redirects and other anonymous pages without a form leave nothing on disk (SEC-L2). The session starts on
- * demand when a form needs a token (csrf_token()) or someone signs in.
+ * Load an existing session (if the request has one), end it when the signed-in idle limit has passed, record
+ * this request as activity, make sure a CSRF token exists, then release the lock so parallel requests (images!)
+ * never queue. A request without a live session gets none here: 404s, branding, redirects and other anonymous
+ * pages without a form leave nothing on disk (SEC-L2). The session starts on demand when a form needs a token
+ * (csrf_token()) or someone signs in. Activity is stored in the session file.
  */
 function init_session(): void
 {
     if (!session_cookie_live()) return;
     start_session();
+    // Idle sign-out uses the same end as a manual sign-out: the request is no longer signed in.
+    if (session_idle_expired()) {
+        logout();
+        current_user(null, true);
+        return;
+    }
+    session_touch();
     if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
     session_write_close();
 }
@@ -251,6 +285,7 @@ function login_session(int $uid): void
     $_SESSION['uid'] = $u['id'];
     $_SESSION['auth_epoch'] = user_epoch($u);
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
+    $_SESSION['last_activity'] = app_time();
     session_write_close();
     current_user(null, true);
 }

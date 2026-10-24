@@ -65,8 +65,10 @@ return [
 | `trusted_proxies` | `TRUSTED_PROXIES` | *(none)* | bootstrap | Addresses or CIDR blocks of your own reverse proxies, comma-separated in the environment (`127.0.0.1, 192.0.2.0/24`). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in `trusted_proxies` / `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With `trust_proxy` on and an empty list, the connecting address is used. |
 
 The Control Panel adds more DB settings with built-in defaults only (accent, logo, theme, number/date/time formats,
-list sort/view, new-item defaults, loan period, saved-filter and photo limits, JPEG quality); see
-[control-panel.md](control-panel.md#sections).
+list sort/view, new-item defaults, loan period, saved-filter and photo limits, JPEG quality, and the sign-in limits
+`session_days` and `session_idle_hours`); see [control-panel.md](control-panel.md#sections). `session_days` (default
+30, at most 365) is how long the sign-in cookie lasts from sign-in. `session_idle_hours` (default 168, at most 8760)
+ends that sign-in after that many hours with no request. There is no `config.php` key for either.
 
 **AI autofill image bytes** (`autofill_max_image_bytes`) is one of those. It lives only in the `settings` table
 (Control Panel → AI autofill → Maximum image size). Default `auto`. There is no `config.php` key and no environment
