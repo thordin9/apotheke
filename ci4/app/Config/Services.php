@@ -87,6 +87,23 @@ class Services extends BaseService
     }
 
     /**
+     * CI4's session service is the native apothekesid session (#76 L-1): it
+     * never starts a second, handler-backed session beside the one that
+     * SessionCookie loads and SessionToken starts on demand, so CI4's timed
+     * id change can never end it. The config argument is ignored.
+     *
+     * @param \Config\Session|null $config
+     */
+    public static function session(?\Config\Session $config = null, bool $getShared = true): \CodeIgniter\Session\Session
+    {
+        if ($getShared) {
+            return static::getSharedInstance('session', $config);
+        }
+
+        return new \Apotheke\Core\Http\NativeSession();
+    }
+
+    /**
      * The request's user (legacy current_user()). It keeps nothing: each call
      * reads this request's $_SESSION and SettingsService again.
      */

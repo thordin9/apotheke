@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core;
 
 use Apotheke\Core\Filters\SessionCookie;
+use Apotheke\Core\Http\SessionGate;
 use Apotheke\Core\Http\SessionLifetime;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Settings\LocalBrandStore;
@@ -82,6 +83,44 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
         }
     }
 
+    /**
+     * #76 L-3: two requests in one worker process. The second has no cookie,
+     * so it must not see the first one's session (uid, epoch, CSRF token).
+     */
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testASecondRequestDoesNotSeeThePreviousSession(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            // SessionCookie keeps sessions under the environment's DATA_DIR.
+            $save = (string)getenv('DATA_DIR') . '/sessions';
+            @mkdir($save, 0775, true);
+            $id = str_repeat('f', 26);
+            file_put_contents($save . '/sess_' . $id, 'uid|i:3;auth_epoch|s:16:"0123456789abcdef";csrf|s:4:"tok1";last_seen|i:' . time() . ';');
+            $filter = new SessionCookie();
+
+            $this->request($filter, $database, null, [SessionGate::COOKIE => $id], false);
+            $this->assertSame(3, $_SESSION['uid'] ?? null, 'first request: its own session');
+            $this->assertSame('tok1', $_SESSION['csrf'] ?? null);
+
+            $this->request($filter, $database);
+            $this->assertSame([], $_SESSION, 'second request, no cookie: no session data');
+
+            $_SESSION = ['uid' => 3];
+            $this->request($filter, $database, null, [], true, 'healthz');
+            $this->assertSame([], $_SESSION, '/healthz starts empty too');
+
+            $_SESSION = ['uid' => 3];
+            $this->request($filter, $database, null, [SessionGate::COOKIE => str_repeat('a', 26)]);
+            $this->assertSame([], $_SESSION, 'a cookie whose session is gone loads nothing');
+        } finally {
+            Services::reset();
+            $database->drop();
+        }
+    }
+
     private function settings(TestDatabase $database): SettingsService
     {
         return new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'), new Clock(), $database->config->values(), static fn (string $m): null => null);
@@ -92,7 +131,8 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
      * request gets a new SettingsService, as CI4's worker mode does. Returns the
      * cookie lifetime it set.
      */
-    private function request(SessionCookie $filter, TestDatabase $database, ?SessionLifetime $shared = null): int
+    /** @param array<string,string> $cookies */
+    private function request(SessionCookie $filter, TestDatabase $database, ?SessionLifetime $shared = null, array $cookies = [], bool $noSession = true, string $path = 'items'): int
     {
         Services::reset();
         Services::injectMock('settings', $this->settings($database));
@@ -100,10 +140,16 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
             Services::injectMock('sessionLifetime', $shared);
         }
         $config = config(App::class);
-        $request = new IncomingRequest($config, new SiteURI($config, 'items'), null, new UserAgent());
+        $request = new IncomingRequest($config, new SiteURI($config, $path), null, new UserAgent());
+        $request->setGlobal('cookie', $cookies);
+        // PHP's session_start() reads the id from $_COOKIE, as on a web request.
+        $_COOKIE = $cookies;
         $this->assertNull($filter->before($request));
-        // No session cookie, so no session is started (SEC-L2); the settings are in place for one.
+        // The session is released right after loading; without a live cookie none is started (SEC-L2).
         $this->assertNotSame(PHP_SESSION_ACTIVE, session_status());
+        if ($noSession) {
+            $this->assertSame([], $_SESSION);
+        }
         $lifetime = session_get_cookie_params()['lifetime'];
         $this->assertSame((string)$lifetime, ini_get('session.gc_maxlifetime'));
 

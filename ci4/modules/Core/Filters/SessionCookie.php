@@ -22,13 +22,20 @@ use Throwable;
  * init_session() on main); SessionToken starts one on demand. CI4's Session
  * service is configured to match, and PHP's session API does the work. The
  * lifetime follows session_days (SEC-N9); the Secure flag follows trust_proxy
- * and public_url (legacy session_cookie_secure()).
+ * and public_url (legacy session_cookie_secure()). Each request starts with
+ * an empty $_SESSION, so a worker never carries one over (#76 L-3).
  */
 final class SessionCookie implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null): null
     {
-        if ($this->isHealth($request) || $this->isPublicAsset($request) || session_status() === PHP_SESSION_ACTIVE) {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            return null;
+        }
+        // #76 L-3: a long-lived worker keeps $_SESSION from the previous request.
+        // Every request starts without one; only a live cookie loads it again.
+        $_SESSION = [];
+        if ($this->isHealth($request) || $this->isPublicAsset($request)) {
             return null;
         }
         $config = ApothekeConfig::fromEnvironment();

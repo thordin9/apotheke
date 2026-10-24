@@ -81,6 +81,35 @@ final class AccountActionsTest extends CIUnitTestCase
         $this->assertFalse($user->isAdmin());
     }
 
+    /**
+     * Main #77 / #79 QA L-1: the anonymous guest is never admin on the web, even
+     * when it carries the admin role. CI4 has no SAPI branch: this runs on the
+     * CLI SAPI, where main's rule would say admin, and CurrentUser still says no.
+     * Only the explicit CommandLine actor is admin on the command line.
+     */
+    #[DataProvider('drivers')]
+    public function testTheAnonymousGuestIsNeverAdmin(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $user = $this->currentUser();
+        $this->assertSame('cli', PHP_SAPI);
+        $guest = ['id' => null, 'username' => '', 'role' => 'admin', 'status' => 'active', 'guest' => true, 'anon' => true];
+        $this->assertFalse($user->admits($guest), 'an anonymous guest with the admin role');
+        $this->assertFalse($user->admits(null), 'nobody');
+        $this->assertTrue($user->admits(['anon' => false] + $guest), 'sign-in off: the anonymous admin');
+        $this->assertTrue((new CommandLine())->isAdmin());
+
+        $this->account('root', 'admin');
+        $this->signInOn();
+        $this->settings(new CommandLine())->store(['auth_guest_disabled' => false]);
+        $this->assertTrue($user->resolve()['anon'] ?? false);
+        $this->assertFalse($user->isAdmin());
+        $file = (string)json_encode(['format' => 'apotheke-settings', 'settings' => ['session_days' => 7, 'trust_proxy' => true]]);
+        $this->assertSame(['session_days', 'trust_proxy'], $this->settings($user)->import($file)['ignored'], 'guest browsing: the web guest imports no sign-in settings');
+        $this->assertSame([], $this->settings(new CommandLine())->import($file)['ignored'], 'the command line does');
+        $this->assertSame([7, true], [$this->settings()->get('session_days'), $this->settings()->get('trust_proxy')]);
+    }
+
     #[DataProvider('drivers')]
     public function testOnlyAnAdminImportsSignInSettings(string $driver): void
     {

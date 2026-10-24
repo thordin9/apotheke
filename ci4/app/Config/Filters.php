@@ -42,6 +42,8 @@ class Filters extends BaseFilters
         'session' => \Apotheke\Core\Filters\SessionCookie::class,
         // Host allow-list (SEC-M3): 421 for an unknown name, before /healthz.
         'hostcheck' => \Apotheke\Core\Filters\HostFilter::class,
+        // CI4's base URL from public_url / PUBLIC_URL and trust_proxy, per request (#76 L-2).
+        'publicbase' => \Apotheke\Core\Filters\PublicBaseFilter::class,
         // Sign-in off: non-safe requests from another site get 403 (SEC-M3), on every path.
         'sameorigin' => \Apotheke\Core\Filters\SameOriginFilter::class,
         // Legacy check_csrf() (session token). CI4's cookie CSRF ('csrf') stays off.
@@ -67,6 +69,7 @@ class Filters extends BaseFilters
             'harness',
             'originalsguard',
             'hostcheck',
+            'publicbase',
             'posttoolarge',
             'session',
             'sameorigin',

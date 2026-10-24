@@ -111,13 +111,14 @@ Shown as during the branch (`ci4/`). After cutover the same tree sits at the roo
 ```
 ci4/
   app/                         thin CI4 shell: only framework glue
-    Config/  App.php (no database read; allowedHostnames from PUBLIC_URL + ALLOWED_HOSTS, baseURL from PUBLIC_URL or
-             an allowed Host, else localhost, SEC-M3; proxyIPs EMPTY — see Core/Http/RequestScheme and ClientAddress;
+    Config/  App.php (no database read; allowedHostnames from PUBLIC_URL + ALLOWED_HOSTS, fallback baseURL from
+             PUBLIC_URL or an allowed Host, else localhost, SEC-M3; the publicbase filter sets the per-request base
+             from the public_url setting and trust_proxy, #76 L-2; proxyIPs EMPTY — see Core/Http/RequestScheme and ClientAddress;
              trust_proxy and public_url are read through the request's SettingsService on CI4's connection, #74 N-2)
              Autoload.php (PSR-4 Apotheke\ => modules/), Database.php (built by Core DatabaseFactory),
              Filters.php, Routing.php (autoRoute off), Session.php (FileHandler, DATA_DIR/sessions, cookie
              apothekesid, Secure flag from RequestScheme, lifetime from session_days through Core/Http/SessionLifetime,
-             SEC-N9), Security.php (CI4 CSRF off), Toolbar.php (off outside
+             SEC-N9; the session service is Core/Http/NativeSession and never starts its own session, #76 L-1), Security.php (CI4 CSRF off), Toolbar.php (off outside
              development), Exceptions.php (UserError → 4xx; else 500 "Server error"), Services.php (factories only)
   modules/
     Core/        Config/ApothekeConfig (defaults < config.php < env, same env map incl. DB_DSN, ORIGINALS_DIR)
@@ -133,8 +134,10 @@ ci4/
                    session token from the `csrf` field or `X-CSRF-Token`, 419; never starts a session),
                    HostFilter (required, before session: Host allow-list of hosts.php, 421 without echoing the name;
                    IP literals, localhost/*.localhost, the container name, PUBLIC_URL's host, ALLOWED_HOSTS, `*` = off;
-                   /healthz included, SEC-M3), SessionCookie (cookie params; resumes only an existing, well-formed
-                   session, ends it after session_days without a request, SEC-L2/SEC-N6), SameOriginFilter (sign-in
+                   /healthz included, SEC-M3), PublicBaseFilter (required, after hostcheck: CI4's base URL from
+                   public_url / PUBLIC_URL, else the scheme with trust_proxy and an allowed Host, legacy public_url(),
+                   #76 L-2), SessionCookie (empty $_SESSION per request, #76 L-3; cookie params; resumes only an
+                   existing, well-formed session, ends it after session_days without a request, SEC-L2/SEC-N6), SameOriginFilter (sign-in
                    off: a non-safe method needs a same-origin Sec-Fetch-Site or Origin, else 403; neither header is
                    allowed, SEC-M3)
                  Http/HostAllowList + HostCheck, SameOrigin, SessionGate (resume/idle), SessionToken (csrf_token(),
@@ -510,6 +513,7 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
 
 ## Changelog of this plan
 
+* **PR 7a follow-up, sessions and base URL (2026-10-24):** CI4's `session` service is `NativeSession`, so an HTML answer never starts a second session beside the native one (#76 L-1). The `publicbase` filter builds CI4's base URL per request from `public_url` (default `PUBLIC_URL`) and `trust_proxy`, as legacy `public_url()`; the token form's 303 sends a relative `Location` (#76 L-2, #69 I-5). `SessionCookie` starts every request with an empty `$_SESSION` (#76 L-3). `CurrentUser` never counts the anonymous guest as admin, and a CLI test imports sign-in settings with guest browsing on (main #77, #76 N-1). `ALLOWED_HOSTS` and `TRUSTED_PROXIES` are in `docs/configuration.md` (#76 N-2); the `/healthz` wording is fixed (#76 N-3).
 * **PR 7a, request and auth hardening (2026-10-24):** Host allow-list (421) and same-origin writes with sign-in off (SEC-M3); sessions start on demand and are resumed only when the cookie names an existing session (SEC-L2); an idle session ends after `session_days` without a request, and "sign out everywhere" renews the session epoch by rehashing the password, with no schema change (SEC-N6); `SettingsService` takes an `ActorGate` and `import()` ignores the security section for non-admins (SEC-M1); `TRUSTED_PROXIES` and `ClientAddress` (SEC-M2). `Config\App` no longer opens a connection; `trust_proxy` is read through the shared `SettingsService` (#74 N-2). `FilterStateTest` rejects static locals in filters and `Services` factories (#74 L-1). `/backup/restore/check` arrives with the Backup module. Login, Users and the sign-out UI arrive with PR 7.
 * **PR 6, Settings core (2026-10-24):** `SettingsSchema` is the single source of the 62 keys; `settings_schema`, `setting_default` and `setting_validate` in `LegacyFunctions.php` delegate to it and `settings_cache` keeps no state. `SettingsService` replaces the static cache. `/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/{file}` are byte-identical to legacy. `apotheke:settings` covers 6 of the 19 forms (goldens compare argv → stdout, stderr, exit code and the `settings` rows); the account and sign-in forms move to PR 7 with the Auth module. `Services::apothekeDb` migrates once per process (`BootMigration`). Deptrac: Settings → Core; Migrations → Core, Settings. Not here: Control Panel pages, `/settings/export.json`, `/settings/import`, logo upload.
 * **PR 4 (2026-10-20):** CodeIgniter 4.7.5 skeleton and Core (`ApothekeConfig`, `DsnTranslator`, `DatabaseFactory`, `RequestScheme`, `OriginalsGuard`, security filters, `StoragePreflight`, DevServer router, `/healthz`, `/health`). The ci4 leg runs PHPUnit. deptrac and the DI rule check Core and DevServer from `vendor/bin`. Issue #33 stays on `main`.

@@ -229,6 +229,32 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertSame(0, (int)testdb($right)->query('SELECT COUNT(*) FROM users')->fetchColumn());
     }
 
+    /**
+     * #76 N-1 (main #77): with sign-in and guest browsing on, the current user on
+     * the command line is the anonymous guest, yet the command line still imports
+     * sign-in settings. CI4 passes the CommandLine actor, never the request's user.
+     */
+    public function testTheCommandLineImportsSignInSettingsWithGuestBrowsingOn(): void
+    {
+        [, $right] = $this->twins('cli-guest');
+        $this->cli($right, ['list'], true);
+        $db = testdb($right);
+        $db->prepare('INSERT INTO users (username, username_key, password_hash, role, created_at) VALUES (?,?,?,?,?)')
+            ->execute(['root', 'root', password_hash('placeholder-pass', PASSWORD_DEFAULT), 'admin', '2026-01-01 00:00:00']);
+        foreach (['auth_enabled' => 'true', 'auth_guest_disabled' => 'false'] as $name => $value) {
+            $db->prepare('DELETE FROM settings WHERE name = ?')->execute([$name]);
+            $db->prepare("INSERT INTO settings (name, value, updated_at) VALUES (?, ?, '2026-01-01')")->execute([$name, $value]);
+        }
+        $import = '{"format":"apotheke-settings","settings":{"session_days":7,"trust_proxy":true,"auth_register_disabled":false}}';
+        $r = $this->cli($right, ['import'], true, $import);
+        $this->assertSame(['Imported 3 settings.' . "\n", '', 0], [$r['stdout'], $r['stderr'], $r['exit']], 'bin/settings.php');
+        $rows = $this->settingsRows($right);
+        $this->assertSame(['7', 'true', 'false'], [$rows['session_days'][0] ?? null, $rows['trust_proxy'][0] ?? null, $rows['auth_register_disabled'][0] ?? null]);
+        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:settings', '--no-header', 'import'], $this->env($right, true), '{"format":"apotheke-settings","settings":{"session_days":9}}');
+        $this->assertSame(['Imported 1 settings.' . "\n", 0], [$r['stdout'], $r['exit']], 'spark');
+        $this->assertSame('9', $this->settingsRows($right)['session_days'][0] ?? null);
+    }
+
     /** Spark-only behaviour of apotheke:settings (bin/settings.php keeps these forms on legacy). */
     public function testSparkEntryPoint(): void
     {

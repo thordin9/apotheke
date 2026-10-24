@@ -52,6 +52,23 @@ final class CurrentUser implements ActorGate
     /** Legacy actor_is_admin() for a web request: the anonymous admin (sign-in off) or an admin account. */
     public function isAdmin(): bool
     {
-        return ($this->resolve()['role'] ?? '') === 'admin';
+        return $this->admits($this->resolve());
+    }
+
+    /**
+     * Main's actor_is_admin() rule (#77, #79) for a resolved user: nobody and
+     * the anonymous guest are never admin, whatever role they carry. This is
+     * the web actor on every SAPI. The command line is admin only as the
+     * explicit CommandLine actor, so there is no SAPI check here.
+     *
+     * @param array{role?:string,anon?:bool}|null $user
+     */
+    public function admits(?array $user): bool
+    {
+        if ($user === null || !empty($user['anon'])) {
+            return false;
+        }
+
+        return ($user['role'] ?? '') === 'admin';
     }
 }
