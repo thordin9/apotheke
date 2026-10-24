@@ -40,7 +40,10 @@ class Services extends BaseService
         }
         $config = static::apothekeConfig();
         \Apotheke\Migrations\BootMigration::ensure($config);
-        \Apotheke\Core\Boot\FrameworkWiring::apply($config);
+        if (is_cli()) {
+            // spark fires no pre_system; on the web Events.php has already wired the group.
+            \Apotheke\Core\Boot\FrameworkWiring::apply($config);
+        }
         $dbConfig = $config->database();
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, new \Apotheke\Core\Config\DsnTranslator());
         try {
