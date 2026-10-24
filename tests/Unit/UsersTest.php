@@ -160,6 +160,47 @@ final class UsersTest extends DatabaseTestCase
         }
     }
 
+    public function testCommandLineIsAdminWhenGuestBrowsingIsOn(): void
+    {
+        $this->assertSame('cli', PHP_SAPI);
+        $root = user_create('root', 'long-enough', 'admin');
+        $editor = user_create('ed', 'long-enough', 'editor');
+        $deskRole = role_create('Helpdesk', ['view', 'users']);
+        $desk = user_create('desk', 'long-enough', $deskRole);
+        auth_turn_on();
+        settings_store(['auth_guest_disabled' => false]);
+        settings_cache(null, true);
+        current_user(null, true);
+        try {
+            $guest = current_user();
+            $this->assertSame(['guest', true, true], [$guest['role'], $guest['guest'], $guest['anon']], 'guest browsing is the current user on the command line');
+            $this->assertTrue(actor_is_admin(), 'the command line is an admin when the current user is the anonymous guest');
+            user_set_password($root, 'fresh-pass');
+            $this->assertNotNull(user_verify('root', 'fresh-pass'), 'the command line can change an admin password');
+            user_set_role($editor, 'admin');
+            $this->assertSame('admin', user_get($editor)['role'], 'the command line can grant admin');
+
+            current_user(user_get($desk) + ['guest' => false, 'anon' => false]);
+            $this->assertFalse(actor_is_admin(), 'a signed-in non-admin is still not an admin');
+            try {
+                user_set_password($root, 'other-pass');
+                $this->fail('a signed-in non-admin changed an admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertNotNull(user_verify('root', 'fresh-pass'));
+            try {
+                user_set_role($desk, 'admin');
+                $this->fail('a signed-in non-admin granted admin');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertSame($deskRole, user_get($desk)['role']);
+        } finally {
+            current_user(null, true);
+        }
+    }
+
     public function testPasswordChangeInvalidatesEpoch(): void
     {
         $id = user_create('pat', 'long-enough', 'viewer');
