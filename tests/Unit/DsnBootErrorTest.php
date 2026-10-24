@@ -27,7 +27,7 @@ final class DsnBootErrorTest extends TestCase
                 'log' => 'Database pgsql host=db.example port=5432 dbname=catalog',
                 'absent' => ['s9d44', 'password', 'mysql'],
             ],
-            // Spaces around "=" are the password, as libpq does, so the DSN is valid.
+            // Spaces around "=" are allowed, as libpq does, so the DSN is valid.
             // startup.php does not connect: boot goes on (the harness router then
             // sends an empty 200) and nothing is logged. The canary and the word
             // password stay out of the body, the log, and stderr.
