@@ -200,9 +200,60 @@ to the sign-in page don't create one, and a session cookie whose session no long
 
 In the Docker image, nginx asks the app (`/backup/restore/check`, through `auth_request`) before it accepts a
 restore upload. Only a signed-in user with the Backup permission (or anyone while sign-in is off) may send the up to
-520 MB body; anyone else gets 401 or 403 before the body is read. A server you set up yourself keeps the 22 MB
-limit everywhere unless you raise it for `/backup/restore`; copy the `auth_request` part of
-[`docker/nginx.conf`](../docker/nginx.conf) if you do, or restore large archives with `bin/restore.php`.
+520 MB body; anyone else gets 401 or 403 before the body is read.
+
+**Self-hosted nginx (without the Docker image).** Keep the 22 MB limit everywhere and restore large archives with
+`bin/restore.php`, or raise the limit for `/backup/restore` only behind the same check:
+
+1. Check that your nginx has the `auth_request` module: `nginx -V 2>&1 | grep -o with-http_auth_request_module`
+   must print the module name (Debian, Ubuntu and Alpine packages include it).
+2. Add both locations below to the `server` block that serves Apotheke, next to your front-controller location.
+   Replace `php` in `fastcgi_pass` with your PHP-FPM upstream or socket, and include your own FastCGI settings in the
+   first location (the Docker image uses [`docker/fastcgi.conf`](../docker/fastcgi.conf)). Keep
+   `client_max_body_size 520m` in **both** locations: the check is a subrequest that sees the upload's
+   `Content-Length`, and with a smaller limit nginx refuses the check itself and answers 500.
+
+   ```nginx
+   location = /backup/restore {
+       auth_request /_restore_check;
+       client_max_body_size 520m;
+       client_body_timeout 300s;
+       fastcgi_read_timeout 300s;
+       fastcgi_send_timeout 300s;
+       include /etc/nginx/apotheke-fastcgi.conf;   # your FastCGI settings for public/index.php
+       fastcgi_param PHP_VALUE "upload_max_filesize=512M
+   post_max_size=520M
+   max_execution_time=300";
+   }
+   location = /_restore_check {
+       internal;
+       client_max_body_size 520m;
+       fastcgi_pass php;
+       fastcgi_pass_request_body off;
+       fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+       fastcgi_param SCRIPT_NAME /index.php;
+       fastcgi_param DOCUMENT_ROOT $document_root;
+       fastcgi_param GATEWAY_INTERFACE CGI/1.1;
+       fastcgi_param SERVER_PROTOCOL $server_protocol;
+       fastcgi_param REQUEST_METHOD GET;
+       fastcgi_param REQUEST_URI /backup/restore/check;
+       fastcgi_param QUERY_STRING "";
+       fastcgi_param CONTENT_TYPE "";
+       fastcgi_param CONTENT_LENGTH "";
+       fastcgi_param REMOTE_ADDR $remote_addr;
+       fastcgi_param SERVER_ADDR $server_addr;
+       fastcgi_param SERVER_PORT $server_port;
+       fastcgi_param SERVER_NAME $server_name;
+       fastcgi_param HTTPS $https if_not_empty;
+       fastcgi_param PATH_INFO "";
+       fastcgi_param HTTP_PROXY "";
+   }
+   ```
+
+3. Run `nginx -t`, then reload nginx.
+4. Check it: `curl -s -o /dev/null -w '%{http_code}\n' https://apotheke.example/backup/restore/check` prints `401`
+   while signed out (or `204` with sign-in off), and a large restore upload while signed out gets `401` at once.
+   [`scripts/docker-auth-checks.sh`](../scripts/docker-auth-checks.sh) runs the full set of checks.
 
 ### ImageMagick policy
 
