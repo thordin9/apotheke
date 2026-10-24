@@ -45,7 +45,7 @@ php bin/migrate.php
 php -S 127.0.0.1:9091 -t public public/index.php
 ```
 
-Optional password: `APP_PASSWORD`. Optional Postgres: set `DB_DRIVER=pgsql` and use the Compose `postgres` profile (see README).
+Password: `APP_PASSWORD` (the Docker image refuses to start with sign-in off unless `ALLOW_NO_LOGIN=1`; compose binds `127.0.0.1:9091`). Optional Postgres: set `DB_DRIVER=pgsql` and use the Compose `postgres` profile (see README).
 
 **Note:** Compose only mounts `./data`. Code changes require `docker compose up -d --build` (or a bind-mount) to appear in the container.
 

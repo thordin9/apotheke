@@ -50,7 +50,7 @@ docker run --rm --entrypoint php \
   "$image" /imagick_color_check.php
 
 echo "== php-fpm refusal hides the filesystem path"
-docker run -d --name "$name" -p "127.0.0.1:${port}:9091" \
+docker run -d --name "$name" -p "127.0.0.1:${port}:9091" -e ALLOW_NO_LOGIN=1 \
   -e ORIGINALS_DIR=/var/www/app/public/camera-private \
   "$image" >/dev/null
 
