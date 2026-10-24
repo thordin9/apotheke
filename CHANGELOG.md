@@ -7,6 +7,18 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+**Upgrade note:** Apotheke now answers only to IP addresses, `localhost`, the machine's own host name, the host of
+`PUBLIC_URL` and the names in the new `ALLOWED_HOSTS` setting. Any other host name gets *Unknown host name* (421).
+If you open the app by a name, for example `http://nas.local:9091` or `https://apotheke.example`, add that name
+before you upgrade (comma-separated; ports are ignored):
+
+```
+ALLOWED_HOSTS=nas.local,apotheke.example
+```
+
+Setting `PUBLIC_URL` to that address works too. Opening the app by its IP address needs no change. Details:
+[Host names](https://github.com/thordin9/apotheke/blob/main/docs/deployment-and-operations.md#host-names).
+
 ### Fixed
 
 - **security:** hardening (SEC-M3): the app answers only to IP addresses, `localhost`, its own host name, `PUBLIC_URL`'s host and the new `ALLOWED_HOSTS` list; other host names get 421, and label links never use an unlisted host. With sign-in off, a change must come from the app's own pages (`Sec-Fetch-Site` or `Origin`); requests without either header still work. If you open the app by a name, add it to `ALLOWED_HOSTS` or set `PUBLIC_URL`. ([#70](https://github.com/thordin9/apotheke/pull/70))
