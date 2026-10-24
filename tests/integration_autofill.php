@@ -303,6 +303,11 @@ $afSet(['autofill_url' => $stub->base, 'autofill_timeout' => 5]);
 $stub->clear();
 $r = $suggest(['image' => ['name' => 'x.heic', 'type' => 'image/heic', 'data' => "\x00\x00\x00\x18ftypheic" . str_repeat('x', 500)]]);
 T::ok(($r['json']['code'] ?? '') === 'unsupported' && str_contains($r['json']['message'] ?? '', 'cannot be read as a photo') && $stub->last() === null, 'unreadable HEIC is not sent');
+$stub->clear();
+$overJpeg = "\xFF\xD8\xFF\xC0" . pack('n', 11) . "\x08" . pack('n', 15632) . pack('n', 16000) . "\x01\x01\x11\x00";
+$r = $suggest(['image' => ['name' => 'over.jpg', 'type' => 'image/jpeg', 'data' => $overJpeg]]);
+T::eq(422, $r['status'], 'over-limit JPEG on /autofill/suggest → 422');
+T::ok(($r['json']['error'] ?? '') === 'Image dimensions are too large.' && ($r['json']['message'] ?? '') === 'Image dimensions are too large.' && $stub->last() === null, 'over-limit JPEG is the dimension error and is not sent', $r['body']);
 foreach (['doc.pdf' => "%PDF-1.7\n" . str_repeat('x', 500), 'notes.txt' => 'hello'] as $fn => $data) {
     $stub->clear();
     $r = $suggest(['image' => ['name' => $fn, 'type' => 'application/octet-stream', 'data' => $data]]);
