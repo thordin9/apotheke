@@ -36,6 +36,9 @@ final class PdoMigrationRunner
         return dirname(__DIR__, 3);
     }
 
+    /** Warn once per PHP process (a request under php-fpm or php -S, one run under spark); config does not change within it. */
+    private static bool $warnedCredentialsDiffer = false;
+
     /** @param array<string,mixed> $db */
     public function connect(array $db): PDO
     {
@@ -50,7 +53,8 @@ final class PdoMigrationRunner
             } catch (DsnException $e) {
                 throw new MigrateConnectException($e->getMessage());
             }
-            if ($differs) {
+            if ($differs && !self::$warnedCredentialsDiffer) {
+                self::$warnedCredentialsDiffer = true;
                 error_log('[apotheke] ' . self::CREDENTIALS_DIFFER);
             }
         }

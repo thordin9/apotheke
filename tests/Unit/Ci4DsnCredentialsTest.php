@@ -119,6 +119,8 @@ final class Ci4DsnCredentialsTest extends TestCase
         $pgpass = getenv('PGPASSWORD');
         putenv('PGPASSWORD');
         putenv('PGPASSFILE=/nonexistent');
+        // A fresh process: the differing-credentials warning has not been logged yet.
+        (new ReflectionProperty(PdoMigrationRunner::class, 'warnedCredentialsDiffer'))->setValue(null, false);
         try {
             $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
             foreach ($cases as $label => [$dsnString, $user, $password, $expected]) {
@@ -138,7 +140,8 @@ final class Ci4DsnCredentialsTest extends TestCase
         }
         $logged = (string)file_get_contents($log);
         unlink($log);
-        $this->assertSame(3, substr_count($logged, PdoMigrationRunner::CREDENTIALS_DIFFER), $logged);
+        // a, c and d differ; the warning is logged once per process, not per connect.
+        $this->assertSame(1, substr_count($logged, PdoMigrationRunner::CREDENTIALS_DIFFER), $logged);
         foreach ($this->roles as $role) {
             $this->assertStringNotContainsString($role['password'], $logged);
             $this->assertStringNotContainsString($role['user'], $logged);
