@@ -111,8 +111,36 @@ if (!function_exists('ci4_test_arm_session_on_demand')) {
     }
 }
 
+if (!function_exists('ci4_test_arm_html_page')) {
+    /**
+     * Test only. CI4 has no HTML page yet. APOTHEKE_TEST_HTML_PAGE=1 adds
+     * GET /test-html-page, a text/html answer that prints base_url('labels'),
+     * so the tests can see what an HTML response does to the session (#76
+     * L-1) and which base URL CI4 builds (#76 L-2).
+     */
+    function ci4_test_arm_html_page(): void
+    {
+        if (getenv('APOTHEKE_TEST_HTML_PAGE') !== '1') {
+            return;
+        }
+        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        \CodeIgniter\Events\Events::on(
+            'pre_system',
+            static function (): void {
+                \Config\Services::routes()->get('test-html-page', static function (): string {
+                    helper('url');
+
+                    return '<!doctype html><title>test</title><p>' . htmlspecialchars(base_url('labels')) . '</p>';
+                });
+            },
+            \CodeIgniter\Events\Events::PRIORITY_LOW
+        );
+    }
+}
+
 ci4_test_arm_pgsql_probe();
 ci4_test_arm_wrong_ci4_password();
 ci4_test_arm_session_on_demand();
+ci4_test_arm_html_page();
 
 return require dirname(__DIR__) . '/ci4/public/router.php';
