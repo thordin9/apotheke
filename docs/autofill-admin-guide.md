@@ -161,12 +161,12 @@ The frame has its own limit, and it depends on the format. A JPEG of at most 250
 and a size hint, so the decoded frame stays within 128 megapixels. That keeps a 48 MP phone JPEG and a 200 MP
 sensor JPEG (16384×12288). The camera file in `originals/` stays byte-identical, and the copy on screen is
 still reduced to the full-size long edge. A larger JPEG is refused from the header, before it is decoded.
-HEIC and HEIF are not decoded already reduced, so a HEIC photo above 128 megapixels, or above 16,384 px on a
+HEIC and HEIF are not decoded already reduced, so a HEIC photo above 128 megapixels, or above 20,000 px on a
 side, is refused from the header with the same message, before any pixels are read. A 48 MP HEIC is still
 accepted. PNG, WebP and GIF photos above 40 megapixels are refused, because those formats are decoded in full.
 Photos at or under 40 megapixels still go through GD. HEIC/HEIF uses Imagick with the format named explicitly.
 Imagick's limits are set when the app starts, to the same bounds as the server policy: memory 256 MiB, map
-256 MiB, disk 1 GiB, area 128 megapixels, width and height 16,384 px. A frame those limits refuse — including
+256 MiB, disk 1 GiB, area 128 megapixels, width and height 20,000 px (ImageMagick 20KP, the same value as policy.xml). A frame those limits refuse — including
 a tighter limit configured on the server, or a HEIC frame the decoder will not allocate — is declined with the
 same message as an oversized photo. It is not decoded, and the camera file is not kept.
 
