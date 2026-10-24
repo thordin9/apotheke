@@ -107,4 +107,12 @@ $ltok = preg_match('/name="csrf" value="([a-f0-9]+)"/', $r['body'], $lm) ? $lm[1
 T::eq(303, $anon->post('/login', ['csrf' => $ltok, 'username' => 'admin', 'password' => 's3cret'])['status'], 'sign-in works with the on-demand session');
 T::eq(204, $anon->get('/backup/restore/check')['status'], 'restore check → 204 for an admin');
 T::eq(200, $anon->get('/backup')['status'], 'signed-in pages work');
+// a signed-in user without the Backup permission (#70 N-1)
+$r = $anon->post('/settings/users', ['csrf' => $anon->csrf(), 'username' => 'eddie', 'role' => 'editor', 'new' => 'eddie-password', 'confirm' => 'eddie-password']);
+T::ok(str_contains($r['headers']['location'] ?? '', 'done=user-added'), 'editor account added');
+$ed = new Client($s3->base);
+$ed->post('/login', ['csrf' => $ed->csrf(), 'username' => 'eddie', 'password' => 'eddie-password']);
+T::eq(403, $ed->get('/backup')['status'], 'the editor has no Backup permission');
+$r = $ed->get('/backup/restore/check');
+T::ok($r['status'] === 403 && $r['body'] === '', 'restore check → 403 for a signed-in user without Backup');
 $s3->stop();
