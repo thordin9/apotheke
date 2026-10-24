@@ -2388,6 +2388,7 @@ T::eq(2, (int)$p->query('PRAGMA user_version')->fetchColumn(), 'database left at
 T::eq(0, (int)$p->query("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('categories', 'schema_migrations')")->fetchColumn(), 'partial changes rolled back (no categories, no schema_migrations)');
 T::eq(3, (int)$p->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'no items lost');
 
+require __DIR__ . '/integration_hardening.php';
 require __DIR__ . '/integration_autofill.php';
 
 exit(T::summary());

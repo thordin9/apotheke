@@ -19,6 +19,7 @@ Human docs: [README](README.md) and [`docs/`](docs/index.md). Feature workflow: 
 public/index.php          front controller / router (treats HEAD like GET for reads)
 public/assets/            app.css, app.js, theme.js, icons
 src/bootstrap.php         sessions, auth, CSRF, helpers (incl. item_noun / stats_brief / no_store)
+src/hosts.php             Host allow-list, same-origin rule for no-login mode
 src/config.php            config loader (defaults < config.php < env)
 src/db.php                PDO, dialects, migrations
 src/items.php             domain: items, locations, categories, search, images

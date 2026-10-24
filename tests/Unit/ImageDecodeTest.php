@@ -35,6 +35,31 @@ final class ImageDecodeTest extends DatabaseTestCase
         $this->assertSame(1024 * 1024 * 1024, IMAGICK_LIMIT_DISK);
     }
 
+    /** The shipped policy and the CI check use the same side cap as IMAGE_HEIC_MAX_SIDE. */
+    public function testShippedPolicySideCapMatchesHeicConstant(): void
+    {
+        $this->assertShippedPolicyMatchesHeicSideCap();
+    }
+
+    private function assertShippedPolicyMatchesHeicSideCap(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $policy = (string)file_get_contents($root . '/docker/imagemagick-policy.xml');
+        $this->assertSame(1, preg_match('/name="width" value="(\d+)"/', $policy, $width));
+        $this->assertSame(1, preg_match('/name="height" value="(\d+)"/', $policy, $height));
+        $this->assertSame(1, preg_match('/name="area" value="([^"]+)"/', $policy, $area));
+        $this->assertSame((string)IMAGE_HEIC_MAX_SIDE, $width[1]);
+        $this->assertSame((string)IMAGE_HEIC_MAX_SIDE, $height[1]);
+        $this->assertSame('128MP', $area[1]);
+        $check = (string)file_get_contents($root . '/scripts/imagick-policy-check.php');
+        $this->assertSame(1, preg_match("/'WIDTH' => (\d+)/", $check, $checkW));
+        $this->assertSame(1, preg_match("/'HEIGHT' => (\d+)/", $check, $checkH));
+        $this->assertSame(1, preg_match("/'AREA' => (\d+)/", $check, $checkA));
+        $this->assertSame(IMAGE_HEIC_MAX_SIDE, (int)$checkW[1]);
+        $this->assertSame(IMAGE_HEIC_MAX_SIDE, (int)$checkH[1]);
+        $this->assertSame(IMAGE_HEIC_MAX_PIXELS, (int)$checkA[1]);
+    }
+
     public function testSmallJpegUsesGdOnly(): void
     {
         $jpeg = $this->solidJpeg(40, 32);

@@ -190,6 +190,26 @@ final class ReleaseTest extends TestCase
         $this->assertStringContainsString('[9.9.9]: https://github.com/o/r/compare/v1.0.0...v9.9.9', $out);
     }
 
+    public function testTextBeforeTheFirstHeadingOpensTheReleaseNotes(): void
+    {
+        $cl = "# Changelog\n\n## [Unreleased]\n\n**Upgrade note:** set X first.\n\n```\nX=nas.local\n```\n\n### Fixed\n\n- kept ([#7](" . self::URL . "/pull/7))\n\n## [1.0.0] - 2026-10-01\n\n- old\n\n[Unreleased]: " . self::URL . "/compare/v1.0.0...HEAD\n";
+        $out = rel_changelog_insert($cl, "## [1.1.0] - 2026-10-13\n\n### Fixed\n\n- generated\n", '1.1.0', 'v1.0.0', self::URL);
+        $notes = rel_release_notes($out, '1.1.0', self::URL . '/compare/v1.0.0...v1.1.0');
+        $this->assertStringStartsWith("**Upgrade note:** set X first.\n\n```\nX=nas.local\n```\n\n### Fixed\n", $notes);
+        $this->assertSame([], rel_unreleased_missing_pr_links($cl), 'a paragraph and a code block need no PR link');
+    }
+
+    public function testRealChangelogUpgradeNoteLeadsTheNextReleaseNotes(): void
+    {
+        $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
+        if (!preg_match('/^## \[Unreleased\]\n\n\*\*Upgrade note:\*\*/m', $cl)) $this->markTestSkipped('no upgrade note under Unreleased');
+        $out = rel_changelog_insert($cl, "## [9.9.9] - 2099-01-01\n\n### Fixed\n\n- x\n", '9.9.9', 'v1.0.0', self::URL);
+        $notes = rel_release_notes($out, '9.9.9', self::URL . '/compare/v1.0.0...v9.9.9');
+        $this->assertStringStartsWith('**Upgrade note:**', $notes);
+        $this->assertStringContainsString("ALLOWED_HOSTS=nas.local,apotheke.example\n", $notes);
+        $this->assertLessThan(strpos($notes, '### Fixed'), strpos($notes, 'ALLOWED_HOSTS='));
+    }
+
     public function testCommitsFromAGitHistory(): void
     {
         $d = sys_get_temp_dir() . '/reltest-' . bin2hex(random_bytes(4));

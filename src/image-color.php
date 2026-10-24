@@ -10,7 +10,7 @@ declare(strict_types=1);
  * jpeg:size decodes it already reduced, and the decoded frame stays within 128 megapixels.
  * HEIC/HEIF has no reduced decode, so the header stops at the same bounds as the ImageMagick policy:
  * IMAGE_HEIC_MAX_PIXELS is 128 megapixels and IMAGE_HEIC_MAX_SIDE is 16,384 px.
- * IMAGE_HEIC_MAX_SIDE must equal policy.xml's width and height. That value is exactly 16384 px.
+ * IMAGE_HEIC_MAX_SIDE must equal docker/imagemagick-policy.xml width and height, the policy the image ships. That value is exactly 16384 px.
  * A 48 MP frame (8064×6048) is inside both. A 200 MP sensor (16384×12288) is inside the JPEG cap and
  * outside the HEIC cap.
  * IMAGE_GD_MAX_PIXELS is 40 megapixels: GD truecolor is 4 bytes a pixel, so 40 MP is 160 MB and fits under
@@ -21,7 +21,7 @@ declare(strict_types=1);
 const IMAGE_MAX_PIXELS = 250_000_000;
 const IMAGE_MAX_SIDE = 30000;
 const IMAGE_HEIC_MAX_PIXELS = 128_000_000;
-// Must equal policy.xml width and height. The policy value is exactly 16384 px.
+// Must equal docker/imagemagick-policy.xml width and height. The shipped value is exactly 16384 px.
 const IMAGE_HEIC_MAX_SIDE = 16384;
 const IMAGE_GD_MAX_PIXELS = 40_000_000;
 
