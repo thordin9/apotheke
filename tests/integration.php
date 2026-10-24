@@ -1794,7 +1794,7 @@ $z->close();
 T::ok(($dumpJ['settings']['app_name'] ?? '') === 'Shed Stock' && !isset($dumpJ['settings']['password_hash']), 'backups contain the settings (never the password)');
 // env no longer overrides a configured database; the CLI
 $ss->stop();
-$ss = new Server($sd, ['PAGE_SIZE' => '7', 'APP_PASSWORD' => 'envpw']);
+$ss = new Server($sd, ['PAGE_SIZE' => '7', 'APP_PASSWORD' => 'envpass1']);
 T::eq(2, $ss->client()->get('/settings/export.json')['json']['settings']['page_size'] ?? null, 'DB wins over env once seeded');
 $ss->stop();
 $cli = fn(string $a) => shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e = ['DATA_DIR' => $sd, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($sd)), $e)) . ' php bin/settings.php ' . $a . ' 2>&1');
