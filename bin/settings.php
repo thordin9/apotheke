@@ -18,7 +18,7 @@ declare(strict_types=1);
  *   php bin/settings.php roles                list the roles and their permissions
  *   php bin/settings.php roles reset          restore the built-in roles' permissions (custom roles stay)
  *   php bin/settings.php auth on|off          turn sign-in on (needs an admin account) or off
- *   php bin/settings.php auth status          on or off without touching the database; exit 0 = on, 3 = off (Docker entrypoint)
+ *   php bin/settings.php auth status          on or off without touching the database; exit 0 = on, 3 = off, 4 = APP_PASSWORD too short (Docker entrypoint)
  *   php bin/settings.php password [PASSWORD]  recovery shortcut: set the password of "admin" (created if missing) and turn sign-in on
  *   php bin/settings.php password --off       turn sign-in off
  *   php bin/settings.php export > s.json      /  import s.json
@@ -108,7 +108,13 @@ try {
                     fwrite(STDERR, db_connect_failure_message((string)$db['driver'], config_migrate_where($db)) . "\n");
                     exit(1);
                 }
-                $on = auth_on_at_start($pdo, (string)cfg()['app_password']);
+                $pw = (string)cfg()['app_password'];
+                $on = auth_on_at_start($pdo, $pw);
+                // APP_PASSWORD decides only on a new install; there it must meet PASSWORD_MIN (hardening, #75 QA L-2)
+                if ($on !== auth_on_at_start($pdo, '') && ($problem = app_password_problem($pw)) !== null) {
+                    fwrite(STDERR, $problem . "\n");
+                    exit(4);
+                }
                 echo $on ? "on\n" : "off\n";
                 exit($on ? 0 : 3);
             }
