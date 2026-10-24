@@ -34,5 +34,6 @@ return [
     'currency'      => 'EUR',                 // CURRENCY       shown next to item values (EUR, USD, £, …)
     'expiry_soon_days' => 30,                 // EXPIRY_SOON_DAYS  "Expiring soon" window in days (1–3650)
     'public_url'    => '',                    // PUBLIC_URL     base URL in QR labels, e.g. http://192.168.1.10:9091 (default: from the request)
+    'allowed_hosts' => '',                    // ALLOWED_HOSTS  extra host names, comma-separated (addresses, localhost and PUBLIC_URL's host always work)
     'seed_defaults' => true,                  // SEED_DEFAULTS  starter locations/categories on a new database
 ];
