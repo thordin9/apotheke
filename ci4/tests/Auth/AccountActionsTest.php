@@ -152,33 +152,96 @@ final class AccountActionsTest extends CIUnitTestCase
         $this->addToAssertionCount(5);
     }
 
+    /**
+     * SEC-N6, main #84: sign out everywhere stores a new session epoch. Every
+     * session holding the old one is signed out; the password is unchanged,
+     * and the caller's session signs in again with the new epoch.
+     */
     #[DataProvider('drivers')]
     public function testSignOutEverywhere(string $driver): void
     {
         $this->database = TestDatabase::create($driver);
         $root = $this->account('root', 'admin', 'placeholder-pass');
+        $desk = $this->account('desk', 'helpdesk');
         $this->signInOn();
         $users = new UserRepository($this->database->db);
+        $this->signInAs($desk);
+        $deskSession = $this->requestSession;
         $this->signInAs($root);
         $other = $this->requestSession;
         $before = $users->find($root);
-        try {
-            (new SignOutEverywhere($users))->run($root, 'wrong-pass');
-            $this->fail('signed out everywhere without the password');
-        } catch (UserError $e) {
-            $this->assertSame(403, $e->getCode());
-        }
-        $this->assertSame($before, $users->find($root));
+        $this->assertNotNull($before);
 
-        $epoch = (new SignOutEverywhere($users))->run($root, 'placeholder-pass');
+        $epoch = (new SignOutEverywhere($users))->run($root);
         $after = $users->find($root);
         $this->assertNotNull($after);
-        $this->assertTrue(password_verify('placeholder-pass', $after['password_hash']), 'the password is unchanged');
-        $this->assertSame((new SessionEpoch())->of($after), $epoch);
+        $this->assertSame($before['password_hash'], $after['password_hash'], 'the password is unchanged');
+        $this->assertSame($epoch, $after['session_epoch']);
+        $this->assertSame($epoch, (new SessionEpoch())->of($after), 'the stored epoch wins');
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{16}$/D', $epoch);
         $this->requestSession = $other;
         $this->assertFalse($this->currentUser()->isAdmin(), 'another device is signed out');
         $this->requestSession = ['uid' => $root, 'auth_epoch' => $epoch];
         $this->assertTrue($this->currentUser()->isAdmin(), 'this session keeps the new epoch');
+        $this->requestSession = $deskSession;
+        $this->assertSame('desk', $this->currentUser()->resolve()['username'] ?? null, 'other accounts stay signed in');
+
+        $this->assertNotSame($epoch, (new SignOutEverywhere($users))->run($root), 'a new value every time');
+        try {
+            (new SignOutEverywhere($users))->run(9999);
+            $this->fail('signed out an account that does not exist');
+        } catch (UserError $e) {
+            $this->assertSame(404, $e->getCode());
+        }
+    }
+
+    /** Main #84: a new password stores a new epoch too, so it signs the account out everywhere. */
+    #[DataProvider('drivers')]
+    public function testANewPasswordSignsTheAccountOutEverywhere(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $root = $this->account('root', 'admin');
+        $this->signInOn();
+        $users = new UserRepository($this->database->db);
+        $this->signInAs($root);
+        $other = $this->requestSession;
+        $epoch = $users->setPasswordHash($root, password_hash('another-pass', PASSWORD_DEFAULT));
+        $after = $users->find($root);
+        $this->assertNotNull($after);
+        $this->assertTrue(password_verify('another-pass', $after['password_hash']));
+        $this->assertSame($epoch, $after['session_epoch']);
+        $this->requestSession = $other;
+        $this->assertFalse($this->currentUser()->isAdmin(), 'the old session is signed out');
+        $this->requestSession = ['uid' => $root, 'auth_epoch' => $epoch];
+        $this->assertTrue($this->currentUser()->isAdmin(), 'a session that signs in again with the new epoch');
+    }
+
+    /**
+     * Migration 0028 (copied byte for byte from main): every account gets the
+     * fingerprint its sessions already hold, so the upgrade signs nobody out.
+     * An account without a stored epoch falls back to that fingerprint.
+     */
+    #[DataProvider('drivers')]
+    public function testMigration0028KeepsExistingSessions(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $root = $this->account('root', 'admin');
+        $user = (new UserRepository($this->db()))->find($root);
+        $this->assertNotNull($user);
+        $fingerprint = substr(hash('sha256', $user['password_hash'] . '|' . $root), 0, 16);
+        $this->assertSame('', $user['session_epoch'], 'an account created after 0028 starts without one');
+        $this->assertSame($fingerprint, (new SessionEpoch())->of($user), 'no stored epoch: the fingerprint');
+
+        $pdo = $this->database->pdo();
+        $run = require dirname(__DIR__, 3) . '/migrations/0028_session_epoch.php';
+        $run($pdo, $driver);
+        $run($pdo, $driver);
+        $user = (new UserRepository($this->db()))->find($root);
+        $this->assertNotNull($user);
+        $this->assertSame($fingerprint, $user['session_epoch'], 'filled with the fingerprint; running it again changes nothing');
+        $this->signInOn();
+        $this->requestSession = ['uid' => $root, 'auth_epoch' => $fingerprint];
+        $this->assertTrue($this->currentUser()->isAdmin(), 'a session from before the upgrade stays signed in');
     }
 
     private function currentUser(): CurrentUser

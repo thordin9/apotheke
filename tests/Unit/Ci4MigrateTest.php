@@ -42,7 +42,7 @@ final class Ci4MigrateTest extends TestCase
             $this->assertSame([], $ci4['src']);
             $this->assertNotSame([], $legacy['applied']);
             $this->assertSame($this->dumpSqlite($left), $this->dumpSqlite($right));
-            $this->assertCount(27, $ci4['applied']);
+            $this->assertCount(28, $ci4['applied']);
             $this->assertCount(64, $this->dumpSqlite($right)['data']['settings'] ?? []);
         } finally {
             rrmdir($left);
@@ -60,7 +60,7 @@ final class Ci4MigrateTest extends TestCase
             $ci4 = $this->worker('run', 'ci4', $this->pgEnv($dirB, $schemaB, true));
             $this->assertSame([], $ci4['src']);
             $this->assertSame($this->dumpPgsql($schemaA), $this->dumpPgsql($schemaB));
-            $this->assertCount(27, $legacy['applied']);
+            $this->assertCount(28, $legacy['applied']);
             $this->assertCount(64, $this->dumpPgsql($schemaB)['data']['settings'] ?? []);
         } finally {
             rrmdir($dirA);
@@ -166,8 +166,8 @@ final class Ci4MigrateTest extends TestCase
     {
         $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
         sort($files, SORT_STRING);
-        $this->assertCount(27, $files);
-        for ($n = 1; $n <= 27; $n++) {
+        $this->assertCount(28, $files);
+        for ($n = 1; $n <= 28; $n++) {
             $slice = $this->slice($files, $n);
             try {
                 if ($driver === 'sqlite') {
@@ -279,7 +279,7 @@ final class Ci4MigrateTest extends TestCase
             $versions = $driver === 'sqlite'
                 ? sqlite($dir . '/catalog.sqlite')->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN)
                 : $this->pgPdo((string)$env['DB_SCHEMA'])->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN);
-            $this->assertCount(27, $versions, $driver);
+            $this->assertCount(28, $versions, $driver);
         } finally {
             if ($server instanceof Server) {
                 $server->stop();
