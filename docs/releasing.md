@@ -31,7 +31,9 @@ The changelog groups entries as *Breaking changes*, *Added* (`feat`), *Fixed* (`
 updated. Notes written by hand under `## [Unreleased]` move into that section, and `## [Unreleased]` is left empty.
 A handwritten bullet replaces a generated bullet in that same section when both start with the same scope
 (`- **autofill:** …`), so the notes do not list one change twice. A generated bullet with a different scope, or
-the same scope under a different heading, stays.
+the same scope under a different heading, stays. A handwritten bullet under `## [Unreleased]` keeps its pull
+request link (`([#N](…/pull/N))`). `scripts/lint.sh` fails when one does not, because the fold keeps that
+bullet as written and drops the generated line that would have carried the link.
 The GitHub Release body is that whole section, handwritten notes included, plus the compare link.
 
 ## The release workflow

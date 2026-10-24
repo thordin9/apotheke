@@ -165,6 +165,23 @@ final class ReleaseTest extends TestCase
         $this->assertStringContainsString('**db:** seed, backup, restore and settings exit 1', $cl);
     }
 
+    public function testUnreleasedHandwrittenBulletNeedsAPrLink(): void
+    {
+        $linked = '- **autofill:** the note ([#60](https://github.com/thordin9/apotheke/pull/60))';
+        $bare = '- **db:** while the database is down, every route returns 500.';
+        $missing = rel_unreleased_missing_pr_links("# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n$linked\n$bare\n\n## [1.0.0] - 2026-10-01\n\n$bare\n");
+        $this->assertSame([$bare], $missing, 'a released section is not checked, and a linked Unreleased bullet is kept');
+        $this->assertSame([], rel_unreleased_missing_pr_links("# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n$linked\n\n## [1.0.0] - 2026-10-01\n\n$bare\n"));
+        $this->assertSame([], rel_unreleased_missing_pr_links("# Changelog\n\n## [Unreleased]\n\n## [1.0.0] - 2026-10-01\n\n- old\n"));
+        $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');
+        $this->assertSame([], rel_unreleased_missing_pr_links($cl));
+        $v261 = substr($cl, (int)strpos($cl, "## [2.6.1]"), (int)strpos($cl, "## [2.6.0]") - (int)strpos($cl, "## [2.6.1]"));
+        $fixed261 = substr($v261, (int)strpos($v261, "### Fixed\n"), (int)strpos($v261, '### Maintenance') - (int)strpos($v261, "### Fixed\n"));
+        $this->assertSame(5, substr_count($fixed261, '([#60](https://github.com/thordin9/apotheke/pull/60))'));
+        $fixed260 = substr($cl, (int)strpos($cl, "### Fixed\n", (int)strpos($cl, '## [2.6.0]')), (int)strpos($cl, '### Maintenance', (int)strpos($cl, '## [2.6.0]')) - (int)strpos($cl, "### Fixed\n", (int)strpos($cl, '## [2.6.0]')));
+        $this->assertStringContainsString('- **db:** while the database is down, every route (CSS, the manifest and /login included) returns 500. The log has only the sanitized connect line. The database user, the password and the DSN are not logged. ([#59](https://github.com/thordin9/apotheke/pull/59))', $fixed260);
+    }
+
     public function testRealChangelogAcceptsTheNextRelease(): void
     {
         $cl = (string)file_get_contents(dirname(__DIR__, 2) . '/CHANGELOG.md');

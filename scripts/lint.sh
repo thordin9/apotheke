@@ -21,6 +21,9 @@ if command -v shellcheck >/dev/null 2>&1; then
 else
   echo "== shellcheck: skipped (not installed)"
 fi
+echo "== changelog links"
+php scripts/release.php check-links
+echo "   ok"
 echo "== pipefail-safe greps"
 # `curl … | grep -q` under pipefail fails at random: grep -q exits at the first match and curl gets SIGPIPE (exit 23)
 if grep -nE '^[^#]*curl[^|]*\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' scripts/*.sh .github/workflows/*.yml; then echo "   save the response to a file and grep that instead"; exit 1; fi
