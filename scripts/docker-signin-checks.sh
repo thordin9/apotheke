@@ -2,7 +2,7 @@
 # The image refuses to start with sign-in off (hardening, SEC-M3).
 #   bash scripts/docker-signin-checks.sh apotheke:ci
 # Checks: no APP_PASSWORD -> exit 78 with a clear message; a bad ALLOW_NO_LOGIN -> exit 64; a too-short APP_PASSWORD
-# -> exit 78; APP_PASSWORD -> starts; the same data volume later without APP_PASSWORD (sign-in already on in the
+# -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without APP_PASSWORD (sign-in already on in the
 # database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
 set -euo pipefail
 image="${1:?usage: docker-signin-checks.sh IMAGE}"
@@ -57,6 +57,11 @@ echo "== APP_PASSWORD shorter than 8 characters: refuses to start without showin
 out=$(refused 78 -e APP_PASSWORD=Ab3-xyz)
 grep -q 'APP_PASSWORD is too short' <<<"$out"
 if grep -q 'Ab3-xyz' <<<"$out"; then echo "the value was logged" >&2; exit 1; fi
+echo "   ok"
+
+echo "== the database can't be read: refuses to start (#75 QA L-1)"
+out=$(refused 78 -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=1)
+grep -q 'could not read the sign-in setting' <<<"$out"
 echo "   ok"
 
 echo "== APP_PASSWORD set: starts"
