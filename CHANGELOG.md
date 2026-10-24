@@ -7,9 +7,17 @@ Release sections are written by `scripts/release.php` when a pull request is mer
 
 ## [Unreleased]
 
+## [2.6.13] - 2026-10-24
+
 ### Fixed
 
 - **ui:** the footer version label has a fixed width, so a release bump no longer shifts the centred footer links. ([#86](https://github.com/thordin9/apotheke/pull/86))
+
+### Maintenance
+
+- **e2e:** test: pin the footer version label before screenshots ([#86](https://github.com/thordin9/apotheke/pull/86))
+- **e2e:** test: update the list footer baselines ([#86](https://github.com/thordin9/apotheke/pull/86))
+- **changelog:** docs: add the footer version width fix ([#86](https://github.com/thordin9/apotheke/pull/86))
 
 ## [2.6.12] - 2026-10-24
 
@@ -649,7 +657,8 @@ First versioned release: everything merged before automatic releases started (pu
 - docs: README rewritten for the current feature set ([#5](https://github.com/thordin9/apotheke/pull/5))
 - build: Docker image switched to nginx + php-fpm ([#6](https://github.com/thordin9/apotheke/pull/6))
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.12...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.13...HEAD
+[2.6.13]: https://github.com/thordin9/apotheke/compare/v2.6.12...v2.6.13
 [2.6.12]: https://github.com/thordin9/apotheke/compare/v2.6.11...v2.6.12
 [2.6.11]: https://github.com/thordin9/apotheke/compare/v2.6.10...v2.6.11
 [2.6.10]: https://github.com/thordin9/apotheke/compare/v2.6.9...v2.6.10
