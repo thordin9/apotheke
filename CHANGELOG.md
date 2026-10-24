@@ -31,6 +31,8 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 
 ### Fixed
 
+- **ci4:** a signed-in session ends after `session_idle_hours` with no request, and `session_days` after sign-in even while it is in use, as on `main`. A session without a sign-in time gets one on its next request. Each account has a session epoch (migration 0028, the same file as `main`): sign out everywhere and a new password store a new one, so the password is no longer rehashed. Signing the same account in again keeps its sign-in time only when the caller asks for it. ([#88](https://github.com/thordin9/apotheke/pull/88))
+- **ci4:** CodeIgniter's session service is read-only, and a session a request left open is closed before the next request in a long-lived worker. The per-request base URL sets the scheme and port as well as the host, so `current_url()` matches `base_url()`. ([#88](https://github.com/thordin9/apotheke/pull/88))
 - **ci4:** `Services::apothekeDb` brings the schema up to date once per process and database, not on every request in a long-lived worker. Under php-fpm and spark that is once per request or command, as legacy `db()` does; `apotheke:migrate` stays the explicit way. The settings cache lives in the per-request `SettingsService`, not in a static. ([#64](https://github.com/thordin9/apotheke/pull/64))
 - **ci4:** `get` of an unknown key or of a write-only key exits 1 with a message instead of a PHP fatal or printing the secret. ([#64](https://github.com/thordin9/apotheke/pull/64))
 - **ci4:** quote every `pg_connect` value, escaping `\` and then `'`, so a password or user with a backslash, quote, space or `=` still connects. ([#38](https://github.com/thordin9/apotheke/pull/38))

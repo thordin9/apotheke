@@ -59,15 +59,21 @@ Request hardening ported from `main` (SEC-M3, SEC-L2, SEC-N6, SEC-M1, SEC-M2):
 * **Sessions on demand.** The session filter only sets cookie parameters. It resumes a session only when the
   cookie names an existing, well-formed session file. `SessionToken` (the port of `csrf_token()`) starts one
   when a page needs a token. An anonymous request leaves no session file and no cookie.
-  CI4's `session` service is `NativeSession` (#76 L-1): it works on the native session's `$_SESSION` and never
+  CI4's `session` service is `NativeSession` (#76 L-1): it reads the native session's `$_SESSION` and never
   starts, regenerates or destroys a handler-backed session of its own, so `storePreviousURL()` on an HTML
-  answer cannot add a second session file or change the id.
-* **Idle limit.** `SessionGate` stamps `last_seen` on every resumed request and ends a session that has had no
-  request for `session_days`. A separate, shorter idle setting would need a new settings key; that is left
-  to a later decision so that the settings stay identical to legacy.
-* **Sign out everywhere.** A session stores an epoch derived from the user's password hash. Signing out
-  everywhere checks the password and rehashes it, which renews the epoch, so every other session no longer
-  matches. No schema change. The route and button arrive with the Auth pages (PR 7).
+  answer cannot add a second session file or change the id. It is read-only: `set()`, `remove()` and the
+  flash and temp data methods change nothing, and `close()` write-closes a session a request left open. The
+  session filter also closes such a session before it resets `$_SESSION` for the next request.
+* **Sign-in limits.** As legacy `init_session()` on `main`: `SessionGate` ends a signed-in session after
+  `session_idle_hours` with no request (the stored number, clamped to 1–8760), and `session_days` after the
+  sign-in time `signed_in_at`, which later requests never move. A session without that time gets it on its next
+  request. Any other session ends after `session_days` with no request. The activity stamp `last_activity`
+  moves at most once a minute. The session file keys are the legacy ones.
+* **Sign out everywhere.** Each account has a session epoch (migration 0028, the same file as `main`). A
+  session is valid only while it holds the current one. Signing out everywhere or a new password stores a new
+  one; an account without a stored epoch uses the password-hash fingerprint that 0028 fills in, so the upgrade
+  signs nobody out. `SessionGate::signIn()` writes a sign-in into the session; signing the same account in
+  again with `keepSignIn` keeps `signed_in_at`. The routes and buttons arrive with the Auth pages (PR 7).
 * **Actor gate.** `SettingsService` takes an `ActorGate`. On the web it is the signed-in user (`CurrentUser`);
   without one it is `Nobody`. The spark commands pass `CommandLine`, which is unrestricted, as on legacy's CLI.
   `import()` ignores the sign-in (security) section for an actor that is not an admin.
