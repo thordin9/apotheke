@@ -20,6 +20,10 @@ final class SecurityHeaders implements FilterInterface
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): ResponseInterface
     {
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
+            // A route that sets its own, stricter CSP keeps it (legacy brand_serve()).
+            if ($name === 'Content-Security-Policy' && $response->hasHeader($name)) {
+                continue;
+            }
             $response->setHeader($name, $value);
         }
 

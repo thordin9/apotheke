@@ -78,4 +78,21 @@ class Services extends BaseService
 
         return new \Apotheke\Settings\LocalBrandStore(static::apothekeConfig()->dataDir() . '/brand');
     }
+
+    /**
+     * Theme, labels, manifest and favicon output. Bundled icons come from the
+     * legacy public/assets until the Layout PR moves them under ci4/public.
+     */
+    public static function branding(bool $getShared = true): \Apotheke\Settings\Branding\Branding
+    {
+        if ($getShared) {
+            return static::getSharedInstance('branding');
+        }
+
+        return new \Apotheke\Settings\Branding\Branding(
+            static::settings(),
+            static::brandStore(),
+            new \Apotheke\Core\Libraries\AssetUrl(\Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/public/assets'),
+        );
+    }
 }
