@@ -52,9 +52,13 @@ final class Ci4HttpTest extends TestCase
         $admin->exec('CREATE SCHEMA ' . $schema . ' AUTHORIZATION ' . $role);
         $plain = tmpdir('ci4-shipped');
         $marked = tmpdir('ci4-shipped-mark');
+        $pg = test_pg_params();
         $db = [
             'CI_ENVIRONMENT' => 'production',
             'DB_DRIVER' => 'pgsql',
+            'DB_HOST' => $pg['host'],
+            'DB_PORT' => $pg['port'],
+            'DB_NAME' => $pg['name'],
             'DB_USER' => $role,
             'DB_PASSWORD' => $password,
             'DB_SCHEMA' => $schema,
