@@ -61,6 +61,20 @@ final class AppPasswordTest extends TestCase
         $this->assertSame(0, $this->php(['bin/settings.php', 'auth', 'status'], 'Short1')['code'], 'the account decides, not APP_PASSWORD');
     }
 
+    public function testTheFirstRequestCreatesAdminOnlyFromALongEnoughPassword(): void
+    {
+        $this->assertSame(0, $this->php(['bin/migrate.php'], 'Long-enough-1')['code']);
+        // sign-in on and no account yet: auth_enabled() makes "admin" from APP_PASSWORD
+        $code = 'require "src/bootstrap.php"; require "src/items.php"; db()->exec("DELETE FROM users"); try { echo auth_enabled() ? "on" : "off"; }'
+            . ' catch (AppPasswordError $e) { echo "refused: ", $e->getMessage(); } echo " ", users_count();';
+        $run = $this->php(['-r', $code], 'Short1');
+        $this->assertStringStartsWith('refused: APP_PASSWORD is too short', $run['out'], $run['err']);
+        $this->assertStringEndsWith(' 0', $run['out'], 'no account was created');
+        $this->assertStringNotContainsString('Short1', $run['out'] . $run['err']);
+        $run = $this->php(['-r', $code], 'Long-enough-2');
+        $this->assertSame('on 1', $run['out'], $run['err']);
+    }
+
     /** @param list<string> $args @return array{out:string,err:string,code:int} */
     private function php(array $args, string $appPassword): array
     {
@@ -74,7 +88,7 @@ final class AppPasswordTest extends TestCase
             'APP_PASSWORD' => $appPassword,
         ];
         $cmd = [PHP_BINARY, '-d', 'zend.exception_ignore_args=0', '-d', 'display_errors=stderr'];
-        $proc = proc_open(array_merge($cmd, [$root . '/' . $args[0]], array_slice($args, 1)),
+        $proc = proc_open(array_merge($cmd, [$args[0] === '-r' ? '-r' : $root . '/' . $args[0]], array_slice($args, 1)),
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $env);
         $this->assertIsResource($proc);
         fclose($pipes[0]);
