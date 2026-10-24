@@ -168,10 +168,27 @@ function session_lifetime(): int
     return 86400 * max(1, min(365, $d ?: 30));
 }
 
-/** Idle limit in seconds (setting “session_idle_hours”, 1–8760). Default 168 hours. */
+/**
+ * Idle limit in seconds (setting “session_idle_hours”, 1–8760). Default 168 hours.
+ * The stored number is read directly: setting() replaces a hand-edited row outside
+ * 1–8760 with the default, and this clamp is the bound on that stored number.
+ * 0 or an unreadable value is 168 hours.
+ */
 function session_idle_seconds(): int
 {
-    try { $h = (int)setting('session_idle_hours'); } catch (Throwable) { $h = 168; }
+    $h = 168;
+    try {
+        $st = db()->prepare('SELECT value FROM settings WHERE name = ?');
+        $st->execute(['session_idle_hours']);
+        $col = $st->fetchColumn();
+        if ($col !== false) {
+            $decoded = json_decode((string)$col, true);
+            if (is_int($decoded) || is_float($decoded)) $h = (int)$decoded;
+            elseif (is_string($decoded) && preg_match('/^-?\d+$/D', $decoded)) $h = (int)$decoded;
+        }
+    } catch (Throwable) {
+        $h = 168;
+    }
     return 3600 * max(1, min(8760, $h ?: 168));
 }
 
@@ -187,11 +204,38 @@ function session_idle_expired(): bool
     return (app_time() - $last) > session_idle_seconds();
 }
 
-/** Remember this request on a signed-in session. Stored in the session file, not in the database. */
+/**
+ * True when this signed-in session is older than session_days.
+ * A session with no sign-in time yet is not expired: this request records it.
+ * Later requests do not move that time.
+ */
+function session_absolute_expired(): bool
+{
+    if ((int)($_SESSION['uid'] ?? 0) <= 0) return false;
+    $at = (int)($_SESSION['signed_in_at'] ?? 0);
+    if ($at <= 0) return false;
+    return (app_time() - $at) > session_lifetime();
+}
+
+/** Record the sign-in time once. A session from before this check gets it on the next request. */
+function session_stamp_sign_in(): void
+{
+    if ((int)($_SESSION['uid'] ?? 0) <= 0) return;
+    if ((int)($_SESSION['signed_in_at'] ?? 0) > 0) return;
+    $_SESSION['signed_in_at'] = app_time();
+}
+
+/**
+ * Remember this request on a signed-in session. Stored in the session file, not in the database.
+ * A stamp under a minute old is kept, so a busy page does not rewrite the file on every request.
+ */
 function session_touch(): void
 {
     if ((int)($_SESSION['uid'] ?? 0) <= 0) return;
-    $_SESSION['last_activity'] = app_time();
+    $now = app_time();
+    $last = (int)($_SESSION['last_activity'] ?? 0);
+    if ($last > 0 && ($now - $last) < 60) return;
+    $_SESSION['last_activity'] = $now;
 }
 
 /**
@@ -235,22 +279,24 @@ function session_cookie_live(): bool
 }
 
 /**
- * Load an existing session (if the request has one), end it when the signed-in idle limit has passed, record
- * this request as activity, make sure a CSRF token exists, then release the lock so parallel requests (images!)
- * never queue. A request without a live session gets none here: 404s, branding, redirects and other anonymous
- * pages without a form leave nothing on disk (SEC-L2). The session starts on demand when a form needs a token
- * (csrf_token()) or someone signs in. Activity is stored in the session file.
+ * Load an existing session (if the request has one), end it when the sign-in is older than session_days or
+ * has been idle longer than session_idle_hours, record this request as activity (at most once a minute), make
+ * sure a CSRF token exists, then release the lock so parallel requests (images!) never queue. A request without
+ * a live session gets none here: 404s, branding, redirects and other anonymous pages without a form leave nothing
+ * on disk (SEC-L2). The session starts on demand when a form needs a token (csrf_token()) or someone signs in.
+ * Activity and the sign-in time are stored in the session file.
  */
 function init_session(): void
 {
     if (!session_cookie_live()) return;
     start_session();
-    // Idle sign-out uses the same end as a manual sign-out: the request is no longer signed in.
-    if (session_idle_expired()) {
+    // The same end as a manual sign-out: the old file is deleted and the request is no longer signed in.
+    if (session_idle_expired() || session_absolute_expired()) {
         logout();
         current_user(null, true);
         return;
     }
+    session_stamp_sign_in();
     session_touch();
     if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
     session_write_close();
@@ -286,6 +332,7 @@ function login_session(int $uid): void
     $_SESSION['auth_epoch'] = user_epoch($u);
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
     $_SESSION['last_activity'] = app_time();
+    $_SESSION['signed_in_at'] = app_time();
     session_write_close();
     current_user(null, true);
 }

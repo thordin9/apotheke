@@ -1213,6 +1213,224 @@ $idleC = $idleCarry($idleS, $idleShort);
 T::eq(303, $idleC->get('/')['status'], 'a shorter idle limit is what ends the session');
 $idleS->stop();
 
+T::section('Session lifetime');
+$lifeBoot = function (string $dir, string $clock): Server {
+    return new Server($dir, ['APP_PASSWORD' => 's3cret', 'APOTHEKE_CLOCK' => $clock]);
+};
+$lifeCarry = function (Server $srv, array $cookies): Client {
+    $c = $srv->client();
+    $c->cookies = $cookies;
+    return $c;
+};
+$lifeSign = function (string $dir, string $clock) use ($lifeBoot): array {
+    $s = $lifeBoot($dir, $clock);
+    $c = $s->client();
+    T::eq(303, $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], "sign in at $clock");
+    return [$s, $c];
+};
+$lifeFile = function (string $dir, string $id): string {
+    return $dir . '/sessions/sess_' . $id;
+};
+$lifeBody = function (string $dir, string $id) use ($lifeFile): string {
+    $p = $lifeFile($dir, $id);
+    return is_file($p) ? (string)file_get_contents($p) : '';
+};
+$lifeSec = function (Client $c, array $over = []): array {
+    $f = ['csrf' => $c->csrf(), 'auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'auth_register_approval' => '0', 'session_days' => '30', 'session_idle_hours' => '168', 'trust_proxy' => '0'];
+    foreach ($over as $k => $v) $f[$k] = $v;
+    return $c->post('/settings/security', $f);
+};
+$lifeCli = function (string $dir, string $args): string {
+    $e = ['DATA_DIR' => $dir, 'APOTHEKE_CONFIG' => '/nonexistent'] + test_db_env($dir);
+    $env = implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e), $e));
+    return (string)shell_exec('cd ' . escapeshellarg(ROOT) . ' && ' . $env . ' php bin/settings.php ' . $args . ' 2>&1');
+};
+
+// N-2: the activity stamp is refreshed at most once a minute, so the session file stays put.
+$stampDir = $newDir('stamp');
+[$stampS, $stampC] = $lifeSign($stampDir, '2026-03-01 00:00:00');
+$stampId = $stampC->cookies['apothekesid'];
+$stampBorn = $lifeBody($stampDir, $stampId);
+T::ok($stampBorn !== '' && str_contains($stampBorn, 'last_activity|i:' . strtotime('2026-03-01 00:00:00 UTC') . ';'), 'sign-in writes the activity stamp');
+$stampCookies = $stampC->cookies;
+$stampS->stop();
+$stampS = $lifeBoot($stampDir, '2026-03-01 00:00:30');
+$stampC = $lifeCarry($stampS, $stampCookies);
+T::eq(200, $stampC->get('/')['status'], 'a request 30 seconds later stays signed in');
+T::eq($stampBorn, $lifeBody($stampDir, $stampId), 'a request under a minute does not rewrite the session file');
+T::eq($stampId, $stampC->cookies['apothekesid'], 'that request keeps the session id');
+$stampS->stop();
+$stampS = $lifeBoot($stampDir, '2026-03-01 00:01:00');
+$stampC = $lifeCarry($stampS, $stampCookies);
+T::eq(200, $stampC->get('/')['status'], 'a request at one minute stays signed in');
+T::ok(str_contains($lifeBody($stampDir, $stampId), 'last_activity|i:' . strtotime('2026-03-01 00:01:00 UTC') . ';'), 'a request a minute later refreshes the activity stamp');
+T::eq($stampId, $stampC->cookies['apothekesid'], 'refreshing the stamp keeps the session id');
+$stampS->stop();
+
+// L-2: favicon, manifest, CSS and health do not refresh the idle clock.
+$quietDir = $newDir('quiet');
+[$quietS, $quietC] = $lifeSign($quietDir, '2026-04-01 00:00:00');
+$quietId = $quietC->cookies['apothekesid'];
+$quietBorn = $lifeBody($quietDir, $quietId);
+$quietCookies = $quietC->cookies;
+$quietS->stop();
+$quietS = $lifeBoot($quietDir, '2026-04-07 23:00:00');
+$quietC = $lifeCarry($quietS, $quietCookies);
+foreach (['/favicon.ico', '/manifest.webmanifest', '/theme.css', '/labels.css', '/healthz', '/health'] as $quietPath) {
+    T::eq(200, $quietC->get($quietPath)['status'], "$quietPath answers near the idle limit");
+}
+T::eq($quietBorn, $lifeBody($quietDir, $quietId), 'favicon, manifest, CSS and health do not refresh the idle clock');
+$quietS->stop();
+$quietS = $lifeBoot($quietDir, '2026-04-08 00:00:01');
+$quietC = $lifeCarry($quietS, $quietCookies);
+T::eq(303, $quietC->get('/')['status'], 'those requests did not keep the session signed in');
+$quietS->stop();
+
+// L-2: an expired session gets a new id and the old session file is deleted.
+$deadDir = $newDir('dead');
+[$deadS, $deadC] = $lifeSign($deadDir, '2026-05-01 00:00:00');
+$deadOld = $deadC->cookies['apothekesid'];
+T::ok(is_file($lifeFile($deadDir, $deadOld)), 'the signed-in session file exists');
+$deadCookies = $deadC->cookies;
+$deadS->stop();
+$deadS = $lifeBoot($deadDir, '2026-05-08 00:00:01');
+$deadC = $lifeCarry($deadS, $deadCookies);
+$deadHome = $deadC->get('/');
+T::eq(303, $deadHome['status'], 'an idle session is ended');
+$deadNew = $deadC->cookies['apothekesid'] ?? '';
+T::ok($deadNew !== '' && $deadNew !== $deadOld, 'an expired session gets a new session id');
+clearstatcache(true);
+T::ok(!is_file($lifeFile($deadDir, $deadOld)), 'the old session file is deleted');
+$deadC->cookies = ['apothekesid' => $deadOld];
+T::eq(303, $deadC->get('/')['status'], 'replaying the old session id stays signed out');
+$deadS->stop();
+
+// L-1: session_days is enforced on the server. Activity does not extend it. A session with no sign-in time is stamped, not ended.
+$absDir = $newDir('absolute');
+[$absS, $absC] = $lifeSign($absDir, '2026-06-01 00:00:00');
+T::eq(303, $lifeSec($absC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'absolute limit saved at 1 day');
+T::ok(str_contains($lifeBody($absDir, $absC->cookies['apothekesid']), 'signed_in_at|i:' . strtotime('2026-06-01 00:00:00 UTC') . ';'), 'sign-in stores the sign-in time');
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-06-01 23:00:00');
+$absC = $lifeCarry($absS, $absCookies);
+T::eq(200, $absC->get('/')['status'], 'inside session_days stays signed in');
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-06-02 00:00:00');
+$absC = $lifeCarry($absS, $absCookies);
+T::eq(200, $absC->get('/')['status'], 'exactly session_days is still signed in');
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-06-02 00:00:01');
+$absC = $lifeCarry($absS, $absCookies);
+$absHome = $absC->get('/');
+T::eq(303, $absHome['status'], 'one second past session_days signs out');
+T::eq('/login', $absHome['headers']['location'] ?? '', 'absolute sign-out uses the sign-in page');
+T::eq(401, $absC->json('/?q=x')['status'], 'absolute sign-out: JSON is 401');
+$absS->stop();
+[$absS, $absC] = $lifeSign($absDir, '2026-07-01 00:00:00');
+T::eq(303, $lifeSec($absC, ['session_days' => '30', 'session_idle_hours' => '8760'])['status'], 'idle limit raised so the upgrade check is about session_days');
+$absId = $absC->cookies['apothekesid'];
+$absStripped = preg_replace('/signed_in_at\|i:-?\d+;/', '', $lifeBody($absDir, $absId));
+T::ok(is_string($absStripped) && !str_contains($absStripped, 'signed_in_at'), 'the upgrade session has no sign-in time');
+file_put_contents($lifeFile($absDir, $absId), $absStripped);
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-08-10 00:00:00');
+$absC = $lifeCarry($absS, $absCookies);
+T::eq(200, $absC->get('/')['status'], 'a session without a sign-in time is not ended');
+T::ok(str_contains($lifeBody($absDir, $absC->cookies['apothekesid']), 'signed_in_at|i:' . strtotime('2026-08-10 00:00:00 UTC') . ';'), 'the next request stamps the sign-in time');
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-09-09 00:00:01');
+$absC = $lifeCarry($absS, $absCookies);
+T::eq(303, $absC->get('/')['status'], 'the stamped session ends session_days later');
+$absS->stop();
+
+// Guest browsing: an ended session drops to the guest, and sign-out from that page does not answer 419.
+[$absS, $absC] = $lifeSign($absDir, '2026-10-01 00:00:00');
+T::eq(303, $lifeSec($absC, ['auth_guest_disabled' => '0', 'session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'guest browsing on for an ended session');
+$absTok = $absC->csrf();
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-10-02 00:00:01');
+$absC = $lifeCarry($absS, $absCookies);
+$absOut = $absC->post('/logout', ['csrf' => $absTok]);
+T::eq(303, $absOut['status'], 'guest browsing: sign-out after the session ended redirects');
+T::eq('/login', $absOut['headers']['location'] ?? '', 'guest browsing: that sign-out goes to the sign-in page');
+$absS->stop();
+[$absS, $absC] = $lifeSign($absDir, '2026-10-03 00:00:00');
+$absCookies = $absC->cookies;
+$absS->stop();
+$absS = $lifeBoot($absDir, '2026-10-04 00:00:01');
+$absC = $lifeCarry($absS, $absCookies);
+$absGuest = $absC->get('/');
+T::eq(200, $absGuest['status'], 'guest browsing: an ended session can still look');
+T::ok(str_contains($absGuest['body'], 'id="menu-login"'), 'guest browsing: the ended session is the guest');
+T::ok(str_contains($absC->get('/settings/security')['headers']['location'] ?? '', '/login'), 'guest browsing: settings need a sign-in again');
+T::eq(401, $absC->json('/new')['status'], 'guest browsing: JSON that needs an account is 401');
+$absS->stop();
+
+// N-1: a live sign-out still needs POST and the CSRF token. An already-ended one does not answer 419.
+$outDir = $newDir('signout');
+[$outS, $outC] = $lifeSign($outDir, '2026-11-01 00:00:00');
+T::eq(419, $outC->post('/logout', [])['status'], 'sign-out of a live session needs the CSRF token');
+T::eq(200, $outC->get('/')['status'], 'a rejected sign-out leaves the session signed in');
+T::eq(404, $outC->get('/logout')['status'], 'sign-out stays a POST');
+T::eq(200, $outC->get('/')['status'], 'opening sign-out as a page does not sign out');
+T::eq(303, $outC->post('/logout', ['csrf' => $outC->csrf()])['status'], 'sign-out with the token succeeds');
+T::eq(303, $outC->get('/')['status'], 'signed out');
+$outS->stop();
+[$outS, $outC] = $lifeSign($outDir, '2026-11-02 00:00:00');
+$outTok = $outC->csrf();
+$outCookies = $outC->cookies;
+$outS->stop();
+$outS = $lifeBoot($outDir, '2026-11-09 00:00:01');
+$outC = $lifeCarry($outS, $outCookies);
+$outStale = $outC->post('/logout', []);
+T::eq(303, $outStale['status'], 'sign-out after the idle limit does not need the old token');
+T::eq('/login', $outStale['headers']['location'] ?? '', 'that sign-out goes to the sign-in page');
+$outS->stop();
+[$outS, $outC] = $lifeSign($outDir, '2026-11-10 00:00:00');
+$outTok = $outC->csrf();
+$outCookies = $outC->cookies;
+$outS->stop();
+$outS = $lifeBoot($outDir, '2026-11-17 00:00:01');
+$outC = $lifeCarry($outS, $outCookies);
+$outStale = $outC->post('/logout', ['csrf' => $outTok]);
+T::eq(303, $outStale['status'], 'sign-out after the idle limit accepts the old token without 419');
+T::eq('/login', $outStale['headers']['location'] ?? '', 'the old token still lands on the sign-in page');
+$outS->stop();
+
+// I-1: sign out everywhere drops other sessions and keeps this one. The password is unchanged.
+$everyDir = $newDir('everywhere');
+[$everyS, $everyC] = $lifeSign($everyDir, '2026-12-01 00:00:00');
+$everyOther = $everyS->client();
+T::eq(303, $everyOther->post('/login', ['csrf' => $everyOther->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'a second device signs in');
+T::eq(200, $everyOther->get('/')['status'], 'the second device is signed in');
+$everyPage = $everyC->get('/account');
+T::eq(200, $everyPage['status'], 'the account page opens');
+T::ok(str_contains($everyPage['body'], 'id="acct-signout"'), 'the account page offers sign out everywhere');
+T::eq(404, $everyC->get('/account/signout')['status'], 'sign out everywhere stays a POST');
+T::eq(200, $everyOther->get('/')['status'], 'opening that address does not sign the other device out');
+T::eq(419, $everyC->post('/account/signout', ['csrf' => 'nope'])['status'], 'sign out everywhere needs the CSRF token');
+T::eq(200, $everyOther->get('/')['status'], 'a rejected sign-out everywhere leaves the other device signed in');
+T::eq(200, $everyC->get('/')['status'], 'and this device');
+$everyGo = $everyC->post('/account/signout', ['csrf' => $everyC->csrf()]);
+T::ok(str_contains($everyGo['headers']['location'] ?? '', '/account?done=out'), 'sign out everywhere redirects back to the account');
+T::eq(200, $everyC->get('/')['status'], 'this device stays signed in');
+T::ok(str_contains($everyC->get('/account?done=out')['body'], 'Signed out on every other device'), 'the account page says the other sessions ended');
+T::ok(str_contains($everyOther->get('/')['headers']['location'] ?? '', '/login'), 'the other device is signed out');
+T::eq(303, $everyOther->post('/login', ['csrf' => $everyOther->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'the password is unchanged');
+T::eq(200, $everyOther->get('/')['status'], 'the other device can sign in again');
+T::ok(str_contains($lifeCli($everyDir, 'user signout admin'), 'every device'), 'CLI signs the account out everywhere');
+T::ok(str_contains($lifeCli($everyDir, 'user signout nobody'), 'No user'), 'CLI sign-out names an unknown account');
+T::ok(str_contains($everyC->get('/')['headers']['location'] ?? '', '/login'), 'the CLI signs out this device');
+T::ok(str_contains($everyOther->get('/')['headers']['location'] ?? '', '/login'), 'and the other device');
+T::eq(303, $everyC->post('/login', ['csrf' => $everyC->csrf(), 'username' => 'admin', 'password' => 's3cret'])['status'], 'the same password still signs in after the CLI');
+$everyS->stop();
+
 T::section('List pagination (PAGE_SIZE)');
 $pgDir = $newDir('page');
 $pgS = new Server($pgDir, ['PAGE_SIZE' => '2', 'SEED_DEFAULTS' => '0']);
