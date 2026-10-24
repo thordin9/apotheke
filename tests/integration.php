@@ -1479,6 +1479,56 @@ $ownC = $lifeCarry($ownS, $ownCookies);
 T::eq(303, $ownC->get('/')['status'], 'resetting this account\'s password does not extend session_days');
 $ownS->stop();
 
+// A real sign-in after that session was dropped starts session_days again, and only for the same account.
+$againDir = $newDir('again');
+[$againS, $againC] = $lifeSign($againDir, '2027-05-01 00:00:00');
+T::eq(303, $lifeSec($againC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'fresh sign-in: session_days is 1');
+$againBorn = strtotime('2027-05-01 00:00:00 UTC');
+T::eq($againBorn, $keepAt($againDir, $againC->cookies['apothekesid']), 'fresh sign-in stores the sign-in time');
+$againCookies = $againC->cookies;
+$againS->stop();
+T::ok(str_contains($lifeCli($againDir, 'user signout admin'), 'every device'), 'the account is signed out on every device');
+$againS = $lifeBoot($againDir, '2027-05-01 20:00:00');
+$againC = $lifeCarry($againS, $againCookies);
+T::eq(303, $againC->post('/login', ['csrf' => $againC->csrf(), 'username' => 'admin', 'password' => 's3cret-pw'])['status'], 'the same browser can sign in again');
+$againAt = strtotime('2027-05-01 20:00:00 UTC');
+T::eq($againAt, $keepAt($againDir, $againC->cookies['apothekesid']), 'that sign-in gets a new sign-in time');
+$againCookies = $againC->cookies;
+$againS->stop();
+$againS = $lifeBoot($againDir, '2027-05-02 00:00:01');
+$againC = $lifeCarry($againS, $againCookies);
+T::eq(200, $againC->get('/')['status'], 'the new sign-in is still valid after the old session_days');
+$againS->stop();
+
+$otherDir = $newDir('other-uid');
+[$otherS, $otherC] = $lifeSign($otherDir, '2027-07-01 00:00:00');
+T::eq(303, $lifeSec($otherC, ['session_days' => '1', 'session_idle_hours' => '8760'])['status'], 'other account: session_days is 1');
+$otherBorn = strtotime('2027-07-01 00:00:00 UTC');
+$otherSid = $otherC->cookies['apothekesid'];
+T::eq($otherBorn, $keepAt($otherDir, $otherSid), 'the first account stores its sign-in time');
+$otherS->stop();
+T::ok(str_contains($lifeCli($otherDir, 'user add bera editor bera-pass'), 'Added bera'), 'a second account exists');
+$beraId = (int)testdb($otherDir)->query("SELECT id FROM users WHERE username = 'bera'")->fetchColumn();
+$adminId = (int)testdb($otherDir)->query("SELECT id FROM users WHERE username_key = 'admin'")->fetchColumn();
+T::ok($beraId > 0 && $adminId > 0 && $beraId !== $adminId, 'the second account is a different user');
+$copySid = bin2hex(random_bytes(16));
+T::ok(copy($lifeFile($otherDir, $otherSid), $lifeFile($otherDir, $copySid)), 'the leftover session can be read for the other account');
+$askKeep = function (string $dir, string $sid, int $uid, string $clock): string {
+    $code = 'require "src/bootstrap.php"; session_id($argv[1]); login_session((int)$argv[2], keepSignIn: true); echo (int)($_SESSION["signed_in_at"] ?? 0);';
+    $e = ['DATA_DIR' => $dir, 'APOTHEKE_CONFIG' => '/nonexistent', 'APOTHEKE_CLOCK' => $clock, 'APP_PASSWORD' => '', 'SEED_DEFAULTS' => '0'] + test_db_env($dir);
+    $env = implode(' ', array_map(fn($k, $v) => $k . '=' . escapeshellarg((string)$v), array_keys($e), $e));
+    $cmd = 'cd ' . escapeshellarg(ROOT) . ' && ' . $env . ' php -d display_errors=stderr -r ' . escapeshellarg($code) . ' ' . escapeshellarg($sid) . ' ' . $uid . ' 2>&1';
+    return trim((string)shell_exec($cmd));
+};
+T::eq((string)strtotime('2027-07-01 10:00:00 UTC'), $askKeep($otherDir, $copySid, $beraId, '2027-07-01 10:00:00'), 'a kept sign-in time is not reused for a different account');
+T::ok(str_contains($lifeCli($otherDir, 'user signout admin'), 'every device'), 'the first account is signed out before the other signs in');
+$otherS = $lifeBoot($otherDir, '2027-07-01 12:00:00');
+$otherC = $lifeCarry($otherS, ['apothekesid' => $otherSid]);
+T::eq(303, $otherC->post('/login', ['csrf' => $otherC->csrf(), 'username' => 'bera', 'password' => 'bera-pass'])['status'], 'the other account signs in on that browser');
+T::ok(str_contains($lifeBody($otherDir, $otherC->cookies['apothekesid']), 'uid|i:' . $beraId . ';'), 'that sign-in is the other account');
+T::eq(strtotime('2027-07-01 12:00:00 UTC'), $keepAt($otherDir, $otherC->cookies['apothekesid']), 'signing in as someone else gets a fresh sign-in time');
+$otherS->stop();
+
 // The other device is no longer signed in, but its session file is still there until sign-out destroys it.
 $dropDir = $newDir('drop');
 [$dropS, $dropC] = $lifeSign($dropDir, '2027-04-01 00:00:00');
