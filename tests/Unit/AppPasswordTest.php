@@ -55,6 +55,19 @@ final class AppPasswordTest extends TestCase
         $this->assertSame(3, $this->php(['bin/settings.php', 'auth', 'status'], '')['code'], 'no password was stored');
     }
 
+    public function testTheSettingsCliRefusesAShortPasswordWithoutAFatalError(): void
+    {
+        // the documented recovery command and any other one exit 1 with the message only (#81 QA L-1)
+        foreach ([['password', 'Long-enough-9'], ['list']] as $args) {
+            $run = $this->php(array_merge(['bin/settings.php'], $args), 'Short1');
+            $all = $run['out'] . $run['err'];
+            $this->assertSame(1, $run['code'], $all);
+            $this->assertStringContainsString('APP_PASSWORD is too short', $run['err']);
+            $this->assertStringNotContainsString('Short1', $all);
+            foreach (['Stack trace', '#0 ', 'Fatal error', 'Uncaught'] as $trace) $this->assertStringNotContainsString($trace, $all);
+        }
+    }
+
     public function testAShortPasswordIsIgnoredOnceAnAccountExists(): void
     {
         $this->assertSame(0, $this->php(['bin/migrate.php'], 'Long-enough-1')['code']);
