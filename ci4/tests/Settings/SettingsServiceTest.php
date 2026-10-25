@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Settings;
 
 use Apotheke\Core\Config\ApothekeConfig;
+use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
@@ -388,6 +389,36 @@ final class SettingsServiceTest extends CIUnitTestCase
         $this->assertSame('"placeholder-token"', $this->tokenRow());
     }
 
+    /** #97 N-35, N-36: a seal that cannot be saved is swallowed (the read still works) and logged with the class only. */
+    #[DataProvider('drivers')]
+    public function testAFailedSealIsLoggedAndSwallowed(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        (new SettingsRepository($this->database->db))->replace(['autofill_token' => '"placeholder-token"'], '2026-01-01 00:00:00');
+        $this->failSettingsInsert();
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->autofillToken());
+        $this->assertSame('"placeholder-token"', $this->tokenRow(), 'the legacy row stays');
+        $this->assertSame(['[apotheke] could not seal a stored secret (Apotheke\\Core\\Exceptions\\WriteFailed)'], $this->logged);
+    }
+
+    /** #97 N-34: inside an open transaction the seal is skipped, so it cannot fail the outer write. */
+    #[DataProvider('drivers')]
+    public function testNoSealInsideAnOpenTransaction(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        (new SettingsRepository($db))->replace(['autofill_token' => '"placeholder-token"'], '2026-01-01 00:00:00');
+        $this->failSettingsInsert();
+        $service = $this->fresh([], null, $this->box(base64_encode(self::KEY_A)));
+        Writes::transaction($db, function () use ($service, $db): void {
+            $this->assertSame('placeholder-token', $service->autofillToken());
+            Writes::check($db->table('categories')->insert(['name' => 'Kept', 'name_key' => 'kept', 'sort_key' => 'kept', 'created_at' => '2026-01-01 00:00:00']), 'outer');
+        });
+        $this->assertSame(1, $db->table('categories')->where('name', 'Kept')->countAllResults(), 'the outer write committed');
+        $this->assertSame('"placeholder-token"', $this->tokenRow());
+        $this->assertSame([], $this->logged, 'no seal was tried');
+    }
+
     #[DataProvider('drivers')]
     public function testAWrongKeyReadsAsUnsetAndTheAddressMoveStillClearsIt(string $driver): void
     {
@@ -482,6 +513,19 @@ final class SettingsServiceTest extends CIUnitTestCase
         return SecretBox::fromEnvironment(['APP_KEY' => $appKey], [], function (string $message): void {
             $this->logged[] = $message;
         });
+    }
+
+    /** Every insert into settings fails, as a broken disk or constraint would. */
+    private function failSettingsInsert(): void
+    {
+        $db = $this->database->db;
+        if ($db->DBDriver === 'Postgre') {
+            $db->query("CREATE OR REPLACE FUNCTION apotheke_test_fail() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''test failure''; END'");
+            $db->query('CREATE TRIGGER apotheke_test_fail BEFORE INSERT ON settings FOR EACH ROW EXECUTE FUNCTION apotheke_test_fail()');
+
+            return;
+        }
+        $db->query("CREATE TRIGGER apotheke_test_fail BEFORE INSERT ON settings BEGIN SELECT RAISE(ABORT, 'test failure'); END");
     }
 
     private function tokenRow(): string
