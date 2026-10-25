@@ -19,6 +19,11 @@ final class RequestCleanup
     /** @var array<string, Closure(): void> */
     private array $pending = [];
 
+    /** @param (Closure(string): void)|null $log error_log() when null */
+    public function __construct(private readonly ?Closure $log = null)
+    {
+    }
+
     /** @param Closure(): void $undo */
     public function add(string $key, Closure $undo): void
     {
@@ -36,11 +41,13 @@ final class RequestCleanup
     {
         $pending = $this->pending;
         $this->pending = [];
-        foreach ($pending as $undo) {
+        foreach ($pending as $key => $undo) {
             try {
                 $undo();
-            } catch (Throwable) {
-                // best effort: the next step still runs
+            } catch (Throwable $e) {
+                // Best effort: the next step still runs. The key and class only; a message can hold a path.
+                $line = '[apotheke] request cleanup step failed: ' . $key . ' (' . $e::class . ')';
+                $this->log !== null ? ($this->log)($line) : error_log($line);
             }
         }
     }

@@ -46,6 +46,11 @@ final class MediaTest extends CIUnitTestCase
 
     private ServedImageWriter $served;
 
+    private RequestCleanup $cleanup;
+
+    /** @var list<string> */
+    private array $logged = [];
+
     /** @var list<string> */
     private array $temp = [];
 
@@ -56,7 +61,9 @@ final class MediaTest extends CIUnitTestCase
         $this->settings = new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), new LocalBrandStore($this->database->dataDir() . '/brand'), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
         $this->served = new ServedImageWriter(new LocalStorage($this->database->dataDir()));
         ImageLimits::applyImagickLimits();
-        $this->store = new ImageStore($this->settings, new OriginalStore(new LocalStorage($this->originals(), 0640)), $this->served, new ImagickDecoder(), new RequestCleanup());
+        $this->store = new ImageStore($this->settings, new OriginalStore(new LocalStorage($this->originals(), 0640)), $this->served, new ImagickDecoder(), $this->cleanup = new RequestCleanup(function (string $line): void {
+            $this->logged[] = $line;
+        }));
     }
 
     protected function tearDown(): void
@@ -210,21 +217,42 @@ final class MediaTest extends CIUnitTestCase
 
     public function testRequestCleanupRunsOnceAndDropsFinishedWork(): void
     {
-        $cleanup = new RequestCleanup();
+        $logged = [];
+        $cleanup = new RequestCleanup(static function (string $line) use (&$logged): void {
+            $logged[] = $line;
+        });
         $ran = [];
         $cleanup->add('a', static function () use (&$ran): void {
             $ran[] = 'a';
         });
-        $cleanup->add('b', static function (): void {
-            throw new \RuntimeException('b');
+        $cleanup->add('media:' . str_repeat('b', 32) . '.jpg', static function (): void {
+            throw new \RuntimeException('could not unlink /data/originals/secret-path');
         });
         $cleanup->add('c', static function () use (&$ran): void {
             $ran[] = 'c';
         });
+        $cleanup->add('d', static function () use (&$ran): void {
+            $ran[] = 'd';
+        });
         $cleanup->drop('c');
         $cleanup->run();
         $cleanup->run();
-        $this->assertSame(['a'], $ran, 'a failing step does not stop the rest; a dropped one never runs; the list resets');
+        $this->assertSame(['a', 'd'], $ran, 'a step after a failing one still runs; a dropped one never runs; the list resets');
+        $this->assertSame(['[apotheke] request cleanup step failed: media:' . str_repeat('b', 32) . '.jpg (RuntimeException)'], $logged, 'key and class, never the message or a path');
+    }
+
+    /** N-31 (a): a finished upload is dropped from the request's list, so running it later removes nothing. */
+    public function testAStoredUploadSurvivesTheRequestCleanup(): void
+    {
+        $name = $this->upload($this->jpeg(60, 40));
+        $files = $this->tree();
+        $this->assertContains('images/' . $name, $files);
+        $this->assertContains('thumbs/' . $name, $files);
+        $this->assertContains('originals/map/' . substr($name, 0, 32), $files);
+        $this->assertCount(1, preg_grep('#^originals/[a-f0-9]{64}\.jpg$#', $files) ?: []);
+        $this->cleanup->run();
+        $this->assertSame($files, $this->tree(), 'the original, its map entry, the full copy and the thumb all remain');
+        $this->assertSame([], $this->logged);
     }
 
     public function testTheSizeLimitIsMaxUploadMb(): void

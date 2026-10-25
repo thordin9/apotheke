@@ -38,8 +38,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   0640) and writes `images/` and `thumbs/` with the same bytes as legacy. It applies `main`'s decode limits from #72 and #79
   (`ImageLimits`) and removes everything again when a decode fails. If the request dies first (a fatal error), the
   per-request `Core\Http\RequestCleanup` removes it: the exception handler runs it before it exits, and the
-  `requestcleanup` after filter runs it at the end of every request. All bytes go through `Core\Storage`. GET `/media`
-  serves only served names. The upload routes, photo order/edit and copies for duplicate/merge come with 11a/11b.
+  `requestcleanup` after filter runs it at the end of every request; a failing step is logged with its key and class
+  only. Settings saves go through `Core\Database\Writes` (M-25), as Taxonomy's writes do. All bytes go through
+  `Core\Storage`. GET `/media` serves only served names. The upload routes, photo order/edit and copies for
+  duplicate/merge come with 11a/11b.
 - Not ported yet: sign-in, account and Users pages, the Items, Undo and Backup modules. When those pages
   arrive they pass `keepSignIn` to `SessionGate::signIn()` where `main` passes it to `login_session()` (sign out
   everywhere, and a new password for your own account on Account, the password page and Users).
@@ -56,13 +58,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#95](https://github.com/thordin9/apotheke/pull/95): PLAN step 10, media storage. Merged.
 - [#96](https://github.com/thordin9/apotheke/pull/96): PLAN step 8, taxonomy (locations, categories, tags), plus N-18
   and N-19. Merged.
+- [#97](https://github.com/thordin9/apotheke/pull/97): #95/#96 follow-ups N-30, N-31, M-25 for Settings. Merged.
 - [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. In review.
 
 ## Lanes
 
-- Coder: step 10 media storage (#95, merged).
+- Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97).
 - Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
-  rate limits), then step 9 (catalog). Step 11a waits until media and catalog are in.
+  rate limits). Step 11a waits until media and catalog are in.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
