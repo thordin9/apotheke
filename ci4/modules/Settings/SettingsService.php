@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Settings;
 
+use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
@@ -90,10 +91,7 @@ final class SettingsService
             return [];
         }
         $roots = [$data, $data . '/images', $data . '/thumbs', $data . '/files', $data . '/originals'];
-        $originals = trim((string)($config['originals_dir'] ?? ''));
-        if ($originals !== '') {
-            $roots[] = rtrim($originals[0] === '/' ? $originals : dirname(__DIR__, 3) . '/' . $originals, '/');
-        }
+        $roots[] = ApothekeConfig::originalsPath($data, (string)($config['originals_dir'] ?? ''));
 
         return array_values(array_unique($roots));
     }

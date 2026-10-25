@@ -24,6 +24,17 @@ final class RoutePermission
         return $path === '/' ? '/' : '/' . trim($path, '/ ');
     }
 
+    /**
+     * The path as legacy compares it (rawurldecode() of the request path, not
+     * trimmed), relative to the base URL, with one leading slash.
+     */
+    public function exact(string $requestPath): string
+    {
+        $path = rawurldecode($requestPath);
+
+        return str_starts_with($path, '/') ? $path : '/' . $path;
+    }
+
     /** @param array<array-key,mixed> $post */
     public function need(string $method, string $path, array $post = []): string
     {

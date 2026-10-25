@@ -36,6 +36,7 @@ final class DevServerRouterTest extends TestCase
         $outside = dirname($doc) . '/secret.txt';
         file_put_contents($outside, 'nope');
         $this->assertSame('app', $router->decide($doc, '/../secret.txt'));
+        $this->assertSame('app', $router->decide($doc, "/assets/ping.txt\0"), 'a NUL byte is never a file');
         @unlink($outside);
     }
 }

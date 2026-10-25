@@ -104,6 +104,22 @@ final class Ci4RequestHardeningHttpTest extends TestCase
         });
     }
 
+    /** #91 N-15: a path with characters the router refuses is a 400, not a 500, and is not logged as an error. */
+    public function testDisallowedPathCharactersGet400(): void
+    {
+        $this->withServer([], function (Server $server): void {
+            $client = $server->client();
+            foreach (['/a;b', '/settings%3B', '/a%01b', '/a%0Ab', '/%00'] as $path) {
+                $r = $client->get($path);
+                $this->assertSame(400, $r['status'], $path);
+                $this->assertSame('Bad request', $r['body'], $path);
+                $this->assertSame('nosniff', $r['headers']['x-content-type-options'] ?? null, $path);
+            }
+            $this->assertFalse($server->logHas('BadRequestException'), 'not logged as a server error');
+            $this->assertSame(200, $client->get('/healthz')['status']);
+        });
+    }
+
     public function testAnonymousRequestsLeaveNoSession(): void
     {
         $this->withServer([], function (Server $server, string $dir): void {

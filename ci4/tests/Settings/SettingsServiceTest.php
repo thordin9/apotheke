@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Settings;
 
+use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
@@ -30,11 +31,30 @@ final class SettingsServiceTest extends CIUnitTestCase
     /** @var list<string> */
     private array $logged = [];
 
+    /** The at-rest key variables, isolated so no test depends on the runner's environment. */
+    private const KEY_ENV = ['APP_KEY', 'APP_KEY_FILE', 'APOTHEKE_SODIUM'];
+
+    /** @var array<string,string|false> */
+    private array $savedEnv = [];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        foreach (self::KEY_ENV as $name) {
+            $this->savedEnv[$name] = getenv($name);
+            putenv($name);
+        }
+    }
+
     protected function tearDown(): void
     {
         $this->database?->drop();
         $this->database = null;
         putenv('APOTHEKE_CLOCK');
+        foreach ($this->savedEnv as $name => $value) {
+            putenv($value === false ? $name : $name . '=' . $value);
+        }
+        $this->savedEnv = [];
         parent::tearDown();
     }
 
@@ -380,6 +400,42 @@ final class SettingsServiceTest extends CIUnitTestCase
         $this->assertSame([], $other->save(['autofill_url' => 'http://192.0.2.2:8080']));
         $this->assertTrue($other->tokenCleared(), 'the stored row moves with the address even when it does not open');
         $this->assertSame('""', $this->tokenRow());
+    }
+
+    /** #89 N-3: the backup roots resolve originals_dir through ApothekeConfig (legacy secret_backup_roots()). */
+    public function testBackupRootsFollowTheOriginalsDirectory(): void
+    {
+        $base = ['/srv/data', '/srv/data/images', '/srv/data/thumbs', '/srv/data/files', '/srv/data/originals'];
+        $this->assertSame([], SettingsService::backupRoots(['data_dir' => '']));
+        $this->assertSame($base, SettingsService::backupRoots(['data_dir' => '/srv/data/']));
+        $this->assertSame([...$base, '/srv/originals'], SettingsService::backupRoots(['data_dir' => '/srv/data', 'originals_dir' => '/srv/originals/']));
+        $this->assertSame([...$base, ApothekeConfig::repoRoot() . '/keep'], SettingsService::backupRoots(['data_dir' => '/srv/data', 'originals_dir' => 'keep']));
+    }
+
+    /** #89 N-1: password_hash is a secret but not recoverable, so it is never sealed (legacy secret_is_at_rest()). */
+    #[DataProvider('drivers')]
+    public function testThePasswordHashIsNotSealed(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $service = $this->fresh([], null, $this->box(base64_encode(self::KEY_A)));
+        $this->assertTrue($service->isAtRest('autofill_token'));
+        $this->assertFalse($service->isAtRest('password_hash'));
+        $hash = password_hash('placeholder-password', PASSWORD_DEFAULT);
+        $service->store(['password_hash' => $hash]);
+        $this->assertSame((string)json_encode($hash, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (new SettingsRepository($this->database->db))->rows()['password_hash'] ?? null);
+        $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->all();
+        $this->assertSame((string)json_encode($hash, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), (new SettingsRepository($this->database->db))->rows()['password_hash'] ?? null, 'a read does not seal it either');
+    }
+
+    /** #89 N-11: without an injected box the service reads APP_KEY from the environment. */
+    #[DataProvider('drivers')]
+    public function testTheEnvironmentKeyIsUsedWhenNoBoxIsGiven(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        putenv('APP_KEY=' . base64_encode(self::KEY_A));
+        $this->fresh()->setAutofillToken('placeholder-token');
+        $this->assertStringStartsWith('"enc:v1:', $this->tokenRow());
+        $this->assertSame('placeholder-token', $this->fresh([], null, $this->box(base64_encode(self::KEY_A)))->autofillToken());
     }
 
     /** @return iterable<string,array{string,SecretKey,string,string}> */

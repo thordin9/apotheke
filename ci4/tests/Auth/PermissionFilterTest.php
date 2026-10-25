@@ -392,6 +392,62 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertStringNotContainsString('<b>Desk', $page);
     }
 
+    /**
+     * #91 N-15: a `none` route (health, branding) skips the check only for the
+     * exact path legacy answers first; a variant the router trims into it
+     * needs what legacy route_perm() gives that path (View for a GET).
+     */
+    public function testOnlyTheExactPathOfAPublicRouteSkipsTheCheck(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $rules = new RoutePermission();
+        foreach (['theme.css', 'labels.css', 'manifest.webmanifest', 'favicon.ico', 'brand/logo.png', 'healthz', 'health', 'theme%2Ecss'] as $exact) {
+            $this->assertNull($this->filterOrNull($exact, [], 'GET'), $exact);
+            $this->assertNull($this->filterOrNull($exact, [], 'HEAD'), $exact);
+        }
+        foreach (['theme.css/', 'brand/logo.png/', 'healthz/', 'health/', 'manifest.webmanifest/', 'labels.css%20/'] as $variant) {
+            $this->assertSame('view', $rules->need('GET', $rules->exact($variant)), $variant . ': legacy needs View');
+            $refused = $this->filter($variant, [], 'GET');
+            $this->assertSame([303, '/login'], [$refused->getStatusCode(), $refused->getHeaderLine('Location')], $variant);
+        }
+        // CI4's request URI already drops trailing spaces and a doubled leading slash, before
+        // any filter: the path is the exact one, as CI4 dispatches it (a documented deviation).
+        $this->assertNull($this->filterOrNull('favicon.ico%20', [], 'GET'));
+        $this->assertNull($this->filterOrNull('//theme.css', [], 'GET'));
+        $this->signInAs($this->account('vera', 'viewer'));
+        foreach (['theme.css/', 'brand/logo.png/', 'healthz/'] as $variant) {
+            $this->assertNull($this->filterOrNull($variant, [], 'GET'), $variant . ': a viewer may');
+        }
+        $this->db()->table('roles')->insert(['role_key' => 'blind', 'name' => 'Blind', 'perms' => '[]', 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);
+        $this->signInAs($this->account('bo', 'blind'));
+        $this->assertNull($this->filterOrNull('theme.css', [], 'GET'), 'the exact path needs nothing');
+        $this->assertSame(403, $this->filter('theme.css/', [], 'GET')->getStatusCode(), 'a role without View');
+    }
+
+    /**
+     * #91 N-15: a redirect route does not throw in the filter. It reaches no
+     * controller, so it gets legacy route_perm() on the routed path, and the
+     * redirect is sent only once that is met.
+     */
+    public function testARedirectRouteIsChecked(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $routes = Services::routes();
+        $routes->loadRoutes();
+        $routes->addRedirect('test-old-settings', 'healthz');
+        $this->assertNull($this->filterOrNull('test-old-settings', [], 'GET'), 'sign-in off');
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $this->assertSame(303, $this->filter('test-old-settings', [], 'GET')->getStatusCode(), 'signed out');
+        $this->signInAs($this->account('vera', 'viewer'));
+        $this->assertNull($this->filterOrNull('test-old-settings', [], 'GET'));
+        $this->assertNull($this->filterOrNull('test-old-settings/', [], 'GET'));
+    }
+
     /** The permission is decided on the method after CI4's `_method` override. */
     public function testTheOverriddenMethodDecides(): void
     {

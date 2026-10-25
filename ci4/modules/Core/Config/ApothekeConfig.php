@@ -121,9 +121,15 @@ final class ApothekeConfig
     /** Empty stays under data/, a relative path is from the repository root, an absolute path is kept. */
     public function originalsDir(): string
     {
-        $dir = trim((string)($this->values['originals_dir'] ?? ''));
+        return self::originalsPath($this->dataDir(), (string)($this->values['originals_dir'] ?? ''));
+    }
+
+    /** originalsDir() for raw config values (data_dir, originals_dir). */
+    public static function originalsPath(string $dataDir, string $originalsDir): string
+    {
+        $dir = trim($originalsDir);
         if ($dir === '') {
-            return $this->dataDir() . '/originals';
+            return $dataDir . '/originals';
         }
         if ($dir[0] !== '/') {
             $dir = self::repoRoot() . '/' . $dir;
