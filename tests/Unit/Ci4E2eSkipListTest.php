@@ -27,16 +27,36 @@ final class Ci4E2eSkipListTest extends TestCase
             $src = (string)file_get_contents($spec);
             $parts = explode(' › ', stripslashes($path));
             $this->assertGreaterThanOrEqual(2, count($parts), $file . ': ' . $path . ' (describe › title)');
-            // N-85: each describe, in order, then the test inside the last one.
-            $at = 0;
-            foreach ($parts as $i => $part) {
-                $call = $i < count($parts) - 1 ? 'test\.describe' : 'test';
-                $q = preg_quote($part, '/');
-                $found = preg_match('/\b' . $call . '\(\s*([\'"`])' . $q . '\1/', $src, $hit, PREG_OFFSET_CAPTURE, $at) === 1;
-                $this->assertTrue($found, "$file has no " . str_replace('\\', '', $call) . "(\"$part\") after the describes before it");
-                $at = $hit[0][1];
-            }
+            $this->assertTrue(self::findsPath($src, $parts), "$file has no test.describe(…) › test(…) path \"$path\" in that order");
             $this->assertStringContainsString(end($parts), $handoff, 'docs/HANDOFF.md lists the skipped "' . end($parts) . '"');
         }
+    }
+
+    /** N-85: a path is found only with each describe in order and then the test, never another call or order. */
+    public function testThePathMustBeInOrder(): void
+    {
+        $src = "test.describe('outer', () => {\n  test('first', async () => {});\n  test.describe('inner', () => {\n    test(\"second\", async () => {});\n  });\n});\ntest.describe('later', () => {});\n";
+        $this->assertTrue(self::findsPath($src, ['outer', 'first']));
+        $this->assertTrue(self::findsPath($src, ['outer', 'inner', 'second']));
+        $this->assertFalse(self::findsPath($src, ['inner', 'outer', 'second']), 'describes out of order');
+        $this->assertFalse(self::findsPath($src, ['later', 'first']), 'the test comes before the describe');
+        $this->assertFalse(self::findsPath($src, ['outer', 'inner']), 'a describe is not a test');
+        $this->assertFalse(self::findsPath($src, ['first', 'second']), 'a test is not a describe');
+        $this->assertFalse(self::findsPath($src, ['outer', 'missing']));
+    }
+
+    /** @param list<string> $parts describe, …, title */
+    private static function findsPath(string $src, array $parts): bool
+    {
+        $at = 0;
+        foreach ($parts as $i => $part) {
+            $call = $i < count($parts) - 1 ? 'test\.describe' : 'test';
+            if (preg_match('/\b' . $call . '\(\s*([\'"`])' . preg_quote($part, '/') . '\1/', $src, $hit, PREG_OFFSET_CAPTURE, $at) !== 1) {
+                return false;
+            }
+            $at = $hit[0][1] + 1;
+        }
+
+        return true;
     }
 }
