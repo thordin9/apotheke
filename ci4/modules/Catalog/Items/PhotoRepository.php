@@ -82,11 +82,13 @@ final class PhotoRepository
     {
         $this->images->hold($file);
         $pid = Writes::transaction($this->db, function () use ($itemId, $file, $max): int {
+            // Write first: it locks the item (PostgreSQL) or takes the write lock (SQLite), so two adds at
+            // once count one after the other and cannot pass the limit together (P6).
+            $this->touch($itemId);
             if (count($this->list($itemId)) >= $max) {
                 throw new UserError('An item can have at most ' . $max . ' photos.');
             }
             $pid = $this->insert($itemId, $file);
-            $this->touch($itemId);
             $this->history->log($itemId, $this->name($itemId), 'photo', ['change' => 'added', 'count' => count($this->list($itemId))]);
 
             return $pid;
@@ -197,12 +199,24 @@ final class PhotoRepository
         if ($rotate === 0 && $x <= 0.0001 && $y <= 0.0001 && $w >= 0.9999 && $h >= 0.9999) {
             throw new UserError('Nothing to change: rotate or crop the photo first.', 422);
         }
-        $new = $this->images->edit($p['file'], $rotate, $x, $y, $w, $h);
+        $old = $p['file'];
+        try {
+            $new = $this->images->edit($old, $rotate, $x, $y, $w, $h);
+        } catch (UserError $e) {
+            $this->stillCurrent($itemId, $photoId, $old);
+            throw $e;
+        }
         $name = $new['name'];
         try {
-            $version = Writes::transaction($this->db, function () use ($itemId, $photoId, $name, $rotate, $new): int {
+            $version = Writes::transaction($this->db, function () use ($itemId, $photoId, $name, $old, $rotate, $new): int {
                 $now = $this->clock->now();
-                Writes::check($this->db->query('UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ?', [$name, $now, $photoId, $itemId]), 'edit photo');
+                // Compare-and-swap (M-90): only the request that read the current file replaces it. The other
+                // one of a double submit changes nothing and drops its own new files below.
+                Writes::check($this->db->query('UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ? AND file = ?', [$name, $now, $photoId, $itemId, $old]), 'edit photo');
+                if ($this->db->affectedRows() !== 1) {
+                    $this->stillCurrent($itemId, $photoId, $old);
+                    throw new UserError('Could not read that photo.', 500);
+                }
                 $this->renumber($itemId);
                 $this->touch($itemId);
                 $this->history->log($itemId, $this->name($itemId), 'photo',
@@ -216,12 +230,24 @@ final class PhotoRepository
             throw $e;
         }
         $this->images->release($name);
-        $used = Writes::rows($this->db, 'SELECT 1 AS x FROM item_photos WHERE file = ? UNION ALL SELECT 1 AS x FROM items WHERE image = ?', [$p['file'], $p['file']]);
-        if ($used === [] && !$this->undo->holds($p['file'])) {
-            $this->images->delete($p['file']);
+        $used = Writes::rows($this->db, 'SELECT 1 AS x FROM item_photos WHERE file = ? UNION ALL SELECT 1 AS x FROM items WHERE image = ?', [$old, $old]);
+        if ($used === [] && !$this->undo->holds($old)) {
+            $this->images->delete($old);
         }
 
         return ['id' => $photoId, 'file' => $name, 'version' => $version];
+    }
+
+    /**
+     * The photo still shows $file. Otherwise answer as legacy does for a photo
+     * that changed or went away while it was read: 404 when it is gone, else
+     * "Could not read that photo." (500).
+     */
+    private function stillCurrent(int $itemId, int $photoId, string $file): void
+    {
+        if ($this->find($itemId, $photoId)['file'] !== $file) {
+            throw new UserError('Could not read that photo.', 500);
+        }
     }
 
     private function touch(int $itemId): void
