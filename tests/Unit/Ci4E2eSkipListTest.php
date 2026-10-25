@@ -6,8 +6,9 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * #101 N-74: every entry of CI4_UNPORTED (tests/visual/fixtures.ts) names a
- * spec that exists and a describe › title path in it, so an entry for a
- * renamed, split or removed test does not linger; the hand-off lists each.
+ * spec that exists and a describe › title path in it (each describe in
+ * order, then the test; N-85), so an entry for a renamed, split or removed
+ * test does not linger; the hand-off lists each.
  */
 final class Ci4E2eSkipListTest extends TestCase
 {
@@ -26,9 +27,14 @@ final class Ci4E2eSkipListTest extends TestCase
             $src = (string)file_get_contents($spec);
             $parts = explode(' › ', stripslashes($path));
             $this->assertGreaterThanOrEqual(2, count($parts), $file . ': ' . $path . ' (describe › title)');
-            foreach ($parts as $part) {
-                $found = str_contains($src, "'" . $part . "'") || str_contains($src, '"' . $part . '"') || str_contains($src, '`' . $part . '`');
-                $this->assertTrue($found, "$file has no test or describe titled \"$part\"");
+            // N-85: each describe, in order, then the test inside the last one.
+            $at = 0;
+            foreach ($parts as $i => $part) {
+                $call = $i < count($parts) - 1 ? 'test\.describe' : 'test';
+                $q = preg_quote($part, '/');
+                $found = preg_match('/\b' . $call . '\(\s*([\'"`])' . $q . '\1/', $src, $hit, PREG_OFFSET_CAPTURE, $at) === 1;
+                $this->assertTrue($found, "$file has no " . str_replace('\\', '', $call) . "(\"$part\") after the describes before it");
+                $at = $hit[0][1];
             }
             $this->assertStringContainsString(end($parts), $handoff, 'docs/HANDOFF.md lists the skipped "' . end($parts) . '"');
         }
