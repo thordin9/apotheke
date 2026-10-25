@@ -700,4 +700,41 @@ class Services extends BaseService
 
         return new \Apotheke\Core\Http\LegacyPathRouter($routes, $request);
     }
+
+    /** Accounts on Control Panel → Users & sign-in (Auth): only an admin changes an admin account. */
+    public static function userAdmin(bool $getShared = true): \Apotheke\Auth\UserAdmin
+    {
+        if ($getShared) {
+            return static::getSharedInstance('userAdmin');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\UserAdmin(new \Apotheke\Auth\UserRepository($db), static::roles(), static::accounts(),
+            new \Apotheke\Auth\AdminGuard(static::currentUser()), new \Apotheke\Core\Libraries\Clock());
+    }
+
+    /** Roles and permissions on Control Panel → Users & sign-in (Auth). */
+    public static function roleAdmin(bool $getShared = true): \Apotheke\Auth\RoleAdmin
+    {
+        if ($getShared) {
+            return static::getSharedInstance('roleAdmin');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\RoleAdmin(static::roles(), new \Apotheke\Auth\UserRepository($db), static::settings(), new \Apotheke\Core\Libraries\Clock());
+    }
+
+    /** Sign-in on or off (Auth): on needs an active admin, off needs an admin. */
+    public static function signInSwitch(bool $getShared = true): \Apotheke\Auth\SignInSwitch
+    {
+        if ($getShared) {
+            return static::getSharedInstance('signInSwitch');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\SignInSwitch(static::settings(), new \Apotheke\Auth\UserRepository($db), new \Apotheke\Auth\AdminGuard(static::currentUser()));
+    }
 }
