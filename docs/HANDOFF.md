@@ -72,6 +72,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `APP_PASSWORD`, a new session ID on sign-in and sign-out, and `keepSignIn` where `main` passes it. The three
   sign-in routes check the CSRF token in the controller, in legacy's order. A failed sign-in answers at a fixed
   deadline from the start of the attempt (`Auth\SignInPace`, `Config\SignIn`, 1 s by default).
+  Stricter than legacy: a password with a null character never signs in, and registration and Account refuse it
+  as a new password (422).
 - Not ported yet: the users and roles pages (`/settings/security`) and the CLI account forms (step 7, second
   part), the Items, Undo and Backup modules. A new password for your own account on Users keeps the sign-in
   (`keepSignIn`), as on Account.
@@ -117,7 +119,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Tracked
 
 - CI4 router (N-63, an N-51 follow-up): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404
-  where legacy shows the page (stricter).
+  where legacy shows the page (stricter). Owner: Coder2 (CI4 lane).
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 Markdown: links containing emphasis characters render incorrectly; later joint fix in main and CI4 (hold bare links in placeholders before emphasis).
