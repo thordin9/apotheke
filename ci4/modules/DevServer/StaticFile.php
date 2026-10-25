@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Apotheke\DevServer;
 
-/** A real file under the document root. Rejects "/", traversal and *.php. */
+/** A real file under the document root. Rejects "/", traversal, NUL bytes and *.php. */
 final class StaticFile
 {
     public static function isStatic(string $docroot, string $uriPath): bool
     {
-        if ($uriPath === '/' || str_ends_with(strtolower($uriPath), '.php')) {
+        if ($uriPath === '/' || str_contains($uriPath, "\0") || str_ends_with(strtolower($uriPath), '.php')) {
             return false;
         }
         $root = realpath($docroot);

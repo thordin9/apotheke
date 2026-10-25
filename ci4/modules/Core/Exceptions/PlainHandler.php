@@ -8,12 +8,15 @@ use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\SecurityPolicy;
 use CodeIgniter\Debug\ExceptionHandlerInterface;
 use CodeIgniter\Exceptions\PageNotFoundException;
+use CodeIgniter\HTTP\Exceptions\BadRequestException;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
 
 /**
- * Text only. UserError keeps its status; anything else is 500 "Server error".
+ * Text only. UserError keeps its status; a path the router refuses (control
+ * characters, `;`) is 400 "Bad request" and is not logged; anything else is
+ * 500 "Server error".
  * The response skips the global after filters, so the security headers are set
  * here, as legacy view_error() pages have them (SEC-N8).
  */
@@ -66,6 +69,9 @@ final class PlainHandler implements ExceptionHandlerInterface
         }
         if ($exception instanceof PageNotFoundException) {
             return [404, 'Not found'];
+        }
+        if ($exception instanceof BadRequestException) {
+            return [400, 'Bad request'];
         }
 
         return [500, 'Server error'];

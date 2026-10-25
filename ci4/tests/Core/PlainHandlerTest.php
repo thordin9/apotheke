@@ -8,6 +8,7 @@ use Apotheke\Core\Exceptions\PlainHandler;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\SecurityPolicy;
 use CodeIgniter\Exceptions\PageNotFoundException;
+use CodeIgniter\HTTP\Exceptions\BadRequestException;
 use CodeIgniter\HTTP\Response;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\App;
@@ -15,7 +16,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Throwable;
 
-/** SEC-N8: 404, 500 and UserError responses carry the security headers. */
+/** SEC-N8: 400, 404, 500 and UserError responses carry the security headers. */
 final class PlainHandlerTest extends CIUnitTestCase
 {
     /** @return iterable<string,array{0:Throwable,1:int,2:string}> */
@@ -23,6 +24,7 @@ final class PlainHandlerTest extends CIUnitTestCase
     {
         yield '404' => [PageNotFoundException::forPageNotFound(), 404, 'Not found'];
         yield '500' => [new RuntimeException('internal detail'), 500, 'Server error'];
+        yield '400' => [new BadRequestException('The URI you submitted has disallowed characters: "a;b"'), 400, 'Bad request'];
         yield 'UserError' => [new UserError('Name is required.', 422), 422, 'Name is required.'];
         yield 'UserError 419' => [new UserError('Your session expired. Reload the page and try again.', 419), 419, 'Your session expired. Reload the page and try again.'];
         yield 'UserError without status' => [new UserError('Bad input.'), 400, 'Bad input.'];

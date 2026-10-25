@@ -12,6 +12,7 @@ use Apotheke\Core\Http\WantsJson;
 use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\Filters\FilterInterface;
 use CodeIgniter\HTTP\Exceptions\BadRequestException;
+use CodeIgniter\HTTP\Exceptions\RedirectException;
 use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\Response;
@@ -33,8 +34,12 @@ use Config\Services;
  * everyone (fail closed). A request no route matches gets legacy
  * route_perm() for the path the router tried, normalised as the router does
  * (decoded, slashes and spaces trimmed, relative to the base URL), and then
- * CI4's 404 once allowed. The method is the effective one (after HEAD → GET
- * and the `_method` override).
+ * CI4's 404 once allowed; a redirect route is treated the same way, so its
+ * redirect is only sent once that permission is met. A route marked `none`
+ * (health, branding) skips the check only for the exact path legacy answers
+ * before its check; a variant the router trims into it, such as a trailing
+ * slash, needs what legacy route_perm() gives that path. The method is the
+ * effective one (after HEAD → GET and the `_method` override).
  *
  * Refusals match legacy: nobody or the anonymous guest gets 401 JSON for a
  * fetch, a bare 401 under /media/, otherwise 303 to /login; a signed-in role
@@ -55,14 +60,21 @@ final class PermissionFilter implements FilterInterface
         $need = $request instanceof IncomingRequest
             ? $this->routeOption(Services::router(Services::routes()->loadRoutes(), $request, false), $requestPath)
             : null;
+        $post = $request instanceof IncomingRequest ? $request->getPost() : [];
+        $post = is_array($post) ? $post : [];
         if ($need === null) {
             if ($rules->isBeforeCheck($method, $path)) {
                 return null;
             }
-            $post = $request instanceof IncomingRequest ? $request->getPost() : [];
-            $need = $rules->need($method, $path, is_array($post) ? $post : []);
+            $need = $rules->need($method, $path, $post);
         } elseif ($need === Permissions::NONE) {
-            return null;
+            // Only the exact path legacy answers before its check; a variant the
+            // router trims into the route (a trailing slash) needs what legacy gives it.
+            $exact = $rules->exact($requestPath);
+            if ($rules->isBeforeCheck($method, $exact)) {
+                return null;
+            }
+            $need = $rules->need($method, $exact, $post);
         }
         $refusal = (new PermissionCheck(Services::roles()))->refusal(Services::currentUser()->resolve(), $need);
         if ($refusal === null) {
@@ -108,8 +120,8 @@ final class PermissionFilter implements FilterInterface
     {
         try {
             $router->handle($requestPath);
-        } catch (PageNotFoundException|BadRequestException) {
-            return null;
+        } catch (PageNotFoundException|BadRequestException|RedirectException) {
+            return null;   // no controller route: legacy route_perm() on the routed path
         }
         if ($router->getMatchedRoute() === null) {
             return null;
