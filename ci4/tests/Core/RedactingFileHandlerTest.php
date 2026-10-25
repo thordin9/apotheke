@@ -31,4 +31,16 @@ final class RedactingFileHandlerTest extends CIUnitTestCase
             rmdir($dir);
         }
     }
+
+    /** #99 N-53: a value holding the driver's line text, or a lower-case detail:, is still dropped whole. */
+    public function testTheStripRunsToTheEndOfTheDetail(): void
+    {
+        $tail = "\nin SYSTEMPATH/Database/Postgre/Connection.php on line 210.\n#0 trace";
+        $this->assertSame(
+            'ERROR:  dup' . "\n" . 'DETAIL: (removed)' . $tail,
+            RedactingFileHandler::strip("ERROR:  dup\nDETAIL:  Key (name)=(a\nin x on line 1.\nplaceholder-secret) already exists." . $tail),
+        );
+        $this->assertSame('ERROR:  x DETAIL: (removed)', RedactingFileHandler::strip('ERROR:  x detail:  Failing row contains (placeholder-secret).'));
+        $this->assertSame('ERROR:  x DETAIL: (removed)', RedactingFileHandler::strip("ERROR:  x Detail:  (placeholder-secret\nsecond line)"));
+    }
 }

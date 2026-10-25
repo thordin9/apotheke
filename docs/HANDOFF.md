@@ -31,8 +31,25 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   in one transaction when the data changes. Favourites: POST `/item/{id}/fav` and `/recent/clear`; the list reads
   recently viewed through Catalog's `RecentItems`. Recording views waits for the item page (11a), and POST `/bulk`
   for 11b. Acceptance: the PM accepted the legacy-vs-CI4 golden test (`tests/Unit/Ci4CatalogParityTest.php`) in
-  place of the `list`, `search`, `saved-filters`, `favourites` and `value` specs; the specs run against CI4 once the
-  CI4 Playwright target PR lands, which is required before 11b. Trailing slashes: see Tracked below.
+  place of the `list`, `search`, `saved-filters`, `favourites` and `value` specs; the specs now also run against CI4
+  (see Playwright on CI4). Like legacy, CI4 routes the exact decoded path: a trailing slash or a dot segment
+  (`/stats/`, `/./stats`, `/%2e/stats`, `/a/../stats`) answers 404 (N-51, `Core\Http\LegacyPathRouter`).
+- Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
+  `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals` and `branding` on CI4 in the
+  PHP 8.4 e2e cells, after the unchanged legacy run. A test that needs an unported page skips (`CI4_UNPORTED` in
+  `tests/visual/fixtures.ts`); remove its entry when the page lands:
+  - `list`: empty state with a call to action (`/activity`, `/labels`); quantity +/- on a card (POST
+    `/item/{id}/qty`, 11b).
+  - `search`: works without JavaScript and shows the engine in System (`/settings/system`).
+  - `value`: overview totals, sort by value, editing a price (`/item/{id}/edit`, 11a). That is the whole spec.
+  - `favourites`: star on a card, chip and filter; star without JavaScript; recently viewed strip (the item page,
+    11a). That is the whole spec; POST `/item/{id}/fav` and the list's favourites view are covered by the golden test.
+  - `manage`: add, rename, default, delete-with-move, both variants (the add form `/new`, 11a).
+  - `locations-nested`: build a tree … move and delete (the item page, 11a).
+  - `errors`: expired session (CSRF) shows a friendly page (the item page, 11a).
+  - `originals`: both tests (the add form `/new`, 11a).
+  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, roles, users, control
+    panel, item, add, bulk, activity, labels, import/export, backup).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from the routed path: each route's `permission` option
   (a route without one is refused), or legacy `route_perm()` where no route matches or the route redirects. Routes
@@ -88,12 +105,6 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    (SEC-M3) into the CI4 image.
 3. PLAN 11a: item form and photo routes on `ImageStore` (`MAX_FILE_SIZE` from `maxUpload()`); Autofill reads photos
    through Media.
-
-## Tracked
-
-- CI4 router: trailing-slash routes (e.g. `/stats/`, `/locations/`) and dot segments (N-51: `/./stats`,
-  `/%2e/stats`, `/a/../stats`) answer 200 where legacy gives 404. Owner: Coder. Fixed in the CI4 Playwright target PR
-  or the next one.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
+use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\RequestScheme;
 use Apotheke\Core\Http\SessionGate;
 use CodeIgniter\Filters\FilterInterface;
@@ -93,9 +94,7 @@ final class SessionCookie implements FilterInterface
 
     private function isHealth(RequestInterface $request): bool
     {
-        $path = strtolower(trim($request->getUri()->getPath(), '/'));
-
-        return $path === 'healthz' || $path === 'health';
+        return LegacyPathRouter::isHealth($request);
     }
 
     /**
@@ -105,10 +104,10 @@ final class SessionCookie implements FilterInterface
      */
     private function isPublicAsset(RequestInterface $request): bool
     {
-        $path = trim($request->getUri()->getPath(), '/');
+        $path = LegacyPathRouter::requestPath($request);
 
-        return in_array($path, ['theme.css', 'labels.css', 'manifest.webmanifest', 'favicon.ico'], true)
-            || preg_match('#^brand/[a-z0-9.\-]+$#D', $path) === 1;
+        return in_array($path, ['/theme.css', '/labels.css', '/manifest.webmanifest', '/favicon.ico'], true)
+            || preg_match('#^/brand/[a-z0-9.\-]+$#D', $path) === 1;
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): null

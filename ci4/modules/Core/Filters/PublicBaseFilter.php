@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
+use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\PublicBase;
 use Apotheke\Core\Http\RequestScheme;
 use CodeIgniter\Filters\FilterInterface;
@@ -28,8 +29,7 @@ final class PublicBaseFilter implements FilterInterface
 {
     public function before(RequestInterface $request, $arguments = null): null
     {
-        $path = strtolower(trim($request->getUri()->getPath(), '/'));
-        if ($path === 'healthz' || $path === 'health') {
+        if (LegacyPathRouter::isHealth($request)) {
             return null;
         }
         $server = $request->getServer();
