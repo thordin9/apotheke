@@ -87,6 +87,8 @@ final class SearchIndex
     /** Rebuild the documents when the catalog changed since the last build (a checked transaction). */
     public function ensure(): void
     {
+        // Probe the engine before the transaction: a failed probe inside it (no FTS5) would fail the rebuild.
+        $this->engine();
         $fp = $this->fingerprint();
         if (($this->rows("SELECT v FROM search_meta WHERE k = 'fingerprint'")[0]['v'] ?? null) === $fp) {
             return;
