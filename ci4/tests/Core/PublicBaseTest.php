@@ -185,7 +185,7 @@ final class PublicBaseTest extends CIUnitTestCase
         $app = config(App::class);
         $uri = new SiteURI($app, $path);
         $request = new IncomingRequest($app, $uri, null, new UserAgent());
-        $request->setGlobal('server', $server);
+        $request->setGlobal('server', $server + ['REQUEST_URI' => '/' . $path]);
         $this->assertNull((new PublicBaseFilter())->before($request));
         $this->lastRequest = $request;
         helper('url');

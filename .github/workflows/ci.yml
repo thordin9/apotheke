@@ -275,6 +275,27 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Run Playwright
         run: npx playwright test --shard=${{ matrix.shard }}/3
+      # CI4 (PHP 8.4 only): the specs of ported pages; tests that need an unported page skip
+      # (CI4_UNPORTED in tests/visual/fixtures.ts, listed in docs/HANDOFF.md).
+      - name: Install the CI4 runtime (intl, Composer, ci4/vendor)
+        if: matrix.php == '8.4'
+        run: |
+          apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends php8.4-intl >/dev/null
+          # shellcheck disable=SC2016 # PHP code, expanded by php
+          php -r '$f = "/usr/local/bin/composer"; copy("https://getcomposer.org/download/2.10.3/composer.phar", $f);
+            if (hash_file("sha256", $f) !== "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6") { unlink($f); fwrite(STDERR, "composer.phar checksum mismatch\n"); exit(1); }
+            chmod($f, 0755);'
+          composer install --no-interaction --no-progress --prefer-dist --no-dev --working-dir=ci4
+      - name: Run Playwright on CI4 (ported pages)
+        if: matrix.php == '8.4'
+        env:
+          E2E_APP: ci4
+        run: >-
+          npx playwright test --shard=${{ matrix.shard }}/3
+          tests/visual/list.spec.ts tests/visual/search.spec.ts tests/visual/saved-filters.spec.ts
+          tests/visual/favourites.spec.ts tests/visual/value.spec.ts tests/visual/manage.spec.ts
+          tests/visual/locations-nested.spec.ts tests/visual/theme.spec.ts tests/visual/errors.spec.ts
+          tests/visual/originals.spec.ts tests/visual/branding.spec.ts
       - name: Upload HTML report, traces and screenshot diffs
         if: failure()
         uses: actions/upload-artifact@v4

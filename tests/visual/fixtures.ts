@@ -21,8 +21,30 @@ type Server = {
   at: (p: string) => string;
 };
 export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
+/** E2E_APP=ci4 runs the host server on the CodeIgniter 4 port (ci4/public and its router) instead of legacy. */
+export const APP: 'legacy' | 'ci4' = process.env.E2E_APP === 'ci4' ? 'ci4' : 'legacy';
 type WorkerOpts = { appPassword: string; dbDriver: 'sqlite' | 'pgsql'; publicUrl: string; server: Server };
-type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App };
+type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App; ci4Unported: void };
+
+/**
+ * Tests that need a page CI4 has not ported yet, skipped under E2E_APP=ci4 (docs/HANDOFF.md keeps this list).
+ * Key: "<spec file>: <test title>"; value: the missing page.
+ */
+export const CI4_UNPORTED: Record<string, string> = {
+  'list.spec.ts: shows the empty state with a call to action': '/activity and /labels',
+  'list.spec.ts: quantity +/- on a card': 'POST /item/{id}/qty (11b)',
+  'search.spec.ts: works without JavaScript and shows the engine in System': '/settings/system',
+  'value.spec.ts: overview totals, sort by value, editing a price @smoke': '/item/{id}/edit (11a)',
+  'favourites.spec.ts: star on a card, favourites chip and filter @smoke': 'the item page (11a)',
+  'favourites.spec.ts: recently viewed strip on the list': 'the item page records views (11a)',
+  'favourites.spec.ts: star works without JavaScript': 'the item page (11a)',
+  'manage.spec.ts: add, rename, default, delete-with-move @smoke': 'the add form /new (11a)',
+  'manage.spec.ts: add, rename, default, delete-with-move': 'the add form /new (11a)',
+  'locations-nested.spec.ts: build a tree, filter by a parent, trail on the item page, move and delete @smoke': 'the item page (11a)',
+  'errors.spec.ts: expired session (CSRF) shows a friendly page and changes nothing': 'the item page (11a)',
+  'originals.spec.ts: a photo under the limit is stored byte for byte and the served copy has no EXIF': 'the add form /new (11a)',
+  'originals.spec.ts: a photo over the upload limit says the original is not kept': 'the add form /new (11a)',
+};
 
 const freePort = () => new Promise<number>((res, rej) => {
   const s = net.createServer();
@@ -125,7 +147,8 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     } else {
       const env: NodeJS.ProcessEnv = { ...process.env, ...appEnv, DATA_DIR: dataDir };
       const proc = spawn('php', ['-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
-        '-S', `127.0.0.1:${port}`, '-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/index.php')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+        '-S', `127.0.0.1:${port}`, ...(APP === 'ci4' ? ['-t', path.join(ROOT, 'ci4/public'), path.join(ROOT, 'ci4/public/router.php')]
+          : ['-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/index.php')])], { env, stdio: ['ignore', 'ignore', 'pipe'] });
       proc.stderr!.on('data', collect);
       server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at: p => p, php: args => execFileSync('php', args, { env }) };
       stop = () => { proc.kill(); };
@@ -162,6 +185,11 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     expect(errors, 'no console errors').toEqual([]);
   }, { auto: true }],
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },
+  ci4Unported: [async ({}, use, info) => {
+    const why = APP === 'ci4' ? CI4_UNPORTED[`${path.basename(info.file)}: ${info.title}`] : undefined;
+    info.skip(why !== undefined, `not ported to CI4 yet: ${why}`);
+    await use();
+  }, { auto: true }],
 });
 
 export { expect };

@@ -86,6 +86,10 @@ final class Ci4CatalogParityTest extends TestCase
         $this->assertStringContainsString('Expired', (string)$l['GET /?exp=expired']['body']);
         $this->assertStringContainsString('Saved “Saw”', (string)$l['GET /?saved=3']['body']);
         $this->assertSame(200, $l['GET /stats']['status']);
+        foreach (['GET /stats/', 'GET /locations/', 'GET /./stats', 'GET /%2e/stats', 'GET /a/../stats', 'POST /filters/', 'POST /item/1/fav/ fetch'] as $case) {
+            $this->assertSame(404, $l[$case]['status'], $case);
+        }
+        $this->assertSame(200, $l['GET //stats']['status'], 'legacy reads //stats as host "stats", path /');
         $this->assertStringContainsString('<svg', (string)$l['GET /stats']['body']);
         $this->assertSame([303, '/?cat=1&stock=low&filter_saved=1'], [$l['save tools filter']['status'], $l['save tools filter']['location']]);
         $this->assertSame(422, $l['save nothing fetch']['status']);
@@ -210,6 +214,17 @@ final class Ci4CatalogParityTest extends TestCase
         foreach (['/index.php', '/index.php/stats', '/index.php?q=saw'] as $path) {
             $as('GET ' . $path, 'GET', $path);
         }
+        // N-51: legacy routes rawurldecode(path) exactly, so a trailing slash or dot segment is no route.
+        foreach (['/stats/', '/locations/', '/./stats', '/%2e/stats', '/%2E/stats', '/a/../stats', '/stats/.', '/stats/..', '/stats/%2e', '/x/..', '/./',
+            '/%20stats', '/stats%20', '/stats%2F', '/locations//', '/filters/', '/healthz/', '/theme.css/', '/media/full/x.jpg/', '//stats', '//', '/%73tats', '/%2573tats', '/sta+ts', '/stats+', '/stats%2B', '/+stats', '/stats%20%2B'] as $path) {
+            $as('GET ' . $path, 'GET', $path);
+        }
+        $as('GET /stats/ fetch', 'GET', '/stats/', [], $fetch);
+        $as('signed-out GET /stats/', 'GET', '/stats/', [], [], null);
+        $as('signed-out GET /./stats fetch', 'GET', '/./stats', [], $fetch, null);
+        $as('POST /filters/', 'POST', '/filters/', ['name' => 'Slash', 'q' => 'x']);
+        $as('POST /item/1/fav/ fetch', 'POST', '/item/1/fav/', ['on' => '1'], $fetch);
+        $as('POST /./recent/clear', 'POST', '/./recent/clear');
         $as('GET /filters', 'GET', '/filters');
         // Saved filters.
         $as('save tools filter', 'POST', '/filters', ['name' => '  Tools   low ', 'cat' => '1', 'stock' => 'low', 'sort' => 'recent', 'page' => '2']);
