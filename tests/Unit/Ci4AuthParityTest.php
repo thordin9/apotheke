@@ -14,7 +14,8 @@ require_once dirname(__DIR__) . '/lib.php';
  * (guests off): the pages, the redirects and fetch answers, the CSRF and
  * permission refusals, the session id change on sign-in and sign-out, keepSignIn
  * on a new password and on sign out everywhere, the sign-in and registration
- * rate limits (per address and account, window expiry, cleared by a sign-in),
+ * rate limits (per address and account, window expiry, cleared by a sign-in,
+ * X-Forwarded-For ignored with trust_proxy off),
  * a failed statement (500, nothing changed) and the tables at the end. Answers
  * are byte-identical except the asset cache busters, the session id and the
  * per-session CSRF token.
@@ -65,6 +66,7 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertSame(303, $l['login vera after the window']['status']);
         $this->assertSame(0, $l['eda attempts after a sign-in']['n']);
         $this->assertSame(0, $l['vera attempts from the other address, cleared']['n']);
+        $this->assertSame([401, 1, 0], [$l['login trust_proxy off']['status'], $l['login trust_proxy off']['peer'], $l['login trust_proxy off']['forwarded']], 'trust_proxy off: the peer address');
         $this->assertSame([303, '/?done=welcome'], [$l['register rex']['status'], $l['register rex']['location']]);
         $this->assertSame('/login?registered=pending', $l['register pia (approval)']['location']);
         $this->assertSame([303, 429, 422, 422], [$l['rex POST /register']['status'], $l['register 6th from one address']['status'], $l['register from another address']['status'], $l['register after the window']['status']]);
@@ -211,6 +213,16 @@ final class Ci4AuthParityTest extends TestCase
         $bucket->execute([substr(hash('sha256', '10.9.9.9' . "\0" . 'vera'), 0, 32)]);
         $out['vera attempts from the other address, cleared'] = ['n' => (int)$bucket->fetchColumn()];
         $bucket->closeCursor();
+        // trust_proxy off with a trusted proxy configured: X-Forwarded-For is ignored and the key is the peer address.
+        $this->setting($pdo, 'trust_proxy', 'false');
+        [$client, $token] = $browser(null);
+        $record('login trust_proxy off', $client->req('POST', '/login', ['csrf' => $token, 'username' => 'eda', 'password' => 'wrong'], [], ['X-Forwarded-For: 10.7.7.7']));
+        foreach (['peer' => '127.0.0.1', 'forwarded' => '10.7.7.7'] as $what => $from) {
+            $bucket->execute([substr(hash('sha256', $from . "\0" . 'eda'), 0, 32)]);
+            $out['login trust_proxy off'][$what] = (int)$bucket->fetchColumn();
+            $bucket->closeCursor();
+        }
+        $this->setting($pdo, 'trust_proxy', 'true');
 
         // Registration (approval on from above, role admin falls back to viewer).
         $this->setting($pdo, 'auth_register_approval', 'false');

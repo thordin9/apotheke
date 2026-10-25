@@ -7,6 +7,7 @@ namespace Tests\Auth;
 use Apotheke\Auth\Accounts;
 use Apotheke\Auth\RateLimiter;
 use Apotheke\Auth\RoleRepository;
+use Apotheke\Auth\SignInPace;
 use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
@@ -83,6 +84,74 @@ final class SignInAccountsTest extends CIUnitTestCase
         $ratio = $unknown / $wrong;
         $this->assertGreaterThan(0.5, $ratio, sprintf('unknown %.1f ms, wrong password %.1f ms', $unknown / 1e6, $wrong / 1e6));
         $this->assertLessThan(2.0, $ratio, sprintf('unknown %.1f ms, wrong password %.1f ms', $unknown / 1e6, $wrong / 1e6));
+    }
+
+    /**
+     * Every failed sign-in ends at the deadline after the attempt began: an
+     * unknown name, a wrong password on a current (cost-12) hash and one on a
+     * cost-10 hash carried over from main. A fake clock (real time plus the
+     * time "slept") and a recording sleeper keep the test fast.
+     */
+    #[DataProvider('drivers')]
+    public function testAFailedSignInAnswersAtTheDeadline(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $this->account('old', 'editor', 'active', 10);
+        $this->account('new', 'editor', 'active', 12);
+        $offset = 0;
+        $calls = [];
+        $sleeps = [];
+        $now = static function () use (&$offset, &$calls): int {
+            return $calls[] = hrtime(true) + $offset;
+        };
+        $sleep = static function (int $us) use (&$offset, &$sleeps): void {
+            $sleeps[] = $us;
+            $offset += $us * 1000;
+        };
+        $deadline = 3000;
+        $accounts = new Accounts($this->users(), new RoleRepository($this->db()), new Clock(), new SignInPace($deadline, $now, $sleep));
+        foreach (['unknown name' => ['nobody', 'wrong-password'], 'cost-12 wrong password' => ['new', 'wrong-password'],
+            'cost-10 wrong password' => ['old', 'wrong-password']] as $case => [$name, $password]) {
+            $calls = $sleeps = [];
+            $started = $accounts->startSignIn();
+            $this->assertNull($accounts->signIn($started, $name, $password), $case);
+            $this->assertCount(1, $sleeps, $case . ': one wait');
+            $this->assertCount(2, $calls, $case . ': start and deadline check');
+            $worked = $calls[1] - $started;
+            $this->assertLessThan($deadline * 1_000_000, $worked, $case . ': the check itself fits in the deadline');
+            $answered = $worked + $sleeps[0] * 1000;
+            $this->assertGreaterThan($deadline * 1_000_000 - 1000, $answered, $case);
+            $this->assertLessThanOrEqual($deadline * 1_000_000, $answered, $case . ': answered at the deadline');
+        }
+        // A good password does not wait, and the cost-10 hash is still replaced.
+        $calls = $sleeps = [];
+        $user = $accounts->signIn($accounts->startSignIn(), 'old', self::PW);
+        $this->assertSame('old', $user['username'] ?? null);
+        $this->assertSame([], $sleeps);
+        $this->assertFalse(password_needs_rehash($this->users()->findByName('old')['password_hash'] ?? '', PASSWORD_DEFAULT));
+    }
+
+    public function testSignInPace(): void
+    {
+        $t = 0;
+        $slept = [];
+        $pace = new SignInPace(1000, static function () use (&$t): int {
+            return $t;
+        }, static function (int $us) use (&$slept): void {
+            $slept[] = $us;
+        });
+        $start = $pace->start();
+        $t = 250_000_000;
+        $this->assertSame(750_000, $pace->pad($start));
+        $t = 1_000_000_000;
+        $this->assertSame(0, $pace->pad($start), 'at the deadline: no wait');
+        $t = 1_200_000_000;
+        $this->assertSame(0, $pace->pad($start), 'past the deadline: no wait');
+        $this->assertSame([750_000], $slept);
+        $this->assertSame(SignInPace::MIN_MS, (new SignInPace(5))->deadlineMs, 'never shorter than legacy\'s 400 ms');
+        $this->assertSame(SignInPace::MAX_MS, (new SignInPace(PHP_INT_MAX))->deadlineMs);
+        $this->assertSame(SignInPace::DEFAULT_MS, (new SignInPace())->deadlineMs);
+        $this->assertSame(SignInPace::DEFAULT_MS, config(\Config\SignIn::class)->failDeadlineMs);
     }
 
     #[DataProvider('drivers')]
