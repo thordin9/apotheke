@@ -2,7 +2,8 @@
 # Auth may depend on Core and Settings.
 # Migrations may depend on Core and on Settings (schema only).
 # Autofill may depend on Settings. Layout may depend on Core and Settings (Config\Services
-# hands it the user from Auth). Media and Taxonomy are not modules yet.
+# hands it the user from Auth). Media may depend on Core and Settings. Taxonomy is not a
+# module yet.
 deptrac:
   paths:
     - ci4/modules
@@ -35,6 +36,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Layout\\
+    - name: Media
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Media\\
   ruleset:
     Auth:
       - Core
@@ -51,5 +56,8 @@ deptrac:
       - Core
       - Settings
     Layout:
+      - Core
+      - Settings
+    Media:
       - Core
       - Settings

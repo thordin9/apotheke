@@ -8,8 +8,8 @@ namespace Apotheke\Core\Storage;
  * Bytes addressed by a relative key.
  *
  * Local disk today. An object store such as R2 in the Cloudflare phase
- * implements the same methods, so Media can store photos here later
- * instead of adding a second interface. Callers never write a `writable/`
+ * implements the same methods. Media keeps photos, thumbnails and the
+ * kept originals here. Callers never write a `writable/`
  * path themselves.
  */
 interface Storage
@@ -27,4 +27,7 @@ interface Storage
     public function delete(string $key): void;
 
     public function exists(string $key): bool;
+
+    /** Last change as a Unix time, or null when missing. Feeds an ETag. */
+    public function modifiedAt(string $key): ?int;
 }

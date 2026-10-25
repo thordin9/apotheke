@@ -207,6 +207,32 @@ class Services extends BaseService
         ]);
     }
 
+    /** Served photos and thumbnails: DATA_DIR/images and DATA_DIR/thumbs on local disk. */
+    public static function servedImages(bool $getShared = true): \Apotheke\Media\Storage\ServedImageWriter
+    {
+        if ($getShared) {
+            return static::getSharedInstance('servedImages');
+        }
+
+        return new \Apotheke\Media\Storage\ServedImageWriter(new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()));
+    }
+
+    /** Photo uploads: originals under ORIGINALS_DIR (files 0640), the served copy through servedImages. */
+    public static function imageStore(bool $getShared = true): \Apotheke\Media\ImageStore
+    {
+        if ($getShared) {
+            return static::getSharedInstance('imageStore');
+        }
+        \Apotheke\Media\ImageLimits::applyImagickLimits();
+
+        return new \Apotheke\Media\ImageStore(
+            static::settings(),
+            new \Apotheke\Media\Storage\OriginalStore(new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->originalsDir(), 0640)),
+            static::servedImages(),
+            new \Apotheke\Media\Storage\ImagickDecoder(),
+        );
+    }
+
     /** Logo and icon files: DATA_DIR/brand on local disk. */
     public static function brandStore(bool $getShared = true): \Apotheke\Settings\BrandStore
     {

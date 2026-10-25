@@ -21,6 +21,9 @@ $routes->match(['GET', 'HEAD'], 'manifest.webmanifest', '\\Apotheke\\Settings\\C
 $routes->match(['GET', 'HEAD'], 'favicon.ico', '\\Apotheke\\Settings\\Controllers\\BrandingController::favicon', $none);
 $routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\Controllers\\BrandingController::brand/$1', $none);
 
+// Media: served photos and thumbnails, never an original (legacy serve_image()).
+$routes->match(['GET', 'HEAD'], 'media/(full|thumb)/([^/]+)', '\\Apotheke\\Media\\Controllers\\MediaController::serve/$1/$2', ['permission' => 'view']);
+
 // Layout: the menu's Auto / Light / Dark.
 $routes->post('theme', '\\Apotheke\\Layout\\Controllers\\ThemeController::save', ['permission' => 'view']);
 
