@@ -53,7 +53,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Sign-in (step 7, first part): `/login`, `/register`, `/logout`, `/account` and `/account/signout` are
   byte-identical to legacy, with legacy's rate limits (same table, keys, windows and answers), the first admin from
   `APP_PASSWORD`, a new session ID on sign-in and sign-out, and `keepSignIn` where `main` passes it. The three
-  sign-in routes check the CSRF token in the controller, in legacy's order.
+  sign-in routes check the CSRF token in the controller, in legacy's order. A failed sign-in answers at a fixed
+  deadline from the start of the attempt (`Auth\SignInPace`, `Config\SignIn`, 1 s by default).
 - Not ported yet: the users and roles pages (`/settings/security`) and the CLI account forms (step 7, second
   part), the Items, Undo and Backup modules. A new password for your own account on Users keeps the sign-in
   (`keepSignIn`), as on Account.
@@ -74,7 +75,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. Merged.
 - [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. Merged.
 - [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages, rate
-  limits, plus N-38. In review.
+  limits, failed sign-in pacing, plus N-38. In review.
 
 ## Lanes
 
@@ -100,6 +101,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CI4 router: trailing-slash routes (e.g. `/stats/`, `/locations/`) and dot segments (N-51: `/./stats`,
   `/%2e/stats`, `/a/../stats`) answer 200 where legacy gives 404. Owner: Coder. Fixed in the CI4 Playwright target PR
   or the next one.
+- CI4 router (N-63, with N-51): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404 where legacy
+  shows the page (stricter). Tracked with N-51.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 Markdown: links containing emphasis characters render incorrectly; later joint fix in main and CI4 (hold bare links in placeholders before emphasis).
