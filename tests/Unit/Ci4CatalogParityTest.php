@@ -80,6 +80,9 @@ final class Ci4CatalogParityTest extends TestCase
         $this->assertSame(4, substr_count((string)$l['GET /']['body'], 'class="card-title"'), 'page size 4');
         $this->assertTrue($l['GET / fetch page 2']['json']['ok'] ?? false);
         $this->assertSame(['Screwdriver set'], titles(['json' => $l['search screwdrivr fetch']['json']]), 'typo search');
+        if (test_driver() !== 'pgsql') {
+            $this->assertSame([200, ['Saw']], [$l['no fts GET /?q=saw fetch']['status'], titles(['json' => $l['no fts GET /?q=saw fetch']['json']])], 'LIKE search without FTS5');
+        }
         $this->assertStringContainsString('Expired', (string)$l['GET /?exp=expired']['body']);
         $this->assertStringContainsString('Saved “Saw”', (string)$l['GET /?saved=3']['body']);
         $this->assertSame(200, $l['GET /stats']['status']);
@@ -289,6 +292,17 @@ final class Ci4CatalogParityTest extends TestCase
         $as('clear recent', 'POST', '/recent/clear');
         $as('viewer clears recent', 'POST', '/recent/clear', [], [], 'vera');
         $as('GET / after clear', 'GET', '/');
+
+        // M-50: SQLite without FTS5 (migration 0019 skips the FTS tables) searches with LIKE.
+        if (!$pg) {
+            $pdo->exec('DROP TABLE search_fts_v');
+            $pdo->exec('DROP TABLE search_fts');
+            $pdo->exec('DELETE FROM search_meta');
+            foreach (['/?q=saw', '/?q=screwdrivr', '/?q=garage', '/?q=a5&sort=name'] as $path) {
+                $as('no fts GET ' . $path, 'GET', $path);
+                $as('no fts GET ' . $path . ' fetch', 'GET', $path, [], $fetch);
+            }
+        }
 
         $tables = [];
         foreach (['SELECT id, name, favourite, updated_at FROM items ORDER BY id', 'SELECT id, name, name_key, query, sort_key FROM saved_filters ORDER BY id',

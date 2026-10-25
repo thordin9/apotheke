@@ -71,6 +71,23 @@ final class CatalogTest extends CIUnitTestCase
         $this->assertSame([], $names('hammer'));
     }
 
+    /** M-50: SQLite without FTS5 (migration 0019 skips the FTS tables) searches with LIKE, as legacy does. */
+    public function testSqliteWithoutFts5SearchesWithLike(): void
+    {
+        $this->seed('sqlite');
+        $this->db()->query('DROP TABLE search_fts_v');
+        $this->db()->query('DROP TABLE search_fts');
+        $this->db()->query('DELETE FROM search_meta');
+        $search = new SearchIndex($this->db(), $this->taxonomy(), true);
+        $list = new ItemList($this->db(), $search, $this->calendar());
+        $names = fn (string $q): array => array_column($list->search($q, ListFilters::from([]), 'name', 'recent', 1, 50)['items'], 'name');
+        $this->assertSame(['Saw'], $names('saw'));
+        $this->assertSame(['Screwdriver set'], $names('screwdrivr'), 'one typo');
+        $this->assertSame(['Hammer', 'Saw', 'Screwdriver set'], $names('garage'));
+        $this->assertSame('like', $search->engine());
+        $this->assertNotNull($this->db()->query("SELECT v FROM search_meta WHERE k = 'fingerprint'")->getRowArray(), 'the rebuild is stored');
+    }
+
     #[DataProvider('drivers')]
     public function testFiltersSortsAndPaging(string $driver): void
     {
