@@ -5,23 +5,36 @@ declare(strict_types=1);
 namespace Apotheke\Core\Exceptions;
 
 use Apotheke\Core\Http\CsrfCheck;
+use Apotheke\Core\Http\ErrorPage;
 use Apotheke\Core\Http\SecurityPolicy;
+use Apotheke\Core\Http\WantsJson;
+use Closure;
 use CodeIgniter\Debug\ExceptionHandlerInterface;
 use CodeIgniter\Exceptions\PageNotFoundException;
 use CodeIgniter\HTTP\Exceptions\BadRequestException;
+use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\ResponseInterface;
 use Throwable;
 
 /**
- * Text only. UserError keeps its status; a path the router refuses (control
- * characters, `;`) is 400 "Bad request" and is not logged; anything else is
- * 500 "Server error".
- * The response skips the global after filters, so the security headers are set
- * here, as legacy view_error() pages have them (SEC-N8).
+ * Legacy's catch-all in public/index.php. UserError keeps its status and
+ * message; an unknown page is 404 "Page not found."; anything else is 500
+ * "Something went wrong on the server." (logged). A fetch (WantsJson) gets
+ * {ok:false,error} for a UserError or a 500, as legacy json_out(); everything
+ * else gets the app's error page (Layout, through $page). A path the router
+ * refuses (control characters, `;`) is a plain 400 "Bad request" and is not
+ * logged. Without $page (spark, unit tests) the answers are text only.
+ * The response skips the global after filters, so the security headers are
+ * set here, as legacy view_error() pages have them (SEC-N8).
  */
 final class PlainHandler implements ExceptionHandlerInterface
 {
+    /** @param Closure(): ErrorPage|null $page */
+    public function __construct(private readonly ?Closure $page = null)
+    {
+    }
+
     public function handle(
         Throwable $exception,
         RequestInterface $request,
@@ -34,15 +47,20 @@ final class PlainHandler implements ExceptionHandlerInterface
             error_log($exception::class . ': ' . $exception->getMessage());
         }
         if (PHP_SAPI !== 'cli') {
-            $this->render($exception, $response)->send();
+            $server = $request instanceof IncomingRequest ? $request->getServer() : [];
+            $this->render($exception, $response, is_array($server) ? $server : [])->send();
         } else {
             fwrite(STDERR, $body . "\n");
         }
         exit($exitCode);
     }
 
-    /** Status, body and headers for $exception, without sending. */
-    public function render(Throwable $exception, ResponseInterface $response): ResponseInterface
+    /**
+     * Status, body and headers for $exception, without sending.
+     *
+     * @param array<string,mixed> $server the request's server values (for WantsJson)
+     */
+    public function render(Throwable $exception, ResponseInterface $response, array $server = []): ResponseInterface
     {
         [$status, $body] = $this->status($exception);
         $response->setStatusCode($status, $status === CsrfCheck::STATUS ? CsrfCheck::REASON : '');
@@ -53,10 +71,22 @@ final class PlainHandler implements ExceptionHandlerInterface
             }
             $response->setHeader($name, $value);
         }
-        $response->setHeader('Content-Type', 'text/plain; charset=UTF-8');
-        $response->setBody($body);
+        if ($this->page === null || $exception instanceof BadRequestException) {
+            return $response->setHeader('Content-Type', 'text/plain; charset=UTF-8')->setBody($body);
+        }
+        $json = !$exception instanceof PageNotFoundException && (new WantsJson())->check($server);
+        if ($json) {
+            return $response->setHeader('Content-Type', 'application/json; charset=utf-8')
+                ->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store')
+                ->setBody((string)json_encode(['ok' => false, 'error' => $body], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        }
+        $message = match (true) {
+            $exception instanceof UserError => $body,
+            $exception instanceof PageNotFoundException => 'Page not found.',
+            default => 'Something went wrong on the server.',
+        };
 
-        return $response;
+        return $response->setHeader('Content-Type', 'text/html; charset=UTF-8')->setBody(($this->page)()->html($status, $message));
     }
 
     /** @return array{0:int,1:string} */

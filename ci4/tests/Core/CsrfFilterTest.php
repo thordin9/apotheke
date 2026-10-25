@@ -45,8 +45,10 @@ final class CsrfFilterTest extends CIUnitTestCase
         $response = $this->send('POST');
         $this->assertInstanceOf(ResponseInterface::class, $response);
         $this->assertSame(419, $response->getStatusCode());
-        $this->assertSame(CsrfCheck::MESSAGE, $response->getBody());
-        $this->assertSame('text/plain; charset=UTF-8', $response->getHeaderLine('Content-Type'));
+        // Legacy view_error(): the app's error page (Layout).
+        $this->assertStringContainsString('<p>' . CsrfCheck::MESSAGE . '</p>', (string)$response->getBody());
+        $this->assertStringStartsWith('<!doctype html>', (string)$response->getBody());
+        $this->assertSame('text/html; charset=UTF-8', $response->getHeaderLine('Content-Type'));
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
             $this->assertSame($value, $response->getHeaderLine($name), $name);
         }
@@ -93,10 +95,10 @@ final class CsrfFilterTest extends CIUnitTestCase
     {
         $response = $this->send('POST', [], '', ['HTTP_X_REQUESTED_WITH' => 'fetch']);
         $this->assertSame(419, $response?->getStatusCode());
-        $this->assertSame('application/json', $response->getHeaderLine('Content-Type'));
+        $this->assertSame('application/json; charset=utf-8', $response->getHeaderLine('Content-Type'));
         $this->assertSame(['ok' => false, 'error' => CsrfCheck::MESSAGE], json_decode($response->getBody(), true));
         $accept = $this->send('POST', [], '', ['HTTP_ACCEPT' => 'application/json']);
-        $this->assertSame('application/json', $accept?->getHeaderLine('Content-Type'));
+        $this->assertSame('application/json; charset=utf-8', $accept?->getHeaderLine('Content-Type'));
     }
 
     public function testSafeMethodsPassWithoutATokenAndStartNoSession(): void

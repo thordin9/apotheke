@@ -116,7 +116,8 @@ if (!function_exists('ci4_test_arm_html_page')) {
      * Test only. CI4 has no HTML page yet. APOTHEKE_TEST_HTML_PAGE=1 adds
      * GET /test-html-page, a text/html answer that prints base_url('labels'),
      * so the tests can see what an HTML response does to the session (#76
-     * L-1) and which base URL CI4 builds (#76 L-2).
+     * L-1) and which base URL CI4 builds (#76 L-2). GET /test-layout-menu
+     * and /test-layout-header print the Layout menu and simple header.
      */
     function ci4_test_arm_html_page(): void
     {
@@ -132,6 +133,9 @@ if (!function_exists('ci4_test_arm_html_page')) {
 
                     return '<!doctype html><title>test</title><p>' . htmlspecialchars(base_url('labels')) . '</p>';
                 }, ['permission' => 'view']);
+                // The Layout menu and simple header, for the parity test against legacy pages.
+                \Config\Services::routes()->get('test-layout-menu', static fn (): string => \Config\Services::layout()->menu(), ['permission' => 'view']);
+                \Config\Services::routes()->get('test-layout-header', static fn (): string => \Config\Services::layout()->simpleHeader('Your account', '/'), ['permission' => 'view']);
             },
             \CodeIgniter\Events\Events::PRIORITY_LOW
         );

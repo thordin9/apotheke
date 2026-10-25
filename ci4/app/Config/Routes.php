@@ -21,6 +21,9 @@ $routes->match(['GET', 'HEAD'], 'manifest.webmanifest', '\\Apotheke\\Settings\\C
 $routes->match(['GET', 'HEAD'], 'favicon.ico', '\\Apotheke\\Settings\\Controllers\\BrandingController::favicon', $none);
 $routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\Controllers\\BrandingController::brand/$1', $none);
 
+// Layout: the menu's Auto / Light / Dark.
+$routes->post('theme', '\\Apotheke\\Layout\\Controllers\\ThemeController::save', ['permission' => 'view']);
+
 // Autofill client. POST only.
 $routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestController::suggest', ['permission' => 'create']);
 $routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token', ['permission' => 'settings']);

@@ -7,6 +7,7 @@ declare(strict_types=1);
  * then CodeIgniter's own test bootstrap from ci4/. The database for
  * repository and service tests comes from Tests\Support\TestDatabase:
  * SQLite always, PostgreSQL as well when DB_DRIVER=pgsql (CI) or TEST_PG_HOST is set.
+ * No at-rest key variables from the runner's environment.
  */
 
 $tmp = sys_get_temp_dir() . '/apotheke-ci4-phpunit-' . getmypid();
@@ -17,6 +18,12 @@ foreach (['DATA_DIR' => $tmp, 'APOTHEKE_CONFIG' => '/nonexistent', 'SEED_DEFAULT
     }
     putenv("$k=$v");
     $_SERVER[$k] = $v;
+}
+// The at-rest key comes from the environment (S-L5). The runner's own APP_KEY, APP_KEY_FILE
+// or APOTHEKE_SODIUM never reaches a test; a test that needs one sets it (#93 N-17).
+foreach (['APP_KEY', 'APP_KEY_FILE', 'APOTHEKE_SODIUM'] as $k) {
+    putenv($k);
+    unset($_SERVER[$k], $_ENV[$k]);
 }
 register_shutdown_function(static function () use ($tmp): void {
     if (!is_dir($tmp)) {

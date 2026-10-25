@@ -218,8 +218,8 @@ class Services extends BaseService
     }
 
     /**
-     * Theme, labels, manifest and favicon output. Bundled icons come from the
-     * legacy public/assets until the Layout PR moves them under ci4/public.
+     * Theme, labels, manifest and favicon output. Bundled icons are the
+     * Layout module's copy under ci4/public/assets.
      */
     public static function branding(bool $getShared = true): \Apotheke\Settings\Branding\Branding
     {
@@ -230,8 +230,75 @@ class Services extends BaseService
         return new \Apotheke\Settings\Branding\Branding(
             static::settings(),
             static::brandStore(),
-            new \Apotheke\Core\Libraries\AssetUrl(\Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/public/assets'),
+            static::assetUrl(),
         );
+    }
+
+    /** Versioned URLs of the bundled assets under ci4/public/assets (a copy of legacy public/assets). */
+    public static function assetUrl(bool $getShared = true): \Apotheke\Core\Libraries\AssetUrl
+    {
+        if ($getShared) {
+            return static::getSharedInstance('assetUrl');
+        }
+
+        return new \Apotheke\Core\Libraries\AssetUrl(\Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/ci4/public/assets');
+    }
+
+    /**
+     * The shared page shell for this request (Layout). The user and role
+     * checks come from Auth; the theme cookie and the way back from this
+     * request. Nothing is read until a page is drawn.
+     */
+    public static function layout(bool $getShared = true): \Apotheke\Layout\Page
+    {
+        if ($getShared) {
+            return static::getSharedInstance('layout');
+        }
+        $check = new \Apotheke\Auth\PermissionCheck(static::roles());
+        $viewer = new \Apotheke\Layout\Viewer(
+            static fn (): ?array => static::currentUser()->resolve(),
+            static fn (?array $user, string $permission): bool => $check->allows($user, $permission),
+            static fn (string $role): string => static::roles()->name($role),
+            array_keys(\Apotheke\Auth\Permissions::ALL),
+        );
+
+        return new \Apotheke\Layout\Page(
+            static::settings(),
+            static::branding(),
+            static::assetUrl(),
+            $viewer,
+            static fn (bool $create): string => (new \Apotheke\Core\Http\SessionToken(time()))->get($create),
+            static fn (): bool => static::settings()->signInEnabled(),
+            $_COOKIE['theme'] ?? null,
+            is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/',
+        );
+    }
+
+    /** Legacy view_error() for this request: the Layout page, or the plain page when it cannot be drawn. */
+    public static function errorPage(bool $getShared = true): \Apotheke\Core\Http\ErrorPage
+    {
+        if ($getShared) {
+            return static::getSharedInstance('errorPage');
+        }
+
+        return new \Apotheke\Layout\ErrorPage(static fn (): \Apotheke\Layout\Page => static::layout());
+    }
+
+    /**
+     * CI4's exception handling, with the app's error page for web requests
+     * (Config\Exceptions::$page, read when an error is answered).
+     */
+    public static function exceptions(?\Config\Exceptions $config = null, bool $getShared = true): \CodeIgniter\Debug\Exceptions
+    {
+        if ($getShared) {
+            return static::getSharedInstance('exceptions', $config);
+        }
+        $config ??= config(\Config\Exceptions::class);
+        if (PHP_SAPI !== 'cli') {
+            $config->page ??= static fn (): \Apotheke\Core\Http\ErrorPage => static::errorPage();
+        }
+
+        return new \CodeIgniter\Debug\Exceptions($config);
     }
 
     /**
