@@ -131,6 +131,73 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertFalse(password_needs_rehash($this->users()->findByName('old')['password_hash'] ?? '', PASSWORD_DEFAULT));
     }
 
+    /**
+     * A password with a NUL byte: an unknown name and an existing one (cost 10
+     * and 12, wrong password or the right one followed by a NUL) all give null
+     * through the same deadline, and nothing is written.
+     */
+    #[DataProvider('drivers')]
+    public function testANulBytePasswordFailsAtTheDeadline(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $this->account('old', 'editor', 'active', 10);
+        $this->account('new', 'editor', 'active', 12);
+        $sleeps = [];
+        $accounts = new Accounts($this->users(), new RoleRepository($this->db()), new Clock(), new SignInPace(3000, null, static function (int $us) use (&$sleeps): void {
+            $sleeps[] = $us;
+        }));
+        $before = $this->snapshot();
+        foreach (['unknown name' => ['nobody', "wrong\0password"], 'cost-10 wrong' => ['old', "wrong\0password"],
+            'cost-12 wrong' => ['new', "wrong\0password"], 'cost-10 right then NUL' => ['old', self::PW . "\0x"],
+            'cost-12 right then NUL' => ['new', self::PW . "\0x"]] as $case => [$name, $password]) {
+            $sleeps = [];
+            $this->assertNull($accounts->signIn($accounts->startSignIn(), $name, $password), $case);
+            $this->assertCount(1, $sleeps, $case . ': padded to the deadline');
+        }
+        $this->assertSame($before, $this->snapshot(), 'no hash was replaced');
+    }
+
+    public function testTheDummyHashIsAtTheDefaultCost(): void
+    {
+        $this->assertFalse(password_needs_rehash(Accounts::DUMMY_HASH, PASSWORD_DEFAULT));
+        $this->assertSame(PASSWORD_DEFAULT, password_get_info(Accounts::DUMMY_HASH)['algo']);
+    }
+
+    /** Config\SignIn's failDeadlineMs from the environment reaches Services::accounts(), clamped to 400..10000. */
+    #[DataProvider('deadlineOverrides')]
+    public function testTheDeadlineSettingReachesTheAccountsService(?string $env, int $expected): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        \Config\Services::injectMock('apothekeDb', $this->db());
+        $saved = $_ENV['signin.failDeadlineMs'] ?? null;
+        try {
+            if ($env === null) {
+                unset($_ENV['signin.failDeadlineMs']);
+            } else {
+                $_ENV['signin.failDeadlineMs'] = $env;
+            }
+            \CodeIgniter\Config\Factories::reset('config');
+            $this->assertSame($expected, \Config\Services::accounts(false)->failDeadlineMs());
+        } finally {
+            if ($saved === null) {
+                unset($_ENV['signin.failDeadlineMs']);
+            } else {
+                $_ENV['signin.failDeadlineMs'] = $saved;
+            }
+            \CodeIgniter\Config\Factories::reset('config');
+            \Config\Services::reset(true);
+        }
+    }
+
+    /** @return iterable<string,array{0:?string,1:int}> */
+    public static function deadlineOverrides(): iterable
+    {
+        yield 'default' => [null, 1000];
+        yield 'set' => ['2500', 2500];
+        yield 'too short' => ['50', 400];
+        yield 'too long' => ['600000', 10000];
+    }
+
     public function testSignInPace(): void
     {
         $t = 0;
@@ -186,6 +253,7 @@ final class SignInAccountsTest extends CIUnitTestCase
             ['rex', 'short', 'short', 'Use at least 8 characters for the password.'],
             ['rex', str_repeat('x', 201), str_repeat('x', 201), 'That password is too long.'],
             ['rex', self::PW, self::PW . 'x', 'The two passwords do not match.'],
+            ['rex', "long-\0-enough", "long-\0-enough", 'Passwords cannot contain a null character.'],
         ];
         foreach ($cases as [$name, $pw, $confirm, $message]) {
             try {
@@ -212,7 +280,8 @@ final class SignInAccountsTest extends CIUnitTestCase
         $id = $this->account('eda', 'editor', 'active');
         $accounts = $this->accounts();
         $me = ['id' => $id, 'username' => 'eda'];
-        foreach ([['wrong-password', 'newer-password', 403, 'The current password is not correct.'], [self::PW, 'short', 422, 'Use at least 8 characters for the password.']] as [$current, $new, $code, $message]) {
+        foreach ([['wrong-password', 'newer-password', 403, 'The current password is not correct.'], [self::PW, 'short', 422, 'Use at least 8 characters for the password.'],
+            [self::PW, "newer-\0-password", 422, 'Passwords cannot contain a null character.'], [self::PW . "\0", 'newer-password', 403, 'The current password is not correct.']] as [$current, $new, $code, $message]) {
             try {
                 $accounts->changeOwnPassword($me, $current, $new, $new);
                 $this->fail($message);

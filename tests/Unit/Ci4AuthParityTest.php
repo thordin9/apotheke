@@ -60,6 +60,7 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertSame($l['login wrong password']['body'], str_replace('nobody', 'vera', (string)$l['login unknown user']['body']), 'an unknown name answers as a wrong password');
         $this->assertSame([303, '/', true, true], [$l['login vera']['status'], $l['login vera']['location'], $l['login vera']['new session'], $l['login vera']['old session gone']]);
         $this->assertSame(403, $l['login pending']['status']);
+        $this->assertSame([401, 401], [$l['login unknown user, NUL in password']['status'], $l['login wrong password, NUL in password']['status']]);
         $this->assertTrue($l['login unknown user']['waited']);
         $this->assertSame([429, 401, 429], [$l['login vera 11th']['status'], $l['login eda after vera is limited']['status'], $l['login vera right password while limited']['status']]);
         $this->assertSame(303, $l['login vera from another address']['status'], 'the limit is per address');
@@ -181,6 +182,8 @@ final class Ci4AuthParityTest extends TestCase
         $as('login unknown user', 'POST', '/login', ['username' => 'nobody', 'password' => 'nope-nope']);
         // Legacy waits 400 ms after a failed sign-in.
         $out['login unknown user']['waited'] = hrtime(true) - $t >= 400_000_000;
+        $as('login unknown user, NUL in password', 'POST', '/login', ['username' => 'nobody', 'password' => "nope\0nope"]);
+        $as('login wrong password, NUL in password', 'POST', '/login', ['username' => 'vera', 'password' => "nope\0nope"]);
         $as('login array name', 'POST', '/login', ['username' => ['a'], 'password' => 'x']);
         $as('login long name', 'POST', '/login', ['username' => str_repeat('ü ', 60), 'password' => 'x']);
         $as('login pending', 'POST', '/login', ['username' => 'pam', 'password' => self::PW]);
