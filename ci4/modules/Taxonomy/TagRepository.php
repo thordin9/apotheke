@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Taxonomy;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\Text;
 use CodeIgniter\Database\BaseConnection;
@@ -38,26 +39,33 @@ final class TagRepository
 
     /**
      * Replace an item's tags: creates missing tags and drops tags no item
-     * uses any more. Run it inside the item save's transaction.
+     * uses any more, in one transaction (joins the item save's). A failed
+     * statement rolls back and throws (WriteFailed).
      *
      * @param list<string> $names clean names (Text::tags())
      */
     public function set(int $itemId, array $names): void
     {
+        Writes::transaction($this->db, fn () => $this->replace($itemId, $names));
+    }
+
+    /** @param list<string> $names */
+    private function replace(int $itemId, array $names): void
+    {
         $ids = [];
         foreach ($names as $n) {
             $tid = $this->rows('SELECT id FROM tags WHERE name_key = ?', [Text::fold($n)])[0]['id'] ?? null;
             if ($tid === null) {
-                $this->db->table('tags')->insert(['name' => $n, 'name_key' => Text::fold($n), 'sort_key' => Text::natkey($n), 'created_at' => $this->clock->now()]);
+                Writes::check($this->db->table('tags')->insert(['name' => $n, 'name_key' => Text::fold($n), 'sort_key' => Text::natkey($n), 'created_at' => $this->clock->now()]), 'add tag');
                 $tid = $this->db->insertID();
             }
             $ids[] = (int)$tid;
         }
-        $this->db->table('item_tags')->where('item_id', $itemId)->delete();
+        Writes::check($this->db->table('item_tags')->where('item_id', $itemId)->delete(), 'clear item tags');
         foreach (array_unique($ids) as $tid) {
-            $this->db->table('item_tags')->insert(['item_id' => $itemId, 'tag_id' => $tid]);
+            Writes::check($this->db->table('item_tags')->insert(['item_id' => $itemId, 'tag_id' => $tid]), 'tag item');
         }
-        $this->db->query('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)');
+        Writes::check($this->db->query('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)'), 'drop unused tags');
     }
 
     /**
@@ -66,13 +74,6 @@ final class TagRepository
      */
     private function rows(string $sql, array $binds = []): array
     {
-        $result = $this->db->query($sql, $binds);
-        if ($result === false || $result === true) {
-            return [];
-        }
-        /** @var list<array<string,mixed>> $rows */
-        $rows = $result->getResultArray();
-
-        return $rows;
+        return Writes::rows($this->db, $sql, $binds);
     }
 }

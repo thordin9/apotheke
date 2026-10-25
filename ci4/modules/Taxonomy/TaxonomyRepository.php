@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Apotheke\Taxonomy;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
 use Apotheke\Core\Libraries\Text;
 use CodeIgniter\Database\BaseConnection;
-use Throwable;
 
 /**
  * Locations and categories (legacy tax_*() and location_*()). Both drivers
@@ -101,7 +101,7 @@ final class TaxonomyRepository
         if ($ex !== null) {
             return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => false];
         }
-        $this->db->table(Kind::get($kind)['table'])->insert(['name' => $name, 'name_key' => Text::fold($name), 'sort_key' => Text::natkey($name), 'created_at' => $this->clock->now()]);
+        Writes::check($this->db->table(Kind::get($kind)['table'])->insert(['name' => $name, 'name_key' => Text::fold($name), 'sort_key' => Text::natkey($name), 'created_at' => $this->clock->now()]), 'add');
 
         return ['id' => (int)$this->db->insertID(), 'name' => $name, 'created' => true];
     }
@@ -131,8 +131,8 @@ final class TaxonomyRepository
         if ($ex !== null && $ex['id'] !== $id) {
             throw new UserError('A ' . Kind::get($kind)['one'] . ' called “' . $ex['name'] . '” already exists.', 409);
         }
-        $this->db->table(Kind::get($kind)['table'])->where('id', $id)
-            ->update(['name' => $name, 'name_key' => Text::fold($name), 'sort_key' => Text::natkey($name)]);
+        Writes::check($this->db->table(Kind::get($kind)['table'])->where('id', $id)
+            ->update(['name' => $name, 'name_key' => Text::fold($name), 'sort_key' => Text::natkey($name)]), 'rename');
     }
 
     /** Make $id the only default, or clear the default on $id (other rows untouched). */
@@ -141,10 +141,10 @@ final class TaxonomyRepository
         $tb = Kind::get($kind)['table'];
         $this->tx(function () use ($tb, $id, $on): void {
             if ($on) {
-                $this->db->table($tb)->where('is_default', 1)->update(['is_default' => 0]);
-                $this->db->table($tb)->where('id', $id)->update(['is_default' => 1]);
+                Writes::check($this->db->table($tb)->where('is_default', 1)->update(['is_default' => 0]), 'clear default');
+                Writes::check($this->db->table($tb)->where('id', $id)->update(['is_default' => 1]), 'set default');
             } else {
-                $this->db->table($tb)->where('id', $id)->update(['is_default' => 0]);
+                Writes::check($this->db->table($tb)->where('id', $id)->update(['is_default' => 0]), 'clear default');
             }
         });
     }
@@ -163,14 +163,14 @@ final class TaxonomyRepository
                     ? $this->activity->log((int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
                     : $this->activity->log((int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
             }
-            $this->db->table('items')->where($t['col'], $id)->update([$t['col'] => $moveTo, 'updated_at' => $this->clock->now()]);
+            Writes::check($this->db->table('items')->where($t['col'], $id)->update([$t['col'] => $moveTo, 'updated_at' => $this->clock->now()]), 'move items');
             $n = $this->db->affectedRows();
             if ($kind === 'location') {
                 // sub-locations move up one level instead of disappearing from the tree
                 $up = $this->rows('SELECT parent_id FROM locations WHERE id = ?', [$id])[0]['parent_id'] ?? null;
-                $this->db->table('locations')->where('parent_id', $id)->update(['parent_id' => $up === null ? null : (int)$up]);
+                Writes::check($this->db->table('locations')->where('parent_id', $id)->update(['parent_id' => $up === null ? null : (int)$up]), 'move sub-locations');
             }
-            $this->db->table($t['table'])->where('id', $id)->delete();
+            Writes::check($this->db->table($t['table'])->where('id', $id)->delete(), 'delete');
 
             return $n;
         });
@@ -206,7 +206,7 @@ final class TaxonomyRepository
                     throw new UserError('Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.', 422);
                 }
             }
-            $this->db->table('locations')->where('id', $id)->update(['parent_id' => $parent]);
+            Writes::check($this->db->table('locations')->where('id', $id)->update(['parent_id' => $parent]), 'move');
 
             return true;
         });
@@ -244,7 +244,7 @@ final class TaxonomyRepository
     }
 
     /**
-     * Run $fn in a transaction; joins one that is already open.
+     * Run $fn in a transaction (joins an open one); a failed statement rolls back and throws.
      *
      * @template T
      * @param callable():T $fn
@@ -252,31 +252,17 @@ final class TaxonomyRepository
      */
     private function tx(callable $fn): mixed
     {
-        $this->db->transBegin();
-        try {
-            $r = $fn();
-            $this->db->transCommit();
-
-            return $r;
-        } catch (Throwable $e) {
-            $this->db->transRollback();
-            throw $e;
-        }
+        return Writes::transaction($this->db, $fn);
     }
 
     /**
+     * A SELECT's rows; a failed statement throws.
+     *
      * @param list<int|string|null> $binds
      * @return list<array<string,mixed>>
      */
     private function rows(string $sql, array $binds = []): array
     {
-        $result = $this->db->query($sql, $binds);
-        if ($result === false || $result === true) {
-            return [];
-        }
-        /** @var list<array<string,mixed>> $rows */
-        $rows = $result->getResultArray();
-
-        return $rows;
+        return Writes::rows($this->db, $sql, $binds);
     }
 }
