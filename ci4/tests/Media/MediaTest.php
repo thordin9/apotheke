@@ -9,6 +9,7 @@ use Apotheke\Auth\RoleRepository;
 use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
 use Apotheke\Core\Storage\LocalStorage;
@@ -55,7 +56,7 @@ final class MediaTest extends CIUnitTestCase
         $this->settings = new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), new LocalBrandStore($this->database->dataDir() . '/brand'), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
         $this->served = new ServedImageWriter(new LocalStorage($this->database->dataDir()));
         ImageLimits::applyImagickLimits();
-        $this->store = new ImageStore($this->settings, new OriginalStore(new LocalStorage($this->originals(), 0640)), $this->served, new ImagickDecoder());
+        $this->store = new ImageStore($this->settings, new OriginalStore(new LocalStorage($this->originals(), 0640)), $this->served, new ImagickDecoder(), new RequestCleanup());
     }
 
     protected function tearDown(): void
@@ -153,10 +154,17 @@ final class MediaTest extends CIUnitTestCase
         $this->assertSame([226, 226, 226], array_values(array_slice(imagecolorsforindex($gd, imagecolorat($gd, 10, 10)), 0, 3)));
     }
 
-    public function testARealHeicIsConvertedWhenImagickCanAndRefusedOverTheSideCap(): void
+    /**
+     * Needs Imagick with libheif. CI must run it (the ci4 legs install the HEIC
+     * coder and run it again with --fail-on-skipped), so CI=true fails instead of skipping.
+     */
+    public function testARealHeicIsConvertedWhenImagickCanAndRefusedOverTheCaps(): void
     {
         $decoder = new ImagickDecoder();
         if (!$decoder->heicSupported()) {
+            if (getenv('CI') === 'true') {
+                $this->fail('CI has no HEIC decoder: the real-HEIC test must run there');
+            }
             $this->markTestSkipped('Imagick without HEIC');
         }
         $bytes = (string)file_get_contents(ApothekeConfig::repoRoot() . '/tests/fixtures/tiny-gps.heic');
@@ -167,12 +175,56 @@ final class MediaTest extends CIUnitTestCase
         $this->assertStringNotContainsString('GPS', $full);
 
         $before = $this->tree();
-        $pos = strpos($bytes, 'ispe');
-        $this->assertNotFalse($pos);
-        $wide = substr($bytes, 0, $pos + 8) . pack('NN', 16385, 8) . substr($bytes, $pos + 16);
-        $this->assertSame([16385, 8], $decoder->pingHeic($wide));
-        $this->assertUserError(ImageLimits::TOO_LARGE, $wide, 'HEIC 16385 px');
-        $this->assertSame($before, $this->tree());
+        foreach ([[16385, 8], [16000, 8008]] as [$w, $h]) {
+            $declared = $this->withIspe($bytes, $w, $h);
+            $this->assertSame([$w, $h], $decoder->pingHeic($declared));
+            $this->assertUserError(ImageLimits::TOO_LARGE, $declared, 'HEIC ' . $w . 'x' . $h);
+            $this->assertSame($before, $this->tree(), 'a header-refused HEIC writes nothing');
+        }
+    }
+
+    /**
+     * M-20: CodeIgniter's shutdown handler exits on a fatal error, so the
+     * request's RequestCleanup (run by the exception handler) has to remove
+     * what an unfinished upload wrote. Real CI4 bootstrap, in its own process.
+     */
+    public function testAFatalAfterTheOriginalIsSavedLeavesNoFiles(): void
+    {
+        $data = $this->database->dataDir();
+        $before = $this->tree();
+        $jpeg = $this->tempFile($this->jpeg(120, 80));
+        $env = ['DATA_DIR' => $data, 'APOTHEKE_CONFIG' => '/nonexistent', 'SEED_DEFAULTS' => '0', 'DB_DRIVER' => 'sqlite', 'CI_ENVIRONMENT' => 'production', 'PATH' => (string)getenv('PATH')];
+        $cmd = [PHP_BINARY, '-d', 'memory_limit=64M', __DIR__ . '/fixtures/fatal-on-thumb.php', $jpeg];
+        $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+        $this->assertIsResource($proc);
+        $out = (string)stream_get_contents($pipes[1]);
+        $err = (string)stream_get_contents($pipes[2]);
+        $exit = proc_close($proc);
+        $this->assertStringContainsString('before-fatal originals=1 map=1 full=1', $out, $out . $err);
+        $this->assertStringNotContainsString('stored', $out);
+        $this->assertNotSame(0, $exit);
+        $this->assertStringContainsString('Allowed memory size', $out . $err . $this->ci4Log(), 'a real out-of-memory fatal');
+        $after = array_values(array_diff($this->tree(), ['originals/.htaccess'])); // the boot's deny file
+        $this->assertSame($before, $after, 'the original, its map entry and the full copy are gone');
+    }
+
+    public function testRequestCleanupRunsOnceAndDropsFinishedWork(): void
+    {
+        $cleanup = new RequestCleanup();
+        $ran = [];
+        $cleanup->add('a', static function () use (&$ran): void {
+            $ran[] = 'a';
+        });
+        $cleanup->add('b', static function (): void {
+            throw new \RuntimeException('b');
+        });
+        $cleanup->add('c', static function () use (&$ran): void {
+            $ran[] = 'c';
+        });
+        $cleanup->drop('c');
+        $cleanup->run();
+        $cleanup->run();
+        $this->assertSame(['a'], $ran, 'a failing step does not stop the rest; a dropped one never runs; the list resets');
     }
 
     public function testTheSizeLimitIsMaxUploadMb(): void
@@ -240,6 +292,93 @@ final class MediaTest extends CIUnitTestCase
         }
         $this->assertSame(404, $this->get('media/full/' . $base)->response()->getStatusCode());
         $this->assertSame('', (string)$this->get('media/full/' . str_repeat('b', 32) . '.jpg')->response()->getBody());
+    }
+
+    public function testTheEndOfEveryRequestRunsTheCleanup(): void
+    {
+        $this->wire();
+        $cleanup = new RequestCleanup();
+        Services::injectMock('requestCleanup', $cleanup);
+        $ran = 0;
+        $cleanup->add('left', static function () use (&$ran): void {
+            $ran++;
+        });
+        $this->get('media/full/' . str_repeat('c', 32) . '.jpg')->assertStatus(404);
+        $this->assertSame(1, $ran, 'the requestcleanup after filter ran it');
+        $this->get('healthz')->assertStatus(200);
+        $this->assertSame(1, $ran, 'and reset the list');
+    }
+
+    public function testValidNameIsAnchored(): void
+    {
+        $name = str_repeat('a', 32) . '.jpg';
+        $this->assertTrue(ImageStore::validName($name));
+        $this->assertFalse(ImageStore::validName($name . "\n"), '/D: no trailing newline');
+        $this->assertFalse(ImageStore::validName(str_repeat('A', 32) . '.jpg'), 'uppercase hex');
+        $this->assertFalse(ImageStore::validName(null));
+    }
+
+    public function testABadMapEntryIsIgnoredAndNothingOutsideIsDeleted(): void
+    {
+        $originals = new OriginalStore(new LocalStorage($this->originals(), 0640));
+        $name = $this->upload($this->jpeg(30, 20));
+        $map = $this->originals() . '/map/' . substr($name, 0, 32);
+        $base = trim((string)file_get_contents($map));
+        foreach (['../catalog.sqlite', '../../' . basename($this->database->dataDir()) . '/catalog.sqlite', strtoupper($base), $base . "\n/x", ''] as $bad) {
+            file_put_contents($map, $bad);
+            $this->assertNull($originals->read($name), var_export($bad, true));
+        }
+        $originals->forget($name);
+        $this->assertFileDoesNotExist($map);
+        $this->assertFileExists($this->originals() . '/' . $base, 'a bad pointer deletes no file but the map entry');
+        $this->assertFileExists($this->database->dataDir() . '/catalog.sqlite');
+        $this->assertNotNull($this->served->read('full', $name));
+    }
+
+    public function testOnlyAnExactIfNoneMatchGets304(): void
+    {
+        $this->wire();
+        $name = $this->upload($this->jpeg(50, 40));
+        $etag = '"' . $name . '-' . filemtime($this->database->dataDir() . '/images/' . $name) . '"';
+        // Same as main's serve_image(): an exact string compare, so a weak or a list form gets the full answer.
+        foreach (['W/' . $etag, '"x", ' . $etag, $etag . ', "x"', '*'] as $header) {
+            $r = $this->withHeaders(['If-None-Match' => $header])->get('media/full/' . $name);
+            $r->assertStatus(200);
+            $this->assertSame($this->served->read('full', $name), $r->response()->getBody(), $header);
+        }
+        $this->withHeaders([]);
+    }
+
+    public function testAPlantedFileWithAnInvalidNameIsNotServed(): void
+    {
+        $this->wire();
+        $images = $this->database->dataDir() . '/images';
+        @mkdir($images, 0775, true);
+        $jpeg = $this->jpeg(10, 10);
+        foreach (['evil.jpg', str_repeat('A', 32) . '.jpg', str_repeat('a', 32) . '.png', str_repeat('a', 31) . '.jpg', 'catalog.jpg'] as $planted) {
+            file_put_contents($images . '/' . $planted, $jpeg);
+            $res = $this->get('media/full/' . $planted)->response();
+            $this->assertSame(404, $res->getStatusCode(), $planted);
+            $this->assertSame('', (string)$res->getBody(), $planted);
+        }
+    }
+
+    private function ci4Log(): string
+    {
+        $out = '';
+        foreach (glob(ApothekeConfig::repoRoot() . '/ci4/writable/logs/*.log') ?: [] as $log) {
+            $out .= (string)file_get_contents($log);
+        }
+
+        return $out;
+    }
+
+    private function withIspe(string $bytes, int $w, int $h): string
+    {
+        $pos = strpos($bytes, 'ispe');
+        $this->assertNotFalse($pos);
+
+        return substr($bytes, 0, $pos + 8) . pack('NN', $w, $h) . substr($bytes, $pos + 16);
     }
 
     private function wire(): void
