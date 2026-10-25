@@ -38,11 +38,9 @@ confirmation and press *Restore* is **all data replaced**, in one transaction. U
 
 **From the command line** (cron, and any archive larger than the browser upload limit):
 
-A backup that includes camera files is often bigger than 22 MB. On a non-Docker install, and on every Docker route
-except `/backup/restore`, the body limit is about 22 MB (`upload_max_filesize` 20M, `post_max_size` 22M,
-`client_max_body_size 22m`), so a browser restore answers **413**. Docker allows 520 MB on `/backup/restore` only.
-Raise those three together if you restore large zips in the browser (`post_max_size` and `client_max_body_size` a
-little above `upload_max_filesize`). Otherwise use the command line, which does not pass through that limit:
+A backup that includes camera files is often bigger than the 22 MB body limit of a non-Docker install (Docker
+allows 520 MB on `/backup/restore` only; see [PHP and web server limits](configuration.md#php-and-web-server-limits)).
+The command line has no such limit:
 
 ```bash
 php bin/backup.php                        # ./apotheke-backup-<date>.zip
@@ -75,44 +73,33 @@ while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
 ## Upgrades
 
 1. Take a backup.
-2. `git pull`, then `docker compose up -d --build` (or replace the files of a non-Docker install).
+2. `git pull`, then `docker compose up -d --build` (or replace the files of a non-Docker install). After a PHP
+   security release also run `docker compose build --pull`; the Dockerfile pins the PHP patch and CI checks that the
+   image runs it.
 3. Pending migrations run automatically on the first request, in one transaction under a lock; or run
    `php bin/migrate.php` yourself and check with `php bin/migrate.php --status`.
 
-Bump the pinned PHP patch in the Dockerfile on each PHP security release, then rebuild with `docker compose build --pull` and restart. CI checks that the built image's PHP version matches that pin.
+Browsers pick up new CSS and JS at once (`?v=` hashes), and older backups always restore into a newer version. Check
+the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes that still matter for older installs:
 
-```bash
-docker compose build --pull
-docker compose up -d
-```
-
-Notes:
-
+* **From 1.x:** the image listens on port 9091 (it was 80) and compose publishes 9091 (it was 8080). Update bookmarks,
+  home-screen icons, reverse proxies and the Public URL, and reprint QR labels that contain `:8080`, or keep the old
+  address with `ports: ["127.0.0.1:8080:9091"]`.
 * **Pre-migration SQLite installs** (schema v1–v3) are first copied to `data/catalog-v<N>-backup-<date>.sqlite`, then
-  converted and adopted into the migration system in one transaction. Delete the snapshot once everything looks right.
-* Migrations `0006` (low-stock level), `0007` (lending), `0008` (parent location) and `0009` (expiry date) only
-  add nullable columns (`0010` only an index); existing items have no alert, are not lent and have no expiry date, existing locations stay
-  top-level.
-* Migration `0025` (2.4) turns AI autofill's *Analyze photos automatically* **off** on every install: photos are
-  only analyzed when someone taps *Analyze*. An admin can turn it back on under Control Panel → AI autofill (see
-  [Upgrading from 2.3](autofill.md#upgrading-from-23)).
+  converted in one transaction: free-text locations become managed locations, and categories are added. Delete the
+  snapshot once everything looks right.
+* **2.4:** migration `0025` turns AI autofill's *Analyze photos automatically* off on every install; see
+  [Upgrading from 2.3](autofill.md#upgrading-from-23).
+* **2.5 (camera uploads):** existing photos are not rewritten and have no file under `originals/`; new uploads keep
+  the camera file next to the stripped JPEG. `ORIGINALS_DIR` must not be inside `public/` (Apotheke refuses to start).
+* **2.6.2 (host names):** the app answers only to known host names, health checks included; see
+  [Host names](#host-names).
+* **2.6.7 (Docker defaults):** the container needs sign-in and compose publishes `127.0.0.1` only; see
+  [Docker defaults](#docker-defaults-localhost-and-sign-in).
 * **CI4 and `;` in the database credentials.** On the CI4 app, a `DB_USER` or `DB_PASSWORD` that contains `;` cannot
   be combined with `user=` / `password=` text inside another `DB_DSN` setting (`options`, `application_name`, the
   `sslpassword` keyword); boot stops with a message saying so. Remove that text from `DB_DSN`, or change the
-  credential so it has no `;`. Any other character in the user or password works.
-* **Host names (this version).** The app now answers only to IP addresses, `localhost`, the machine's own host
-  name, the Public URL's host and `ALLOWED_HOSTS`. If you open it by another name (for example `nas.local:9091`),
-  add that name to `ALLOWED_HOSTS` or set the Public URL under Control Panel → General before upgrading
-  (`PUBLIC_URL` only works on a new install); otherwise the browser shows *Unknown host name* (421). Health checks
-  (`/healthz`, `/health`) follow the Host rule from 2.6.2 ([Host names](#host-names)): point container,
-  orchestrator and monitoring probes at an allowed host.
-* Browsers pick up new CSS/JS immediately (`?v=` hashes).
-* Older backups can always be restored into a newer version.
-* **Camera uploads (this version).** Existing photos are not rewritten. They keep working and simply have no file
-  under `originals/`. New uploads are stored twice: the camera file (about the size of the file that was sent) and the
-  stripped JPEG you already had. A file over the upload limit is reduced in the browser first, and that smaller copy
-  is what is kept. Set `ORIGINALS_DIR` only if that directory should not be `<data_dir>/originals`. It must not
-  be inside `public/` (Apotheke refuses to start if it is). Backups taken after the upgrade include the camera files; older zips restore as before.
+  credential so it has no `;`.
 
 ## Behind a web server or reverse proxy
 
@@ -130,13 +117,9 @@ Rules for any web server in front of PHP-FPM:
 tested example (static assets with long-lived caching and gzip, blocked paths, the larger limit and timeouts on
 `/backup/restore`, granted through `auth_request`).
 
-Upgrading from 1.x: the image listens on port 9091 (it was 80) and compose publishes 9091 (it was 8080) — point your
-reverse proxy at the new port, or publish the old one with `ports: ["127.0.0.1:8080:9091"]` (see
-[Docker defaults](#docker-defaults-localhost-and-sign-in) to reach it from your network).
-
 ### Docker defaults: localhost and sign-in
 
-Two defaults keep a new Docker install private (hardening, SEC-M3):
+Two defaults keep a new Docker install private:
 
 * **Localhost only.** `docker-compose.yml` publishes `127.0.0.1:9091:9091`, so only the server itself (and a reverse
   proxy on it) reaches the app. To open it from phones on your network, change the port line on purpose to
@@ -219,7 +202,7 @@ Behind a TLS proxy:
 
 ### Host names
 
-The app answers only to host names it knows (hardening, SEC-M3). A request with any other `Host` header gets
+The app answers only to host names it knows. A request with any other `Host` header gets
 **421 Misdirected Request**. Always accepted, with or without a port:
 
 * IP addresses (IPv4, and IPv6 in brackets such as `[fd00::10]:9091`), so opening the app by its LAN address works
@@ -235,7 +218,7 @@ Public URL. `PUBLIC_URL` only works on a new install: the first start saves it i
 existing install sets the address under Control Panel → General (Public URL). A reverse proxy must pass the
 original `Host` (nginx: `proxy_set_header Host $host;`, which Caddy does by default) or a name on this list.
 
-The health endpoints `/healthz` and `/health` follow the Host rule from 2.6.2 described above (#70 L-2). The image's own `HEALTHCHECK` uses
+The health endpoints `/healthz` and `/health` follow the same rule. The image's own `HEALTHCHECK` uses
 `127.0.0.1` and keeps working, but a container or orchestrator health check, or an outside monitor, must use an
 allowed host: an IP address, `localhost`, the container's host name, the Public URL's host or an `ALLOWED_HOSTS`
 entry. A probe that uses any other name gets 421.
@@ -245,15 +228,15 @@ OPTIONS) must come from the app's own pages: the browser's `Sec-Fetch-Site` must
 `Origin` must be the app's own address or `PUBLIC_URL`. Requests that send neither header, such as `curl` and
 scripts, are not affected. Behind a TLS proxy, set `PUBLIC_URL` to the `https://` address or turn on `trust_proxy`:
 otherwise the app expects an `http://` `Origin`, and browsers that send only `Origin` (no `Sec-Fetch-Site`, such as
-Safari before 16.4) get 403 on every change (#70 N-6).
+Safari before 16.4) get 403 on every change.
 
 ### Sessions and the restore upload
 
 A session (a small file in `DATA_DIR/sessions`) is created only when a page with a form is shown or someone signs
-in (hardening, SEC-L2). 404 pages, the icons, the manifest and the theme CSS, health checks and anonymous redirects
+in. 404 pages, the icons, the manifest and the theme CSS, health checks and anonymous redirects
 to the sign-in page don't create one, and a session cookie whose session no longer exists is ignored. The sign-in
-page has a form, so each visit to it without a session cookie still starts a session (the rest of SEC-L2, deferred);
-PHP's session clean-up removes old session files (#70 N-5).
+page has a form, so each visit to it without a session cookie still starts a session; PHP's session clean-up removes
+old session files.
 
 In the Docker image, nginx asks the app (`/backup/restore/check`, through `auth_request`) before it accepts a
 restore upload. Only a signed-in user with the Backup permission (or anyone while sign-in is off) may send the up to
@@ -270,7 +253,7 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
    `client_max_body_size 520m` in **both** locations: the check is a subrequest that sees the upload's
    `Content-Length`, and with a smaller limit nginx refuses the check itself and answers 500. nginx also turns
    any other answer from the check into 500; the `@restore_check_failed` location answers 421 for an
-   unknown host name instead, with the same short text as the app's 421 (hardening, #70 N-3, #73 QA N-2), and nginx
+   unknown host name instead, with the same short text as the app's 421, and nginx
    still logs *auth request unexpected status: 421*.
 
    ```nginx
@@ -327,14 +310,13 @@ restore upload. Only a signed-in user with the Backup permission (or anyone whil
 
 ### ImageMagick policy
 
-The Docker image ships a restrictive ImageMagick policy in `/etc/ImageMagick-7/policy.xml` (hardening, S-M1 and
-S-L1, from [`docker/imagemagick-policy.xml`](../docker/imagemagick-policy.xml)). It caps an image at 16,384 px
+The Docker image ships a restrictive ImageMagick policy in `/etc/ImageMagick-7/policy.xml` (from [`docker/imagemagick-policy.xml`](../docker/imagemagick-policy.xml)). It caps an image at 16,384 px
 wide or high and 128 MP, ImageMagick's memory and map at 256 MiB, its disk cache at 1 GiB and its time at 60
 seconds, and it turns off the coders that read text, vector or page formats or fetch URLs, all external delegates
 and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as before. The image build fails if the
 policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick reports, the refused coders, and
 from `magick -list policy` no rights for delegates or `@file` paths, including any narrower rule added later, and a
-time limit of 60 s or less; #70 N-2, #73 QA N-1).
+time limit of 60 s or less).
 
 ## HTTPS
 
@@ -360,16 +342,13 @@ Then set `DB_USER=apotheke_app` and `DB_SCHEMA=apotheke`. If the schema is missi
 it, startup fails. The message is in the PHP log (`[apotheke] …`) and on the CLI. It names the schema and does
 not include the password or the DSN. The browser shows the generic error page.
 
-`php bin/migrate.php` prints only the driver, host, port, dbname, and `DB_SCHEMA`. It never prints the user
-or the password. SQLite prints the driver and the file path. A DSN that does not parse is shown as
-`<unparsed dsn>`. With `APOTHEKE_APP=ci4` the same banner comes from `apotheke:migrate`. If that variable is set and `ci4/spark` is not in the install, the command prints `APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.` and exits 1. That line has no DSN. When it can't connect to the database, the command prints `Could not connect to the database`
-with those same fields and exits with status 1. It does not print or log the server's own error text (that
-text names the database user), the password, or the full DSN, including when PHP includes exception arguments
-in stack traces. `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and `bin/settings.php` exit 1 with that
-same line, and `/healthz` logs it. While the database is down, every route, including CSS, the manifest and `/login`, returns 500 and the log has only that sanitized line. A SQLite file that cannot be opened still reports the engine's own error.
-With `APOTHEKE_APP=ci4`, `bin/migrate.php` and `apotheke:migrate` print the same line and exit 1, `/healthz` and `/health` answer the same
-500 with an empty body and log only that line, and an unwritable data directory exits 1 with the same message.
-The image sets `zend.exception_ignore_args = On`, so the exception text does not add the user or the password either.
+When the database refuses the connection, `bin/migrate.php`, `bin/seed.php`, `bin/backup.php`, `bin/restore.php`
+and `bin/settings.php` exit 1 with `Could not connect to the database` and only the driver, host, port, dbname and
+`DB_SCHEMA` (SQLite: the file path); `/healthz` logs the same line. While the database is down every route returns
+500. The database user, the password, the DSN and the server's own error text are never printed or logged.
+With `APOTHEKE_APP=ci4`, `bin/migrate.php` (through `apotheke:migrate`) prints the same banner and the same line, and
+`/healthz` and `/health` answer the same 500 with an empty body; without `ci4/spark` in the install the command says so
+and exits 1.
 
 ## Security
 
@@ -389,27 +368,13 @@ The image sets `zend.exception_ignore_args = On`, so the exception text does not
   allow-lists.
 * **Output:** every value is HTML-escaped (`h()`).
 * **Uploads:** the camera file is kept byte-identical under `originals/` with a 64-hex name that is not the served
-  name, when the picked file fits the upload limit. A larger file is reduced in the browser, and the form says the
-  original is not kept. The copy everyone sees is a stripped JPEG (EXIF/GPS dropped, orientation applied) and served only through
-  `/media/(full|thumb)/[a-f0-9]{32}.jpg`. GD does that for JPEG, PNG, WebP and GIF: transparent pixels are flattened
-  onto white, and a CMYK JPEG is written as sRGB with no colour profile. The Docker image also has Imagick
-  with libheif, so a HEIC upload gets the same stripped JPEG (GD still writes the file everyone sees) and autofill
-  can build an analysis JPEG from it. Imagick does the same white background and sRGB conversion before encoding.
-  For a grayscale photo, only the reduced JPEG sent to autofill is 1-channel. The displayed copy is re-encoded
-  by GD as 3-channel and stays within a few levels.
-  A PNG of at most 26 megapixels, and a WebP or GIF of at most 40 megapixels, still go through GD.
-  That PNG cap is the size an alpha PNG still fits under the image's `memory_limit` of 256M, measured with
-  the upload held in memory (peak 231931904 bytes). A larger JPEG is decoded already reduced, and that
-  decoded frame stays within 128 megapixels; a JPEG over 250 megapixels or 30,000 px on a side is refused
-  from the header. A larger PNG, WebP or GIF is refused from the header. A camera file saved before a
-  decode dies is removed before the request ends. A HEIC/HEIF photo over 128 megapixels or 16,384 px
-  on a side is refused from the header before pixels are read. Imagick is limited to memory 256 MiB, map
-  256 MiB, disk 1 GiB, area 128 megapixels, and width and height 16,384 px, the same limits as the policy the
-  image ships ([ImageMagick policy](#imagemagick-policy)). Any decode
-  Imagick stops for a resource limit is the same refusal. Only that analysis JPEG forces 4:2:0 chroma subsampling. A
-  GD-only install stores the HEIC and shows a plain placeholder, never the HEIC bytes. A JPEG above 40
-  megapixels needs Imagick; without it that photo is refused. A guessed `/originals/…` URL,
-  including `/Originals/` and `/ORIGINALS/`, is 404.
+  name; a guessed `/originals/…` URL is 404 in any spelling. Everyone sees a stripped JPEG (EXIF/GPS dropped,
+  orientation applied, transparency on white, CMYK as sRGB) served only through `/media/(full|thumb)/[a-f0-9]{32}.jpg`.
+  Oversized frames are refused from the header before decoding, and Imagick runs with the same resource limits as the
+  [ImageMagick policy](#imagemagick-policy); the per-format limits are in the [user guide](user-guide.md#photos).
+* **Attachments** are checked by their magic bytes, stored under random names in `data/files/` and served only as
+  downloads (`Content-Disposition: attachment`, `nosniff`, a `sandbox` CSP). Uploaded SVG logos are sanitized and
+  served with a sandbox CSP.
 * **Backups:** strict entry-name, size and schema validation before anything is written (see above).
 * **Password:** `APP_PASSWORD` is compared in constant time; a wrong password costs 0.4 s; the session id is
   regenerated on sign-in and sign-out.
@@ -418,16 +383,10 @@ The image sets `zend.exception_ignore_args = On`, so the exception text does not
 * **HSTS:** the app does not send `Strict-Transport-Security` itself, because it often runs on plain HTTP on a LAN.
   Add it in your TLS proxy (see the Caddy and nginx examples above).
 * **Stored secrets:** with `APP_KEY` set, recoverable secrets (the autofill access token) are encrypted in the
-  database. A configured key that cannot be used (malformed, unreadable, inside the data directory, or the sodium
-  extension missing) refuses secret saves. With no key configured, they stay plaintext. Password hashes stay hashes.
-  The database file itself and the upload directories (photos, thumbnails, camera originals, attachments) are not
-  encrypted by Apotheke. Encrypt the disk or the volume that holds `DATA_DIR` and, for PostgreSQL, the database volume.
-  See [Stored secrets](configuration.md#stored-secrets). If the key is lost, stored secrets count as unset, so keep the
-  key out of the data volume and its backups. An `APP_KEY_FILE` must be readable by the app user. Inside the image
-  that user is `www-data` (uid 82, gid 82). `chown` runs on the host, where `www-data` is gid 33 on Debian and Ubuntu
-  and some hosts have no such group, so use `chown root:82 secrets/app_key && chmod 0440 secrets/app_key`. Outside
-  Swarm, plain `docker compose` bind-mounts a `file:` secret with the host file's owner and mode and ignores uid, gid
-  and mode. The same `root:82` and `0440` apply to that file.
+  database; a configured key that cannot be used refuses secret saves, and with no key they stay plaintext. The
+  database file and the upload directories are not encrypted by Apotheke: encrypt the disk or volume that holds
+  `DATA_DIR` (and the PostgreSQL volume). Keep the key out of the data volume and its backups; a lost key means the
+  secrets count as unset. See [Stored secrets](configuration.md#stored-secrets).
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.

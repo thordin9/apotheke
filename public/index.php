@@ -186,7 +186,7 @@ try {
         check_csrf();
         $me = current_user();
         user_sign_out_everywhere((int)$me['id']);
-        login_session((int)$me['id']);
+        login_session((int)$me['id'], keepSignIn: true);
         redirect('/account?done=out');
     }
     if ($path === '/account') {
@@ -202,7 +202,7 @@ try {
                 view_account($me, $e->getMessage(), null);
                 exit;
             }
-            login_session($me['id']);
+            login_session($me['id'], keepSignIn: true);
             redirect('/account?done=pw');
         }
         no_store();
@@ -644,7 +644,7 @@ try {
                 // signed in: change your own password
                 if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
                 user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
-                login_session($me['id']);
+                login_session($me['id'], keepSignIn: true);
             } else {
                 $name = clean_line((string)($_POST['username'] ?? 'admin'), USERNAME_MAX * 2) ?: 'admin';
                 $u = user_by_name($name);
@@ -679,7 +679,7 @@ try {
                 $done = 'user-role';
             } elseif ($act === 'password') {
                 user_set_password($uid, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
-                if ($uid === $me['id']) login_session($uid);
+                if ($uid === $me['id']) login_session($uid, keepSignIn: true);
                 $done = 'user-pw';
             } elseif ($act === 'rename') {
                 user_rename($uid, (string)($_POST['username'] ?? ''));

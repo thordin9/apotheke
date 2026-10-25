@@ -137,37 +137,33 @@ bumps the photo's version and deletes the previous served file (unless an undo s
 and copied onto the new version; the editor shows the stripped JPEG, not that camera file. Without JavaScript, *Exact values*
 offers the same as a rotation menu and crop fields in percent.
 
-The file you pick is uploaded as it is when it fits the upload limit (20 MB by default), and it is kept byte for byte
-(about as much disk again as the file you sent) under a name that is not the one in the page, outside the web root.
-A larger file is reduced in the browser first, and the form says *This photo is over the upload limit, so a smaller
-copy will be saved. The original file is not kept.* A PNG over 26 megapixels, or a WebP or GIF over 40 megapixels,
-is turned away with *Image dimensions are too large.* A JPEG of up to 250 megapixels is kept. The same message
-is used when the server cannot decode a photo that large. What you see and what a thumbnail shows is a separate JPEG: EXIF
-orientation applied, longest side at most 1600 px, GPS and camera details removed. A backup stores that camera file
-together with the JPEG, and restoring puts both back. CSV export only names the served photo and does not include
-the camera file. Deleting a photo, replacing it, or deleting the item (after undo expires) removes the camera file,
-the JPEG and the thumbnail. Nothing from that photo is left in `images/`, `thumbs/` or `originals/`. A HEIC photo
-is turned into that JPEG when this server has Imagick with HEIC support (the Docker image does). Transparent areas
-are placed on white, and a CMYK photo is saved as an ordinary sRGB JPEG, the same as a photo GD reads itself.
-For a grayscale photo, only the reduced JPEG sent to autofill is 1-channel. The photo shown is re-encoded by
-GD as a 3-channel JPEG and stays within a few levels.
-When Imagick cannot decode the HEIC, the file is kept and the page shows a plain grey placeholder instead.
-Photos already in the catalog before this version stay as they are and have no separate camera file.
+**What is stored.** The file you pick is uploaded unchanged when it fits the upload limit (20 MB by default) and is
+kept byte for byte outside the web root, under a name that is not the one in the page. A larger file is reduced in the
+browser first, and the form says *This photo is over the upload limit, so a smaller copy will be saved. The original
+file is not kept.* What you see is a separate JPEG: orientation applied, longest side at most 1600 px, GPS and camera
+details removed, transparent areas on white, CMYK as sRGB. A HEIC photo is converted when the server has Imagick with
+HEIC support (the Docker image does); otherwise the file is kept and the page shows a grey placeholder. Deleting or
+replacing a photo, or deleting the item once undo has expired, removes the camera file, the JPEG and the thumbnail.
+
+**Size limits.** These photos are turned away with *Image dimensions are too large.*, from the header before they
+are decoded:
+
+* a JPEG over 250 megapixels or 30,000 px on a side (a JPEG above 40 megapixels is decoded already reduced, within
+  128 megapixels, and needs Imagick);
+* a HEIC/HEIF over 128 megapixels or 16,384 px on a side;
+* a PNG over 26 megapixels, or a WebP or GIF over 40 megapixels (these are decoded in full, and the PNG cap keeps an
+  alpha PNG under the Docker image's 256M `memory_limit`);
+* any frame Imagick refuses for a resource limit.
 
 ## Suggestions from a photo (AI autofill)
 
-If an admin has set up [AI autofill](autofill-admin-guide.md), Apotheke can suggest an item's **name, category, tags
+If an admin has set up [AI autofill](autofill.md), Apotheke can suggest an item's **name, category, tags
 and notes** from a photo. It is optional: you can always fill in the form yourself, and saving never waits for it.
 
 **The Analyze button.** Take or pick a photo on the item form, then tap **✨ Analyze photo** under it. Nothing is sent
 until you tap it (unless an admin turned on *Analyze photos automatically*; then a picked photo is analyzed right away).
 When you edit an item that already has photos, each of them has its own **Analyze** button in the row *Suggest details
-from a photo of this item*.
-
-The photo saved with the item is still the file you uploaded, when it fits the upload limit. Analyze sends a
-**separate** JPEG. An admin sets how large that copy may be under **Settings → AI autofill → Maximum image size**
-(the default follows the service; leaving the field empty saves `auto`). A number set there is still capped by the service: `enforced_image_bytes` when
-that field is present, otherwise `max_image_bytes`, and the number itself only when neither is known. If the service answers HTTP 413, Apotheke fetches the limit once more and sends one smaller copy. It does not keep retrying. A limit that would show as 0 MiB is shown in KB instead. The file stored with the item is not resized for that. On the CI4 build the same rule holds: the saved photo stays byte for byte, and only the resized JPEG is sent.
+from a photo of this item*. Analyze sends a separate, smaller JPEG; the photo saved with the item is not changed.
 
 - Only **one photo is analyzed at a time**. While it runs, the Analyze buttons are greyed out and ignore another
   press; keyboard focus stays on the one you pressed. They come back when it is done.
@@ -515,44 +511,29 @@ role. A custom role with *Users* cannot do those. It can still change other acco
 * **Disable registrations** (on by default). Off: *Create an account* on the sign-in page opens `/register`; new
   accounts get the **Role for new registrations** (default Viewer; never Admin). With **Registrations need an admin’s
   approval** they show up under Users as *Waiting for approval* and can sign in once an admin taps *Approve account*.
-  Sign-in is limited to 10 tries per 15 minutes **for that account from that client**, and registration to 5 per hour
-  per address. Attempts against one account do not block a different account. `X-Forwarded-For` is read only when
-  `trust_proxy` is on and the connecting peer is listed in `trusted_proxies` / `TRUSTED_PROXIES`. The client is the
-  rightmost hop that isn't itself a listed proxy. With `trust_proxy` on and an empty list, the connecting address is used.
+  Sign-in is limited to 10 tries per 15 minutes for one account from one client, and registration to 5 per hour
+  per address ([behind a proxy](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy)).
 * Turning accounts off (*Turn sign-in off*) makes everyone an anonymous guest with admin rights again. Only an admin
   account can do this.
+
 Tap a user to change the role, rename the account, set a new password (signs that user out on every device) or delete it.
 Those actions on an **admin** account need an admin. The last admin can't be demoted or deleted, and you can't delete
 your own account. User names ignore upper/lower case.
 
 Everybody can change their own password under **☰ → (your name)**. That page also has **Sign out everywhere**:
-it ends this account's other sessions and keeps this device. On the server,
-`php bin/settings.php user signout NAME` ends every session of that account. A new password does the same. The
-history records who made each change ("· anna"); the name stays when the account is deleted. *Turn sign-in off*
-keeps the accounts, so turning it on again only needs an admin's user name and password. A sign-in lasts at most
-30 days (Control Panel → Users & sign-in → “Stay signed in for”), counted from sign-in. The server ends it when
-that time has passed, and later visits do not extend it. It ends sooner when the browser sends no request for 7
-days (“Sign out after idle”, 1–8760 hours). A shorter idle limit applies on the next request. The icon, the
-home-screen manifest, the theme and label styles, and the health checks do not count as a request. Locked out?
-On the server: `php bin/settings.php user password admin` (or `users` to list accounts, `user role NAME admin`,
-`user approve NAME`, `user signout NAME`, `roles reset` to restore the built-in roles, `auth off` to turn
-accounts off).
+it ends this account's other sessions and keeps this device. A new password does the same. The history records who
+made each change ("· anna"); the name stays when the account is deleted. *Turn sign-in off* keeps the accounts.
+
+A sign-in lasts at most 30 days (*Stay signed in for*), counted from sign-in; later visits do not extend it. It ends
+sooner after 7 days with no request (*Sign out after idle*). Locked out? See
+[Control Panel → Users & sign-in](control-panel.md#users--sign-in) for the `php bin/settings.php` commands.
 
 ## Settings (Control Panel)
 
-**☰ → Settings** configures the app for everyone: name and tagline, accent colour (with presets and an automatic
-contrast check for light and dark mode), your own logo (SVG, PNG, JPEG or WebP; PNG/JPEG/WebP also become the home-screen
-icon and favicon), currency and number/date/time formats, time zone, items per page, default sort and a compact list
-view, defaults for new items (quantity, low-stock threshold, tags, notes, purchase date, expiry, location, category),
-the *Expiring soon* window, the default loan period, limits for saved filters and photos, photo sizes and the password.
-*Backup & data* exports/imports the settings as JSON next to the backup and CSV links. Each section can be reset to its
-defaults. If the database settings cannot be used, the page says the database settings could not be used and does not
-show the connection string. A settings file and a backup both include the sign-in options, but those are applied only
-when an **admin** does the import or restore. A Settings, Users, or Backup account keeps guest browsing, registration,
-the registration role, approval, the session length, the idle limit and *Trust the reverse proxy* as they were; the
-import says those keys were left out. A restore never replaces accounts, roles, or role permissions, and a file that
-names those tables is refused. The command line still applies the sign-in options. Details:
-[control-panel.md](control-panel.md).
+**☰ → Settings** configures the app for everyone: name and tagline, accent colour (with an automatic contrast check),
+your own logo, currency and number/date/time formats, time zone, list options, defaults for new items, limits,
+photo sizes, users and sign-in, and AI autofill. *Backup & data* exports and imports the settings as JSON. Each
+section can be reset to its defaults. Details: [Control Panel](control-panel.md).
 
 ![Settings](screenshots/settings-light.png) ![Accent colour](screenshots/settings-appearance-dark.png)
 
@@ -562,16 +543,12 @@ Apotheke has a web app manifest, so you can add it to the home screen: in Safari
 Chrome *Install app* / *Add to Home screen*. It then opens full screen like an app. It still needs the server: there
 is no service worker and no offline mode.
 
-
 ## iPhone tips
 
 * **Take photo** uses `<input type="file" accept="image/*" capture="environment">`, which opens the rear camera
   directly; **Library** picks an existing photo. This works over plain `http://` on your LAN, because Apotheke does not
   use the live-camera `getUserMedia` API (which would need HTTPS).
-* The file you pick is uploaded as it is when it fits the upload limit. Above that limit the browser makes a smaller
-  copy and the form says the original is not kept. The server stores what it received and shows a stripped JPEG.
-  HEIC is decoded on the server when Imagick can read it (the Docker image); otherwise the page shows a placeholder
-  and the HEIC file is still kept. Transparent areas sit on white, and CMYK is saved as sRGB.
+* What is uploaded and stored is described under [Photos](#photos); HEIC is converted on the server.
 * *Add to Home Screen* gives you a full-screen app with the safe areas (notch, home indicator) respected.
 * The bottom bars (Save, Edit, the bulk bar) stay above the home indicator; the filter and action sheets slide up from
   the bottom.
