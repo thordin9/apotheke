@@ -7,8 +7,8 @@ namespace Apotheke\Core\Libraries;
 use Apotheke\Core\Exceptions\UserError;
 
 /**
- * Pure text helpers, ported from the legacy fold(), clean_line() and
- * tags_parse(). No state: safe in a long-lived worker.
+ * Pure text helpers, ported from the legacy fold(), clean_line(), natkey()
+ * and tags_parse(). No state: safe in a long-lived worker.
  */
 final class Text
 {
@@ -33,6 +33,12 @@ final class Text
         $s = trim((string)preg_replace('/\s+/u', ' ', $s));
 
         return mb_substr($s, 0, $max);
+    }
+
+    /** Natural-sort key: folded text with every number zero-padded ("box 2" < "box 10") (legacy natkey()). */
+    public static function natkey(string $s): string
+    {
+        return mb_substr((string)preg_replace_callback('/\d+/', static fn (array $m): string => str_pad(ltrim($m[0], '0') ?: '0', 12, '0', STR_PAD_LEFT), self::fold(trim($s))), 0, 400);
     }
 
     /**
