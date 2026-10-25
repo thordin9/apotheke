@@ -204,6 +204,8 @@ class Services extends BaseService
         return new \Apotheke\Core\Cli\WiredCommands(null, [
             \Apotheke\Settings\Commands\SettingsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings(false, new \Apotheke\Core\Security\CommandLine())),
+            \Apotheke\Auth\Commands\AccountsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Auth\Commands\AccountsCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli => static::accountsCli($in, $out, $err)),
         ]);
     }
 
@@ -736,5 +738,43 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Auth\SignInSwitch(static::settings(), new \Apotheke\Auth\UserRepository($db), new \Apotheke\Auth\AdminGuard(static::currentUser()));
+    }
+
+    /**
+     * The account forms of bin/settings.php (Auth): the command line is the
+     * actor, and it creates the first admin from APP_PASSWORD where legacy
+     * auth_enabled() does.
+     *
+     * @param resource $in
+     * @param resource $out
+     * @param resource $err
+     */
+    public static function accountsCli(mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli
+    {
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        $settings = static::settings(false, new \Apotheke\Core\Security\CommandLine());
+        $users = new \Apotheke\Auth\UserRepository($db);
+        $roles = new \Apotheke\Auth\RoleRepository($db);
+        $clock = new \Apotheke\Core\Libraries\Clock();
+        $accounts = new \Apotheke\Auth\Accounts($users, $roles, $clock);
+        $password = static::apothekeConfig()->values()['app_password'] ?? '';
+        $actor = new \Apotheke\Auth\Commands\CommandLineActor(static function () use ($accounts, $settings, $password): void {
+            $accounts->ensureFirstAdmin((bool)$settings->get('auth_enabled'), is_string($password) ? $password : '');
+        });
+        $guard = new \Apotheke\Auth\AdminGuard($actor);
+
+        return new \Apotheke\Auth\Commands\AccountsCli(
+            new \Apotheke\Auth\UserAdmin($users, $roles, $accounts, $guard, $clock),
+            $users,
+            $roles,
+            new \Apotheke\Auth\SignInSwitch($settings, $users, $guard),
+            new \Apotheke\Auth\SignOutEverywhere($users),
+            $settings,
+            $actor,
+            $in,
+            $out,
+            $err,
+        );
     }
 }
