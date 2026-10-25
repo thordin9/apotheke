@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Apotheke\Settings;
 
-use CodeIgniter\Database\BaseResult;
+use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
-use RuntimeException;
+use CodeIgniter\Database\BaseResult;
 use Throwable;
 
 /**
@@ -39,7 +40,8 @@ final class SettingsRepository
 
     /**
      * Replace these rows in one transaction (delete, then insert, like legacy
-     * settings_store()).
+     * settings_store()). A failed statement, or a failed commit, rolls back
+     * and throws WriteFailed (M-25: the connection has DBDebug off).
      *
      * @param array<string,string> $encoded name => JSON value
      */
@@ -48,20 +50,15 @@ final class SettingsRepository
         if ($encoded === []) {
             return;
         }
-        $this->db->transBegin();
         try {
-            foreach ($encoded as $name => $value) {
-                $deleted = $this->db->table('settings')->where('name', $name)->delete();
-                $inserted = $this->db->table('settings')->insert(['name' => $name, 'value' => $value, 'updated_at' => $now]);
-                if ($deleted === false || $inserted === false) {
-                    throw new RuntimeException('Could not save the settings.');
+            Writes::transaction($this->db, function () use ($encoded, $now): void {
+                foreach ($encoded as $name => $value) {
+                    Writes::check($this->db->table('settings')->where('name', $name)->delete(), 'settings delete');
+                    Writes::check($this->db->table('settings')->insert(['name' => $name, 'value' => $value, 'updated_at' => $now]), 'settings insert');
                 }
-            }
-            $this->db->transCommit();
+            });
         } catch (Throwable $e) {
-            $this->db->transRollback();
-            throw $e instanceof RuntimeException && $e->getMessage() === 'Could not save the settings.'
-                ? $e : new RuntimeException('Could not save the settings.', 0, $e);
+            throw new WriteFailed('Could not save the settings.', 0, $e);
         }
     }
 
