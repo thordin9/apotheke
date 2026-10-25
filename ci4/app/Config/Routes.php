@@ -77,6 +77,13 @@ $routes->post('save', $catalog . 'ItemController::save', ['permission' => 'creat
 $routes->post('item/([0-9]+)/delete', $catalog . 'ItemController::delete/$1', ['permission' => 'delete']);
 $routes->post('undo', $catalog . 'ItemController::undoAction', ['permission' => 'edit']);
 
+// Catalog: an item's photos (PLAN 11a part 2); legacy gives every photo route edit.
+$routes->post('item/([0-9]+)/photos', $catalog . 'PhotoController::add/$1', ['permission' => 'edit']);
+$routes->post('item/([0-9]+)/photos/order', $catalog . 'PhotoController::order/$1', ['permission' => 'edit']);
+$routes->post('item/([0-9]+)/photos/([0-9]+)/(cover|left|right|delete)', $catalog . 'PhotoController::act/$1/$2/$3', ['permission' => 'edit']);
+$routes->match(['GET', 'HEAD'], 'item/([0-9]+)/photos/([0-9]+)/edit', $catalog . 'PhotoController::editForm/$1/$2', ['permission' => 'edit']);
+$routes->post('item/([0-9]+)/photos/([0-9]+)/edit', $catalog . 'PhotoController::edit/$1/$2', ['permission' => 'edit']);
+
 // Activity: recent activity and one item's full history.
 $routes->match(['GET', 'HEAD'], 'activity', '\\Apotheke\\Activity\\Controllers\\ActivityController::index', ['permission' => 'view']);
 

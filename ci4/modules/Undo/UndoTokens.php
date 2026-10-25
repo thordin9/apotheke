@@ -8,6 +8,7 @@ use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
 use CodeIgniter\Database\BaseConnection;
 use Closure;
+use Throwable;
 
 /**
  * Undo tokens (legacy src/undo.php): a snapshot of the affected items before
@@ -130,6 +131,16 @@ final class UndoTokens
     public function consume(string $token): void
     {
         Writes::check($this->db->table('undo_tokens')->where('token', $token)->delete(), 'use undo token');
+    }
+
+    /** Whether a pending token still needs this file (legacy photo_file_in_undo()); false when the table cannot be read. */
+    public function holds(string $file): bool
+    {
+        try {
+            return (int)($this->rows('SELECT COUNT(*) AS n FROM undo_tokens WHERE files LIKE ? OR payload LIKE ?', ['%' . $file . '%', '%' . $file . '%'])[0]['n'] ?? 0) > 0;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /** Drop expired tokens (all with $all) and release the files they kept. */

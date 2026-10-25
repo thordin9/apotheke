@@ -352,7 +352,8 @@ at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 
 Step 11a status (#102): the item page, `/new`, `/item/{id}/edit`, save (one photo upload, `MAX_FILE_SIZE`), delete, undo
 and `/activity` are ported with a golden test (`tests/Unit/Ci4ItemParityTest.php`). The photo routes (add, order,
-cover, left/right, delete, edit) and their `photos` spec follow as 11a part 2.
+cover, left/right, delete, edit) and their `photos` spec follow as 11a part 2 (#103: ported, with the golden test
+`tests/Unit/Ci4ItemPhotosParityTest.php` comparing the photo files too; the `photos` spec runs on CI4).
 
 ### 4.3 Autofill acceptance matrix (autofill client PR, #12)
 

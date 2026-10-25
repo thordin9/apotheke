@@ -20,6 +20,7 @@ use Apotheke\Taxonomy\Kind;
 use Apotheke\Undo\UndoTokens;
 use CodeIgniter\HTTP\Files\UploadedFile;
 use CodeIgniter\HTTP\ResponseInterface;
+use Throwable;
 
 /**
  * The item page, the add and edit forms, saving, deleting and Undo (legacy
@@ -130,6 +131,13 @@ final class ItemController extends CatalogController
             $gate->require('move');
         }
         $tax = $this->taxonomy();
+        /** @var ImageStore $images */
+        $images = service('imageStore');
+        $undo = $this->undo();
+        $before = $existing !== null ? $undo->snapshot([(int)$existing['id']]) : [];
+        $newImage = null;
+        $savedId = null;
+        $fields = [];
         try {
             if ($vals['name'] === '') {
                 throw new UserError('Please give the item a name.');
@@ -149,26 +157,61 @@ final class ItemController extends CatalogController
                     throw new UserError('That ' . $t['one'] . ' no longer exists. Please pick another.');
                 }
             }
-            foreach (Kind::KINDS as $kind) {
-                if ($vals['new_' . $kind] !== '') {
-                    $vals[Kind::get($kind)['col']] = (int)$tax->create($kind, $vals['new_' . $kind])['id'];
-                    $vals['new_' . $kind] = '';
-                }
-            }
-            $file = $this->upload(['photo', 'photo2']);
-            /** @var ImageStore $images */
-            $images = service('imageStore');
-            $newImage = $file !== null ? $images->store($file->getTempName(), (int)$file->getSize(), $file->getError()) : null;
         } catch (UserError $e) {
+            $savedId = $e;
+        }
+        if ($savedId === null) {
+            // The photo is stored and decoded before the transaction, so a write that commits meanwhile
+            // cannot make the save fail (M-91). It stays held until the save commits (L-81).
+            $storeError = null;
+            try {
+                $file = $this->upload(['photo', 'photo2']);
+                if ($file !== null) {
+                    $newImage = $images->store($file->getTempName(), (int)$file->getSize(), $file->getError());
+                    $images->hold($newImage);
+                }
+            } catch (UserError $e) {
+                $storeError = $e;
+            }
+            // One transaction: a failed save also drops the new location or category, and the photo's files (L-81).
+            // A UserError before the save still keeps them, as on legacy, and shows the form again.
+            try {
+                $savedId = $this->repo()->atomically(function () use (&$vals, $fields, $existing, $post, $tax, $newImage, $storeError) {
+                    try {
+                        foreach (Kind::KINDS as $kind) {
+                            if ($vals['new_' . $kind] !== '') {
+                                $vals[Kind::get($kind)['col']] = (int)$tax->create($kind, $vals['new_' . $kind])['id'];
+                                $vals['new_' . $kind] = '';
+                            }
+                        }
+                    } catch (UserError $e) {
+                        return $e;
+                    }
+
+                    return $storeError ?? $this->repo()->save($existing, $fields + $vals, $newImage, !empty($post['remove_image']));
+                });
+            } catch (Throwable $e) {
+                if ($newImage !== null) {
+                    $images->delete($newImage);
+                    $images->release($newImage);
+                }
+                throw $e;
+            }
+            if ($newImage !== null) {
+                if ($savedId instanceof UserError) {
+                    $images->delete($newImage);
+                }
+                $images->release($newImage);
+            }
+        }
+        if ($savedId instanceof UserError) {
+            $e = $savedId;
             if ($this->wantsJson()) {
                 return $this->json(['ok' => false, 'error' => $e->getMessage()], 422);
             }
 
             return $this->html($this->form($existing, $vals, $e->getMessage()), 422);
         }
-        $undo = $this->undo();
-        $before = $existing !== null ? $undo->snapshot([(int)$existing['id']]) : [];
-        $savedId = $this->repo()->save($existing, $fields + $vals, $newImage, !empty($post['remove_image']));
         $token = null;
         if ($before !== []) {
             $strip = static fn (array $s): array => [array_diff_key($s['row'], ['updated_at' => 1, 'search' => 1, 'image' => 1]), $s['tags']];

@@ -32,7 +32,6 @@ type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: Ap
  * test fails tests/Unit/Ci4E2eSkipListTest.php, so a stale entry cannot linger.
  */
 export const CI4_UNPORTED: Record<string, string> = {
-  'item.spec.ts: item page › photos: add several, reorder, set cover, delete': 'POST /item/{id}/photos (11a part 2)',
   'item.spec.ts: item page › quantity +/- on the item page': 'POST /item/{id}/qty (11b)',
   'list.spec.ts: empty catalog › the labels page has an empty state': '/labels',
   'list.spec.ts: list, overview and search › quantity +/- on a card': 'POST /item/{id}/qty (11b)',
