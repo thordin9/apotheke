@@ -28,7 +28,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `/filters` (saved filters) are byte-identical to legacy. Search (FTS5 or pg_trgm, typo matching) rebuilds its index
   in one transaction when the data changes. Favourites: POST `/item/{id}/fav` and `/recent/clear`; the list reads
   recently viewed through Catalog's `RecentItems`. Recording views waits for the item page (11a), and POST `/bulk`
-  for 11b. CI4 ignores a trailing slash on every route (`/stats/` answers 200, legacy 404); not fixed yet.
+  for 11b. Acceptance: the PM accepted the legacy-vs-CI4 golden test (`tests/Unit/Ci4CatalogParityTest.php`) in
+  place of the `list`, `search`, `saved-filters`, `favourites` and `value` specs; the specs run against CI4 once the
+  CI4 Playwright target PR lands, which is required before 11b. Trailing slashes: see Tracked below.
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from the routed path: each route's `permission` option
   (a route without one is refused), or legacy `route_perm()` where no route matches or the route redirects. Routes
@@ -83,6 +85,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    (SEC-M3) into the CI4 image.
 3. PLAN 11a: item form and photo routes on `ImageStore` (`MAX_FILE_SIZE` from `maxUpload()`); Autofill reads photos
    through Media.
+
+## Tracked
+
+- CI4 router: trailing-slash routes (e.g. `/stats/`, `/locations/`) answer 200 where legacy gives 404. Owner: Coder.
+  Fixed in the CI4 Playwright target PR or the next one.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 
