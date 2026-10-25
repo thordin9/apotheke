@@ -408,7 +408,8 @@ final class PermissionFilterTest extends CIUnitTestCase
             $this->assertNull($this->filterOrNull($exact, [], 'GET'), $exact);
             $this->assertNull($this->filterOrNull($exact, [], 'HEAD'), $exact);
         }
-        foreach (['theme.css/', 'brand/logo.png/', 'healthz/', 'health/', 'manifest.webmanifest/', 'labels.css%20/'] as $variant) {
+        // #93 N-16: theme%252Ecss is decoded once (theme%2Ecss), as legacy decodes it; only the router decodes twice.
+        foreach (['theme.css/', 'brand/logo.png/', 'healthz/', 'health/', 'manifest.webmanifest/', 'labels.css%20/', 'theme%252Ecss', 'favicon%252Eico'] as $variant) {
             $this->assertSame('view', $rules->need('GET', $rules->exact($variant)), $variant . ': legacy needs View');
             $refused = $this->filter($variant, [], 'GET');
             $this->assertSame([303, '/login'], [$refused->getStatusCode(), $refused->getHeaderLine('Location')], $variant);
@@ -418,7 +419,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertNull($this->filterOrNull('favicon.ico%20', [], 'GET'));
         $this->assertNull($this->filterOrNull('//theme.css', [], 'GET'));
         $this->signInAs($this->account('vera', 'viewer'));
-        foreach (['theme.css/', 'brand/logo.png/', 'healthz/'] as $variant) {
+        foreach (['theme.css/', 'brand/logo.png/', 'healthz/', 'theme%252Ecss'] as $variant) {
             $this->assertNull($this->filterOrNull($variant, [], 'GET'), $variant . ': a viewer may');
         }
         $this->db()->table('roles')->insert(['role_key' => 'blind', 'name' => 'Blind', 'perms' => '[]', 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);

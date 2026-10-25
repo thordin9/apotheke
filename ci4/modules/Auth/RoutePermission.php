@@ -13,9 +13,9 @@ final class RoutePermission
 {
     /**
      * The path CI4's router matches, from IncomingRequest::getPath() (relative
-     * to the base URL, still URL-encoded): decoded with urldecode() and trimmed
-     * of slashes and spaces, as Router::handle() and checkRoutes() do, with
-     * one leading slash, as legacy paths have.
+     * to the base URL, already decoded once): decoded again with urldecode()
+     * and trimmed of slashes and spaces, as Router::handle() and checkRoutes()
+     * do, with one leading slash, as legacy paths have.
      */
     public function routed(string $requestPath): string
     {
@@ -25,12 +25,14 @@ final class RoutePermission
     }
 
     /**
-     * The path as legacy compares it (rawurldecode() of the request path, not
-     * trimmed), relative to the base URL, with one leading slash.
+     * The path as legacy compares it (decoded once, not trimmed), relative to
+     * the base URL, with one leading slash. IncomingRequest::getPath() has
+     * already done legacy's single rawurldecode(), so it is not decoded again
+     * (#93 N-16): a double-encoded `%252E` stays `%2E`, as on legacy.
      */
     public function exact(string $requestPath): string
     {
-        $path = rawurldecode($requestPath);
+        $path = $requestPath;
 
         return str_starts_with($path, '/') ? $path : '/' . $path;
     }
