@@ -100,4 +100,23 @@ final class PlainHandlerTest extends CIUnitTestCase
         $this->assertSame("default-src 'none'", $out->getHeaderLine('Content-Security-Policy'));
         $this->assertSame('nosniff', $out->getHeaderLine('X-Content-Type-Options'));
     }
+
+    /** #97 N-33, N-36: the log lines before an answer: a cleanup failure by class only, a 500 without the row detail. */
+    public function testTheLogLinesBeforeAnAnswer(): void
+    {
+        $lines = [];
+        $log = static function (string $line) use (&$lines): void {
+            $lines[] = $line;
+        };
+        $handler = new PlainHandler(null, static function (): void {
+            throw new RuntimeException('could not unlink /data/originals/secret-path');
+        }, $log);
+        $handler->beforeAnswer(new UserError('Name is required.', 422));
+        $handler->beforeAnswer(new RuntimeException("pg_query(): Query failed: ERROR:  new row violates check constraint \"c\"\nDETAIL:  Failing row contains (autofill_token, \"placeholder-secret\n2nd line\")."));
+        $this->assertSame([
+            '[apotheke] request cleanup failed (RuntimeException)',
+            '[apotheke] request cleanup failed (RuntimeException)',
+            "RuntimeException: pg_query(): Query failed: ERROR:  new row violates check constraint \"c\"\nDETAIL: (removed)",
+        ], $lines);
+    }
 }
