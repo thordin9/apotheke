@@ -1092,7 +1092,11 @@ function image_original_forget(string $name): void
 function image_original_copy(string $from, string $to): void
 {
     $src = image_original_path($from);
-    if ($src === null) return;
+    if ($src === null) {
+        $map = image_original_map_path($from);
+        if ($map !== null && is_file($map)) throw new RuntimeException('original missing');   // never a photo without its original
+        return;
+    }
     $ext = strtolower((string)pathinfo($src, PATHINFO_EXTENSION));
     if (!image_original_save($to, $src, $ext)) throw new RuntimeException('could not copy original');
 }
