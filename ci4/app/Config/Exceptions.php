@@ -101,7 +101,7 @@ class Exceptions extends BaseConfig
      */
     public function handler(int $statusCode, Throwable $exception): ExceptionHandlerInterface
     {
-        return new PlainHandler($this->page);
+        return new PlainHandler($this->page, $this->cleanup);
     }
 
     /**
@@ -111,4 +111,13 @@ class Exceptions extends BaseConfig
      * @var (\Closure(): \Apotheke\Core\Http\ErrorPage)|null
      */
     public ?\Closure $page = null;
+
+    /**
+     * Runs the request's Core\Http\RequestCleanup before the handler exits,
+     * set by Config\Services::exceptions(). CodeIgniter's shutdown handler
+     * exits on a fatal error, so a later register_shutdown_function never runs.
+     *
+     * @var (\Closure(): void)|null
+     */
+    public ?\Closure $cleanup = null;
 }

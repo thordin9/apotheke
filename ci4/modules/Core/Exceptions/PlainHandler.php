@@ -30,8 +30,11 @@ use Throwable;
  */
 final class PlainHandler implements ExceptionHandlerInterface
 {
-    /** @param Closure(): ErrorPage|null $page */
-    public function __construct(private readonly ?Closure $page = null)
+    /**
+     * @param Closure(): ErrorPage|null $page
+     * @param Closure(): void|null $cleanup the request's RequestCleanup, run before exit (a fatal error included)
+     */
+    public function __construct(private readonly ?Closure $page = null, private readonly ?Closure $cleanup = null)
     {
     }
 
@@ -42,6 +45,13 @@ final class PlainHandler implements ExceptionHandlerInterface
         int $statusCode,
         int $exitCode,
     ): void {
+        if ($this->cleanup !== null) {
+            try {
+                ($this->cleanup)();
+            } catch (Throwable) {
+                // the answer below still goes out
+            }
+        }
         [$status, $body] = $this->status($exception);
         if ($status === 500 && !$exception instanceof UserError) {
             error_log($exception::class . ': ' . $exception->getMessage());

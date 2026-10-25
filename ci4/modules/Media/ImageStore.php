@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Media;
 
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Media\Storage\ImagickDecoder;
 use Apotheke\Media\Storage\OriginalStore;
 use Apotheke\Media\Storage\ServedImageWriter;
@@ -20,23 +21,19 @@ use GdImage;
  *
  * Decode limits (ImageLimits) are checked on the header before any full
  * decode. A JPEG above the GD budget is decoded already reduced. When a
- * decode fails or the request dies after the original is saved, the
- * original and any served file are removed again.
+ * decode fails, the original and any served file are removed again; when
+ * the request dies first (a fatal error), RequestCleanup removes them.
  */
 final class ImageStore
 {
     private const TYPES = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp', IMAGETYPE_GIF => 'gif'];
-
-    /** @var array<string, true> served names saved by this object and not finished yet */
-    private array $pending = [];
-
-    private bool $hooked = false;
 
     public function __construct(
         private readonly SettingsService $settings,
         private readonly OriginalStore $originals,
         private readonly ServedImageWriter $served,
         private readonly ImagickDecoder $imagick,
+        private readonly RequestCleanup $cleanup,
     ) {
     }
 
@@ -98,7 +95,9 @@ final class ImageStore
         if (!$this->originals->save($name, $bytes, $ext)) {
             throw new UserError('Server could not save the image.');
         }
-        $this->arm($name);
+        $undo = 'media:' . $name;
+        $this->cleanup->add($undo, fn () => $this->delete($name));
+        $done = false;
         try {
             $fullMax = (int)$this->settings->get('image_full_max');
             if ($heic) {
@@ -117,12 +116,12 @@ final class ImageStore
             if (!$ok) {
                 throw new UserError('Server could not save the image.');
             }
-            unset($this->pending[$name]);
+            $done = true;
 
             return $name;
         } finally {
-            if (isset($this->pending[$name])) {
-                unset($this->pending[$name]);
+            $this->cleanup->drop($undo);
+            if (!$done) {
                 $this->delete($name);
             }
         }
@@ -170,25 +169,6 @@ final class ImageStore
     private function thumbMax(): int
     {
         return (int)$this->settings->get('image_thumb_max');
-    }
-
-    /**
-     * A fatal error does not run `finally`; the shutdown hook removes what an
-     * unfinished store() left. Per object, so nothing is shared between requests.
-     */
-    private function arm(string $name): void
-    {
-        $this->pending[$name] = true;
-        if ($this->hooked) {
-            return;
-        }
-        $this->hooked = true;
-        register_shutdown_function(function (): void {
-            foreach (array_keys($this->pending) as $name) {
-                $this->delete($name);
-            }
-            $this->pending = [];
-        });
     }
 
     private function orient(GdImage $im, int $orientation): GdImage
