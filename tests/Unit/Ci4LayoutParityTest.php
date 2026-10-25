@@ -23,6 +23,9 @@ use Apotheke\Layout\Theme;
  */
 final class Ci4LayoutParityTest extends TestCase
 {
+    /** @var array<string,array<string,array{0:int,1:?string}>> app => case => [status, Location] (N-18) */
+    private array $controlBack = [];
+
     public function testIconsAndSafeBackMatchLegacy(): void
     {
         $this->assertGreaterThan(30, count(Icons::names()));
@@ -103,6 +106,9 @@ final class Ci4LayoutParityTest extends TestCase
         $this->assertStringContainsString('id="accent-css"', (string)$legacy['branded']['body']);
         $this->assertStringContainsString('&lt;Box&gt; &amp; &quot;Co&quot;', (string)$legacy['branded']['body']);
         $this->assertStringContainsString('data-theme="dark"', (string)$legacy['cookie dark']['body']);
+        // N-18: CI4 answers 303 to "/" where legacy redirects to the raw path (or, for NUL, cannot redirect at all).
+        $this->assertSame(['nul' => [200, null], 'soh' => [303, "/a\x01b"], 'del' => [303, "/a\x7fb"]], $this->controlBack['legacy']);
+        $this->assertSame(['nul' => [303, '/'], 'soh' => [303, '/'], 'del' => [303, '/']], $this->controlBack['ci4']);
     }
 
     /** @return array<string,array<string,mixed>> case => what matters in the answer */
@@ -199,7 +205,16 @@ final class Ci4LayoutParityTest extends TestCase
         $this->setting($pdo, 'app_name', '"<Box> & \"Co\""');
         $this->setting($pdo, 'app_tagline', '"tag <i>x</i>"');
         $record('branded', $server->client()->get('/no-such-page'));
-
+        // N-18: a control character in `back`. Legacy sends \x01 and DEL on in the Location header and
+        // drops a NUL one (a blank 200); CI4 refuses all three in a header, so it goes back to "/" (303).
+        foreach (['nul' => "/a\0b", 'soh' => "/a\x01b", 'del' => "/a\x7fb"] as $name => $back) {
+            [$client, $token] = $signIn(null);
+            $r = $client->post('/theme', ['csrf' => $token, 'theme' => 'dark', 'back' => $back]);
+            $location = $r['headers']['location'] ?? null;
+            $this->controlBack[$app][$name] = [$r['status'], $location];
+            $out['theme back ' . $name] = ['cookie' => preg_replace('#expires=[^;]+; #', '', (string)($r['headers']['set-cookie'] ?? '')),
+                'redirect' => $name === 'nul' ? null : $r['status']];
+        }
         return $out;
     }
 
