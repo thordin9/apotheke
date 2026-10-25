@@ -95,6 +95,13 @@ final class Ci4TaxonomyParityTest extends TestCase
         $this->assertSame('/locations/2/delete', $l['delete Shelf 2 without a choice']['location']);
         $this->assertSame(403, $l['viewer adds']['status']);
         $this->assertSame(419, $l['add without csrf']['status']);
+        $this->assertSame([303, 200, 303], [$l['eda adds']['status'], $l['eda GET /locations']['status'], $l['eda deletes']['status']]);
+        $this->assertStringContainsString('is-guest', (string)$l['guest GET /locations']['body']);
+        $this->assertSame([200, 303, '/login'], [$l['guest GET /categories']['status'], $l['guest adds']['status'], $l['guest adds']['location']], 'the guest must sign in to change');
+        $this->assertSame([303, '/login', 401], [$l['signed-out GET /locations']['status'], $l['signed-out GET /locations']['location'], $l['signed-out renames fetch']['status']]);
+        foreach (['fail add', 'fail add fetch', 'fail rename', 'fail delete: item update', 'fail delete: history insert', 'fail delete: history insert fetch'] as $case) {
+            $this->assertSame([500, true], [$l[$case]['status'], $l[$case]['unchanged']], $case);
+        }
         $this->assertStringContainsString('"actor": "ada"', (string)$l['tables']['body']);
         $this->assertStringContainsString('"item_name": "Nail",
             "action": "moved",
@@ -111,6 +118,8 @@ final class Ci4TaxonomyParityTest extends TestCase
             ->execute(['ada', 'ada', password_hash('long-enough', PASSWORD_DEFAULT), 'admin', 'active', '2026-01-01 00:00:00']);
         $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
             ->execute(['vera', 'vera', password_hash('long-enough', PASSWORD_DEFAULT), 'viewer', 'active', '2026-01-01 00:00:00']);
+        $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+            ->execute(['eda', 'eda', password_hash('long-enough', PASSWORD_DEFAULT), 'editor', 'active', '2026-01-01 00:00:00']);
         $loc = $pdo->prepare('INSERT INTO locations (name, name_key, sort_key, parent_id, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)');
         // 1 Garage, 2 Shelf 2 (in 1), 3 Box 10 (in 2), 4 Attic <x> & "y"
         foreach ([['Garage', null, 0], ['Shelf 2', 1, 0], ['Box 10', 2, 1], ['Attic <x> & "y"', null, 0]] as [$name, $parent, $default]) {
@@ -158,7 +167,7 @@ final class Ci4TaxonomyParityTest extends TestCase
         // Sign-in on, as the admin "ada", so the history names the actor.
         $this->setting($pdo, 'auth_enabled', 'true');
         $this->setting($pdo, 'auth_guest_disabled', 'true');
-        $as = function (string $case, string $method, string $path, array $fields = [], array $headers = [], string $who = 'ada', bool $csrf = true) use ($signIn, $record): void {
+        $as = function (string $case, string $method, string $path, array $fields = [], array $headers = [], ?string $who = 'ada', bool $csrf = true) use ($signIn, $record): void {
             [$client, $token] = $signIn($who);
             if ($method === 'POST' && $csrf) {
                 $fields = ['csrf' => $token] + $fields;
@@ -244,10 +253,48 @@ final class Ci4TaxonomyParityTest extends TestCase
         $as('viewer renames fetch', 'POST', '/locations/1/rename', ['name' => 'Nope'], $fetch, 'vera');
         $as('add without csrf', 'POST', '/locations', ['name' => 'Nope'], [], 'ada', false);
         $as('rename without csrf fetch', 'POST', '/categories/2/rename', ['name' => 'Nope'], $fetch, 'ada', false);
+        // The editor may change; the guest (guest access on) may only look; signed out goes to sign-in.
+        foreach (['eda' => ['eda', 'true'], 'guest' => [null, 'false'], 'signed-out' => [null, 'true']] as $visitor => [$who, $guestOff]) {
+            $this->setting($pdo, 'auth_guest_disabled', $guestOff);
+            foreach (['/locations', '/categories', '/locations/1/delete', '/locations/999'] as $path) {
+                $as($visitor . ' GET ' . $path, 'GET', $path, [], [], $who);
+            }
+            $as($visitor . ' adds', 'POST', '/locations', ['name' => 'Shed ' . $visitor], [], $who);
+            $as($visitor . ' renames fetch', 'POST', '/categories/2/rename', ['name' => 'Treats ' . $visitor], $fetch, $who);
+            $as($visitor . ' moves fetch', 'POST', '/locations/7/parent', ['parent' => '1'], $fetch, $who);
+            $as($visitor . ' deletes', 'POST', '/categories/5/delete', ['action' => 'unassign'], [], $who);
+        }
+        $this->setting($pdo, 'auth_guest_disabled', 'true');
         // Sign-in off: no actor in the history.
         $this->setting($pdo, 'auth_enabled', 'false');
         $as('off delete Box 10', 'POST', '/locations/3/delete', ['action' => 'unassign']);
         $as('off GET /locations', 'GET', '/locations');
+
+        // M-25: a statement that fails (a trigger stands in for a broken disk or constraint) is a 500 and changes nothing.
+        $snapshot = static function () use ($pdo): string {
+            $out = [];
+            foreach (['locations', 'categories', 'items', 'activity'] as $table) {
+                $out[] = $pdo->query("SELECT * FROM $table ORDER BY id")->fetchAll();
+            }
+
+            return json_encode($out);
+        };
+        $pg = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql';
+        if ($pg) {
+            $pdo->exec("CREATE OR REPLACE FUNCTION apotheke_test_fail() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''test failure''; END'");
+        }
+        foreach ([['fail add', 'locations', 'INSERT', '/locations', ['name' => 'Shed']], ['fail add fetch', 'locations', 'INSERT', '/locations', ['name' => 'Shed']],
+            ['fail rename', 'categories', 'UPDATE', '/categories/2/rename', ['name' => 'Treats']],
+            ['fail delete: item update', 'items', 'UPDATE', '/locations/1/delete', ['action' => 'move', 'target' => '7']],
+            ['fail delete: history insert', 'activity', 'INSERT', '/locations/1/delete', ['action' => 'move', 'target' => '7']],
+            ['fail delete: history insert fetch', 'activity', 'INSERT', '/categories/2/delete', ['action' => 'unassign']]] as [$case, $table, $op, $path, $fields]) {
+            $pdo->exec($pg ? "CREATE TRIGGER apotheke_test_fail BEFORE $op ON $table FOR EACH ROW EXECUTE FUNCTION apotheke_test_fail()"
+                : "CREATE TRIGGER apotheke_test_fail BEFORE $op ON $table BEGIN SELECT RAISE(ABORT, 'test failure'); END");
+            $before = $snapshot();
+            $as($case, 'POST', $path, $fields, str_ends_with($case, 'fetch') ? $fetch : []);
+            $out[$case]['unchanged'] = $before === $snapshot();
+            $pdo->exec($pg ? "DROP TRIGGER apotheke_test_fail ON $table" : 'DROP TRIGGER apotheke_test_fail');
+        }
 
         $tables = [];
         foreach (['SELECT id, name, name_key, sort_key, is_default, parent_id FROM locations ORDER BY id', 'SELECT id, name, name_key, sort_key, is_default FROM categories ORDER BY id',
