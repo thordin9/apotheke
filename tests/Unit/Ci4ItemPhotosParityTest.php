@@ -14,8 +14,7 @@ require_once dirname(__DIR__, 2) . '/src/items.php';
  * a deleted item with photos (L-80); and failed writes. Besides the answers
  * and the tables, the photo files are compared: served copy, thumbnail and
  * original, by content, with the random names numbered in order of
- * appearance. A failed write keeps no new files and no new location on CI4
- * (L-81), where legacy keeps them.
+ * appearance. A failed write keeps no new files and no new location (L-81).
  */
 final class Ci4ItemPhotosParityTest extends TestCase
 {
@@ -40,12 +39,7 @@ final class Ci4ItemPhotosParityTest extends TestCase
         }
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
-            if ($case === 'files at the end') {
-                continue;   // legacy keeps the files of its failed writes (L-81); checked below
-            }
-            // L-81: what a failed write leaves on disk (and the save's new location) differs on purpose; checked below.
-            $drop = ['files unchanged' => 1, 'locations unchanged' => 1];
-            $this->assertSame(array_diff_key($legacy, $drop), array_diff_key($answers['ci4'][$case], $drop), $case);
+            $this->assertSame($legacy, $answers['ci4'][$case], $case);
         }
         $l = $answers['legacy'];
         $c = $answers['ci4'];
@@ -79,18 +73,12 @@ final class Ci4ItemPhotosParityTest extends TestCase
             $this->assertSame([500, true], [$l[$case]['status'], $l[$case]['unchanged']], $case);
             $this->assertSame([500, true], [$c[$case]['status'], $c[$case]['unchanged']], $case);
         }
-        // L-81: CI4 keeps no files and no new location from a failed save; legacy does.
-        $this->assertTrue($c['fail save with photo and location']['files unchanged']);
-        $this->assertTrue($c['fail save with photo and location']['locations unchanged']);
-        $this->assertFalse($l['fail save with photo and location']['files unchanged']);
-        $this->assertFalse($l['fail save with photo and location']['locations unchanged']);
-        $this->assertTrue($c['fail add']['files unchanged']);
-        $this->assertSame($c['files before the failures'], $c['files at the end']);
-        $this->assertNotSame($l['files before the failures'], $l['files at the end']);
-        $this->assertSame($l['files before the failures'], $c['files before the failures']);
-        $this->assertFalse($l['fail add']['files unchanged']);
-        foreach (['fail cover', 'fail delete photo', 'fail order', 'fail edit'] as $case) {
-            $this->assertTrue($l[$case]['files unchanged'] && $c[$case]['files unchanged'], $case);
+        // L-81: a failed save keeps no files and no new location (legacy since #106).
+        $this->assertTrue($l['fail save with photo and location']['files unchanged']);
+        $this->assertTrue($l['fail save with photo and location']['locations unchanged']);
+        $this->assertSame($l['files before the failures'], $l['files at the end']);
+        foreach (['fail add', 'fail cover', 'fail delete photo', 'fail order', 'fail edit'] as $case) {
+            $this->assertTrue($l[$case]['files unchanged'], $case);
         }
     }
 
