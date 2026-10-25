@@ -66,6 +66,31 @@ final class ServedImageWriter
         return $key === null ? null : $this->files->modifiedAt($key);
     }
 
+    /**
+     * Copy the served photo and, when there is one, its thumbnail to $to
+     * (legacy image_copy()). False when the photo is missing; a failed
+     * thumbnail copy removes the new photo first.
+     */
+    public function copy(string $from, string $to): bool
+    {
+        $full = $this->read('full', $from);
+        if ($full === null || !ImageStore::validName($to)) {
+            return false;
+        }
+        $this->files->write('images/' . $to, $full);
+        $thumb = $this->read('thumb', $from);
+        if ($thumb !== null) {
+            try {
+                $this->files->write('thumbs/' . $to, $thumb);
+            } catch (Throwable $e) {
+                $this->files->delete('images/' . $to);
+                throw $e;
+            }
+        }
+
+        return true;
+    }
+
     public function delete(string $name): void
     {
         if (ImageStore::validName($name)) {
