@@ -77,7 +77,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Sign-in (step 7, part A): `/login`, `/register`, `/logout`, `/account`, `/account/signout` byte-identical to
   legacy (rate limits, first admin, new session ID, `keepSignIn`, CSRF checked in the controller). Failed sign-ins
   answer at a fixed deadline (`Config\SignIn`, 1 s); null-character passwords never match and are refused (422).
-- Not ported yet: users and roles pages, CLI account forms (step 7, part B), BulkMerge and Backup.
+- Users & sign-in (step 7, part B, first half): `/settings/security` with its settings, `/settings/password`,
+  `/settings/users…` and `/settings/roles…` byte-identical to legacy (`tests/Unit/Ci4UsersRolesParityTest.php`).
+- Not ported yet: the CLI account forms (step 7, part B, second half), BulkMerge and Backup.
 
 ## Pull requests
 
@@ -95,26 +97,27 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. Merged.
 - [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. Merged.
 - [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages, rate
-  limits, failed sign-in pacing, plus N-38. Ready to merge.
+  limits, failed sign-in pacing, plus N-38. Merged.
 - [#101](https://github.com/thordin9/apotheke/pull/101): Playwright on CI4, exact-path routing (N-51). Merged.
 - [#102](https://github.com/thordin9/apotheke/pull/102): PLAN step 11a (first part), item pages, undo, activity,
   plus #101 N-70 to N-75. Merged.
+- [#104](https://github.com/thordin9/apotheke/pull/104): PLAN step 7 part B (first half), the users and roles pages.
+  Open.
 
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
   catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102, merged). Stays out of the
   auth, account and users/roles files; the Permission filter changed only for N-70 and `/save`.
-- Coder2: step 7, sign-in and account pages (#100, ready to merge), then step 7 part B: the users and roles pages
-  under `/settings/security` and the CLI account forms.
+- Coder2: step 7, sign-in and account pages (#100, merged); step 7 part B: the users and roles pages (#104, open),
+  then the CLI account forms (`users`, `user`, `roles`, `auth`, `password`) in a follow-up PR.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Merge #100, then step 7 part B: the users and roles pages under `/settings/security` and the CLI account
-   forms, on the Layout.
+1. Review and merge #104, then the CLI account forms (step 7 part B, second half).
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. PLAN 11a part 2: the photo routes (add, order, cover, left/right, delete, edit) on `ImageStore`, and the

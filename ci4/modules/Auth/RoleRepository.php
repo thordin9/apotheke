@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\Writes;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
 use CodeIgniter\Database\Exceptions\DatabaseException;
@@ -50,6 +51,60 @@ final class RoleRepository
         }
 
         return $out;
+    }
+
+    /**
+     * Legacy roles() for the roles editor: every role, built-in first, with
+     * whether it is built in and how many accounts have it. A failed read
+     * throws (the editor needs migration 0022).
+     *
+     * @return array<string,array{key:string,name:string,builtin:bool,users:int,perms:list<string>}>
+     */
+    public function listed(): array
+    {
+        $counts = [];
+        foreach (Writes::rows($this->db, 'SELECT role, COUNT(*) AS n FROM users GROUP BY role') as $row) {
+            $counts[(string)$row['role']] = (int)$row['n'];
+        }
+        $out = [];
+        foreach (Writes::rows($this->db, 'SELECT role_key, name, perms, builtin FROM roles ORDER BY builtin DESC, id') as $row) {
+            $key = (string)$row['role_key'];
+            $perms = json_decode((string)$row['perms'], true);
+            $out[$key] = ['key' => $key, 'name' => (string)$row['name'], 'builtin' => (bool)$row['builtin'], 'users' => $counts[$key] ?? 0,
+                'perms' => Permissions::clean($key, is_array($perms) ? $perms : [])];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Legacy role_create()'s INSERT. The caller has validated every value.
+     *
+     * @param list<string> $perms
+     */
+    public function create(string $key, string $name, array $perms, string $now): void
+    {
+        Writes::check($this->db->query('INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES (?,?,?,0,?)',
+            [$key, $name, (string)json_encode($perms), $now]), 'roles insert');
+    }
+
+    /**
+     * Legacy role_update()'s UPDATE.
+     *
+     * @param list<string> $perms
+     */
+    public function update(string $key, string $name, array $perms): void
+    {
+        Writes::check($this->db->query('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key]), 'roles update');
+    }
+
+    /** Legacy role_delete(): its accounts move to $moveTo and the role goes, in one transaction. */
+    public function delete(string $key, string $moveTo): void
+    {
+        Writes::transaction($this->db, function () use ($key, $moveTo): void {
+            Writes::check($this->db->query('UPDATE users SET role = ? WHERE role = ?', [$moveTo, $key]), 'users role move');
+            Writes::check($this->db->query('DELETE FROM roles WHERE role_key = ?', [$key]), 'roles delete');
+        });
     }
 
     /** Legacy role_has(): admin has everything; an unknown role has nothing. */

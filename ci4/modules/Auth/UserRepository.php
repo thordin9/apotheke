@@ -72,6 +72,59 @@ final class UserRepository
         return (int)(Writes::rows($this->db, 'SELECT COUNT(*) AS n FROM users')[0]['n'] ?? 0);
     }
 
+    /**
+     * Every account sorted by name (legacy users_list()), for the Users page.
+     * A failed read throws.
+     *
+     * @return list<array{id:int,username:string,role:string,status:string,last_login_at:?string}>
+     */
+    public function all(): array
+    {
+        $out = [];
+        foreach (Writes::rows($this->db, 'SELECT id, username, role, status, last_login_at FROM users ORDER BY username_key, id') as $row) {
+            $out[] = ['id' => (int)$row['id'], 'username' => (string)$row['username'], 'role' => (string)$row['role'],
+                'status' => (string)$row['status'], 'last_login_at' => $row['last_login_at'] === null ? null : (string)$row['last_login_at']];
+        }
+
+        return $out;
+    }
+
+    /** Active accounts with this role (legacy users_count($role): an admin counts once approved). */
+    public function countActive(string $role): int
+    {
+        return (int)(Writes::rows($this->db, "SELECT COUNT(*) AS n FROM users WHERE role = ? AND status = 'active'", [$role])[0]['n'] ?? 0);
+    }
+
+    /** @return list<string> the role of every active account (legacy user_managers_count()) */
+    public function activeRoles(): array
+    {
+        return array_map(static fn (array $r): string => (string)$r['role'], Writes::rows($this->db, "SELECT role FROM users WHERE status = 'active'"));
+    }
+
+    /** Legacy user_approve(). */
+    public function approve(int $id): void
+    {
+        Writes::check($this->db->query("UPDATE users SET status = 'active' WHERE id = ?", [$id]), 'users approve');
+    }
+
+    /** Legacy user_set_role(). */
+    public function setRole(int $id, string $role): void
+    {
+        Writes::check($this->db->query('UPDATE users SET role = ? WHERE id = ?', [$role, $id]), 'users role');
+    }
+
+    /** Legacy user_rename(). The caller has validated the name. */
+    public function rename(int $id, string $name): void
+    {
+        Writes::check($this->db->query('UPDATE users SET username = ?, username_key = ? WHERE id = ?', [$name, self::key($name), $id]), 'users rename');
+    }
+
+    /** Legacy user_delete(). */
+    public function delete(int $id): void
+    {
+        Writes::check($this->db->query('DELETE FROM users WHERE id = ?', [$id]), 'users delete');
+    }
+
     /** A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value. */
     public function create(string $name, string $hash, string $role, string $status, string $now): int
     {
