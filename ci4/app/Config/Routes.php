@@ -57,3 +57,15 @@ $routes->post('filters/([0-9]+)/(rename|delete)', $catalog . 'FilterController::
 // Favourites: the star needs edit; clearing this device's recently viewed needs view.
 $routes->post('item/([0-9]+)/fav', '\\Apotheke\\Favourites\\Controllers\\FavouriteController::star/$1', ['permission' => 'edit']);
 $routes->post('recent/clear', '\\Apotheke\\Favourites\\Controllers\\FavouriteController::clearRecent', ['permission' => 'view']);
+
+// Catalog: the item page and form, saving, deleting and Undo (PLAN 11a). /save needs
+// create, or edit with an id (the Permission filter applies legacy's rule).
+$routes->match(['GET', 'HEAD'], 'new', $catalog . 'ItemController::create', ['permission' => 'create']);
+$routes->match(['GET', 'HEAD'], 'item/([0-9]+)', $catalog . 'ItemController::show/$1', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'item/([0-9]+)/edit', $catalog . 'ItemController::edit/$1', ['permission' => 'edit']);
+$routes->post('save', $catalog . 'ItemController::save', ['permission' => 'create']);
+$routes->post('item/([0-9]+)/delete', $catalog . 'ItemController::delete/$1', ['permission' => 'delete']);
+$routes->post('undo', $catalog . 'ItemController::undoAction', ['permission' => 'edit']);
+
+// Activity: recent activity and one item's full history.
+$routes->match(['GET', 'HEAD'], 'activity', '\\Apotheke\\Activity\\Controllers\\ActivityController::index', ['permission' => 'view']);

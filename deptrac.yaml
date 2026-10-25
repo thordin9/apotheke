@@ -64,6 +64,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Favourites\\
+    - name: Undo
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Undo\\
   ruleset:
     Auth:
       - Core
@@ -85,10 +89,11 @@ deptrac:
     Media:
       - Core
       - Settings
-    # Activity: the item history writer. Taxonomy: its pages use Layout; it writes the item
-    # history through Core's ItemHistory, which Activity implements.
+    # Activity: the item history writer, and its pages (Layout). Taxonomy: its pages use Layout;
+    # it writes the item history through Core's ItemHistory, which Activity implements.
     Activity:
       - Core
+      - Layout
     Taxonomy:
       - Core
       - Layout
@@ -107,6 +112,12 @@ deptrac:
       - Taxonomy
       - Media
       - Search
+      - Activity
+      - Undo
+      - Notes
     Favourites:
       - Core
       - Catalog
+    # Undo: tokens only; putting items back is Catalog's (it saves items).
+    Undo:
+      - Core
