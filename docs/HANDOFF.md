@@ -20,7 +20,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Taxonomy (step 8, first part): `/locations` and `/categories` (list, add, rename, move, default, delete and its
   confirmation page) are byte-identical to legacy, with View for GET and Edit for POST on each route. Tag storage
   (`TagRepository`) is in place for Catalog; tags have no pages. Item history is written through Core's `ItemHistory`,
-  which the Activity module implements. Notes comes next.
+  which the Activity module implements. Writes go through `Core\Database\Writes`: with DBDebug off a failed
+  statement still rolls back and answers 500. Notes comes next.
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from the routed path: each route's `permission` option
   (a route without one is refused), or legacy `route_perm()` where no route matches or the route redirects. Routes
