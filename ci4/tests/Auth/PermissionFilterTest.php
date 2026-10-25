@@ -11,6 +11,7 @@ use Apotheke\Auth\RoleRepository;
 use Apotheke\Auth\RoutePermission;
 use Apotheke\Auth\SessionEpoch;
 use Apotheke\Auth\UserRepository;
+use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
 use Apotheke\Settings\LocalBrandStore;
@@ -56,6 +57,9 @@ final class PermissionFilterTest extends CIUnitTestCase
         'filters/1/rename' => 'edit',
         'filters/1/delete' => 'edit',
         'item/1/fav' => 'edit',
+        'save' => 'create',
+        'item/1/delete' => 'delete',
+        'undo' => 'edit',
     ];
 
     /** State-changing routes for your own account: signed in with an account (`self`), whatever the role. */
@@ -170,8 +174,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(34, $n, "22 GET and 12 HEAD routes");
-        $this->assertSame(40, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(42, $n, "26 GET and 16 HEAD routes");
+        $this->assertSame(48, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**
@@ -352,28 +356,71 @@ final class PermissionFilterTest extends CIUnitTestCase
     }
 
     /**
-     * The permission is derived from the routed path: CI4's router decodes the
-     * path and trims slashes and spaces, so these variants reach the routes.
+     * #101 N-70: the permission comes from legacy's path (REQUEST_URI's path,
+     * decoded once, not trimmed). A variant CI4 would trim into a route is no
+     * route there, so it needs what legacy route_perm() gives that path.
      */
     #[DataProvider('postRoutes')]
-    public function testRoutedVariantsNeedTheRoutesPermission(string $route, string $need): void
+    public function testVariantsNeedLegacysPermissionForTheirPath(string $route, string $need): void
     {
         $this->database = TestDatabase::create('sqlite');
         $this->wire();
         $this->account('ada', 'admin');
         $this->settings()->store(['auth_enabled' => true]);
         $this->signInAs($this->account('vera', 'viewer'));
-        $message = 'Your role (Viewer) does not allow this – it needs the “' . Permissions::ALL[$need][0] . '” permission. Ask an admin.';
-        $variants = [$route . '/', '/' . $route, $route . '%20/', $route . '%20', $route . '+', str_replace('/', '%2F', $route), str_replace('/', '//', $route) . '/ /'];
+        $rules = new RoutePermission();
+        $variants = [$route . '/', '/' . $route, $route . '%20/', $route . '%20', $route . '+', str_replace('/', '%2F', $route), str_replace('/', '//', $route) . '/%20/'];
         foreach ($variants as $variant) {
-            $denied = $this->filter($variant, ['HTTP_ACCEPT' => 'application/json']);
+            $uri = '/' . $variant;
+            $legacy = $rules->need('POST', LegacyPathRouter::legacyPath($uri));
+            $denied = $this->filter($variant, ['HTTP_ACCEPT' => 'application/json', 'REQUEST_URI' => $uri]);
             $this->assertSame(403, $denied->getStatusCode(), $variant);
+            $message = 'Your role (Viewer) does not allow this – it needs the “' . Permissions::ALL[$legacy][0] . '” permission. Ask an admin.';
             $this->assertSame(['ok' => false, 'error' => $message], json_decode((string)$denied->getBody(), true), $variant);
         }
-        $this->signInAs($this->account('eda', $need === 'create' ? 'editor' : 'admin'));
+        $this->signInAs($this->account('ann', 'admin'));
         foreach ($variants as $variant) {
-            $this->assertNull($this->filterOrNull($variant), $variant);
+            $this->assertNull($this->filterOrNull($variant, ['REQUEST_URI' => '/' . $variant]), $variant);
         }
+        // The exact path needs the route's permission; /save adds legacy's id rule.
+        $this->signInAs($this->account('vera2', 'viewer'));
+        $exact = $this->filter($route, ['HTTP_ACCEPT' => 'application/json', 'REQUEST_URI' => '/' . $route]);
+        $this->assertStringContainsString('“' . Permissions::ALL[$need][0] . '”', (string)$exact->getBody());
+    }
+
+    /** #101 N-70: /save needs Edit with an id, else Add items (legacy route_perm()). */
+    public function testSaveNeedsEditWithAnId(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        $this->db()->table('roles')->insert(['role_key' => 'adder', 'name' => 'Adder', 'perms' => json_encode(['view', 'create']), 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);
+        $this->signInAs($this->account('al', 'adder'));
+        $this->assertNull($this->filterOrNull('save', ['REQUEST_URI' => '/save']));
+        $denied = $this->filter('save', ['HTTP_ACCEPT' => 'application/json', 'REQUEST_URI' => '/save'], 'POST', null, ['id' => '7']);
+        $this->assertSame('Your role (Adder) does not allow this – it needs the “Edit” permission. Ask an admin.', json_decode((string)$denied->getBody(), true)['error'] ?? null);
+    }
+
+    /**
+     * #101 N-70: an absolute-form request target (`GET http://host/healthz`)
+     * is judged on its path, as legacy does: the health check and branding
+     * stay public, a page needs View.
+     */
+    public function testAnAbsoluteFormTargetIsJudgedOnItsPath(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->wire();
+        $this->account('ada', 'admin');
+        $this->settings()->store(['auth_enabled' => true]);
+        foreach (['healthz', 'theme.css', 'favicon.ico', 'brand/logo.png'] as $path) {
+            $this->assertNull($this->filterOrNull($path, ['REQUEST_URI' => 'http://apotheke.test/' . $path], 'GET'), $path);
+        }
+        $refused = $this->filter('stats', ['REQUEST_URI' => 'http://apotheke.test/stats'], 'GET');
+        $this->assertSame([303, '/login'], [$refused->getStatusCode(), $refused->getHeaderLine('Location')]);
+        $this->signInAs($this->account('vera', 'viewer'));
+        $this->assertNull($this->filterOrNull('healthz', ['REQUEST_URI' => 'http://apotheke.test/healthz'], 'GET'));
+        $this->assertNull($this->filterOrNull('stats', ['REQUEST_URI' => 'http://apotheke.test/stats'], 'GET'));
     }
 
     /** A PUBLIC_URL with a path: the rules apply to the path relative to the base URL. */
@@ -526,8 +573,9 @@ final class PermissionFilterTest extends CIUnitTestCase
      * requests carry no $_SERVER headers.
      *
      * @param array<string,string> $server
+     * @param array<string,string> $post
      */
-    private function filterOrNull(string $route, array $server = [], string $method = 'POST', ?string $baseURL = null): ?\CodeIgniter\HTTP\ResponseInterface
+    private function filterOrNull(string $route, array $server = [], string $method = 'POST', ?string $baseURL = null, array $post = []): ?\CodeIgniter\HTTP\ResponseInterface
     {
         $config = clone config(\Config\App::class);
         if ($baseURL !== null) {
@@ -538,6 +586,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $saved = $_SERVER;
         try {
             $request->setGlobal('server', $server + $_SERVER);
+            $request->setGlobal('post', $post);
 
             return (new \Apotheke\Auth\Filters\PermissionFilter())->before($request);
         } finally {
@@ -546,10 +595,13 @@ final class PermissionFilterTest extends CIUnitTestCase
         }
     }
 
-    /** @param array<string,string> $server */
-    private function filter(string $route, array $server = [], string $method = 'POST', ?string $baseURL = null): \CodeIgniter\HTTP\ResponseInterface
+    /**
+     * @param array<string,string> $server
+     * @param array<string,string> $post
+     */
+    private function filter(string $route, array $server = [], string $method = 'POST', ?string $baseURL = null, array $post = []): \CodeIgniter\HTTP\ResponseInterface
     {
-        $response = $this->filterOrNull($route, $server, $method, $baseURL);
+        $response = $this->filterOrNull($route, $server, $method, $baseURL, $post);
         $this->assertNotNull($response, $method . ' ' . $route);
 
         return $response;

@@ -66,7 +66,10 @@ vendor/bin/phpunit -c ci4/phpunit.xml.dist                    # CI4 module tests
   PHPUnit run on both databases.
 
 PostgreSQL settings (`TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER`, `TEST_PG_PASSWORD`) default to
-`127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. A throwaway server:
+`127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. The credential tests (`Ci4DsnCredentialsTest`,
+`PgsqlSchemaCreateTest`) create login roles, so a non-superuser test role needs `CREATEROLE`, and on PostgreSQL 16 or
+later also `createrole_self_grant = 'set, inherit'` (for example `ALTER ROLE apotheke SET createrole_self_grant =
+'set, inherit'`). The container below makes `apotheke` a superuser, which needs neither. A throwaway server:
 
 ```bash
 docker run --rm -p 5432:5432 -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=apotheke postgres:17

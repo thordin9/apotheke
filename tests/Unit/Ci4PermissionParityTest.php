@@ -81,10 +81,7 @@ final class Ci4PermissionParityTest extends TestCase
         $this->assertGreaterThan(100, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
-            if (str_starts_with($case, 'variant ')) {
-                $this->assertVariant($case, $legacy, $answers['ci4'][$case]);
-                continue;
-            }
+            // Routed variants too: the filter judges legacy's own path (#101 N-70), so CI4 answers them as legacy does.
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
         }
     }
@@ -161,28 +158,6 @@ final class Ci4PermissionParityTest extends TestCase
         }
 
         return $out;
-    }
-
-    /**
-     * A routed variant: legacy refuses it or answers 404 (no such route), and
- * never answers it to a visitor without the route's permission. CI4
-     * answers the route itself only to a visitor with the route's permission,
-     * and refuses everyone else.
-     *
-     * @param array<string,mixed> $legacy
-     * @param array<string,mixed> $ci4
-     */
-    private function assertVariant(string $case, array $legacy, array $ci4): void
-    {
-        $refusal = static fn (array $a): bool => in_array($a['status'], [401, 403], true) || ($a['status'] === 303 && $a['location'] === '/login');
-        // Legacy decodes the path but does not trim it: 404 unless the decoded path is the route itself.
-        $this->assertTrue($legacy['status'] === 404 || $refusal($legacy) || $legacy['may'], $case . ' legacy ' . json_encode($legacy));
-        if ($ci4['may']) {
-            $this->assertFalse($refusal($ci4), $case . ' ci4 ' . json_encode($ci4));
-        } else {
-            $this->assertTrue($refusal($ci4), $case . ' ci4 ' . json_encode($ci4));
-            $this->assertFalse($ci4['status'] >= 200 && $ci4['status'] < 300, $case);
-        }
     }
 
     /** Whether this visitor holds $perm (the fixture's roles; sign-in off is the anonymous admin). */

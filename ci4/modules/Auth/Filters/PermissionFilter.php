@@ -7,6 +7,7 @@ namespace Apotheke\Auth\Filters;
 use Apotheke\Auth\PermissionCheck;
 use Apotheke\Auth\Permissions;
 use Apotheke\Auth\RoutePermission;
+use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
 use CodeIgniter\Exceptions\PageNotFoundException;
@@ -27,19 +28,15 @@ use Config\Services;
  * `sameorigin`, so it runs for every request, routed or not, before the CSRF
  * check, in legacy's order.
  *
- * The permission is derived from the routed path. CI4's own router matches
- * the request first (a fresh Router on the shared route collection, so the
- * dispatch later is untouched): a matched route gives its recorded
- * `permission` option, and a matched route without one is refused to
- * everyone (fail closed). A request no route matches gets legacy
- * route_perm() for the path the router tried, normalised as the router does
- * (decoded, slashes and spaces trimmed, relative to the base URL), and then
- * CI4's 404 once allowed; a redirect route is treated the same way, so its
- * redirect is only sent once that permission is met. A route marked `none`
- * (health, branding) skips the check only for the exact path legacy answers
- * before its check; a variant the router trims into it, such as a trailing
- * slash, needs what legacy route_perm() gives that path. The method is the
- * effective one (after HEAD → GET and the `_method` override).
+ * The permission is derived from legacy's path (LegacyPathRouter: REQUEST_URI's
+ * path, decoded once, not trimmed), the one the router matches. A matched
+ * route gives its recorded `permission` option (`/save` adds legacy's
+ * post-dependent rule: edit with an id, else create), and a matched route
+ * without one is refused to everyone (fail closed). A request no route
+ * matches, a redirect route, and a route marked `none` (health, branding)
+ * get legacy route_perm() for that path, so `none` skips the check only
+ * where legacy answers before its check. The method is the effective one
+ * (after HEAD → GET and the `_method` override).
  *
  * Refusals match legacy: nobody or the anonymous guest gets 401 JSON for a
  * fetch, a bare 401 under /media/, otherwise 303 to /login; a signed-in role
@@ -56,25 +53,22 @@ final class PermissionFilter implements FilterInterface
         $method = $method === 'HEAD' ? 'GET' : $method;
         $requestPath = $request instanceof IncomingRequest ? $request->getPath() : ltrim($request->getUri()->getPath(), '/');
         $rules = new RoutePermission();
-        $path = $rules->routed($requestPath);
+        // Legacy's own path (the router's too), so an absolute-form target or a trimmed variant is judged as legacy does.
+        $uri = $request->getServer('REQUEST_URI');
+        $path = is_string($uri) ? LegacyPathRouter::requestPath($request) : $rules->exact($requestPath);
         $need = $request instanceof IncomingRequest
             ? $this->routeOption(Services::router(Services::routes()->loadRoutes(), $request, false), $requestPath)
             : null;
         $post = $request instanceof IncomingRequest ? $request->getPost() : [];
         $post = is_array($post) ? $post : [];
-        if ($need === null) {
+        if ($need === null || $need === Permissions::NONE) {
+            // No route, or a route legacy answers before its check: legacy route_perm() on the exact path.
             if ($rules->isBeforeCheck($method, $path)) {
                 return null;
             }
             $need = $rules->need($method, $path, $post);
-        } elseif ($need === Permissions::NONE) {
-            // Only the exact path legacy answers before its check; a variant the
-            // router trims into the route (a trailing slash) needs what legacy gives it.
-            $exact = $rules->exact($requestPath);
-            if ($rules->isBeforeCheck($method, $exact)) {
-                return null;
-            }
-            $need = $rules->need($method, $exact, $post);
+        } elseif ($path === '/save') {
+            $need = $rules->need($method, $path, $post);   // edit with an id, else create
         }
         $refusal = (new PermissionCheck(Services::roles()))->refusal(Services::currentUser()->resolve(), $need);
         if ($refusal === null) {

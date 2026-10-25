@@ -11,7 +11,9 @@ use CodeIgniter\Log\Handlers\FileHandler;
  * PostgreSQL constraint failure carries "DETAIL:  Failing row contains (…)"
  * or "Key (…)=(…)", which can hold a stored value. Everything from DETAIL:
  * (any case) to the driver's last "in <file> on line <n>." (or the end) is
- * dropped.
+ * dropped. A localised label (lc_messages, e.g. "DÉTAIL :", #101 N-75) is
+ * not matched by name: every line after a failed query's first line, to the
+ * driver's last line, is dropped the same way.
  */
 final class RedactingFileHandler extends FileHandler
 {
@@ -23,6 +25,8 @@ final class RedactingFileHandler extends FileHandler
     public static function strip(string $message): string
     {
         // To the last driver line, so a value that contains one is still dropped whole.
-        return (string)preg_replace('/\bDETAIL:(?:.*(?=\nin \S[^\n]* on line \d+\.)|.*)/is', 'DETAIL: (removed)', $message);
+        $message = (string)preg_replace('/\bDETAIL:(?:.*(?=\nin \S[^\n]* on line \d+\.)|.*)/is', 'DETAIL: (removed)', $message);
+
+        return (string)preg_replace('/(Query failed: [^\n]*)\n(?!in \S[^\n]* on line \d+\.)(?:.*(?=\nin \S[^\n]* on line \d+\.)|.*)/s', "$1\nDETAIL: (removed)", $message);
     }
 }

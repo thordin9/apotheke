@@ -28,22 +28,16 @@ type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: Ap
 
 /**
  * Tests that need a page CI4 has not ported yet, skipped under E2E_APP=ci4 (docs/HANDOFF.md keeps this list).
- * Key: "<spec file>: <test title>"; value: the missing page.
+ * Key: "<spec file>: <describe> › <test title>" (the title path); value: the missing page. A key that names no
+ * test fails tests/Unit/Ci4E2eSkipListTest.php, so a stale entry cannot linger.
  */
 export const CI4_UNPORTED: Record<string, string> = {
-  'list.spec.ts: shows the empty state with a call to action': '/activity and /labels',
-  'list.spec.ts: quantity +/- on a card': 'POST /item/{id}/qty (11b)',
-  'search.spec.ts: works without JavaScript and shows the engine in System': '/settings/system',
-  'value.spec.ts: overview totals, sort by value, editing a price @smoke': '/item/{id}/edit (11a)',
-  'favourites.spec.ts: star on a card, favourites chip and filter @smoke': 'the item page (11a)',
-  'favourites.spec.ts: recently viewed strip on the list': 'the item page records views (11a)',
-  'favourites.spec.ts: star works without JavaScript': 'the item page (11a)',
-  'manage.spec.ts: add, rename, default, delete-with-move @smoke': 'the add form /new (11a)',
-  'manage.spec.ts: add, rename, default, delete-with-move': 'the add form /new (11a)',
-  'locations-nested.spec.ts: build a tree, filter by a parent, trail on the item page, move and delete @smoke': 'the item page (11a)',
-  'errors.spec.ts: expired session (CSRF) shows a friendly page and changes nothing': 'the item page (11a)',
-  'originals.spec.ts: a photo under the limit is stored byte for byte and the served copy has no EXIF': 'the add form /new (11a)',
-  'originals.spec.ts: a photo over the upload limit says the original is not kept': 'the add form /new (11a)',
+  'item.spec.ts: item page › photos: add several, reorder, set cover, delete': 'POST /item/{id}/photos (11a part 2)',
+  'item.spec.ts: item page › quantity +/- on the item page': 'POST /item/{id}/qty (11b)',
+  'list.spec.ts: empty catalog › the labels page has an empty state': '/labels',
+  'list.spec.ts: list, overview and search › quantity +/- on a card': 'POST /item/{id}/qty (11b)',
+  'search.spec.ts: full-text search › shows the engine in System': '/settings/system',
+  'undo.spec.ts: undo › bulk move, then undo; dismiss hides the bar': 'POST /bulk (11b)',
 };
 
 const freePort = () => new Promise<number>((res, rej) => {
@@ -186,7 +180,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   }, { auto: true }],
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },
   ci4Unported: [async ({}, use, info) => {
-    const why = APP === 'ci4' ? CI4_UNPORTED[`${path.basename(info.file)}: ${info.title}`] : undefined;
+    const why = APP === 'ci4' ? CI4_UNPORTED[`${path.basename(info.file)}: ${info.titlePath.slice(1).join(' › ')}`] : undefined;
     info.skip(why !== undefined, `not ported to CI4 yet: ${why}`);
     await use();
   }, { auto: true }],

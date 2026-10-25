@@ -12,6 +12,9 @@ test.describe('empty catalog', () => {
     await expect(page).toHaveURL(/\/new$/);
     await app.go('/activity');
     await expect(page.locator('.empty-title')).toHaveText('No activity yet.');
+  });
+
+  test('the labels page has an empty state', async ({ app, page }) => {
     await app.go('/labels');
     await expect(page.locator('.empty-title')).toHaveText('Nothing to print yet.');
   });

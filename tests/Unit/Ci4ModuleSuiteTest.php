@@ -31,15 +31,22 @@ final class Ci4ModuleSuiteTest extends TestCase
      * PHPUnit's summary is a pass: a plain OK, or an "OK, but" whose only
      * issue is skipped tests (#98 N-39: a PostgreSQL-only test skips on a
      * SQLite-only machine). Failures, errors, risky tests, warnings,
-     * deprecations, notices and incomplete tests still fail.
+     * deprecations, notices and incomplete tests still fail, and so do a run
+     * with no tests or only skipped ones (#101 N-73).
      */
     public static function passed(string $out): bool
     {
-        if (preg_match('/^OK \(\d+ tests?, \d+ assertions?\)$/m', $out) === 1) {
-            return true;
+        // Only the final summary counts (#101 N-73): the last non-empty lines of the output.
+        $lines = array_values(array_filter(preg_split('/\R/', $out) ?: [], static fn (string $l): bool => trim($l) !== ''));
+        $last = $lines[count($lines) - 1] ?? '';
+        if (preg_match('/^OK \((\d+) tests?, \d+ assertions?\)$/D', $last, $m) === 1) {
+            return (int)$m[1] > 0;
         }
+        $head = $lines[count($lines) - 2] ?? '';
 
-        return preg_match('/^OK, but (?:there were issues|some tests were skipped)!\R(Tests: \d+, Assertions: \d+, Skipped: \d+\.)$/m', $out) === 1;
+        return preg_match('/^OK, but (?:there were issues|some tests were skipped)!$/D', $head) === 1
+            && preg_match('/^Tests: (\d+), Assertions: \d+, Skipped: (\d+)\.$/D', $last, $m) === 1
+            && (int)$m[1] > (int)$m[2];   // not all skipped
     }
 
     /** @return array<string, array{string, bool}> */
@@ -55,6 +62,11 @@ final class Ci4ModuleSuiteTest extends TestCase
             'incomplete' => ["\nOK, but there were issues!\nTests: 292, Assertions: 800, Incomplete: 1.\n", false],
             'failure' => ["\nFAILURES!\nTests: 292, Assertions: 800, Failures: 1, Skipped: 1.\n", false],
             'error' => ["\nERRORS!\nTests: 292, Assertions: 800, Errors: 1.\n", false],
+            'no tests' => ["\nOK (0 tests, 0 assertions)\n", false],
+            'all skipped' => ["\nOK, but there were issues!\nTests: 3, Assertions: 0, Skipped: 3.\n", false],
+            'an OK before the final summary' => ["OK (5 tests, 9 assertions)\n\nFAILURES!\nTests: 292, Assertions: 800, Failures: 1.\n", false],
+            'a skipped-only summary before the final one' => ["OK, but there were issues!\nTests: 9, Assertions: 9, Skipped: 1.\nERRORS!\nTests: 292, Assertions: 800, Errors: 1.\n", false],
+            'trailing output after the summary' => ["\nOK (356 tests, 900 assertions)\nGenerating code coverage report\n", false],
         ];
     }
 
