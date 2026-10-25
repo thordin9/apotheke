@@ -41,6 +41,10 @@ if (PHP_SAPI === 'cli-server' && $script === __FILE__ && StaticFile::isStatic(__
     return false;
 }
 
+// Route the request path as sent: CI4 would drop a leading /index.php segment
+// (SCRIPT_NAME), so /index.php/stats would answer as /stats where legacy 404s.
+$_SERVER['SCRIPT_NAME'] = '';
+
 define('FCPATH', __DIR__ . DIRECTORY_SEPARATOR);
 if (getcwd() . DIRECTORY_SEPARATOR !== FCPATH) {
     chdir(FCPATH);

@@ -13,7 +13,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter; no pages yet), Layout (page
   shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
-  served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity (below).
+  served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity, Catalog, Search
+  and Favourites (below).
 - Layout: byte-identical to legacy `page_start()`, `page_end()`, `menu_html()` and `view_error()`. Every error answer
   that legacy draws as a page (404, 403, 419, 413, the same-origin 403, 500) is that page; a fetch gets legacy's JSON.
   The bundled assets are a copy under `ci4/public/assets`, kept equal to `public/assets` by a test. The undo bar joins
@@ -25,6 +26,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   statement still rolls back and answers 500; nesting is flat, as in `db_tx()`.
 - Notes (step 8, second part): `MarkdownRenderer`, byte-identical to `md_render()`/`md_plain()`; no pages of its
   own (item notes are shown and edited with Catalog).
+- Catalog (step 9): GET `/` (list, search, filters, sorts, paging, chips, toasts, the overview), GET `/stats` and
+  `/filters` (saved filters) are byte-identical to legacy. Search (FTS5 or pg_trgm, typo matching) rebuilds its index
+  in one transaction when the data changes. Favourites: POST `/item/{id}/fav` and `/recent/clear`; the list reads
+  recently viewed through Catalog's `RecentItems`. Recording views waits for the item page (11a), and POST `/bulk`
+  for 11b. Acceptance: the PM accepted the legacy-vs-CI4 golden test (`tests/Unit/Ci4CatalogParityTest.php`) in
+  place of the `list`, `search`, `saved-filters`, `favourites` and `value` specs; the specs run against CI4 once the
+  CI4 Playwright target PR lands, which is required before 11b. Trailing slashes: see Tracked below.
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from the routed path: each route's `permission` option
   (a route without one is refused), or legacy `route_perm()` where no route matches or the route redirects. Routes
@@ -60,10 +68,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   and N-19. Merged.
 - [#97](https://github.com/thordin9/apotheke/pull/97): #95/#96 follow-ups N-30, N-31, M-25 for Settings. Merged.
 - [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. In review.
+- [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. In review.
 
 ## Lanes
 
-- Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97).
+- Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
+  catalog (#99).
 - Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
   rate limits). Step 11a waits until media and catalog are in.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
@@ -78,6 +88,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    (SEC-M3) into the CI4 image.
 3. PLAN 11a: item form and photo routes on `ImageStore` (`MAX_FILE_SIZE` from `maxUpload()`); Autofill reads photos
    through Media.
+
+## Tracked
+
+- CI4 router: trailing-slash routes (e.g. `/stats/`, `/locations/`) and dot segments (N-51: `/./stats`,
+  `/%2e/stats`, `/a/../stats`) answer 200 where legacy gives 404. Owner: Coder. Fixed in the CI4 Playwright target PR
+  or the next one.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 

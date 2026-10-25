@@ -8,6 +8,7 @@ use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\ErrorPage;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
+use Apotheke\Core\Log\RedactingFileHandler;
 use Closure;
 use CodeIgniter\Debug\ExceptionHandlerInterface;
 use CodeIgniter\Exceptions\PageNotFoundException;
@@ -33,8 +34,9 @@ final class PlainHandler implements ExceptionHandlerInterface
     /**
      * @param Closure(): ErrorPage|null $page
      * @param Closure(): void|null $cleanup the request's RequestCleanup, run before exit (a fatal error included)
+     * @param (Closure(string): void)|null $log error_log() when null
      */
-    public function __construct(private readonly ?Closure $page = null, private readonly ?Closure $cleanup = null)
+    public function __construct(private readonly ?Closure $page = null, private readonly ?Closure $cleanup = null, private readonly ?Closure $log = null)
     {
     }
 
@@ -45,25 +47,35 @@ final class PlainHandler implements ExceptionHandlerInterface
         int $statusCode,
         int $exitCode,
     ): void {
-        if ($this->cleanup !== null) {
-            try {
-                ($this->cleanup)();
-            } catch (Throwable $e) {
-                // The answer below still goes out. The class only; a message can hold a path.
-                error_log('[apotheke] request cleanup failed (' . $e::class . ')');
-            }
-        }
-        [$status, $body] = $this->status($exception);
-        if ($status === 500 && !$exception instanceof UserError) {
-            error_log($exception::class . ': ' . $exception->getMessage());
-        }
+        $this->beforeAnswer($exception);
         if (PHP_SAPI !== 'cli') {
             $server = $request instanceof IncomingRequest ? $request->getServer() : [];
             $this->render($exception, $response, is_array($server) ? $server : [])->send();
         } else {
-            fwrite(STDERR, $body . "\n");
+            fwrite(STDERR, $this->status($exception)[1] . "\n");
         }
         exit($exitCode);
+    }
+
+    /**
+     * Run the request's cleanup and log a server error, before the answer
+     * goes out. Log lines hold a class, and for a 500 the message without a
+     * database error's row detail (N-33); a cleanup failure's message can
+     * hold a path, so it is never logged.
+     */
+    public function beforeAnswer(Throwable $exception): void
+    {
+        if ($this->cleanup !== null) {
+            try {
+                ($this->cleanup)();
+            } catch (Throwable $e) {
+                // The answer still goes out.
+                $this->log('[apotheke] request cleanup failed (' . $e::class . ')');
+            }
+        }
+        if ($this->status($exception)[0] === 500 && !$exception instanceof UserError) {
+            $this->log($exception::class . ': ' . RedactingFileHandler::strip($exception->getMessage()));
+        }
     }
 
     /**
@@ -98,6 +110,11 @@ final class PlainHandler implements ExceptionHandlerInterface
         };
 
         return $response->setHeader('Content-Type', 'text/html; charset=UTF-8')->setBody(($this->page)()->html($status, $message));
+    }
+
+    private function log(string $line): void
+    {
+        $this->log !== null ? ($this->log)($line) : error_log($line);
     }
 
     /** @return array{0:int,1:string} */

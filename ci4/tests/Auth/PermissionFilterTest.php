@@ -52,10 +52,14 @@ final class PermissionFilterTest extends CIUnitTestCase
         'categories/1/delete' => 'edit',
         'categories/1/parent' => 'edit',
         'categories/1' => 'edit',
+        'filters' => 'edit',
+        'filters/1/rename' => 'edit',
+        'filters/1/delete' => 'edit',
+        'item/1/fav' => 'edit',
     ];
 
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
-    private const VIEW_POST_ROUTES = ['theme' => 'view'];
+    private const VIEW_POST_ROUTES = ['theme' => 'view', 'recent/clear' => 'view'];
 
     private ?TestDatabase $database = null;
 
@@ -155,8 +159,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(22, $n, "16 GET and 6 HEAD routes");
-        $this->assertSame(28, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(28, $n, "19 GET and 9 HEAD routes");
+        $this->assertSame(34, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**

@@ -125,18 +125,19 @@ final class Ci4RequestHardeningHttpTest extends TestCase
     {
         $this->withServer([], function (Server $server, string $dir): void {
             $client = $server->client();
-            foreach (['/', '/no-such-page', '/theme.css', '/healthz'] as $path) {
+            // The list (GET /) carries a CSRF token, so it starts a session as on legacy.
+            foreach (['/no-such-page', '/stats', '/theme.css', '/healthz'] as $path) {
                 $this->assertArrayNotHasKey('set-cookie', $client->get($path)['headers'], $path);
             }
             // A cookie whose session is gone (expired, or made up) does not create one either.
             $client->cookies['apothekesid'] = str_repeat('d', 26);
-            $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/no-such-page')['headers']);
             $this->assertSame([], glob($dir . '/sessions/sess_*') ?: []);
             // A live session is loaded, stamped and given a token, without a new cookie.
             $id = str_repeat('e', 26);
             file_put_contents($dir . '/sessions/sess_' . $id, 'uid|i:3;');
             $client->cookies['apothekesid'] = $id;
-            $this->assertArrayNotHasKey('set-cookie', $client->get('/')['headers']);
+            $this->assertArrayNotHasKey('set-cookie', $client->get('/no-such-page')['headers']);
             $data = (string)file_get_contents($dir . '/sessions/sess_' . $id);
             $this->assertMatchesRegularExpression('/csrf\|s:64:"[0-9a-f]{64}"/', $data);
             $this->assertMatchesRegularExpression('/last_activity\|i:\d+;/', $data);
