@@ -72,6 +72,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** CodeIgniter's own session service no longer starts a second session beside Apotheke's session on HTML responses, so a signed-in session keeps its id and CSRF token (#76 L-1). ([#82](https://github.com/thordin9/apotheke/pull/82))
 - **ci4:** links and redirects built by CodeIgniter use the Control Panel's public address (or `PUBLIC_URL`), else the request's scheme with "Trust the reverse proxy" and an allowed host name, as the legacy app does. Saving or clearing the AI autofill token from a plain form redirects with a relative address (#76 L-2). ([#82](https://github.com/thordin9/apotheke/pull/82))
 - **ci4:** each request starts without session data, so a long-lived worker never carries one request's session into the next (#76 L-3). ([#82](https://github.com/thordin9/apotheke/pull/82))
+- **security:** hardening: sign-in limits now hold for requests that arrive together and also cover the current-password check and all names from one address; passwords and `APP_PASSWORD` with a null character are refused; the last active admin always stays; a photo save that fails leaves no files or new places, and a photo edit keeps its original. ([#106](https://github.com/thordin9/apotheke/pull/106))
 
 ### Maintenance
 

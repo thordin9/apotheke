@@ -71,6 +71,8 @@ function user_password_valid(string $new, ?string $confirm = null): string
 {
     if (mb_strlen($new) < PASSWORD_MIN) throw new UserError('Use at least ' . PASSWORD_MIN . ' characters for the password.', 422);
     if (strlen($new) > 200) throw new UserError('That password is too long.', 422);
+    // bcrypt stops at a NUL byte and reads only the first 72 bytes (docs/control-panel.md)
+    if (str_contains($new, "\0")) throw new UserError('Passwords cannot contain a null character.', 422);
     if ($confirm !== null && !hash_equals($new, $confirm)) throw new UserError('The two passwords do not match.', 422);
     return $new;
 }
@@ -116,9 +118,22 @@ function user_set_role(int $id, string $role): void
     $role = user_role_valid($role);
     guard_admin_target($u);
     if ($role === 'admin' && !actor_is_admin()) throw new UserError('Only an admin can grant the admin role.', 403);
-    user_guard_admin($u, $role);
-    db()->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $id]);
+    db_tx(function (PDO $pdo) use ($id, $role): void {
+        $u = users_lock_admins($id);
+        user_guard_admin($u, $role);
+        $pdo->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$role, $id]);
+    });
     roles(true);
+}
+
+/**
+ * Inside a transaction: lock the active admin accounts (a no-op write), then read user $id again. Two changes that
+ * could each remove an admin then run one after the other, so the last active admin always stays.
+ */
+function users_lock_admins(int $id): array
+{
+    db()->prepare("UPDATE users SET role = role WHERE role = 'admin' AND status = 'active'")->execute();
+    return user_get($id) ?? throw new UserError('User not found.', 404);
 }
 
 /** New password; every session of that user has to sign in again. */
@@ -143,9 +158,20 @@ function user_delete(int $id): void
 {
     $u = user_get($id) ?? throw new UserError('User not found.', 404);
     guard_admin_target($u);
-    if ($u['role'] === 'admin' && $u['status'] === 'active' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin and cannot be deleted.', 409);
-    db()->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
+    db_tx(function (PDO $pdo) use ($id): void {
+        $u = users_lock_admins($id);
+        if ($u['role'] === 'admin' && $u['status'] === 'active' && users_count('admin') <= 1) throw new UserError('“' . $u['username'] . '” is the only admin and cannot be deleted.', 409);
+        $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$id]);
+    });
     roles(true);
+}
+
+/** The signed-in user's current password, limited like a sign-in (429); a wrong one is 403. */
+function user_check_current(array $me, #[\SensitiveParameter] string $current): void
+{
+    rate_limit('login', $me['username']);
+    if (!user_verify($me['username'], $current)) throw new UserError('The current password is not correct.', 403);
+    rate_limit_clear('login', $me['username']);
 }
 
 /** Check a user name + password; returns the user or null (always spends the same hashing time). */
@@ -153,7 +179,7 @@ function user_verify(string $name, string $password): ?array
 {
     $u = user_by_name($name);
     if (!$u) { password_verify($password, '$2y$10$usesomesillystringforsaltqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'); return null; }
-    if (!password_verify($password, $u['password_hash'])) return null;
+    if (!password_verify($password, $u['password_hash']) || str_contains($password, "\0")) return null;
     if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
         db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([password_hash($password, PASSWORD_DEFAULT), $u['id']]);
     }
@@ -195,6 +221,7 @@ final class AppPasswordError extends RuntimeException {}
 /** Why a non-empty APP_PASSWORD can't become a password (same PASSWORD_MIN as any other), or null when it can. */
 function app_password_problem(#[\SensitiveParameter] string $pw): ?string
 {
+    if (str_contains($pw, "\0")) return 'APP_PASSWORD cannot contain a null character.';
     if ($pw === '' || (trim($pw) !== '' && mb_strlen($pw) >= PASSWORD_MIN)) return null;
     return 'APP_PASSWORD is too short: use at least ' . PASSWORD_MIN . ' characters (not only spaces), or leave it empty.';
 }
@@ -335,7 +362,7 @@ function guard_admin_target(array $u): void
 
 /* ---------- rate limiting (sign-in, registration) ---------- */
 
-const RATE_LIMITS = ['login' => [10, 900], 'register' => [5, 3600]];
+const RATE_LIMITS = ['login' => [10, 900], 'login_address' => [30, 900], 'register' => [5, 3600]];
 
 /**
  * Address of the browser. X-Forwarded-For counts only when “Trust the reverse proxy” is on and the
@@ -396,13 +423,19 @@ function rate_limit(string $kind, ?string $account = null): void
     $key = rate_bucket($kind, $account);
     $pdo = db();
     $pdo->prepare('DELETE FROM auth_attempts WHERE at < ?')->execute([$now - 86400]);
+    // Record first, then count every attempt in the window including this one, so requests at the same time
+    // see each other and no more than $max get through (at the limit, both may be refused). A refused attempt
+    // takes its row back.
+    $mine = db_insert($pdo, 'INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)', [$kind, $key, $now]);
     $st = $pdo->prepare('SELECT COUNT(*) FROM auth_attempts WHERE kind = ? AND client = ? AND at >= ?');
     $st->execute([$kind, $key, $now - $window]);
-    if ((int)$st->fetchColumn() >= $max) {
+    $n = (int)$st->fetchColumn();
+    $st->closeCursor();   // SQLite: end the read before the write below
+    if ($n > $max) {
+        $pdo->prepare('DELETE FROM auth_attempts WHERE id = ?')->execute([$mine]);
         $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
         throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
     }
-    $pdo->prepare('INSERT INTO auth_attempts (kind, client, at) VALUES (?,?,?)')->execute([$kind, $key, $now]);
 }
 
 function rate_limit_clear(string $kind, ?string $account = null): void
