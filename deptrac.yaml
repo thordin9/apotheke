@@ -72,6 +72,7 @@ deptrac:
     Auth:
       - Core
       - Settings
+      - Layout
     Core: []
     DevServer:
       - Core

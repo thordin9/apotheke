@@ -69,6 +69,12 @@ final class PermissionFilterTest extends CIUnitTestCase
         'item/1/photos/1/edit' => 'edit',
     ];
 
+    /** State-changing routes for your own account: signed in with an account (`self`), whatever the role. */
+    private const SELF_POST_ROUTES = ['account' => 'self', 'account/signout' => 'self'];
+
+    /** POST routes legacy answers before its permission check; they check the CSRF token themselves (Auth). */
+    private const NONE_POST_ROUTES = ['login', 'logout', 'register'];
+
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
     private const VIEW_POST_ROUTES = ['theme' => 'view', 'recent/clear' => 'view'];
 
@@ -111,7 +117,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertGreaterThan(array_search('session', $required, true), $at);
         $this->assertGreaterThan(array_search('sameorigin', $required, true), $at);
         // Required filters run before the global ones, so before CSRF, in legacy's order.
-        $this->assertContains('sessioncsrf', $filters->globals['before']);
+        $this->assertSame(['except' => ['login', 'register', 'logout']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter');
         $this->assertNotContains('permission', $filters->globals['before']);
         $this->assertSame(\Apotheke\Auth\Filters\PermissionFilter::class, $filters->aliases['permission']);
     }
@@ -133,6 +139,11 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 foreach (self::sample((string)$route) as $path) {
                     $seen[] = $path;
+                    if ($need === Permissions::NONE) {
+                        $this->assertContains(ltrim($path, '/'), self::NONE_POST_ROUTES, $verb . ' ' . $path . ': only sign-in, registration and sign-out skip the check');
+                        $this->assertTrue($rules->isBeforeCheck($verb, $path), $verb . ' ' . $path);
+                        continue;
+                    }
                     $this->assertSame($rules->need($verb, $path, []), $need, $verb . ' ' . $path . ': record legacy route_perm() as the `permission` option');
                     $this->assertNotSame(Permissions::PUBLIC, $need, $verb . ' ' . $path);
                     $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal(null, (string)$need), $verb . ' ' . $path);
@@ -143,10 +154,10 @@ final class PermissionFilterTest extends CIUnitTestCase
             }
         }
         sort($seen);
-        $expected = array_map(static fn (string $r): string => '/' . $r, array_keys(self::POST_ROUTES + self::VIEW_POST_ROUTES));
+        $expected = array_map(static fn (string $r): string => '/' . $r, [...array_keys(self::POST_ROUTES + self::VIEW_POST_ROUTES + self::SELF_POST_ROUTES), ...self::NONE_POST_ROUTES]);
         sort($expected);
         $this->assertSame($expected, $seen, 'a new state-changing route: add it to POST_ROUTES with its legacy permission');
-        foreach (self::POST_ROUTES + self::VIEW_POST_ROUTES as $route => $need) {
+        foreach (self::POST_ROUTES + self::VIEW_POST_ROUTES + self::SELF_POST_ROUTES as $route => $need) {
             $this->assertSame($need, $rules->need('POST', '/' . $route, []));
         }
     }
@@ -170,8 +181,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(38, $n, "24 GET and 14 HEAD routes");
-        $this->assertSame(44, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(44, $n, "27 GET and 17 HEAD routes");
+        $this->assertSame(50, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**

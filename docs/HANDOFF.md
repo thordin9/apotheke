@@ -11,7 +11,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes), Auth
-  (current user, admin guards, session epoch, sign out everywhere, the Permission filter; no pages yet), Layout (page
+  (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
   shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
   served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity, Catalog, Search
   and Favourites (below).
@@ -80,9 +80,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   duplicate/merge come with 11b.
 - Local test databases: the credential tests need a PostgreSQL role with `CREATEROLE` (and on PostgreSQL 16+
   `createrole_self_grant = 'set, inherit'`), see [testing](testing.md) (N-71).
-- Not ported yet: sign-in, account and Users pages, the BulkMerge and Backup modules. When those pages
-  arrive they pass `keepSignIn` to `SessionGate::signIn()` where `main` passes it to `login_session()` (sign out
-  everywhere, and a new password for your own account on Account, the password page and Users).
+- Sign-in (step 7, part A): `/login`, `/register`, `/logout`, `/account`, `/account/signout` byte-identical to
+  legacy (rate limits, first admin, new session ID, `keepSignIn`, CSRF checked in the controller). Failed sign-ins
+  answer at a fixed deadline (`Config\SignIn`, 1 s); null-character passwords never match and are refused (422).
+- Not ported yet: users and roles pages, CLI account forms (step 7, part B), BulkMerge and Backup.
 
 ## Pull requests
 
@@ -99,7 +100,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#97](https://github.com/thordin9/apotheke/pull/97): #95/#96 follow-ups N-30, N-31, M-25 for Settings. Merged.
 - [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. Merged.
 - [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. Merged.
-- [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages. In review.
+- [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages, rate
+  limits, failed sign-in pacing, plus N-38. Merged.
 - [#101](https://github.com/thordin9/apotheke/pull/101): Playwright on CI4, exact-path routing (N-51). Merged.
 - [#102](https://github.com/thordin9/apotheke/pull/102): PLAN step 11a (first part), item pages, undo, activity,
   plus #101 N-70 to N-75. Merged.
@@ -109,25 +111,31 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
-  catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102); step 11a part 2, the photo routes
+  catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102, merged); step 11a part 2, the photo routes
   (`cursor/ci4-item-photos`, #103). Stays out of the auth, account, users/roles, taxonomy and Notes files
   (only the route table in `PermissionFilterTest` gets the new photo routes).
-- Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
-  rate limits; #100, then `/settings/security`).
+- Coder2: step 7, sign-in and account pages (#100, merged), then step 7 part B: the users and roles pages
+  under `/settings/security` and the CLI account forms.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. The sign-in, register, account, users and roles pages and rate limits, on the Layout. Pass
-   `keepSignIn` as above.
+1. Step 7 part B: the users and roles pages under `/settings/security` and the CLI account
+   forms, on the Layout.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. Autofill reads photos through Media.
 4. PLAN 11b: BulkMerge (bulk, merge, duplicate, quantity) and attachments.
 
+## Tracked
+
+- CI4 router (N-63, an N-51 follow-up): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404
+  where legacy shows the page (stricter). Owner: Coder2 (CI4 lane).
+
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
+Markdown: links containing emphasis characters render incorrectly; later joint fix in main and CI4 (hold bare links in placeholders before emphasis).
 
 Cloudflare phase: keep storage behind interfaces, no per-request global state, and the database config from a DSN.
 The at-rest key comes in through `SecretKey`, so a Worker secret binding can replace the environment and key file.
