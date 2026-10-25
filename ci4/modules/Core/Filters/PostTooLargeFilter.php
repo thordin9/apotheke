@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Filters;
 
+use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\PostTooLarge;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
@@ -59,9 +60,7 @@ final class PostTooLargeFilter implements FilterInterface
 
     private function isHealth(RequestInterface $request): bool
     {
-        $path = strtolower(trim($request->getUri()->getPath(), '/'));
-
-        return $path === 'healthz' || $path === 'health';
+        return LegacyPathRouter::isHealth($request);
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): null

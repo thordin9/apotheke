@@ -504,4 +504,16 @@ class Services extends BaseService
     {
         return static::favourites($getShared);
     }
+
+    /** The router matches legacy's exact request path (Core\Http\LegacyPathRouter). */
+    public static function router(?\CodeIgniter\Router\RouteCollectionInterface $routes = null, ?\CodeIgniter\HTTP\Request $request = null, bool $getShared = true): \CodeIgniter\Router\Router
+    {
+        if ($getShared) {
+            return static::getSharedInstance('router', $routes, $request);
+        }
+        $routes ??= static::routes();
+        $request ??= static::request();
+
+        return new \Apotheke\Core\Http\LegacyPathRouter($routes, $request);
+    }
 }
