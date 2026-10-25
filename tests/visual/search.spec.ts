@@ -25,14 +25,17 @@ test.describe('full-text search', () => {
     await app.tapTargets();
   });
 
-  test('works without JavaScript and shows the engine in System', async ({ app, browser }) => {
+  test('works without JavaScript', async ({ app, browser }) => {
     const ctx = await browser.newContext({ javaScriptEnabled: false, baseURL: app.base });
     const p = await ctx.newPage();
     await p.goto('/?q=' + encodeURIComponent('κουτι'));
     await expect(p.locator('#grid .card-title')).toHaveText(['Πρίζα πολύπριζο']);
     await expect(p.locator('#grid .snip mark')).toHaveText('Κουτί');
-    await p.goto('/settings/system');
-    await expect(p.locator('#search-engine')).toHaveText(/^(fts5|pg)$/);
     await ctx.close();
+  });
+
+  test('shows the engine in System', async ({ app, page }) => {
+    await app.go('/settings/system');
+    await expect(page.locator('#search-engine')).toHaveText(/^(fts5|pg)$/);
   });
 });
