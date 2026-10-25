@@ -36,9 +36,13 @@ final class Theme
             . self::COOKIE_SECONDS . '; path=/; SameSite=Lax';
     }
 
-    /** Only same-site, path-absolute redirect targets ("/…", never "//host" or "/\host"). */
+    /**
+     * Only same-site, path-absolute redirect targets ("/…", never "//host" or
+     * "/\host"). Control characters (NUL, \x01, DEL …) give "/" too: CI4
+     * refuses them in a Location header (N-18).
+     */
     public static function safeBack(string $back): string
     {
-        return preg_match('#^/(?![/\\\\])[^\s]*$#D', $back) === 1 ? $back : '/';
+        return preg_match('#^/(?![/\\\\])[^\s\x00-\x1F\x7F]*$#D', $back) === 1 ? $back : '/';
     }
 }

@@ -40,6 +40,18 @@ final class PermissionFilterTest extends CIUnitTestCase
         'settings/autofill/token' => 'settings',
         'settings/autofill/test' => 'settings',
         'settings/autofill/test-photo' => 'settings',
+        'locations' => 'edit',
+        'locations/1/rename' => 'edit',
+        'locations/1/default' => 'edit',
+        'locations/1/delete' => 'edit',
+        'locations/1/parent' => 'edit',
+        'locations/1' => 'edit',
+        'categories' => 'edit',
+        'categories/1/rename' => 'edit',
+        'categories/1/default' => 'edit',
+        'categories/1/delete' => 'edit',
+        'categories/1/parent' => 'edit',
+        'categories/1' => 'edit',
     ];
 
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
@@ -103,15 +115,16 @@ final class PermissionFilterTest extends CIUnitTestCase
         $seen = [];
         foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $verb) {
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
-                $path = '/' . ltrim((string)$route, '/');
-                $seen[] = $path;
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
-                $this->assertSame($rules->need($verb, $path, []), $need, $verb . ' ' . $path . ': record legacy route_perm() as the `permission` option');
-                $this->assertNotSame(Permissions::PUBLIC, $need, $verb . ' ' . $path);
-                $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal(null, (string)$need), $verb . ' ' . $path);
-                $guest = ['role' => 'guest', 'guest' => true, 'anon' => true];
-                // The anonymous guest may view, so it may pick a theme (POST /theme), as on legacy.
-                $this->assertSame($need === 'view' ? null : PermissionCheck::SIGN_IN, $check->refusal($guest, (string)$need), $verb . ' ' . $path);
+                foreach (self::sample((string)$route) as $path) {
+                    $seen[] = $path;
+                    $this->assertSame($rules->need($verb, $path, []), $need, $verb . ' ' . $path . ': record legacy route_perm() as the `permission` option');
+                    $this->assertNotSame(Permissions::PUBLIC, $need, $verb . ' ' . $path);
+                    $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal(null, (string)$need), $verb . ' ' . $path);
+                    $guest = ['role' => 'guest', 'guest' => true, 'anon' => true];
+                    // The anonymous guest may view, so it may pick a theme (POST /theme), as on legacy.
+                    $this->assertSame($need === 'view' ? null : PermissionCheck::SIGN_IN, $check->refusal($guest, (string)$need), $verb . ' ' . $path);
+                }
             }
         }
         sort($seen);
@@ -130,19 +143,40 @@ final class PermissionFilterTest extends CIUnitTestCase
         $collection->loadRoutes();
         $rules = new RoutePermission();
         $n = 0;
+        $paths = 0;
         foreach (['GET', 'HEAD'] as $verb) {
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
-                $path = '/' . ltrim((string)$route, '/');
-                if (str_contains($path, '(')) {
-                    $path = str_starts_with($path, '/media/') ? '/media/full/x.jpg' : '/brand/logo.png';
-                }
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
-                $this->assertNotNull($need, $verb . ' ' . $path);
-                $this->assertTrue($need === Permissions::NONE ? $rules->isBeforeCheck('GET', $path) : $need === $rules->need('GET', $path), $verb . ' ' . $path);
+                foreach (self::sample((string)$route) as $path) {
+                    $this->assertNotNull($need, $verb . ' ' . $path);
+                    $this->assertTrue($need === Permissions::NONE ? $rules->isBeforeCheck('GET', $path) : $need === $rules->need('GET', $path), $verb . ' ' . $path);
+                    $paths++;
+                }
                 $n++;
             }
         }
-        $this->assertSame(14, $n, "8 GET and 6 HEAD routes");
+        $this->assertSame(22, $n, "16 GET and 6 HEAD routes");
+        $this->assertSame(28, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+    }
+
+    /**
+     * Every path a route pattern stands for: each alternative of a (a|b|c)
+     * group, id 1 for a number, logo.png for a brand file, x.jpg for a media name.
+     *
+     * @return list<string>
+     */
+    private static function sample(string $route): array
+    {
+        $path = str_replace(['([0-9]+)', '([a-z0-9.\\-]+)', '([^/]+)'], ['1', 'logo.png', 'x.jpg'], '/' . ltrim($route, '/'));
+        if (preg_match('#\(([a-z]+(?:\|[a-z]+)+)\)#', $path, $m, PREG_OFFSET_CAPTURE) !== 1) {
+            return [$path];
+        }
+        $out = [];
+        foreach (explode('|', $m[1][0]) as $word) {
+            $out = [...$out, ...self::sample(substr_replace($path, $word, $m[0][1], strlen($m[0][0])))];
+        }
+
+        return $out;
     }
 
     public function testRouteNeedsMatchLegacy(): void

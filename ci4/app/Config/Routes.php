@@ -32,3 +32,16 @@ $routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestCon
 $routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token', ['permission' => 'settings']);
 $routes->post('settings/autofill/test', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::test', ['permission' => 'settings']);
 $routes->post('settings/autofill/test-photo', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::testPhoto', ['permission' => 'settings']);
+
+// Taxonomy: /locations and /categories (Manage). GET needs view, POST edit.
+// The entry's other paths answer "<One> not found." or "Page not found." as legacy.
+$manage = '\\Apotheke\\Taxonomy\\Controllers\\ManageController';
+foreach (['locations', 'categories'] as $segment) {
+    $routes->get($segment, $manage . '::index/' . $segment, ['permission' => 'view']);
+    $routes->post($segment, $manage . '::create/' . $segment, ['permission' => 'edit']);
+    $routes->get($segment . '/([0-9]+)/delete', $manage . '::confirmDelete/' . $segment . '/$1', ['permission' => 'view']);
+    $routes->post($segment . '/([0-9]+)/(rename|default|delete|parent)', $manage . '::act/' . $segment . '/$1/$2', ['permission' => 'edit']);
+    $routes->get($segment . '/([0-9]+)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'view']);
+    $routes->get($segment . '/([0-9]+)/(rename|default|parent)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'view']);
+    $routes->post($segment . '/([0-9]+)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'edit']);
+}

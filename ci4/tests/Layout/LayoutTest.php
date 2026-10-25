@@ -103,6 +103,17 @@ final class LayoutTest extends CIUnitTestCase
         $this->assertSame(Icons::svg(''), Icons::svg('nope'));
     }
 
+    /** N-18: a control character never reaches the Location header (CI4 would refuse it with a 500). */
+    public function testSafeBackRefusesControlCharacters(): void
+    {
+        foreach (["/a\0b", "/a\x01b", "/a\x1fb", "/a\x7fb", "/a\tb", "/a\rb"] as $back) {
+            $this->assertSame('/', Theme::safeBack($back), json_encode($back));
+        }
+        foreach (['/', '/x?y=1&z=%00', '/é/ü', '/~a'] as $back) {
+            $this->assertSame($back, Theme::safeBack($back));
+        }
+    }
+
     /**
      * @param array{username:string,role:string,guest:bool,anon:bool}|null $user
      * @param list<bool> $created
