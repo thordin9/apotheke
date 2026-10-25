@@ -134,7 +134,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
                 $path = '/' . ltrim((string)$route, '/');
                 if (str_contains($path, '(')) {
-                    $path = '/brand/logo.png';
+                    $path = str_starts_with($path, '/media/') ? '/media/full/x.jpg' : '/brand/logo.png';
                 }
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 $this->assertNotNull($need, $verb . ' ' . $path);
@@ -142,7 +142,7 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(12, $n, "7 GET and 5 HEAD routes");
+        $this->assertSame(14, $n, "8 GET and 6 HEAD routes");
     }
 
     public function testRouteNeedsMatchLegacy(): void

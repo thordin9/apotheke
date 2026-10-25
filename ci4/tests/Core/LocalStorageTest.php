@@ -47,6 +47,16 @@ final class LocalStorageTest extends CIUnitTestCase
         $store->delete('autofill/missing');
     }
 
+    public function testModifiedAtAndFileMode(): void
+    {
+        $store = new LocalStorage($this->root, 0640);
+        $this->assertNull($store->modifiedAt('images/a.jpg'));
+        $store->write('images/a.jpg', 'jpeg');
+        $this->assertSame(filemtime($this->root . '/images/a.jpg'), $store->modifiedAt('images/a.jpg'));
+        $this->assertSame(0640, fileperms($this->root . '/images/a.jpg') & 0777);
+        $this->assertNull($store->modifiedAt('../a.jpg'));
+    }
+
     public function testKeysCannotLeaveTheRoot(): void
     {
         $store = new LocalStorage($this->root);
