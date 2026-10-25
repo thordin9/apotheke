@@ -79,3 +79,18 @@ $routes->post('undo', $catalog . 'ItemController::undoAction', ['permission' => 
 
 // Activity: recent activity and one item's full history.
 $routes->match(['GET', 'HEAD'], 'activity', '\\Apotheke\\Activity\\Controllers\\ActivityController::index', ['permission' => 'view']);
+
+// Auth: Control Panel → Users & sign-in (step 7 B): the page and its settings, sign-in
+// on or off and your own password, accounts and roles. All need users (legacy route_perm()).
+$security = '\\Apotheke\\Auth\\Controllers\\SecurityController';
+$users = ['permission' => 'users'];
+$routes->match(['GET', 'HEAD'], 'settings/security', $security . '::index', $users);
+$routes->post('settings/security', $security . '::save', $users);
+$routes->post('settings/security/reset', $security . '::reset', $users);
+$routes->post('settings/password', $security . '::password', $users);
+$routes->post('settings/users', $security . '::user', $users);
+$routes->post('settings/users/([0-9]+)', $security . '::user/$1', $users);
+$routes->post('settings/users/([0-9]+)/(role|password|rename|delete|approve)', $security . '::user/$1/$2', $users);
+$routes->post('settings/roles', $security . '::role', $users);
+$routes->post('settings/roles/([a-z0-9-]+)', $security . '::role/$1', $users);
+$routes->post('settings/roles/([a-z0-9-]+)/delete', $security . '::role/$1/delete', $users);
