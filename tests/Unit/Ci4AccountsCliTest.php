@@ -243,6 +243,78 @@ final class Ci4AccountsCliTest extends TestCase
     }
 
     /**
+     * On a terminal (a pty) the typed password is not shown and echo is back
+     * on after the command: on success, on a refusal, and (with pcntl) after
+     * Ctrl-C at the prompt, which exits 130.
+     */
+    public function testPasswordPromptsOnATerminal(): void
+    {
+        $python = trim((string)shell_exec('command -v python3 2>/dev/null'));
+        if ($python === '' || !is_readable('/dev/ptmx')) {
+            $this->assertFalse((bool)getenv('CI'), 'CI runs the pty test');
+            $this->markTestSkipped('python3 and a pty are required');
+        }
+        [, $dir] = $this->twins('acli-pty');
+        $env = $this->env($dir, true);
+        $typed = 'pty-typed-secret';
+        $other = 'pty-other-secret';
+
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/bin/settings.php', 'user', 'add', 'bob', 'editor'], $env, [
+            ['wait', 'New password: '], ['send', "$typed\n"], ['wait', 'Repeat: '], ['send', "$typed\n"],
+        ]);
+        $this->assertSame(0, $r['exit'], $r['shown']);
+        $this->assertStringContainsString("New password: \r\nRepeat: \r\nAdded bob.", $r['shown'], 'a newline after each hidden line');
+        $this->assertTerminalClean($r, [$typed]);
+
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/bin/settings.php', 'user', 'password', 'bob'], $env, [
+            ['wait', 'New password: '], ['send', "$other\n"], ['wait', 'Repeat: '], ['send', "$typed\n"],
+        ]);
+        $this->assertSame(1, $r['exit'], $r['shown']);
+        $this->assertStringContainsString('The passwords do not match.', $r['shown']);
+        $this->assertTerminalClean($r, [$typed, $other]);
+
+        $probe = $this->proc([PHP_BINARY, '-r', 'echo (int)function_exists("pcntl_async_signals");'], $env, null);
+        if ($probe['stdout'] !== '1') {
+            $this->assertFalse((bool)getenv('CI'), 'CI runs the Ctrl-C case');
+            $this->markTestSkipped('pcntl is required for the Ctrl-C case');
+        }
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'password'], $env, [
+            ['wait', 'New password: '], ['send', $typed], ['sigint'],
+        ]);
+        $this->assertSame(130, $r['exit'], $r['shown']);
+        $this->assertTerminalClean($r, [$typed]);
+    }
+
+    /**
+     * @param array{shown:string,exit:int,stty:string} $r
+     * @param list<string> $secrets
+     */
+    private function assertTerminalClean(array $r, array $secrets): void
+    {
+        foreach ($secrets as $secret) {
+            $this->assertStringNotContainsString($secret, $r['shown'], 'the typed password is not shown');
+        }
+        $flags = preg_split('/[\s;]+/', $r['stty']) ?: [];
+        $this->assertContains('echo', $flags, "echo is on again:\n" . $r['stty']);
+        $this->assertNotContains('-echo', $flags);
+    }
+
+    /**
+     * @param list<string> $cmd
+     * @param array<string,string> $env
+     * @param list<list<string>> $steps
+     * @return array{shown:string,exit:int,stty:string}
+     */
+    private function pty(string $python, array $cmd, array $env, array $steps): array
+    {
+        $spec = json_encode(['cmd' => $cmd, 'cwd' => ROOT, 'steps' => $steps], JSON_THROW_ON_ERROR);
+        $r = $this->proc([$python, ROOT . '/tests/fixtures/pty-run.py', $spec], $env, null);
+        $this->assertSame(0, $r['exit'], $r['stderr']);
+
+        return json_decode($r['stdout'], true, 512, JSON_THROW_ON_ERROR);
+    }
+
+    /**
      * @param list<array{0:list<string>,1?:string}> $steps
      * @param array<string,string> $extraEnv
      */
