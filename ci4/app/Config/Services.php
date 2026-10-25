@@ -420,7 +420,7 @@ class Services extends BaseService
         return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
     }
 
-    /** Accounts for the sign-in pages (Auth). Stateless. */
+    /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from Config\SignIn. Stateless. */
     public static function accounts(bool $getShared = true): \Apotheke\Auth\Accounts
     {
         if ($getShared) {
@@ -429,7 +429,12 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\Accounts(new \Apotheke\Auth\UserRepository($db), static::roles(), new \Apotheke\Core\Libraries\Clock());
+        return new \Apotheke\Auth\Accounts(
+            new \Apotheke\Auth\UserRepository($db),
+            static::roles(),
+            new \Apotheke\Core\Libraries\Clock(),
+            new \Apotheke\Auth\SignInPace(config(\Config\SignIn::class)->failDeadlineMs),
+        );
     }
 
     /**

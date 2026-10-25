@@ -22,12 +22,11 @@ use CodeIgniter\HTTP\ResponseInterface;
  */
 final class SignInController extends AuthPages
 {
-    /** Legacy usleep(400000) after a wrong user name or password. */
-    public const FAIL_DELAY_US = 400000;
-
     /** GET and POST /login */
     public function login(): ResponseInterface
     {
+        // A failed sign-in answers at a fixed deadline from here (Auth\SignInPace).
+        $started = $this->accounts()->startSignIn();
         $this->firstAdmin();
         if (!$this->settings()->signInEnabled() || $this->signedIn()) {
             return $this->redirectTo('/');
@@ -39,7 +38,7 @@ final class SignInController extends AuthPages
         $who = \Apotheke\Core\Libraries\Text::cleanLine($this->post('username'), Accounts::USERNAME_MAX * 2);
         try {
             $this->limiter()->hit('login', $who);
-            $user = $this->accounts()->verify($who, $this->post('password'));
+            $user = $this->accounts()->signIn($started, $who, $this->post('password'));
             if ($user !== null) {
                 $this->accounts()->admit($user);
                 (new SessionGate(time()))->signIn($user['id'], (new SessionEpoch())->of($user));
@@ -47,8 +46,6 @@ final class SignInController extends AuthPages
 
                 return $this->redirectTo('/');
             }
-            usleep(self::FAIL_DELAY_US);
-
             return $this->page($this->loginPage('Wrong user name or password.', $who), 401);
         } catch (UserError $e) {
             return $this->page($this->loginPage($e->getMessage(), $who), self::code($e, 403));

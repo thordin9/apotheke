@@ -23,18 +23,44 @@ final class Accounts
         private readonly UserRepository $users,
         private readonly RoleRepository $roles,
         private readonly Clock $clock,
+        private readonly SignInPace $pace = new SignInPace(),
     ) {
+    }
+
+    /** The start of a sign-in attempt, for signIn(). */
+    public function startSignIn(): int
+    {
+        return $this->pace->start();
+    }
+
+    /**
+     * A sign-in attempt begun at $started (startSignIn()): verify(), and on
+     * any failure wait until SignInPace's deadline after $started, so an
+     * unknown name, a wrong password on a current hash and one on an older,
+     * cheaper hash all answer at the same time.
+     *
+     * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}|null
+     */
+    public function signIn(int $started, string $name, #[\SensitiveParameter] string $password): ?array
+    {
+        $user = $this->verify($name, $password);
+        if ($user === null) {
+            $this->pace->pad($started);
+        }
+
+        return $user;
     }
 
     /**
      * Legacy user_verify(): the account for this name and password, or null.
-     * Unknown names and wrong passwords cost the same hashing time and give
-     * the same null. A hash made with older options is replaced.
+     * Unknown names and wrong passwords give the same null. A hash made with
+     * older options is replaced on a good password. An unknown name still
+     * spends one hash at PHP's default cost.
      *
-     * Stricter than legacy: legacy spends a fixed cost-10 check on an unknown
-     * name, while accounts are hashed with PHP's default cost (12 on PHP 8.4).
-     * Here an unknown name spends one hash at the default cost, the same work
-     * as checking a current account's hash.
+     * The hashing time alone depends on the stored hash (an account carried
+     * over from main keeps its older cost until its next sign-in), so the
+     * sign-in page goes through signIn(), which pads every failure to a fixed
+     * deadline. Stricter than legacy, which waits a flat 400 ms after the check.
      *
      * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}|null
      */
