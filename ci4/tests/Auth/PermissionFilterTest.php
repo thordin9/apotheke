@@ -40,6 +40,12 @@ final class PermissionFilterTest extends CIUnitTestCase
         'settings/autofill/token' => 'settings',
         'settings/autofill/test' => 'settings',
         'settings/autofill/test-photo' => 'settings',
+        'locations' => 'edit',
+        'locations/1/rename' => 'edit',
+        'locations/1' => 'edit',
+        'categories' => 'edit',
+        'categories/1/rename' => 'edit',
+        'categories/1' => 'edit',
     ];
 
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
@@ -103,7 +109,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $seen = [];
         foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $verb) {
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
-                $path = '/' . ltrim((string)$route, '/');
+                $path = self::sample((string)$route);
                 $seen[] = $path;
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 $this->assertSame($rules->need($verb, $path, []), $need, $verb . ' ' . $path . ': record legacy route_perm() as the `permission` option');
@@ -132,17 +138,22 @@ final class PermissionFilterTest extends CIUnitTestCase
         $n = 0;
         foreach (['GET', 'HEAD'] as $verb) {
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
-                $path = '/' . ltrim((string)$route, '/');
-                if (str_contains($path, '(')) {
-                    $path = '/brand/logo.png';
-                }
+                $path = self::sample((string)$route);
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 $this->assertNotNull($need, $verb . ' ' . $path);
                 $this->assertTrue($need === Permissions::NONE ? $rules->isBeforeCheck('GET', $path) : $need === $rules->need('GET', $path), $verb . ' ' . $path);
                 $n++;
             }
         }
-        $this->assertSame(12, $n, "7 GET and 5 HEAD routes");
+        $this->assertSame(20, $n, "15 GET and 5 HEAD routes");
+    }
+
+    /** A path a route pattern matches: its first alternative, id 1, logo.png. */
+    private static function sample(string $route): string
+    {
+        $path = str_replace(['([0-9]+)', '([a-z0-9.\\-]+)'], ['1', 'logo.png'], '/' . ltrim($route, '/'));
+
+        return (string)preg_replace('#\(([a-z]+)(?:\|[a-z]+)*\)#', '$1', $path);
     }
 
     public function testRouteNeedsMatchLegacy(): void

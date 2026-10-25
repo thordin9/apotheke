@@ -35,6 +35,14 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Layout\\
+    - name: Activity
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Activity\\
+    - name: Taxonomy
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Taxonomy\\
   ruleset:
     Auth:
       - Core
@@ -53,3 +61,10 @@ deptrac:
     Layout:
       - Core
       - Settings
+    # Activity: the item history writer. Taxonomy: its pages use Layout; it writes the item
+    # history through Core's ItemHistory, which Activity implements.
+    Activity:
+      - Core
+    Taxonomy:
+      - Core
+      - Layout

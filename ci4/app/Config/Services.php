@@ -339,4 +339,39 @@ class Services extends BaseService
             $now,
         );
     }
+
+    /**
+     * The item history writer (Activity). The actor is the signed-in account,
+     * or none for the command line, sign-in off and the guest (legacy
+     * current_actor()).
+     */
+    public static function itemHistory(bool $getShared = true): \Apotheke\Core\Libraries\ItemHistory
+    {
+        if ($getShared) {
+            return static::getSharedInstance('itemHistory');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Activity\ActivityLogger($db, new \Apotheke\Core\Libraries\Clock(), static function (): ?string {
+            if (PHP_SAPI === 'cli') {
+                return null;
+            }
+            $user = static::currentUser()->resolve();
+
+            return $user !== null && !$user['guest'] ? (string)$user['username'] : null;
+        });
+    }
+
+    /** Locations and categories (Taxonomy). Stateless: every call reads the tables. */
+    public static function taxonomy(bool $getShared = true): \Apotheke\Taxonomy\TaxonomyRepository
+    {
+        if ($getShared) {
+            return static::getSharedInstance('taxonomy');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
+    }
 }

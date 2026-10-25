@@ -42,6 +42,12 @@ final class Page
         return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    /** Legacy csrf_token(): the session's form token (starts the session; call before output is sent). */
+    public function csrf(): string
+    {
+        return ($this->csrf)(true);
+    }
+
     public function theme(): string
     {
         return Theme::pref($this->themeCookie, (string)$this->settings->get('theme_default'));
