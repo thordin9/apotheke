@@ -198,35 +198,100 @@ final class AccountsCli
         $this->out("The account “admin” has a new password set and sign-in is on; other devices have to sign in again.\n");
     }
 
-    /** Legacy cli_ask_password(), without showing the typing on a terminal. */
+    /**
+     * Legacy cli_ask_password(). On a terminal the typing is not shown: echo
+     * goes off once for both prompts and the saved terminal state comes back
+     * afterwards, also on a mismatch, an exception or (with pcntl) Ctrl-C,
+     * which exits 130. Without pcntl, Ctrl-C ends PHP before any handler.
+     */
     private function askPassword(): string
     {
-        $this->out('New password: ');
-        $password = $this->readSecret();
-        $this->out('Repeat: ');
-        if ($this->readSecret() !== $password) {
-            throw new UserError('The passwords do not match.');
-        }
+        return $this->withEchoOff(function (bool $tty): string {
+            $this->out('New password: ');
+            $password = $this->readLine($tty);
+            $this->out('Repeat: ');
+            if ($this->readLine($tty) !== $password) {
+                throw new UserError('The passwords do not match.');
+            }
 
-        return $password;
+            return $password;
+        });
     }
 
-    private function readSecret(): string
+    /**
+     * @template T
+     * @param callable(bool):T $read gets whether stdin is a terminal
+     * @return T
+     */
+    private function withEchoOff(callable $read): mixed
     {
-        $tty = stream_isatty($this->stdin) && function_exists('shell_exec');
-        if ($tty) {
-            @shell_exec('stty -echo 2>/dev/null');
+        $saved = $this->stty('-g');
+        if ($saved === null || preg_match('/^[0-9A-Za-z:=-]+$/', $saved) !== 1) {
+            return $read(false);
         }
-        try {
-            $line = fgets($this->stdin);
-        } finally {
-            if ($tty) {
-                @shell_exec('stty echo 2>/dev/null');
-                $this->out("\n");
+        $restored = false;
+        $restore = function () use ($saved, &$restored): void {
+            if (!$restored) {
+                $restored = true;
+                $this->stty($saved);
             }
+        };
+        $signals = function_exists('pcntl_signal') && function_exists('pcntl_async_signals');
+        if ($signals) {
+            $previousAsync = pcntl_async_signals(true);
+            $previousHandler = pcntl_signal_get_handler(SIGINT);
+            // No syscall restart: Ctrl-C interrupts the blocked read at once.
+            pcntl_signal(SIGINT, function () use ($restore): void {
+                $restore();
+                $this->out("\n");
+                exit(130);
+            }, false);
+        }
+        $this->stty('-echo');
+        try {
+            return $read(true);
+        } finally {
+            $restore();
+            if ($signals) {
+                pcntl_signal(SIGINT, $previousHandler);
+                pcntl_async_signals($previousAsync);
+            }
+        }
+    }
+
+    private function readLine(bool $tty): string
+    {
+        if ($tty) {
+            // Wait in select(), which Ctrl-C interrupts; PHP's read retries.
+            $read = [$this->stdin];
+            $write = $except = null;
+            @stream_select($read, $write, $except, null);
+        }
+        $line = fgets($this->stdin);
+        if ($tty) {
+            $this->out("\n");   // the Enter key was not echoed
         }
 
         return rtrim(is_string($line) ? $line : '', "\r\n");
+    }
+
+    /**
+     * Runs stty on this command's stdin; null when stdin is not a terminal or
+     * stty fails. No shell: the argument goes to stty as is.
+     */
+    private function stty(string $arg): ?string
+    {
+        if (!stream_isatty($this->stdin) || !function_exists('proc_open')) {
+            return null;
+        }
+        $proc = @proc_open(['stty', $arg], [0 => $this->stdin, 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        if (!is_resource($proc)) {
+            return null;
+        }
+        $output = (string)stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+
+        return proc_close($proc) === 0 ? trim($output) : null;
     }
 
     private function out(string $text): void
