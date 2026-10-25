@@ -100,6 +100,20 @@ final class SessionGate
     }
 
     /**
+     * Legacy logout(): empty the session and give it a new id; the old file is
+     * removed, so a copied cookie no longer signs in.
+     */
+    public function signOut(): void
+    {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+        $_SESSION = [];
+        session_regenerate_id(true);
+        session_write_close();
+    }
+
+    /**
      * Stamp the activity (at most once a minute) and give the open session a
      * CSRF token if it has none.
      */

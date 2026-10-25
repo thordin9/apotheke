@@ -95,7 +95,8 @@ class Filters extends BaseFilters
      */
     public array $globals = [
         'before' => [
-            'sessioncsrf',
+            // /login, /register and /logout check the token themselves, after their own redirects (Auth).
+            'sessioncsrf' => ['except' => ['login', 'register', 'logout']],
         ],
         'after' => [
             'securityheaders',
