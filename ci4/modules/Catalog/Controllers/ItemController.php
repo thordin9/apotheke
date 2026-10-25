@@ -136,55 +136,73 @@ final class ItemController extends CatalogController
         $undo = $this->undo();
         $before = $existing !== null ? $undo->snapshot([(int)$existing['id']]) : [];
         $newImage = null;
-        // One transaction: a failed save also drops the new location or category, and the photo's files (L-81).
-        // A UserError before the save still keeps them, as on legacy, and shows the form again.
+        $savedId = null;
+        $fields = [];
         try {
-            $savedId = $this->repo()->atomically(function () use (&$vals, $qty, $raw, $existing, $post, $tax, $images, &$newImage) {
-                try {
-                    if ($vals['name'] === '') {
-                        throw new UserError('Please give the item a name.');
-                    }
-                    if ($qty === false) {
-                        throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
-                    }
-                    $fields = ['tags' => Text::tags($vals['tags']), 'value_cents' => ItemInput::money($vals['value']),
-                        'purchase_date' => ItemInput::purchaseDate($vals['purchase_date'], $this->calendar()->now()->modify('+86400 seconds')->format('Y-m-d')),
-                        'expires_on' => ItemInput::expiryDate($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => ItemInput::minQty($vals['min_qty'])];
-                    foreach (Kind::KINDS as $kind) {
-                        $t = Kind::get($kind);
-                        if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') {
-                            throw new UserError('Type a name for the new ' . $t['one'] . '.');
-                        }
-                        if ($vals[$t['col']] !== null && $tax->get($kind, $vals[$t['col']]) === null) {
-                            throw new UserError('That ' . $t['one'] . ' no longer exists. Please pick another.');
-                        }
-                    }
-                    foreach (Kind::KINDS as $kind) {
-                        if ($vals['new_' . $kind] !== '') {
-                            $vals[Kind::get($kind)['col']] = (int)$tax->create($kind, $vals['new_' . $kind])['id'];
-                            $vals['new_' . $kind] = '';
-                        }
-                    }
-                    $file = $this->upload(['photo', 'photo2']);
-                    if ($file !== null) {
-                        $newImage = $images->store($file->getTempName(), (int)$file->getSize(), $file->getError());
-                        $images->hold($newImage);
-                    }
-                } catch (UserError $e) {
-                    return $e;
+            if ($vals['name'] === '') {
+                throw new UserError('Please give the item a name.');
+            }
+            if ($qty === false) {
+                throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
+            }
+            $fields = ['tags' => Text::tags($vals['tags']), 'value_cents' => ItemInput::money($vals['value']),
+                'purchase_date' => ItemInput::purchaseDate($vals['purchase_date'], $this->calendar()->now()->modify('+86400 seconds')->format('Y-m-d')),
+                'expires_on' => ItemInput::expiryDate($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => ItemInput::minQty($vals['min_qty'])];
+            foreach (Kind::KINDS as $kind) {
+                $t = Kind::get($kind);
+                if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') {
+                    throw new UserError('Type a name for the new ' . $t['one'] . '.');
                 }
+                if ($vals[$t['col']] !== null && $tax->get($kind, $vals[$t['col']]) === null) {
+                    throw new UserError('That ' . $t['one'] . ' no longer exists. Please pick another.');
+                }
+            }
+        } catch (UserError $e) {
+            $savedId = $e;
+        }
+        if ($savedId === null) {
+            // The photo is stored and decoded before the transaction, so a write that commits meanwhile
+            // cannot make the save fail (M-91). It stays held until the save commits (L-81).
+            $storeError = null;
+            try {
+                $file = $this->upload(['photo', 'photo2']);
+                if ($file !== null) {
+                    $newImage = $images->store($file->getTempName(), (int)$file->getSize(), $file->getError());
+                    $images->hold($newImage);
+                }
+            } catch (UserError $e) {
+                $storeError = $e;
+            }
+            // One transaction: a failed save also drops the new location or category, and the photo's files (L-81).
+            // A UserError before the save still keeps them, as on legacy, and shows the form again.
+            try {
+                $savedId = $this->repo()->atomically(function () use (&$vals, $fields, $existing, $post, $tax, $newImage, $storeError) {
+                    try {
+                        foreach (Kind::KINDS as $kind) {
+                            if ($vals['new_' . $kind] !== '') {
+                                $vals[Kind::get($kind)['col']] = (int)$tax->create($kind, $vals['new_' . $kind])['id'];
+                                $vals['new_' . $kind] = '';
+                            }
+                        }
+                    } catch (UserError $e) {
+                        return $e;
+                    }
 
-                return $this->repo()->save($existing, $fields + $vals, $newImage, !empty($post['remove_image']));
-            });
-        } catch (Throwable $e) {
+                    return $storeError ?? $this->repo()->save($existing, $fields + $vals, $newImage, !empty($post['remove_image']));
+                });
+            } catch (Throwable $e) {
+                if ($newImage !== null) {
+                    $images->delete($newImage);
+                    $images->release($newImage);
+                }
+                throw $e;
+            }
             if ($newImage !== null) {
-                $images->delete($newImage);
+                if ($savedId instanceof UserError) {
+                    $images->delete($newImage);
+                }
                 $images->release($newImage);
             }
-            throw $e;
-        }
-        if ($newImage !== null) {
-            $images->release($newImage);
         }
         if ($savedId instanceof UserError) {
             $e = $savedId;
