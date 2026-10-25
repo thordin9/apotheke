@@ -136,19 +136,22 @@ jobs:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'ci4/composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
-      - name: Install zbar (QR round-trip tests)
+      - name: Install zbar (QR round-trip tests) and, on ci4, the HEIC decoder
         if: steps.suite.outputs.run == 'true'
         # A hung mirror once kept this step running for hours. Each apt call gets its own timeout,
         # the whole install is retried 3 times, and the step itself stops after 15 minutes.
         timeout-minutes: 15
         run: |
           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          pkgs=(zbar-tools)
+          # CI4 MediaTest converts a real HEIC (CI=true fails instead of skipping without a decoder).
+          if [ "${{ matrix.app }}" = ci4 ]; then pkgs+=(libheif-plugin-libde265); fi
           for i in 1 2 3; do
             if timeout 120 sudo apt-get "${apt_opts[@]}" update -qq \
-              && timeout 180 sudo apt-get "${apt_opts[@]}" install -y -qq zbar-tools; then
+              && timeout 180 sudo apt-get "${apt_opts[@]}" install -y -qq "${pkgs[@]}"; then
               exit 0
             fi
-            echo "zbar-tools install failed (attempt $i/3)" >&2
+            echo "${pkgs[*]} install failed (attempt $i/3)" >&2
             [ "$i" -lt 3 ] && sleep $((i * 15))
           done
           exit 1
@@ -171,6 +174,11 @@ jobs:
       - name: PHPUnit (unit + HTTP integration)
         if: steps.suite.outputs.run == 'true'
         run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
+      - name: Prove the real-HEIC Media test runs (CI4)
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
+        run: |
+          php -r 'echo "Imagick HEIC/HEIF: ", json_encode(Imagick::queryFormats("HEI*")), PHP_EOL;'
+          vendor/bin/phpunit -c ci4/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
       - name: Prove CI4 used PostgreSQL
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
         run: php scripts/ci4-pgsql-proof.php

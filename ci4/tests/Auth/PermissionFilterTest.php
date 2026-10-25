@@ -155,19 +155,19 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(20, $n, "15 GET and 5 HEAD routes");
-        $this->assertSame(24, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths');
+        $this->assertSame(22, $n, "16 GET and 6 HEAD routes");
+        $this->assertSame(28, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**
      * Every path a route pattern stands for: each alternative of a (a|b|c)
-     * group, id 1 for a number, logo.png for a file name.
+     * group, id 1 for a number, logo.png for a brand file, x.jpg for a media name.
      *
      * @return list<string>
      */
     private static function sample(string $route): array
     {
-        $path = str_replace(['([0-9]+)', '([a-z0-9.\\-]+)'], ['1', 'logo.png'], '/' . ltrim($route, '/'));
+        $path = str_replace(['([0-9]+)', '([a-z0-9.\\-]+)', '([^/]+)'], ['1', 'logo.png', 'x.jpg'], '/' . ltrim($route, '/'));
         if (preg_match('#\(([a-z]+(?:\|[a-z]+)+)\)#', $path, $m, PREG_OFFSET_CAPTURE) !== 1) {
             return [$path];
         }

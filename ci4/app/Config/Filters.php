@@ -50,6 +50,8 @@ class Filters extends BaseFilters
         'sessioncsrf' => \Apotheke\Core\Filters\CsrfFilter::class,
         // Legacy route_perm()/user_can(): every request, routed or not, before CSRF (PLAN PR 7).
         'permission' => \Apotheke\Auth\Filters\PermissionFilter::class,
+        // Runs Core\Http\RequestCleanup at the end of every request (an unfinished upload's files).
+        'requestcleanup' => \Apotheke\Core\Filters\RequestCleanupFilter::class,
     ];
 
     /**
@@ -78,6 +80,7 @@ class Filters extends BaseFilters
             'permission',
         ],
         'after' => [
+            'requestcleanup',
         ],
     ];
 

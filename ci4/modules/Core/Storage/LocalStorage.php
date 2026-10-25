@@ -14,7 +14,8 @@ use RuntimeException;
  */
 final class LocalStorage implements Storage
 {
-    public function __construct(private readonly string $root)
+    /** $fileMode: chmod for written files (originals use 0640); null keeps the umask's mode. */
+    public function __construct(private readonly string $root, private readonly ?int $fileMode = null)
     {
     }
 
@@ -59,6 +60,9 @@ final class LocalStorage implements Storage
             $written += $n;
         }
         fclose($fh);
+        if ($this->fileMode !== null) {
+            @chmod($tmp, $this->fileMode);
+        }
         if (!@rename($tmp, $path)) {
             @unlink($tmp);
             throw new RuntimeException('Could not store the file.');
@@ -78,6 +82,18 @@ final class LocalStorage implements Storage
         $path = $this->path($key);
 
         return $path !== null && is_file($path);
+    }
+
+    public function modifiedAt(string $key): ?int
+    {
+        $path = $this->path($key);
+        if ($path === null) {
+            return null;
+        }
+        clearstatcache(true, $path);
+        $time = is_file($path) ? @filemtime($path) : false;
+
+        return $time === false ? null : $time;
     }
 
     /** Absolute path, or null when the key would leave the root. */

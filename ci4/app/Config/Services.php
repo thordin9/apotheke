@@ -207,6 +207,43 @@ class Services extends BaseService
         ]);
     }
 
+    /** Undo steps for this request's unfinished work (Core\Http\RequestCleanup). Per request, never persistent. */
+    public static function requestCleanup(bool $getShared = true): \Apotheke\Core\Http\RequestCleanup
+    {
+        if ($getShared) {
+            return static::getSharedInstance('requestCleanup');
+        }
+
+        return new \Apotheke\Core\Http\RequestCleanup();
+    }
+
+    /** Served photos and thumbnails: DATA_DIR/images and DATA_DIR/thumbs on local disk. */
+    public static function servedImages(bool $getShared = true): \Apotheke\Media\Storage\ServedImageWriter
+    {
+        if ($getShared) {
+            return static::getSharedInstance('servedImages');
+        }
+
+        return new \Apotheke\Media\Storage\ServedImageWriter(new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()));
+    }
+
+    /** Photo uploads: originals under ORIGINALS_DIR (files 0640), the served copy through servedImages. */
+    public static function imageStore(bool $getShared = true): \Apotheke\Media\ImageStore
+    {
+        if ($getShared) {
+            return static::getSharedInstance('imageStore');
+        }
+        \Apotheke\Media\ImageLimits::applyImagickLimits();
+
+        return new \Apotheke\Media\ImageStore(
+            static::settings(),
+            new \Apotheke\Media\Storage\OriginalStore(new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->originalsDir(), 0640)),
+            static::servedImages(),
+            new \Apotheke\Media\Storage\ImagickDecoder(),
+            static::requestCleanup(),
+        );
+    }
+
     /** Logo and icon files: DATA_DIR/brand on local disk. */
     public static function brandStore(bool $getShared = true): \Apotheke\Settings\BrandStore
     {
@@ -294,6 +331,10 @@ class Services extends BaseService
             return static::getSharedInstance('exceptions', $config);
         }
         $config ??= config(\Config\Exceptions::class);
+        // Resolved when the handler runs, so it is the current request's list (exceptions is persistent in worker mode).
+        $config->cleanup ??= static function (): void {
+            static::requestCleanup()->run();
+        };
         if (PHP_SAPI !== 'cli') {
             $config->page ??= static fn (): \Apotheke\Core\Http\ErrorPage => static::errorPage();
         }
