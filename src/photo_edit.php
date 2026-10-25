@@ -53,8 +53,16 @@ function photo_edit(int $itemId, int $photoId, int $rotate, array $crop): array
         throw new UserError('Server could not save the image.', 500);
     }
     try {
-        $version = db_tx(function (PDO $pdo) use ($itemId, $photoId, $name, $rotate, $cw, $ch): int {
-            $pdo->prepare('UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ?')->execute([$name, now_utc(), $photoId, $itemId]);
+        $old = $p['file'];
+        $version = db_tx(function (PDO $pdo) use ($itemId, $photoId, $name, $old, $rotate, $cw, $ch): int {
+            // Only the request that read the current file replaces it; another edit of the same photo at the same
+            // time changes nothing, and its own new files are removed below.
+            $st = $pdo->prepare('UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ? AND file = ?');
+            $st->execute([$name, now_utc(), $photoId, $itemId, $old]);
+            if ($st->rowCount() !== 1) {
+                photo_find($itemId, $photoId);   // 404 when it is gone
+                throw new UserError('Could not read that photo.', 500);
+            }
             photos_renumber($itemId);
             $pdo->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
             activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo', array_filter(['change' => 'edited', 'rotate' => $rotate ?: null, 'size' => $cw . '×' . $ch]));
