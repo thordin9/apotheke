@@ -478,7 +478,7 @@ upload rejection corpus; token-leak grep; gitleaks; `composer audit`.
 | `docs/getting-started.md`, `docs/deployment-and-operations.md` | Docker-only; 3.0 upgrade guide with §3.6, re-login, `ORIGINALS_DIR` rules, PHP 8.4 image |
 | `docs/configuration.md` | same env vars (incl. `DB_DSN` forms supported by the translator, `ORIGINALS_DIR`, autofill knobs), `trust_proxy` behaviour, `CI_ENVIRONMENT` |
 | `docs/releasing.md` | `release/2.5` flow, patch-only guard, 90-day window (§4.5) |
-| `docs/autofill.md`, `docs/autofill-admin-guide.md` | CI4 references; min(model size, 1600) = 1024 px today; Worker URL placeholder `https://autofill.example` |
+| `docs/autofill.md` (the admin guide merged into it on `main`, #88) | CI4 references; min(model size, 1600) = 1024 px today; Worker URL placeholder `https://autofill.example` |
 | `docs/testing.md`, `docs/ci.md` | 8.4 legs, legacy@8.3 reference, parity recorder + allowlist, CLI goldens, deptrac |
 | `CHANGELOG.md` | via the release workflow; the cutover carries `BREAKING CHANGE:` (CI4, PHP 8.4 image, Docker-only, re-login) |
 | `docs/qa/ci4-prNN-qa.md` | one QA report per PR |

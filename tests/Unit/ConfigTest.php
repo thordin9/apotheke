@@ -73,9 +73,9 @@ final class ConfigTest extends TestCase
     public function testEnvOverridesFile(): void
     {
         $c = config_load('/app', $this->write(['app_password' => 'fromfile', 'db' => ['port' => 1111]]), [
-            'APP_PASSWORD' => 'fromenv-pw', 'DB_PORT' => '6543', 'MAX_UPLOAD_MB' => '5', 'SEED_DEFAULTS' => 'false', 'DATA_DIR' => '/srv/data/',
+            'APP_PASSWORD' => 'fromenv1', 'DB_PORT' => '6543', 'MAX_UPLOAD_MB' => '5', 'SEED_DEFAULTS' => 'false', 'DATA_DIR' => '/srv/data/',
         ]);
-        $this->assertSame('fromenv-pw', $c['app_password']);
+        $this->assertSame('fromenv1', $c['app_password']);
         $this->assertSame(6543, $c['db']['port']);
         $this->assertSame(5, $c['uploads']['max_mb']);
         $this->assertFalse($c['seed_defaults']);
@@ -85,8 +85,8 @@ final class ConfigTest extends TestCase
 
     public function testEmptyEnvDoesNotWipeFileValues(): void
     {
-        $c = config_load('/app', $this->write(['app_password' => 's3cret-pw']), ['APP_PASSWORD' => '', 'DB_DRIVER' => '']);
-        $this->assertSame('s3cret-pw', $c['app_password']);
+        $c = config_load('/app', $this->write(['app_password' => 'secret']), ['APP_PASSWORD' => '', 'DB_DRIVER' => '']);
+        $this->assertSame('secret', $c['app_password']);
         $this->assertSame('sqlite', $c['db']['driver']);
     }
 
