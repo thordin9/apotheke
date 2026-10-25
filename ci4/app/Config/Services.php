@@ -308,6 +308,7 @@ class Services extends BaseService
             static fn (): bool => static::settings()->signInEnabled(),
             $_COOKIE['theme'] ?? null,
             is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/',
+            static fn (): ?array => is_string($_GET['undo'] ?? null) && $_GET['undo'] !== '' ? static::undoTokens()->bar($_GET['undo']) : null,
         );
     }
 
@@ -503,6 +504,128 @@ class Services extends BaseService
     public static function recentItems(bool $getShared = true): \Apotheke\Catalog\RecentItems
     {
         return static::favourites($getShared);
+    }
+
+    /** One item, its photos and attachments (Catalog, PLAN 11a). */
+    public static function itemRepository(bool $getShared = true): \Apotheke\Catalog\Items\ItemRepository
+    {
+        if ($getShared) {
+            return static::getSharedInstance('itemRepository');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\Items\ItemRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::taxonomy(), static::tags(),
+            static::imageStore(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()));
+    }
+
+    /** Undo tokens (Undo): deleted items' files are released through the item repository's deletes. */
+    public static function undoTokens(bool $getShared = true): \Apotheke\Undo\UndoTokens
+    {
+        if ($getShared) {
+            return static::getSharedInstance('undoTokens');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Undo\UndoTokens($db, new \Apotheke\Core\Libraries\Clock(), (int)static::settings()->get('undo_seconds'),
+            static function (string $file): void {
+                static::imageStore()->delete($file);
+            },
+            static function (string $file): void {
+                static::itemRepository()->deleteAttachmentFile($file);
+            });
+    }
+
+    /** Putting items back from an undo token (Catalog). */
+    public static function undoApply(bool $getShared = true): \Apotheke\Catalog\Items\UndoApply
+    {
+        if ($getShared) {
+            return static::getSharedInstance('undoApply');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\Items\UndoApply($db, static::undoTokens(), static::itemRepository(), static::taxonomy(), static::tags(), static::itemHistory());
+    }
+
+    /** The item history, read side (Activity). */
+    public static function activityLog(bool $getShared = true): \Apotheke\Activity\ActivityLog
+    {
+        if ($getShared) {
+            return static::getSharedInstance('activityLog');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Activity\ActivityLog($db);
+    }
+
+    /** The history as HTML (Activity). */
+    public static function activityView(bool $getShared = true): \Apotheke\Activity\Views\ActivityView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('activityView');
+        }
+        $s = static::settings();
+
+        return new \Apotheke\Activity\Views\ActivityView(static::layout(), (string)$s->get('currency'), (string)$s->get('time_format'), (string)$s->get('timezone'));
+    }
+
+    /** The item page and form (Catalog). */
+    public static function itemView(bool $getShared = true): \Apotheke\Catalog\Views\ItemView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('itemView');
+        }
+        $s = static::settings();
+        $keys = ['default_sort', 'list_view', 'currency', 'currency_position', 'money_format', 'app_name'];
+        $list = new \Apotheke\Catalog\Views\ListView(static::layout(), static::calendar(), array_combine($keys, array_map(static fn (string $k): string => (string)$s->get($k), $keys)),
+            \Apotheke\Core\Libraries\Version::current(), $s->signInEnabled());
+        $due = $s->get('lend_due_days');
+
+        return new \Apotheke\Catalog\Views\ItemView(static::layout(), $list, static::calendar(), static::activityView(), new \Apotheke\Notes\MarkdownRenderer(), [
+            'currency' => (string)$s->get('currency'), 'date_format' => (string)$s->get('date_format'), 'max_photos' => (int)$s->get('max_photos'),
+            'max_upload' => static::imageStore()->maxUpload(), 'undo_seconds' => (int)$s->get('undo_seconds'), 'attach_max_per_item' => (int)$s->get('attach_max_per_item'),
+            'attach_types' => (string)$s->get('attach_types'), 'attach_max_mb' => (int)$s->get('attach_max_mb'), 'lend_due_days' => $due === null ? null : (int)$due,
+        ]);
+    }
+
+    /** The item form's AI autofill attributes (Autofill, for the role's "create"). */
+    public static function formAutofill(bool $getShared = true): \Apotheke\Catalog\Items\FormAutofill
+    {
+        if ($getShared) {
+            return static::getSharedInstance('formAutofill');
+        }
+
+        return new \Apotheke\Catalog\Items\FormAutofill(static function (): ?array {
+            $af = static::autofill();
+            $check = new \Apotheke\Auth\PermissionCheck(static::roles());
+            if (!$af->enabled() || !$check->allows(static::currentUser()->resolve(), 'create')) {
+                return null;
+            }
+            $s = static::settings();
+
+            return ['timeout' => (int)$s->get('autofill_timeout'), 'side' => $af->imageSide($af->knownInfo()), 'auto' => (bool)$s->get('autofill_auto'), 'latency' => $af->expectedMs()];
+        });
+    }
+
+    /** Legacy require_perm() inside an action (Auth, for the signed-in role). */
+    public static function permissionGate(bool $getShared = true): \Apotheke\Core\Security\PermissionGate
+    {
+        if ($getShared) {
+            return static::getSharedInstance('permissionGate');
+        }
+
+        return new class () implements \Apotheke\Core\Security\PermissionGate {
+            public function require(string $permission): void
+            {
+                $refusal = (new \Apotheke\Auth\PermissionCheck(Services::roles()))->refusal(Services::currentUser()->resolve(), $permission);
+                if ($refusal !== null) {
+                    throw new \Apotheke\Core\Exceptions\UserError($refusal === \Apotheke\Auth\PermissionCheck::SIGN_IN ? 'Not signed in' : $refusal, 403);
+                }
+            }
+        };
     }
 
     /** The router matches legacy's exact request path (Core\Http\LegacyPathRouter). */

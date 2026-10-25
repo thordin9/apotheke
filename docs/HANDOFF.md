@@ -29,31 +29,36 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Catalog (step 9): GET `/` (list, search, filters, sorts, paging, chips, toasts, the overview), GET `/stats` and
   `/filters` (saved filters) are byte-identical to legacy. Search (FTS5 or pg_trgm, typo matching) rebuilds its index
   in one transaction when the data changes. Favourites: POST `/item/{id}/fav` and `/recent/clear`; the list reads
-  recently viewed through Catalog's `RecentItems`. Recording views waits for the item page (11a), and POST `/bulk`
-  for 11b. Acceptance: the PM accepted the legacy-vs-CI4 golden test (`tests/Unit/Ci4CatalogParityTest.php`) in
-  place of the `list`, `search`, `saved-filters`, `favourites` and `value` specs; the specs now also run against CI4
-  (see Playwright on CI4). Like legacy, CI4 routes the exact decoded path: a trailing slash or a dot segment
-  (`/stats/`, `/./stats`, `/%2e/stats`, `/a/../stats`) answers 404 (N-51, `Core\Http\LegacyPathRouter`).
+  recently viewed through Catalog's `RecentItems`, which also records an opened item page (and sets the device
+  cookie on the first one). POST `/bulk` waits for 11b. Acceptance: the PM accepted the legacy-vs-CI4 golden test
+  (`tests/Unit/Ci4CatalogParityTest.php`) in place of the `list`, `search`, `saved-filters`, `favourites` and
+  `value` specs; the specs now also run against CI4 (see Playwright on CI4). Like legacy, CI4 routes the exact
+  decoded path: a trailing slash or a dot segment (`/stats/`, `/./stats`, `/%2e/stats`, `/a/../stats`) answers 404
+  (N-51, `Core\Http\LegacyPathRouter`).
+- Items (step 11a, first part): the item page `/item/{id}`, `/new`, `/item/{id}/edit`, POST `/save` (one photo
+  through `ImageStore`, `MAX_FILE_SIZE` from `maxUpload()`), `/item/{id}/delete`, POST `/undo` with the undo bar,
+  and `/activity` are byte-identical to legacy (`tests/Unit/Ci4ItemParityTest.php`, SQLite and PostgreSQL). Notes
+  are drawn and edited with `MarkdownRenderer`; the Notes module is unchanged. The Undo module keeps the tokens;
+  applying one is Catalog's `Items\UndoApply`. Not yet: the photo routes (add, order, cover, left/right, delete,
+  edit; 11a part 2), quantity, duplicate, attachments upload and lend (11b, 13). Their buttons are drawn and
+  answer 404 on CI4 until then.
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
-  `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals` and `branding` on CI4 in the
-  PHP 8.4 e2e cells, after the unchanged legacy run. A test that needs an unported page skips (`CI4_UNPORTED` in
-  `tests/visual/fixtures.ts`); remove its entry when the page lands:
-  - `list`: empty state with a call to action (`/activity`, `/labels`); quantity +/- on a card (POST
-    `/item/{id}/qty`, 11b).
-  - `search`: works without JavaScript and shows the engine in System (`/settings/system`).
-  - `value`: overview totals, sort by value, editing a price (`/item/{id}/edit`, 11a). That is the whole spec.
-  - `favourites`: star on a card, chip and filter; star without JavaScript; recently viewed strip (the item page,
-    11a). That is the whole spec; POST `/item/{id}/fav` and the list's favourites view are covered by the golden test.
-  - `manage`: add, rename, default, delete-with-move, both variants (the add form `/new`, 11a).
-  - `locations-nested`: build a tree … move and delete (the item page, 11a).
-  - `errors`: expired session (CSRF) shows a friendly page (the item page, 11a).
-  - `originals`: both tests (the add form `/new`, 11a).
+  `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
+  `undo`, `history` and `expiry` on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test that needs
+  an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe › title);
+  remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec or title
+  no longer exists, or that this list does not name:
+  - `list`: the labels page has an empty state (`/labels`); quantity +/- on a card (POST `/item/{id}/qty`, 11b).
+  - `search`: shows the engine in System (`/settings/system`).
+  - `item`: photos: add several, reorder, set cover, delete (11a part 2); quantity +/- on the item page (11b).
+  - `undo`: bulk move, then undo; dismiss hides the bar (POST `/bulk`, 11b).
   - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, roles, users, control
-    panel, item, add, bulk, activity, labels, import/export, backup).
+    panel, photos, duplicate, bulk, merge, stock, attachments, lending, labels, import/export, backup).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
-  with legacy's 401, 303 and 403 answers. The permission comes from the routed path: each route's `permission` option
-  (a route without one is refused), or legacy `route_perm()` where no route matches or the route redirects. Routes
-  marked `none` (health, branding) skip the check only on their exact path. The built-in roles stand in only when the
+  with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
+  each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
+  legacy `route_perm()` where no route matches or the route redirects. Routes marked `none` (health, branding) skip
+  the check only on their exact path. The built-in roles stand in only when the
   `roles` table cannot be read (a database error), as on legacy.
 - Sessions: native `apothekesid` files, started on demand. CI4 applies `session_idle_hours` and `session_days` from
   sign-in, and each account has a session epoch (migration 0028), as `main` does.
@@ -65,9 +70,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   per-request `Core\Http\RequestCleanup` removes it: the exception handler runs it before it exits, and the
   `requestcleanup` after filter runs it at the end of every request; a failing step is logged with its key and class
   only. Settings saves go through `Core\Database\Writes` (M-25), as Taxonomy's writes do. All bytes go through
-  `Core\Storage`. GET `/media` serves only served names. The upload routes, photo order/edit and copies for
-  duplicate/merge come with 11a/11b.
-- Not ported yet: sign-in, account and Users pages, the Items, Undo and Backup modules. When those pages
+  `Core\Storage`. GET `/media` serves only served names. The item form's upload uses it; photo order/edit and
+  copies for duplicate/merge come with 11a part 2 and 11b.
+- Local test databases: the credential tests need a PostgreSQL role with `CREATEROLE` (and on PostgreSQL 16+
+  `createrole_self_grant = 'set, inherit'`), see [testing](testing.md) (N-71).
+- Not ported yet: sign-in, account and Users pages, the BulkMerge and Backup modules. When those pages
   arrive they pass `keepSignIn` to `SessionGate::signIn()` where `main` passes it to `login_session()` (sign out
   everywhere, and a new password for your own account on Account, the password page and Users).
 
@@ -84,15 +91,20 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#96](https://github.com/thordin9/apotheke/pull/96): PLAN step 8, taxonomy (locations, categories, tags), plus N-18
   and N-19. Merged.
 - [#97](https://github.com/thordin9/apotheke/pull/97): #95/#96 follow-ups N-30, N-31, M-25 for Settings. Merged.
-- [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. In review.
-- [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. In review.
+- [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. Merged.
+- [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. Merged.
+- [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages. In review.
+- [#101](https://github.com/thordin9/apotheke/pull/101): Playwright on CI4, exact-path routing (N-51). Merged.
+- [#102](https://github.com/thordin9/apotheke/pull/102): PLAN step 11a (first part), item pages, undo, activity,
+  plus #101 N-70 to N-75. In review.
 
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
-  catalog (#99).
+  catalog (#99); Playwright on CI4 (#101); step 11a item pages (`cursor/ci4-item-pages`, #102). Stays out of the
+  auth, account and users/roles files; the Permission filter changed only for N-70 and `/save`.
 - Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
-  rate limits). Step 11a waits until media and catalog are in.
+  rate limits; #100, then `/settings/security`).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
@@ -103,8 +115,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    `keepSignIn` as above.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
-3. PLAN 11a: item form and photo routes on `ImageStore` (`MAX_FILE_SIZE` from `maxUpload()`); Autofill reads photos
-   through Media.
+3. PLAN 11a part 2: the photo routes (add, order, cover, left/right, delete, edit) on `ImageStore`, and the
+   `photos` spec on CI4; Autofill reads photos through Media.
+4. PLAN 11b: BulkMerge (bulk, merge, duplicate, quantity) and attachments.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 

@@ -24,6 +24,7 @@ final class Page
      * @param Closure(): bool $signInEnabled legacy auth_enabled()
      * @param mixed $themeCookie the request's `theme` cookie
      * @param string $requestUri the request's path and query, for the menu's way back
+     * @param (Closure(): ?array{label:string,left:int,token:string})|null $undo the Undo bar for this request's ?undo= token (the Undo module's), or null
      */
     public function __construct(
         private readonly SettingsService $settings,
@@ -34,6 +35,7 @@ final class Page
         private readonly Closure $signInEnabled,
         private readonly mixed $themeCookie,
         private readonly string $requestUri,
+        private readonly ?Closure $undo = null,
     ) {
     }
 
@@ -99,10 +101,25 @@ final class Page
             . '<body class="' . self::e(trim($bodyClass . ' ' . $this->viewer->bodyClass())) . "\">\n";
     }
 
-    /** Legacy page_end(). $undoBar: the Undo module's bar (legacy undo_bar_html()), '' until that module is ported. */
-    public function end(string $undoBar = ''): string
+    /** Legacy page_end(): the Undo bar, then the end of the document. */
+    public function end(): string
     {
-        return $undoBar . "\n</body>\n</html>\n";
+        return $this->undoBar() . "\n</body>\n</html>\n";
+    }
+
+    /** Legacy undo_bar_html(): "… · Undo" for a live ?undo= token, else ''. */
+    public function undoBar(): string
+    {
+        $t = $this->undo !== null ? ($this->undo)() : null;
+        if ($t === null) {
+            return '';
+        }
+
+        return '<div class="undo-bar" id="undo-bar" role="status" data-left="' . $t['left'] . '">'
+            . '<span class="undo-label">' . self::e($t['label']) . '</span>'
+            . '<form method="post" action="/undo"><input type="hidden" name="csrf" value="' . self::e($this->csrf()) . '"><input type="hidden" name="token" value="' . self::e($t['token']) . '">'
+            . '<button class="btn undo-btn" id="undo-btn">' . Icons::svg('undo') . ' Undo</button></form>'
+            . '<button type="button" class="btn btn-ghost undo-x" id="undo-x" aria-label="Dismiss">' . Icons::svg('x') . '</button></div>';
     }
 
     /** Legacy brand_logo(). */

@@ -350,6 +350,10 @@ at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 | 17 | `docs(ci4): docs rewrite` | §6 | link check; QA reads the upgrade guide end to end |
 | 18 | **cutover** `feat!: Apotheke 3.0 on CodeIgniter 4` (→ **main**) | move `ci4/` to the root, delete legacy `src/` (LegacyFunctions stays in the Migrations module), drop the legacy legs, keep golden files | PM re-scan, QA full pass, DevOps deploy test, Stathis sign-off; **image size before/after recorded in the PR**; **live check 2 (≤25 Neurons)** per §4.4 with usage posted; release workflow cuts **3.0.0** |
 
+Step 11a status (#102): the item page, `/new`, `/item/{id}/edit`, save (one photo upload, `MAX_FILE_SIZE`), delete, undo
+and `/activity` are ported with a golden test (`tests/Unit/Ci4ItemParityTest.php`). The photo routes (add, order,
+cover, left/right, delete, edit) and their `photos` spec follow as 11a part 2.
+
 ### 4.3 Autofill acceptance matrix (autofill client PR, #12)
 
 Run against the stub on both engine setups (GD + Imagick/libheif, GD only):
