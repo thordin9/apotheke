@@ -380,12 +380,17 @@ final class SettingsService
 
     /**
      * Seal legacy plaintext secret rows in place (legacy secret_persist()).
-     * A failure leaves the row; the next save seals it.
+     * A failure leaves the row; the next save seals it, and the class is
+     * logged (#97 N-35). Skipped while a transaction is open (N-34): with flat
+     * nesting a swallowed failure would fail the unrelated outer write.
      *
      * @param array<string,string> $plainByName
      */
     private function sealPlaintextRows(array $plainByName): void
     {
+        if ($this->repository->inTransaction()) {
+            return;
+        }
         try {
             $encoded = [];
             foreach ($plainByName as $key => $plain) {
@@ -395,8 +400,9 @@ final class SettingsService
                 $encoded[$key] = (string)json_encode($this->secrets->seal($plain), self::JSON);
             }
             $this->repository->replace($encoded, $this->clock->now());
-        } catch (Throwable) {
-            // leave the legacy row
+        } catch (Throwable $e) {
+            // Leave the legacy row. The class only: a message can hold a value.
+            ($this->log)('[apotheke] could not seal a stored secret (' . $e::class . ')');
         }
     }
 

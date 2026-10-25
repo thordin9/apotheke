@@ -3,7 +3,7 @@
 namespace Config;
 
 use CodeIgniter\Config\BaseConfig;
-use CodeIgniter\Log\Handlers\FileHandler;
+use Apotheke\Core\Log\RedactingFileHandler;
 use CodeIgniter\Log\Handlers\HandlerInterface;
 
 class Logger extends BaseConfig
@@ -82,7 +82,8 @@ class Logger extends BaseConfig
          * File Handler
          * --------------------------------------------------------------------
          */
-        FileHandler::class => [
+        // CI4's FileHandler without a database error's row detail (#97 N-33).
+        RedactingFileHandler::class => [
             // The log levels that this handler will handle.
             'handles' => [
                 'critical',

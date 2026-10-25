@@ -55,3 +55,15 @@ $routes->match(['GET', 'HEAD', 'POST'], 'register', $signIn . '::register', $non
 $routes->post('logout', $signIn . '::logout', $none);
 $routes->match(['GET', 'HEAD', 'POST'], 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
 $routes->post('account/signout', '\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere', ['permission' => 'self']);
+
+// Catalog: the list and search, the overview, saved filters. GET (and HEAD) needs view, POST edit.
+$catalog = '\\Apotheke\\Catalog\\Controllers\\';
+$routes->match(['GET', 'HEAD'], '/', $catalog . 'ListController::index', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'stats', $catalog . 'ListController::stats', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'filters', $catalog . 'FilterController::index', ['permission' => 'view']);
+$routes->post('filters', $catalog . 'FilterController::create', ['permission' => 'edit']);
+$routes->post('filters/([0-9]+)/(rename|delete)', $catalog . 'FilterController::act/$1/$2', ['permission' => 'edit']);
+
+// Favourites: the star needs edit; clearing this device's recently viewed needs view.
+$routes->post('item/([0-9]+)/fav', '\\Apotheke\\Favourites\\Controllers\\FavouriteController::star/$1', ['permission' => 'edit']);
+$routes->post('recent/clear', '\\Apotheke\\Favourites\\Controllers\\FavouriteController::clearRecent', ['permission' => 'view']);

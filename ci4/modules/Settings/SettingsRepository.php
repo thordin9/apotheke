@@ -38,6 +38,12 @@ final class SettingsRepository
         return $out;
     }
 
+    /** Whether a transaction is open on the connection. */
+    public function inTransaction(): bool
+    {
+        return (int)$this->db->transDepth > 0;
+    }
+
     /**
      * Replace these rows in one transaction (delete, then insert, like legacy
      * settings_store()). A failed statement, or a failed commit, rolls back

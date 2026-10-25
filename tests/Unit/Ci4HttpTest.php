@@ -456,12 +456,12 @@ final class Ci4HttpTest extends TestCase
 
     private function cookies(Server $server, ?PDO $pdo): void
     {
-        $plain = $server->client()->get('/');
+        $plain = $server->client()->get('/no-such-page');
         $this->assertSame(404, $plain['status']);
         $this->assertStringContainsString('apothekesid=', $this->cookieLine($plain));
         $this->assertStringNotContainsString('secure', strtolower($this->cookieLine($plain)));
 
-        $forwarded = $server->client()->get('/', ['X-Forwarded-Proto: https']);
+        $forwarded = $server->client()->get('/no-such-page', ['X-Forwarded-Proto: https']);
         $this->assertStringNotContainsString('secure', strtolower($this->cookieLine($forwarded)));
         if (!$pdo instanceof PDO) {
             return;
