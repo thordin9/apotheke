@@ -6,11 +6,14 @@ namespace Apotheke\Auth;
 
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
-use Throwable;
+use CodeIgniter\Database\Exceptions\DatabaseException;
+use PDOException;
 
 /**
  * The `roles` table (legacy roles(), role_has(), role_name()). Before
- * migration 0022 adds the table, the built-in defaults. Holds no state:
+ * migration 0022 adds the table, the built-in defaults: a database error
+ * (missing table, no connection) falls back to them, as legacy does on a
+ * PDOException; any other error propagates. Holds no state:
  * every call reads the table again, so a shared instance is safe across
  * requests.
  */
@@ -29,8 +32,8 @@ final class RoleRepository
             $result = $this->db->table('roles')->select('role_key, name, perms')
                 ->orderBy('builtin', 'DESC')->orderBy('id', 'ASC')->get();
             $rows = $result instanceof BaseResult ? $result->getResultArray() : null;
-        } catch (Throwable) {
-            $rows = null;
+        } catch (DatabaseException|PDOException) {
+            $rows = null;   // before migration 0022, or no connection
         }
         $out = [];
         if ($rows === null) {
