@@ -116,7 +116,8 @@ final class CsrfFilterTest extends CIUnitTestCase
     {
         $filters = config(Filters::class);
         $this->assertSame(CsrfFilter::class, $filters->aliases['sessioncsrf']);
-        $this->assertContains('sessioncsrf', $filters->globals['before']);
+        // Every write except the three sign-in pages, which check the token in their controller in legacy's order.
+        $this->assertSame(['except' => ['login', 'register', 'logout']], $filters->globals['before']['sessioncsrf']);
         $this->assertNotContains('csrf', $filters->globals['before']);
         $this->assertNotContains('csrf', $filters->required['before']);
         $this->assertArrayNotHasKey('csrf', $filters->globals['before']);
