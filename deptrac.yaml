@@ -48,6 +48,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Taxonomy\\
+    - name: Notes
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Notes\\
     - name: Search
       collectors:
         - type: classLike
@@ -88,6 +92,9 @@ deptrac:
     Taxonomy:
       - Core
       - Layout
+    # Notes: the Markdown renderer for item notes; Catalog and the activity diff use it.
+    Notes:
+      - Core
     # Search: the index over items and their places. Catalog: the list, overview and saved
     # filters; it shows recently viewed items through its RecentItems, which Favourites implements.
     Search:

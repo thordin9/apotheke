@@ -23,7 +23,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   confirmation page) are byte-identical to legacy, with View for GET and Edit for POST on each route. Tag storage
   (`TagRepository`) is in place for Catalog; tags have no pages. Item history is written through Core's `ItemHistory`,
   which the Activity module implements. Writes go through `Core\Database\Writes`: with DBDebug off a failed
-  statement still rolls back and answers 500. Notes comes next.
+  statement still rolls back and answers 500; nesting is flat, as in `db_tx()`.
+- Notes (step 8, second part): `MarkdownRenderer`, byte-identical to `md_render()`/`md_plain()`; no pages of its
+  own (item notes are shown and edited with Catalog).
 - Catalog (step 9): GET `/` (list, search, filters, sorts, paging, chips, toasts, the overview), GET `/stats` and
   `/filters` (saved filters) are byte-identical to legacy. Search (FTS5 or pg_trgm, typo matching) rebuilds its index
   in one transaction when the data changes. Favourites: POST `/item/{id}/fav` and `/recent/clear`; the list reads
@@ -63,15 +65,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#94](https://github.com/thordin9/apotheke/pull/94): the Layout module, plus #93 N-16 and N-17. Merged.
 - [#95](https://github.com/thordin9/apotheke/pull/95): PLAN step 10, media storage. Merged.
 - [#96](https://github.com/thordin9/apotheke/pull/96): PLAN step 8, taxonomy (locations, categories, tags), plus N-18
-  and N-19. In review.
+  and N-19. Merged.
 - [#97](https://github.com/thordin9/apotheke/pull/97): #95/#96 follow-ups N-30, N-31, M-25 for Settings. Merged.
+- [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. In review.
 - [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. In review.
 
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
   catalog (#99).
-- Coder2: step 8 (taxonomy, then Notes), then the rest of step 7 (sign-in, register, account, users and roles pages,
+- Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
   rate limits). Step 11a waits until media and catalog are in.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
@@ -79,7 +82,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Notes (step 8), then the sign-in, register, account, users and roles pages and rate limits, on the Layout. Pass
+1. The sign-in, register, account, users and roles pages and rate limits, on the Layout. Pass
    `keepSignIn` as above.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
