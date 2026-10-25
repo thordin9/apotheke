@@ -88,8 +88,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Tracked
 
-- CI4 router: trailing-slash routes (e.g. `/stats/`, `/locations/`) answer 200 where legacy gives 404. Owner: Coder.
-  Fixed in the CI4 Playwright target PR or the next one.
+- CI4 router: trailing-slash routes (e.g. `/stats/`, `/locations/`) and dot segments (N-51: `/./stats`,
+  `/%2e/stats`, `/a/../stats`) answer 200 where legacy gives 404. Owner: Coder. Fixed in the CI4 Playwright target PR
+  or the next one.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 
