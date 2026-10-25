@@ -415,4 +415,93 @@ class Services extends BaseService
 
         return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
     }
+    /** The search index over items (Search): SQLite FTS5 or Postgres pg_trgm, rebuilt when the data changes. */
+    public static function searchIndex(bool $getShared = true): \Apotheke\Search\SearchIndex
+    {
+        if ($getShared) {
+            return static::getSharedInstance('searchIndex');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Search\SearchIndex($db, static::taxonomy(), (bool)static::settings()->get('search_typos'));
+    }
+
+    /** "Today", expiry and the statistics' buckets in the `timezone` setting (Catalog). */
+    public static function calendar(bool $getShared = true): \Apotheke\Catalog\Calendar
+    {
+        if ($getShared) {
+            return static::getSharedInstance('calendar');
+        }
+        $s = static::settings();
+
+        return new \Apotheke\Catalog\Calendar(new \Apotheke\Core\Libraries\Clock(), (string)$s->get('timezone'), (int)$s->get('expiry_soon_days'));
+    }
+
+    /** The list and search (Catalog). */
+    public static function itemList(bool $getShared = true): \Apotheke\Catalog\ItemList
+    {
+        if ($getShared) {
+            return static::getSharedInstance('itemList');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\ItemList($db, static::searchIndex(), static::calendar());
+    }
+
+    /** The overview's statistics (Catalog). */
+    public static function catalogStats(bool $getShared = true): \Apotheke\Catalog\Stats
+    {
+        if ($getShared) {
+            return static::getSharedInstance('catalogStats');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\Stats($db, static::taxonomy(), static::calendar());
+    }
+
+    /** Saved filters (Catalog). */
+    public static function savedFilters(bool $getShared = true): \Apotheke\Catalog\SavedFilters
+    {
+        if ($getShared) {
+            return static::getSharedInstance('savedFilters');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\SavedFilters($db, new \Apotheke\Core\Libraries\Clock(), (int)static::settings()->get('saved_filters_max'));
+    }
+
+    /** Tags in use (Taxonomy). */
+    public static function tags(bool $getShared = true): \Apotheke\Taxonomy\TagRepository
+    {
+        if ($getShared) {
+            return static::getSharedInstance('tags');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Taxonomy\TagRepository($db, new \Apotheke\Core\Libraries\Clock());
+    }
+
+    /** Favourites and recently viewed (Favourites), for this request's device cookie. */
+    public static function favourites(bool $getShared = true): \Apotheke\Favourites\Favourites
+    {
+        if ($getShared) {
+            return static::getSharedInstance('favourites');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        $s = static::settings();
+
+        return new \Apotheke\Favourites\Favourites($db, static::itemList(), (string)$s->get('recent_scope'), (int)$s->get('recent_limit'), $_COOKIE[\Apotheke\Favourites\Favourites::COOKIE] ?? null);
+    }
+
+    /** The list's "Recently viewed" row (Catalog's RecentItems, implemented by Favourites). */
+    public static function recentItems(bool $getShared = true): \Apotheke\Catalog\RecentItems
+    {
+        return static::favourites($getShared);
+    }
 }

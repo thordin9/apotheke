@@ -45,3 +45,15 @@ foreach (['locations', 'categories'] as $segment) {
     $routes->get($segment . '/([0-9]+)/(rename|default|parent)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'view']);
     $routes->post($segment . '/([0-9]+)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'edit']);
 }
+
+// Catalog: the list and search, the overview, saved filters. GET (and HEAD) needs view, POST edit.
+$catalog = '\\Apotheke\\Catalog\\Controllers\\';
+$routes->match(['GET', 'HEAD'], '/', $catalog . 'ListController::index', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'stats', $catalog . 'ListController::stats', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'filters', $catalog . 'FilterController::index', ['permission' => 'view']);
+$routes->post('filters', $catalog . 'FilterController::create', ['permission' => 'edit']);
+$routes->post('filters/([0-9]+)/(rename|delete)', $catalog . 'FilterController::act/$1/$2', ['permission' => 'edit']);
+
+// Favourites: the star needs edit; clearing this device's recently viewed needs view.
+$routes->post('item/([0-9]+)/fav', '\\Apotheke\\Favourites\\Controllers\\FavouriteController::star/$1', ['permission' => 'edit']);
+$routes->post('recent/clear', '\\Apotheke\\Favourites\\Controllers\\FavouriteController::clearRecent', ['permission' => 'view']);
