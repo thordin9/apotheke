@@ -86,7 +86,10 @@ final class Ci4BrandingHttpTest extends TestCase
             $left = $legacy->client()->get($path);
             $right = $ci4->client()->get($path);
             $this->assertSame($left['status'], $right['status'], "$label $path status " . (string)@file_get_contents($ci4->log));
-            $this->assertSame($left['body'], $right['body'], "$label $path body");
+            // The bundled assets' cache busters come from each tree's file times (legacy asset()):
+            // CI4 serves its copy under ci4/public/assets, so only their values may differ.
+            $busters = static fn (string $body): string => (string)preg_replace('#(/assets/[a-z0-9.-]+)\?v=[0-9a-f]{8}#', '$1?v=V', $body);
+            $this->assertSame($busters($left['body']), $busters($right['body']), "$label $path body");
             foreach (self::HEADERS as $name) {
                 $this->assertSame($left['headers'][$name] ?? null, $right['headers'][$name] ?? null, "$label $path $name");
             }
