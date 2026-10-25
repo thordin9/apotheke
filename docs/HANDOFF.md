@@ -35,25 +35,31 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `value` specs; the specs now also run against CI4 (see Playwright on CI4). Like legacy, CI4 routes the exact
   decoded path: a trailing slash or a dot segment (`/stats/`, `/./stats`, `/%2e/stats`, `/a/../stats`) answers 404
   (N-51, `Core\Http\LegacyPathRouter`).
-- Items (step 11a, first part): the item page `/item/{id}`, `/new`, `/item/{id}/edit`, POST `/save` (one photo
-  through `ImageStore`, `MAX_FILE_SIZE` from `maxUpload()`), `/item/{id}/delete`, POST `/undo` with the undo bar,
-  and `/activity` are byte-identical to legacy (`tests/Unit/Ci4ItemParityTest.php`, SQLite and PostgreSQL). Notes
+- Items (step 11a): the item page `/item/{id}`, `/new`, `/item/{id}/edit`, POST `/save` (one photo through
+  `ImageStore`, `MAX_FILE_SIZE` from `maxUpload()`), `/item/{id}/delete`, POST `/undo` with the undo bar, and
+  `/activity` are byte-identical to legacy (`tests/Unit/Ci4ItemParityTest.php`, SQLite and PostgreSQL). Notes
   are drawn and edited with `MarkdownRenderer`; the Notes module is unchanged. The Undo module keeps the tokens;
-  applying one is Catalog's `Items\UndoApply`. Not yet: the photo routes (add, order, cover, left/right, delete,
-  edit; 11a part 2), quantity, duplicate, attachments upload and lend (11b, 13). Their buttons are drawn and
-  answer 404 on CI4 until then.
+  applying one is Catalog's `Items\UndoApply`.
+- Photos (step 11a, part 2): POST `/item/{id}/photos` (add), `/item/{id}/photos/{pid}/(cover|left|right|delete)`,
+  `/item/{id}/photos/order`, and GET/POST `/item/{id}/photos/{pid}/edit` (crop and rotate) answer as legacy does,
+  with the same files on disk (`tests/Unit/Ci4ItemPhotosParityTest.php`: served copy, thumbnail and original by
+  content). `Catalog\Items\PhotoRepository` writes through `Writes`; Media's `ImageStore::edit()` makes the new
+  version with its own copy of the original. A stored photo stays held for `RequestCleanup` until its write
+  commits, and `/save` creates a typed-in location or category in the save's transaction, so a failed save or
+  photo add keeps no files and no new location or category (L-81; legacy keeps them). Not yet: quantity,
+  duplicate, attachments upload and lend (11b, 13). Their buttons are drawn and answer 404 on CI4 until then.
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
-  `undo`, `history` and `expiry` on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test that needs
-  an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe › title);
-  remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec or title
-  no longer exists, or that this list does not name:
+  `undo`, `history`, `expiry` and `photos` on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
+  that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
+  title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
+  describe or test no longer exists (N-85), or that this list does not name:
   - `list`: the labels page has an empty state (`/labels`); quantity +/- on a card (POST `/item/{id}/qty`, 11b).
   - `search`: shows the engine in System (`/settings/system`).
-  - `item`: photos: add several, reorder, set cover, delete (11a part 2); quantity +/- on the item page (11b).
+  - `item`: quantity +/- on the item page (11b).
   - `undo`: bulk move, then undo; dismiss hides the bar (POST `/bulk`, 11b).
   - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, roles, users, control
-    panel, photos, duplicate, bulk, merge, stock, attachments, lending, labels, import/export, backup).
+    panel, duplicate, bulk, merge, stock, attachments, lending, labels, import/export, backup).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -70,8 +76,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   per-request `Core\Http\RequestCleanup` removes it: the exception handler runs it before it exits, and the
   `requestcleanup` after filter runs it at the end of every request; a failing step is logged with its key and class
   only. Settings saves go through `Core\Database\Writes` (M-25), as Taxonomy's writes do. All bytes go through
-  `Core\Storage`. GET `/media` serves only served names. The item form's upload uses it; photo order/edit and
-  copies for duplicate/merge come with 11a part 2 and 11b.
+  `Core\Storage`. GET `/media` serves only served names. The item form and the photo routes use it; copies for
+  duplicate/merge come with 11b.
 - Local test databases: the credential tests need a PostgreSQL role with `CREATEROLE` (and on PostgreSQL 16+
   `createrole_self_grant = 'set, inherit'`), see [testing](testing.md) (N-71).
 - Not ported yet: sign-in, account and Users pages, the BulkMerge and Backup modules. When those pages
@@ -96,13 +102,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages. In review.
 - [#101](https://github.com/thordin9/apotheke/pull/101): Playwright on CI4, exact-path routing (N-51). Merged.
 - [#102](https://github.com/thordin9/apotheke/pull/102): PLAN step 11a (first part), item pages, undo, activity,
-  plus #101 N-70 to N-75. In review.
+  plus #101 N-70 to N-75. Merged.
+- [#103](https://github.com/thordin9/apotheke/pull/103): PLAN step 11a part 2, the photo routes, plus #102 L-80,
+  L-81 and N-85. In review.
 
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
-  catalog (#99); Playwright on CI4 (#101); step 11a item pages (`cursor/ci4-item-pages`, #102). Stays out of the
-  auth, account and users/roles files; the Permission filter changed only for N-70 and `/save`.
+  catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102); step 11a part 2, the photo routes
+  (`cursor/ci4-item-photos`, #103). Stays out of the auth, account, users/roles, taxonomy and Notes files
+  (only the route table in `PermissionFilterTest` gets the new photo routes).
 - Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
   rate limits; #100, then `/settings/security`).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
@@ -115,8 +124,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    `keepSignIn` as above.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
-3. PLAN 11a part 2: the photo routes (add, order, cover, left/right, delete, edit) on `ImageStore`, and the
-   `photos` spec on CI4; Autofill reads photos through Media.
+3. Autofill reads photos through Media.
 4. PLAN 11b: BulkMerge (bulk, merge, duplicate, quantity) and attachments.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
