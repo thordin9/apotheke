@@ -101,6 +101,14 @@ class Exceptions extends BaseConfig
      */
     public function handler(int $statusCode, Throwable $exception): ExceptionHandlerInterface
     {
-        return new PlainHandler();
+        return new PlainHandler($this->page);
     }
+
+    /**
+     * The app's error page (Layout), set by Config\Services::exceptions() for
+     * web requests. Null: text answers only.
+     *
+     * @var (\Closure(): \Apotheke\Core\Http\ErrorPage)|null
+     */
+    public ?\Closure $page = null;
 }

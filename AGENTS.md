@@ -10,7 +10,7 @@ Human docs: [README](README.md) and [`docs/`](docs/index.md). Feature workflow: 
 
 * Keep the legacy stack small: functions over classes; one file per area (`items.php`, `backup.php`, `views.php`, …). CodeIgniter 4 code lives in `ci4/` and follows the module rules below.
 * Every query must work on **both** SQLite and PostgreSQL (see [docs/database.md](docs/database.md)).
-* **CSP-safe UI:** no inline `<script>`, no `style="…"`, no `on…=` handlers — put CSS in `public/assets/app.css` and behaviour in `public/assets/app.js` / `theme.js`.
+* **CSP-safe UI:** no inline `<script>`, no `style="…"`, no `on…=` handlers — put CSS in `public/assets/app.css` and behaviour in `public/assets/app.js` / `theme.js`. `ci4/public/assets/` is a byte copy for CI4: change both (`Ci4LayoutParityTest` compares them).
 * Prefer real forms and links first; JS enhances. Mobile-first (tap targets ≥ 44 px, light and dark).
 * Escape output with `h()`, use prepared statements, call `check_csrf()` on every state change, write `activity_log()` in the same transaction as the change.
 * **No schema change.** The 28 migrations (`0001`–`0028`) stay byte-identical with `main`. They run through a PDO runner plus a `LegacyFunctions` shim (kept after cutover). Do not add a `0026+` migration on 3.0.x unless the same file is backported to 2.5.x during the 90-day window.
@@ -50,6 +50,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * Migrations → Settings (schema only)
   * Auth → Settings (Auth holds the actor gate for settings, `CurrentUser`, and the admin guards)
   * Media → Settings
+  * Layout → Settings (the page shell, menu and error page; `Config\Services` hands it the user from Auth, and Core filters reach it through the `Core\Http\ErrorPage` interface)
   * Catalog → Taxonomy, Media, Search, Activity, Undo, Notes, Settings
   * BulkMerge → Catalog, Taxonomy, Media, Activity, Undo
   * Favourites → Catalog

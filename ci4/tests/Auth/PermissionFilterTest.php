@@ -42,6 +42,9 @@ final class PermissionFilterTest extends CIUnitTestCase
         'settings/autofill/test-photo' => 'settings',
     ];
 
+    /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
+    private const VIEW_POST_ROUTES = ['theme' => 'view'];
+
     private ?TestDatabase $database = null;
 
     /** @var array<array-key,mixed> the request's $_SESSION */
@@ -88,7 +91,8 @@ final class PermissionFilterTest extends CIUnitTestCase
 
     /**
      * Every route that is not a GET records the permission legacy gives it,
-     * and the anonymous visitor lacks it: a new route cannot be left open.
+     * and nobody signed out has it (the guest only View): a new route cannot
+     * be left open.
      */
     public function testEveryNonGetRouteRecordsItsLegacyPermission(): void
     {
@@ -106,14 +110,15 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $this->assertNotSame(Permissions::PUBLIC, $need, $verb . ' ' . $path);
                 $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal(null, (string)$need), $verb . ' ' . $path);
                 $guest = ['role' => 'guest', 'guest' => true, 'anon' => true];
-                $this->assertSame(PermissionCheck::SIGN_IN, $check->refusal($guest, (string)$need), $verb . ' ' . $path);
+                // The anonymous guest may view, so it may pick a theme (POST /theme), as on legacy.
+                $this->assertSame($need === 'view' ? null : PermissionCheck::SIGN_IN, $check->refusal($guest, (string)$need), $verb . ' ' . $path);
             }
         }
         sort($seen);
-        $expected = array_map(static fn (string $r): string => '/' . $r, array_keys(self::POST_ROUTES));
+        $expected = array_map(static fn (string $r): string => '/' . $r, array_keys(self::POST_ROUTES + self::VIEW_POST_ROUTES));
         sort($expected);
         $this->assertSame($expected, $seen, 'a new state-changing route: add it to POST_ROUTES with its legacy permission');
-        foreach (self::POST_ROUTES as $route => $need) {
+        foreach (self::POST_ROUTES + self::VIEW_POST_ROUTES as $route => $need) {
             $this->assertSame($need, $rules->need('POST', '/' . $route, []));
         }
     }

@@ -21,6 +21,7 @@
     <source>
         <include>
             <directory>modules/Settings</directory>
+            <directory>modules/Layout</directory>
             <file>modules/Core/Libraries/Text.php</file>
             <file>modules/Core/Libraries/AssetUrl.php</file>
             <file>modules/Core/Cli/WiredCommands.php</file>
