@@ -52,6 +52,22 @@ final class OriginalStore
         return $base === null ? null : $this->files->read($base);
     }
 
+    /**
+     * Give served name $to its own copy of $from's original (legacy
+     * image_original_copy()). True when there is nothing to copy (a photo
+     * from before originals were kept).
+     */
+    public function copy(string $from, string $to): bool
+    {
+        $base = $this->base($from);
+        if ($base === null) {
+            return true;
+        }
+        $bytes = $this->files->read($base);
+
+        return $bytes !== null && $this->save($to, $bytes, (string)pathinfo($base, PATHINFO_EXTENSION));
+    }
+
     /** Drop the original and its map entry. */
     public function forget(string $name): void
     {

@@ -127,6 +127,71 @@ final class ImageStore
         }
     }
 
+    /**
+     * Keep a stored photo's request cleanup armed until the caller's database
+     * write has committed (L-81), then release() it. If the request fails in
+     * between, the photo's files are removed.
+     */
+    public function hold(string $name): void
+    {
+        $this->cleanup->add('media:' . $name, fn () => $this->delete($name));
+    }
+
+    public function release(string $name): void
+    {
+        $this->cleanup->drop('media:' . $name);
+    }
+
+    /** @return array{0:int,1:int} width and height of the served photo, 0×0 when it cannot be read */
+    public function size(string $name): array
+    {
+        $bytes = $this->served->read('full', $name);
+        $info = $bytes === null ? false : @getimagesizefromstring($bytes);
+
+        return $info === false ? [0, 0] : [(int)$info[0], (int)$info[1]];
+    }
+
+    /**
+     * The image part of legacy photo_edit(): rotate the served photo
+     * clockwise by $rotate, crop to the fractions of the rotated photo, and
+     * store it under a new served name with its own copy of the original. The
+     * new name stays held (hold()) until the caller releases it.
+     *
+     * @return array{name:string,width:int,height:int}
+     */
+    public function edit(string $from, int $rotate, float $x, float $y, float $w, float $h): array
+    {
+        $bytes = $this->served->read('full', $from);
+        $src = $bytes === null ? false : @imagecreatefromstring($bytes);
+        if (!$src instanceof GdImage) {
+            throw new UserError('Could not read that photo.', 500);
+        }
+        if ($rotate !== 0) {
+            $src = imagerotate($src, -$rotate, 0) ?: throw new UserError('Could not rotate the photo.', 500);
+        }
+        $W = imagesx($src);
+        $H = imagesy($src);
+        $cx = (int)round($x * $W);
+        $cy = (int)round($y * $H);
+        $cw = max(1, min($W - $cx, (int)round($w * $W)));
+        $ch = max(1, min($H - $cy, (int)round($h * $H)));
+        if ($cw < 16 || $ch < 16) {
+            throw new UserError('The crop area is too small.', 422);
+        }
+        if ($cx !== 0 || $cy !== 0 || $cw !== $W || $ch !== $H) {
+            $src = imagecrop($src, ['x' => $cx, 'y' => $cy, 'width' => $cw, 'height' => $ch]) ?: throw new UserError('Could not crop the photo.', 500);
+        }
+        $name = bin2hex(random_bytes(16)) . '.jpg';
+        $this->hold($name);
+        if (!$this->writePair($src, $name) || !$this->originals->copy($from, $name)) {
+            $this->delete($name);
+            $this->release($name);
+            throw new UserError('Server could not save the image.', 500);
+        }
+
+        return ['name' => $name, 'width' => $cw, 'height' => $ch];
+    }
+
     /** Remove the served copy, the thumbnail, the original and its map entry. */
     public function delete(?string $name): void
     {

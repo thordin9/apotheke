@@ -516,7 +516,19 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Catalog\Items\ItemRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::taxonomy(), static::tags(),
-            static::imageStore(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()));
+            static::imageStore(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()), static::photoRepository());
+    }
+
+    /** An item's photos: add, order, cover, delete, crop and rotate (Catalog, PLAN 11a part 2). */
+    public static function photoRepository(bool $getShared = true): \Apotheke\Catalog\Items\PhotoRepository
+    {
+        if ($getShared) {
+            return static::getSharedInstance('photoRepository');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\Items\PhotoRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::imageStore(), static::undoTokens());
     }
 
     /** Undo tokens (Undo): deleted items' files are released through the item repository's deletes. */
