@@ -67,6 +67,19 @@ final class PermissionFilterTest extends CIUnitTestCase
         'item/1/photos/1/right' => 'edit',
         'item/1/photos/1/delete' => 'edit',
         'item/1/photos/1/edit' => 'edit',
+        'settings/security' => 'users',
+        'settings/security/reset' => 'users',
+        'settings/password' => 'users',
+        'settings/users' => 'users',
+        'settings/users/1' => 'users',
+        'settings/users/1/role' => 'users',
+        'settings/users/1/password' => 'users',
+        'settings/users/1/rename' => 'users',
+        'settings/users/1/delete' => 'users',
+        'settings/users/1/approve' => 'users',
+        'settings/roles' => 'users',
+        'settings/roles/desk' => 'users',
+        'settings/roles/desk/delete' => 'users',
     ];
 
     /** State-changing routes for your own account: signed in with an account (`self`), whatever the role. */
@@ -181,19 +194,20 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(44, $n, "27 GET and 17 HEAD routes");
-        $this->assertSame(50, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(46, $n, "28 GET and 18 HEAD routes");
+        $this->assertSame(52, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**
      * Every path a route pattern stands for: each alternative of a (a|b|c)
-     * group, id 1 for a number, logo.png for a brand file, x.jpg for a media name.
+     * group, id 1 for a number, logo.png for a brand file, x.jpg for a media name,
+     * desk for a role key.
      *
      * @return list<string>
      */
     private static function sample(string $route): array
     {
-        $path = str_replace(['([0-9]+)', '([a-z0-9.\\-]+)', '([^/]+)'], ['1', 'logo.png', 'x.jpg'], '/' . ltrim($route, '/'));
+        $path = str_replace(['([0-9]+)', '([a-z0-9.\\-]+)', '([^/]+)', '([a-z0-9-]+)'], ['1', 'logo.png', 'x.jpg', 'desk'], '/' . ltrim($route, '/'));
         if (preg_match('#\(([a-z]+(?:\|[a-z]+)+)\)#', $path, $m, PREG_OFFSET_CAPTURE) !== 1) {
             return [$path];
         }
