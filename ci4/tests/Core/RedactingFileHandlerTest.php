@@ -42,5 +42,13 @@ final class RedactingFileHandlerTest extends CIUnitTestCase
         );
         $this->assertSame('ERROR:  x DETAIL: (removed)', RedactingFileHandler::strip('ERROR:  x detail:  Failing row contains (placeholder-secret).'));
         $this->assertSame('ERROR:  x DETAIL: (removed)', RedactingFileHandler::strip("ERROR:  x Detail:  (placeholder-secret\nsecond line)"));
+        // #101 N-75: a localised label is dropped too; a query error without detail keeps its driver line.
+        $driver = "\nin SYSTEMPATH/Database/Postgre/Connection.php on line 210.\n#0 trace";
+        $this->assertSame('pg_query(): Query failed: ERREUR:  la valeur viole la contrainte' . "\nDETAIL: (removed)" . $driver,
+            RedactingFileHandler::strip("pg_query(): Query failed: ERREUR:  la valeur viole la contrainte\nDÉTAIL : La clé (name)=(placeholder-secret) existe déjà.\nCONTEXTE : x" . $driver));
+        $this->assertSame('pg_query(): Query failed: ERROR:  dup' . "\nDETAIL: (removed)" . $driver,
+            RedactingFileHandler::strip("pg_query(): Query failed: ERROR:  dup\nDETAIL:  Key (name)=(placeholder-secret) already exists." . $driver));
+        $this->assertSame('pg_query(): Query failed: ERROR:  syntax' . $driver, RedactingFileHandler::strip('pg_query(): Query failed: ERROR:  syntax' . $driver));
+        $this->assertSame("pg_query(): Query failed: ERROR:  x\nDETAIL: (removed)", RedactingFileHandler::strip("pg_query(): Query failed: ERROR:  x\nПОДРОБНОСТИ:  placeholder-secret"));
     }
 }
