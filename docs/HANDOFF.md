@@ -11,7 +11,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes), Auth
-  (current user, admin guards, session epoch, sign out everywhere, the Permission filter; no pages yet), Layout (page
+  (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
   shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
   served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity, Catalog, Search
   and Favourites (below).
@@ -50,9 +50,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   only. Settings saves go through `Core\Database\Writes` (M-25), as Taxonomy's writes do. All bytes go through
   `Core\Storage`. GET `/media` serves only served names. The upload routes, photo order/edit and copies for
   duplicate/merge come with 11a/11b.
-- Not ported yet: sign-in, account and Users pages, the Items, Undo and Backup modules. When those pages
-  arrive they pass `keepSignIn` to `SessionGate::signIn()` where `main` passes it to `login_session()` (sign out
-  everywhere, and a new password for your own account on Account, the password page and Users).
+- Sign-in (step 7, first part): `/login`, `/register`, `/logout`, `/account` and `/account/signout` are
+  byte-identical to legacy, with legacy's rate limits (same table, keys, windows and answers), the first admin from
+  `APP_PASSWORD`, a new session ID on sign-in and sign-out, and `keepSignIn` where `main` passes it. The three
+  sign-in routes check the CSRF token in the controller, in legacy's order.
+- Not ported yet: the users and roles pages (`/settings/security`) and the CLI account forms (step 7, second
+  part), the Items, Undo and Backup modules. A new password for your own account on Users keeps the sign-in
+  (`keepSignIn`), as on Account.
 
 ## Pull requests
 
@@ -67,23 +71,25 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#96](https://github.com/thordin9/apotheke/pull/96): PLAN step 8, taxonomy (locations, categories, tags), plus N-18
   and N-19. Merged.
 - [#97](https://github.com/thordin9/apotheke/pull/97): #95/#96 follow-ups N-30, N-31, M-25 for Settings. Merged.
-- [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. In review.
-- [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. In review.
+- [#98](https://github.com/thordin9/apotheke/pull/98): PLAN step 8, Notes (the Markdown renderer), plus N-32. Merged.
+- [#99](https://github.com/thordin9/apotheke/pull/99): PLAN step 9, catalog, plus #97 N-33 to N-36. Merged.
+- [#100](https://github.com/thordin9/apotheke/pull/100): PLAN step 7, sign-in, register and account pages, rate
+  limits, plus N-38. In review.
 
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
   catalog (#99).
-- Coder2: step 8 Notes (#98), then the rest of step 7 (sign-in, register, account, users and roles pages,
-  rate limits). Step 11a waits until media and catalog are in.
+- Coder2: step 7, sign-in and account pages (#100), then the users and roles pages. Step 11a waits until media
+  and catalog are in.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. The sign-in, register, account, users and roles pages and rate limits, on the Layout. Pass
-   `keepSignIn` as above.
+1. The users and roles pages under `/settings/security` and the CLI account forms, on the Layout (step 7,
+   second part).
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. PLAN 11a: item form and photo routes on `ImageStore` (`MAX_FILE_SIZE` from `maxUpload()`); Autofill reads photos
@@ -96,6 +102,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   or the next one.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
+Markdown: links containing emphasis characters render incorrectly; later joint fix in main and CI4 (hold bare links in placeholders before emphasis).
 
 Cloudflare phase: keep storage behind interfaces, no per-request global state, and the database config from a DSN.
 The at-rest key comes in through `SecretKey`, so a Worker secret binding can replace the environment and key file.
