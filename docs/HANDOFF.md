@@ -12,7 +12,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter; no pages yet), Layout (page
-  shell, menu, simple header, icons, toasts, POST `/theme`, the error page).
+  shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
+  served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`).
 - Layout: byte-identical to legacy `page_start()`, `page_end()`, `menu_html()` and `view_error()`. Every error answer
   that legacy draws as a page (404, 403, 419, 413, the same-origin 403, 500) is that page; a fetch gets legacy's JSON.
   The bundled assets are a copy under `ci4/public/assets`, kept equal to `public/assets` by a test. The undo bar joins
@@ -26,7 +27,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   sign-in, and each account has a session epoch (migration 0028), as `main` does.
 - Stored secrets (S-L5): with `APP_KEY` or `APP_KEY_FILE` set, CI4 seals the AI autofill token in the same `enc:v1:`
   format as `main`, so both apps read one database. `key generate` and `key rotate` stay in `bin/settings.php`.
-- Not ported yet: sign-in, account and Users pages, the Items, Media, Undo and Backup modules. When those pages
+- Media: `ImageStore::store()` keeps the upload byte-identical under `ORIGINALS_DIR` (`<64hex>.<ext>`, `map/<32hex>`,
+  0640) and writes `images/` and `thumbs/` with the same bytes as legacy. It applies `main`'s decode limits from #72 and #79
+  (`ImageLimits`) and removes everything again when a decode fails. All bytes go through `Core\Storage`. GET `/media`
+  serves only served names. The upload routes, photo order/edit and copies for duplicate/merge come with 11a/11b.
+- Not ported yet: sign-in, account and Users pages, the Items, Undo and Backup modules. When those pages
   arrive they pass `keepSignIn` to `SessionGate::signIn()` where `main` passes it to `login_session()` (sign out
   everywhere, and a new password for your own account on Account, the password page and Users).
 
@@ -38,14 +43,20 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#91](https://github.com/thordin9/apotheke/pull/91): PLAN PR 7, the Permission filter for CI4 routes. Merged.
 - [#92](https://github.com/thordin9/apotheke/pull/92): sync `main` v2.6.14 (#87, #88) into `feature/ci4`. Merged.
 - [#93](https://github.com/thordin9/apotheke/pull/93): follow-ups from the #89 and #91 reviews. Merged.
-- This PR: the Layout module, plus #93 N-16 and N-17. In review.
+- [#94](https://github.com/thordin9/apotheke/pull/94): the Layout module, plus #93 N-16 and N-17. Merged.
+- [#95](https://github.com/thordin9/apotheke/pull/95): PLAN step 10, media storage. In review.
+
+## Lanes
+
+- Coder: step 10 media storage (#95).
 
 ## Next steps
 
 1. The sign-in, register, account, users and roles pages and rate limits, on the Layout. Pass `keepSignIn` as above.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
-3. Media module on `Core/Storage` (photos and originals behind the storage interface).
+3. PLAN 11a: item form and photo routes on `ImageStore` (`MAX_FILE_SIZE` from `maxUpload()`); Autofill reads photos
+   through Media.
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 
