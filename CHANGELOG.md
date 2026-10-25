@@ -8,9 +8,23 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.15] - 2026-10-25
+
 ### Fixed
 
 - **security:** hardening: sign-in limits now hold for requests that arrive together and also cover the current-password check and all names from one address; passwords and `APP_PASSWORD` with a null character are refused; the last active admin always stays; a photo save that fails leaves no files or new places, and a photo edit keeps its original. ([#106](https://github.com/thordin9/apotheke/pull/106))
+
+### Maintenance
+
+- **qa:** docs: drop QA reports older than v2.6.0 and add an index ([#88](https://github.com/thordin9/apotheke/pull/88))
+- **changelog:** docs: summarise pre-2.6.0 releases and fix QA nits ([#88](https://github.com/thordin9/apotheke/pull/88))
+- test: use 8-character APP_PASSWORD fixtures ([#88](https://github.com/thordin9/apotheke/pull/88))
+- docs: trim README and docs, merge overlapping pages ([#88](https://github.com/thordin9/apotheke/pull/88))
+- ci: allowlist S-L5 CI4 placeholder test keys in gitleaks ([#88](https://github.com/thordin9/apotheke/pull/88))
+- **security:** test: cover sign-in limits, admins and photo saves ([#106](https://github.com/thordin9/apotheke/pull/106))
+- docs: sign-in limits and password rules ([#106](https://github.com/thordin9/apotheke/pull/106))
+- docs: link the changelog entry to its pull request ([#106](https://github.com/thordin9/apotheke/pull/106))
+- **qa:** docs: PR 106 main hardening QA report ([#106](https://github.com/thordin9/apotheke/pull/106))
 
 ## [2.6.14] - 2026-10-24
 
@@ -353,7 +367,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.14...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.15...HEAD
+[2.6.15]: https://github.com/thordin9/apotheke/compare/v2.6.14...v2.6.15
 [2.6.14]: https://github.com/thordin9/apotheke/compare/v2.6.13...v2.6.14
 [2.6.13]: https://github.com/thordin9/apotheke/compare/v2.6.12...v2.6.13
 [2.6.12]: https://github.com/thordin9/apotheke/compare/v2.6.11...v2.6.12

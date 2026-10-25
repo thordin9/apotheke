@@ -65,21 +65,21 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 97.1 % | 97.1 % |
-| Items, search, bulk, lending | 88.9 % | 90.6 % | 95.4 % |
+| Front controller & routes | – | 96.9 % | 96.9 % |
+| Items, search, bulk, lending | 88.9 % | 90.3 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 94.3 % | 89.7 % | 97.0 % |
+| Users & roles | 93.6 % | 90.3 % | 97.1 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
-| Photos | 59.6 % | 88.8 % | 88.8 % |
+| Photos | 59.6 % | 87.2 % | 87.2 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 12.7 % | 99.4 % | 99.3 % |
 | Control Panel settings | 73.2 % | 88.2 % | 92.9 % |
 | Backup & restore | 87.7 % | 89.8 % | 96.9 % |
 | Database, migrations, legacy | 80.7 % | 81.1 % | 91.4 % |
 | Bootstrap, config, QR, seed | 73.5 % | 75.5 % | 91.0 % |
-| **All PHP** (7494 lines) | **66.5 %** | **89.3 %** | **95.4 %** |
+| **All PHP** (7538 lines) | **66.6 %** | **89.3 %** | **95.4 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
