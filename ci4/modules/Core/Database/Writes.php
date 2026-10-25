@@ -50,6 +50,16 @@ final class Writes
      * rolls back; the outermost call clears the failure flag afterwards so
      * a long-lived worker can write again.
      *
+     * Nesting is flat, as in legacy db_tx(): there is no SAVEPOINT, so an
+     * inner call only joins the open transaction and its rollback undoes
+     * nothing by itself. A caller that catches an inner UserError (or any
+     * exception that is not a failed statement) and carries on commits the
+     * inner statements with its own. A failed statement inside still fails
+     * the whole outer transaction through transStatus().
+     *
+     * A commit the database refuses (a deferred constraint) throws
+     * WriteFailed whether the driver returns false or raises its own error.
+     *
      * @template T
      * @param BaseConnection<object|resource, object|resource> $db
      * @param callable():T $fn
@@ -69,7 +79,12 @@ final class Writes
             if (!$db->transStatus()) {
                 throw new WriteFailed('Database write failed: a statement in the transaction');
             }
-            if (!$db->transCommit()) {
+            try {
+                $committed = $db->transCommit();
+            } catch (Throwable) {
+                $committed = false;
+            }
+            if (!$committed) {
                 throw new WriteFailed('Database write failed: commit');
             }
 

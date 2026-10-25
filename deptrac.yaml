@@ -48,6 +48,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Taxonomy\\
+    - name: Notes
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Notes\\
   ruleset:
     Auth:
       - Core
@@ -76,3 +80,6 @@ deptrac:
     Taxonomy:
       - Core
       - Layout
+    # Notes: the Markdown renderer for item notes; Catalog and the activity diff use it.
+    Notes:
+      - Core
