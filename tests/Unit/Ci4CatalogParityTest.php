@@ -216,7 +216,7 @@ final class Ci4CatalogParityTest extends TestCase
         }
         // N-51: legacy routes rawurldecode(path) exactly, so a trailing slash or dot segment is no route.
         foreach (['/stats/', '/locations/', '/./stats', '/%2e/stats', '/%2E/stats', '/a/../stats', '/stats/.', '/stats/..', '/stats/%2e', '/x/..', '/./',
-            '/%20stats', '/stats%20', '/stats%2F', '/locations//', '/filters/', '/healthz/', '/theme.css/', '/media/full/x.jpg/', '//stats', '//', '/%73tats', '/%2573tats', '/sta+ts'] as $path) {
+            '/%20stats', '/stats%20', '/stats%2F', '/locations//', '/filters/', '/healthz/', '/theme.css/', '/media/full/x.jpg/', '//stats', '//', '/%73tats', '/%2573tats', '/sta+ts', '/stats+', '/stats%2B', '/+stats', '/stats%20%2B'] as $path) {
             $as('GET ' . $path, 'GET', $path);
         }
         $as('GET /stats/ fetch', 'GET', '/stats/', [], $fetch);
