@@ -48,8 +48,9 @@ final class PlainHandler implements ExceptionHandlerInterface
         if ($this->cleanup !== null) {
             try {
                 ($this->cleanup)();
-            } catch (Throwable) {
-                // the answer below still goes out
+            } catch (Throwable $e) {
+                // The answer below still goes out. The class only; a message can hold a path.
+                error_log('[apotheke] request cleanup failed (' . $e::class . ')');
             }
         }
         [$status, $body] = $this->status($exception);
