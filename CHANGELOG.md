@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **security:** hardening: sign-in limits now hold for requests that arrive together and also cover the current-password check and all names from one address; passwords and `APP_PASSWORD` with a null character are refused; the last active admin always stays; a photo save that fails leaves no files or new places, and a photo edit keeps its original. ([#105](https://github.com/thordin9/apotheke/pull/105))
+- **security:** hardening: sign-in limits now hold for requests that arrive together and also cover the current-password check and all names from one address; passwords and `APP_PASSWORD` with a null character are refused; the last active admin always stays; a photo save that fails leaves no files or new places, and a photo edit keeps its original. ([#106](https://github.com/thordin9/apotheke/pull/106))
 
 ## [2.6.14] - 2026-10-24
 
