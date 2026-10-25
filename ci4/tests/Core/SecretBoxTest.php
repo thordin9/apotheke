@@ -66,6 +66,35 @@ final class SecretBoxTest extends CIUnitTestCase
         $this->assertSame([null, 'inside_data'], $this->state(['APP_KEY_FILE' => $this->dir . '/data'], $roots));
     }
 
+    /** #89 N-1: only exactly 32 decoded bytes are a key, in APP_KEY and in APP_KEY_FILE. */
+    public function testAKeyOfAnyOtherLengthIsMalformed(): void
+    {
+        $roots = [$this->dir . '/data'];
+        foreach ([16, 24, 31, 33] as $n) {
+            $value = base64_encode(substr(str_repeat(self::RAW, 2), 0, $n));
+            $this->assertSame([null, 'malformed'], $this->state(['APP_KEY' => $value], $roots), "$n bytes");
+            file_put_contents($this->dir . '/outside/bad.key', $value . "\n");
+            $this->assertSame([null, 'malformed_file'], $this->state(['APP_KEY_FILE' => $this->dir . '/outside/bad.key'], $roots), "$n bytes in a file");
+        }
+    }
+
+    /** #89 N-1: a usable key file without sodium is refused like APP_KEY without sodium. */
+    public function testAKeyFileWithoutSodiumIsRefused(): void
+    {
+        file_put_contents($this->dir . '/outside/app.key', $this->key() . "\n");
+        $env = ['APP_KEY_FILE' => $this->dir . '/outside/app.key', 'APOTHEKE_SODIUM' => '0'];
+        $this->assertSame([null, 'sodium'], $this->state($env, [$this->dir . '/data']));
+        $box = $this->box($env);
+        try {
+            $box->seal('placeholder-secret');
+            $this->fail('sealed without sodium');
+        } catch (UserError $e) {
+            $this->assertSame('The sodium extension is missing. The secret was not saved.', $e->getMessage());
+            $this->assertSame(422, $e->getCode());
+        }
+        $this->assertSame(['apotheke: sodium extension is missing; stored secrets will not be saved.'], $this->logged);
+    }
+
     public function testSealAndOpen(): void
     {
         $box = $this->box(['APP_KEY' => $this->key()]);
