@@ -35,6 +35,7 @@ final class ItemRepository
         private readonly TagRepository $tags,
         private readonly ImageStore $images,
         private readonly Storage $files,
+        private readonly PhotoRepository $photoRows,
     ) {
     }
 
@@ -65,8 +66,7 @@ final class ItemRepository
     /** @return list<array{id:int,file:string,position:int}> cover first */
     public function photos(int $itemId): array
     {
-        return array_map(static fn (array $r): array => ['id' => (int)$r['id'], 'file' => (string)$r['file'], 'position' => (int)$r['position']],
-            $this->rows('SELECT id, file, position FROM item_photos WHERE item_id = ? ORDER BY position, id', [$itemId]));
+        return $this->photoRows->list($itemId);
     }
 
     /** @return list<array{id:int,name:string,mime:string,size:int,file:string}> */
@@ -99,7 +99,7 @@ final class ItemRepository
                 $id = (int)$this->db->insertID();
                 $this->tags->set($id, $in['tags']);
                 if ($newImage !== null) {
-                    $this->insertPhoto($id, $newImage, true);
+                    $this->photoRows->insert($id, $newImage, true);
                 }
                 $this->history->log($id, $in['name'], 'created', array_filter([
                     'location' => $in['location_id'] !== null ? (string)($this->taxonomy->get('location', $in['location_id'])['name'] ?? '') : null,
@@ -153,9 +153,9 @@ final class ItemRepository
                     $drop[] = $cover['file'];
                 }
                 if ($newImage !== null) {
-                    $this->insertPhoto($id, $newImage, true);
+                    $this->photoRows->insert($id, $newImage, true);
                 }
-                $this->renumber($id);
+                $this->photoRows->renumber($id);
             }
 
             return $id;
@@ -165,6 +165,19 @@ final class ItemRepository
         }
 
         return $id;
+    }
+
+    /**
+     * Run $fn in one checked transaction (Writes::transaction()), so a
+     * caller can make its own writes part of a save.
+     *
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    public function atomically(callable $fn): mixed
+    {
+        return Writes::transaction($this->db, $fn);
     }
 
     /**
@@ -218,22 +231,6 @@ final class ItemRepository
     private static function short(string $s): string
     {
         return mb_strlen($s) > 200 ? mb_substr($s, 0, 199) . '…' : $s;
-    }
-
-    private function insertPhoto(int $itemId, string $file, bool $asCover): void
-    {
-        $max = (int)($this->rows('SELECT COALESCE(MAX(position), -1) AS p FROM item_photos WHERE item_id = ?', [$itemId])[0]['p'] ?? -1);
-        Writes::check($this->db->table('item_photos')->insert(['item_id' => $itemId, 'file' => $file, 'position' => $asCover ? -1 : $max + 1, 'created_at' => $this->clock->now()]), 'add photo');
-        $this->renumber($itemId);
-    }
-
-    /** Positions 0..n-1 in the current order, and the cover mirrored into items.image (legacy photos_renumber()). */
-    private function renumber(int $itemId): void
-    {
-        foreach ($this->photos($itemId) as $i => $p) {
-            Writes::check($this->db->table('item_photos')->where('id', $p['id'])->where('item_id', $itemId)->update(['position' => $i]), 'photo order');
-        }
-        Writes::check($this->db->table('items')->where('id', $itemId)->update(['image' => $this->photos($itemId)[0]['file'] ?? null]), 'cover photo');
     }
 
     /**

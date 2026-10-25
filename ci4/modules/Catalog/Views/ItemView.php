@@ -7,6 +7,7 @@ namespace Apotheke\Catalog\Views;
 use Apotheke\Activity\Views\ActivityView;
 use Apotheke\Catalog\Calendar;
 use Apotheke\Catalog\Items\ItemInput;
+use Apotheke\Catalog\Items\PhotoRepository;
 use Apotheke\Layout\Icons;
 use Apotheke\Layout\Page;
 use Apotheke\Media\ImageStore;
@@ -318,6 +319,65 @@ final class ItemView
             . '<p class="scan-msg" id="scan-msg">Point the camera at a barcode</p>'
             . '<button type="button" class="btn btn-wide" id="scan-cancel">Cancel – type it instead</button></dialog>'
             . $this->page->end();
+    }
+
+    /**
+     * Legacy view_photo_edit(): the crop and rotate page (canvas in app.js,
+     * plain fields without JavaScript).
+     *
+     * @param array<string,mixed> $it
+     * @param array{id:int,file:string,position:int,index:int} $photo
+     * @param array{0:int,1:int} $size the served photo's width and height
+     */
+    public function photoEdit(array $it, array $photo, int $count, array $size, ?string $error): string
+    {
+        $id = (int)$it['id'];
+        $head = $this->page->start('Edit photo · ' . $it['name'], 'page-photo-edit') . $this->page->simpleHeader('Edit photo', '/item/' . $id . '#photos');
+        $tok = self::h($this->page->csrf());
+        $src = '/media/full/' . $photo['file'];
+        [$w, $h] = $size;
+        ob_start();
+        ?>
+<main class="wrap narrow pe">
+  <p class="hint"><?= self::h((string)$it['name']) ?> · photo <?= $photo['index'] + 1 ?> of <?= $count ?><?= $photo['index'] === 0 ? ' (cover)' : '' ?> · <?= $w ?>×<?= $h ?> px. Drag on the photo to crop; drag the corners to resize.</p>
+  <?php if ($error): ?><div class="err" role="alert" id="pe-err"><?= self::h($error) ?></div><?php endif; ?>
+  <div class="pe-stage" id="pe-stage" data-src="<?= self::h($src) ?>" data-w="<?= $w ?>" data-h="<?= $h ?>">
+    <canvas id="pe-canvas" tabindex="0" aria-label="Photo with the crop area. Arrow keys move it, Shift + arrow keys resize it."></canvas>
+    <img class="pe-fallback" id="pe-img" src="<?= self::h($src) ?>" alt="The photo">
+  </div>
+  <form method="post" action="/item/<?= $id ?>/photos/<?= $photo['id'] ?>/edit" class="setform" id="pe-form">
+    <input type="hidden" name="csrf" value="<?= $tok ?>">
+    <div class="pe-tools" id="pe-tools" hidden>
+      <button type="button" class="btn" id="pe-rl" aria-label="Rotate left"><?= self::icon('undo') ?> Left</button>
+      <button type="button" class="btn" id="pe-rr" aria-label="Rotate right"><?= self::icon('undo') ?> Right</button>
+      <div class="seg" role="radiogroup" aria-label="Crop shape" id="pe-aspect">
+        <button type="button" class="seg-btn on" role="radio" aria-checked="true" data-aspect="0">Free</button>
+        <button type="button" class="seg-btn" role="radio" aria-checked="false" data-aspect="1">Square</button>
+        <button type="button" class="seg-btn" role="radio" aria-checked="false" data-aspect="1.3333">4:3</button>
+      </div>
+      <button type="button" class="btn btn-ghost" id="pe-reset">Reset</button>
+    </div>
+    <details class="pe-manual" id="pe-manual">
+      <summary>Exact values</summary>
+      <label class="field"><span>Rotate (clockwise)</span><select name="rotate" id="pe-rotate">
+        <?php foreach (PhotoRepository::ROTATIONS as $r): ?><option value="<?= $r ?>"><?= $r ?>°</option><?php endforeach; ?></select></label>
+      <div class="pe-grid">
+        <?php foreach (['x' => 'Left %', 'y' => 'Top %', 'w' => 'Width %', 'h' => 'Height %'] as $k => $l): ?>
+        <label class="field"><span><?= $l ?></span><input type="number" name="crop_<?= $k ?>" id="pe-<?= $k ?>" value="<?= in_array($k, ['w', 'h'], true) ? 100 : 0 ?>" min="0" max="100" step="0.01" inputmode="decimal" required></label>
+        <?php endforeach; ?>
+      </div>
+      <p class="hint">Percent of the rotated photo.</p>
+    </details>
+    <p class="pe-info" id="pe-info" aria-live="polite"></p>
+    <div class="actionbar actionbar-form"><div class="actionbar-in">
+      <a class="btn" href="/item/<?= $id ?>#photos" id="pe-cancel">Cancel</a>
+      <button class="btn btn-primary" id="pe-save"><?= self::icon('check') ?> Save</button>
+    </div></div>
+  </form>
+</main>
+<?php
+
+        return $head . (string)ob_get_clean() . $this->page->end();
     }
 
     /** Legacy fmt_date(): a Y-m-d date in the date_format setting. */

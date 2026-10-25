@@ -60,6 +60,13 @@ final class PermissionFilterTest extends CIUnitTestCase
         'save' => 'create',
         'item/1/delete' => 'delete',
         'undo' => 'edit',
+        'item/1/photos' => 'edit',
+        'item/1/photos/order' => 'edit',
+        'item/1/photos/1/cover' => 'edit',
+        'item/1/photos/1/left' => 'edit',
+        'item/1/photos/1/right' => 'edit',
+        'item/1/photos/1/delete' => 'edit',
+        'item/1/photos/1/edit' => 'edit',
         'settings/security' => 'users',
         'settings/security/reset' => 'users',
         'settings/password' => 'users',
@@ -187,8 +194,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(44, $n, "27 GET and 17 HEAD routes");
-        $this->assertSame(50, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(46, $n, "28 GET and 18 HEAD routes");
+        $this->assertSame(52, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**
