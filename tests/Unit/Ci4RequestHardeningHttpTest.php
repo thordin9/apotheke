@@ -79,7 +79,8 @@ final class Ci4RequestHardeningHttpTest extends TestCase
             foreach (['/no-such-page', '/healthz', '/settings'] as $path) {
                 $refused = $client->post($path, [], [], ['Origin: http://other.example']);
                 $this->assertSame(403, $refused['status'], $path);
-                $this->assertSame(self::CROSS_SITE, $refused['body'], $path);
+                $this->assertStringContainsString('<p>' . self::CROSS_SITE . '</p>', $refused['body'], $path);
+                $this->assertStringStartsWith('text/html', $refused['headers']['content-type'] ?? '', $path);
                 $this->assertSame('nosniff', $refused['headers']['x-content-type-options'] ?? '', $path);
             }
             $json = $client->post('/no-such-page', [], [], ['Sec-Fetch-Site: cross-site', 'Accept: application/json']);

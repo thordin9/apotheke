@@ -46,13 +46,16 @@ final class SameOriginFilter implements FilterInterface
             $response->setHeader($name, $value);
         }
         if ((new WantsJson())->check($server)) {
-            $response->setHeader('Content-Type', 'application/json');
+            // Legacy json_out().
+            $response->setHeader('Content-Type', 'application/json; charset=utf-8');
+            $response->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
             $response->setBody($rule->jsonBody());
 
             return $response;
         }
-        $response->setHeader('Content-Type', 'text/plain; charset=UTF-8');
-        $response->setBody(SameOrigin::MESSAGE);
+        // Legacy view_error(): the app's error page (Layout).
+        $response->setHeader('Content-Type', 'text/html; charset=UTF-8');
+        $response->setBody(Services::errorPage()->html(SameOrigin::STATUS, SameOrigin::MESSAGE));
 
         return $response;
     }

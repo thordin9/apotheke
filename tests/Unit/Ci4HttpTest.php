@@ -341,11 +341,15 @@ final class Ci4HttpTest extends TestCase
         }
         $plain = $ci4->get('/no-such-page');
         $this->assertSame(404, $plain['status']);
-        $this->assertSame('Not found', $plain['body']);
         $this->assertArrayHasKey('set-cookie', $plain['headers']);
-        // SEC-N8: the error page carries the same security headers as legacy view_error().
+        // SEC-N8: the error page carries the same security headers as legacy view_error(),
+        // and it is legacy's page (Layout), apart from the cache busters and the token.
         $legacyPage = $legacy->get('/no-such-page');
         $this->assertSame(404, $legacyPage['status']);
+        // This client holds a session from the cookie checks; legacy's does not.
+        $busters = static fn (string $html): string => (string)preg_replace(['#\?v=[0-9a-f]{8}#', '#<meta name="csrf" content="[0-9a-f]*">#'], ['?v=V', '<meta name="csrf" content="T">'], $html);
+        $this->assertStringContainsString('<p>Page not found.</p>', $plain['body']);
+        $this->assertSame($busters($legacyPage['body']), $busters($plain['body']));
         $this->assertSame('nosniff', $plain['headers']['x-content-type-options'] ?? '');
         foreach (['x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'] as $name) {
             $this->assertNotSame('', $legacyPage['headers'][$name] ?? '', $name);
@@ -523,7 +527,8 @@ final class Ci4HttpTest extends TestCase
             foreach (['DELETE', 'PUT', 'PATCH'] as $method) {
                 $response = $server->client()->req($method, $path);
                 $this->assertContains($response['status'], [404, 405], $method . ' ' . $path);
-                $this->assertStringNotContainsString('ok', $response['body'], $method . ' ' . $path);
+                // The error page's text, not the health answer (its markup has "stroke").
+                $this->assertStringNotContainsString('ok', strip_tags($response['body']), $method . ' ' . $path);
             }
             $post = $server->client()->post($path);
             $this->assertContains($post['status'], [404, 405], 'POST ' . $path);

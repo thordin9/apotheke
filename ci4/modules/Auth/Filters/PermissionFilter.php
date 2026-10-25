@@ -43,8 +43,8 @@ use Config\Services;
  *
  * Refusals match legacy: nobody or the anonymous guest gets 401 JSON for a
  * fetch, a bare 401 under /media/, otherwise 303 to /login; a signed-in role
- * without the permission gets 403 with legacy's message (JSON, or an HTML
- * page). The user is always the web request's (CurrentUser), never the CLI
+ * without the permission gets 403 with legacy's message (JSON, or the app's
+ * error page). The user is always the web request's (CurrentUser), never the CLI
  * actor. A returned response skips global after filters, so the security
  * headers are set here.
  */
@@ -100,10 +100,9 @@ final class PermissionFilter implements FilterInterface
             return $this->json($response, 403, ['ok' => false, 'error' => $refusal]);
         }
 
-        // Legacy view_error()'s plain page. The page with the app's layout arrives with the Layout module.
+        // Legacy view_error(): the app's error page (Layout).
         return $response->setStatusCode(403)->setHeader('Content-Type', 'text/html; charset=UTF-8')
-            ->setBody('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Error</title></head><body><p>'
-                . htmlspecialchars($refusal, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p></body></html>');
+            ->setBody(Services::errorPage()->html(403, $refusal));
     }
 
     public function after(RequestInterface $request, ResponseInterface $response, $arguments = null): null

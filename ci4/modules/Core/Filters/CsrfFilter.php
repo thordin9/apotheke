@@ -13,10 +13,11 @@ use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\Response;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\App;
+use Config\Services;
 
 /**
  * Session CSRF token on every non-safe method (SEC-N10), with legacy's 419
- * answer: JSON for fetch/JSON clients, the message as text otherwise. Safe
+ * answer: JSON for fetch/JSON clients, the app's error page otherwise. Safe
  * methods pass untouched, and the filter never starts a session: it reads
  * $_SESSION as the session filter left it. CI4's own cookie CSRF stays off.
  * A returned response skips global after filters, so the security headers are set here.
@@ -43,13 +44,16 @@ final class CsrfFilter implements FilterInterface
         }
         $server = $request->getServer();
         if ((new WantsJson())->check(is_array($server) ? $server : [])) {
-            $response->setHeader('Content-Type', 'application/json');
+            // Legacy json_out().
+            $response->setHeader('Content-Type', 'application/json; charset=utf-8');
+            $response->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
             $response->setBody($check->jsonBody());
 
             return $response;
         }
-        $response->setHeader('Content-Type', 'text/plain; charset=UTF-8');
-        $response->setBody(CsrfCheck::MESSAGE);
+        // Legacy view_error(): the app's error page (Layout).
+        $response->setHeader('Content-Type', 'text/html; charset=UTF-8');
+        $response->setBody(Services::errorPage()->html(CsrfCheck::STATUS, CsrfCheck::MESSAGE));
 
         return $response;
     }
