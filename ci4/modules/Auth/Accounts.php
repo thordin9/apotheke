@@ -19,12 +19,24 @@ final class Accounts
     public const USERNAME_MAX = 40;
     public const PASSWORD_MIN = 8;
 
+    /**
+     * A hash at PHP's default cost of a random value nobody kept: what an
+     * unknown name is checked against. SignInAccountsTest keeps it at the default.
+     */
+    public const DUMMY_HASH = '$2y$12$rGbXD6ftSShKrjjQ/V0Mp.DKflUCQZ2CgnF1mN0dY.pmyaxcHRNr2';
+
     public function __construct(
         private readonly UserRepository $users,
         private readonly RoleRepository $roles,
         private readonly Clock $clock,
         private readonly SignInPace $pace = new SignInPace(),
     ) {
+    }
+
+    /** The failed sign-in deadline in milliseconds (Config\SignIn, clamped). */
+    public function failDeadlineMs(): int
+    {
+        return $this->pace->deadlineMs;
     }
 
     /** The start of a sign-in attempt, for signIn(). */
@@ -54,31 +66,38 @@ final class Accounts
     /**
      * Legacy user_verify(): the account for this name and password, or null.
      * Unknown names and wrong passwords give the same null. A hash made with
-     * older options is replaced on a good password. An unknown name still
-     * spends one hash at PHP's default cost.
+     * older options is replaced on a good password.
      *
-     * The hashing time alone depends on the stored hash (an account carried
+     * Stricter than legacy: an unknown name is checked against DUMMY_HASH (one
+     * verify at PHP's default cost, which never throws), a password with a
+     * NUL byte never matches (no stored password can contain one), and an
+     * error from the hashing functions counts as a wrong password. The
+     * hashing time alone still depends on the stored hash (an account carried
      * over from main keeps its older cost until its next sign-in), so the
      * sign-in page goes through signIn(), which pads every failure to a fixed
-     * deadline. Stricter than legacy, which waits a flat 400 ms after the check.
+     * deadline; legacy waits a flat 400 ms after the check.
      *
      * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}|null
      */
     public function verify(string $name, #[\SensitiveParameter] string $password): ?array
     {
         $user = $this->users->findByName($name);
-        if ($user === null) {
-            password_hash($password, PASSWORD_DEFAULT);
+        try {
+            if ($user === null) {
+                password_verify($password, self::DUMMY_HASH);
 
-            return null;
-        }
-        if (!password_verify($password, $user['password_hash'])) {
-            return null;
-        }
-        if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
-            $this->users->rehash($user['id'], password_hash($password, PASSWORD_DEFAULT));
+                return null;
+            }
+            if (!password_verify($password, $user['password_hash']) || str_contains($password, "\0")) {
+                return null;
+            }
+            if (password_needs_rehash($user['password_hash'], PASSWORD_DEFAULT)) {
+                $this->users->rehash($user['id'], password_hash($password, PASSWORD_DEFAULT));
 
-            return $this->users->find($user['id']) ?? $user;
+                return $this->users->find($user['id']) ?? $user;
+            }
+        } catch (\ValueError) {
+            return null;
         }
 
         return $user;
@@ -124,6 +143,10 @@ final class Accounts
         }
         if (strlen($new) > 200) {
             throw new UserError('That password is too long.', 422);
+        }
+        if (str_contains($new, "\0")) {
+            // Stricter than legacy, where password_hash() refuses it later (500).
+            throw new UserError('Passwords cannot contain a null character.', 422);
         }
         if ($confirm !== null && !hash_equals($new, $confirm)) {
             throw new UserError('The two passwords do not match.', 422);
