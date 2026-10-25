@@ -28,15 +28,21 @@ declare(strict_types=1);
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
-// APOTHEKE_APP=ci4: the settings forms run as `spark apotheke:settings` (same output and exit codes).
-// users, user, roles, auth and password stay here until the CI4 Auth module has them.
-if (getenv('APOTHEKE_APP') === 'ci4' && in_array($argv[1] ?? 'list', ['list', 'get', 'set', 'reset', 'export', 'import'], true)) {
+// APOTHEKE_APP=ci4: the settings forms run as `spark apotheke:settings`, the account forms as `spark apotheke:accounts`
+// (same output and exit codes). `auth status` stays here: it must not migrate, and booting the CI4 database does.
+// key generate|rotate stay here too.
+$ci4Form = match (true) {
+    in_array($argv[1] ?? 'list', ['list', 'get', 'set', 'reset', 'export', 'import'], true) => 'apotheke:settings',
+    in_array($argv[1] ?? '', ['users', 'user', 'roles', 'auth', 'password'], true) && !(($argv[1] ?? '') === 'auth' && ($argv[2] ?? '') === 'status') => 'apotheke:accounts',
+    default => null,
+};
+if (getenv('APOTHEKE_APP') === 'ci4' && $ci4Form !== null) {
     $spark = dirname(__DIR__) . '/ci4/spark';
     if (!file_exists($spark)) {
         fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
         exit(1);
     }
-    $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, 'apotheke:settings', '--no-header', ...array_slice($argv, 1)]));
+    $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, $ci4Form, '--no-header', ...array_slice($argv, 1)]));
     passthru($command, $code);
     exit($code);
 }

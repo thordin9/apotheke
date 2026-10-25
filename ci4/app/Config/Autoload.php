@@ -42,6 +42,7 @@ class Autoload extends AutoloadConfig
         'Apotheke' => ROOTPATH . 'modules',
         'Apotheke\Migrations' => ROOTPATH . 'modules/Migrations',
         'Apotheke\Settings' => ROOTPATH . 'modules/Settings',
+        'Apotheke\Auth' => ROOTPATH . 'modules/Auth',   // spark finds apotheke:accounts
     ];
 
     /**
