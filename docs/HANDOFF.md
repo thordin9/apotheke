@@ -46,7 +46,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   content). `Catalog\Items\PhotoRepository` writes through `Writes`; Media's `ImageStore::edit()` makes the new
   version with its own copy of the original. A stored photo stays held for `RequestCleanup` until its write
   commits, and `/save` creates a typed-in location or category in the save's transaction, so a failed save or
-  photo add keeps no files and no new location or category (L-81; legacy keeps them). Not yet: quantity,
+  photo add keeps no files and no new location or category (L-81; legacy keeps them). `/save` stores and decodes
+  the photo before its transaction (M-91). A photo add locks the item first, so adds at once stay within
+  `max_photos` (P6). An edit replaces the photo only if it still shows the file it read (compare-and-swap); the
+  other request of a double submit drops its own files (M-90). `tests/Unit/Ci4PhotoRacesTest.php` sends these
+  requests at once and `ci4/tests/Catalog/PhotoRepositoryTest.php` interleaves them. Not yet: quantity,
   duplicate, attachments upload and lend (11b, 13). Their buttons are drawn and answer 404 on CI4 until then.
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
@@ -133,6 +137,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - CI4 router (N-63, an N-51 follow-up): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404
   where legacy shows the page (stricter). Owner: Coder2 (CI4 lane).
+- Legacy photo edit race (#103 M-90): on `main`, two crop/rotate requests for one photo at once can commit a photo
+  without its original, and `image_original_copy()` succeeds when the original is gone. CI4 compares and swaps
+  `item_photos.file` and fails the copy. Candidate for the next `main` hardening PR.
+- Photo edit routes check CSRF before the item/photo 404 (#103 N-93): CI4 answers 419 where legacy answers 404,
+  so CI4 is stricter and does not reveal whether the item exists. No change.
+- Edit undo tokens keep old photo files (#103 N-94): a file kept for an edit token is not in the token's
+  `files`, so it stays after the token expires. Same on legacy; disk use only. Fix on both together.
+- R2 readiness (#103 N-95): served files and originals go through `Core\Storage`. Still local: `ImagickDecoder`'s
+  temp file. `UndoTokens::holds()` is a `LIKE` scan. Storage has no compare-and-swap, so the photo edit relies
+  on the database row (M-90).
 
 Backlog: legacy dev server: tighten request path handling (dev-only, not scheduled; `main` takes urgent fixes only).
 Markdown: links containing emphasis characters render incorrectly; later joint fix in main and CI4 (hold bare links in placeholders before emphasis).
