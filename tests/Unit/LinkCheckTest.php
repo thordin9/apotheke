@@ -6,7 +6,7 @@ use PHPUnit\Framework\TestCase;
 /** scripts/check-links.mjs scans AGENTS.md and every Markdown file under docs/. */
 final class LinkCheckTest extends TestCase
 {
-    public function testCheckerScansAgentsAdrPlansQaAndSuperpowers(): void
+    public function testCheckerScansAgentsAdrPlansAndQa(): void
     {
         $node = trim((string)shell_exec('command -v node'));
         if ($node === '') $this->markTestSkipped('node is not installed');
@@ -22,8 +22,6 @@ final class LinkCheckTest extends TestCase
         $this->assertStringContainsString('docs/plans/feature12-ci4/APPENDIX-A-inventory.md', $text);
         $this->assertStringContainsString('docs/plans/feature12-ci4/APPENDIX-B-schema.sql.md', $text);
         $this->assertStringContainsString('docs/qa/ci4-pr02-qa.md', $text);
-        $this->assertStringContainsString('docs/superpowers/plans/2026-10-12-audit-hardening.md', $text);
-        $this->assertStringContainsString('docs/superpowers/specs/2026-10-12-audit-hardening-design.md', $text);
         $this->assertStringContainsString('docs/user-guide.md', $text);
         $this->assertMatchesRegularExpression('/\d+ relative links checked in \d+ files, 0 broken/', $text);
     }

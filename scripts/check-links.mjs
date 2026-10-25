@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Check relative links (files and #anchors) in Markdown: README.md, CONTRIBUTING.md,
-// AGENTS.md, and every .md file under docs/ (nested, including qa and superpowers).
+// AGENTS.md, and every .md file under docs/ (nested, including qa and plans).
 // External http(s)/mailto links are not fetched. Usage: node scripts/check-links.mjs [--list]
 import fs from 'node:fs';
 import path from 'node:path';
