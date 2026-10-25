@@ -87,12 +87,13 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
 manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account
-from one client) and registration (5 / hour per address). One client's attempts against one account do not use up the
-limit for anyone else. How the client address is found behind a proxy (`trust_proxy`, `TRUSTED_PROXIES`):
+from one client, and 30 / 15 min for all accounts from one address) and registration (5 / hour per address). A
+current-password check (Your account, Users & sign-in) counts as a sign-in try for your account. One client's
+attempts against one account do not use up the limit for anyone else. How the client address is found behind a proxy (`trust_proxy`, `TRUSTED_PROXIES`):
 [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
 
 Accounts with the *Users* permission see this section. Rules: user names are 1–40 letters, digits and `. _ @ -`
-(case-insensitive, unique); passwords at least 8 characters; the last admin can't be demoted or deleted; you can't
+(case-insensitive, unique); passwords 8–200 characters without a null character (only the first 72 bytes count: bcrypt ignores the rest); the last admin can't be demoted or deleted; you can't
 delete yourself. A new password signs that user out on every device (each account has a session epoch; a session
 is valid only while it holds the current one). Changing your own password keeps this device signed in.
 **Sign out everywhere** on Your account (☰ → your name) does the same for the other sessions and keeps this
