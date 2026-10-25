@@ -168,6 +168,19 @@ final class ItemRepository
     }
 
     /**
+     * Run $fn in one checked transaction (Writes::transaction()), so a
+     * caller can make its own writes part of a save.
+     *
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    public function atomically(callable $fn): mixed
+    {
+        return Writes::transaction($this->db, $fn);
+    }
+
+    /**
      * Delete an item (legacy item_delete()). With $keepFiles its photo and
      * attachment files stay (an undo token owns them).
      *

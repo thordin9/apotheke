@@ -20,6 +20,7 @@ use Apotheke\Taxonomy\Kind;
 use Apotheke\Undo\UndoTokens;
 use CodeIgniter\HTTP\Files\UploadedFile;
 use CodeIgniter\HTTP\ResponseInterface;
+use Throwable;
 
 /**
  * The item page, the add and edit forms, saving, deleting and Undo (legacy
@@ -130,45 +131,69 @@ final class ItemController extends CatalogController
             $gate->require('move');
         }
         $tax = $this->taxonomy();
+        /** @var ImageStore $images */
+        $images = service('imageStore');
+        $undo = $this->undo();
+        $before = $existing !== null ? $undo->snapshot([(int)$existing['id']]) : [];
+        $newImage = null;
+        // One transaction: a failed save also drops the new location or category, and the photo's files (L-81).
+        // A UserError before the save still keeps them, as on legacy, and shows the form again.
         try {
-            if ($vals['name'] === '') {
-                throw new UserError('Please give the item a name.');
-            }
-            if ($qty === false) {
-                throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
-            }
-            $fields = ['tags' => Text::tags($vals['tags']), 'value_cents' => ItemInput::money($vals['value']),
-                'purchase_date' => ItemInput::purchaseDate($vals['purchase_date'], $this->calendar()->now()->modify('+86400 seconds')->format('Y-m-d')),
-                'expires_on' => ItemInput::expiryDate($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => ItemInput::minQty($vals['min_qty'])];
-            foreach (Kind::KINDS as $kind) {
-                $t = Kind::get($kind);
-                if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') {
-                    throw new UserError('Type a name for the new ' . $t['one'] . '.');
+            $savedId = $this->repo()->atomically(function () use (&$vals, $qty, $raw, $existing, $post, $tax, $images, &$newImage) {
+                try {
+                    if ($vals['name'] === '') {
+                        throw new UserError('Please give the item a name.');
+                    }
+                    if ($qty === false) {
+                        throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
+                    }
+                    $fields = ['tags' => Text::tags($vals['tags']), 'value_cents' => ItemInput::money($vals['value']),
+                        'purchase_date' => ItemInput::purchaseDate($vals['purchase_date'], $this->calendar()->now()->modify('+86400 seconds')->format('Y-m-d')),
+                        'expires_on' => ItemInput::expiryDate($vals['expires_on']), 'serial' => $vals['serial'], 'barcode' => $vals['barcode'], 'min_qty' => ItemInput::minQty($vals['min_qty'])];
+                    foreach (Kind::KINDS as $kind) {
+                        $t = Kind::get($kind);
+                        if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') {
+                            throw new UserError('Type a name for the new ' . $t['one'] . '.');
+                        }
+                        if ($vals[$t['col']] !== null && $tax->get($kind, $vals[$t['col']]) === null) {
+                            throw new UserError('That ' . $t['one'] . ' no longer exists. Please pick another.');
+                        }
+                    }
+                    foreach (Kind::KINDS as $kind) {
+                        if ($vals['new_' . $kind] !== '') {
+                            $vals[Kind::get($kind)['col']] = (int)$tax->create($kind, $vals['new_' . $kind])['id'];
+                            $vals['new_' . $kind] = '';
+                        }
+                    }
+                    $file = $this->upload(['photo', 'photo2']);
+                    if ($file !== null) {
+                        $newImage = $images->store($file->getTempName(), (int)$file->getSize(), $file->getError());
+                        $images->hold($newImage);
+                    }
+                } catch (UserError $e) {
+                    return $e;
                 }
-                if ($vals[$t['col']] !== null && $tax->get($kind, $vals[$t['col']]) === null) {
-                    throw new UserError('That ' . $t['one'] . ' no longer exists. Please pick another.');
-                }
+
+                return $this->repo()->save($existing, $fields + $vals, $newImage, !empty($post['remove_image']));
+            });
+        } catch (Throwable $e) {
+            if ($newImage !== null) {
+                $images->delete($newImage);
+                $images->release($newImage);
             }
-            foreach (Kind::KINDS as $kind) {
-                if ($vals['new_' . $kind] !== '') {
-                    $vals[Kind::get($kind)['col']] = (int)$tax->create($kind, $vals['new_' . $kind])['id'];
-                    $vals['new_' . $kind] = '';
-                }
-            }
-            $file = $this->upload(['photo', 'photo2']);
-            /** @var ImageStore $images */
-            $images = service('imageStore');
-            $newImage = $file !== null ? $images->store($file->getTempName(), (int)$file->getSize(), $file->getError()) : null;
-        } catch (UserError $e) {
+            throw $e;
+        }
+        if ($newImage !== null) {
+            $images->release($newImage);
+        }
+        if ($savedId instanceof UserError) {
+            $e = $savedId;
             if ($this->wantsJson()) {
                 return $this->json(['ok' => false, 'error' => $e->getMessage()], 422);
             }
 
             return $this->html($this->form($existing, $vals, $e->getMessage()), 422);
         }
-        $undo = $this->undo();
-        $before = $existing !== null ? $undo->snapshot([(int)$existing['id']]) : [];
-        $savedId = $this->repo()->save($existing, $fields + $vals, $newImage, !empty($post['remove_image']));
         $token = null;
         if ($before !== []) {
             $strip = static fn (array $s): array => [array_diff_key($s['row'], ['updated_at' => 1, 'search' => 1, 'image' => 1]), $s['tags']];
