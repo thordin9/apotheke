@@ -45,8 +45,9 @@ final class SettingsCliTest extends CIUnitTestCase
         $this->assertSame([1, '', "Unknown section.\n"], $this->cli(['reset', 'nope']));
         $this->assertSame([2, '', "Unknown command. See the comment at the top of bin/settings.php.\n"], $this->cli(['frobnicate']));
         foreach (SettingsCli::AUTH_FORMS as $form) {
-            $this->assertSame([2, '', "The {$form} command is not in apotheke:settings yet. Use php bin/settings.php {$form}.\n"], $this->cli([$form]));
+            $this->assertSame([2, '', "The {$form} command is in apotheke:accounts. Use php bin/settings.php {$form}.\n"], $this->cli([$form]));
         }
+        $this->assertSame([2, '', "The key command is not in apotheke:settings. Use php bin/settings.php key.\n"], $this->cli(['key']));
     }
 
     public function testListIsTheDefault(): void

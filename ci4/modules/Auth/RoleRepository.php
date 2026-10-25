@@ -107,6 +107,16 @@ final class RoleRepository
         });
     }
 
+    /** Legacy roles_reset_builtin(): the built-in roles' names and permissions back to the defaults (custom roles stay). */
+    public function resetBuiltin(): void
+    {
+        Writes::transaction($this->db, function (): void {
+            foreach (Permissions::ROLE_DEFAULTS as $key => [$name, $perms]) {
+                Writes::check($this->db->query('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key]), 'roles reset');
+            }
+        });
+    }
+
     /** Legacy role_has(): admin has everything; an unknown role has nothing. */
     public function has(string $role, string $perm): bool
     {

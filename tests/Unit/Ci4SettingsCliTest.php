@@ -324,8 +324,10 @@ final class Ci4SettingsCliTest extends TestCase
         foreach (['users', 'user', 'roles', 'auth', 'password'] as $form) {
             $r = $this->spark($right, [$form]);
             $this->assertSame(2, $r['exit']);
-            $this->assertSame("The {$form} command is not in apotheke:settings yet. Use php bin/settings.php {$form}.\n", $r['stderr']);
+            $this->assertSame("The {$form} command is in apotheke:accounts. Use php bin/settings.php {$form}.\n", $r['stderr']);
         }
+        $r = $this->spark($right, ['key']);
+        $this->assertSame([2, "The key command is not in apotheke:settings. Use php bin/settings.php key.\n"], [$r['exit'], $r['stderr']]);
         // A value that starts with "-" reaches the command unchanged (CI4's parser would drop it).
         $r = $this->spark($right, ['set', 'default_quantity', '-5']);
         $this->assertSame("Quantity: between 0 and 1000000.\n", $r['stderr']);

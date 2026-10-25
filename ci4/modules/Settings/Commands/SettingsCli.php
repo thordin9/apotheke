@@ -14,15 +14,15 @@ use RuntimeException;
  * set, reset, export and import. Output and exit codes match: 0 on success,
  * 1 with the message on stderr for a UserError, 2 for an unknown command.
  *
- * The users, user, roles, auth and password forms move to the Auth module
- * (Auth PR); bin/settings.php keeps running them on legacy until then.
+ * The users, user, roles, auth and password forms are the Auth module's
+ * apotheke:accounts; bin/settings.php runs it for them.
  */
 final class SettingsCli
 {
     private const JSON = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
 
-    /** Forms that stay in bin/settings.php for now: the Auth module's, and key generate|rotate (S-L5). */
-    public const AUTH_FORMS = ['users', 'user', 'roles', 'auth', 'password', 'key'];
+    /** The Auth module's forms (apotheke:accounts). */
+    public const AUTH_FORMS = ['users', 'user', 'roles', 'auth', 'password'];
 
     private ?SettingsService $settings = null;
 
@@ -66,9 +66,11 @@ final class SettingsCli
                     $this->import($args[1] ?? 'php://stdin');
                     break;
                 default:
-                    $this->err(in_array($cmd, self::AUTH_FORMS, true)
-                        ? "The {$cmd} command is not in apotheke:settings yet. Use php bin/settings.php {$cmd}.\n"
-                        : "Unknown command. See the comment at the top of bin/settings.php.\n");
+                    $this->err(match (true) {
+                        in_array($cmd, self::AUTH_FORMS, true) => "The {$cmd} command is in apotheke:accounts. Use php bin/settings.php {$cmd}.\n",
+                        $cmd === 'key' => "The key command is not in apotheke:settings. Use php bin/settings.php key.\n",
+                        default => "Unknown command. See the comment at the top of bin/settings.php.\n",
+                    });
 
                     return 2;
             }

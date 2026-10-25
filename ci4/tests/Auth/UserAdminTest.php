@@ -96,6 +96,19 @@ final class UserAdminTest extends CIUnitTestCase
         $this->assertSame(1, $users->activeAdmins());
     }
 
+    /** N-111: a pending admin may be demoted while one active admin remains (legacy counts only active admins). */
+    #[DataProvider('drivers')]
+    public function testAPendingAdminCanBeDemotedBesideTheOnlyActiveAdmin(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $ada = $this->account('ada', 'admin');
+        $pal = $this->account('pal', 'admin', 'pending');
+        $this->users()->setRole($pal, 'editor');
+        $this->assertSame(['editor', 'pending'], [$this->repo()->find($pal)['role'] ?? null, $this->repo()->find($pal)['status'] ?? null]);
+        $this->assertSame(1, $this->users()->activeAdmins());
+        $this->assertUserError(409, '“ada” is the only admin – make someone else an admin first.', fn () => $this->users()->setRole($ada, 'editor'));
+    }
+
     /** Only an admin changes an admin account or grants admin; checks run in legacy's order. */
     #[DataProvider('drivers')]
     public function testANonAdminCannotTouchAnAdmin(string $driver): void
