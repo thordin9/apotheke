@@ -29,7 +29,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   format as `main`, so both apps read one database. `key generate` and `key rotate` stay in `bin/settings.php`.
 - Media: `ImageStore::store()` keeps the upload byte-identical under `ORIGINALS_DIR` (`<64hex>.<ext>`, `map/<32hex>`,
   0640) and writes `images/` and `thumbs/` with the same bytes as legacy. It applies `main`'s decode limits from #72 and #79
-  (`ImageLimits`) and removes everything again when a decode fails. All bytes go through `Core\Storage`. GET `/media`
+  (`ImageLimits`) and removes everything again when a decode fails. If the request dies first (a fatal error), the
+  per-request `Core\Http\RequestCleanup` removes it: the exception handler runs it before it exits, and the
+  `requestcleanup` after filter runs it at the end of every request. All bytes go through `Core\Storage`. GET `/media`
   serves only served names. The upload routes, photo order/edit and copies for duplicate/merge come with 11a/11b.
 - Not ported yet: sign-in, account and Users pages, the Items, Undo and Backup modules. When those pages
   arrive they pass `keepSignIn` to `SessionGate::signIn()` where `main` passes it to `login_session()` (sign out
