@@ -52,7 +52,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * Media → Settings
   * Layout → Settings (the page shell, menu and error page; `Config\Services` hands it the user from Auth, and Core filters reach it through the `Core\Http\ErrorPage` interface)
   * Catalog → Taxonomy, Media, Search, Activity, Undo, Notes, Settings
-  * BulkMerge → Catalog, Taxonomy, Media, Activity, Undo
+  * BulkMerge → Catalog, Taxonomy, Media, Undo, Layout, Settings (bulk actions, merge, duplicate and quantity; history through `Core\Libraries\ItemHistory`). Attachments are Catalog's (`Items\Attachments`).
   * Favourites → Catalog
   * Lending, Stocktake and Labels → Catalog, Taxonomy
   * ImportExport → Catalog, Taxonomy
