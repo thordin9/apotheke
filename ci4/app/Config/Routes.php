@@ -45,3 +45,13 @@ foreach (['locations', 'categories'] as $segment) {
     $routes->get($segment . '/([0-9]+)/(rename|default|parent)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'view']);
     $routes->post($segment . '/([0-9]+)', $manage . '::notFound/' . $segment . '/$1', ['permission' => 'edit']);
 }
+
+// Auth: sign-in, registration and sign-out (legacy answers these before its permission
+// check and checks the CSRF token itself, so they are `none` and skip the global CSRF
+// filter, Config\Filters), then your own account (`self`).
+$signIn = '\\Apotheke\\Auth\\Controllers\\SignInController';
+$routes->match(['GET', 'HEAD', 'POST'], 'login', $signIn . '::login', $none);
+$routes->match(['GET', 'HEAD', 'POST'], 'register', $signIn . '::register', $none);
+$routes->post('logout', $signIn . '::logout', $none);
+$routes->match(['GET', 'HEAD', 'POST'], 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
+$routes->post('account/signout', '\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere', ['permission' => 'self']);

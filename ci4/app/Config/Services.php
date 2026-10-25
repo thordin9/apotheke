@@ -285,15 +285,19 @@ class Services extends BaseService
      * The shared page shell for this request (Layout). The user and role
      * checks come from Auth; the theme cookie and the way back from this
      * request. Nothing is read until a page is drawn.
+     *
+     * @param array{id:?int,username:string,role:string,status:string,guest:bool,anon:bool}|null $user
      */
-    public static function layout(bool $getShared = true): \Apotheke\Layout\Page
+    public static function layout(bool $getShared = true, ?array $user = null): \Apotheke\Layout\Page
     {
-        if ($getShared) {
+        if ($getShared && $user === null) {
             return static::getSharedInstance('layout');
         }
         $check = new \Apotheke\Auth\PermissionCheck(static::roles());
         $viewer = new \Apotheke\Layout\Viewer(
-            static fn (): ?array => static::currentUser()->resolve(),
+            // $user: the visitor as the request began (legacy current_user()'s per-request cache),
+            // for a page drawn after the account changed (a stronger password hash).
+            $user !== null ? static fn (): array => $user : static fn (): ?array => static::currentUser()->resolve(),
             static fn (?array $user, string $permission): bool => $check->allows($user, $permission),
             static fn (string $role): string => static::roles()->name($role),
             array_keys(\Apotheke\Auth\Permissions::ALL),
@@ -414,5 +418,56 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
+    }
+
+    /** Accounts for the sign-in pages (Auth). Stateless. */
+    public static function accounts(bool $getShared = true): \Apotheke\Auth\Accounts
+    {
+        if ($getShared) {
+            return static::getSharedInstance('accounts');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\Accounts(new \Apotheke\Auth\UserRepository($db), static::roles(), new \Apotheke\Core\Libraries\Clock());
+    }
+
+    /**
+     * Sign-in and registration throttling (Auth) for this request's client
+     * address (legacy client_address(): X-Forwarded-For only from a trusted
+     * proxy with trust_proxy on) at legacy app_time().
+     */
+    public static function rateLimiter(bool $getShared = true): \Apotheke\Auth\RateLimiter
+    {
+        if ($getShared) {
+            return static::getSharedInstance('rateLimiter');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        try {
+            $trust = (bool)static::settings()->get('trust_proxy');
+        } catch (\Throwable) {
+            $trust = false;
+        }
+        $address = (new \Apotheke\Core\Http\ClientAddress())->from(
+            is_string($_SERVER['REMOTE_ADDR'] ?? null) ? $_SERVER['REMOTE_ADDR'] : '',
+            is_string($_SERVER['HTTP_X_FORWARDED_FOR'] ?? null) ? $_SERVER['HTTP_X_FORWARDED_FOR'] : '',
+            $trust,
+            static::apothekeConfig()->trustedProxies(),
+        );
+
+        return new \Apotheke\Auth\RateLimiter($db, $address, (new \Apotheke\Core\Libraries\Clock())->unix());
+    }
+
+    /** Sign out everywhere (Auth, SEC-N6). */
+    public static function signOutEverywhere(bool $getShared = true): \Apotheke\Auth\SignOutEverywhere
+    {
+        if ($getShared) {
+            return static::getSharedInstance('signOutEverywhere');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Auth\SignOutEverywhere(new \Apotheke\Auth\UserRepository($db));
     }
 }
