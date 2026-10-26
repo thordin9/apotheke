@@ -105,7 +105,6 @@ final class UserRepository
         return array_map(static fn (array $r): string => (string)$r['role'], Writes::rows($this->db, "SELECT role FROM users WHERE status = 'active'"));
     }
 
-    /** Legacy user_approve(). */
     /**
      * $fn in one transaction (Writes::transaction; nesting is flat).
      *
@@ -146,6 +145,7 @@ final class UserRepository
         $this->lockActiveAdmins();
     }
 
+    /** Legacy user_approve(). */
     public function approve(int $id): void
     {
         Writes::check($this->db->query("UPDATE users SET status = 'active' WHERE id = ?", [$id]), 'users approve');

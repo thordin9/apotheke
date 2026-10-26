@@ -109,7 +109,6 @@ final class UserAdminTest extends CIUnitTestCase
         $this->assertUserError(409, '“ada” is the only admin – make someone else an admin first.', fn () => $this->users()->setRole($ada, 'editor'));
     }
 
-    /** Only an admin changes an admin account or grants admin; checks run in legacy's order. */
     /**
      * The last-admin check reads the account again under the admin lock: a
      * change committed between the first read and the lock (here a trigger
@@ -143,6 +142,7 @@ final class UserAdminTest extends CIUnitTestCase
         }
     }
 
+    /** Only an admin changes an admin account or grants admin; checks run in legacy's order. */
     #[DataProvider('drivers')]
     public function testANonAdminCannotTouchAnAdmin(string $driver): void
     {
