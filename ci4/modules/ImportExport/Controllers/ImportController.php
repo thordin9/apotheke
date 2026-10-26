@@ -56,8 +56,9 @@ final class ImportController extends CatalogController
             return $this->redirectTo('/import?done=' . $imp['id']);
         }
         [$header, $rows] = $imports->rows($imp);
-        $post = $this->request->getMethod() === 'POST';
-        if ($act === '' && !$post) {
+        $method = $this->request->getMethod();   // HEAD is GET here (HeadAsGet)
+        $post = $method === 'POST';
+        if ($act === '' && $method === 'GET') {
             return $this->html($this->pages()->map($imp, $header, $rows, null, null));
         }
         if ($act === '' || !$post) {

@@ -90,6 +90,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** GET `/export.csv` streams the file as legacy does: items are read in batches of 500 (from a cursor in a read-only snapshot on PostgreSQL), each batch reads only its own tags, and every line goes out as it is written, so memory no longer grows with the number of items. At 200,000 items the export used about 360 MB (SQLite) or 490 MB (PostgreSQL) and failed at the 256 MB limit; it now stays near 3 MB (QA L-370). ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** the export tests cover cells that start with a TAB or a carriage return, so the formula guard for them is checked (QA N-375). ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** the import pages check the CSRF token first, as every CI4 POST does. A POST without the token to an import that is already done answers 419 where legacy redirects to the done page (303), and a POST without the token to `/import/{id}` answers 419 where legacy answers 404. Stricter; no change (QA N-371). ([#129](https://github.com/thordin9/apotheke/pull/129))
+- **ci4:** `/import` shows its page for PUT, PATCH and DELETE as legacy does, instead of 404, and `/import/{id}` with these methods redirects a done import and otherwise answers 404, as on legacy. They need the `import` permission and the CSRF token, as every non-safe method does on CI4 (QA N-372). ([#129](https://github.com/thordin9/apotheke/pull/129))
 
 ### Maintenance
 
