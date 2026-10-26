@@ -120,13 +120,17 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Merged.
 - [#105](https://github.com/thordin9/apotheke/pull/105): PLAN step 7 part B (second half), the CLI account forms,
   plus N-111. Open.
+- [#109](https://github.com/thordin9/apotheke/pull/109): CI4 port of #106's sign-in limits: the attempt is
+  recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Open.
 
 ## Lanes
 
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
   catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102, merged); step 11a part 2, the photo routes
   (#103, merged). Stays out of the auth, account, users/roles, taxonomy and Notes files
-  (only the route table in `PermissionFilterTest` gets the new photo routes).
+  (only the route table in `PermissionFilterTest` gets the new photo routes). #106 port to CI4: `RateLimiter::hit`
+  records first, the per-address cap on `/login` (#109); Coder2 ports the current-password throttle, the last-admin
+  lock and the `APP_PASSWORD` null-character check (still skipped on CI4 in `HardeningHttpTest`).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, open). Owns the N-63 router follow-up below.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
