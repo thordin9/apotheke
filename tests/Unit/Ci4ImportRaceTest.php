@@ -1,0 +1,71 @@
+<?php
+
+declare(strict_types=1);
+
+use PHPUnit\Framework\TestCase;
+
+require_once dirname(__DIR__) . '/lib.php';
+
+/**
+ * A double-submitted CSV import on CI4, on the driver of the run: while the
+ * first submit's transaction is still open, the second waits for it, finds
+ * the import done and answers as legacy answers a later submit (303 to
+ * /import?done=…), importing nothing. Legacy has no such wait (it checks
+ * the status before its transaction), so this is CI4 only. The interleavings
+ * of the run itself are in ci4/tests/ImportExport/ImportsTest.php.
+ */
+final class Ci4ImportRaceTest extends TestCase
+{
+    public function testASecondSubmitWaitsAndImportsNothing(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $dir = tmpdir('import-race');
+        $server = new Server($dir, ['APOTHEKE_CLOCK' => '2026-06-15 21:30:00'], 'ci4');
+        try {
+            $this->assertSame(200, $server->client()->get('/healthz')['status'], (string)@file_get_contents($server->log));
+            $pdo = testdb($dir);
+            $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+                ->execute(['ada', 'ada', password_hash('long-enough', PASSWORD_DEFAULT), 'admin', 'active', '2026-01-01 00:00:00']);
+            foreach (['auth_enabled' => true, 'auth_guest_disabled' => true] as $k => $v) {
+                $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute([$k]);
+                $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)')->execute([$k, json_encode($v), '2026-01-01']);
+            }
+            $row = $pdo->query("SELECT id, password_hash FROM users WHERE username = 'ada'")->fetch();
+            $token = bin2hex(random_bytes(32));
+            $sid = bin2hex(random_bytes(13));
+            file_put_contents($dir . '/sessions/sess_' . $sid, 'uid|i:' . $row['id'] . ';auth_epoch|s:16:"' . substr(hash('sha256', $row['password_hash'] . '|' . $row['id']), 0, 16)
+                . '";csrf|s:64:"' . $token . '";last_activity|i:' . time() . ';signed_in_at|i:' . time() . ';');
+            $client = $server->client();
+            $client->cookies['apothekesid'] = $sid;
+            $up = $client->post('/import', ['csrf' => $token], ['csv' => ['name' => 'items.csv', 'type' => 'text/csv', 'data' => "name;qty\nLadder;1\nRope;2\n"]]);
+            $this->assertSame([303, '/import/1'], [$up['status'], $up['headers']['location'] ?? null], $up['body']);
+
+            // The first submit: done in a transaction that stays open for a while.
+            $summary = '{"created":2,"updated":0,"unchanged":0,"skipped":0,"made":{"location":[],"category":[],"tag":[]}}';
+            $proc = proc_open([PHP_BINARY, ROOT . '/ci4/tests/_support/hold-transaction.php', (string)json_encode([["UPDATE imports SET status = 'done', result = ? WHERE id = 1", [$summary]]]), '1500'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, array_merge(getenv(), test_server_env($dir)));
+            $this->assertIsResource($proc);
+            $held = (string)fgets($pipes[1]);   // the other client's error output comes with its end, below
+            $this->assertSame("held\n", $held);
+            $t = microtime(true);
+            $second = $client->post('/import/1/commit', ['csrf' => $token, 'col' => ['name', 'quantity']]);
+            $waited = microtime(true) - $t;
+            $other = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($proc);
+            $this->assertSame("committed\n", $other);
+            $this->assertSame([303, '/import?done=1'], [$second['status'], $second['headers']['location'] ?? null], substr($second['body'], 0, 2000));
+            $this->assertGreaterThan(0.5, $waited, 'the second submit waited for the first');
+            $this->assertSame(0, (int)$pdo->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'nothing imported twice');
+            $this->assertStringContainsString('Imported · 2 added · 0 updated', $client->get('/import?done=1')['body']);
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
+    }
+}

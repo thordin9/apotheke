@@ -84,6 +84,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Stocktake\\
+    - name: ImportExport
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\ImportExport\\
   ruleset:
     Auth:
       - Core
@@ -173,4 +177,14 @@ deptrac:
       - Catalog
       - Taxonomy
       - Media
+      - Activity
+    # ImportExport (PLAN 14): CSV import and export. Saves items through Catalog, finds or creates
+    # locations and categories through Taxonomy, lends through Lending; times as the history shows them.
+    ImportExport:
+      - Core
+      - Layout
+      - Settings
+      - Catalog
+      - Taxonomy
+      - Lending
       - Activity

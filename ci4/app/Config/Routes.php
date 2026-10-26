@@ -138,3 +138,12 @@ $routes->match(['GET', 'HEAD'], 'stocktake/([0-9]+)', $stocktake . '::take/$1', 
 $routes->match(['GET', 'HEAD'], 'stocktake/([0-9]+)/(check|report|finish|cancel)', $stocktake . '::take/$1/$2', ['permission' => 'view']);
 $routes->post('stocktake/([0-9]+)', $stocktake . '::take/$1', ['permission' => 'stocktake']);
 $routes->post('stocktake/([0-9]+)/(check|report|finish|cancel)', $stocktake . '::take/$1/$2', ['permission' => 'stocktake']);
+
+// PLAN 14: CSV import and export (ImportExport). Every /import route needs "import" and
+// the export "export" (legacy route_perm()). A POST without a valid CSRF token is refused
+// (419) before the import is looked up, where legacy answers 404 for a missing one.
+$import = '\\Apotheke\\ImportExport\\Controllers\\ImportController';
+$routes->match(['GET', 'HEAD', 'POST'], 'import', $import . '::index', ['permission' => 'import']);
+$routes->match(['GET', 'HEAD', 'POST'], 'import/([0-9]+)', $import . '::import/$1', ['permission' => 'import']);
+$routes->match(['GET', 'HEAD', 'POST'], 'import/([0-9]+)/(preview|commit)', $import . '::import/$1/$2', ['permission' => 'import']);
+$routes->match(['GET', 'HEAD'], 'export.csv', $import . '::export', ['permission' => 'export']);
