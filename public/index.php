@@ -688,7 +688,8 @@ try {
                     // an account exists already: sign in as that admin to turn sign-in back on
                     $mine = rate_limit('login_address');   // limited like the current-password check
                     rate_limit('login', $name);
-                    if (!$u || $u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    $ok = user_verify($nul ? $raw : $name, (string)($_POST['new'] ?? ''));   // always one password check, whatever the name
+                    if (!$ok || !$u || $u['role'] !== 'admin') throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     rate_limit_clear('login', $name);
                     rate_limit_forget($mine);
                     $uid = $u['id'];
