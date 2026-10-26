@@ -103,6 +103,10 @@ function stocktake_check(int $stocktakeId, int $itemId, bool $found = true): arr
     $it = item_get($itemId);
     if (!$it) throw new UserError('Item not found.', 404);
     return db_tx(function (PDO $pdo) use ($stocktakeId, $it, $found): array {
+        // first write: still open (a finish or cancel may have closed it since the check above)
+        $st = $pdo->prepare("UPDATE stocktakes SET status = status WHERE id = ? AND status = 'open'");
+        $st->execute([$stocktakeId]);
+        if ($st->rowCount() !== 1) throw new UserError('This stocktake is finished.', 409);
         $st = $pdo->prepare('SELECT id, expected FROM stocktake_lines WHERE stocktake_id = ? AND item_id = ?');
         $st->execute([$stocktakeId, (int)$it['id']]);
         $line = $st->fetch();
@@ -140,6 +144,7 @@ function stocktake_finish(int $stocktakeId, bool $applyMoves): int
     if ($s['status'] !== 'open') throw new UserError('This stocktake is already finished.', 409);
     if ($applyMoves && ($s['location_id'] === null || !tax_get('location', $s['location_id']))) throw new UserError('The location was deleted – misplaced items cannot be moved there.', 409);
     return db_tx(function (PDO $pdo) use ($s, $applyMoves): int {
+        stocktake_close($pdo, $s['id'], 'done');
         $rep = stocktake_report($s['id']);
         $moved = 0;
         if ($applyMoves) {
@@ -155,8 +160,7 @@ function stocktake_finish(int $stocktakeId, bool $applyMoves): int
             }
         }
         $sum = ['expected' => $rep['expected'], 'found' => count($rep['found']), 'missing' => count($rep['missing']), 'misplaced' => count($rep['misplaced']), 'moved' => $moved];
-        $pdo->prepare("UPDATE stocktakes SET status = 'done', finished_at = ?, moves_applied = ?, summary = ? WHERE id = ?")
-            ->execute([now_utc(), $moved, json_encode($sum), $s['id']]);
+        $pdo->prepare('UPDATE stocktakes SET moves_applied = ?, summary = ? WHERE id = ?')->execute([$moved, json_encode($sum), $s['id']]);
         return $moved;
     });
 }
@@ -166,7 +170,18 @@ function stocktake_cancel(int $stocktakeId): void
     $s = stocktake_get($stocktakeId);
     if (!$s) throw new UserError('Stocktake not found.', 404);
     if ($s['status'] !== 'open') throw new UserError('This stocktake is already finished.', 409);
-    db()->prepare("UPDATE stocktakes SET status = 'cancelled', finished_at = ? WHERE id = ?")->execute([now_utc(), $stocktakeId]);
+    stocktake_close(db(), $stocktakeId, 'cancelled');
+}
+
+/**
+ * Mark an open stocktake done or cancelled (the first write of a finish). Only one finish or cancel gets it: one that
+ * read it as open before another closed it answers 409 and changes nothing.
+ */
+function stocktake_close(PDO $pdo, int $stocktakeId, string $status): void
+{
+    $st = $pdo->prepare("UPDATE stocktakes SET status = ?, finished_at = ? WHERE id = ? AND status = 'open'");
+    $st->execute([$status, now_utc(), $stocktakeId]);
+    if ($st->rowCount() !== 1) throw new UserError('This stocktake is already finished.', 409);
 }
 
 /** Progress of an open stocktake: [found of expected, misplaced]. */
