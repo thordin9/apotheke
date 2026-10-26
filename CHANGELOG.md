@@ -104,6 +104,29 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` 0d9f6f3 (2.6.17) into `feature/ci4`. The legacy app gets #111 and #112 (sign-in caps, the photo limit, clean-up after commit). New `HardeningHttpTest` probes for the current-password checks and the last admin are skipped on CI4 until those ports land; the null-character name probe is skipped on legacy PostgreSQL, which cuts the name at it. ([#113](https://github.com/thordin9/apotheke/pull/113))
 - **ci4:** sync `main` ff23b38 (2.6.18) into `feature/ci4`. The legacy app gets #116; its `HardeningHttpTest` probe for null-character names runs on CI4 and on both legacy drivers and replaces the narrower #113 probe. ([#117](https://github.com/thordin9/apotheke/pull/117))
 
+## [2.6.20] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: an unknown sign-in name spends a password check at the current default cost on every PHP version, turning sign-in back on always spends one password check, and cleanups queued inside a migration wait for its commit. ([#122](https://github.com/thordin9/apotheke/pull/122))
+
+### Maintenance
+
+- test: sign-in timing for known names, failed import and migrate queue ([#122](https://github.com/thordin9/apotheke/pull/122))
+- **qa:** docs: add PR 122 QA report ([#122](https://github.com/thordin9/apotheke/pull/122))
+
+## [2.6.19] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: a new user name with a null character anywhere is refused like any other invalid name when registering, adding or renaming an account, and a sign-in with such a name spends the same password-check time as an unknown name. ([#121](https://github.com/thordin9/apotheke/pull/121))
+
+### Maintenance
+
+- test: null-character names, address cap and after-commit drains ([#121](https://github.com/thordin9/apotheke/pull/121))
+- test: queue migrate's drain cleanup up front on every PHP version ([#121](https://github.com/thordin9/apotheke/pull/121))
+- **qa:** docs: PR 121 main auth hardening QA report ([#121](https://github.com/thordin9/apotheke/pull/121))
+
 ## [2.6.18] - 2026-10-26
 
 ### Fixed
@@ -499,7 +522,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.18...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.20...HEAD
+[2.6.20]: https://github.com/thordin9/apotheke/compare/v2.6.19...v2.6.20
+[2.6.19]: https://github.com/thordin9/apotheke/compare/v2.6.18...v2.6.19
 [2.6.18]: https://github.com/thordin9/apotheke/compare/v2.6.17...v2.6.18
 [2.6.17]: https://github.com/thordin9/apotheke/compare/v2.6.16...v2.6.17
 [2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16

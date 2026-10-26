@@ -280,6 +280,113 @@ final class HardeningHttpTest extends TestCase
         $this->assertSame($users, (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'no account created');
     }
 
+    /** A sign-in name with a null character or an unknown name spends the same password hash as a known name with a wrong password. */
+    public function testANullCharacterNameTakesAsLongAsAnUnknownName(): void
+    {
+        $time = function (string $name): float {
+            $c = $this->server->client();
+            $csrf = $this->loginCsrf($c);
+            $t = hrtime(true);
+            $this->assertSame(401, $c->post('/login', ['csrf' => $csrf, 'username' => $name, 'password' => 'wrong-pass'])['status']);
+            return (hrtime(true) - $t) / 1e6;
+        };
+        $nul = $unknown = $known = [];
+        for ($i = 0; $i < 6; $i++) {
+            $nul[] = $time("ada\0");
+            $unknown[] = $time('nobody');
+            $known[] = $time('bea');   // not "ada": tries with "ada\0" count toward that account's limit
+        }
+        // the fastest of each: load only adds time, and a skipped bcrypt check is about 50 ms
+        $all = json_encode(['nul' => $nul, 'unknown' => $unknown, 'known' => $known]);
+        $this->assertGreaterThan(min($unknown) - 20, min($nul), $all);
+        $this->assertGreaterThan(min($known) - 20, min($unknown), $all);
+        $this->assertGreaterThan(min($known) - 20, min($nul), $all);
+    }
+
+    /** Turning sign-in back on with a null-character name spends the same password check as an admin with a wrong password. */
+    public function testReEnablingWithANullCharacterNameTakesAsLongAsAWrongPassword(): void
+    {
+        $this->setting('auth_enabled', false);
+        $time = function (string $name): float {
+            $g = $this->server->client();
+            $csrf = $g->csrf();
+            $t = hrtime(true);
+            $this->assertSame(403, $g->post('/settings/password', ['csrf' => $csrf, 'mode' => 'change', 'username' => $name, 'new' => 'wrong-pass', 'confirm' => 'wrong-pass'])['status']);
+            return (hrtime(true) - $t) / 1e6;
+        };
+        $nul = $known = [];
+        for ($i = 0; $i < 4; $i++) {   // both count toward the account limit for "ada"
+            $nul[] = $time("\0ada");
+            $known[] = $time('ada');
+        }
+        $this->assertGreaterThan(min($known) - 20, min($nul), json_encode(['nul' => $nul, 'known' => $known]));
+    }
+
+    /** New names with a null character anywhere are refused like other invalid names: registration, adding and renaming. */
+    public function testNewNamesWithANullCharacterAreRefused(): void
+    {
+        $this->setting('auth_register_disabled', false);
+        $users = (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+        foreach (["cy\0", "\0cy", "c\0y"] as $name) {
+            $g = $this->server->client();
+            preg_match('/name="csrf" value="([a-f0-9]+)"/', $g->get('/register')['body'], $m);
+            $r = $g->post('/register', ['csrf' => $m[1] ?? '', 'username' => $name, 'new' => 'long-enough', 'confirm' => 'long-enough']);
+            $this->assertSame(422, $r['status'], 'register ' . json_encode($name));
+            $this->assertStringContainsString('User names use letters, digits', $r['body']);
+        }
+        $a = $this->signIn('ada');
+        $bea = (int)$this->pdo->query("SELECT id FROM users WHERE username = 'bea'")->fetchColumn();
+        foreach (["cy\0", "\0cy", "c\0y"] as $name) {
+            $r = $a->post('/settings/users', ['csrf' => $a->csrf(), 'username' => $name, 'role' => 'viewer', 'new' => 'long-enough', 'confirm' => 'long-enough']);
+            $this->assertSame(422, $r['status'], 'add ' . json_encode($name));
+            $this->assertStringContainsString('User names use letters, digits', $r['body']);
+            $r = $a->post("/settings/users/$bea/rename", ['csrf' => $a->csrf(), 'username' => $name]);
+            $this->assertSame(422, $r['status'], 'rename ' . json_encode($name));
+        }
+        $this->assertSame($users, (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'no account created');
+        $this->assertSame(['ada', 'bea'], $this->pdo->query('SELECT username FROM users ORDER BY username')->fetchAll(PDO::FETCH_COLUMN), 'none renamed');
+    }
+
+    /** Wrong current passwords for three accounts from one address use up its cap (30 in 15 minutes); the next try is refused. */
+    public function testWrongCurrentPasswordsReachTheAddressCap(): void
+    {
+        $this->addAdmin('cy');
+        foreach (['ada', 'bea', 'cy'] as $name) $clients[$name] = $this->signIn($name);
+        foreach ($clients as $name => $c) {
+            for ($i = 0; $i < 10; $i++) {
+                $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'wrong-' . $i, 'new' => 'another-one', 'confirm' => 'another-one']);
+                $this->assertSame(403, $r['status'], "$name: try $i");
+            }
+        }
+        $this->assertSame(30, (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn());
+        $this->pdo->exec("DELETE FROM auth_attempts WHERE kind = 'login'");   // only the address count is left
+        $c = $clients['ada'];
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(429, $r['status'], 'the 31st, with the right password');
+        $this->assertStringContainsString('Too many attempts from this address', $r['body']);
+        $this->assertTrue(password_verify('long-enough', (string)$this->pdo->query("SELECT password_hash FROM users WHERE username = 'ada'")->fetchColumn()), 'unchanged');
+    }
+
+    /** With sign-in off, wrong admin passwords for three names from one address use up its cap; the next try is refused. */
+    public function testWrongTurnOnPasswordsReachTheAddressCap(): void
+    {
+        $this->addAdmin('cy');
+        $this->setting('auth_enabled', false);
+        $g = $this->server->client();
+        foreach (['ada', 'bea', 'cy'] as $name) {
+            for ($i = 0; $i < 10; $i++) {
+                $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => $name, 'new' => 'wrong-' . $i]);
+                $this->assertSame(403, $r['status'], "$name: try $i");
+            }
+        }
+        $this->assertSame(30, (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn());
+        $this->pdo->exec("DELETE FROM auth_attempts WHERE kind = 'login'");
+        $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'long-enough']);
+        $this->assertSame(429, $r['status'], 'the 31st, with the right password');
+        $this->assertStringContainsString('Too many attempts from this address', $r['body']);
+        $this->assertSame('false', (string)$this->pdo->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'still off');
+    }
+
     /** Two admins deleting each other, or one demoting while the other deletes, at the same time: one admin stays. */
     public function testDeletesAndDemotionsAtOnceKeepAnAdmin(): void
     {
@@ -386,6 +493,12 @@ final class HardeningHttpTest extends TestCase
         $r = $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => $name, 'password' => 'long-enough']);
         $this->assertSame(303, $r['status'], $name . ': ' . substr($r['body'], 0, 300));
         return $c;
+    }
+
+    private function addAdmin(string $name): void
+    {
+        $this->pdo->prepare("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, 'admin', 'active', '2026-01-01 00:00:00')")
+            ->execute([$name, $name, password_hash('long-enough', PASSWORD_DEFAULT)]);
     }
 
     private function loginCsrf(Client $c): string

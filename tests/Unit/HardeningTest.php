@@ -35,6 +35,23 @@ final class HardeningTest extends DatabaseTestCase
         }
     }
 
+    public function testNewNamesWithANullCharacterAreRefused(): void
+    {
+        $id = user_create('ada', 'long-enough', 'admin');
+        foreach (["bea\0", "\0bea", "be\0a", "\0"] as $name) {
+            foreach (['add' => fn() => user_create($name, 'long-enough', 'viewer'), 'rename' => fn() => user_rename($id, $name)] as $what => $try) {
+                try {
+                    $try();
+                    $this->fail($what . ' accepted ' . json_encode($name));
+                } catch (UserError $e) {
+                    $this->assertSame(422, $e->getCode(), json_encode($name));
+                    $this->assertStringStartsWith('User names use letters, digits', $e->getMessage(), $what . ' ' . json_encode($name));
+                }
+            }
+        }
+        $this->assertSame(['ada'], array_column(users_list(), 'username'), 'nothing added or renamed');
+    }
+
     public function testAppPasswordWithANullCharacterIsRefused(): void
     {
         $this->assertNotNull(app_password_problem("long-enough\0"));
@@ -126,6 +143,131 @@ final class HardeningTest extends DatabaseTestCase
         after_commit_end(false);
         db_tx(fn() => null);
         $this->assertSame(['after'], $ran);
+    }
+
+    /** Import, restore and migrate end their own transactions: queued cleanups run after the COMMIT, never after a rollback. */
+    public function testImportRestoreAndMigrateRunQueuedCleanupsOnlyAfterTheCommit(): void
+    {
+        $ran = [];
+        $queue = function (string $site) use (&$ran): void {
+            $q = &after_commit_queue();
+            $q[] = function () use (&$ran, $site): void { $ran[] = $site . (db()->inTransaction() ? ' inside' : ' after'); };
+        };
+
+        $csv = "name\nSaw\n";
+        $tmp = tempnam(sys_get_temp_dir(), 'imp');
+        file_put_contents($tmp, $csv);
+        $imp = import_get(import_upload(['error' => UPLOAD_ERR_OK, 'size' => strlen($csv), 'tmp_name' => $tmp, 'name' => 'x.csv']));
+        @unlink($tmp);
+        db()->prepare('UPDATE imports SET mapping = ?, options = ? WHERE id = ?')->execute([json_encode(['name']), json_encode(['create' => true, 'skip_errors' => false]), $imp['id']]);
+        $imp = import_get($imp['id']);
+        $queue('import preview');
+        $this->assertFalse(import_run($imp, false)['committed']);
+        $this->assertSame([], $ran, 'an import preview rolls back');
+        $queue('import');
+        $this->assertTrue(import_run($imp, true)['committed']);
+        $this->assertSame(['import after'], $ran);
+
+        $dump = backup_dump($this->pdo, $this->driver);
+        unset($dump['settings']);   // the settings step runs its own transaction, which would drain the queue too
+        $zip = function (array $dump): string {
+            $z = new ZipArchive();
+            $path = tempnam(sys_get_temp_dir(), 'bak') . '.zip';
+            $z->open($path, ZipArchive::CREATE);
+            $z->addFromString('backup.json', (string)json_encode($dump));
+            $z->close();
+            return $path;
+        };
+        $bad = $dump;
+        $i = array_search('location_id', $bad['tables']['items']['columns'], true);
+        $bad['tables']['items']['rows'][0][$i] = 999999;   // dangling foreign key: the restore rolls back
+        $dataDir = sys_get_temp_dir() . '/apotheke-drain-' . bin2hex(random_bytes(4));
+        mkdir($dataDir);
+        foreach ([$zip($bad) => 'restore failed', $zip($dump) => 'restore'] as $path => $site) {
+            $queue($site);
+            try {
+                backup_restore($this->pdo, $this->driver, $dataDir, $path);
+            } catch (UserError $e) {
+                $this->assertSame('restore failed', $site, $e->getMessage());
+            }
+            @unlink($path);
+            $this->assertSame($site === 'restore' ? ['import after', 'restore after'] : ['import after'], $ran, $site);
+        }
+        foreach ((new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dataDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST)) as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
+        @rmdir($dataDir);
+
+        // migrate (on SQLite before PHP 8.4, PDO does not see its BEGIN IMMEDIATE, so the cleanup is queued up front)
+        $dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        file_put_contents("$dir/0901_fail.php", "<?php return ['sqlite' => 'CREATE TABLE drain_fail (', 'pgsql' => 'CREATE TABLE drain_fail ('];");
+        $queue('migrate failed');
+        try { migrate($this->pdo, $this->driver, ['dir' => $dir]); $this->fail('expected a failure'); } catch (PDOException) {}
+        $this->assertSame(['import after', 'restore after'], $ran, 'a failed migration rolls back');
+        file_put_contents("$dir/0901_fail.php", "<?php return ['sqlite' => 'CREATE TABLE drain_ok (id INTEGER)', 'pgsql' => 'CREATE TABLE drain_ok (id INTEGER)'];");
+        $queue('migrate');
+        $this->assertSame(['0901'], migrate($this->pdo, $this->driver, ['dir' => $dir]));
+        $this->assertSame(['import after', 'restore after', 'migrate after'], $ran);
+        array_map('unlink', glob($dir . '/*') ?: []);
+        @rmdir($dir);
+        db_tx(fn() => null);
+        $this->assertSame(['import after', 'restore after', 'migrate after'], $ran, 'rolled-back cleanups never run later');
+    }
+
+    /** An import that ends in an error, with row errors or with an exception, drops the queued cleanups. */
+    public function testAFailedImportDropsQueuedCleanups(): void
+    {
+        $ran = [];
+        $queue = function () use (&$ran): void {
+            $q = &after_commit_queue();
+            $q[] = function () use (&$ran): void { $ran[] = 'ran'; };
+        };
+        $tmp = tempnam(sys_get_temp_dir(), 'imp');
+        file_put_contents($tmp, "name,notes\nSaw,\n,empty name\n");
+        $imp = import_get(import_upload(['error' => UPLOAD_ERR_OK, 'size' => filesize($tmp), 'tmp_name' => $tmp, 'name' => 'x.csv']));
+        @unlink($tmp);
+        db()->prepare('UPDATE imports SET mapping = ?, options = ? WHERE id = ?')->execute([json_encode(['name', 'notes']), json_encode(['create' => true, 'skip_errors' => false]), $imp['id']]);
+        $imp = import_get($imp['id']);
+
+        $queue();
+        $out = import_run($imp, true);
+        $this->assertSame([1, false], [$out['errors'], $out['committed']], 'a row error stops the import');
+        $this->assertSame([], $ran, 'row errors roll back');
+
+        $this->pdo->exec('ALTER TABLE tags RENAME TO tags_off');   // the import's first query fails
+        $queue();
+        try {
+            import_run($imp, true);
+            $this->fail('expected a failure');
+        } catch (PDOException) {
+        } finally {
+            $this->pdo->exec('ALTER TABLE tags_off RENAME TO tags');
+        }
+        db_tx(fn() => null);
+        $this->assertSame([], $ran, 'a failed import rolls back');
+        $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM items')->fetchColumn());
+    }
+
+    /** after_commit() inside a migration waits for migrate's COMMIT and is dropped on a rollback, on every driver and PHP version. */
+    public function testAfterCommitInsideAMigrationWaitsForTheCommit(): void
+    {
+        $GLOBALS['mig_ran'] = [];
+        $dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $step = fn(string $sql): string => "<?php return function (PDO \$pdo): void { after_commit(function (): void { \$GLOBALS['mig_ran'][] = 'after'; }); \$GLOBALS['mig_ran'][] = 'step'; \$pdo->exec('$sql'); };";
+        try {
+            file_put_contents("$dir/0902_after.php", $step('CREATE TABLE mig_after ('));
+            try { migrate($this->pdo, $this->driver, ['dir' => $dir]); $this->fail('expected a failure'); } catch (PDOException) {}
+            $this->assertSame(['step'], $GLOBALS['mig_ran'], 'a failed migration drops it');
+            file_put_contents("$dir/0902_after.php", $step('CREATE TABLE mig_after (id INTEGER)'));
+            $this->assertSame(['0902'], migrate($this->pdo, $this->driver, ['dir' => $dir]));
+            $this->assertSame(['step', 'step', 'after'], $GLOBALS['mig_ran'], 'runs after the commit');
+            after_commit(function (): void { $GLOBALS['mig_ran'][] = 'outside'; });
+            $this->assertSame(['step', 'step', 'after', 'outside'], $GLOBALS['mig_ran'], 'outside a transaction it runs at once again');
+        } finally {
+            array_map('unlink', glob($dir . '/*') ?: []);
+            @rmdir($dir);
+            unset($GLOBALS['mig_ran']);
+        }
     }
 
     public function testAFailingAfterCommitCallbackDoesNotStopTheOthers(): void
