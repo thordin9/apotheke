@@ -40,6 +40,17 @@ final class ApothekeConfigTest extends TestCase
         $this->assertSame('/tmp/apo-data/catalog.sqlite', $config->database()['sqlite_path']);
     }
 
+    /** SIGN_IN_FAIL_MS maps to sign_in_fail_ms, clamped to 400–10000 as on legacy ('abc' reads as 0, so 400). */
+    public function testSignInFailMsMatchesTheLegacyLoader(): void
+    {
+        $this->assertSame('sign_in_fail_ms', ApothekeConfig::ENV_MAP['SIGN_IN_FAIL_MS']);
+        foreach (['' => 1000, '1500' => 1500, '0' => 400, '99999' => 10000, 'abc' => 400] as $raw => $want) {
+            $env = $raw === '' ? [] : ['SIGN_IN_FAIL_MS' => (string)$raw];
+            $this->assertSame($want, config_load('/repo', null, $env)['sign_in_fail_ms'], 'legacy ' . $raw);
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['sign_in_fail_ms'], 'ci4 ' . $raw);
+        }
+    }
+
     public function testAbsoluteOriginalsAreKept(): void
     {
         $config = ApothekeConfig::load('/repo', null, ['ORIGINALS_DIR' => '/mnt/photos']);
