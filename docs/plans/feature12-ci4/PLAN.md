@@ -355,6 +355,10 @@ and `/activity` are ported with a golden test (`tests/Unit/Ci4ItemParityTest.php
 cover, left/right, delete, edit) and their `photos` spec follow as 11a part 2 (#103: ported, with the golden test
 `tests/Unit/Ci4ItemPhotosParityTest.php` comparing the photo files too; the `photos` spec runs on CI4).
 
+Step 14 status ([#127](https://github.com/thordin9/apotheke/pull/127)): ImportExport is ported (`/export.csv`, the CSV
+upload, mapping, preview and import), with the golden test `tests/Unit/Ci4ImportExportParityTest.php`; the `import`
+spec runs on CI4. Backup and restore follow as the second part.
+
 ### 4.3 Autofill acceptance matrix (autofill client PR, #12)
 
 Run against the stub on both engine setups (GD + Imagick/libheif, GD only):
