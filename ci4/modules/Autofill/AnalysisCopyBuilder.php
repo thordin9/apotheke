@@ -267,7 +267,7 @@ final class AnalysisCopyBuilder
         if ($info[2] === IMAGETYPE_JPEG && function_exists('exif_read_data')) {
             $exif = $exifPath !== null && is_file($exifPath) ? @exif_read_data($exifPath) : false;
             if (!is_array($exif)) {
-                $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($bytes));
+                $exif = $this->exifFromBytes($bytes);
             }
             if (is_array($exif)) {
                 $src = $this->orient($src, (int)($exif['Orientation'] ?? 1));
@@ -277,6 +277,27 @@ final class AnalysisCopyBuilder
         $out = $this->jpegBytes($im, max(1, min(100, $quality)));
 
         return is_string($out) && str_starts_with($out, "\xFF\xD8") ? $out : null;
+    }
+
+    /**
+     * EXIF from a memory stream: a data: URI needs allow_url_fopen (L-270).
+     *
+     * @return array<string,mixed>|false
+     */
+    private function exifFromBytes(string $bytes): array|false
+    {
+        $stream = fopen('php://memory', 'w+b');
+        if ($stream === false) {
+            return false;
+        }
+        try {
+            fwrite($stream, $bytes);
+            rewind($stream);
+
+            return @exif_read_data($stream);
+        } finally {
+            fclose($stream);
+        }
     }
 
     private function imagick(string $bytes, int $maxSide, int $quality): ?string

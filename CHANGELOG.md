@@ -46,6 +46,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 
 ### Fixed
 
+- **ci4:** autofill for a stored photo sends a camera photo turned upright, as legacy does, also when PHP's `allow_url_fopen` is off; the EXIF orientation is read from memory instead of a `data:` URI (QA L-270). ([#119](https://github.com/thordin9/apotheke/pull/119))
 - **ci4:** a request path with a trailing slash, a dot segment (`/stats/`, `/./stats`, `/%2e/stats`, `/a/../stats`), surrounding spaces or a `+` answers 404, as on legacy, instead of the page it trimmed to; `//stats` is the list, as on legacy. CI4 routes legacy's exact decoded path (N-51). A log line's database `DETAIL:` is removed in any case and up to the driver's last line (N-53). ([#101](https://github.com/thordin9/apotheke/pull/101))
 - **ci4:** POST `/theme` with a control character (NUL, `\x01`, DEL) in `back` redirects to `/` (303) instead of failing with a 500; legacy redirects to the raw path, or for NUL answers an empty 200. The 419, 413 and same-origin refusals are tested to send `Cache-Control: no-store`, on the JSON answers and the HTML pages (N-18, N-19). ([#96](https://github.com/thordin9/apotheke/pull/96))
 - **ci4:** a commit the database refuses (a deferred constraint) now always fails the write with the step named and keeps nothing, whether the driver returns false or raises its own error. `Writes::transaction()` documents that nesting is flat, as in legacy `db_tx()` (N-32). ([#98](https://github.com/thordin9/apotheke/pull/98))
