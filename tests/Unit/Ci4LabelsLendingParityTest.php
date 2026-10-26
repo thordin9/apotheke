@@ -86,6 +86,14 @@ final class Ci4LabelsLendingParityTest extends TestCase
         }
         $this->assertSame('/lent', $l['return from the list']['location']);
         $this->assertStringContainsString('2 overdue', (string)$l['lent list']['body']);
+        // Every value on /lent is escaped; only a valid photo name becomes a thumbnail.
+        $lent = (string)$l['lent list']['body'];
+        $this->assertStringContainsString('<b>Lamp &lt;b&gt;&quot;&amp;&#039;</b>', $lent);
+        $this->assertStringContainsString('<span>Eleni &lt;b&gt;&amp;&quot;&#039; · since', $lent);
+        $this->assertStringContainsString('aria-label="Mark Lamp &lt;b&gt;&quot;&amp;&#039; as returned"', $lent);
+        $this->assertStringContainsString('<img src="/media/thumb/abcdef0123456789abcdef0123456789.jpg" alt="" loading="lazy">', $lent);
+        $this->assertStringNotContainsString('x.jpg', $lent);
+        $this->assertStringContainsString('data-url="http://labels.example/a&amp;b&quot;c/item/1"', (string)$l['labels with markup in public_url']['body']);
         $this->assertStringContainsString('Nothing is lent out right now.', (string)$l['lent list empty']['body']);
         foreach (['fail lend', 'fail return'] as $case) {
             $this->assertSame([500, true], [$l[$case]['status'], $l[$case]['unchanged']], $case);
@@ -115,6 +123,9 @@ final class Ci4LabelsLendingParityTest extends TestCase
         ] as $r) {
             $item->execute([...$r, mb_strtolower($r[0]), mb_strtolower($r[0]), '2026-01-02 08:00:00', '2026-01-02 08:00:00']);
         }
+        // A valid photo on a lent item (its thumbnail on /lent) and a name that is not one (no image).
+        $pdo->exec("UPDATE items SET image = 'abcdef0123456789abcdef0123456789.jpg' WHERE id = 2");
+        $pdo->exec("UPDATE items SET image = '../x.jpg' WHERE id = 6");
         $ids = [];
         foreach ($pdo->query('SELECT id, username FROM users')->fetchAll() as $u) {
             $ids[$u['username']] = (int)$u['id'];
@@ -204,6 +215,8 @@ final class Ci4LabelsLendingParityTest extends TestCase
         $this->setting($pdo, 'public_url', '');
         $as('labels without public_url', 'GET', '/labels?ids=1', [], ['Host: shelf.localhost:9091']);
         $as('labels for a refused host', 'GET', '/labels?ids=1', [], ['Host: evil.example']);
+        $this->setting($pdo, 'public_url', 'http://labels.example/a&b"c');
+        $as('labels with markup in public_url', 'GET', '/labels?ids=1');
         $this->setting($pdo, 'public_url', 'http://labels.example');
 
         // Barcode lookup.
@@ -234,7 +247,7 @@ final class Ci4LabelsLendingParityTest extends TestCase
 
         // Lending.
         $as('lend', 'POST', '/item/1/lend', ['lent_to' => "  Nikos \t <i>x</i>  ", 'lent_at' => '2026-06-01', 'lent_due' => '2026-06-10']);
-        $as('lend change', 'POST', '/item/1/lend', ['lent_to' => 'Eleni', 'lent_at' => '', 'lent_due' => '']);
+        $as('lend change', 'POST', '/item/1/lend', ['lent_to' => 'Eleni <b>&"\'', 'lent_at' => '', 'lent_due' => '']);
         $as('lend fetch', 'POST', '/item/3/lend', ['lent_to' => 'Kostas', 'lent_at' => '2026-06-16', 'back' => '/lent'], $fetch);
         $as('lend without a name', 'POST', '/item/5/lend', ['lent_to' => '   ']);
         $as('lend without a name fetch', 'POST', '/item/5/lend', ['lent_to' => ''], $fetch);
