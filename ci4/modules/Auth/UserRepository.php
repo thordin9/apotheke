@@ -125,16 +125,21 @@ final class UserRepository
     }
 
     /**
-     * Inside a transaction: the active admin rows locked for this transaction
-     * without writing them (PostgreSQL SELECT … FOR UPDATE; SQLite has one
-     * writer at a time, so its transaction's own write serialises it). For
-     * changes legacy makes without users_lock_admins() (the roles editor).
+     * Inside a transaction, before its first read: the active admin rows
+     * locked for this transaction. PostgreSQL locks them without writing
+     * (SELECT … FOR UPDATE). SQLite takes its one write lock with the no-op
+     * write of lockActiveAdmins(), so a concurrent writer waits for it
+     * instead of failing on a read lock it cannot upgrade. For changes
+     * legacy makes without users_lock_admins() (the roles editor).
      */
     public function holdActiveAdmins(): void
     {
         if ($this->db->DBDriver === 'Postgre') {
             Writes::rows($this->db, "SELECT id FROM users WHERE role = 'admin' AND status = 'active' FOR UPDATE");
+
+            return;
         }
+        $this->lockActiveAdmins();
     }
 
     public function approve(int $id): void
