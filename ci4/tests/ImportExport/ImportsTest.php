@@ -95,6 +95,26 @@ final class ImportsTest extends CIUnitTestCase
         $this->assertSame(1, (int)($this->db()->query("SELECT COUNT(*) AS n FROM activity WHERE item_name = 'Rope' AND action = 'lent'")->getRowArray()['n'] ?? 0));
     }
 
+    /**
+     * N-373: a preview that waited for a submit of the same import finds it
+     * done, though the submit has taken the file, and previews nothing
+     * (the page redirects to the done page) instead of answering 410.
+     */
+    #[DataProvider('drivers')]
+    public function testAPreviewThatWaitedForASubmitFindsItDone(string $driver): void
+    {
+        [$imports, $id] = $this->seed($driver);
+        $imp = $imports->get($id);
+        $this->assertNotNull($imp);
+        unlink($this->testDb()->dataDir() . '/tmp/import-' . $id . '.csv');   // the submit deletes it after its commit
+        $wait = $this->testDb()->holdInAnotherClient([["UPDATE imports SET status = 'done', result = '{}' WHERE id = ?", [$id]]], 300);
+        $preview = $imports->run($imp, false);
+        $this->assertStringEndsWith("committed\n", $wait());
+        $this->assertSame([true, false, []], [$preview['done_before'], $preview['committed'], $preview['rows']]);
+        $this->assertSame(0, (int)$this->db()->transDepth);
+        $this->assertSame(0, $this->rowsIn('items'));
+    }
+
     /** A failed statement in a run rolls back everything, the import stays waiting, and the next run works. */
     #[DataProvider('drivers')]
     public function testAFailedStatementRollsBackTheRun(string $driver): void
@@ -120,6 +140,34 @@ final class ImportsTest extends CIUnitTestCase
         $this->assertSame(0, (int)$this->db()->transDepth);
         $this->assertNotNull($imports->commit($imp));
         $this->assertSame(2, $this->rowsIn('items'));
+    }
+
+    /**
+     * N-374: the files of uploads left waiting for more than a day go, and
+     * nothing else: not a newer upload, not a done import's leftover, not
+     * another file in DATA_DIR/tmp. The rows stay.
+     */
+    #[DataProvider('drivers')]
+    public function testStaleUploadsLoseTheirFiles(string $driver): void
+    {
+        [$imports, $old] = $this->seed($driver);
+        [, $done] = $this->upload($imports);
+        [, $fresh] = $this->upload($imports);
+        $tmp = $this->testDb()->dataDir() . '/tmp';
+        file_put_contents($tmp . '/other.csv', 'x');
+        $now = (new Clock())->unix();
+        $ago = static fn (int $s): string => gmdate('Y-m-d H:i:s', $now - $s);
+        $this->db()->query('UPDATE imports SET created_at = ? WHERE id = ?', [$ago(Imports::STALE_SECONDS + 60), $old]);
+        $this->db()->query("UPDATE imports SET created_at = ?, status = 'done' WHERE id = ?", [$ago(Imports::STALE_SECONDS * 3), $done]);
+        $this->db()->query('UPDATE imports SET created_at = ? WHERE id = ?', [$ago(Imports::STALE_SECONDS - 60), $fresh]);
+
+        $this->assertSame([$old], $imports->sweep());
+        $this->assertFileDoesNotExist($tmp . '/import-' . $old . '.csv');
+        foreach (['import-' . $done . '.csv', 'import-' . $fresh . '.csv', 'other.csv'] as $f) {
+            $this->assertFileExists($tmp . '/' . $f);
+        }
+        $this->assertSame([], $imports->sweep(), 'a swept file is not swept again');
+        $this->assertSame(3, $this->rowsIn('imports'));
     }
 
     public function testCellsSurviveTheRoundTrip(): void

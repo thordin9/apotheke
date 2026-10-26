@@ -13,6 +13,9 @@ require_once dirname(__DIR__) . '/lib.php';
  * /import?done=…), importing nothing. Legacy has no such wait (it checks
  * the status before its transaction), so this is CI4 only. The interleavings
  * of the run itself are in ci4/tests/ImportExport/ImportsTest.php.
+ *
+ * A preview that waits for a submit the same way shows the done page too
+ * (N-373), where it answered 410 because the submit had taken the file.
  */
 final class Ci4ImportRaceTest extends TestCase
 {
@@ -61,6 +64,41 @@ final class Ci4ImportRaceTest extends TestCase
             $this->assertGreaterThan(0.5, $waited, 'the second submit waited for the first');
             $this->assertSame(0, (int)$pdo->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'nothing imported twice');
             $this->assertStringContainsString('Imported · 2 added · 0 updated', $client->get('/import?done=1')['body']);
+
+            // N-373: a preview that waits for a submit, which takes the file once it is done.
+            $up = $client->post('/import', ['csrf' => $token], ['csv' => ['name' => 'more.csv', 'type' => 'text/csv', 'data' => "name\nHook\n"]]);
+            $this->assertSame([303, '/import/2'], [$up['status'], $up['headers']['location'] ?? null], $up['body']);
+            $proc = proc_open([PHP_BINARY, ROOT . '/ci4/tests/_support/hold-transaction.php', (string)json_encode([["UPDATE imports SET status = 'done', result = ? WHERE id = 2", [$summary]]]), '1500'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, array_merge(getenv(), test_server_env($dir)));
+            $this->assertIsResource($proc);
+            $this->assertSame("held\n", (string)fgets($pipes[1]));
+            $preview = curl_init($server->base . '/import/2/preview');
+            curl_setopt_array($preview, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query(['csrf' => $token, 'col' => ['name']]),
+                CURLOPT_COOKIE => 'apothekesid=' . $sid, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30]);
+            $multi = curl_multi_init();
+            curl_multi_add_handle($multi, $preview);
+            // Once the preview has read the file and waits for the lock, the submit's file goes.
+            $until = microtime(true) + 0.6;
+            do {
+                curl_multi_exec($multi, $running);
+                curl_multi_select($multi, 0.05);
+            } while (microtime(true) < $until);
+            $this->assertTrue(unlink($dir . '/tmp/import-2.csv'));
+            do {
+                curl_multi_exec($multi, $running);
+                curl_multi_select($multi, 0.1);
+            } while ($running > 0);
+            $status = (int)curl_getinfo($preview, CURLINFO_RESPONSE_CODE);
+            $location = (string)curl_getinfo($preview, CURLINFO_REDIRECT_URL);
+            $body = (string)curl_multi_getcontent($preview);
+            curl_multi_remove_handle($multi, $preview);
+            curl_multi_close($multi);
+            $other = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            proc_close($proc);
+            $this->assertSame("committed\n", $other);
+            $this->assertSame([303, $server->base . '/import?done=2'], [$status, $location], substr($body, 0, 2000));
         } finally {
             $server->stop();
             testdb_drop($dir);

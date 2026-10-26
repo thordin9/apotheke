@@ -6,11 +6,13 @@ namespace Apotheke\ImportExport\Controllers;
 
 use Apotheke\Catalog\Controllers\CatalogController;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\StreamedResponse;
 use Apotheke\ImportExport\CsvExport;
 use Apotheke\ImportExport\Imports;
 use Apotheke\ImportExport\Views\ImportView;
 use CodeIgniter\HTTP\Files\UploadedFile;
 use CodeIgniter\HTTP\ResponseInterface;
+use Config\App;
 
 /**
  * Legacy public/index.php: GET/POST /import (upload and history),
@@ -26,6 +28,7 @@ final class ImportController extends CatalogController
     public function index(): ResponseInterface
     {
         $imports = $this->imports();
+        $imports->sweep();   // N-374: on every upload and listing
         if ($this->request->getMethod() === 'POST') {
             $f = $this->request->getFile('csv');
             $file = $f instanceof UploadedFile
@@ -54,8 +57,9 @@ final class ImportController extends CatalogController
             return $this->redirectTo('/import?done=' . $imp['id']);
         }
         [$header, $rows] = $imports->rows($imp);
-        $post = $this->request->getMethod() === 'POST';
-        if ($act === '' && !$post) {
+        $method = $this->request->getMethod();   // HEAD is GET here (HeadAsGet)
+        $post = $method === 'POST';
+        if ($act === '' && $method === 'GET') {
             return $this->html($this->pages()->map($imp, $header, $rows, null, null));
         }
         if ($act === '' || !$post) {
@@ -70,7 +74,12 @@ final class ImportController extends CatalogController
                 return $this->redirectTo('/import?done=' . $imp['id']);
             }
 
-            return $this->sessionPage($this->pages()->map($imp, $header, $rows, $imports->run($imp, false), null));
+            $preview = $imports->run($imp, false);
+            if ($preview['done_before']) {   // N-373: it waited for a submit that imported it
+                return $this->redirectTo('/import?done=' . $imp['id']);
+            }
+
+            return $this->sessionPage($this->pages()->map($imp, $header, $rows, $preview, null));
         } catch (UserError $e) {
             return $this->sessionPage($this->pages()->map($imp, $header, $rows, $act === 'commit' ? $imports->run($imp, false) : null, $e->getMessage()), $e->getCode() ?: 422);
         }
@@ -81,12 +90,12 @@ final class ImportController extends CatalogController
     {
         /** @var CsvExport $export */
         $export = service('csvExport');
-
-        return $this->response->setStatusCode(200)
+        // Streamed as it is sent (L-370): legacy writes each row to php://output. The items
+        // query runs before the first line, so a failing read is still a 500 page.
+        return StreamedResponse::from($this->response, config(App::class), $export->lines((string)$this->settings()->get('currency')))->setStatusCode(200)
             ->setHeader('Content-Type', 'text/csv; charset=utf-8')
             ->removeHeader('Cache-Control')->setHeader('Cache-Control', self::SESSION_CACHE)
-            ->setHeader('Content-Disposition', 'attachment; filename="apotheke-' . $this->calendar()->today() . '.csv"')
-            ->setBody($export->csv((string)$this->settings()->get('currency')));
+            ->setHeader('Content-Disposition', 'attachment; filename="apotheke-' . $this->calendar()->today() . '.csv"');
     }
 
     /** A page legacy draws without no_store(): its session's caching header. */

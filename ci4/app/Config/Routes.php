@@ -142,8 +142,12 @@ $routes->post('stocktake/([0-9]+)/(check|report|finish|cancel)', $stocktake . ':
 // PLAN 14: CSV import and export (ImportExport). Every /import route needs "import" and
 // the export "export" (legacy route_perm()). A POST without a valid CSRF token is refused
 // (419) before the import is looked up, where legacy answers 404 for a missing one.
+// Legacy answers every method on these paths: /import shows its page for all but POST,
+// an import redirects when done and is otherwise 404 but for GET (N-372). PUT, PATCH
+// and DELETE need the CSRF token, as every non-safe method does (SEC-N10).
 $import = '\\Apotheke\\ImportExport\\Controllers\\ImportController';
-$routes->match(['GET', 'HEAD', 'POST'], 'import', $import . '::index', ['permission' => 'import']);
-$routes->match(['GET', 'HEAD', 'POST'], 'import/([0-9]+)', $import . '::import/$1', ['permission' => 'import']);
-$routes->match(['GET', 'HEAD', 'POST'], 'import/([0-9]+)/(preview|commit)', $import . '::import/$1/$2', ['permission' => 'import']);
+$importVerbs = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
+$routes->match($importVerbs, 'import', $import . '::index', ['permission' => 'import']);
+$routes->match($importVerbs, 'import/([0-9]+)', $import . '::import/$1', ['permission' => 'import']);
+$routes->match($importVerbs, 'import/([0-9]+)/(preview|commit)', $import . '::import/$1/$2', ['permission' => 'import']);
 $routes->match(['GET', 'HEAD'], 'export.csv', $import . '::export', ['permission' => 'export']);
