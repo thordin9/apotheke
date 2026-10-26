@@ -13,7 +13,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
   shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
   served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity, Catalog, Search
-  and Favourites, ImportExport (below).
+  and Favourites, ImportExport and Backup (below).
 - Layout: byte-identical to legacy `page_start()`, `page_end()`, `menu_html()` and `view_error()`. Every error answer
   that legacy draws as a page (404, 403, 419, 413, the same-origin 403, 500) is that page; a fetch gets legacy's JSON.
   The bundled assets are a copy under `ci4/public/assets`, kept equal to `public/assets` by a test. The undo bar joins
@@ -76,18 +76,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   second submit or a preview of one import waits, finds it done and shows the done page (`Ci4ImportRaceTest`, #131).
   The export streams its lines (`Core\Http\StreamedResponse`, batches of 500; a cursor in a read-only snapshot on
   PostgreSQL), so memory stays flat (`ExportMemoryTest`). Uploads left waiting for a day lose their file (#131).
+- Backup and restore (step 14, second part, [#132](https://github.com/thordin9/apotheke/pull/132)): GET `/backup`, `/backup.zip`, `/backup/restore/check`,
+  POST `/backup/restore` (dry run) and `/backup/restore/confirm`, and `bin/backup.php` / `bin/restore.php`
+  (`spark apotheke:backup|restore`) answer as legacy does, with the same zip entries, tables and files; a zip from
+  either app restores on the other (`Ci4BackupParityTest`, `Ci4BackupCliTest`, SQLite and PostgreSQL). New module
+  `Backup`. A restore takes the write lock first, so a concurrent write waits and is replaced (`Ci4BackupRaceTest`);
+  `backup.json` is written row by row (`BackupMemoryTest`, 24 MB limit).
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
-  `labels`, `barcode`, `lending`, `stocktake` and `import`
+  `labels`, `barcode`, `lending`, `stocktake`, `import` and `data`
   on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
   describe or test no longer exists (N-85), or that this list does not name:
   - `labels`: print labels for a selection; sizes from the Control Panel @smoke (`/settings/labels`).
   - `search`: shows the engine in System (`/settings/system`).
-  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel,
-    import/export, backup).
+  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -117,7 +122,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
   `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`); `auth status` stays in
   `bin/settings.php` (no migration).
-- Not ported yet: the Control Panel pages (`/settings/labels` …) and Backup (step 14, second part).
+- Not ported yet: the Control Panel pages (`/settings/labels` …).
 
 ## Pull requests
 
@@ -183,7 +188,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   parity tests. Merged.
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
-  stale uploads swept (N-374), TAB/CR cells tested (N-375). Open.
+  stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged.
+- [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 14, second part (backup and restore). Open.
 
 ## Lanes
 
@@ -203,14 +209,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, open); then backup and restore.
+  follow-ups (#131, merged); step 14 part 2, backup and restore (#132, open).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #131 (#127's QA notes); then step 14's backup and restore.
+1. Review and merge #132 (step 14's backup and restore); then the Control Panel pages.
 2. Port L-230, L-240, N-234, L-340 and N-341 to legacy on `main`, so both apps behave the same under concurrent
    requests (L-340: a stocktake tick's first write only while the stocktake is open), and with them the import lock
    ([#130](https://github.com/thordin9/apotheke/pull/130), open), the done check for a waiting preview (N-373) and
@@ -220,6 +226,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Tracked
 
+- Backup and restore (#132), where CI4 is stricter than legacy; no change unless the PM decides otherwise:
+  a failed restore shows a general message without the database's own text (page and CLI); a zip that holds two
+  entries of one name is refused; a missing thumbnail is drawn again only within Media's decode limits; restored
+  files are written through `Core\Storage`; on PostgreSQL the restore locks the catalog tables before it deletes;
+  `bin/backup.php` to a path it cannot write prints `Cannot write …` and exits 1. Restore still reads `backup.json`
+  into memory, as legacy does (candidate for streaming); backup reads `DATA_DIR` and `ORIGINALS_DIR` directly
+  (Cloudflare phase: move behind `Storage`).
 - Import pages (#131): CI4 checks the CSRF token first, so a tokenless POST to a done import or to `/import/{id}`
   answers 419 (legacy 303 and 404), and PUT, PATCH and DELETE on `/import` need the token (legacy shows the page).
   Stricter; no change. Until the `main` port (Next steps), legacy keeps waiting uploads and answers 410 to a preview
