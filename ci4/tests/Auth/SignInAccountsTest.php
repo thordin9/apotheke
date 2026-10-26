@@ -12,7 +12,9 @@ use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Libraries\Clock;
+use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Database\BaseConnection;
+use CodeIgniter\Database\BaseResult;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
@@ -406,6 +408,76 @@ final class SignInAccountsTest extends CIUnitTestCase
             $this->assertSame('Database write failed: auth_attempts release', $e->getMessage());
         }
         $this->assertSame(11, $this->attempts('login'));
+    }
+
+    /** Legacy address_scope() and client_key(): per-address buckets count an IPv6 client by its /64 (N-125, N-174). */
+    #[DataProvider('drivers')]
+    public function testPerAddressBucketsScopeIpv6ToItsPrefix(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        foreach ([
+            '192.0.2.7' => '192.0.2.7',
+            '2001:db8:1:2:aaaa::1' => '2001:db8:1:2::/64',
+            '::ffff:192.0.2.7' => '::ffff:192.0.2.7',
+            '::c000:207' => '::c000:207',
+            '64:ff9b::c000:207' => '64:ff9b::c000:207',
+            'cli' => 'cli',
+        ] as $ip => $scope) {
+            $this->assertSame($scope, RateLimiter::addressScope($ip), $ip);
+        }
+        $a = new RateLimiter($this->db(), '2001:db8:1:2::1', 1_800_000_000);
+        $b = new RateLimiter($this->db(), '2001:db8:1:2::ffff', 1_800_000_000);
+        $this->assertSame(substr(hash('sha256', '2001:db8:1:2::/64'), 0, 32), $a->bucket('login_address', null));
+        $this->assertSame($a->bucket('login_address', null), $b->bucket('login_address', null));
+        $this->assertSame($a->bucket('register', null), $b->bucket('register', null));
+        $this->assertNotSame($a->bucket('login', 'eda'), $b->bucket('login', 'eda'), 'per account: the full address');
+        for ($i = 0; $i < 30; $i++) {
+            $a->hit('login_address');
+        }
+        $this->assertLimited(fn () => $b->hit('login_address'), 'Too many attempts from this address – please wait 15 minutes and try again.');
+        (new RateLimiter($this->db(), '2001:db8:1:3::1', 1_800_000_000))->hit('login_address');
+    }
+
+    /** L-120: forget() takes back one row by id; the rest of the address bucket stays. */
+    #[DataProvider('drivers')]
+    public function testForgetTakesBackOnlyThatAttempt(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', 1_800_000_000);
+        $first = $limiter->hit('login_address');
+        $mine = $limiter->hit('login_address');
+        $this->assertGreaterThan($first, $mine);
+        $limiter->forget($mine);
+        $this->assertSame([$first], array_map('intval', array_column($this->db()->query('SELECT id FROM auth_attempts')->getResultArray(), 'id')));
+        $this->failOn('auth_attempts', 'DELETE');
+        try {
+            $limiter->forget($first);
+            $this->fail('the failed write must throw');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: auth_attempts forget', $e->getMessage());
+        }
+    }
+
+    /** N-162: the count's result is freed before a refused attempt's row is deleted (SQLite holds a read lock until then). */
+    public function testTheCountIsFreedBeforeTheRelease(): void
+    {
+        $log = [];
+        $result = $this->createMock(BaseResult::class);
+        $result->method('getRowArray')->willReturn(['n' => 11]);
+        $result->method('freeResult')->willReturnCallback(static function () use (&$log): void {
+            $log[] = 'free';
+        });
+        $builder = $this->createMock(BaseBuilder::class);
+        $builder->method('insert')->willReturn(true);
+        $db = $this->createMock(BaseConnection::class);
+        $db->method('table')->willReturn($builder);
+        $db->method('insertID')->willReturn(7);
+        $db->method('query')->willReturnCallback(static function (string $sql) use (&$log, $result): mixed {
+            $log[] = strtok($sql, ' ');
+            return str_starts_with($sql, 'SELECT') ? $result : true;
+        });
+        $this->assertLimited(fn () => (new RateLimiter($db, '10.0.0.1', 1_800_000_000))->hit('login', 'eda'), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertSame(['DELETE', 'SELECT', 'free', 'DELETE'], $log);
     }
 
     /** @return iterable<string,array{0:string,1:string,2:string}> */

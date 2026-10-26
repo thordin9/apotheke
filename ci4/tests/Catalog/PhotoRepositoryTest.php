@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Catalog;
 
 use Apotheke\Activity\ActivityLogger;
+use Apotheke\Catalog\Items\ItemRepository;
 use Apotheke\Catalog\Items\PhotoRepository;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\RequestCleanup;
@@ -20,6 +21,8 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Taxonomy\TagRepository;
+use Apotheke\Taxonomy\TaxonomyRepository;
 use Apotheke\Undo\UndoTokens;
 use Closure;
 use CodeIgniter\Test\CIUnitTestCase;
@@ -157,6 +160,40 @@ final class PhotoRepositoryTest extends CIUnitTestCase
     }
 
     /** @return array{0:int,1:int,2:string} item id, photo id, its served name */
+    /**
+     * N-126: a save that replaces the cover inside ItemRepository::atomically()
+     * keeps the old cover's file until the outer transaction commits; a
+     * rollback keeps it, a commit removes it.
+     */
+    #[DataProvider('drivers')]
+    public function testACoverReplacedInsideAnOuterTransactionGoesOnlyAfterItsCommit(string $driver): void
+    {
+        [$item, , $old] = $this->seed($driver);
+        $db = $this->database->db;
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $repo = new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history), new TagRepository($db, $clock),
+            $this->images, new LocalStorage($this->database->dataDir()), $this->photos);
+        $existing = $repo->get($item);
+        $this->assertNotNull($existing);
+        $in = ['name' => 'Lamp', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''];
+        try {
+            $repo->atomically(function () use ($repo, $existing, $in, $old): void {
+                $repo->save($existing, $in, null, true);
+                $this->assertSame([$old], $this->servedNames(), 'still there inside the transaction');
+                throw new \RuntimeException('the outer write failed');
+            });
+            $this->fail('the outer transaction must fail');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('the outer write failed', $e->getMessage());
+        }
+        $this->assertSame([$old], $this->servedNames(), 'rolled back: the cover keeps its file');
+        $this->assertSame($old, $repo->get($item)['image'] ?? null);
+        $repo->atomically(fn (): int => $repo->save($existing, $in, null, true));
+        $this->assertSame([], $this->servedNames(), 'committed: the file is gone');
+        $this->assertNull($repo->get($item)['image'] ?? null);
+    }
+
     private function seed(string $driver): array
     {
         $this->database = TestDatabase::create($driver);
