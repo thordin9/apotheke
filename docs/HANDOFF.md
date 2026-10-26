@@ -131,10 +131,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   counterparts (L-120, N-124, N-125, N-174, L-170 for turning sign-in on, N-126), plus N-160 and N-162. Merged.
 - [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106 for accounts: the current-password limit,
   per account and per address (L-170), the last-admin lock (L-110; role edits take it first, also on SQLite), the
-  `APP_PASSWORD` null-character check and SIGTERM at the CLI prompt (N-133). Open.
+  `APP_PASSWORD` null-character check and SIGTERM at the CLI prompt (N-133). Merged.
+- [#117](https://github.com/thordin9/apotheke/pull/117): sync `main` v2.6.18 (#116) and its CI4 counterpart (N-221,
+  null-character sign-in names checked before trimming). Merged.
 - [#118](https://github.com/thordin9/apotheke/pull/118): PLAN step 12, autofill reads stored photos through Media
-  (`ImageStore::analysisBytes()`: the kept original, else the served JPEG). Live check 1 not run yet (needs the
-  PM's go-ahead). Open.
+  (`ImageStore::analysisBytes()`: the kept original, else the served JPEG). Live check 1 run by QA after the PM's
+  go-ahead. Open.
 
 ## Lanes
 
@@ -145,11 +147,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   records first, the per-address cap on `/login` (#109, merged); #111/#112 port (#113, merged): IPv6 /64 address
   scope, a success takes back only its own address row, turning sign-in on is limited, replaced covers removed after
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
-  and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left. Step 12,
-  autofill client: stored photos through Media (#118, open); live check 1 (≤25 Neurons) after the PM's go-ahead.
+  and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
+  #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
+  Step 12, autofill client: stored photos through Media (#118, open); live check 1 (≤25 Neurons) run by QA.
   Touches `Media\ImageStore` and the Autofill module only.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
-  forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, open). Owns the N-63 router
+  forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged). Owns the N-63 router
   follow-up below.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
@@ -157,10 +160,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #110 (#106 hardening for accounts on CI4).
+1. Review and merge #118 (autofill reads photos through Media).
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
-3. Live check 1 for the autofill client (#118, PLAN §4.4), after the PM's go-ahead.
+3. Live check 1 for the autofill client (#118, PLAN §4.4), run by QA.
 
 ## Tracked
 

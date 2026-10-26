@@ -117,12 +117,14 @@ try {
         if (!auth_enabled() || signed_in()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
-            $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
+            $raw = (string)($_POST['username'] ?? '');
+            $who = clean_line($raw, USERNAME_MAX * 2);
             try {
                 $mine = rate_limit('login_address');   // all names from this address (see trusted_proxies)
                 rate_limit('login', $who);
                 // a success clears its account's count and takes back only its own address row
-                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_forget($mine); redirect('/'); }
+                // a name with a null character anywhere (checked before trimming) never matches an account
+                if (!str_contains($raw, "\0") && login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_forget($mine); redirect('/'); }
                 usleep(400000);
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
@@ -675,13 +677,15 @@ try {
                 user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
                 login_session($me['id'], keepSignIn: true);
             } else {
-                $name = clean_line((string)($_POST['username'] ?? 'admin'), USERNAME_MAX * 2) ?: 'admin';
-                $u = user_by_name($name);
-                if ($u) {
+                $raw = (string)($_POST['username'] ?? 'admin');
+                $name = clean_line($raw, USERNAME_MAX * 2) ?: 'admin';
+                $nul = str_contains($raw, "\0");   // never matches an account, and never creates one
+                $u = $nul ? null : user_by_name($name);
+                if ($u || $nul) {
                     // an account exists already: sign in as that admin to turn sign-in back on
                     $mine = rate_limit('login_address');   // limited like the current-password check
                     rate_limit('login', $name);
-                    if ($u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    if (!$u || $u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     rate_limit_clear('login', $name);
                     rate_limit_forget($mine);
                     $uid = $u['id'];
