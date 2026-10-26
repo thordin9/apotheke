@@ -16,7 +16,6 @@ use Apotheke\Core\Http\SessionGate;
 use Apotheke\Core\Libraries\Text;
 use Apotheke\Layout\Page;
 use CodeIgniter\HTTP\ResponseInterface;
-use RuntimeException;
 
 /**
  * Control Panel → Users & sign-in (legacy public/index.php, "users &
@@ -85,15 +84,13 @@ final class SecurityController extends AuthPages
         $me = $this->visitorNow();
         try {
             if ($disable) {
-                if (!$me['guest'] && $this->accounts()->verify($me['username'], $this->post('current')) === null) {
-                    throw new UserError('The current password is not correct.', 403);
+                if (!$me['guest']) {
+                    $this->accounts()->checkCurrent($me, $this->post('current'), $this->limiter());
                 }
                 $this->signInSwitch()->off();
             } elseif (!$me['guest'] && $me['id'] !== null) {
                 // Signed in: your own password; this session stays signed in.
-                if ($this->accounts()->verify($me['username'], $this->post('current')) === null) {
-                    throw new UserError('The current password is not correct.', 403);
-                }
+                $this->accounts()->checkCurrent($me, $this->post('current'), $this->limiter());
                 $epoch = $this->userAdmin()->setPassword($me['id'], $this->post('new'), $this->post('confirm'));
                 (new SessionGate(time()))->signIn($me['id'], $epoch, keepSignIn: true);
             } else {
@@ -242,7 +239,9 @@ final class SecurityController extends AuthPages
     {
         $this->visitor ??= $this->me();
 
-        return $this->visitor ?? throw new RuntimeException('The users permission admitted nobody.');
+        // The account can go between the permission filter and here (deleted or signed out by a request at the
+        // same time): answer as the filter does for nobody, never with a server error.
+        return $this->visitor ?? throw new UserError('Not signed in', 401);
     }
 
     /** @param array<string,mixed> $data legacy json_out() */

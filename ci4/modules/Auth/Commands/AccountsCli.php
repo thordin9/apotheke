@@ -201,8 +201,9 @@ final class AccountsCli
     /**
      * Legacy cli_ask_password(). On a terminal the typing is not shown: echo
      * goes off once for both prompts and the saved terminal state comes back
-     * afterwards, also on a mismatch, an exception or (with pcntl) Ctrl-C,
-     * which exits 130. Without pcntl, Ctrl-C ends PHP before any handler.
+     * afterwards, also on a mismatch, an exception or (with pcntl) Ctrl-C or
+     * SIGTERM, which exit 130 and 143. Without pcntl, a signal ends PHP
+     * before any handler.
      */
     private function askPassword(): string
     {
@@ -237,15 +238,19 @@ final class AccountsCli
             }
         };
         $signals = function_exists('pcntl_signal') && function_exists('pcntl_async_signals');
+        $previousHandlers = [];
         if ($signals) {
             $previousAsync = pcntl_async_signals(true);
-            $previousHandler = pcntl_signal_get_handler(SIGINT);
-            // No syscall restart: Ctrl-C interrupts the blocked read at once.
-            pcntl_signal(SIGINT, function () use ($restore): void {
-                $restore();
-                $this->out("\n");
-                exit(130);
-            }, false);
+            // Ctrl-C (SIGINT) and kill (SIGTERM) restore the terminal and exit 128 + the signal number.
+            foreach ([SIGINT, SIGTERM] as $signal) {
+                $previousHandlers[$signal] = pcntl_signal_get_handler($signal);
+                // No syscall restart: the signal interrupts the blocked read at once.
+                pcntl_signal($signal, function (int $number) use ($restore): void {
+                    $restore();
+                    $this->out("\n");
+                    exit(128 + $number);
+                }, false);
+            }
         }
         $this->stty('-echo');
         try {
@@ -253,7 +258,9 @@ final class AccountsCli
         } finally {
             $restore();
             if ($signals) {
-                pcntl_signal(SIGINT, $previousHandler);
+                foreach ($previousHandlers as $signal => $handler) {
+                    pcntl_signal($signal, $handler);
+                }
                 pcntl_async_signals($previousAsync);
             }
         }
