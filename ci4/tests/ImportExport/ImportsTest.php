@@ -95,6 +95,26 @@ final class ImportsTest extends CIUnitTestCase
         $this->assertSame(1, (int)($this->db()->query("SELECT COUNT(*) AS n FROM activity WHERE item_name = 'Rope' AND action = 'lent'")->getRowArray()['n'] ?? 0));
     }
 
+    /**
+     * N-373: a preview that waited for a submit of the same import finds it
+     * done, though the submit has taken the file, and previews nothing
+     * (the page redirects to the done page) instead of answering 410.
+     */
+    #[DataProvider('drivers')]
+    public function testAPreviewThatWaitedForASubmitFindsItDone(string $driver): void
+    {
+        [$imports, $id] = $this->seed($driver);
+        $imp = $imports->get($id);
+        $this->assertNotNull($imp);
+        unlink($this->testDb()->dataDir() . '/tmp/import-' . $id . '.csv');   // the submit deletes it after its commit
+        $wait = $this->testDb()->holdInAnotherClient([["UPDATE imports SET status = 'done', result = '{}' WHERE id = ?", [$id]]], 300);
+        $preview = $imports->run($imp, false);
+        $this->assertStringEndsWith("committed\n", $wait());
+        $this->assertSame([true, false, []], [$preview['done_before'], $preview['committed'], $preview['rows']]);
+        $this->assertSame(0, (int)$this->db()->transDepth);
+        $this->assertSame(0, $this->rowsIn('items'));
+    }
+
     /** A failed statement in a run rolls back everything, the import stays waiting, and the next run works. */
     #[DataProvider('drivers')]
     public function testAFailedStatementRollsBackTheRun(string $driver): void

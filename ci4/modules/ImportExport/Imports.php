@@ -268,7 +268,7 @@ final class Imports
      * Run the import (legacy import_run()). $commit false: everything happens
      * inside a transaction that is rolled back (the preview). A commit marks
      * the import done in the same transaction; done_before says another run
-     * did that first (nothing is imported).
+     * did that first (nothing is imported or previewed; N-373).
      *
      * @param Import $imp
      * @return Run
@@ -292,13 +292,14 @@ final class Imports
         }
         try {
             $this->hold($imp['id']);
-            if ($commit && (Writes::rows($db, 'SELECT status FROM imports WHERE id = ?', [$imp['id']])[0]['status'] ?? '') === 'done') {
+            // A preview or a submit that waited for another submit finds the import done (and its file gone).
+            if ((Writes::rows($db, 'SELECT status FROM imports WHERE id = ?', [$imp['id']])[0]['status'] ?? '') === 'done') {
                 $out['done_before'] = true;
                 $db->transRollback();
 
                 return $out;
             }
-            // Read after the lock: a submit that waited for another one finds the file gone and the import done.
+            // Read after the lock and the status: the file is the one this run may import.
             [, $rows] = $this->rows($imp);
             $knownTags = [];
             foreach (Writes::rows($db, 'SELECT name FROM tags') as $t) {

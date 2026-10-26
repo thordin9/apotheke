@@ -91,6 +91,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** the export tests cover cells that start with a TAB or a carriage return, so the formula guard for them is checked (QA N-375). ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** the import pages check the CSRF token first, as every CI4 POST does. A POST without the token to an import that is already done answers 419 where legacy redirects to the done page (303), and a POST without the token to `/import/{id}` answers 419 where legacy answers 404. Stricter; no change (QA N-371). ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** `/import` shows its page for PUT, PATCH and DELETE as legacy does, instead of 404, and `/import/{id}` with these methods redirects a done import and otherwise answers 404, as on legacy. They need the `import` permission and the CSRF token, as every non-safe method does on CI4 (QA N-372). ([#129](https://github.com/thordin9/apotheke/pull/129))
+- **ci4:** a preview sent while a submit of the same import is still running waits for it and then shows the done page (303 to `/import?done=…`), as a later submit does, instead of 410 "The uploaded file is gone". Legacy still answers 410 here (QA N-373). ([#129](https://github.com/thordin9/apotheke/pull/129))
 
 ### Maintenance
 

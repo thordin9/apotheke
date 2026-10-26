@@ -55,7 +55,15 @@ final class ImportController extends CatalogController
         if ($imp['status'] === 'done') {
             return $this->redirectTo('/import?done=' . $imp['id']);
         }
-        [$header, $rows] = $imports->rows($imp);
+        try {
+            [$header, $rows] = $imports->rows($imp);
+        } catch (UserError $e) {
+            // N-373: a submit of this import finished meanwhile and took its file.
+            if ($e->getCode() === 410 && ($imports->get($imp['id'])['status'] ?? '') === 'done') {
+                return $this->redirectTo('/import?done=' . $imp['id']);
+            }
+            throw $e;
+        }
         $method = $this->request->getMethod();   // HEAD is GET here (HeadAsGet)
         $post = $method === 'POST';
         if ($act === '' && $method === 'GET') {
@@ -73,7 +81,12 @@ final class ImportController extends CatalogController
                 return $this->redirectTo('/import?done=' . $imp['id']);
             }
 
-            return $this->sessionPage($this->pages()->map($imp, $header, $rows, $imports->run($imp, false), null));
+            $preview = $imports->run($imp, false);
+            if ($preview['done_before']) {   // N-373: it waited for a submit that imported it
+                return $this->redirectTo('/import?done=' . $imp['id']);
+            }
+
+            return $this->sessionPage($this->pages()->map($imp, $header, $rows, $preview, null));
         } catch (UserError $e) {
             return $this->sessionPage($this->pages()->map($imp, $header, $rows, $act === 'commit' ? $imports->run($imp, false) : null, $e->getMessage()), $e->getCode() ?: 422);
         }
