@@ -96,6 +96,17 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` c917cdb (#106 hardening) into `feature/ci4`. The legacy app gets the sign-in limit, NUL-password, last-admin and photo-save hardening. The CI4 photo and users goldens now compare those cases in full; the auth golden leaves out the attempt counts until CI4 gets the per-address cap and the current-password throttle. ([#107](https://github.com/thordin9/apotheke/pull/107))
 - **ci4:** sync `main` 0d9f6f3 (2.6.17) into `feature/ci4`. The legacy app gets #111 and #112 (sign-in caps, the photo limit, clean-up after commit). New `HardeningHttpTest` probes for the current-password checks and the last admin are skipped on CI4 until those ports land; the null-character name probe is skipped on legacy PostgreSQL, which cuts the name at it. ([#113](https://github.com/thordin9/apotheke/pull/113))
 
+## [2.6.18] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: a sign-in name with a null character anywhere is refused like a wrong password, on the sign-in form and when turning sign-in back on, on both databases. ([#116](https://github.com/thordin9/apotheke/pull/116))
+
+### Maintenance
+
+- test: sign-in names with a null character on both drivers ([#116](https://github.com/thordin9/apotheke/pull/116))
+- **qa:** docs: PR 116 main sign-in name QA report ([#116](https://github.com/thordin9/apotheke/pull/116))
+
 ## [2.6.17] - 2026-10-26
 
 ### Fixed
@@ -480,7 +491,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.17...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.18...HEAD
+[2.6.18]: https://github.com/thordin9/apotheke/compare/v2.6.17...v2.6.18
 [2.6.17]: https://github.com/thordin9/apotheke/compare/v2.6.16...v2.6.17
 [2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16
 [2.6.15]: https://github.com/thordin9/apotheke/compare/v2.6.14...v2.6.15
