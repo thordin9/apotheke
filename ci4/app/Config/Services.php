@@ -936,4 +936,46 @@ class Services extends BaseService
 
         return new \Apotheke\Stocktake\Views\StocktakeView(static::layout(), static::stocktakes(), static::itemRepository(), static::activityView(), (bool)static::settings()->get('stocktake_apply_moves'));
     }
+
+    /** CSV import: upload, mapping, dry run and import (ImportExport, PLAN 14). */
+    public static function imports(bool $getShared = true): \Apotheke\ImportExport\Imports
+    {
+        if ($getShared) {
+            return static::getSharedInstance('imports');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\ImportExport\Imports($db, new \Apotheke\Core\Libraries\Clock(), static::calendar(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()),
+            static::itemRepository(), static::taxonomy(), static::loans(), static function (): ?string {
+                if (PHP_SAPI === 'cli') {
+                    return null;
+                }
+                $user = static::currentUser()->resolve();
+
+                return $user !== null && !$user['guest'] ? (string)$user['username'] : null;
+            }, (bool)static::settings()->get('import_create_missing'));
+    }
+
+    /** The CSV import screens (ImportExport). */
+    public static function importView(bool $getShared = true): \Apotheke\ImportExport\Views\ImportView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('importView');
+        }
+
+        return new \Apotheke\ImportExport\Views\ImportView(static::layout(), static::activityView());
+    }
+
+    /** The CSV export (ImportExport). */
+    public static function csvExport(bool $getShared = true): \Apotheke\ImportExport\CsvExport
+    {
+        if ($getShared) {
+            return static::getSharedInstance('csvExport');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\ImportExport\CsvExport($db);
+    }
 }
