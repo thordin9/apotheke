@@ -378,8 +378,7 @@ class Services extends BaseService
             new \Apotheke\Autofill\AutofillClient($now),
             $log,
             $db,
-            $config->dataDir() . '/images',
-            $config->originalsDir(),
+            static::imageStore(),
             \Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/public/assets/autofill-sample.jpg',
             static function (int $seconds): void {
                 sleep($seconds);

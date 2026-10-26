@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Autofill;
 
 use Apotheke\Core\Storage\Storage;
+use Apotheke\Media\ImageStore;
 use Apotheke\Settings\SettingsService;
 use Closure;
 use CodeIgniter\Database\BaseConnection;
@@ -13,8 +14,8 @@ use Throwable;
 /**
  * The autofill client: suggestions, connection tests, and the photo test.
  * Settings and the token are read only through SettingsService. The
- * warn-once pair and the temporary JPEG live in Storage. The stored photo
- * is read and never written.
+ * warn-once pair and the temporary JPEG live in Storage. Stored photos are
+ * read through Media and never written.
  */
 final class AutofillService
 {
@@ -47,8 +48,7 @@ final class AutofillService
         private readonly AutofillClient $http,
         private readonly LogRedactor $log,
         BaseConnection $db,
-        string $imagesDir,
-        string $originalsDir,
+        ImageStore $images,
         private readonly string $samplePath,
         private readonly Closure $sleep,
         Closure $now,
@@ -60,7 +60,7 @@ final class AutofillService
         $this->responses = new ResponseClassifier($now);
         $this->tokens = new TokenPolicy($settings);
         $this->catalog = new CatalogContext($db);
-        $this->photos = new StoredPhoto($db, $imagesDir, $originalsDir);
+        $this->photos = new StoredPhoto($db, $images);
     }
 
     public function limits(): ImageLimit
@@ -231,12 +231,12 @@ final class AutofillService
     /** @return array<string,mixed> */
     public function suggestPhotoId(string $photoId): array
     {
-        $found = $this->photos->pathFor($photoId);
+        $found = $this->photos->bytesFor($photoId);
         if (!$found['ok']) {
             return ['ok' => false, 'code' => $found['code'], 'message' => $found['message'], 'avg_latency_ms' => $this->expectedMs()];
         }
 
-        return $this->suggestPath($found['path']);
+        return $this->suggest($found['bytes']);
     }
 
     /**

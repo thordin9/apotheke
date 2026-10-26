@@ -385,7 +385,9 @@ warn-once pair and the temporary JPEG are bytes behind `Apotheke\Core\Storage\St
 `autofill/tmp/…`) under `DATA_DIR`. There is no per-request global for that pair, and the database stays the existing
 DSN-driven connection. The live Neuron check in §4.4 was not run; tests use the stub. Settings HTML and the item-form
 button stay on legacy. Media and Taxonomy are not modules yet, so photo lookup and context names are SQL. Media should
-extend this storage interface later rather than add a second one.
+extend this storage interface later rather than add a second one. **Step 12 (#118):** a stored photo's bytes come from
+Media (`ImageStore::analysisBytes()`, the kept original, else the served JPEG); the row lookup and the context names stay
+SQL. Live check 1 has not run.
 
 ### 4.4 Live Worker checks (Neurons) — final (PM, 10:15 EEST)
 

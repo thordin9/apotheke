@@ -218,6 +218,20 @@ final class ImageStore
         return $new;
     }
 
+    /**
+     * The bytes autofill analyses for a served photo: the kept original when
+     * there is one, else the served JPEG (legacy `image_original_path() ??
+     * images/`). Null when the served photo is gone. Reads only.
+     */
+    public function analysisBytes(string $name): ?string
+    {
+        if (!self::validName($name) || $this->served->modifiedAt('full', $name) === null) {
+            return null;
+        }
+
+        return $this->originals->read($name) ?? $this->served->read('full', $name);
+    }
+
     /** Remove the served copy, the thumbnail, the original and its map entry. */
     public function delete(?string $name): void
     {

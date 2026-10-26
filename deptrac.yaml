@@ -1,7 +1,7 @@
 # Core depends on nothing. DevServer, Settings and Autofill may depend on Core.
 # Auth may depend on Core and Settings.
 # Migrations may depend on Core and on Settings (schema only).
-# Autofill may depend on Settings. Layout may depend on Core and Settings (Config\Services
+# Autofill may depend on Settings and Media (stored photo bytes). Layout may depend on Core and Settings (Config\Services
 # hands it the user from Auth). Media may depend on Core and Settings. Taxonomy and Activity:
 # see their ruleset entries.
 deptrac:
@@ -100,6 +100,7 @@ deptrac:
     Autofill:
       - Core
       - Settings
+      - Media
     Layout:
       - Core
       - Settings
