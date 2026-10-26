@@ -80,4 +80,63 @@ final class ImportTest extends DatabaseTestCase
         $it = item_get($id);
         $this->assertSame(['Garden hose', 3, 'green', 'H-1', $loc], [$it['name'], (int)$it['quantity'], $it['notes'], $it['serial'], (int)$it['location_id']]);
     }
+
+    /**
+     * A commit or preview while another client's import of the same file is still open waits for it. The commit then
+     * finds the import done and imports nothing (the done page answers it), without reading the file that import
+     * removed; the preview runs as usual. Without the lock first, PostgreSQL imports the file twice and SQLite answers
+     * "database is locked".
+     */
+    public function testRunsWaitForAnotherClientsImport(): void
+    {
+        $count = fn(): int => (int)db()->query('SELECT COUNT(*) FROM items')->fetchColumn();
+        $imp = $this->imp("name,qty\nLadder,1\nRope,2\n", ['name', 'quantity']);
+        $summary = ['created' => 2, 'updated' => 0, 'unchanged' => 0, 'skipped' => 0, 'made' => ['location' => [], 'category' => [], 'tag' => []]];
+        $wait = $this->holdInAnotherClient([["UPDATE imports SET status = 'done', result = ? WHERE id = ?", [json_encode($summary), $imp['id']]]], 300);
+        unlink(import_file($imp['id']));   // as the other client does once it commits: this run must not need the file
+        $t = microtime(true);
+        try {
+            $this->assertNull(import_commit($imp), 'imported by the other client');
+        } finally {
+            $this->assertStringEndsWith("committed\n", $wait());
+        }
+        $this->assertGreaterThan(0.2, microtime(true) - $t, 'waited for the other client');
+        $this->assertSame(0, $count(), 'nothing imported twice');
+        $this->assertSame($summary, import_get($imp['id'])['result']);
+
+        // the other client's import creates the location this preview needs
+        $imp = $this->imp("name,location\nTent,Attic\n", ['name', 'location']);
+        $wait = $this->holdInAnotherClient([
+            ['UPDATE imports SET status = status WHERE id = ?', [$imp['id']]],
+            ['INSERT INTO locations (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?)', ['Attic', fold('Attic'), natkey('Attic'), now_utc()]],
+        ], 300);
+        try {
+            $r = import_run($imp, false);
+        } finally {
+            $this->assertStringEndsWith("committed\n", $wait());
+        }
+        $this->assertSame([1, false, false, []], [$r['created'], $r['committed'], $r['done_before'], $r['made']['location']]);
+        $this->assertSame(0, $count(), 'preview rolled back');
+    }
+
+    /** The done mark commits with the rows: once another client sees them, it sees the import done. */
+    public function testDoneCommitsWithTheRows(): void
+    {
+        $imp = $this->imp("name\nSaw\nTent\n", ['name']);
+        $other = $this->connectAgain();
+        $seen = null;
+        $queue = &migrate_active();
+        $queue = true;   // after_commit() queues the check for the import's COMMIT instead of running it now
+        try {
+            after_commit(function () use ($other, $imp, &$seen): void {
+                $st = $other->prepare('SELECT status FROM imports WHERE id = ?');
+                $st->execute([$imp['id']]);
+                $seen = [$st->fetchColumn(), (int)$other->query('SELECT COUNT(*) FROM items')->fetchColumn()];
+            });
+        } finally {
+            $queue = false;
+        }
+        $this->assertSame(2, import_commit($imp)['created']);
+        $this->assertSame(['done', 2], $seen);
+    }
 }

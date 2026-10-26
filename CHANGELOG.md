@@ -116,6 +116,29 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` 0d9f6f3 (2.6.17) into `feature/ci4`. The legacy app gets #111 and #112 (sign-in caps, the photo limit, clean-up after commit). New `HardeningHttpTest` probes for the current-password checks and the last admin are skipped on CI4 until those ports land; the null-character name probe is skipped on legacy PostgreSQL, which cuts the name at it. ([#113](https://github.com/thordin9/apotheke/pull/113))
 - **ci4:** sync `main` ff23b38 (2.6.18) into `feature/ci4`. The legacy app gets #116; its `HardeningHttpTest` probe for null-character names runs on CI4 and on both legacy drivers and replaces the narrower #113 probe. ([#117](https://github.com/thordin9/apotheke/pull/117))
 - **ci4:** sync `main` 935f144 (2.6.19, 2.6.20) into `feature/ci4`. The legacy app gets #121 and #122. `Ci4AuthParityTest` now checks that both apps refuse a registered name with a null character at either end, a CI4 register-form test covers it too, and the `allow_url_fopen` off step fails on a skipped test again. ([#124](https://github.com/thordin9/apotheke/pull/124))
+- **ci4:** sync `main` dd019fb (2.6.21, 2.6.22) into `feature/ci4`. The legacy app gets #126 (lend, return and stocktake locks, `SIGN_IN_FAIL_MS`, the shared migrate connection) and #130 (the CSV import lock); the test server sets `SIGN_IN_FAIL_MS` for both apps, CI4's `ApothekeConfig` loads `sign_in_fail_ms` as legacy does (CI4 does not use it yet; set `signin.failDeadlineMs`. CI4's deadline starts at the controller, not at the request start), and the migrate connection test runs legacy `bin/migrate.php` on the CI4 legs too. CI4 already has the lend, return and stocktake close locks and its own sign-in deadline. ([#129](https://github.com/thordin9/apotheke/pull/129))
+
+## [2.6.22] - 2026-10-26
+
+### Fixed
+
+- **import:** hardening: a CSV import run takes the import's lock as its first write, reads the uploaded file after it, and a commit marks the import done in its own transaction, so submits at the same time import a file once and no longer answer with a server error; a submit that finds the import done goes to the done page. ([#130](https://github.com/thordin9/apotheke/pull/130))
+
+### Maintenance
+
+- test: concurrent CSV import commit and preview ([#130](https://github.com/thordin9/apotheke/pull/130))
+- **qa:** docs: add PR 130 QA report ([#130](https://github.com/thordin9/apotheke/pull/130))
+
+## [2.6.21] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: lending, returning, finishing, cancelling and ticking a stocktake take their lock or check the stocktake is still open as their first write, so requests at the same time no longer apply twice or change a closed stocktake; every failed password check (sign-in, current password, turning sign-in back on) answers a fixed time after the request began (`SIGN_IN_FAIL_MS`, default 1000 ms); `bin/migrate.php` shares its connection with code that runs inside a migration. ([#126](https://github.com/thordin9/apotheke/pull/126))
+
+### Maintenance
+
+- test: concurrent writes, password pacing and migrate after-commit ([#126](https://github.com/thordin9/apotheke/pull/126))
+- **qa:** docs: add PR 126 QA report ([#126](https://github.com/thordin9/apotheke/pull/126))
 
 ## [2.6.20] - 2026-10-26
 
@@ -535,7 +558,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.20...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.22...HEAD
+[2.6.22]: https://github.com/thordin9/apotheke/compare/v2.6.21...v2.6.22
+[2.6.21]: https://github.com/thordin9/apotheke/compare/v2.6.20...v2.6.21
 [2.6.20]: https://github.com/thordin9/apotheke/compare/v2.6.19...v2.6.20
 [2.6.19]: https://github.com/thordin9/apotheke/compare/v2.6.18...v2.6.19
 [2.6.18]: https://github.com/thordin9/apotheke/compare/v2.6.17...v2.6.18

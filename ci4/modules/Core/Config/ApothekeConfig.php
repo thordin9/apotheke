@@ -45,6 +45,7 @@ final class ApothekeConfig
         'SEED_DEFAULTS' => 'seed_defaults',
         'ORIGINALS_DIR' => 'originals_dir',
         'TRUSTED_PROXIES' => 'trusted_proxies',
+        'SIGN_IN_FAIL_MS' => 'sign_in_fail_ms',
     ];
 
     public static function repoRoot(): string
@@ -92,6 +93,7 @@ final class ApothekeConfig
         $cfg['app_password'] = (string)$cfg['app_password'];
         $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
         $cfg['trusted_proxies'] = (new ProxyList())->parse($cfg['trusted_proxies'] ?? []);
+        $cfg['sign_in_fail_ms'] = min(10000, max(400, (int)($cfg['sign_in_fail_ms'] ?? 1000)));
 
         return new self($cfg);
     }
@@ -201,6 +203,7 @@ final class ApothekeConfig
             'seed_defaults' => true,
             'originals_dir' => '',
             'trusted_proxies' => [],
+            'sign_in_fail_ms' => 1000,
         ];
     }
 

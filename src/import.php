@@ -182,19 +182,30 @@ function import_location(string $v, bool $create, array &$made): ?int
 
 /**
  * Run the import. $commit = false: everything happens inside a transaction that is rolled back (the preview).
- * @return array{rows: array<int,array>, created:int, updated:int, errors:int, skipped:int, made: array, committed: bool}
+ * A commit marks the import done in the same transaction; done_before says another run did that first (nothing is
+ * imported).
+ * @return array{rows: array<int,array>, created:int, updated:int, errors:int, skipped:int, made: array, committed: bool, done_before: bool}
  */
 function import_run(array $imp, bool $commit): array
 {
-    [$header, $rows] = import_rows($imp);
     $map = $imp['mapping'];
     $create = !empty($imp['options']['create']);
     $skip = !empty($imp['options']['skip_errors']);
     $col = array_flip(array_filter($map, fn($k) => $k !== ''));
     $pdo = db();
-    $out = ['rows' => [], 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => 0, 'skipped' => 0, 'made' => ['location' => [], 'category' => [], 'tag' => []], 'committed' => false];
+    $out = ['rows' => [], 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => 0, 'skipped' => 0, 'made' => ['location' => [], 'category' => [], 'tag' => []], 'committed' => false, 'done_before' => false];
     $pdo->beginTransaction();
     try {
+        // First write: locks the import's row (PostgreSQL) or takes the write lock (SQLite) before anything is read,
+        // so a concurrent run waits here; a commit that finds the import done by then imports nothing.
+        $st = $pdo->prepare("UPDATE imports SET status = status WHERE id = ? AND status <> 'done'");
+        $st->execute([$imp['id']]);
+        if ($commit && $st->rowCount() !== 1) {
+            $pdo->rollBack();
+            after_commit_end(false);
+            return ['done_before' => true] + $out;
+        }
+        [, $rows] = import_rows($imp);   // after the lock: a run that waited for a commit finds the import done above
         $knownTags = array_flip(array_map('fold', $pdo->query('SELECT name FROM tags')->fetchAll(PDO::FETCH_COLUMN)));
         foreach ($rows as $n => $r) {
             $get = fn(string $k): string => isset($col[$k]) ? trim((string)($r[$col[$k]] ?? '')) : '';
@@ -276,6 +287,8 @@ function import_run(array $imp, bool $commit): array
         unset($list);
         if ($commit && ($out['errors'] === 0 || $skip)) {
             $out['skipped'] = $out['errors'];
+            $summary = ['created' => $out['created'], 'updated' => $out['updated'], 'unchanged' => $out['unchanged'], 'skipped' => $out['skipped'], 'made' => $out['made']];
+            $pdo->prepare("UPDATE imports SET status = 'done', finished_at = ?, result = ? WHERE id = ?")->execute([now_utc(), json_encode($summary, JSON_UNESCAPED_UNICODE), $imp['id']]);
             $pdo->commit();
             $out['committed'] = true;
         } else {
@@ -302,16 +315,15 @@ function import_same(array $existing, array $in): bool
     return $t(array_column($existing['tags'] ?? [], 'name')) === $t($in['tags']);
 }
 
-/** The real import (after a preview). Records the result; deletes the stored file. */
-function import_commit(array $imp): array
+/** The real import (after a preview). Records the result; deletes the stored file. Null: another submit imported it first. */
+function import_commit(array $imp): ?array
 {
     if ($imp['status'] === 'done') throw new UserError('This file was imported already.', 409);
     $r = import_run($imp, true);
+    if ($r['done_before']) return null;
     if (!$r['committed']) throw new UserError($r['errors'] . ' ' . ($r['errors'] === 1 ? 'row has' : 'rows have') . ' errors. Fix the file, or tick “Skip rows with errors”.', 422);
-    $summary = ['created' => $r['created'], 'updated' => $r['updated'], 'unchanged' => $r['unchanged'], 'skipped' => $r['skipped'], 'made' => $r['made']];
-    db()->prepare("UPDATE imports SET status = 'done', finished_at = ?, result = ? WHERE id = ?")->execute([now_utc(), json_encode($summary, JSON_UNESCAPED_UNICODE), $imp['id']]);
     @unlink(import_file($imp['id']));
-    return $summary;
+    return ['created' => $r['created'], 'updated' => $r['updated'], 'unchanged' => $r['unchanged'], 'skipped' => $r['skipped'], 'made' => $r['made']];
 }
 
 function import_summary_text(array $s): string

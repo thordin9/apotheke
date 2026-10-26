@@ -356,7 +356,7 @@ function test_driver(): string
  */
 function test_server_env(string $dataDir, array $env = []): array
 {
-    $base = ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'APP_KEY' => '', 'APP_KEY_FILE' => '', 'APP_KEY_NEW' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent'];
+    $base = ['DATA_DIR' => $dataDir, 'TZ' => 'Europe/Athens', 'APP_PASSWORD' => '', 'APP_KEY' => '', 'APP_KEY_FILE' => '', 'APP_KEY_NEW' => '', 'SEED_DEFAULTS' => '0', 'APOTHEKE_CONFIG' => '/nonexistent', 'SIGN_IN_FAIL_MS' => '400'];
     $db = test_db_env($dataDir);
     $db['APOTHEKE_TEST_DB'] = test_driver();
     return array_merge($base, $db, $env);

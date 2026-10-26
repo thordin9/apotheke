@@ -5,7 +5,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Current state
 
-- `feature/ci4` carries `main` up to v2.6.20 (sync [#124](https://github.com/thordin9/apotheke/pull/124)), including the legacy session limits, `user signout NAME`
+- `feature/ci4` carries `main` up to v2.6.22 (sync [#129](https://github.com/thordin9/apotheke/pull/129)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
   in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
@@ -181,9 +181,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   is open, with the write lock first (L-340, N-341); `/register` PUT/PATCH/DELETE with registration open (N-351); the
   auth pages ignore `_method` (N-352) and answer every method CI4 routes (N-353); cookie Max-Age settled in the
   parity tests. Merged.
+- [#129](https://github.com/thordin9/apotheke/pull/129): sync `main` v2.6.21 and v2.6.22 (#126: the legacy port of L-230,
+  L-240, N-234 and L-340, `SIGN_IN_FAIL_MS`, the shared migrate connection; #130: the legacy CSV import lock). `ApothekeConfig` loads `sign_in_fail_ms` as legacy does. Open.
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
-  stale uploads swept (N-374), TAB/CR cells tested (N-375). Open.
+  stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged.
 
 ## Lanes
 
@@ -196,35 +198,39 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged).
-  Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
-  and `SignInAccountsTest` (listed in the PR).
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 and v2.6.22 (#129, open). Next: step 15, the Docker image on PHP 8.4 for CI4,
+  with the #75 port. Touches `Media\ImageStore` and the Autofill module only; #124 also touched Coder2's `Accounts`,
+  `SecurityController` and `SignInAccountsTest` (listed in that PR). Stays out of the step 14 import/export and
+  Backup files.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, open); then backup and restore.
+  follow-ups (#131, merged); then backup and restore.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #131 (#127's QA notes); then step 14's backup and restore.
-2. Port L-230, L-240, N-234, L-340 and N-341 to legacy on `main`, so both apps behave the same under concurrent
-   requests (L-340: a stocktake tick's first write only while the stocktake is open), and with them the import lock
-   ([#130](https://github.com/thordin9/apotheke/pull/130), open), the done check for a waiting preview (N-373) and
-   the stale-upload sweep (N-374).
-3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
-   (SEC-M3) into the CI4 image.
+1. Review and merge #129 (sync v2.6.22). The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
+   [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
+   `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
+2. Step 14 (Coder2): backup and restore.
+3. Port to legacy on `main` the done check for a waiting preview (N-373) and the stale-upload sweep (N-374) from
+   [#131](https://github.com/thordin9/apotheke/pull/131).
+4. Step 15 (Coder): the Docker image on PHP 8.4 for CI4, with the Docker bind and app-password start-up hardening
+   from `main` [#75](https://github.com/thordin9/apotheke/pull/75) (SEC-M3).
 
 ## Tracked
 
+- Sign-in deadline setting: legacy paces with `SIGN_IN_FAIL_MS` (#126). CI4's `ApothekeConfig` loads it, but
+  `SignInPace` still takes `signin.failDeadlineMs`; both default to 1000 ms and clamp to 400–10000. Legacy starts the deadline at the request's start, CI4 at the controller's.
+  Step 15 decides how the image sets it.
 - Import pages (#131): CI4 checks the CSRF token first, so a tokenless POST to a done import or to `/import/{id}`
   answers 419 (legacy 303 and 404), and PUT, PATCH and DELETE on `/import` need the token (legacy shows the page).
   Stricter; no change. Until the `main` port (Next steps), legacy keeps waiting uploads and answers 410 to a preview
   that raced a submit.
-
 - `/account` with PUT, PATCH or DELETE (#125, N-63): CI4 wants the CSRF token, as on every non-safe method, where
   legacy shows the page without it. Stricter; no change. The same holds for CONNECT (#128).
 - Auth pages with a method CI4 cannot route (#128, N-353): WebDAV methods such as PROPFIND get 404 on CI4, where

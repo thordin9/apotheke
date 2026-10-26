@@ -1475,6 +1475,7 @@ function item_lend(int $id, string $to, ?string $at, ?string $due): void
     if ($at > local_today()) throw new UserError('The lent date cannot be in the future.');
     if ($due !== null && $due < $at) throw new UserError('The due date cannot be before the lent date.');
     db_tx(function (PDO $pdo) use ($id, $to, $at, $due): void {
+        item_hold($pdo, $id);
         $it = item_get($id);
         if (!$it) throw new UserError('Item not found.', 404);
         $pdo->prepare('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?')->execute([$to, $at, $due, now_utc(), $id]);
@@ -1486,6 +1487,7 @@ function item_lend(int $id, string $to, ?string $at, ?string $due): void
 function item_return(int $id): void
 {
     db_tx(function (PDO $pdo) use ($id): void {
+        item_hold($pdo, $id);
         $it = item_get($id);
         if (!$it) throw new UserError('Item not found.', 404);
         if (!is_lent($it)) return;
@@ -1493,6 +1495,15 @@ function item_return(int $id): void
         $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable(local_today()))->format('%a');
         activity_log($id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
     });
+}
+
+/**
+ * First write of a lend or return transaction: a no-op UPDATE that locks the item row (PostgreSQL) or takes the write
+ * lock (SQLite) before the item is read. A concurrent lend or return waits for it and then reads the committed item.
+ */
+function item_hold(PDO $pdo, int $id): void
+{
+    $pdo->prepare('UPDATE items SET lent_to = lent_to WHERE id = ?')->execute([$id]);
 }
 
 /** Items that are out, overdue first, then by due date (no due date last), then by lent date. */

@@ -45,6 +45,7 @@ try {
     }
     throw $e;
 }
+db($pdo);   // code that runs inside a migration (after_commit(), db()) uses this connection, not a second one
 
 if (in_array('--status', $argv, true)) {
     $applied = migrations_applied($pdo, $driver);

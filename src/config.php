@@ -33,6 +33,7 @@ const CONFIG_ENV_MAP = [
     'SEED_DEFAULTS'   => 'seed_defaults',
     'ORIGINALS_DIR'   => 'originals_dir',
     'TRUSTED_PROXIES' => 'trusted_proxies',
+    'SIGN_IN_FAIL_MS' => 'sign_in_fail_ms',
 ];
 
 function config_defaults(string $root): array
@@ -65,6 +66,7 @@ function config_defaults(string $root): array
         'seed_defaults' => true,         // starter locations/categories on a brand-new database
         'originals_dir' => '',           // camera uploads; empty = <data_dir>/originals (outside public/)
         'trusted_proxies' => [],         // addresses allowed to set X-Forwarded-For when trust_proxy is on
+        'sign_in_fail_ms' => 1000,       // a failed password check answers this long after the request began (400–10000)
     ];
 }
 
@@ -104,6 +106,7 @@ function config_load(string $root, ?string $file, array $env): array
     $cfg['app_password'] = (string)$cfg['app_password'];
     $cfg['timezone'] = (string)$cfg['timezone'] ?: 'UTC';
     $cfg['trusted_proxies'] = config_proxy_list($cfg['trusted_proxies'] ?? []);
+    $cfg['sign_in_fail_ms'] = min(10000, max(400, (int)($cfg['sign_in_fail_ms'] ?? 1000)));
     return $cfg;
 }
 
