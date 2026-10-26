@@ -66,10 +66,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
 | Front controller & routes | – | 96.9 % | 96.9 % |
-| Items, search, bulk, lending | 88.9 % | 90.3 % | 95.4 % |
+| Items, search, bulk, lending | 89.0 % | 90.4 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 44.7 % | 98.1 % | 99.5 % |
-| Users & roles | 93.6 % | 90.3 % | 97.1 % |
+| Users & roles | 93.4 % | 89.5 % | 97.2 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
 | CSV import | 60.1 % | 97.8 % | 98.2 % |
 | Photos | 59.6 % | 87.2 % | 87.2 % |
@@ -79,7 +79,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Backup & restore | 87.7 % | 89.8 % | 96.9 % |
 | Database, migrations, legacy | 80.7 % | 81.1 % | 91.4 % |
 | Bootstrap, config, QR, seed | 73.5 % | 75.5 % | 91.0 % |
-| **All PHP** (7538 lines) | **66.6 %** | **89.3 %** | **95.4 %** |
+| **All PHP** (7554 lines) | **66.6 %** | **89.3 %** | **95.4 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
