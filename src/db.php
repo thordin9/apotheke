@@ -158,6 +158,40 @@ function db(?PDO $replace = null): PDO
     return $pdo;
 }
 
+/** Run $fn once the outermost transaction has committed (now when none is open); a rollback drops it. */
+function after_commit(callable $fn): void
+{
+    if (!db()->inTransaction()) { $fn(); return; }
+    $queue = &after_commit_queue();
+    $queue[] = $fn;
+}
+
+/** @return list<callable> the pending callbacks (by reference); $take empties the queue and returns what it held */
+function &after_commit_queue(bool $take = false): array
+{
+    static $queue = [];
+    if ($take) { $out = $queue; $queue = []; return $out; }
+    return $queue;
+}
+
+/**
+ * Every place that ends a transaction calls this: after a COMMIT ($committed) it runs the queued callbacks, after a
+ * rollback it drops them. The data has already committed, so a callback that fails (they only remove files) is
+ * logged and the others still run; nothing is rethrown.
+ */
+function after_commit_end(bool $committed): void
+{
+    $queue = after_commit_queue(true);
+    if (!$committed) return;
+    foreach ($queue as $fn) {
+        try {
+            $fn();
+        } catch (Throwable $e) {
+            error_log('apotheke: after-commit cleanup failed: ' . $e->getMessage());
+        }
+    }
+}
+
 /** INSERT and return the new id on both dialects. */
 function db_insert(PDO $pdo, string $sql, array $args): int
 {
@@ -311,7 +345,9 @@ function migrate(PDO $pdo, string $driver, array $opt = []): array
         $pdo->exec('COMMIT');
     } catch (Throwable $e) {
         $pdo->exec('ROLLBACK');
+        after_commit_end(false);
         throw $e;
     }
+    after_commit_end(true);
     return $done;
 }

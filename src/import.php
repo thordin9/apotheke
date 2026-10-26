@@ -283,8 +283,10 @@ function import_run(array $imp, bool $commit): array
         }
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) $pdo->rollBack();
+        after_commit_end(false);
         throw $e;
     }
+    after_commit_end($out['committed']);
     return $out;
 }
 

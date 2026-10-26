@@ -166,12 +166,14 @@ function user_delete(int $id): void
     roles(true);
 }
 
-/** The signed-in user's current password, limited like a sign-in (429); a wrong one is 403. */
+/** The signed-in user's current password, limited like a sign-in (per account and per address, 429); a wrong one is 403. */
 function user_check_current(array $me, #[\SensitiveParameter] string $current): void
 {
+    $mine = rate_limit('login_address');   // the same per-address cap as the sign-in form
     rate_limit('login', $me['username']);
     if (!user_verify($me['username'], $current)) throw new UserError('The current password is not correct.', 403);
     rate_limit_clear('login', $me['username']);
+    rate_limit_forget($mine);
 }
 
 /** Check a user name + password; returns the user or null (always spends the same hashing time). */
@@ -410,12 +412,17 @@ function client_key(?string $account = null): string
     return substr(hash('sha256', $material), 0, 32);
 }
 
-/** Per-address limits count an IPv6 client by its /64 (one site's usual allocation); IPv4 and anything else as is. */
+/**
+ * Per-address limits count an IPv6 client by its /64 (one site's usual allocation). IPv4, and IPv6 forms that carry
+ * an IPv4 address in their last 32 bits (IPv4-mapped ::ffff:0:0/96, IPv4-compatible ::/96, NAT64 64:ff9b::/96), keep
+ * the whole address as given, so each embedded IPv4 client keeps its own count. Anything else is returned unchanged.
+ */
 function address_scope(string $ip): string
 {
     if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) return $ip;
     $bin = (string)inet_pton($ip);
-    if (str_starts_with($bin, str_repeat("\0", 10) . "\xff\xff")) return $ip;   // IPv4-mapped: the IPv4 address
+    $p96 = substr($bin, 0, 12);
+    if (in_array($p96, [str_repeat("\0", 10) . "\xff\xff", str_repeat("\0", 12), "\x00\x64\xff\x9b" . str_repeat("\0", 8)], true)) return $ip;
     return inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
 }
 
