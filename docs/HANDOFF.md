@@ -67,8 +67,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `/report`, `/finish` and `/cancel` answer as legacy does, fetch JSON included, with the same `stocktakes` and
   `stocktake_lines` rows (`tests/Unit/Ci4StocktakeParityTest.php`, SQLite and PostgreSQL, failed writes included).
   New module `Stocktake`; looking is `view`, changes `stocktake`, finishing with moves also `move`. Finish and
-  cancel close it only while it is open; the second one answers 409 (#123). `ci4/tests/Lending` and
-  `ci4/tests/Stocktake` hold a transaction open in another process (`TestDatabase::holdInAnotherClient()`).
+  cancel close it only while it is open; the second one answers 409 (#123), and so does a late tick (#128).
+  `ci4/tests/Lending` and `ci4/tests/Stocktake` hold a transaction open in another process (`TestDatabase::holdInAnotherClient()`).
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
@@ -163,12 +163,17 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   suites with `allow_url_fopen` off. Merged.
 - [#124](https://github.com/thordin9/apotheke/pull/124): sync `main` v2.6.20 (#121, #122) and the CI4 counterparts:
   N-304 (turning sign-in on always spends one password check), L-310 and L-330 (every refusal there and a wrong
-  current password answer at the sign-in deadline), the null-name parity check, N-290 and N-291. Open.
+  current password answer at the sign-in deadline), the null-name parity check, N-290 and N-291. Merged.
 - [#123](https://github.com/thordin9/apotheke/pull/123): #114/#115 QA notes: lend/return lock first (L-230),
   stocktake finish/cancel only while open (L-240), borrower name without control characters (N-234), test fixes
   N-211, N-232/N-243, N-233, and the Routes comment (N-242). Merged.
 - [#125](https://github.com/thordin9/apotheke/pull/125): N-63, `/login`, `/register` and `/account` show their page
   for PUT, PATCH and DELETE as legacy does (`/account` still needs the CSRF token there). Merged.
+- [#127](https://github.com/thordin9/apotheke/pull/127): PLAN step 14, first part (CSV import and export). Open.
+- [#128](https://github.com/thordin9/apotheke/pull/128): QA notes batch 3. A stocktake tick changes lines only while it
+  is open, with the write lock first (L-340, N-341); `/register` PUT/PATCH/DELETE with registration open (N-351); the
+  auth pages ignore `_method` (N-352) and answer every method CI4 routes (N-353); cookie Max-Age settled in the
+  parity tests. Open.
 
 ## Lanes
 
@@ -181,27 +186,31 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, open).
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged).
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
   and `SignInAccountsTest` (listed in the PR).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
-  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged).
+  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
+  step 14 part 1, CSV import and export (#127, open); QA notes batch 3 (#128, open).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #124 (sync v2.6.20, N-304, L-310 and L-330 for CI4, N-290, N-291).
-2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests.
+1. Review and merge #127 (step 14, part 1) and #128 (QA notes batch 3).
+2. Port L-230, L-240, N-234, L-340 and N-341 to legacy on `main`, so both apps behave the same under concurrent
+   requests (L-340: a stocktake tick's first write only while the stocktake is open).
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 
 ## Tracked
 
 - `/account` with PUT, PATCH or DELETE (#125, N-63): CI4 wants the CSRF token, as on every non-safe method, where
-  legacy shows the page without it. Stricter; no change.
+  legacy shows the page without it. Stricter; no change. The same holds for CONNECT (#128).
+- Auth pages with a method CI4 cannot route (#128, N-353): WebDAV methods such as PROPFIND get 404 on CI4, where
+  legacy shows the page or redirects. CI4's router knows only the standard methods; pinned in `Ci4AuthParityTest`.
 - Legacy photo edit race (#103 M-90): on `main`, two crop/rotate requests for one photo at once can commit a photo
   without its original, and `image_original_copy()` succeeds when the original is gone. CI4 compares and swaps
   `item_photos.file` and fails the copy. Candidate for the next `main` hardening PR.
