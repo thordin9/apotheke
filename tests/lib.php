@@ -87,8 +87,9 @@ final class Server
     /**
      * @param array<string, string|null> $env null removes that variable from the child
      * @param ?string $router CI4 entry. Null starts tests/ci4-router.php. Pass ci4/public/router.php for a shipped boot.
+     * @param array<string, string> $ini php.ini settings for the server, after the defaults (memory_limit=256M)
      */
-    public function __construct(public string $dataDir, array $env = [], ?string $app = null, ?string $router = null)
+    public function __construct(public string $dataDir, array $env = [], ?string $app = null, ?string $router = null, array $ini = [])
     {
         $this->app = $app ?? apotheke_app();
         $sock = stream_socket_server('tcp://127.0.0.1:0');
@@ -104,7 +105,9 @@ final class Server
             $front = $router ?? ($cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php');
             $docroot = ROOT . '/public';
         }
-        $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M', ...$cov,
+        $extra = [];
+        foreach ($ini as $key => $value) array_push($extra, '-d', "$key=$value");
+        $cmd = [PHP_BINARY, '-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M', ...$cov, ...$extra,
                 '-S', "127.0.0.1:$port", '-t', $docroot, $front];
         $harness = $this->app === 'ci4' ? ['APOTHEKE_HARNESS' => '1'] : [];
         $overrides = [];
