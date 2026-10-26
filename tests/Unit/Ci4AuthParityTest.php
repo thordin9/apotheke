@@ -115,12 +115,11 @@ final class Ci4AuthParityTest extends TestCase
     }
 
     /**
-     * N-261, a deliberate difference until main's N-251 lands: a name with a
-     * null character at either end. Legacy trims it into "rez" and creates that
-     * account; CI4 refuses it (422, the invalid-name message) and creates none.
-     * When main refuses it too, make this an equality check.
+     * N-261 and main's N-251 (#121): a name with a null character at either
+     * end is refused by both apps (422, the invalid-name message), and no
+     * account is created.
      */
-    public function testANullCharacterInARegisteredNameIsRefusedOnCi4(): void
+    public function testANullCharacterInARegisteredNameIsRefusedOnBoth(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
@@ -154,8 +153,8 @@ final class Ci4AuthParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
-        $this->assertSame([[303, false, ['ada', 'rez']], [303, false, ['ada', 'rez']]], $seen['legacy'], 'legacy trims the null character (N-251, open on main)');
-        $this->assertSame([[422, true, ['ada']], [422, true, ['ada']]], $seen['ci4'], 'CI4 refuses the name as sent (N-261)');
+        $this->assertSame($seen['legacy'], $seen['ci4']);
+        $this->assertSame([[422, true, ['ada']], [422, true, ['ada']]], $seen['ci4'], 'the name is refused as sent');
     }
 
     /** @return array<string,array<string,mixed>> case => what matters in the answer */

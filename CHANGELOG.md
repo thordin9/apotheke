@@ -83,7 +83,8 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sign-in limits match legacy 2.6.16 and 2.6.17 (#111, #112): per-address limits count an IPv6 client by its /64 (addresses that carry an IPv4 address stay whole), a successful sign-in takes back only its own per-address attempt, and the admin password that turns sign-in back on is limited like a sign-in. A name with a null character inside never matches an account, and a cover replaced inside a larger save keeps its file until that save commits. ([#113](https://github.com/thordin9/apotheke/pull/113))
 - **ci4:** account hardening matches legacy (#106): the current password on Your account and on Users & sign-in counts as a sign-in try for that account and against the per-address cap of 30 per 15 minutes (429 at either limit), and a right one takes back only its own per-address try (L-170); changing the role of or deleting an admin checks and writes under a lock on the active admins, also from `bin/settings.php`, so one active admin always stays when two changes arrive together (L-110); role edits and deletes take that lock first, so role edits sent together all go through on SQLite too; an `APP_PASSWORD` with a null character stops the first start; and the CLI password prompt restores the terminal on SIGTERM too, exiting 143 (N-133). ([#110](https://github.com/thordin9/apotheke/pull/110))
 - **ci4:** a sign-in name with a null character anywhere, also at the start or end, is refused like a wrong password on the sign-in form (401) and on the form that turns sign-in back on (403, no account created), after both sign-in limits have counted it, as on legacy 2.6.18 (#116). ([#117](https://github.com/thordin9/apotheke/pull/117))
-- **ci4:** registering, adding a user and renaming one refuse a user name with a null character anywhere, also at the start or end, with the invalid-name message (422) instead of trimming it into a shorter name. Stricter than legacy, which still trims it until main gets the same check. ([#120](https://github.com/thordin9/apotheke/pull/120))
+- **ci4:** registering, adding a user and renaming one refuse a user name with a null character anywhere, also at the start or end, with the invalid-name message (422) instead of trimming it into a shorter name. Legacy does the same since 2.6.19 (#121). ([#120](https://github.com/thordin9/apotheke/pull/120))
+- **ci4:** hardening, as on legacy 2.6.20 (#122): turning sign-in back on always spends one password check, whatever the name. Every refusal there, also of a right password for an account that is not an admin, and a wrong current password answer at the same deadline as a failed sign-in, whatever the cost of the stored hash. ([#124](https://github.com/thordin9/apotheke/pull/124))
 - **ci4:** lending and stocktakes under concurrent requests (PLAN step 13 follow-ups). A lend or return locks the item first, so on SQLite it waits for another write instead of failing, and a return that waited for another one logs nothing twice. Finishing or cancelling a stocktake closes it only while it is still open, so a second finish or cancel answers 409 and changes nothing. Control characters are removed from the borrower's name. ([#123](https://github.com/thordin9/apotheke/pull/123))
 - **ci4:** `/login`, `/register` and `/account` show their page for PUT, PATCH and DELETE as legacy does, instead of 404; on `/account` these methods still need the CSRF token, as every non-safe method does on CI4. ([#125](https://github.com/thordin9/apotheke/pull/125))
 
@@ -106,6 +107,30 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` c917cdb (#106 hardening) into `feature/ci4`. The legacy app gets the sign-in limit, NUL-password, last-admin and photo-save hardening. The CI4 photo and users goldens now compare those cases in full; the auth golden leaves out the attempt counts until CI4 gets the per-address cap and the current-password throttle. ([#107](https://github.com/thordin9/apotheke/pull/107))
 - **ci4:** sync `main` 0d9f6f3 (2.6.17) into `feature/ci4`. The legacy app gets #111 and #112 (sign-in caps, the photo limit, clean-up after commit). New `HardeningHttpTest` probes for the current-password checks and the last admin are skipped on CI4 until those ports land; the null-character name probe is skipped on legacy PostgreSQL, which cuts the name at it. ([#113](https://github.com/thordin9/apotheke/pull/113))
 - **ci4:** sync `main` ff23b38 (2.6.18) into `feature/ci4`. The legacy app gets #116; its `HardeningHttpTest` probe for null-character names runs on CI4 and on both legacy drivers and replaces the narrower #113 probe. ([#117](https://github.com/thordin9/apotheke/pull/117))
+- **ci4:** sync `main` 935f144 (2.6.19, 2.6.20) into `feature/ci4`. The legacy app gets #121 and #122. `Ci4AuthParityTest` now checks that both apps refuse a registered name with a null character at either end, a CI4 register-form test covers it too, and the `allow_url_fopen` off step fails on a skipped test again. ([#124](https://github.com/thordin9/apotheke/pull/124))
+
+## [2.6.20] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: an unknown sign-in name spends a password check at the current default cost on every PHP version, turning sign-in back on always spends one password check, and cleanups queued inside a migration wait for its commit. ([#122](https://github.com/thordin9/apotheke/pull/122))
+
+### Maintenance
+
+- test: sign-in timing for known names, failed import and migrate queue ([#122](https://github.com/thordin9/apotheke/pull/122))
+- **qa:** docs: add PR 122 QA report ([#122](https://github.com/thordin9/apotheke/pull/122))
+
+## [2.6.19] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: a new user name with a null character anywhere is refused like any other invalid name when registering, adding or renaming an account, and a sign-in with such a name spends the same password-check time as an unknown name. ([#121](https://github.com/thordin9/apotheke/pull/121))
+
+### Maintenance
+
+- test: null-character names, address cap and after-commit drains ([#121](https://github.com/thordin9/apotheke/pull/121))
+- test: queue migrate's drain cleanup up front on every PHP version ([#121](https://github.com/thordin9/apotheke/pull/121))
+- **qa:** docs: PR 121 main auth hardening QA report ([#121](https://github.com/thordin9/apotheke/pull/121))
 
 ## [2.6.18] - 2026-10-26
 
@@ -502,7 +527,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.18...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.20...HEAD
+[2.6.20]: https://github.com/thordin9/apotheke/compare/v2.6.19...v2.6.20
+[2.6.19]: https://github.com/thordin9/apotheke/compare/v2.6.18...v2.6.19
 [2.6.18]: https://github.com/thordin9/apotheke/compare/v2.6.17...v2.6.18
 [2.6.17]: https://github.com/thordin9/apotheke/compare/v2.6.16...v2.6.17
 [2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16

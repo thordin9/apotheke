@@ -5,8 +5,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Current state
 
-- `feature/ci4` carries `main` up to v2.6.14 and the docs trim [#88](https://github.com/thordin9/apotheke/pull/88)
-  (sync [#92](https://github.com/thordin9/apotheke/pull/92)), including the legacy session limits, `user signout NAME`
+- `feature/ci4` carries `main` up to v2.6.20 (sync [#124](https://github.com/thordin9/apotheke/pull/124)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
   in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
@@ -109,7 +108,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `createrole_self_grant = 'set, inherit'`), see [testing](testing.md) (N-71).
 - Sign-in (step 7, part A): `/login`, `/register`, `/logout`, `/account`, `/account/signout` byte-identical to
   legacy (rate limits, first admin, new session ID, `keepSignIn`, CSRF checked in the controller). Failed sign-ins
-  answer at a fixed deadline (`Config\SignIn`, 1 s); null-character passwords never match and are refused (422).
+  answer at a fixed deadline (`Config\SignIn`, 1 s), and so do a wrong current password and a failed check to
+  turn sign-in on (L-310); null-character passwords never match and are refused (422).
 - Users & sign-in (step 7, part B, first half): `/settings/security` with its settings, `/settings/password`,
   `/settings/users…` and `/settings/roles…` byte-identical to legacy (`tests/Unit/Ci4UsersRolesParityTest.php`).
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
@@ -166,6 +166,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   user name with a null character before trimming (stricter than legacy until main's N-251). N-280: the EXIF test
   checks corner colours for orientations 2-8. N-281: the stub helpers use curl, and CI runs the Autofill and Media
   suites with `allow_url_fopen` off. Merged.
+- [#124](https://github.com/thordin9/apotheke/pull/124): sync `main` v2.6.20 (#121, #122) and the CI4 counterparts:
+  N-304 (turning sign-in on always spends one password check), L-310 and L-330 (every refusal there and a wrong
+  current password answer at the sign-in deadline), the null-name parity check, N-290 and N-291. Open.
 - [#123](https://github.com/thordin9/apotheke/pull/123): #114/#115 QA notes: lend/return lock first (L-230),
   stocktake finish/cancel only while open (L-240), borrower name without control characters (N-234), test fixes
   N-211, N-232/N-243, N-233, and the Routes comment (N-242). Merged.
@@ -184,8 +187,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged).
-  Touches `Media\ImageStore` and the Autofill module only.
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged).
+  Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
+  and `SignInAccountsTest` (listed in the PR).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged); step 14 import/export
@@ -200,8 +204,6 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests.
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
-4. After legacy's N-251 ([#121](https://github.com/thordin9/apotheke/pull/121) on `main`) merges, switch CI4's
-   null-name divergence test to parity.
 
 ## Tracked
 
