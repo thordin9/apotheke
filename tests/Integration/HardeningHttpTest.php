@@ -6,7 +6,7 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 
 /**
- * Sign-in limits, the last admin, and photo writes, over HTTP against `php -S` with workers, on the configured
+ * Sign-in limits, the last admin, role edits and photo writes, over HTTP against `php -S` with workers, on the configured
  * driver. Requests that must overlap are sent at the same time on raw sockets, each in its own session.
  */
 final class HardeningHttpTest extends TestCase
@@ -64,7 +64,6 @@ final class HardeningHttpTest extends TestCase
     /** The current-password check on Your account is limited like a sign-in for that account. */
     public function testTheCurrentPasswordCheckIsLimited(): void
     {
-        $this->skipOnCi4('the current-password throttle');
         $c = $this->signIn('ada');
         for ($i = 0; $i < 10; $i++) {
             $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'wrong-' . $i, 'new' => 'another-one', 'confirm' => 'another-one']);
@@ -122,7 +121,6 @@ final class HardeningHttpTest extends TestCase
     /** Changing your password and turning sign-in off check the current password with the sign-in limit. */
     public function testTheSecurityPasswordFormIsLimited(): void
     {
-        $this->skipOnCi4('the current-password throttle');
         foreach (['change' => ['new' => 'another-one', 'confirm' => 'another-one'], 'disable' => []] as $mode => $extra) {
             $this->pdo->exec('DELETE FROM auth_attempts');
             $c = $this->signIn('ada');
@@ -158,7 +156,6 @@ final class HardeningHttpTest extends TestCase
     /** Two admins demoting each other at the same time: one admin always stays. */
     public function testTwoAdminsDemotingEachOtherKeepAnAdmin(): void
     {
-        $this->skipOnCi4('the last-admin lock');
         $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
         for ($round = 1; $round <= 8; $round++) {
             $this->pdo->exec("UPDATE users SET role = 'admin'");
@@ -173,6 +170,67 @@ final class HardeningHttpTest extends TestCase
         }
     }
 
+    /** An admin deleted while the other is demoted, and the command line against the page: one admin always stays. */
+    public function testAdminChangesAtOnceFromThePageAndTheCommandLineKeepAnAdmin(): void
+    {
+        $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $env = array_map('strval', array_merge(getenv(), test_server_env($this->dir), ['PHP_INI_SCAN_DIR' => '']));
+        for ($round = 1; $round <= 6; $round++) {
+            $this->pdo->exec("UPDATE users SET role = 'admin'");
+            $a = $this->signIn('ada');
+            $b = $this->signIn('bea');
+            $answers = $this->parallel([
+                [$a, 'POST', '/settings/users/' . $ids['bea'] . '/delete', ['csrf' => $a->csrf()]],
+                [$b, 'POST', '/settings/users/' . $ids['ada'] . '/role', ['csrf' => $b->csrf(), 'role' => 'editor']],
+            ]);
+            // 401: the account was deleted while its own request ran (CI4 answers as for nobody; legacy goes on with it).
+            foreach ($answers as $x) $this->assertContains($x['status'], [303, 401, 403, 409], "round $round: " . substr($x['body'], 0, 200));
+            $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "delete and demote, round $round");
+            if (!isset($this->pdo->query("SELECT username FROM users WHERE username = 'bea'")->fetchAll(PDO::FETCH_COLUMN)[0])) {
+                $this->pdo->prepare("INSERT INTO users (id, username, username_key, password_hash, role, status, created_at) VALUES (?, 'bea', 'bea', ?, 'admin', 'active', '2026-01-01 00:00:00')")
+                    ->execute([$ids['bea'], password_hash('long-enough', PASSWORD_DEFAULT)]);
+            }
+
+            $this->pdo->exec("UPDATE users SET role = 'admin'");
+            $a = $this->signIn('ada');
+            $cli = proc_open([PHP_BINARY, ROOT . '/bin/settings.php', 'user', 'role', 'ada', 'editor'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, $env);
+            $this->assertIsResource($cli);
+            [$page] = $this->parallel([[$a, 'POST', '/settings/users/' . $ids['bea'] . '/role', ['csrf' => $a->csrf(), 'role' => 'editor']]]);
+            $said = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $this->assertContains(proc_close($cli), [0, 1], "round $round: $said");
+            $this->assertContains($page['status'], [303, 403, 409], "round $round: " . substr($page['body'], 0, 200));
+            $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "command line and page, round $round");
+        }
+    }
+
+    /** Role edits and a role delete sent at once all go through, one after the other, and an admin stays. */
+    public function testRoleEditsAtOnceAllGoThrough(): void
+    {
+        $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $clients = array_map(fn (): Client => $this->signIn('ada'), range(1, 4));
+        $add = $this->pdo->prepare("INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES (?, ?, '[\"view\"]', 0, '2026-01-01 00:00:00')");
+        for ($round = 1; $round <= 10; $round++) {
+            $this->pdo->exec("DELETE FROM roles WHERE role_key IN ('desk', 'packers')");
+            $add->execute(['desk', 'Desk']);
+            $add->execute(['packers', 'Packers']);
+            $this->pdo->prepare("UPDATE users SET role = 'packers' WHERE id = ?")->execute([$ids['bea']]);
+            $perms = $round % 2 ? ['view', 'create'] : ['view', 'labels'];
+            [$a, $b, $c, $d] = $clients;
+            $answers = $this->parallel([
+                [$a, 'POST', '/settings/roles/editor', ['csrf' => $a->csrf(), 'perms' => $perms]],
+                [$b, 'POST', '/settings/roles/viewer', ['csrf' => $b->csrf(), 'perms' => $perms]],
+                [$c, 'POST', '/settings/roles/desk', ['csrf' => $c->csrf(), 'name' => 'Desk ' . $round, 'perms' => $perms]],
+                [$d, 'POST', '/settings/roles/packers/delete', ['csrf' => $d->csrf()]],
+            ]);
+            $this->assertSame([303, 303, 303, 303], array_column($answers, 'status'), "round $round: " . json_encode(array_map(fn (array $x): string => $x['status'] . ' ' . substr(strip_tags($x['body']), 0, 120), $answers)));
+            $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "round $round");
+            $this->assertSame('viewer', $this->pdo->query('SELECT role FROM users WHERE id = ' . (int)$ids['bea'])->fetchColumn(), "round $round: moved off the deleted role");
+            $this->assertSame(['Desk ' . $round], $this->pdo->query("SELECT name FROM roles WHERE role_key IN ('desk', 'packers')")->fetchAll(PDO::FETCH_COLUMN), "round $round");
+        }
+    }
+
     /** The password checks outside the sign-in form share the per-address cap; a success takes back only its own try. */
     public function testPasswordChecksHaveTheAddressCap(): void
     {
@@ -183,20 +241,16 @@ final class HardeningHttpTest extends TestCase
             for ($i = 0; $i < $n; $i++) $st->execute([$key, time()]);
         };
         $count = fn(): int => (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn();
-        if (apotheke_app() !== 'ci4') {   // CI4 gets the current-password checks' cap with the current-password throttle (follow-up port)
-            $c = $this->signIn('ada');
-            $fill(30);
-            $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
-            $this->assertSame(429, $r['status'], '/account');
-            $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'disable', 'current' => 'long-enough']);
-            $this->assertSame(429, $r['status'], 'turning sign-in off');
-            $fill(5);
-            $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
-            $this->assertSame(303, $r['status']);
-            $this->assertSame(5, $count(), 'only its own row is taken back');
-        } else {
-            $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE username = ?')->execute([password_hash('another-one', PASSWORD_DEFAULT), 'ada']);
-        }
+        $c = $this->signIn('ada');
+        $fill(30);
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(429, $r['status'], '/account');
+        $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'disable', 'current' => 'long-enough']);
+        $this->assertSame(429, $r['status'], 'turning sign-in off');
+        $fill(5);
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(303, $r['status']);
+        $this->assertSame(5, $count(), 'only its own row is taken back');
 
         $this->setting('auth_enabled', false);
         $g = $this->server->client();
@@ -213,7 +267,6 @@ final class HardeningHttpTest extends TestCase
     /** Two admins deleting each other, or one demoting while the other deletes, at the same time: one admin stays. */
     public function testDeletesAndDemotionsAtOnceKeepAnAdmin(): void
     {
-        $this->skipOnCi4('the last-admin lock');
         foreach (['delete', 'role'] as $other) {
             for ($round = 1; $round <= 6; $round++) {
                 $this->pdo->exec('DELETE FROM users');
@@ -228,7 +281,8 @@ final class HardeningHttpTest extends TestCase
                     [$a, 'POST', '/settings/users/' . $ids['bea'] . '/delete', ['csrf' => $a->csrf()]],
                     [$b, 'POST', '/settings/users/' . $ids['ada'] . '/' . $other, ['csrf' => $b->csrf(), 'role' => 'editor']],
                 ]);
-                foreach ($answers as $x) $this->assertContains($x['status'], [303, 403, 404, 409], "$other round $round: " . substr($x['body'], 0, 200));
+                // 401: the account was deleted while its own request ran (CI4 answers as for nobody; legacy goes on with it).
+                foreach ($answers as $x) $this->assertContains($x['status'], [303, 401, 403, 404, 409], "$other round $round: " . substr($x['body'], 0, 200));
                 $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "$other round $round");
             }
         }
@@ -399,13 +453,5 @@ final class HardeningHttpTest extends TestCase
     {
         $this->pdo->prepare('DELETE FROM settings WHERE name = ?')->execute([$name]);
         $this->pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)')->execute([$name, json_encode($value), '2026-01-01']);
-    }
-
-    /** CI4 gets this legacy hardening (#106) in a follow-up port; until then the test runs on legacy only. */
-    private function skipOnCi4(string $what): void
-    {
-        if (apotheke_app() === 'ci4') {
-            $this->markTestSkipped('CI4 does not have ' . $what . ' yet (follow-up port).');
-        }
     }
 }
