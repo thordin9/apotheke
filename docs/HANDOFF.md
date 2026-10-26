@@ -7,7 +7,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - `feature/ci4` carries `main` up to v2.6.20 (sync [#124](https://github.com/thordin9/apotheke/pull/124)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
-  in development.
+  in development, and at run time on the PHP 8.4 image (step 15, [#132](https://github.com/thordin9/apotheke/pull/132)).
+  The CI4 image has no backup pages until step 14's second part.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes; stored photos read through Media), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
@@ -108,7 +109,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `createrole_self_grant = 'set, inherit'`), see [testing](testing.md) (N-71).
 - Sign-in (step 7, part A): `/login`, `/register`, `/logout`, `/account`, `/account/signout` byte-identical to
   legacy (rate limits, first admin, new session ID, `keepSignIn`, CSRF checked in the controller). Failed sign-ins
-  answer at a fixed deadline (`Config\SignIn`, 1 s), and so do a wrong current password and a failed check to
+  answer at a fixed deadline (`SIGN_IN_FAIL_MS`, 1 s by default), and so do a wrong current password and a failed check to
   turn sign-in on (L-310); null-character passwords never match and are refused (422).
 - Users & sign-in (step 7, part B, first half): `/settings/security` with its settings, `/settings/password`,
   `/settings/users…` and `/settings/roles…` byte-identical to legacy (`tests/Unit/Ci4UsersRolesParityTest.php`).
@@ -179,6 +180,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   is open, with the write lock first (L-340, N-341); `/register` PUT/PATCH/DELETE with registration open (N-351); the
   auth pages ignore `_method` (N-352) and answer every method CI4 routes (N-353); cookie Max-Age settled in the
   parity tests. Open.
+- [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 15, the Docker image on PHP 8.4 for CI4
+  (`APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at start) and L-400 (CI4 reads
+  `SIGN_IN_FAIL_MS`). Open.
 
 ## Lanes
 
@@ -193,7 +197,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
   Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged).
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
-  and `SignInAccountsTest` (listed in the PR).
+  and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, open): `Dockerfile`, `docker/`, the
+  docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
+  import/export and Backup files.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -208,8 +214,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 1. Review and merge #128 (QA notes batch 3); then the step 14 follow-ups and step 14 backup and restore.
 2. Port L-230, L-240, N-234, L-340 and N-341 to legacy on `main`, so both apps behave the same under concurrent
    requests (L-340: a stocktake tick's first write only while the stocktake is open).
-3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
-   (SEC-M3) into the CI4 image.
+3. Review and merge #132 (step 15: the CI4 image on PHP 8.4, with the Docker bind and app-password start-up
+   hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75), SEC-M3). The restore checks of the docker
+   scripts skip CI4 until it has the backup pages.
 
 ## Tracked
 
