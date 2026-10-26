@@ -87,8 +87,11 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
 manage users, and pending admins don't count. `auth_attempts` rate-limits sign-in (10 tries / 15 min for one account
-from one client, and 30 / 15 min for all accounts from one address) and registration (5 / hour per address). A
-current-password check (Your account, Users & sign-in) counts as a sign-in try for your account. One client's
+from one client, and 30 / 15 min for all accounts from one address; an IPv6 client counts by its /64) and
+registration (5 / hour per address). A successful sign-in clears its account's count, not the address's. A
+current-password check (Your account, Users & sign-in), and the admin password that turns sign-in back on, count as
+a sign-in try for that account. Everyone behind one address shares the address cap, so list a reverse proxy in
+`TRUSTED_PROXIES`. One client's
 attempts against one account do not use up the limit for anyone else. How the client address is found behind a proxy (`trust_proxy`, `TRUSTED_PROXIES`):
 [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
 

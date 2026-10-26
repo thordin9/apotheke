@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **security:** hardening: a successful sign-in no longer resets the per-address cap; IPv6 clients count by their /64 for it; turning sign-in back on is limited like a sign-in; photo adds at the same time stay within the photo limit; a replaced photo's files are removed only after the save commits. ([#111](https://github.com/thordin9/apotheke/pull/111))
+
 ## [2.6.15] - 2026-10-25
 
 ### Fixed

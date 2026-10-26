@@ -406,8 +406,17 @@ function client_address(): string
 /** Sign-in includes the account, so one client cannot use up the limit for every account. */
 function client_key(?string $account = null): string
 {
-    $material = $account === null ? client_address() : client_address() . "\0" . $account;
+    $material = $account === null ? address_scope(client_address()) : client_address() . "\0" . $account;
     return substr(hash('sha256', $material), 0, 32);
+}
+
+/** Per-address limits count an IPv6 client by its /64 (one site's usual allocation); IPv4 and anything else as is. */
+function address_scope(string $ip): string
+{
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) return $ip;
+    $bin = (string)inet_pton($ip);
+    if (str_starts_with($bin, str_repeat("\0", 10) . "\xff\xff")) return $ip;   // IPv4-mapped: the IPv4 address
+    return inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
 }
 
 function rate_bucket(string $kind, ?string $account): string
@@ -415,8 +424,12 @@ function rate_bucket(string $kind, ?string $account): string
     return client_key($kind === 'login' ? user_key((string)$account) : null);
 }
 
-/** Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the attempt. */
-function rate_limit(string $kind, ?string $account = null): void
+/**
+ * Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the
+ * attempt and returns its row id. The per-address limits use client_address(): behind a reverse proxy, list it in
+ * trusted_proxies / TRUSTED_PROXIES, or every client shares the proxy's address and its limit.
+ */
+function rate_limit(string $kind, ?string $account = null): int
 {
     [$max, $window] = RATE_LIMITS[$kind];
     $now = app_time();
@@ -436,6 +449,13 @@ function rate_limit(string $kind, ?string $account = null): void
         $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
         throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
     }
+    return $mine;
+}
+
+/** Take back one recorded attempt (a successful sign-in's own row in the per-address count). */
+function rate_limit_forget(int $id): void
+{
+    db()->prepare('DELETE FROM auth_attempts WHERE id = ?')->execute([$id]);
 }
 
 function rate_limit_clear(string $kind, ?string $account = null): void

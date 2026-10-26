@@ -78,7 +78,7 @@ final class HardeningHttpTest extends TestCase
         $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM auth_attempts')->fetchColumn(), 'a right password clears the count');
     }
 
-    /** Sign-in attempts for every name from one address have a cap; a successful sign-in resets it. */
+    /** Sign-in attempts for every name from one address have a cap; a successful sign-in takes back only its own try. */
     public function testSignInsFromOneAddressHaveACap(): void
     {
         $key = substr(hash('sha256', '127.0.0.1'), 0, 32);
@@ -97,7 +97,46 @@ final class HardeningHttpTest extends TestCase
         $this->pdo->exec('DELETE FROM auth_attempts');
         $fill(29);
         $this->signIn('ada');
-        $this->assertSame(0, (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn());
+        $this->assertSame(29, (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn(), 'the others stay');
+        $c = $this->server->client();
+        $this->assertSame(401, $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => 'bea', 'password' => 'wrong-pass'])['status'], 'the 30th');
+        $c = $this->server->client();
+        $this->assertSame(429, $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => 'ada', 'password' => 'long-enough'])['status'], 'still capped');
+    }
+
+    /** Changing your password and turning sign-in off check the current password with the sign-in limit. */
+    public function testTheSecurityPasswordFormIsLimited(): void
+    {
+        foreach (['change' => ['new' => 'another-one', 'confirm' => 'another-one'], 'disable' => []] as $mode => $extra) {
+            $this->pdo->exec('DELETE FROM auth_attempts');
+            $c = $this->signIn('ada');
+            for ($i = 0; $i < 10; $i++) {
+                $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => $mode, 'current' => 'wrong-' . $i] + $extra);
+                $this->assertSame(403, $r['status'], "$mode: try $i");
+            }
+            $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => $mode, 'current' => 'long-enough'] + $extra);
+            $this->assertSame(429, $r['status'], $mode);
+            $this->assertTrue(password_verify('long-enough', (string)$this->pdo->query("SELECT password_hash FROM users WHERE username = 'ada'")->fetchColumn()), "$mode: unchanged");
+            $this->assertSame('true', (string)$this->pdo->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), "$mode: still on");
+        }
+    }
+
+    /** With sign-in off, the admin password that turns it back on is limited like a sign-in. */
+    public function testTurningSignInBackOnIsLimited(): void
+    {
+        $this->setting('auth_enabled', false);
+        $c = $this->server->client();
+        for ($i = 0; $i < 10; $i++) {
+            $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'wrong-' . $i]);
+            $this->assertSame(403, $r['status'], "try $i");
+        }
+        $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'long-enough']);
+        $this->assertSame(429, $r['status']);
+        $this->assertSame('false', (string)$this->pdo->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'still off');
+        $this->pdo->exec('DELETE FROM auth_attempts');
+        $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'long-enough']);
+        $this->assertSame(303, $r['status']);
+        $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM auth_attempts')->fetchColumn(), 'a right password clears the count');
     }
 
     /** Two admins demoting each other at the same time: one admin always stays. */
@@ -114,6 +153,47 @@ final class HardeningHttpTest extends TestCase
             ]);
             foreach ($answers as $x) $this->assertContains($x['status'], [303, 403, 409], "round $round: " . substr($x['body'], 0, 200));
             $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "round $round");
+        }
+    }
+
+    /** Two admins deleting each other, or one demoting while the other deletes, at the same time: one admin stays. */
+    public function testDeletesAndDemotionsAtOnceKeepAnAdmin(): void
+    {
+        foreach (['delete', 'role'] as $other) {
+            for ($round = 1; $round <= 6; $round++) {
+                $this->pdo->exec('DELETE FROM users');
+                foreach (['ada', 'bea'] as $name) {
+                    $this->pdo->prepare("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, 'admin', 'active', '2026-01-01 00:00:00')")
+                        ->execute([$name, $name, password_hash('long-enough', PASSWORD_DEFAULT)]);
+                }
+                $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
+                $a = $this->signIn('ada');
+                $b = $this->signIn('bea');
+                $answers = $this->parallel([
+                    [$a, 'POST', '/settings/users/' . $ids['bea'] . '/delete', ['csrf' => $a->csrf()]],
+                    [$b, 'POST', '/settings/users/' . $ids['ada'] . '/' . $other, ['csrf' => $b->csrf(), 'role' => 'editor']],
+                ]);
+                foreach ($answers as $x) $this->assertContains($x['status'], [303, 403, 404, 409], "$other round $round: " . substr($x['body'], 0, 200));
+                $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "$other round $round");
+            }
+        }
+    }
+
+    /** Photo adds to one item at the same time stay within the photo limit. */
+    public function testPhotoAddsAtOnceKeepTheLimit(): void
+    {
+        $this->setting('max_photos', 2);
+        $jpg = img_jpeg(64, 48);
+        for ($round = 1; $round <= 4; $round++) {
+            $this->pdo->exec('DELETE FROM item_photos');
+            $requests = [];
+            for ($i = 0; $i < 6; $i++) {
+                $c = $this->signIn('ada');
+                $requests[] = [$c, 'POST', '/item/1/photos', ['csrf' => $c->csrf()], [], ['photo' => jpg_file($jpg)]];
+            }
+            $answers = $this->parallel($requests);
+            foreach ($answers as $x) $this->assertContains($x['status'], [303, 400, 422], "round $round: " . strip_tags(substr($x['body'], -600)));
+            $this->assertLessThanOrEqual(2, (int)$this->pdo->query('SELECT COUNT(*) FROM item_photos')->fetchColumn(), "round $round");
         }
     }
 
@@ -191,7 +271,7 @@ final class HardeningHttpTest extends TestCase
 
     /**
      * Send the requests at once (each client's own session), then read every answer.
-     * @param list<array{0:Client,1:string,2:string,3:array<string,string>,4?:list<string>}> $requests
+     * @param list<array{0:Client,1:string,2:string,3:array<string,string>,4?:list<string>,5?:array<string,array{name:string,type:string,data:string}>}> $requests
      * @return list<array{status:int,body:string}>
      */
     private function parallel(array $requests): array
@@ -200,8 +280,16 @@ final class HardeningHttpTest extends TestCase
         $socks = [];
         foreach ($requests as $req) {
             [$client, $method, $path, $fields] = $req;
+            $type = 'application/x-www-form-urlencoded';
             $body = http_build_query($fields);
-            $head = "$method $path HTTP/1.0\r\nHost: 127.0.0.1:$port\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($body) . "\r\n";
+            if ($req[5] ?? []) {
+                $type = 'multipart/form-data; boundary=' . ($bd = 'b' . bin2hex(random_bytes(8)));
+                $body = '';
+                foreach ($fields as $k => $v) $body .= "--$bd\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n";
+                foreach ($req[5] as $k => $f) $body .= "--$bd\r\nContent-Disposition: form-data; name=\"$k\"; filename=\"{$f['name']}\"\r\nContent-Type: {$f['type']}\r\n\r\n{$f['data']}\r\n";
+                $body .= "--$bd--\r\n";
+            }
+            $head = "$method $path HTTP/1.0\r\nHost: 127.0.0.1:$port\r\nContent-Type: $type\r\nContent-Length: " . strlen($body) . "\r\n";
             if ($client->cookies) $head .= 'Cookie: ' . implode('; ', array_map(fn($k, $v) => "$k=$v", array_keys($client->cookies), $client->cookies)) . "\r\n";
             foreach ($req[4] ?? [] as $h) $head .= $h . "\r\n";
             $s = stream_socket_client("tcp://127.0.0.1:$port", $errno, $errstr, 5);
