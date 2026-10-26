@@ -126,7 +126,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#108](https://github.com/thordin9/apotheke/pull/108): PLAN step 11b, bulk, merge, duplicate, quantity and
   attachments, plus #104 N-112 (`users` and `roles` on CI4). Merged.
 - [#109](https://github.com/thordin9/apotheke/pull/109): CI4 port of #106's sign-in limits: the attempt is
-  recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Open.
+  recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Merged.
+- [#113](https://github.com/thordin9/apotheke/pull/113): sync `main` v2.6.17 (#111, #112) and port their CI4
+  counterparts (L-120, N-124, N-125, N-174, L-170 for turning sign-in on, N-126), plus N-160 and N-162. Open.
 
 ## Lanes
 
@@ -135,7 +137,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (#103, merged). Stays out of the auth, account, users/roles, taxonomy and Notes files
   (only the route table in `PermissionFilterTest` gets the new photo routes). #106 port to CI4: `RateLimiter::hit`
   records first, the per-address cap on `/login` (#109); Coder2 ports the current-password throttle, the last-admin
-  lock and the `APP_PASSWORD` null-character check (still skipped on CI4 in `HardeningHttpTest`).
+  lock and the `APP_PASSWORD` null-character check (still skipped on CI4 in `HardeningHttpTest`). #111/#112 port
+  (#113): IPv6 /64 address scope, a success takes back only its own address row, turning sign-in on is limited,
+  replaced covers removed after the outer commit. Left for Coder2 (with #110): the per-address cap on the
+  current-password checks (L-170: `hit('login_address')` first, `forget()` its row on success).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, open). Stays out of the Auth files of the #106 hardening port. Owns the
   N-63 router follow-up below.
