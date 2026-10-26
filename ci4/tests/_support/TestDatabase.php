@@ -63,6 +63,31 @@ final class TestDatabase
         return $self;
     }
 
+    /**
+     * A second CI4 connection to the same database: another client, for lock tests.
+     *
+     * @return BaseConnection<object|resource, object|resource>
+     */
+    public function connectAgain(): BaseConnection
+    {
+        $factory = new DatabaseFactory($this->config, new DsnTranslator());
+        $group = array_merge(config(Database::class)->default, $factory->group(), ['schema' => '', 'DBPrefix' => '']);
+        // pg_connect() hands back the open link for an identical connection string: this one differs.
+        if ($this->driver === 'pgsql') {
+            $dsn = (string)($group['DSN'] ?? '');
+            if ($dsn !== '') {
+                $group['DSN'] = $dsn . ' application_name=apotheke_second';
+            } else {
+                $group['connect_timeout'] = '17';
+            }
+        }
+        /** @var BaseConnection<object|resource, object|resource> $db */
+        $db = Database::connect($group, false);
+        $factory->apply($db);
+
+        return $db;
+    }
+
     /** A raw PDO on the same database, for test fixtures. */
     public function pdo(): PDO
     {
