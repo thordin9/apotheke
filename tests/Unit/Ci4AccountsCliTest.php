@@ -167,7 +167,7 @@ final class Ci4AccountsCliTest extends TestCase
      * Where CI4 differs on purpose. A failed write exits 1 with a short
      * message and changes nothing; legacy dies with PHP's uncaught exception
      * (exit 255), which can print the call's arguments. A password with a
-     * null character is refused (exit 1); legacy's password_hash() throws (255).
+     * null character is refused (exit 1) on both.
      */
     public function testFailuresExitCleanly(): void
     {
@@ -220,12 +220,12 @@ final class Ci4AccountsCliTest extends TestCase
         }
         foreach ([['user', 'add', 'nul', 'editor'], ['user', 'password', 'bob'], ['password']] as $args) {
             $stdin = "long\0enough\nlong\0enough\n";
-            $before = $this->state($right);
+            $before = [$this->state($left), $this->state($right)];
             $l = $this->cli($left, $args, false, $stdin);
             $r = $this->cli($right, $args, true, $stdin);
-            $this->assertSame(255, $l['exit'], implode(' ', $args));
             $this->assertSame([1, 'New password: Repeat: ', "Passwords cannot contain a null character.\n"], [$r['exit'], $r['stdout'], $r['stderr']], implode(' ', $args));
-            $this->assertSame($before, $this->state($right));
+            $this->assertSame([$l['exit'], $l['stdout'], $l['stderr']], [$r['exit'], $r['stdout'], $r['stderr']], implode(' ', $args) . ': as legacy');
+            $this->assertSame($before, [$this->state($left), $this->state($right)]);
         }
     }
 

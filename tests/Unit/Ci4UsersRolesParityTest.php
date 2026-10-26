@@ -22,13 +22,6 @@ final class Ci4UsersRolesParityTest extends TestCase
 {
     private const PW = 'long-enough';
 
-    /**
-     * Where CI4 differs on purpose: a password with a NUL byte. PHP 8.4's
-     * password_hash() refuses it, so legacy answers 500; CI4 refuses it first
-     * (Accounts::passwordValid()) with a 422 and the form.
-     */
-    private const NUL_PASSWORD_CASES = ['add NUL in password', 'vera password NUL'];
-
     public function testTheUsersAndRolesPagesMatchLegacy(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -51,14 +44,11 @@ final class Ci4UsersRolesParityTest extends TestCase
         $this->assertGreaterThan(150, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
-            if (in_array($case, self::NUL_PASSWORD_CASES, true)) {
-                $this->assertSame(500, $legacy['status'], $case);
-                $this->assertSame(422, $answers['ci4'][$case]['status'], $case);
-                $this->assertStringContainsString('Passwords cannot contain a null character.', (string)$answers['ci4'][$case]['body'], $case);
-                continue;
-            }
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
         }
+        // A password with a NUL byte: both refuse it with a 422 and the form (#106 on legacy).
+        $this->assertStringContainsString('Passwords cannot contain a null character.', (string)$answers['legacy']['add NUL in password']['body']);
+        $this->assertSame([422, 422], [$answers['legacy']['add NUL in password']['status'], $answers['legacy']['vera password NUL']['status']]);
         // The cases are what they claim to be.
         $l = $answers['legacy'];
         $this->assertSame(200, $l['ada GET /settings/security']['status']);
