@@ -5,7 +5,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Current state
 
-- `feature/ci4` carries `main` up to v2.6.21 (sync [#129](https://github.com/thordin9/apotheke/pull/129)), including the legacy session limits, `user signout NAME`
+- `feature/ci4` carries `main` up to v2.6.22 (sync [#129](https://github.com/thordin9/apotheke/pull/129)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
   in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
@@ -175,8 +175,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#125](https://github.com/thordin9/apotheke/pull/125): N-63, `/login`, `/register` and `/account` show their page
   for PUT, PATCH and DELETE as legacy does (`/account` still needs the CSRF token there). Merged.
 - [#127](https://github.com/thordin9/apotheke/pull/127): PLAN step 14 (first part), CSV import and export. Merged.
-- [#129](https://github.com/thordin9/apotheke/pull/129): sync `main` v2.6.21 (#126: the legacy port of L-230,
-  L-240, N-234 and L-340, `SIGN_IN_FAIL_MS`, the shared migrate connection). `ApothekeConfig` loads `sign_in_fail_ms` as legacy does. Open.
+- [#129](https://github.com/thordin9/apotheke/pull/129): sync `main` v2.6.21 and v2.6.22 (#126: the legacy port of L-230,
+  L-240, N-234 and L-340, `SIGN_IN_FAIL_MS`, the shared migrate connection; #130: the legacy CSV import lock). `ApothekeConfig` loads `sign_in_fail_ms` as legacy does. Open.
 
 ## Lanes
 
@@ -189,7 +189,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 (#129, open). Next: step 15, the Docker image on PHP 8.4 for CI4,
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 and v2.6.22 (#129, open). Next: step 15, the Docker image on PHP 8.4 for CI4,
   with the #75 port. Touches `Media\ImageStore` and the Autofill module only; #124 also touched Coder2's `Accounts`,
   `SecurityController` and `SignInAccountsTest` (listed in that PR). Stays out of the step 14 import/export and
   Backup files.
@@ -203,7 +203,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #129 (sync v2.6.21). The legacy port of L-230, L-240 and N-234 is done on `main` by
+1. Review and merge #129 (sync v2.6.21 and v2.6.22). The legacy port of L-230, L-240 and N-234 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21), together with the legacy side of L-340.
 2. Step 14 (Coder2): backup and restore, after #127's import and export.
 3. Step 15 (Coder): the Docker image on PHP 8.4 for CI4, with the Docker bind and app-password start-up hardening
