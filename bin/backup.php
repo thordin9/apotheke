@@ -9,6 +9,19 @@ declare(strict_types=1);
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
+// APOTHEKE_APP=ci4: the same command runs as `spark apotheke:backup` (same output and exit codes).
+if (getenv('APOTHEKE_APP') === 'ci4') {
+    $spark = dirname(__DIR__) . '/ci4/spark';
+    if (!file_exists($spark)) {
+        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
+        exit(1);
+    }
+    putenv('APOTHEKE_CLI_CWD=' . getcwd());   // spark changes to ci4/public; file names are relative to here
+    putenv('APOTHEKE_CLI_ARGS=' . json_encode(array_slice($argv, 1)));   // as typed: spark would take --help itself
+    $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, 'apotheke:backup', '--no-header']));
+    passthru($command, $code);
+    exit($code);
+}
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/backup.php';

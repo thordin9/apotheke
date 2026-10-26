@@ -88,6 +88,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\ImportExport\\
+    - name: Backup
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Backup\\
   ruleset:
     Auth:
       - Core
@@ -187,4 +191,17 @@ deptrac:
       - Catalog
       - Taxonomy
       - Lending
+      - Activity
+    # Backup (PLAN 14, part 2): the backup zip and restore. Reads and replaces every catalog table;
+    # photo names and decode limits from Media, attachment names from Catalog, the settings export
+    # and import, undo tokens pruned after a restore; times as the history shows them. Taxonomy:
+    # the shared Catalog controller.
+    Backup:
+      - Core
+      - Layout
+      - Settings
+      - Catalog
+      - Taxonomy
+      - Media
+      - Undo
       - Activity

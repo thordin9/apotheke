@@ -206,6 +206,10 @@ class Services extends BaseService
                 => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings(false, new \Apotheke\Core\Security\CommandLine())),
             \Apotheke\Auth\Commands\AccountsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Auth\Commands\AccountsCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli => static::accountsCli($in, $out, $err)),
+            \Apotheke\Backup\Commands\BackupCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Backup\Commands\BackupCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
+            \Apotheke\Backup\Commands\RestoreCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Backup\Commands\RestoreCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
         ]);
     }
 
@@ -977,5 +981,62 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\ImportExport\CsvExport($db);
+    }
+
+    /** Backup zips (Backup, PLAN 14 part 2): the dump and the files, read from DATA_DIR and ORIGINALS_DIR. */
+    public static function backups(bool $getShared = true, ?\Apotheke\Settings\SettingsService $settings = null): \Apotheke\Backup\Backups
+    {
+        if ($getShared && $settings === null) {
+            return static::getSharedInstance('backups');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        $config = static::apothekeConfig();
+
+        return new \Apotheke\Backup\Backups($db, new \Apotheke\Core\Libraries\Clock(), $settings ?? static::settings(), $config->dataDir(), $config->originalsDir());
+    }
+
+    /**
+     * Checking and restoring a backup (Backup). $settings: the CLI passes
+     * its own (the command line may restore the sign-in settings).
+     */
+    public static function restorer(bool $getShared = true, ?\Apotheke\Settings\SettingsService $settings = null): \Apotheke\Backup\Restorer
+    {
+        if ($getShared && $settings === null) {
+            return static::getSharedInstance('restorer');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        $config = static::apothekeConfig();
+        $settings ??= static::settings();
+
+        return new \Apotheke\Backup\Restorer($db, static::backups(false, $settings), $settings, static::undoTokens(), static function (): array {
+            return array_keys((new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->available());
+        }, new \Apotheke\Core\Storage\LocalStorage($config->dataDir()), new \Apotheke\Core\Storage\LocalStorage($config->originalsDir(), 0640), (int)$settings->get('image_thumb_max'));
+    }
+
+    /** The Backup & restore page (Backup). */
+    public static function backupView(bool $getShared = true): \Apotheke\Backup\Views\BackupView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('backupView');
+        }
+
+        return new \Apotheke\Backup\Views\BackupView(static::layout(), static::activityView());
+    }
+
+    /**
+     * bin/backup.php and bin/restore.php (Backup), as the command line: it
+     * may restore the sign-in settings.
+     *
+     * @param resource $in
+     * @param resource $out
+     * @param resource $err
+     */
+    public static function backupCli(mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli
+    {
+        $settings = static::settings(false, new \Apotheke\Core\Security\CommandLine());
+
+        return new \Apotheke\Backup\Commands\BackupCli(static::backups(false, $settings), static::restorer(false, $settings), static::apothekeConfig()->dataDir(), $in, $out, $err, (string)(getenv('APOTHEKE_CLI_CWD') ?: ''));
     }
 }
