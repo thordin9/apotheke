@@ -789,4 +789,76 @@ class Services extends BaseService
             $err,
         );
     }
+
+    /** An item's attachments (Catalog, PLAN 11b): files under DATA_DIR/files. */
+    public static function attachments(bool $getShared = true): \Apotheke\Catalog\Items\Attachments
+    {
+        if ($getShared) {
+            return static::getSharedInstance('attachments');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        $s = static::settings();
+
+        return new \Apotheke\Catalog\Items\Attachments($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::itemRepository(),
+            new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'));
+    }
+
+    /** The +/- buttons (BulkMerge, PLAN 11b). */
+    public static function quantityAdjust(bool $getShared = true): \Apotheke\BulkMerge\QuantityAdjust
+    {
+        if ($getShared) {
+            return static::getSharedInstance('quantityAdjust');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\BulkMerge\QuantityAdjust($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
+    }
+
+    /** Duplicate an item, with copies of its photos (BulkMerge). */
+    public static function duplicate(bool $getShared = true): \Apotheke\BulkMerge\Duplicate
+    {
+        if ($getShared) {
+            return static::getSharedInstance('duplicate');
+        }
+
+        return new \Apotheke\BulkMerge\Duplicate(static::itemRepository(), static::photoRepository(), static::imageStore());
+    }
+
+    /** Merging duplicates (BulkMerge). */
+    public static function mergeService(bool $getShared = true): \Apotheke\BulkMerge\MergeService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('mergeService');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\BulkMerge\MergeService($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::itemRepository(), static::tags(),
+            static::itemList(), (string)static::settings()->get('default_sort'));
+    }
+
+    /** The list's bulk actions (BulkMerge). */
+    public static function bulkService(bool $getShared = true): \Apotheke\BulkMerge\BulkService
+    {
+        if ($getShared) {
+            return static::getSharedInstance('bulkService');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\BulkMerge\BulkService($db, static::itemRepository(), static::taxonomy(), static::itemHistory(), static::imageStore());
+    }
+
+    /** The bulk delete and merge pages (BulkMerge). */
+    public static function bulkMergeView(bool $getShared = true): \Apotheke\BulkMerge\Views\BulkMergeView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('bulkMergeView');
+        }
+        $s = static::settings();
+
+        return new \Apotheke\BulkMerge\Views\BulkMergeView(static::layout(), (int)$s->get('undo_seconds'), (string)$s->get('currency'));
+    }
 }
