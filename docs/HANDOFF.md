@@ -56,14 +56,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   GET/POST `/item/{id}/merge`, POST `/bulk` and the attachment routes answer as legacy does, with the same tables
   and files (`tests/Unit/Ci4BulkMergeParityTest.php`, SQLite and PostgreSQL, failed writes included). New module
   `BulkMerge`; attachments are Catalog's `Items\Attachments`. Duplicate copies photos through `ImageStore::copy()`.
-- Labels, barcode and lending (step 13, first part, #NN): GET `/labels` (all locations, one location, with its
+- Labels, barcode and lending (step 13, first part, #114): GET `/labels` (all locations, one location, with its
   sub-locations, per item, or `?ids=` from the list), `/item/{id}/label`, `/barcode` and `/barcode/{code}`, POST
   `/item/{id}/lend` and `/item/{id}/return`, and `/lent` answer as legacy does, QR codes included
   (`tests/Unit/Ci4LabelsLendingParityTest.php`, SQLite and PostgreSQL, failed writes included;
   `Ci4LabelsQrParityTest` compares the SVG with legacy `qr_svg()` and decodes it with zbarimg). New modules `Labels`
   (`QrCode`, legacy's encoder; `QrJit::guard()` turns function JIT off before it loads) and `Lending`; the lookup is
   Catalog's `Barcode`. Every path under `/barcode/` is the lookup (`LegacyPathRouter`), as on legacy.
-- Stocktake (step 13, second part, #MM, built on #NN): GET/POST `/stocktake` and `/stocktake/{id}` with `/check`,
+- Stocktake (step 13, second part, #MM, built on #114): GET/POST `/stocktake` and `/stocktake/{id}` with `/check`,
   `/report`, `/finish` and `/cancel` answer as legacy does, fetch JSON included, with the same `stocktakes` and
   `stocktake_lines` rows (`tests/Unit/Ci4StocktakeParityTest.php`, SQLite and PostgreSQL, failed writes included).
   New module `Stocktake`; looking is `view`, changes `stocktake`, finishing with moves also `move`.
@@ -141,9 +141,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Merged.
 - [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106's account hardening (current-password
   throttle, last admin, `APP_PASSWORD`). Open.
-- [#NN](https://github.com/thordin9/apotheke/pull/NN): PLAN step 13 (first part), QR labels, barcode lookup and
+- [#114](https://github.com/thordin9/apotheke/pull/114): PLAN step 13 (first part), QR labels, barcode lookup and
   lending. Open.
-- [#MM](https://github.com/thordin9/apotheke/pull/MM): PLAN step 13 (second part), stocktake; built on #NN, merge
+- [#MM](https://github.com/thordin9/apotheke/pull/MM): PLAN step 13 (second part), stocktake; built on #114, merge
   after it. Open.
 
 ## Lanes
@@ -155,7 +155,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   records first, the per-address cap on `/login` (#109); Coder2 ports the current-password throttle, the last-admin
   lock and the `APP_PASSWORD` null-character check (still skipped on CI4 in `HardeningHttpTest`).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
-  forms (#105, merged); step 11b (#108, merged); #106 port (#110); step 13 labels, barcode, lending (#NN) and
+  forms (#105, merged); step 11b (#108, merged); #106 port (#110); step 13 labels, barcode, lending (#114) and
   stocktake (#MM). Stays out of the Auth files of the #106 hardening port. Owns the
   N-63 router follow-up below.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
@@ -164,7 +164,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #110, then #NN and #MM (step 13; #MM is built on #NN).
+1. Review and merge #110, then #114 and #MM (step 13; #MM is built on #114).
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. Autofill reads photos through Media.
