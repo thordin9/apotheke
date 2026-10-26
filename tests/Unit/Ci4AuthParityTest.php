@@ -68,6 +68,11 @@ final class Ci4AuthParityTest extends TestCase
             $this->assertSame($l['eda GET /account']['status'], $l['eda ' . $verb . ' /account']['status'], $verb . ' /account with the token shows the page');
             $this->assertStringContainsString('<form', (string)$l['eda ' . $verb . ' /account']['body'], $verb);
         }
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $this->assertSame($l['GET /register as editor'], $l[$verb . ' /register, registration open'], $verb . ' /register shows the open page (N-351)');
+        }
+        $this->assertStringContainsString('<form', (string)$l['GET /register as editor']['body']);
+        $this->assertSame(['n' => 0], $l['accounts after PUT, PATCH and DELETE /register'], 'no account created');
         $this->assertStringContainsString('id="login-form"', (string)$l['signed-out GET /login']['body']);
         $this->assertStringContainsString('id="login-guest"', (string)$l['guest GET /login']['body']);
         $this->assertSame([303, '/'], [$l['ada GET /login']['status'], $l['ada GET /login']['location']]);
@@ -247,6 +252,13 @@ final class Ci4AuthParityTest extends TestCase
         $this->setting($pdo, 'auth_register_disabled', 'false');
         $this->setting($pdo, 'auth_register_role', '"editor"');
         $as('GET /register as editor', 'GET', '/register');
+        // N-351: with registration open, PUT, PATCH and DELETE with a full form still only show the page.
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            [$client, $token, $ip] = $browser(null);
+            $form = http_build_query(['csrf' => $token, 'username' => 'pat' . strtolower($verb), 'new' => self::PW, 'confirm' => self::PW]);
+            $record($verb . ' /register, registration open', $client->req($verb, '/register', [], [], ['X-Forwarded-For: ' . $ip], $form));
+        }
+        $out['accounts after PUT, PATCH and DELETE /register'] = ['n' => (int)$pdo->query("SELECT COUNT(*) FROM users WHERE username LIKE 'pat%'")->fetchColumn()];
         $this->setting($pdo, 'auth_register_role', '"admin"');
         $this->setting($pdo, 'auth_register_approval', 'true');
         $as('GET /register admin role, approval', 'GET', '/register');

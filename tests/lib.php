@@ -213,11 +213,15 @@ final class Client
      * @param array<string,array{name:string,type:string,data:string}> $files
      * @return array{status:int,headers:array<string,string>,body:string,json:mixed}
      */
-    public function req(string $method, string $path, array $fields = [], array $files = [], array $headers = []): array
+    public function req(string $method, string $path, array $fields = [], array $files = [], array $headers = [], ?string $form = null): array
     {
         $h = $headers;
         $body = '';
-        if ($files) {
+        if ($form !== null) {
+            // A urlencoded body for any method ($fields go only with POST).
+            $body = $form;
+            $h[] = 'Content-Type: application/x-www-form-urlencoded';
+        } elseif ($files) {
             $b = '----apotheke' . bin2hex(random_bytes(8));
             foreach ($fields as $k => $v) {
                 $body .= "--$b\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n";
