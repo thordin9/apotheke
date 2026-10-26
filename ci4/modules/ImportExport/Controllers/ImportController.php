@@ -6,11 +6,13 @@ namespace Apotheke\ImportExport\Controllers;
 
 use Apotheke\Catalog\Controllers\CatalogController;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\StreamedResponse;
 use Apotheke\ImportExport\CsvExport;
 use Apotheke\ImportExport\Imports;
 use Apotheke\ImportExport\Views\ImportView;
 use CodeIgniter\HTTP\Files\UploadedFile;
 use CodeIgniter\HTTP\ResponseInterface;
+use Config\App;
 
 /**
  * Legacy public/index.php: GET/POST /import (upload and history),
@@ -81,12 +83,14 @@ final class ImportController extends CatalogController
     {
         /** @var CsvExport $export */
         $export = service('csvExport');
+        $lines = $export->lines((string)$this->settings()->get('currency'));
+        $lines->current();   // the items query runs here: a failing read is still a 500 page
 
-        return $this->response->setStatusCode(200)
+        // Streamed as it is sent (L-370): legacy writes each row to php://output.
+        return StreamedResponse::from($this->response, config(App::class), $lines)->setStatusCode(200)
             ->setHeader('Content-Type', 'text/csv; charset=utf-8')
             ->removeHeader('Cache-Control')->setHeader('Cache-Control', self::SESSION_CACHE)
-            ->setHeader('Content-Disposition', 'attachment; filename="apotheke-' . $this->calendar()->today() . '.csv"')
-            ->setBody($export->csv((string)$this->settings()->get('currency')));
+            ->setHeader('Content-Disposition', 'attachment; filename="apotheke-' . $this->calendar()->today() . '.csv"');
     }
 
     /** A page legacy draws without no_store(): its session's caching header. */
