@@ -144,10 +144,15 @@ final class TestDatabase
         return $wait;
     }
 
-    /** The item repository (and its collaborators) on this database, with no actor in the history. */
-    public function items(): ItemRepository
+    /**
+     * The item repository (and its collaborators) on this database or on
+     * $db (from connectAgain()), with no actor in the history.
+     *
+     * @param BaseConnection<object|resource, object|resource>|null $db
+     */
+    public function items(?BaseConnection $db = null): ItemRepository
     {
-        $db = $this->db;
+        $db ??= $this->db;
         $clock = new Clock();
         $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
         $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
