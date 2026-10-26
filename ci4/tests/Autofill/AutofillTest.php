@@ -621,9 +621,11 @@ final class AutofillTest extends CIUnitTestCase
     }
 
     /**
-     * L-270: a stored photo with EXIF Orientation 6 goes out upright, as
+     * L-270: a stored photo with an EXIF Orientation goes out upright, as
      * legacy sends it from the file path, even with allow_url_fopen off. CI
-     * runs this test again under `php -d allow_url_fopen=0`.
+     * runs the CI4 Autofill and Media suites again under
+     * `php -d allow_url_fopen=0`. N-280: the photo has a colour per quadrant,
+     * so each orientation 2-8 must put a known colour in each corner.
      */
     public function testRotatedStoredPhotoGoesOutUprightWithoutUrlFopen(): void
     {
@@ -641,22 +643,29 @@ final class AutofillTest extends CIUnitTestCase
             'created_at' => '2020-01-01 00:00:00', 'updated_at' => '2020-01-01 00:00:00',
         ]));
         $itemId = (int)$db->insertID();
-        $rotated = $this->withOrientation($this->jpeg(1536, 1024, 95), 6);
-        $tmp = (string)tempnam(sys_get_temp_dir(), 'af-up');
-        file_put_contents($tmp, $rotated);
-        $name = $this->images->store($tmp, strlen($rotated));
-        $this->assertTrue($db->table('item_photos')->insert(['item_id' => $itemId, 'file' => $name, 'position' => 0, 'created_at' => '2020-01-01 00:00:00']));
-
-        try {
-            $r = $af->suggestPhotoId((string)$db->insertID());
-            $this->assertTrue($r['ok'], $r['message'] ?? '');
-            $this->assertCount(1, $posted);
-            $size = getimagesizefromstring($posted[0]);
-            $this->assertSame([683, 1024], [$size[0] ?? 0, $size[1] ?? 0], 'allow_url_fopen=' . var_export(ini_get('allow_url_fopen'), true));
-            $this->assertSame($af->analysis()->jpeg($rotated, AutofillService::IMAGE_SIDE, 80, null, $tmp), $posted[0], 'legacy reads EXIF from the path');
-        } finally {
-            unlink($tmp);
+        // The stored pixels' corners (top-left, top-right, bottom-left, bottom-right), and for each
+        // orientation which of them the upright copy shows at its own TL, TR, BL and BR (EXIF 2.32, 4.6.4).
+        $upright = [1 => 'rgby', 2 => 'gryb', 3 => 'ybgr', 4 => 'byrg', 5 => 'rbgy', 6 => 'bryg', 7 => 'ygbr', 8 => 'gyrb'];
+        $fopen = 'allow_url_fopen=' . var_export(ini_get('allow_url_fopen'), true);
+        foreach ($upright as $orientation => $corners) {
+            $rotated = $this->withOrientation($this->quadrants(1536, 1024), $orientation);
+            $tmp = (string)tempnam(sys_get_temp_dir(), 'af-up');
+            file_put_contents($tmp, $rotated);
+            $name = $this->images->store($tmp, strlen($rotated));
+            $this->assertTrue($db->table('item_photos')->insert(['item_id' => $itemId, 'file' => $name, 'position' => $orientation, 'created_at' => '2020-01-01 00:00:00']));
+            try {
+                $r = $af->suggestPhotoId((string)$db->insertID());
+                $this->assertTrue($r['ok'], $r['message'] ?? '');
+                $sent = (string)array_pop($posted);
+                $size = getimagesizefromstring($sent);
+                $this->assertSame($orientation >= 5 ? [683, 1024] : [1024, 683], [$size[0] ?? 0, $size[1] ?? 0], "orientation $orientation, $fopen");
+                $this->assertSame($corners, $this->corners($sent), "orientation $orientation, $fopen");
+                $this->assertSame($af->analysis()->jpeg($rotated, AutofillService::IMAGE_SIDE, 80, null, $tmp), $sent, "orientation $orientation: legacy reads EXIF from the path");
+            } finally {
+                unlink($tmp);
+            }
         }
+        $this->assertSame([], $posted);
         $this->assertSame([], glob($this->database->dataDir() . '/autofill/tmp/*') ?: []);
     }
 
@@ -996,6 +1005,42 @@ final class AutofillTest extends CIUnitTestCase
         return (string)ob_get_clean();
     }
 
+    /** A JPEG with one colour per quadrant: red, green (top), blue, yellow (bottom). */
+    private function quadrants(int $w, int $h): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        foreach ([[0, 0, 255, 0, 0], [1, 0, 0, 255, 0], [0, 1, 0, 0, 255], [1, 1, 255, 255, 0]] as [$x, $y, $r, $g, $b]) {
+            imagefilledrectangle($im, $x * intdiv($w, 2), $y * intdiv($h, 2), ($x + 1) * intdiv($w, 2) - 1, ($y + 1) * intdiv($h, 2) - 1, (int)imagecolorallocate($im, $r, $g, $b));
+        }
+        ob_start();
+        imagejpeg($im, null, 90);
+
+        return (string)ob_get_clean();
+    }
+
+    /** The quadrant colour (r, g, b or y) near each corner: top-left, top-right, bottom-left, bottom-right. */
+    private function corners(string $jpeg): string
+    {
+        $im = imagecreatefromstring($jpeg);
+        $this->assertInstanceOf(\GdImage::class, $im);
+        $w = imagesx($im);
+        $h = imagesy($im);
+        $out = '';
+        foreach ([[10, 10], [$w - 11, 10], [10, $h - 11], [$w - 11, $h - 11]] as [$x, $y]) {
+            $c = imagecolorat($im, $x, $y);
+            $rgb = [($c >> 16) & 0xFF, ($c >> 8) & 0xFF, $c & 0xFF];
+            $out .= match (true) {
+                $rgb[0] > 160 && $rgb[1] > 160 && $rgb[2] < 100 => 'y',
+                $rgb[0] > 160 && $rgb[1] < 100 && $rgb[2] < 100 => 'r',
+                $rgb[0] < 100 && $rgb[1] > 160 && $rgb[2] < 100 => 'g',
+                $rgb[0] < 100 && $rgb[1] < 100 && $rgb[2] > 160 => 'b',
+                default => '?',
+            };
+        }
+
+        return $out;
+    }
+
     /** $jpeg with a big-endian EXIF APP1 holding only Orientation. */
     private function withOrientation(string $jpeg, int $orientation): string
     {
@@ -1029,12 +1074,12 @@ final class AutofillTest extends CIUnitTestCase
 
     private function clearStub(): void
     {
-        @file_get_contents(self::$stubBase . '/_stub/uploads', false, stream_context_create(['http' => ['method' => 'DELETE']]));
+        $this->stub('DELETE', '/_stub/uploads');
     }
 
     private function suggestCount(): int
     {
-        $n = json_decode((string)file_get_contents(self::$stubBase . '/_stub/count'), true);
+        $n = json_decode($this->stub('GET', '/_stub/count'), true);
 
         return (int)($n['n'] ?? 0);
     }
@@ -1042,8 +1087,22 @@ final class AutofillTest extends CIUnitTestCase
     /** @return list<array<string,mixed>> */
     private function uploads(): array
     {
-        $rows = json_decode((string)file_get_contents(self::$stubBase . '/_stub/uploads'), true);
+        $rows = json_decode($this->stub('GET', '/_stub/uploads'), true);
 
         return is_array($rows) ? $rows : [];
+    }
+
+    /** One request to the stub's test endpoints with curl, so it works with allow_url_fopen off (N-281). Anything but 200 fails the test. */
+    private function stub(string $method, string $path): string
+    {
+        $ch = curl_init(self::$stubBase . $path);
+        $this->assertNotFalse($ch);
+        curl_setopt_array($ch, [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($ch);
+        $this->assertSame(200, $status, $method . ' ' . $path . ': ' . $error);
+
+        return (string)$body;
     }
 }
