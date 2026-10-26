@@ -159,6 +159,26 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame($before, $this->snapshot(), 'no hash was replaced');
     }
 
+    /** An unknown name spends a password check against DUMMY_HASH, as long as a wrong password on a current hash. */
+    public function testAnUnknownNameSpendsAPasswordCheck(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->account('new', 'editor', 'active', 12);
+        $accounts = $this->accounts();
+        $time = static function (string $name) use ($accounts): float {
+            $t = hrtime(true);
+            self::assertNull($accounts->verify($name, 'wrong-password'));
+
+            return (hrtime(true) - $t) / 1e6;
+        };
+        $unknown = $known = [];
+        for ($i = 0; $i < 3; $i++) {
+            $unknown[] = $time('nobody');
+            $known[] = $time('new');
+        }
+        $this->assertGreaterThan(min($known) / 2, min($unknown), (string)json_encode(['unknown' => $unknown, 'known' => $known]));
+    }
+
     public function testTheDummyHashIsAtTheDefaultCost(): void
     {
         $this->assertFalse(password_needs_rehash(Accounts::DUMMY_HASH, PASSWORD_DEFAULT));
