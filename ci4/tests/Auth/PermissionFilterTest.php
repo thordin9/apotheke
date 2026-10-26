@@ -177,8 +177,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 }
             }
         }
-        // The sign-in, registration and account pages answer PUT, PATCH and DELETE as well (N-63).
-        $this->assertSame(['/account', '/login', '/register'], self::pageVerbPaths($collection));
+        // The sign-in, registration and account pages answer PUT, PATCH and DELETE as well (N-63), and so do the import pages (N-372).
+        $this->assertSame(['/account', '/import', '/import/([0-9]+)', '/import/([0-9]+)/(preview|commit)', '/login', '/register'], self::pageVerbPaths($collection));
         $seen = array_values(array_unique($seen));
         sort($seen);
         $expected = array_map(static fn (string $r): string => '/' . $r, [...array_keys(self::POST_ROUTES + self::VIEW_POST_ROUTES + self::SELF_POST_ROUTES), ...self::NONE_POST_ROUTES]);
