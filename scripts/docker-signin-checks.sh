@@ -4,8 +4,10 @@
 # Checks: no APP_PASSWORD -> exit 78 with a clear message; a bad ALLOW_NO_LOGIN -> exit 64; a too-short APP_PASSWORD
 # -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without
 # APP_PASSWORD (sign-in already on in the database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
+# APOTHEKE_APP=ci4 runs every container with that app (PLAN step 15).
 set -euo pipefail
 image="${1:?usage: docker-signin-checks.sh IMAGE}"
+app=(-e "APOTHEKE_APP=${APOTHEKE_APP:-legacy}")
 name="apotheke-signin-$$"
 data=$(mktemp -d)
 chmod 0777 "$data"
@@ -21,13 +23,13 @@ trap cleanup EXIT
 refused() {
   local want=$1; shift
   local out code=0
-  out=$(timeout 60 docker run --rm -v "$data:/data" "$@" "$image" 2>&1) || code=$?
+  out=$(timeout 60 docker run --rm -v "$data:/data" "${app[@]}" "$@" "$image" 2>&1) || code=$?
   if [[ $code != "$want" ]]; then echo "expected exit $want, got $code: $out" >&2; exit 1; fi
   printf '%s\n' "$out"
 }
 
 starts() {
-  docker run -d --name "$name" -v "$data:/data" "$@" "$image" >/dev/null
+  docker run -d --name "$name" -v "$data:/data" "${app[@]}" "$@" "$image" >/dev/null
   for _ in $(seq 1 75); do
     if docker exec "$name" wget -q -O /dev/null http://127.0.0.1:9091/healthz 2>/dev/null; then
       docker rm -f "$name" >/dev/null
@@ -40,6 +42,10 @@ starts() {
   echo "the container did not start with: $*" >&2
   exit 1
 }
+
+insh() { docker run --rm -v "$data:/data" --entrypoint sh "$image" -c "$1"; }
+# a session file left by the legacy app, for the CI4 one-time prune check below
+if [[ ${APOTHEKE_APP:-} == ci4 ]]; then insh 'mkdir -p /data/sessions && touch /data/sessions/sess_legacy'; fi
 
 echo "== no APP_PASSWORD: refuses to start"
 out=$(refused 78)
@@ -69,12 +75,20 @@ pw=$(openssl rand -hex 16)
 starts -e APP_PASSWORD="$pw"
 echo "   ok"
 
+if [[ ${APOTHEKE_APP:-} == ci4 ]]; then
+  echo "== CI4's first start removed the legacy sessions once (PLAN 3.5); later starts keep sessions"
+  insh 'test ! -e /data/sessions/sess_legacy && test -e /data/sessions/.ci4 && touch /data/sessions/sess_ci4'
+  starts
+  insh 'test -e /data/sessions/sess_ci4'
+  echo "   ok"
+fi
+
 echo "== same data, APP_PASSWORD removed (sign-in on in the database): starts"
 starts
 echo "   ok"
 
 echo "== sign-in turned off in the database: refuses again"
-docker run --rm -v "$data:/data" -u www-data "$image" php /var/www/app/bin/settings.php auth off >/dev/null
+docker run --rm -v "$data:/data" "${app[@]}" -u www-data "$image" php /var/www/app/bin/settings.php auth off >/dev/null
 refused 78 >/dev/null
 echo "   ok"
 

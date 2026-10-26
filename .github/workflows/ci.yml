@@ -318,7 +318,7 @@ jobs:
   docker:
     name: Docker build + smoke test (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -436,6 +436,54 @@ jobs:
           code=$(docker inspect -f '{{.State.ExitCode}}' apotheke)
           echo "stopped in $(( $(date +%s) - start ))s with exit code $code"
           test "$code" = 0
+      - name: CI4 refuses the PHP 8.3 image (APOTHEKE_APP=ci4 needs 8.4)
+        if: matrix.php == '8.3'
+        run: |
+          set -euo pipefail
+          code=0; out=$(docker run --rm -e APOTHEKE_APP=ci4 -e ALLOW_NO_LOGIN=1 apotheke:ci 2>&1) || code=$?
+          echo "$out"
+          test "$code" = 64
+          grep -q 'needs the PHP 8.4 image' <<<"$out"
+      - name: CI4 image, sign-in required at start (#75 port; APOTHEKE_APP=ci4)
+        if: matrix.php == '8.4'
+        run: APOTHEKE_APP=ci4 bash scripts/docker-signin-checks.sh apotheke:ci
+      - name: CI4 image on SQLite (smoke, web server checks)
+        if: matrix.php == '8.4'
+        run: |
+          set -euo pipefail
+          docker run -d --name apotheke-ci4 -p 9093:9093 -e PORT=9093 -e APOTHEKE_APP=ci4 -e ALLOW_NO_LOGIN=1 apotheke:ci
+          bash scripts/smoke.sh http://127.0.0.1:9093
+          APOTHEKE_APP=ci4 bash scripts/docker-checks.sh http://127.0.0.1:9093
+      - name: CI4 image with sign-in on (sessions on demand, SIGN_IN_FAIL_MS)
+        if: matrix.php == '8.4'
+        run: |
+          set -euo pipefail
+          APP_PW=$(openssl rand -hex 16)
+          export APP_PW
+          docker run -d --name apotheke-ci4-auth -p 9094:9094 -e PORT=9094 -e APOTHEKE_APP=ci4 -e SIGN_IN_FAIL_MS=1500 \
+            -e APP_PASSWORD="$APP_PW" apotheke:ci
+          for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9094/healthz && break; sleep 0.2; done
+          APOTHEKE_APP=ci4 FAIL_MS=1500 bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
+          docker rm -f apotheke-ci4-auth >/dev/null
+      - name: CI4 image on PostgreSQL (smoke, web server checks)
+        if: matrix.php == '8.4'
+        run: |
+          set -euo pipefail
+          docker run -d --name apotheke-ci4-pg --network host -e PORT=8082 -e APOTHEKE_APP=ci4 -e ALLOW_NO_LOGIN=1 \
+            -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_NAME=apotheke -e DB_USER=apotheke -e DB_PASSWORD=apotheke \
+            -e DB_SCHEMA=ci4 apotheke:ci
+          bash scripts/smoke.sh http://127.0.0.1:8082
+          APOTHEKE_APP=ci4 bash scripts/docker-checks.sh http://127.0.0.1:8082
+      - name: CI4 graceful stop (both databases, exit code 0)
+        if: matrix.php == '8.4'
+        run: |
+          set -euo pipefail
+          for c in apotheke-ci4 apotheke-ci4-pg; do
+            docker stop -t 20 "$c"
+            code=$(docker inspect -f '{{.State.ExitCode}}' "$c")
+            echo "$c stopped with exit code $code"
+            test "$code" = 0
+          done
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -462,6 +510,8 @@ jobs:
         run: |
           docker logs apotheke || true
           docker logs apotheke-pg || true
+          docker logs apotheke-ci4 || true
+          docker logs apotheke-ci4-pg || true
 
   commits:
     name: Conventional Commits
