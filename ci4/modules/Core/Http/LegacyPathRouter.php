@@ -18,6 +18,11 @@ use CodeIgniter\Router\Router;
  */
 final class LegacyPathRouter extends Router
 {
+    /** Legacy's barcode lookup prefix, and the route that answers every path under it. */
+    public const BARCODE = '/barcode/';
+
+    public const BARCODE_ROUTE = 'barcode/lookup';
+
     private ?string $requestUri;
 
     public function __construct(RouteCollectionInterface $routes, ?Request $request = null)
@@ -63,6 +68,11 @@ final class LegacyPathRouter extends Router
             return parent::handle($uri);
         }
         $path = self::legacyPath($this->requestUri);
+        if (str_starts_with($path, self::BARCODE)) {
+            // Legacy answers every path under /barcode/: a code may hold any character, slashes
+            // and dots included. The route is fixed; the controller reads the code from the path.
+            return parent::handle(self::BARCODE_ROUTE);
+        }
         if (!self::exact($path)) {
             throw PageNotFoundException::forPageNotFound();
         }

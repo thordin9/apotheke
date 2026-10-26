@@ -113,3 +113,12 @@ $routes->post('item/([0-9]+)/duplicate', $bulkMerge . '::duplicate/$1', ['permis
 $routes->match(['GET', 'HEAD'], 'item/([0-9]+)/merge', $bulkMerge . '::mergePage/$1', ['permission' => 'delete']);
 $routes->post('item/([0-9]+)/merge', $bulkMerge . '::merge/$1', ['permission' => 'delete']);
 $routes->post('bulk', $bulkMerge . '::bulk', ['permission' => 'bulk']);
+
+// PLAN 13: QR labels (Labels), barcode lookup (Catalog) and lending (Lending). Permissions as
+// legacy route_perm(). Every path under /barcode/ is the lookup (Core's LegacyPathRouter).
+$routes->match(['GET', 'HEAD'], 'labels', '\\Apotheke\\Labels\\Controllers\\LabelsController::index', ['permission' => 'labels']);
+$routes->match(['GET', 'HEAD'], 'item/([0-9]+)/label', '\\Apotheke\\Labels\\Controllers\\LabelsController::item/$1', ['permission' => 'labels']);
+$routes->match(['GET', 'HEAD'], 'barcode', $catalog . 'BarcodeController::index', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'barcode/lookup', $catalog . 'BarcodeController::lookup', ['permission' => 'view']);
+$routes->post('item/([0-9]+)/(lend|return)', '\\Apotheke\\Lending\\Controllers\\LendingController::act/$1/$2', ['permission' => 'lend']);
+$routes->match(['GET', 'HEAD'], 'lent', '\\Apotheke\\Lending\\Controllers\\LendingController::index', ['permission' => 'view']);

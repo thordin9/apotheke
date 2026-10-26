@@ -72,6 +72,14 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\BulkMerge\\
+    - name: Labels
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Labels\\
+    - name: Lending
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Lending\\
   ruleset:
     Auth:
       - Core
@@ -136,3 +144,19 @@ deptrac:
       - Taxonomy
       - Media
       - Undo
+    # Labels and Lending (PLAN 13): the QR encoder and labels page; lend, return and the lent list.
+    # On Catalog's items and Taxonomy's locations; Settings and Taxonomy also come with Catalog's
+    # base controller. Lending checks thumbnail names with Media.
+    Labels:
+      - Core
+      - Layout
+      - Settings
+      - Catalog
+      - Taxonomy
+    Lending:
+      - Core
+      - Layout
+      - Settings
+      - Catalog
+      - Taxonomy
+      - Media
