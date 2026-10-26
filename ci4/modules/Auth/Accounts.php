@@ -181,18 +181,21 @@ final class Accounts
 
     /**
      * Legacy user_check_current(): the signed-in account's current password,
-     * limited like a sign-in for that account from this address (429); a
-     * wrong one is 403. A right one clears that account's sign-in attempts.
+     * limited like a sign-in: the per-address cap first, then that account
+     * from this address (429); a wrong one is 403. A right one clears that
+     * account's sign-in attempts and takes back only its own per-address try.
      *
      * @param array{username:string} $me
      */
     public function checkCurrent(array $me, #[\SensitiveParameter] string $current, RateLimiter $limiter): void
     {
+        $mine = $limiter->hit('login_address');   // the same per-address cap as the sign-in form
         $limiter->hit('login', $me['username']);
         if ($this->verify($me['username'], $current) === null) {
             throw new UserError('The current password is not correct.', 403);
         }
         $limiter->clear('login', $me['username']);
+        $limiter->forget($mine);
     }
 
     /**

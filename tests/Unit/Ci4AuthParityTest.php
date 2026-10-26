@@ -46,13 +46,6 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertGreaterThan(80, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
-            if ($case === 'auth attempts') {
-                // Legacy (#106, #112) also counts the current-password check on /account, per account and per address;
-                // CI4 gets that throttle in a follow-up PR. Until then the registration counts are compared.
-                $notLogin = static fn (array $rows): array => array_values(array_filter($rows, static fn (array $r): bool => !in_array($r['kind'], ['login', 'login_address'], true)));
-                $this->assertSame($notLogin($legacy), $notLogin($answers['ci4'][$case]), $case);
-                continue;
-            }
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
         }
         // The cases are what they claim to be.
@@ -78,6 +71,10 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertSame([1, 10, 0], [$l['eda attempts after a wrong current password']['n'], $l['eda attempts while limited']['n'], $l['eda attempts after the right current password']['n']]);
         $this->assertSame(429, $l['account current limited']['status']);
         $this->assertStringContainsString('Too many attempts for this account from this address', (string)$l['account current limited']['body']);
+        $this->assertSame([429, 30, 0], [$l['account current, address capped']['status'], $l['eda address attempts while capped']['n'], $l['eda attempts while address capped']['n']], 'capped before the account count');
+        $this->assertStringContainsString('Too many attempts from this address', (string)$l['account current, address capped']['body']);
+        $this->assertSame([403, 6], [$l['account wrong current, address counted']['status'], $l['eda address attempts after a wrong current password']['n']]);
+        $this->assertSame([422, 6], [$l['account right current, own address row back']['status'], $l['eda address attempts after the right current password']['n']], 'only its own address row is taken back');
 
         $this->assertSame(0, $l['vera attempts from the other address, cleared']['n']);
         $this->assertSame([401, 1, 0], [$l['login trust_proxy off']['status'], $l['login trust_proxy off']['peer'], $l['login trust_proxy off']['forwarded']], 'trust_proxy off: the peer address');
@@ -303,6 +300,29 @@ final class Ci4AuthParityTest extends TestCase
         $pdo->prepare('DELETE FROM auth_attempts WHERE client = ? AND id IN (SELECT id FROM auth_attempts WHERE client = ? ORDER BY id DESC LIMIT 9)')->execute([$edaBucket, $edaBucket]);
         $record('account right current clears', $own(self::PW, 'short'));
         $out['eda attempts after the right current password'] = $count();
+        // ... and shares the per-address cap of the sign-in form; a right one takes back only its own address row (#112, L-170).
+        $addressBucket = substr(hash('sha256', $ip), 0, 32);
+        $addressCount = static function () use ($pdo, $addressBucket): array {
+            $st = $pdo->prepare("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address' AND client = ?");
+            $st->execute([$addressBucket]);
+            $n = (int)$st->fetchColumn();
+            $st->closeCursor();
+
+            return ['n' => $n];
+        };
+        $pdo->prepare("DELETE FROM auth_attempts WHERE kind = 'login_address' AND client = ?")->execute([$addressBucket]);
+        $fillAddress = $pdo->prepare("INSERT INTO auth_attempts (kind, client, at) VALUES ('login_address', ?, ?)");
+        for ($i = 0; $i < 30; $i++) {
+            $fillAddress->execute([$addressBucket, time()]);
+        }
+        $record('account current, address capped', $own(self::PW, 'short'));
+        $out['eda address attempts while capped'] = $addressCount();
+        $out['eda attempts while address capped'] = $count();
+        $pdo->prepare("DELETE FROM auth_attempts WHERE kind = 'login_address' AND client = ? AND id IN (SELECT id FROM auth_attempts WHERE kind = 'login_address' AND client = ? ORDER BY id DESC LIMIT 25)")->execute([$addressBucket, $addressBucket]);
+        $record('account wrong current, address counted', $own('wrong', 'new-password'));
+        $out['eda address attempts after a wrong current password'] = $addressCount();
+        $record('account right current, own address row back', $own(self::PW, 'short'));
+        $out['eda address attempts after the right current password'] = $addressCount();
         [$other] = $browser('eda');
         $at = time() - 5000;
         [$client, $token, $ip, $sid] = $browser('eda', $at);

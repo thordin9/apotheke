@@ -241,20 +241,16 @@ final class HardeningHttpTest extends TestCase
             for ($i = 0; $i < $n; $i++) $st->execute([$key, time()]);
         };
         $count = fn(): int => (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn();
-        if (apotheke_app() !== 'ci4') {   // CI4 gets the current-password checks' cap with the current-password throttle (follow-up port)
-            $c = $this->signIn('ada');
-            $fill(30);
-            $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
-            $this->assertSame(429, $r['status'], '/account');
-            $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'disable', 'current' => 'long-enough']);
-            $this->assertSame(429, $r['status'], 'turning sign-in off');
-            $fill(5);
-            $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
-            $this->assertSame(303, $r['status']);
-            $this->assertSame(5, $count(), 'only its own row is taken back');
-        } else {
-            $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE username = ?')->execute([password_hash('another-one', PASSWORD_DEFAULT), 'ada']);
-        }
+        $c = $this->signIn('ada');
+        $fill(30);
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(429, $r['status'], '/account');
+        $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'disable', 'current' => 'long-enough']);
+        $this->assertSame(429, $r['status'], 'turning sign-in off');
+        $fill(5);
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(303, $r['status']);
+        $this->assertSame(5, $count(), 'only its own row is taken back');
 
         $this->setting('auth_enabled', false);
         $g = $this->server->client();

@@ -333,6 +333,41 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame(0, $this->attempts('login'));
     }
 
+    /** L-170, legacy #112: the current-password check has the per-address cap; a success takes back only its own row. */
+    #[DataProvider('drivers')]
+    public function testTheCurrentPasswordCheckHasTheAddressCap(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $id = $this->account('eda', 'editor', 'active');
+        $accounts = $this->accounts();
+        $me = ['id' => $id, 'username' => 'eda'];
+        $now = time();
+        $limiter = new RateLimiter($this->db(), '2001:db8:7:8::1', $now);
+        $first = $limiter->hit('login_address');
+        for ($i = 1; $i < 5; $i++) {
+            $limiter->hit('login_address');
+        }
+        $limiter->hit('login', 'eda');
+        $accounts->checkCurrent($me, self::PW, $limiter);
+        $this->assertSame([5, 0], [$this->attempts('login_address'), $this->attempts('login')], 'a success takes back only its own row and clears the account');
+        $this->assertSame(1, (int)($this->db()->query('SELECT COUNT(*) AS n FROM auth_attempts WHERE id = ?', [$first])->getRowArray()['n'] ?? 0), 'the others stay');
+        try {
+            $accounts->checkCurrent($me, 'wrong', $limiter);
+            $this->fail('a wrong current password');
+        } catch (UserError $e) {
+            $this->assertSame(403, $e->getCode());
+        }
+        $this->assertSame([6, 1], [$this->attempts('login_address'), $this->attempts('login')], 'a wrong one keeps both rows');
+        for ($i = 6; $i < 30; $i++) {
+            $limiter->hit('login_address');
+        }
+        $sameNet = new RateLimiter($this->db(), '2001:db8:7:8::99', $now);   // the same /64
+        $this->assertLimited(fn () => $accounts->checkCurrent($me, self::PW, $sameNet), 'Too many attempts from this address – please wait 15 minutes and try again.');
+        $this->assertSame([30, 1], [$this->attempts('login_address'), $this->attempts('login')], 'stopped before the account count');
+        $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '2001:db8:7:9::1', $now));   // another /64
+        $this->assertSame([30, 1], [$this->attempts('login_address'), $this->attempts('login')], 'its own rows taken back, the others stay');
+    }
+
     #[DataProvider('drivers')]
     public function testTheFirstAdmin(string $driver): void
     {
@@ -554,12 +589,13 @@ final class SignInAccountsTest extends CIUnitTestCase
             'rehash' => fn () => $this->accounts()->verify('eda', self::PW),
             'last login' => fn () => $this->accounts()->admit(['id' => $id, 'status' => 'active']),
             'password' => function () use ($id): void {
-                // The current-password attempt is recorded before, and outside, the write (legacy rate_limit()); drop it here.
+                // The current-password attempts (per address and per account) are recorded before, and outside, the write
+                // (legacy rate_limit()); drop them here.
                 $other = new RateLimiter($this->db(), '10.0.0.3', 1_800_000_000);
                 try {
                     $this->accounts()->changeOwnPassword(['id' => $id, 'username' => 'eda'], self::PW, 'newer-password', 'newer-password', $other);
                 } finally {
-                    $this->db()->query('DELETE FROM auth_attempts WHERE client = ?', [$other->bucket('login', 'eda')]);
+                    $this->db()->query('DELETE FROM auth_attempts WHERE client IN (?, ?)', [$other->bucket('login', 'eda'), $other->bucket('login_address', null)]);
                 }
             },
             'first admin' => function () use ($id): void {
