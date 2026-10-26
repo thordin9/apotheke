@@ -213,6 +213,63 @@ final class HardeningTest extends DatabaseTestCase
         $this->assertSame(['import after', 'restore after', 'migrate after'], $ran, 'rolled-back cleanups never run later');
     }
 
+    /** An import that ends in an error, with row errors or with an exception, drops the queued cleanups. */
+    public function testAFailedImportDropsQueuedCleanups(): void
+    {
+        $ran = [];
+        $queue = function () use (&$ran): void {
+            $q = &after_commit_queue();
+            $q[] = function () use (&$ran): void { $ran[] = 'ran'; };
+        };
+        $tmp = tempnam(sys_get_temp_dir(), 'imp');
+        file_put_contents($tmp, "name,notes\nSaw,\n,empty name\n");
+        $imp = import_get(import_upload(['error' => UPLOAD_ERR_OK, 'size' => filesize($tmp), 'tmp_name' => $tmp, 'name' => 'x.csv']));
+        @unlink($tmp);
+        db()->prepare('UPDATE imports SET mapping = ?, options = ? WHERE id = ?')->execute([json_encode(['name', 'notes']), json_encode(['create' => true, 'skip_errors' => false]), $imp['id']]);
+        $imp = import_get($imp['id']);
+
+        $queue();
+        $out = import_run($imp, true);
+        $this->assertSame([1, false], [$out['errors'], $out['committed']], 'a row error stops the import');
+        $this->assertSame([], $ran, 'row errors roll back');
+
+        $this->pdo->exec('ALTER TABLE tags RENAME TO tags_off');   // the import's first query fails
+        $queue();
+        try {
+            import_run($imp, true);
+            $this->fail('expected a failure');
+        } catch (PDOException) {
+        } finally {
+            $this->pdo->exec('ALTER TABLE tags_off RENAME TO tags');
+        }
+        db_tx(fn() => null);
+        $this->assertSame([], $ran, 'a failed import rolls back');
+        $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM items')->fetchColumn());
+    }
+
+    /** after_commit() inside a migration waits for migrate's COMMIT and is dropped on a rollback, on every driver and PHP version. */
+    public function testAfterCommitInsideAMigrationWaitsForTheCommit(): void
+    {
+        $GLOBALS['mig_ran'] = [];
+        $dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
+        mkdir($dir);
+        $step = fn(string $sql): string => "<?php return function (PDO \$pdo): void { after_commit(function (): void { \$GLOBALS['mig_ran'][] = 'after'; }); \$GLOBALS['mig_ran'][] = 'step'; \$pdo->exec('$sql'); };";
+        try {
+            file_put_contents("$dir/0902_after.php", $step('CREATE TABLE mig_after ('));
+            try { migrate($this->pdo, $this->driver, ['dir' => $dir]); $this->fail('expected a failure'); } catch (PDOException) {}
+            $this->assertSame(['step'], $GLOBALS['mig_ran'], 'a failed migration drops it');
+            file_put_contents("$dir/0902_after.php", $step('CREATE TABLE mig_after (id INTEGER)'));
+            $this->assertSame(['0902'], migrate($this->pdo, $this->driver, ['dir' => $dir]));
+            $this->assertSame(['step', 'step', 'after'], $GLOBALS['mig_ran'], 'runs after the commit');
+            after_commit(function (): void { $GLOBALS['mig_ran'][] = 'outside'; });
+            $this->assertSame(['step', 'step', 'after', 'outside'], $GLOBALS['mig_ran'], 'outside a transaction it runs at once again');
+        } finally {
+            array_map('unlink', glob($dir . '/*') ?: []);
+            @rmdir($dir);
+            unset($GLOBALS['mig_ran']);
+        }
+    }
+
     public function testAFailingAfterCommitCallbackDoesNotStopTheOthers(): void
     {
         $ran = [];

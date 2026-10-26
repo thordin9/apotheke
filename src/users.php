@@ -182,7 +182,7 @@ function user_check_current(array $me, #[\SensitiveParameter] string $current): 
 function user_verify(string $name, string $password): ?array
 {
     $u = user_by_name($name);
-    if (!$u) { password_verify($password, '$2y$10$usesomesillystringforsaltqqqqqqqqqqqqqqqqqqqqqqqqqqqqq'); return null; }
+    if (!$u) { password_hash('unknown-name', PASSWORD_DEFAULT); return null; }   // same algorithm and cost as a real check, on any PHP version
     if (!password_verify($password, $u['password_hash']) || str_contains($password, "\0")) return null;
     if (password_needs_rehash($u['password_hash'], PASSWORD_DEFAULT)) {
         db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([password_hash($password, PASSWORD_DEFAULT), $u['id']]);

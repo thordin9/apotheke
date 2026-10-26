@@ -161,9 +161,16 @@ function db(?PDO $replace = null): PDO
 /** Run $fn once the outermost transaction has committed (now when none is open); a rollback drops it. */
 function after_commit(callable $fn): void
 {
-    if (!db()->inTransaction()) { $fn(); return; }
+    if (!db()->inTransaction() && !migrate_active()) { $fn(); return; }
     $queue = &after_commit_queue();
     $queue[] = $fn;
+}
+
+/** True while migrate() holds its transaction: on SQLite before PHP 8.4, PDO does not see its BEGIN IMMEDIATE. */
+function &migrate_active(): bool
+{
+    static $on = false;
+    return $on;
 }
 
 /** @return list<callable> the pending callbacks (by reference); $take empties the queue and returns what it held */
@@ -291,6 +298,8 @@ function migrate(PDO $pdo, string $driver, array $opt = []): array
         $pdo->beginTransaction();
         $pdo->exec('SELECT pg_advisory_xact_lock(7243100)');   // "apotheke" migrations lock
     }
+    $active = &migrate_active();
+    $active = true;
     try {
         // Re-check under the lock: another request may have migrated meanwhile.
         $pdo->exec(<<<SQL
@@ -347,6 +356,8 @@ function migrate(PDO $pdo, string $driver, array $opt = []): array
         $pdo->exec('ROLLBACK');
         after_commit_end(false);
         throw $e;
+    } finally {
+        $active = false;
     }
     after_commit_end(true);
     return $done;

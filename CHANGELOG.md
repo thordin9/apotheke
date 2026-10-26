@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **security:** hardening: an unknown sign-in name spends a password check at the current default cost on every PHP version, turning sign-in back on always spends one password check, and cleanups queued inside a migration wait for its commit. ([#122](https://github.com/thordin9/apotheke/pull/122))
+
 ## [2.6.19] - 2026-10-26
 
 ### Fixed
