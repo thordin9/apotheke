@@ -48,6 +48,10 @@ final class Ci4StocktakeParityTest extends TestCase
         $this->assertStringContainsString('<option value="3" selected>', (string)$l['list preselected']['body']);
         $this->assertSame(422, $l['start without a location']['status']);
         $this->assertSame(404, $l['start a missing location']['status']);
+        foreach (['start without CSRF', 'start with no CSRF token'] as $case) {
+            $this->assertSame(419, $l[$case]['status'], $case);
+            $this->assertSame($l['start a missing location']['tables'], $l[$case]['tables'], $case . ': nothing started');
+        }
         $this->assertSame([303, '/stocktake/1'], [$l['start']['status'], $l['start']['location']]);
         $this->assertSame('/stocktake/1', $l['start again']['location']);
         $this->assertSame(['ok' => true, 'redirect' => '/stocktake/2'], $l['start fetch']['json']);
@@ -136,7 +140,7 @@ final class Ci4StocktakeParityTest extends TestCase
         $as = function (string $case, string $method, string $path, array $fields = [], array $headers = [], ?string $who = 'ada') use ($signIn, $record): array {
             [$client, $token] = $signIn($who);
             if ($method === 'POST') {
-                $fields = ['csrf' => $token] + $fields;
+                $fields += ['csrf' => $token];   // a case's own csrf wins; null sends none
             }
             $r = $client->req($method, $path, $fields, [], $headers);
             $record($case, $r, $token);
@@ -144,17 +148,6 @@ final class Ci4StocktakeParityTest extends TestCase
             return $r;
         };
 
-        // QR labels.
-        $as = function (string $case, string $method, string $path, array $fields = [], array $headers = [], ?string $who = 'ada') use ($signIn, $record): array {
-            [$client, $token] = $signIn($who);
-            if ($method === 'POST') {
-                $fields = ['csrf' => $token] + $fields;
-            }
-            $r = $client->req($method, $path, $fields, [], $headers);
-            $record($case, $r, $token);
-
-            return $r;
-        };
 
         $as('list without locations', 'GET', '/stocktake');
         $pdo->exec("INSERT INTO locations (name, name_key, sort_key, created_at) VALUES ('Garage <i>', 'garage <i>', 'garage <i>', '2026-01-01 00:00:00'), ('Attic', 'attic', 'attic', '2026-01-01 00:00:00')");
@@ -186,6 +179,7 @@ final class Ci4StocktakeParityTest extends TestCase
         $as('start with an array', 'POST', '/stocktake', ['location_id' => ['1']]);
         $as('start a missing location', 'POST', '/stocktake', ['location_id' => '99']);
         $as('start without CSRF', 'POST', '/stocktake', ['csrf' => 'nope', 'location_id' => '1']);
+        $as('start with no CSRF token', 'POST', '/stocktake', ['csrf' => null, 'location_id' => '1']);
         $as('viewer start', 'POST', '/stocktake', ['location_id' => '1'], [], 'vera');
         $as('start', 'POST', '/stocktake', ['location_id' => '1']);
         $as('start again', 'POST', '/stocktake', ['location_id' => '1']);

@@ -80,6 +80,10 @@ final class Ci4LabelsLendingParityTest extends TestCase
         $this->assertSame(404, $l['lend missing item']['status']);
         $this->assertSame(403, $l['viewer lend']['status']);
         $this->assertSame(303, $l['lender lend']['status']);
+        foreach (['return without CSRF', 'lend with no CSRF token'] as $case) {
+            $this->assertSame(419, $l[$case]['status'], $case);
+            $this->assertSame($l['GET lend']['tables'], $l[$case]['tables'], $case . ': nothing changed');
+        }
         $this->assertSame('/lent', $l['return from the list']['location']);
         $this->assertStringContainsString('2 overdue', (string)$l['lent list']['body']);
         $this->assertStringContainsString('Nothing is lent out right now.', (string)$l['lent list empty']['body']);
@@ -160,7 +164,7 @@ final class Ci4LabelsLendingParityTest extends TestCase
         $as = function (string $case, string $method, string $path, array $fields = [], array $headers = [], ?string $who = 'ada') use ($signIn, $record): array {
             [$client, $token] = $signIn($who);
             if ($method === 'POST') {
-                $fields = ['csrf' => $token] + $fields;
+                $fields += ['csrf' => $token];   // a case's own csrf wins; null sends none
             }
             $r = $client->req($method, $path, $fields, [], $headers);
             $record($case, $r, $token);
@@ -246,7 +250,8 @@ final class Ci4LabelsLendingParityTest extends TestCase
         $as('viewer return', 'POST', '/item/2/return', [], [], 'vera');
         $as('lender lend', 'POST', '/item/6/lend', ['lent_to' => 'Ana', 'lent_at' => '2026-06-12', 'lent_due' => '2026-06-13'], [], 'leo');
         $as('GET lend', 'GET', '/item/1/lend');
-        $as('lend without CSRF', 'POST', '/item/1/return', ['csrf' => 'nope']);
+        $as('return without CSRF', 'POST', '/item/1/return', ['csrf' => 'nope']);
+        $as('lend with no CSRF token', 'POST', '/item/5/lend', ['csrf' => null, 'lent_to' => 'A']);
         $as('item page lent', 'GET', '/item/1');
         $as('item page overdue', 'GET', '/item/2');
         $as('item page not lent', 'GET', '/item/5');
