@@ -297,8 +297,16 @@ final class HardeningHttpTest extends TestCase
                     [$a, 'POST', '/settings/users/' . $ids['bea'] . '/delete', ['csrf' => $a->csrf()]],
                     [$b, 'POST', '/settings/users/' . $ids['ada'] . '/' . $other, ['csrf' => $b->csrf(), 'role' => 'editor']],
                 ]);
-                // 401: the account was deleted while its own request ran (CI4 answers as for nobody; legacy goes on with it).
-                foreach ($answers as $x) $this->assertContains($x['status'], [303, 401, 403, 404, 409], "$other round $round: " . substr($x['body'], 0, 200));
+                // Sent to sign-in (401, or 303 to /login) only for an actor whose account was deleted while its own request ran
+                // (CI4 answers as for nobody; legacy goes on with it). Exactly one change goes through.
+                $left = $this->pdo->query('SELECT username FROM users')->fetchAll(PDO::FETCH_COLUMN);
+                $seen = array_map(static fn (array $x): string => $x['status'] === 401 || ($x['status'] === 303 && $x['location'] === '/login') ? 'signed out' : (string)$x['status'], $answers);
+                $what = "$other round $round: " . json_encode(array_map(static fn (array $x): array => [$x['status'], $x['location']], $answers));
+                foreach (['ada', 'bea'] as $i => $actor) {
+                    $allowed = in_array($actor, $left, true) ? ['303', '403', '404', '409'] : ['303', '403', '404', '409', 'signed out'];
+                    $this->assertContains($seen[$i], $allowed, "$what, $actor: " . substr($answers[$i]['body'], 0, 200));
+                }
+                $this->assertSame(['303'], array_values(array_filter($seen, static fn (string $s): bool => $s === '303')), "$what: exactly one change went through");
                 $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "$other round $round");
             }
         }
@@ -428,7 +436,8 @@ final class HardeningHttpTest extends TestCase
             $raw = (string)stream_get_contents($s);
             fclose($s);
             [$head, $body] = explode("\r\n\r\n", $raw, 2) + [1 => ''];
-            $out[] = ['status' => preg_match('#^HTTP/\S+ (\d+)#', $head, $m) ? (int)$m[1] : 0, 'body' => $body];
+            $out[] = ['status' => preg_match('#^HTTP/\S+ (\d+)#', $head, $m) ? (int)$m[1] : 0, 'body' => $body,
+                'location' => preg_match('#^Location: (\S+)#mi', $head, $m) ? $m[1] : null];
         }
         return $out;
     }
