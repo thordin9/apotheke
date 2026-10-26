@@ -480,7 +480,7 @@ final class Restorer
                         Writes::rows($this->db, "SELECT setval(pg_get_serial_sequence('$t', 'id'), " . ($next + 1) . ', false) AS v');
                     } else {
                         Writes::check($this->db->query('DELETE FROM sqlite_sequence WHERE name = ?', [$t]), 'sequence');
-                        Writes::check($this->db->query('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)', [$t, $next]), 'sequence');
+                        Writes::check($this->db->query('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)', [$t, (string)$next]), 'sequence');   // text, as legacy binds it
                     }
                 }
             });
