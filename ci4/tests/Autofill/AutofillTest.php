@@ -12,7 +12,12 @@ use Apotheke\Autofill\LogRedactor;
 use Apotheke\Autofill\ResponseClassifier;
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Storage\LocalStorage;
+use Apotheke\Media\ImageStore;
+use Apotheke\Media\Storage\ImagickDecoder;
+use Apotheke\Media\Storage\OriginalStore;
+use Apotheke\Media\Storage\ServedImageWriter;
 use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
@@ -45,6 +50,8 @@ final class AutofillTest extends CIUnitTestCase
     private ?LocalStorage $storage = null;
 
     private ?SettingsService $settings = null;
+
+    private ?ImageStore $images = null;
 
     /** @var list<string> */
     private array $logged = [];
@@ -555,6 +562,65 @@ final class AutofillTest extends CIUnitTestCase
     }
 
     /**
+     * PLAN step 12: a stored photo is read through Media (ImageStore), as
+     * legacy `image_original_path() ?? images/`: the kept original, else the
+     * served JPEG, else no_image without a request. Scripted transport only.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('drivers')]
+    public function testStoredPhotoIsReadThroughMedia(string $driver): void
+    {
+        $posted = [];
+        $af = $this->stack(function (string $method, string $url, ?string $body, string $token, int $timeout, string $type) use (&$posted): array {
+            $this->assertSame('POST', $method);
+            $this->assertSame('http://autofill.test/v1/suggest', $url);
+            $posted[] = $this->jpegIn((string)$body);
+
+            return $this->okSuggest();
+        }, $driver);
+        $this->settings->store(['autofill_enabled' => true, 'autofill_url' => 'http://autofill.test', 'autofill_timeout' => 5, 'autofill_max_image_bytes' => 1048576]);
+        $af->rememberInfo($this->info(null, null));
+        $db = $this->database->db;
+        $this->assertTrue($db->table('items')->insert([
+            'name' => 'Hammer', 'quantity' => 1, 'notes' => '', 'search' => 'hammer',
+            'created_at' => '2020-01-01 00:00:00', 'updated_at' => '2020-01-01 00:00:00',
+        ]));
+        $itemId = (int)$db->insertID();
+        $original = $this->noisy(640);
+        $tmp = (string)tempnam(sys_get_temp_dir(), 'af-up');
+        file_put_contents($tmp, $original);
+        $name = $this->images->store($tmp, strlen($original));
+        unlink($tmp);
+        $this->assertTrue($db->table('item_photos')->insert(['item_id' => $itemId, 'file' => $name, 'position' => 0, 'created_at' => '2020-01-01 00:00:00']));
+        $photoId = (string)$db->insertID();
+        $served = (string)$this->storage->read('images/' . $name);
+        $this->assertNotSame($original, $served);
+        $originals = new LocalStorage($this->database->config->originalsDir());
+        $base = trim((string)$originals->read('map/' . substr($name, 0, 32)));
+
+        $r = $af->suggestPhotoId($photoId);
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $this->assertCount(1, $posted);
+        $this->assertSame($af->analysis()->jpeg($original, AutofillService::IMAGE_SIDE, 80), $posted[0], 'the copy is made from the kept original');
+        $this->assertSame($original, $originals->read($base), 'the original is not rewritten');
+        $this->assertSame($served, $this->storage->read('images/' . $name), 'the served copy is not rewritten');
+
+        $originals->delete('map/' . substr($name, 0, 32));
+        $r = $af->suggestPhotoId($photoId);
+        $this->assertTrue($r['ok'], $r['message'] ?? '');
+        $this->assertCount(2, $posted);
+        $this->assertSame($af->analysis()->jpeg($served, AutofillService::IMAGE_SIDE, 80), $posted[1], 'without an original, the served JPEG');
+
+        $this->storage->delete('images/' . $name);
+        foreach ([$photoId, '999999', 'abc', ''] as $id) {
+            $r = $af->suggestPhotoId($id);
+            $this->assertSame('no_image', $r['code'], $id);
+            $this->assertSame('No suggestions: that photo no longer exists.', $r['message']);
+        }
+        $this->assertCount(2, $posted, 'a missing photo sends nothing');
+        $this->assertSame([], glob($this->database->dataDir() . '/autofill/tmp/*') ?: []);
+    }
+
+    /**
      * A browser form (no fetch, no Accept: application/json) saves and clears
      * the token with 303. The redirect must not start CI4's session beside
      * the native one.
@@ -819,6 +885,13 @@ final class AutofillTest extends CIUnitTestCase
             },
         );
         $this->settings = $settings;
+        $this->images = new ImageStore(
+            $settings,
+            new OriginalStore(new LocalStorage($this->database->config->originalsDir(), 0640)),
+            new ServedImageWriter($this->storage),
+            new ImagickDecoder(),
+            new RequestCleanup(),
+        );
         $now = static fn (): int => time();
         $log = new LogRedactor(
             static function (string $message) use (&$logged): void {
@@ -833,8 +906,7 @@ final class AutofillTest extends CIUnitTestCase
             new AutofillClient($now, $transport),
             $log,
             $this->database->db,
-            $this->database->dataDir() . '/images',
-            $this->database->config->originalsDir(),
+            $this->images,
             ApothekeConfig::repoRoot() . '/public/assets/autofill-sample.jpg',
             static function (int $seconds): void {
             },
@@ -861,8 +933,7 @@ final class AutofillTest extends CIUnitTestCase
             new AutofillClient($now),
             $log,
             $this->database->db,
-            $this->database->dataDir() . '/images',
-            $this->database->config->originalsDir(),
+            $this->images,
             ApothekeConfig::repoRoot() . '/public/assets/autofill-sample.jpg',
             static function (int $seconds): void {
             },
