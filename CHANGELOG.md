@@ -8,9 +8,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.18] - 2026-10-26
+
 ### Fixed
 
 - **security:** hardening: a sign-in name with a null character anywhere is refused like a wrong password, on the sign-in form and when turning sign-in back on, on both databases. ([#116](https://github.com/thordin9/apotheke/pull/116))
+
+### Maintenance
+
+- test: sign-in names with a null character on both drivers ([#116](https://github.com/thordin9/apotheke/pull/116))
+- **qa:** docs: PR 116 main sign-in name QA report ([#116](https://github.com/thordin9/apotheke/pull/116))
 
 ## [2.6.17] - 2026-10-26
 
@@ -396,7 +403,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.17...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.18...HEAD
+[2.6.18]: https://github.com/thordin9/apotheke/compare/v2.6.17...v2.6.18
 [2.6.17]: https://github.com/thordin9/apotheke/compare/v2.6.16...v2.6.17
 [2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16
 [2.6.15]: https://github.com/thordin9/apotheke/compare/v2.6.14...v2.6.15
