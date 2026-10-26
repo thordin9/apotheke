@@ -47,7 +47,10 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
             if ($case === 'auth attempts') {
-                // Legacy (#106) also counts per address and per current-password check; CI4 gets these in follow-up PRs.
+                // Legacy (#106) also counts the current-password check on /account as a 'login' attempt; CI4 gets
+                // that throttle in a follow-up PR. Until then the per-address and registration counts are compared.
+                $notLogin = static fn (array $rows): array => array_values(array_filter($rows, static fn (array $r): bool => $r['kind'] !== 'login'));
+                $this->assertSame($notLogin($legacy), $notLogin($answers['ci4'][$case]), $case);
                 continue;
             }
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
