@@ -54,7 +54,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * Catalog → Taxonomy, Media, Search, Activity, Undo, Notes, Settings
   * BulkMerge → Catalog, Taxonomy, Media, Undo, Layout, Settings (bulk actions, merge, duplicate and quantity; history through `Core\Libraries\ItemHistory`). Attachments are Catalog's (`Items\Attachments`).
   * Favourites → Catalog
-  * Lending, Stocktake and Labels → Catalog, Taxonomy
+  * Labels → Catalog, Taxonomy, Layout, Settings (the QR encoder `Labels\QrCode`, loaded after `QrJit::guard()`); Lending → Catalog, Taxonomy, Media (thumbnail names), Layout, Settings; Stocktake → Catalog, Taxonomy. The barcode lookup is Catalog's (`Barcode`).
   * ImportExport → Catalog, Taxonomy
   * Backup → all repositories, plus Media and Settings
   * Autofill → Media (read-only `originalPathOrServed`), Settings, Taxonomy (context names). Until Media and Taxonomy exist, deptrac allows Autofill → Core and Settings only. Photo lookup and category/tag names are SQL, and bytes go through `Apotheke\Core\Storage\Storage` (local disk under `DATA_DIR`). Media should implement that interface later rather than add a second one.
