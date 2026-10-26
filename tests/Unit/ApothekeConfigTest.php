@@ -10,7 +10,7 @@ require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/ApothekeConfig.php'
 final class ApothekeConfigTest extends TestCase
 {
     /** @var array<string,mixed> */
-    private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => []];
+    private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => [], 'sign_in_fail_ms' => 1000];
 
     public function testLoadMatchesTheLegacyLoader(): void
     {
@@ -21,7 +21,7 @@ final class ApothekeConfigTest extends TestCase
         $env = ['PAGE_SIZE' => '12', 'DB_PASSWORD' => 'pw', 'ORIGINALS_DIR' => 'camera'];
         $legacy = config_load($root, $file, $env);
         $ours = ApothekeConfig::load($root, $file, $env)->values();
-        // Keys main added for SEC-M3/M2, which this branch's legacy tree gets with the next main sync.
+        // Keys main added (SEC-M3/M2, #126), which this branch's legacy tree gets with the next main sync.
         foreach (self::FROM_MAIN as $key => $default) {
             if (!array_key_exists($key, $legacy)) {
                 $this->assertSame($default, $ours[$key], $key);

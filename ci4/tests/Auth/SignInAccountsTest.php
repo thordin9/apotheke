@@ -185,28 +185,16 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame(PASSWORD_DEFAULT, password_get_info(Accounts::DUMMY_HASH)['algo']);
     }
 
-    /** Config\SignIn's failDeadlineMs from the environment reaches Services::accounts(), clamped to 400..10000. */
+    /** SIGN_IN_FAIL_MS (as on legacy) reaches Services::accounts(), clamped to 400..10000 (L-400). */
     #[DataProvider('deadlineOverrides')]
     public function testTheDeadlineSettingReachesTheAccountsService(?string $env, int $expected): void
     {
         $this->database = TestDatabase::create('sqlite');
         \Config\Services::injectMock('apothekeDb', $this->db());
-        $saved = $_ENV['signin.failDeadlineMs'] ?? null;
+        \Config\Services::injectMock('apothekeConfig', \Apotheke\Core\Config\ApothekeConfig::load('/repo', null, $env === null ? [] : ['SIGN_IN_FAIL_MS' => $env]));
         try {
-            if ($env === null) {
-                unset($_ENV['signin.failDeadlineMs']);
-            } else {
-                $_ENV['signin.failDeadlineMs'] = $env;
-            }
-            \CodeIgniter\Config\Factories::reset('config');
             $this->assertSame($expected, \Config\Services::accounts(false)->failDeadlineMs());
         } finally {
-            if ($saved === null) {
-                unset($_ENV['signin.failDeadlineMs']);
-            } else {
-                $_ENV['signin.failDeadlineMs'] = $saved;
-            }
-            \CodeIgniter\Config\Factories::reset('config');
             \Config\Services::reset(true);
         }
     }
@@ -218,6 +206,7 @@ final class SignInAccountsTest extends CIUnitTestCase
         yield 'set' => ['2500', 2500];
         yield 'too short' => ['50', 400];
         yield 'too long' => ['600000', 10000];
+        yield 'not a number' => ['abc', 400];
     }
 
     public function testSignInPace(): void
@@ -240,7 +229,7 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame(SignInPace::MIN_MS, (new SignInPace(5))->deadlineMs, 'never shorter than legacy\'s 400 ms');
         $this->assertSame(SignInPace::MAX_MS, (new SignInPace(PHP_INT_MAX))->deadlineMs);
         $this->assertSame(SignInPace::DEFAULT_MS, (new SignInPace())->deadlineMs);
-        $this->assertSame(SignInPace::DEFAULT_MS, config(\Config\SignIn::class)->failDeadlineMs);
+        $this->assertSame(SignInPace::DEFAULT_MS, \Apotheke\Core\Config\ApothekeConfig::load('/repo', null, [])->values()['sign_in_fail_ms']);
     }
 
     #[DataProvider('drivers')]

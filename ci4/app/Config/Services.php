@@ -422,7 +422,7 @@ class Services extends BaseService
         return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
     }
 
-    /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from Config\SignIn. Stateless. */
+    /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from SIGN_IN_FAIL_MS (sign_in_fail_ms). Stateless. */
     public static function accounts(bool $getShared = true): \Apotheke\Auth\Accounts
     {
         if ($getShared) {
@@ -435,7 +435,7 @@ class Services extends BaseService
             new \Apotheke\Auth\UserRepository($db),
             static::roles(),
             new \Apotheke\Core\Libraries\Clock(),
-            new \Apotheke\Auth\SignInPace(config(\Config\SignIn::class)->failDeadlineMs),
+            new \Apotheke\Auth\SignInPace((int)static::apothekeConfig()->values()['sign_in_fail_ms']),
         );
     }
 
