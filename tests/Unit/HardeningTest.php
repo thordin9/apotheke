@@ -196,23 +196,21 @@ final class HardeningTest extends DatabaseTestCase
         foreach ((new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dataDir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST)) as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
         @rmdir($dataDir);
 
-        // migrate: a step queues a cleanup while its transaction is open
+        // migrate (on SQLite before PHP 8.4, PDO does not see its BEGIN IMMEDIATE, so the cleanup is queued up front)
         $dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
         mkdir($dir);
-        $step = "<?php return static function (PDO \$p, string \$d): void { after_commit(function () { \$GLOBALS['drain_test'][] = 'migrate' . (db()->inTransaction() ? ' inside' : ' after'); }); %s };";
-        file_put_contents("$dir/0901_queue.php", sprintf($step, "\$p->exec('CREATE TABLE drain_fail (');"));
-        $GLOBALS['drain_test'] = [];
+        file_put_contents("$dir/0901_fail.php", "<?php return ['sqlite' => 'CREATE TABLE drain_fail (', 'pgsql' => 'CREATE TABLE drain_fail ('];");
+        $queue('migrate failed');
         try { migrate($this->pdo, $this->driver, ['dir' => $dir]); $this->fail('expected a failure'); } catch (PDOException) {}
-        $this->assertSame([], $GLOBALS['drain_test'], 'a failed migration rolls back');
-        file_put_contents("$dir/0901_queue.php", sprintf($step, ''));
+        $this->assertSame(['import after', 'restore after'], $ran, 'a failed migration rolls back');
+        file_put_contents("$dir/0901_fail.php", "<?php return ['sqlite' => 'CREATE TABLE drain_ok (id INTEGER)', 'pgsql' => 'CREATE TABLE drain_ok (id INTEGER)'];");
+        $queue('migrate');
         $this->assertSame(['0901'], migrate($this->pdo, $this->driver, ['dir' => $dir]));
-        $this->assertSame(['migrate after'], $GLOBALS['drain_test']);
+        $this->assertSame(['import after', 'restore after', 'migrate after'], $ran);
         array_map('unlink', glob($dir . '/*') ?: []);
         @rmdir($dir);
         db_tx(fn() => null);
-        $this->assertSame(['import after', 'restore after'], $ran, 'rolled-back cleanups never run later');
-        $this->assertSame(['migrate after'], $GLOBALS['drain_test']);
-        unset($GLOBALS['drain_test']);
+        $this->assertSame(['import after', 'restore after', 'migrate after'], $ran, 'rolled-back cleanups never run later');
     }
 
     public function testAFailingAfterCommitCallbackDoesNotStopTheOthers(): void
