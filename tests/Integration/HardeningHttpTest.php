@@ -44,7 +44,6 @@ final class HardeningHttpTest extends TestCase
     /** Wrong passwords sent at once for one account one below the limit: no more than one gets through. */
     public function testTheSignInLimitHoldsForRequestsAtOnce(): void
     {
-        $this->skipOnCi4('the atomic RateLimiter::hit');
         $key = substr(hash('sha256', "127.0.0.1\0ada"), 0, 32);
         for ($round = 1; $round <= 4; $round++) {
             $this->pdo->exec('DELETE FROM auth_attempts');
@@ -82,7 +81,6 @@ final class HardeningHttpTest extends TestCase
     /** Sign-in attempts for every name from one address have a cap; a successful sign-in resets it. */
     public function testSignInsFromOneAddressHaveACap(): void
     {
-        $this->skipOnCi4('the per-address cap');
         $key = substr(hash('sha256', '127.0.0.1'), 0, 32);
         $fill = function (int $n) use ($key): void {
             $st = $this->pdo->prepare("INSERT INTO auth_attempts (kind, client, at) VALUES ('login_address', ?, ?)");
@@ -293,13 +291,5 @@ final class HardeningHttpTest extends TestCase
     {
         $this->pdo->prepare('DELETE FROM settings WHERE name = ?')->execute([$name]);
         $this->pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)')->execute([$name, json_encode($value), '2026-01-01']);
-    }
-
-    /** CI4 gets this legacy hardening (#106) in a follow-up port; until then the test runs on legacy only. */
-    private function skipOnCi4(string $what): void
-    {
-        if (apotheke_app() === 'ci4') {
-            $this->markTestSkipped('CI4 does not have ' . $what . ' yet (follow-up port).');
-        }
     }
 }

@@ -46,10 +46,6 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertGreaterThan(80, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
-            if ($case === 'auth attempts') {
-                // Legacy (#106) also counts all names from one address (login_address); CI4 gets that cap in its own port.
-                $legacy = array_values(array_filter($legacy, static fn (array $row): bool => $row['kind'] !== 'login_address'));
-            }
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
         }
         // The cases are what they claim to be.

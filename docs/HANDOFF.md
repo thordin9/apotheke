@@ -125,6 +125,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   plus N-111. Merged.
 - [#108](https://github.com/thordin9/apotheke/pull/108): PLAN step 11b, bulk, merge, duplicate, quantity and
   attachments, plus #104 N-112 (`users` and `roles` on CI4). Merged.
+- [#109](https://github.com/thordin9/apotheke/pull/109): CI4 port of #106's sign-in limits: the attempt is
+  recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Merged.
 - [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106 for accounts: the current-password limit,
   the last-admin lock (L-110), the `APP_PASSWORD` null-character check and SIGTERM at the CLI prompt (N-133). Open.
 
@@ -133,7 +135,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Coder: step 10 media storage (#95, merged); follow-ups N-30, N-31 and M-25 for Settings (#97, merged); step 9
   catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102, merged); step 11a part 2, the photo routes
   (#103, merged). Stays out of the auth, account, users/roles, taxonomy and Notes files
-  (only the route table in `PermissionFilterTest` gets the new photo routes).
+  (only the route table in `PermissionFilterTest` gets the new photo routes). #106 port to CI4: `RateLimiter::hit`
+  records first, the per-address cap on `/login` (#109, merged); Coder2 ports the current-password throttle, the
+  last-admin lock and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, open). Owns the N-63 router
   follow-up below.
@@ -147,7 +151,6 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. Autofill reads photos through Media.
-4. The rest of #106 on CI4: recording sign-in attempts first and the per-address cap (#109).
 
 ## Tracked
 
