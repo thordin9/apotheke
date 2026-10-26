@@ -914,4 +914,26 @@ class Services extends BaseService
 
         return new \Apotheke\Lending\Views\LentView(static::layout(), static::calendar(), static::itemView());
     }
+
+    /** Stocktakes: start, tick, finish and cancel (Stocktake, PLAN 13). */
+    public static function stocktakes(bool $getShared = true): \Apotheke\Stocktake\Stocktakes
+    {
+        if ($getShared) {
+            return static::getSharedInstance('stocktakes');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Stocktake\Stocktakes($db, new \Apotheke\Core\Libraries\Clock(), static::taxonomy(), static::itemRepository(), static::itemHistory(), static::barcode());
+    }
+
+    /** The stocktake pages (Stocktake). */
+    public static function stocktakeView(bool $getShared = true): \Apotheke\Stocktake\Views\StocktakeView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('stocktakeView');
+        }
+
+        return new \Apotheke\Stocktake\Views\StocktakeView(static::layout(), static::stocktakes(), static::itemRepository(), static::activityView(), (bool)static::settings()->get('stocktake_apply_moves'));
+    }
 }

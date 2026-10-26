@@ -88,6 +88,8 @@ final class PermissionFilterTest extends CIUnitTestCase
         'bulk' => 'bulk',
         'item/1/lend' => 'lend',
         'item/1/return' => 'lend',
+        'stocktake' => 'stocktake', 'stocktake/1' => 'stocktake', 'stocktake/1/cancel' => 'stocktake', 'stocktake/1/check' => 'stocktake',
+        'stocktake/1/finish' => 'stocktake', 'stocktake/1/report' => 'stocktake',
     ];
 
     /** State-changing routes for your own account: signed in with an account (`self`), whatever the role. */
@@ -202,8 +204,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(60, $n, "35 GET and 25 HEAD routes");
-        $this->assertSame(66, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(66, $n, "38 GET and 28 HEAD routes");
+        $this->assertSame(78, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**
