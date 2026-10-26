@@ -166,12 +166,14 @@ function user_delete(int $id): void
     roles(true);
 }
 
-/** The signed-in user's current password, limited like a sign-in (429); a wrong one is 403. */
+/** The signed-in user's current password, limited like a sign-in (per account and per address, 429); a wrong one is 403. */
 function user_check_current(array $me, #[\SensitiveParameter] string $current): void
 {
+    $mine = rate_limit('login_address');   // the same per-address cap as the sign-in form
     rate_limit('login', $me['username']);
     if (!user_verify($me['username'], $current)) throw new UserError('The current password is not correct.', 403);
     rate_limit_clear('login', $me['username']);
+    rate_limit_forget($mine);
 }
 
 /** Check a user name + password; returns the user or null (always spends the same hashing time). */
@@ -406,8 +408,22 @@ function client_address(): string
 /** Sign-in includes the account, so one client cannot use up the limit for every account. */
 function client_key(?string $account = null): string
 {
-    $material = $account === null ? client_address() : client_address() . "\0" . $account;
+    $material = $account === null ? address_scope(client_address()) : client_address() . "\0" . $account;
     return substr(hash('sha256', $material), 0, 32);
+}
+
+/**
+ * Per-address limits count an IPv6 client by its /64 (one site's usual allocation). IPv4, and IPv6 forms that carry
+ * an IPv4 address in their last 32 bits (IPv4-mapped ::ffff:0:0/96, IPv4-compatible ::/96, NAT64 64:ff9b::/96), keep
+ * the whole address as given, so each embedded IPv4 client keeps its own count. Anything else is returned unchanged.
+ */
+function address_scope(string $ip): string
+{
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) return $ip;
+    $bin = (string)inet_pton($ip);
+    $p96 = substr($bin, 0, 12);
+    if (in_array($p96, [str_repeat("\0", 10) . "\xff\xff", str_repeat("\0", 12), "\x00\x64\xff\x9b" . str_repeat("\0", 8)], true)) return $ip;
+    return inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
 }
 
 function rate_bucket(string $kind, ?string $account): string
@@ -415,8 +431,12 @@ function rate_bucket(string $kind, ?string $account): string
     return client_key($kind === 'login' ? user_key((string)$account) : null);
 }
 
-/** Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the attempt. */
-function rate_limit(string $kind, ?string $account = null): void
+/**
+ * Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the
+ * attempt and returns its row id. The per-address limits use client_address(): behind a reverse proxy, list it in
+ * trusted_proxies / TRUSTED_PROXIES, or every client shares the proxy's address and its limit.
+ */
+function rate_limit(string $kind, ?string $account = null): int
 {
     [$max, $window] = RATE_LIMITS[$kind];
     $now = app_time();
@@ -436,6 +456,13 @@ function rate_limit(string $kind, ?string $account = null): void
         $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
         throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
     }
+    return $mine;
+}
+
+/** Take back one recorded attempt (a successful sign-in's own row in the per-address count). */
+function rate_limit_forget(int $id): void
+{
+    db()->prepare('DELETE FROM auth_attempts WHERE id = ?')->execute([$id]);
 }
 
 function rate_limit_clear(string $kind, ?string $account = null): void

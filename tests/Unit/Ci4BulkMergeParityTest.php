@@ -83,6 +83,10 @@ final class Ci4BulkMergeParityTest extends TestCase
         $this->assertSame(404, $l['attach to a missing item']['status']);
         $this->assertSame([200, 'attachment; filename="Receipt _1_.pdf"; filename*=UTF-8\'\'Receipt%20%C2%BB1%C2%AB.pdf'], [$l['download']['status'], $l['download']['disposition']]);
         $this->assertSame(404, $l['download a missing attachment']['status']);
+        // N-150: the download itself says nosniff and is sandboxed (legacy and CI4 compared above).
+        foreach (['download', 'download with an odd stored type'] as $case) {
+            $this->assertSame(['nosniff', "default-src 'none'; sandbox"], [$l[$case]['nosniff'] ?? null, $l[$case]['csp'] ?? null], $case);
+        }
         $this->assertSame(404, $l['delete an attachment of another item']['status']);
         foreach (['fail qty', 'fail duplicate with photos', 'fail merge', 'fail bulk move', 'fail bulk delete', 'fail attach', 'fail attachment delete'] as $case) {
             $this->assertSame([500, true, true], [$l[$case]['status'], $l[$case]['unchanged'], $l[$case]['files unchanged']], $case);

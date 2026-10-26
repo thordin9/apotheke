@@ -39,6 +39,9 @@ final class ItemRepository
     ) {
     }
 
+    /** @var list<string> files a save inside atomically() gives up; removed once the outer transaction has committed (N-126) */
+    private array $dropAfterCommit = [];
+
     /** @return array<string,mixed>|null legacy item_get(): the row with names, typed numbers and tags */
     public function get(int $id): ?array
     {
@@ -161,8 +164,12 @@ final class ItemRepository
 
             return $id;
         });
-        foreach ($drop as $f) {
-            $this->images->delete($f);
+        if ((int)$this->db->transDepth > 0) {
+            array_push($this->dropAfterCommit, ...$drop);   // inside atomically(): not before its commit
+        } else {
+            foreach ($drop as $f) {
+                $this->images->delete($f);
+            }
         }
 
         return $id;
@@ -178,7 +185,20 @@ final class ItemRepository
      */
     public function atomically(callable $fn): mixed
     {
-        return Writes::transaction($this->db, $fn);
+        $outer = (int)$this->db->transDepth === 0;
+        try {
+            $r = Writes::transaction($this->db, $fn);
+        } finally {
+            $drop = $outer ? $this->dropAfterCommit : [];
+            if ($outer) {
+                $this->dropAfterCommit = [];
+            }
+        }
+        foreach ($drop as $f) {
+            $this->images->delete($f);
+        }
+
+        return $r;
     }
 
     /**

@@ -15,7 +15,9 @@ use Apotheke\Settings\SettingsService;
  * and cannot change; built-in roles cannot be deleted; the guest role never
  * gets users, settings or backup; and no change may leave the install
  * without an active account that can manage users. Checks run in legacy's
- * order. Holds no state.
+ * order. An update or delete checks and writes in one transaction that holds
+ * the active admin rows, so it runs one after a concurrent admin change
+ * (L-110). Holds no state.
  */
 final class RoleAdmin
 {
@@ -119,6 +121,15 @@ final class RoleAdmin
      */
     public function update(string $key, ?string $name, array $perms): void
     {
+        $this->users->atomically(function () use ($key, $name, $perms): void {
+            $this->users->holdActiveAdmins();
+            $this->updateLocked($key, $name, $perms);
+        });
+    }
+
+    /** @param list<string> $perms */
+    private function updateLocked(string $key, ?string $name, array $perms): void
+    {
         $roles = $this->roles->listed();
         $r = $roles[$key] ?? throw new UserError('Role not found.', 404);
         if ($key === 'admin') {
@@ -146,6 +157,20 @@ final class RoleAdmin
     /** Legacy role_delete(): a custom role; its accounts move to $moveTo. */
     public function delete(string $key, string $moveTo = 'viewer'): void
     {
+        $register = $this->users->atomically(function () use ($key, $moveTo): mixed {
+            $this->users->holdActiveAdmins();
+
+            return $this->deleteLocked($key, $moveTo);
+        });
+        // After the commit, as legacy.
+        if ($register === $key) {
+            $this->settings->store(['auth_register_role' => 'viewer']);
+        }
+    }
+
+    /** @return mixed the auth_register_role setting as it was before the delete */
+    private function deleteLocked(string $key, string $moveTo): mixed
+    {
         $roles = $this->roles->listed();
         $r = $roles[$key] ?? throw new UserError('Role not found.', 404);
         if ($r['builtin']) {
@@ -160,8 +185,7 @@ final class RoleAdmin
         // Read before the delete: afterwards the setting no longer validates (legacy reads its per-request copy).
         $register = $this->settings->get('auth_register_role');
         $this->roles->delete($key, $moveTo);
-        if ($register === $key) {
-            $this->settings->store(['auth_register_role' => 'viewer']);
-        }
+
+        return $register;
     }
 }

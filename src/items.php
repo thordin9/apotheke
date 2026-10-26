@@ -240,15 +240,14 @@ function tax_rename(string $kind, int $id, string $name): void
 function tax_set_default(string $kind, int $id, bool $on): void
 {
     $tb = tax($kind)['table'];
-    $pdo = db();
-    $pdo->beginTransaction();
-    if ($on) {
-        $pdo->exec("UPDATE $tb SET is_default = 0 WHERE is_default = 1");
-        $pdo->prepare("UPDATE $tb SET is_default = 1 WHERE id = ?")->execute([$id]);
-    } else {
-        $pdo->prepare("UPDATE $tb SET is_default = 0 WHERE id = ?")->execute([$id]);
-    }
-    $pdo->commit();
+    db_tx(function (PDO $pdo) use ($tb, $id, $on): void {
+        if ($on) {
+            $pdo->exec("UPDATE $tb SET is_default = 0 WHERE is_default = 1");
+            $pdo->prepare("UPDATE $tb SET is_default = 1 WHERE id = ?")->execute([$id]);
+        } else {
+            $pdo->prepare("UPDATE $tb SET is_default = 0 WHERE id = ?")->execute([$id]);
+        }
+    });
 }
 
 /** Delete an entry; its items are moved to $moveTo or left unassigned (null). Returns number of items affected. */
@@ -599,11 +598,13 @@ function db_tx(callable $fn): mixed
     try {
         $r = $fn($pdo);
         $pdo->commit();
-        return $r;
     } catch (Throwable $e) {
         $pdo->rollBack();
+        after_commit_end(false);
         throw $e;
     }
+    after_commit_end(true);
+    return $r;
 }
 
 /* ---------- activity log (written inside the same transaction as the change) ---------- */
@@ -704,7 +705,7 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
         }
         return $id;
     });
-    foreach ($drop as $f) image_delete($f);   // files only after the commit
+    after_commit(function () use ($drop): void { foreach ($drop as $f) image_delete($f); });   // files only after the commit
     return $id;
 }
 
@@ -760,9 +761,10 @@ function photos_renumber(int $itemId, ?array $order = null): void
 function photo_add(int $itemId, string $file): int
 {
     return db_tx(function () use ($itemId, $file): int {
+        // write the item row first: adds to one item at the same time then count one after the other
+        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
         if (count(photos_for($itemId)) >= max_photos()) throw new UserError('An item can have at most ' . max_photos() . ' photos.');
         $pid = photo_insert($itemId, $file);
-        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
         activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo', ['change' => 'added', 'count' => count(photos_for($itemId))]);
         return $pid;
     });
@@ -802,7 +804,7 @@ function photo_action(int $itemId, int $photoId, string $action): int
         }
         return $new;
     });
-    if ($drop !== null) image_delete($drop);
+    if ($drop !== null) after_commit(fn() => image_delete($drop));
     return $r;
 }
 

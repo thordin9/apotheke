@@ -12,7 +12,9 @@ use Apotheke\Auth\UserRepository;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Libraries\Clock;
+use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Database\BaseConnection;
+use CodeIgniter\Database\BaseResult;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
@@ -280,20 +282,90 @@ final class SignInAccountsTest extends CIUnitTestCase
         $id = $this->account('eda', 'editor', 'active');
         $accounts = $this->accounts();
         $me = ['id' => $id, 'username' => 'eda'];
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', time());
         foreach ([['wrong-password', 'newer-password', 403, 'The current password is not correct.'], [self::PW, 'short', 422, 'Use at least 8 characters for the password.'],
             [self::PW, "newer-\0-password", 422, 'Passwords cannot contain a null character.'], [self::PW . "\0", 'newer-password', 403, 'The current password is not correct.']] as [$current, $new, $code, $message]) {
             try {
-                $accounts->changeOwnPassword($me, $current, $new, $new);
+                $accounts->changeOwnPassword($me, $current, $new, $new, $limiter);
                 $this->fail($message);
             } catch (UserError $e) {
                 $this->assertSame([$code, $message], [$e->getCode(), $e->getMessage()]);
             }
         }
-        $epoch = $accounts->changeOwnPassword($me, self::PW, 'newer-password', 'newer-password');
+        $this->assertSame(1, $this->attempts('login'), 'a wrong current password counts; a right one clears');
+        $epoch = $accounts->changeOwnPassword($me, self::PW, 'newer-password', 'newer-password', $limiter);
+        $this->assertSame(0, $this->attempts('login'));
         $row = $this->users()->find($id);
         $this->assertSame($epoch, $row['session_epoch'] ?? null);
         $this->assertNotSame('', $epoch);
         $this->assertTrue(password_verify('newer-password', $row['password_hash'] ?? ''));
+    }
+
+    /** Legacy user_check_current(): the current password is limited like a sign-in for that account (#106). */
+    #[DataProvider('drivers')]
+    public function testTheCurrentPasswordIsLimited(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $id = $this->account('eda', 'editor', 'active');
+        $accounts = $this->accounts();
+        $me = ['id' => $id, 'username' => 'eda'];
+        $now = time();
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', $now);
+        for ($i = 0; $i < 10; $i++) {
+            try {
+                $accounts->checkCurrent($me, 'wrong-' . $i, $limiter);
+                $this->fail('a wrong current password');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+        }
+        $this->assertLimited(fn () => $accounts->checkCurrent($me, self::PW, $limiter), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertLimited(fn () => $accounts->changeOwnPassword($me, self::PW, 'newer-password', 'newer-password', $limiter), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertTrue(password_verify(self::PW, $this->users()->find($id)['password_hash'] ?? ''), 'unchanged');
+        $this->assertSame(10, $this->attempts('login'));
+        // Another address, and the same address for another account, are not limited.
+        $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '10.0.0.2', $now));
+        $this->assertSame(10, $this->attempts('login'));
+        $vera = $this->account('vera', 'viewer', 'active');
+        $accounts->checkCurrent(['id' => $vera, 'username' => 'vera'], self::PW, $limiter);
+        // After the window the right password clears the account's attempts from this address.
+        $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '10.0.0.1', $now + 901));
+        $this->assertSame(0, $this->attempts('login'));
+    }
+
+    /** L-170, legacy #112: the current-password check has the per-address cap; a success takes back only its own row. */
+    #[DataProvider('drivers')]
+    public function testTheCurrentPasswordCheckHasTheAddressCap(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $id = $this->account('eda', 'editor', 'active');
+        $accounts = $this->accounts();
+        $me = ['id' => $id, 'username' => 'eda'];
+        $now = time();
+        $limiter = new RateLimiter($this->db(), '2001:db8:7:8::1', $now);
+        $first = $limiter->hit('login_address');
+        for ($i = 1; $i < 5; $i++) {
+            $limiter->hit('login_address');
+        }
+        $limiter->hit('login', 'eda');
+        $accounts->checkCurrent($me, self::PW, $limiter);
+        $this->assertSame([5, 0], [$this->attempts('login_address'), $this->attempts('login')], 'a success takes back only its own row and clears the account');
+        $this->assertSame(1, (int)($this->db()->query('SELECT COUNT(*) AS n FROM auth_attempts WHERE id = ?', [$first])->getRowArray()['n'] ?? 0), 'the others stay');
+        try {
+            $accounts->checkCurrent($me, 'wrong', $limiter);
+            $this->fail('a wrong current password');
+        } catch (UserError $e) {
+            $this->assertSame(403, $e->getCode());
+        }
+        $this->assertSame([6, 1], [$this->attempts('login_address'), $this->attempts('login')], 'a wrong one keeps both rows');
+        for ($i = 6; $i < 30; $i++) {
+            $limiter->hit('login_address');
+        }
+        $sameNet = new RateLimiter($this->db(), '2001:db8:7:8::99', $now);   // the same /64
+        $this->assertLimited(fn () => $accounts->checkCurrent($me, self::PW, $sameNet), 'Too many attempts from this address – please wait 15 minutes and try again.');
+        $this->assertSame([30, 1], [$this->attempts('login_address'), $this->attempts('login')], 'stopped before the account count');
+        $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '2001:db8:7:9::1', $now));   // another /64
+        $this->assertSame([30, 1], [$this->attempts('login_address'), $this->attempts('login')], 'its own rows taken back, the others stay');
     }
 
     #[DataProvider('drivers')]
@@ -311,6 +383,19 @@ final class SignInAccountsTest extends CIUnitTestCase
             $this->assertStringNotContainsString('short:', substr($e->getMessage(), 0, 3));
             $this->assertStringStartsWith('APP_PASSWORD is too short', $e->getMessage());
         }
+        try {
+            $accounts->ensureFirstAdmin(true, "placeholder\0-pw");
+            $this->fail('an APP_PASSWORD with a null character stops');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('APP_PASSWORD cannot contain a null character.', $e->getMessage());
+        }
+        try {
+            $accounts->ensureFirstAdmin(true, "\0");
+            $this->fail('the null character is checked before the length, as legacy');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('APP_PASSWORD cannot contain a null character.', $e->getMessage());
+        }
+        $this->assertSame(0, $this->users()->count());
         $accounts->ensureFirstAdmin(true, 'placeholder-pw');
         $admin = $this->users()->findByName('admin');
         $this->assertSame(['admin', 'active'], [$admin['role'] ?? null, $admin['status'] ?? null]);
@@ -408,6 +493,76 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame(11, $this->attempts('login'));
     }
 
+    /** Legacy address_scope() and client_key(): per-address buckets count an IPv6 client by its /64 (N-125, N-174). */
+    #[DataProvider('drivers')]
+    public function testPerAddressBucketsScopeIpv6ToItsPrefix(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        foreach ([
+            '192.0.2.7' => '192.0.2.7',
+            '2001:db8:1:2:aaaa::1' => '2001:db8:1:2::/64',
+            '::ffff:192.0.2.7' => '::ffff:192.0.2.7',
+            '::c000:207' => '::c000:207',
+            '64:ff9b::c000:207' => '64:ff9b::c000:207',
+            'cli' => 'cli',
+        ] as $ip => $scope) {
+            $this->assertSame($scope, RateLimiter::addressScope($ip), $ip);
+        }
+        $a = new RateLimiter($this->db(), '2001:db8:1:2::1', 1_800_000_000);
+        $b = new RateLimiter($this->db(), '2001:db8:1:2::ffff', 1_800_000_000);
+        $this->assertSame(substr(hash('sha256', '2001:db8:1:2::/64'), 0, 32), $a->bucket('login_address', null));
+        $this->assertSame($a->bucket('login_address', null), $b->bucket('login_address', null));
+        $this->assertSame($a->bucket('register', null), $b->bucket('register', null));
+        $this->assertNotSame($a->bucket('login', 'eda'), $b->bucket('login', 'eda'), 'per account: the full address');
+        for ($i = 0; $i < 30; $i++) {
+            $a->hit('login_address');
+        }
+        $this->assertLimited(fn () => $b->hit('login_address'), 'Too many attempts from this address – please wait 15 minutes and try again.');
+        (new RateLimiter($this->db(), '2001:db8:1:3::1', 1_800_000_000))->hit('login_address');
+    }
+
+    /** L-120: forget() takes back one row by id; the rest of the address bucket stays. */
+    #[DataProvider('drivers')]
+    public function testForgetTakesBackOnlyThatAttempt(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', 1_800_000_000);
+        $first = $limiter->hit('login_address');
+        $mine = $limiter->hit('login_address');
+        $this->assertGreaterThan($first, $mine);
+        $limiter->forget($mine);
+        $this->assertSame([$first], array_map('intval', array_column($this->db()->query('SELECT id FROM auth_attempts')->getResultArray(), 'id')));
+        $this->failOn('auth_attempts', 'DELETE');
+        try {
+            $limiter->forget($first);
+            $this->fail('the failed write must throw');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: auth_attempts forget', $e->getMessage());
+        }
+    }
+
+    /** N-162: the count's result is freed before a refused attempt's row is deleted (SQLite holds a read lock until then). */
+    public function testTheCountIsFreedBeforeTheRelease(): void
+    {
+        $log = [];
+        $result = $this->createMock(BaseResult::class);
+        $result->method('getRowArray')->willReturn(['n' => 11]);
+        $result->method('freeResult')->willReturnCallback(static function () use (&$log): void {
+            $log[] = 'free';
+        });
+        $builder = $this->createMock(BaseBuilder::class);
+        $builder->method('insert')->willReturn(true);
+        $db = $this->createMock(BaseConnection::class);
+        $db->method('table')->willReturn($builder);
+        $db->method('insertID')->willReturn(7);
+        $db->method('query')->willReturnCallback(static function (string $sql) use (&$log, $result): mixed {
+            $log[] = strtok($sql, ' ');
+            return str_starts_with($sql, 'SELECT') ? $result : true;
+        });
+        $this->assertLimited(fn () => (new RateLimiter($db, '10.0.0.1', 1_800_000_000))->hit('login', 'eda'), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertSame(['DELETE', 'SELECT', 'free', 'DELETE'], $log);
+    }
+
     /** @return iterable<string,array{0:string,1:string,2:string}> */
     public static function failures(): iterable
     {
@@ -433,7 +588,16 @@ final class SignInAccountsTest extends CIUnitTestCase
             'register' => fn () => $this->accounts()->register('rex', self::PW, self::PW, 'viewer', false),
             'rehash' => fn () => $this->accounts()->verify('eda', self::PW),
             'last login' => fn () => $this->accounts()->admit(['id' => $id, 'status' => 'active']),
-            'password' => fn () => $this->accounts()->changeOwnPassword(['id' => $id, 'username' => 'eda'], self::PW, 'newer-password', 'newer-password'),
+            'password' => function () use ($id): void {
+                // The current-password attempts (per address and per account) are recorded before, and outside, the write
+                // (legacy rate_limit()); drop them here.
+                $other = new RateLimiter($this->db(), '10.0.0.3', 1_800_000_000);
+                try {
+                    $this->accounts()->changeOwnPassword(['id' => $id, 'username' => 'eda'], self::PW, 'newer-password', 'newer-password', $other);
+                } finally {
+                    $this->db()->query('DELETE FROM auth_attempts WHERE client IN (?, ?)', [$other->bucket('login', 'eda'), $other->bucket('login_address', null)]);
+                }
+            },
             'first admin' => function () use ($id): void {
                 $this->db()->query('DELETE FROM users WHERE id = ' . $id);
                 $this->accounts()->ensureFirstAdmin(true, 'placeholder-pw');

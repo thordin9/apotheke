@@ -55,7 +55,11 @@ final class UserRepository
      */
     public function findByName(string $name): ?array
     {
-        $rows = Writes::rows($this->db, 'SELECT * FROM users WHERE username_key = ?', [self::key($name)]);
+        $key = self::key($name);
+        if (str_contains($key, "\0")) {
+            return null;   // no account name has one; the driver would cut the bound value at it (N-160)
+        }
+        $rows = Writes::rows($this->db, 'SELECT * FROM users WHERE username_key = ?', [$key]);
 
         return $rows === [] ? null : self::row($rows[0]);
     }
@@ -99,6 +103,46 @@ final class UserRepository
     public function activeRoles(): array
     {
         return array_map(static fn (array $r): string => (string)$r['role'], Writes::rows($this->db, "SELECT role FROM users WHERE status = 'active'"));
+    }
+
+    /**
+     * $fn in one transaction (Writes::transaction; nesting is flat).
+     *
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    public function atomically(callable $fn): mixed
+    {
+        return Writes::transaction($this->db, $fn);
+    }
+
+    /**
+     * Legacy users_lock_admins(), inside a transaction: a no-op write on the
+     * active admin accounts. Two changes that could each remove an admin then
+     * run one after the other (L-110).
+     */
+    public function lockActiveAdmins(): void
+    {
+        Writes::check($this->db->query("UPDATE users SET role = role WHERE role = 'admin' AND status = 'active'"), 'users admin lock');
+    }
+
+    /**
+     * Inside a transaction, before its first read: the active admin rows
+     * locked for this transaction. PostgreSQL locks them without writing
+     * (SELECT … FOR UPDATE). SQLite takes its one write lock with the no-op
+     * write of lockActiveAdmins(), so a concurrent writer waits for it
+     * instead of failing on a read lock it cannot upgrade. For changes
+     * legacy makes without users_lock_admins() (the roles editor).
+     */
+    public function holdActiveAdmins(): void
+    {
+        if ($this->db->DBDriver === 'Postgre') {
+            Writes::rows($this->db, "SELECT id FROM users WHERE role = 'admin' AND status = 'active' FOR UPDATE");
+
+            return;
+        }
+        $this->lockActiveAdmins();
     }
 
     /** Legacy user_approve(). */
