@@ -280,20 +280,55 @@ final class SignInAccountsTest extends CIUnitTestCase
         $id = $this->account('eda', 'editor', 'active');
         $accounts = $this->accounts();
         $me = ['id' => $id, 'username' => 'eda'];
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', time());
         foreach ([['wrong-password', 'newer-password', 403, 'The current password is not correct.'], [self::PW, 'short', 422, 'Use at least 8 characters for the password.'],
             [self::PW, "newer-\0-password", 422, 'Passwords cannot contain a null character.'], [self::PW . "\0", 'newer-password', 403, 'The current password is not correct.']] as [$current, $new, $code, $message]) {
             try {
-                $accounts->changeOwnPassword($me, $current, $new, $new);
+                $accounts->changeOwnPassword($me, $current, $new, $new, $limiter);
                 $this->fail($message);
             } catch (UserError $e) {
                 $this->assertSame([$code, $message], [$e->getCode(), $e->getMessage()]);
             }
         }
-        $epoch = $accounts->changeOwnPassword($me, self::PW, 'newer-password', 'newer-password');
+        $this->assertSame(1, $this->attempts('login'), 'a wrong current password counts; a right one clears');
+        $epoch = $accounts->changeOwnPassword($me, self::PW, 'newer-password', 'newer-password', $limiter);
+        $this->assertSame(0, $this->attempts('login'));
         $row = $this->users()->find($id);
         $this->assertSame($epoch, $row['session_epoch'] ?? null);
         $this->assertNotSame('', $epoch);
         $this->assertTrue(password_verify('newer-password', $row['password_hash'] ?? ''));
+    }
+
+    /** Legacy user_check_current(): the current password is limited like a sign-in for that account (#106). */
+    #[DataProvider('drivers')]
+    public function testTheCurrentPasswordIsLimited(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $id = $this->account('eda', 'editor', 'active');
+        $accounts = $this->accounts();
+        $me = ['id' => $id, 'username' => 'eda'];
+        $now = time();
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', $now);
+        for ($i = 0; $i < 10; $i++) {
+            try {
+                $accounts->checkCurrent($me, 'wrong-' . $i, $limiter);
+                $this->fail('a wrong current password');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+        }
+        $this->assertLimited(fn () => $accounts->checkCurrent($me, self::PW, $limiter), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertLimited(fn () => $accounts->changeOwnPassword($me, self::PW, 'newer-password', 'newer-password', $limiter), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertTrue(password_verify(self::PW, $this->users()->find($id)['password_hash'] ?? ''), 'unchanged');
+        $this->assertSame(10, $this->attempts('login'));
+        // Another address, and the same address for another account, are not limited.
+        $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '10.0.0.2', $now));
+        $this->assertSame(10, $this->attempts('login'));
+        $vera = $this->account('vera', 'viewer', 'active');
+        $accounts->checkCurrent(['id' => $vera, 'username' => 'vera'], self::PW, $limiter);
+        // After the window the right password clears the account's attempts from this address.
+        $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '10.0.0.1', $now + 901));
+        $this->assertSame(0, $this->attempts('login'));
     }
 
     #[DataProvider('drivers')]
@@ -311,6 +346,19 @@ final class SignInAccountsTest extends CIUnitTestCase
             $this->assertStringNotContainsString('short:', substr($e->getMessage(), 0, 3));
             $this->assertStringStartsWith('APP_PASSWORD is too short', $e->getMessage());
         }
+        try {
+            $accounts->ensureFirstAdmin(true, "placeholder\0-pw");
+            $this->fail('an APP_PASSWORD with a null character stops');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('APP_PASSWORD cannot contain a null character.', $e->getMessage());
+        }
+        try {
+            $accounts->ensureFirstAdmin(true, "\0");
+            $this->fail('the null character is checked before the length, as legacy');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('APP_PASSWORD cannot contain a null character.', $e->getMessage());
+        }
+        $this->assertSame(0, $this->users()->count());
         $accounts->ensureFirstAdmin(true, 'placeholder-pw');
         $admin = $this->users()->findByName('admin');
         $this->assertSame(['admin', 'active'], [$admin['role'] ?? null, $admin['status'] ?? null]);
@@ -379,7 +427,15 @@ final class SignInAccountsTest extends CIUnitTestCase
             'register' => fn () => $this->accounts()->register('rex', self::PW, self::PW, 'viewer', false),
             'rehash' => fn () => $this->accounts()->verify('eda', self::PW),
             'last login' => fn () => $this->accounts()->admit(['id' => $id, 'status' => 'active']),
-            'password' => fn () => $this->accounts()->changeOwnPassword(['id' => $id, 'username' => 'eda'], self::PW, 'newer-password', 'newer-password'),
+            'password' => function () use ($id): void {
+                // The current-password attempt is recorded before, and outside, the write (legacy rate_limit()); drop it here.
+                $other = new RateLimiter($this->db(), '10.0.0.3', 1_800_000_000);
+                try {
+                    $this->accounts()->changeOwnPassword(['id' => $id, 'username' => 'eda'], self::PW, 'newer-password', 'newer-password', $other);
+                } finally {
+                    $this->db()->query('DELETE FROM auth_attempts WHERE client = ?', [$other->bucket('login', 'eda')]);
+                }
+            },
             'first admin' => function () use ($id): void {
                 $this->db()->query('DELETE FROM users WHERE id = ' . $id);
                 $this->accounts()->ensureFirstAdmin(true, 'placeholder-pw');

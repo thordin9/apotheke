@@ -65,7 +65,6 @@ final class HardeningHttpTest extends TestCase
     /** The current-password check on Your account is limited like a sign-in for that account. */
     public function testTheCurrentPasswordCheckIsLimited(): void
     {
-        $this->skipOnCi4('the current-password throttle');
         $c = $this->signIn('ada');
         for ($i = 0; $i < 10; $i++) {
             $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'wrong-' . $i, 'new' => 'another-one', 'confirm' => 'another-one']);
@@ -106,7 +105,6 @@ final class HardeningHttpTest extends TestCase
     /** Two admins demoting each other at the same time: one admin always stays. */
     public function testTwoAdminsDemotingEachOtherKeepAnAdmin(): void
     {
-        $this->skipOnCi4('the last-admin lock');
         $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
         for ($round = 1; $round <= 8; $round++) {
             $this->pdo->exec("UPDATE users SET role = 'admin'");
@@ -118,6 +116,41 @@ final class HardeningHttpTest extends TestCase
             ]);
             foreach ($answers as $x) $this->assertContains($x['status'], [303, 403, 409], "round $round: " . substr($x['body'], 0, 200));
             $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "round $round");
+        }
+    }
+
+    /** An admin deleted while the other is demoted, and the command line against the page: one admin always stays. */
+    public function testAdminChangesAtOnceFromThePageAndTheCommandLineKeepAnAdmin(): void
+    {
+        $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $env = array_map('strval', array_merge(getenv(), test_server_env($this->dir), ['PHP_INI_SCAN_DIR' => '']));
+        for ($round = 1; $round <= 6; $round++) {
+            $this->pdo->exec("UPDATE users SET role = 'admin'");
+            $a = $this->signIn('ada');
+            $b = $this->signIn('bea');
+            $answers = $this->parallel([
+                [$a, 'POST', '/settings/users/' . $ids['bea'] . '/delete', ['csrf' => $a->csrf()]],
+                [$b, 'POST', '/settings/users/' . $ids['ada'] . '/role', ['csrf' => $b->csrf(), 'role' => 'editor']],
+            ]);
+            // 401: the account was deleted while its own request ran (CI4 answers as for nobody; legacy goes on with it).
+            foreach ($answers as $x) $this->assertContains($x['status'], [303, 401, 403, 409], "round $round: " . substr($x['body'], 0, 200));
+            $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "delete and demote, round $round");
+            if (!isset($this->pdo->query("SELECT username FROM users WHERE username = 'bea'")->fetchAll(PDO::FETCH_COLUMN)[0])) {
+                $this->pdo->prepare("INSERT INTO users (id, username, username_key, password_hash, role, status, created_at) VALUES (?, 'bea', 'bea', ?, 'admin', 'active', '2026-01-01 00:00:00')")
+                    ->execute([$ids['bea'], password_hash('long-enough', PASSWORD_DEFAULT)]);
+            }
+
+            $this->pdo->exec("UPDATE users SET role = 'admin'");
+            $a = $this->signIn('ada');
+            $cli = proc_open([PHP_BINARY, ROOT . '/bin/settings.php', 'user', 'role', 'ada', 'editor'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, $env);
+            $this->assertIsResource($cli);
+            [$page] = $this->parallel([[$a, 'POST', '/settings/users/' . $ids['bea'] . '/role', ['csrf' => $a->csrf(), 'role' => 'editor']]]);
+            $said = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $this->assertContains(proc_close($cli), [0, 1], "round $round: $said");
+            $this->assertContains($page['status'], [303, 403, 409], "round $round: " . substr($page['body'], 0, 200));
+            $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "command line and page, round $round");
         }
     }
 

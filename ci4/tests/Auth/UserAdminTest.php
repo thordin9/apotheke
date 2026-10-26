@@ -280,6 +280,72 @@ final class UserAdminTest extends CIUnitTestCase
         };
     }
 
+    /**
+     * L-110 on PostgreSQL: while one change to an admin holds the admin lock
+     * (its transaction still open), a second client's admin change, role
+     * change or role edit waits for it instead of counting the admins too
+     * early; here it gives up after a short lock_timeout. The lock and the
+     * write are one transaction (the same txid).
+     */
+    public function testTheAdminLockMakesAdminChangesWaitOnPostgres(): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->assertFalse((bool)getenv('CI'), 'CI runs the PostgreSQL lock test');
+            $this->markTestSkipped('PostgreSQL is not configured');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        $ada = $this->account('ada', 'admin');
+        $bea = $this->account('bea', 'admin');
+        $other = $this->database->connectAgain();
+        try {
+            $other->query("SET lock_timeout = '300ms'");
+            $otherRepo = new UserRepository($other);
+            $otherRoles = new RoleRepository($other);
+            $otherUsers = new UserAdmin($otherRepo, $otherRoles, new Accounts($otherRepo, $otherRoles, new Clock()), new AdminGuard($this->actor()), new Clock());
+            $otherRoleAdmin = new RoleAdmin($otherRoles, $otherRepo, $this->settings(), new Clock());
+            $this->assertTrue($this->db()->transBegin());
+            $this->users()->setRole($bea, 'editor');   // inside the open transaction: the admin rows stay locked
+            foreach (['demote' => fn () => $otherUsers->setRole($ada, 'editor'), 'delete' => fn () => $otherUsers->delete($ada),
+                'role edit' => fn () => $otherRoleAdmin->update('editor', null, ['view'])] as $what => $change) {
+                try {
+                    $change();
+                    $this->fail($what . ' did not wait for the admin lock');
+                } catch (WriteFailed) {
+                    $this->assertTrue(true);
+                }
+            }
+            $this->assertTrue($this->db()->transCommit());
+            $this->assertUserError(409, '“ada” is the only admin – make someone else an admin first.', fn () => $otherUsers->setRole($ada, 'editor'));
+            $this->assertSame(['admin', 'editor'], [$this->repo()->find($ada)['role'] ?? null, $this->repo()->find($bea)['role'] ?? null]);
+
+            // Two admins deleting each other.
+            $this->repo()->setRole($bea, 'admin');
+            $this->assertTrue($this->db()->transBegin());
+            $this->users()->delete($bea);
+            try {
+                $otherUsers->delete($ada);
+                $this->fail('the second delete did not wait for the admin lock');
+            } catch (WriteFailed) {
+                $this->assertTrue(true);
+            }
+            $this->assertTrue($this->db()->transCommit());
+            $this->assertUserError(409, '“ada” is the only admin and cannot be deleted.', fn () => $otherUsers->delete($ada));
+            $bea = $this->account('bea', 'admin');
+        } finally {
+            $other->close();
+        }
+
+        // One transaction: every users write of a role change has the same txid.
+        $this->repo()->setRole($bea, 'admin');
+        $pdo = $this->database->pdo();
+        $pdo->exec('CREATE TABLE txids (txid bigint)');
+        $pdo->exec("CREATE FUNCTION note_txid() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN INSERT INTO txids VALUES (txid_current()); RETURN NEW; END'");
+        $pdo->exec('CREATE TRIGGER note_txid BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION note_txid()');
+        $this->users()->setRole($bea, 'editor');
+        $this->assertSame(1, count(array_unique($this->db()->query('SELECT txid FROM txids')->getResultArray(), SORT_REGULAR)), 'the lock and the write in one transaction');
+        $this->assertGreaterThanOrEqual(3, (int)($this->db()->query('SELECT COUNT(*) AS n FROM txids')->getRowArray()['n'] ?? 0), 'two admin rows locked, then the role written');
+    }
+
     private function users(): UserAdmin
     {
         $roles = new RoleRepository($this->db());
