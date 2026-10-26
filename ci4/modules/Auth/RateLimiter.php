@@ -35,13 +35,32 @@ final class RateLimiter
     /** Legacy rate_bucket(). */
     public function bucket(string $kind, ?string $account): string
     {
-        $material = $kind === 'login' ? $this->clientAddress . "\0" . UserRepository::key((string)$account) : $this->clientAddress;
+        $material = $kind === 'login' ? $this->clientAddress . "\0" . UserRepository::key((string)$account) : self::addressScope($this->clientAddress);
 
         return substr(hash('sha256', $material), 0, 32);
     }
 
-    /** Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the attempt. */
-    public function hit(string $kind, ?string $account = null): void
+    /**
+     * Legacy address_scope(): per-address limits count an IPv6 client by its
+     * /64. IPv4, and IPv6 forms that carry an IPv4 address in their last 32
+     * bits (::ffff:0:0/96, ::/96, 64:ff9b::/96), keep the whole address as
+     * given. Anything else is returned unchanged.
+     */
+    public static function addressScope(string $ip): string
+    {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+            return $ip;
+        }
+        $bin = (string)inet_pton($ip);
+        if (in_array(substr($bin, 0, 12), [str_repeat("\0", 10) . "\xff\xff", str_repeat("\0", 12), "\x00\x64\xff\x9b" . str_repeat("\0", 8)], true)) {
+            return $ip;
+        }
+
+        return inet_ntop(substr($bin, 0, 8) . str_repeat("\0", 8)) . '/64';
+    }
+
+    /** Throws 429 when $kind was tried too often for this client (and, for sign-in, this account); otherwise records the attempt and returns its row id. */
+    public function hit(string $kind, ?string $account = null): int
     {
         [$max, $window] = self::LIMITS[$kind];
         $key = $this->bucket($kind, $account);
@@ -62,6 +81,14 @@ final class RateLimiter
             $scope = $kind === 'login' ? 'for this account from this address' : 'from this address';
             throw new UserError('Too many attempts ' . $scope . ' – please wait ' . (int)ceil($window / 60) . ' minutes and try again.', 429);
         }
+
+        return $mine;
+    }
+
+    /** Legacy rate_limit_forget(): take back one recorded attempt (a success's own row in the per-address count). */
+    public function forget(int $id): void
+    {
+        Writes::check($this->db->query('DELETE FROM auth_attempts WHERE id = ?', [$id]), 'auth_attempts forget');
     }
 
     /** Legacy rate_limit_clear(): after a successful sign-in. */

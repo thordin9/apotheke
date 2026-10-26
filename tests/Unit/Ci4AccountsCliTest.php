@@ -180,7 +180,9 @@ final class Ci4AccountsCliTest extends TestCase
         $pg = testdb($left)->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql';
         $cases = [
             ['users', 'INSERT', ['user', 'add', 'cleo', 'viewer', 'long-enough'], 'Database write failed: users insert'],
-            ['users', 'UPDATE', ['user', 'role', 'bob', 'viewer'], 'Database write failed: users role'],
+            // The last-admin lock (L-110) is the first write of a role change or a delete, as legacy's users_lock_admins().
+            ['users', 'UPDATE', ['user', 'role', 'bob', 'viewer'], 'Database write failed: users admin lock'],
+            ['users', 'UPDATE', ['user', 'delete', 'bob'], 'Database write failed: users admin lock'],
             ['users', 'UPDATE', ['user', 'password', 'bob', 'bob-password-2'], 'Database write failed: users password'],
             ['users', 'UPDATE', ['user', 'rename', 'bob', 'bobby'], 'Database write failed: users rename'],
             ['users', 'UPDATE', ['user', 'approve', 'bob'], 'Database write failed: users approve'],
@@ -283,6 +285,14 @@ final class Ci4AccountsCliTest extends TestCase
         ]);
         $this->assertSame(130, $r['exit'], $r['shown']);
         $this->assertTerminalClean($r, [$typed]);
+
+        // SIGTERM (kill) during the prompt restores the terminal too and exits 128 + 15 (N-133).
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'user', 'password', 'bob'], $env, [
+            ['wait', 'New password: '], ['send', $other], ['sigterm'],
+        ]);
+        $this->assertSame(143, $r['exit'], $r['shown']);
+        $this->assertStringEndsWith("New password: \r\n", $r['shown'], 'a newline after the interrupted line');
+        $this->assertTerminalClean($r, [$other]);
     }
 
     /**

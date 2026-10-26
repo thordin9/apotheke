@@ -1,17 +1,19 @@
 """Runs a command on a fresh pseudo-terminal for the CLI prompt tests.
 
 Usage: python3 pty-run.py SPEC_JSON, where SPEC is
-{"cmd": [...], "cwd": "...", "steps": [["wait", TEXT] | ["send", TEXT] | ["sigint"]]}.
+{"cmd": [...], "cwd": "...", "steps": [["wait", TEXT] | ["send", TEXT] | ["sigint"] | ["sigterm"]]}.
 The command gets the pty as stdin, stdout, stderr and controlling terminal,
 so Ctrl-C ("sigint", sent as the ^C character) reaches it as from a
-keyboard. Prints JSON: everything the terminal showed, the exit code (a
-negative number for a signal), and `stty -a` of the pty after the command
+keyboard; "sigterm" sends SIGTERM to the command, as `kill` does. Prints
+JSON: everything the terminal showed, the exit code (a negative number for
+a signal), and `stty -a` of the pty after the command
 has exited.
 """
 import fcntl
 import json
 import os
 import select
+import signal
 import subprocess
 import sys
 import termios
@@ -55,6 +57,8 @@ for step in spec["steps"]:
         os.write(master, step[1].encode())
     elif step[0] == "sigint":
         os.write(master, b"\x03")
+    elif step[0] == "sigterm":
+        proc.send_signal(signal.SIGTERM)
 
 try:
     code = proc.wait(timeout=60)

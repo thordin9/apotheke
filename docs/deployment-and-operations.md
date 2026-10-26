@@ -198,7 +198,10 @@ Behind a TLS proxy:
 * `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in `trusted_proxies` /
   `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With `trust_proxy` on and an
   empty list, the connecting address is used. The sign-in limit is 10 attempts per 15 minutes for one account from
-  that client.
+  that client, and 30 per 15 minutes for all accounts from one address (an IPv6 client counts by its /64). Everyone
+  behind one address shares that cap, so behind a reverse proxy list it in `TRUSTED_PROXIES`; otherwise every client
+  has the proxy's address, and 30 failed tries from anyone hold up sign-in for all of them for up to 15 minutes.
+  Clients behind one NAT share the cap too. Sessions already signed in are not affected.
 
 ### Host names
 

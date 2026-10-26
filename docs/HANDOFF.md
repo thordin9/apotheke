@@ -136,8 +136,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   attachments, plus #104 N-112 (`users` and `roles` on CI4). Merged.
 - [#109](https://github.com/thordin9/apotheke/pull/109): CI4 port of #106's sign-in limits: the attempt is
   recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Merged.
-- [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106's account hardening (current-password
-  throttle, last admin, `APP_PASSWORD`). Open.
+- [#113](https://github.com/thordin9/apotheke/pull/113): sync `main` v2.6.17 (#111, #112) and port their CI4
+  counterparts (L-120, N-124, N-125, N-174, L-170 for turning sign-in on, N-126), plus N-160 and N-162. Merged.
+- [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106 for accounts: the current-password limit,
+  per account and per address (L-170), the last-admin lock (L-110; role edits take it first, also on SQLite), the
+  `APP_PASSWORD` null-character check and SIGTERM at the CLI prompt (N-133). Merged.
 - [#114](https://github.com/thordin9/apotheke/pull/114): PLAN step 13 (first part), QR labels, barcode lookup and
   lending. Open.
 
@@ -147,23 +150,24 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   catalog (#99); Playwright on CI4 (#101); step 11a item pages (#102, merged); step 11a part 2, the photo routes
   (#103, merged). Stays out of the auth, account, users/roles, taxonomy and Notes files
   (only the route table in `PermissionFilterTest` gets the new photo routes). #106 port to CI4: `RateLimiter::hit`
-  records first, the per-address cap on `/login` (#109); Coder2 ports the current-password throttle, the last-admin
-  lock and the `APP_PASSWORD` null-character check (still skipped on CI4 in `HardeningHttpTest`).
+  records first, the per-address cap on `/login` (#109, merged); #111/#112 port (#113, merged): IPv6 /64 address
+  scope, a success takes back only its own address row, turning sign-in on is limited, replaced covers removed after
+  the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
+  and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
-  forms (#105, merged); step 11b (#108, merged); #106 port (#110); step 13 labels, barcode, lending (#114), then
-  stocktake. Stays out of the Auth files of the #106 hardening port. Owns the
-  N-63 router follow-up below.
+  forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
+  lending (#114), then stocktake. Owns the N-63 router follow-up below.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #110 and #114 (step 13, first part); stocktake (step 13, second part) follows.
+1. Review and merge #114 (step 13, first part), then #115 (stocktake, step 13 second part), then a follow-up PR
+   (L-230, L-240 and the N-items), then the N-63 router fix.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. Autofill reads photos through Media.
-4. Port the #106 hardening to CI4.
 
 ## Tracked
 
