@@ -189,6 +189,36 @@ final class HardeningHttpTest extends TestCase
         $this->assertSame(5, $count());
     }
 
+    /** A sign-in name with a null character anywhere never signs in, and the account's limit still applies. */
+    public function testSignInNamesWithANullCharacterAreRefused(): void
+    {
+        foreach (["ada\0x", "\0ada", "ada\0", "ADA\0"] as $name) {
+            $c = $this->server->client();
+            $r = $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => $name, 'password' => 'long-enough']);
+            $this->assertSame(401, $r['status'], json_encode($name));
+            $this->assertStringContainsString('Wrong user name or password.', $r['body']);
+            $this->assertNotSame(200, $c->get('/')['status'], json_encode($name) . ': not signed in');
+        }
+        $this->pdo->exec('DELETE FROM auth_attempts');
+        $key = substr(hash('sha256', "127.0.0.1\0ada"), 0, 32);
+        $st = $this->pdo->prepare("INSERT INTO auth_attempts (kind, client, at) VALUES ('login', ?, ?)");
+        for ($i = 0; $i < 10; $i++) $st->execute([$key, time()]);
+        $c = $this->server->client();
+        $this->assertSame(429, $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => "ada\0", 'password' => 'long-enough'])['status'], 'same account limit');
+        $this->pdo->exec('DELETE FROM auth_attempts');
+        $this->signIn('ada');
+
+        $this->setting('auth_enabled', false);
+        $users = (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+        foreach (["ada\0x", "\0ada", "ada\0"] as $name) {
+            $g = $this->server->client();
+            $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => $name, 'new' => 'long-enough', 'confirm' => 'long-enough']);
+            $this->assertSame(403, $r['status'], 'turning sign-in on as ' . json_encode($name));
+        }
+        $this->assertSame('false', (string)$this->pdo->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'still off');
+        $this->assertSame($users, (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'no account created');
+    }
+
     /** Two admins deleting each other, or one demoting while the other deletes, at the same time: one admin stays. */
     public function testDeletesAndDemotionsAtOnceKeepAnAdmin(): void
     {

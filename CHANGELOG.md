@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **security:** hardening: a sign-in name with a null character anywhere is refused like a wrong password, on the sign-in form and when turning sign-in back on, on both databases. ([#116](https://github.com/thordin9/apotheke/pull/116))
+
 ## [2.6.17] - 2026-10-26
 
 ### Fixed
