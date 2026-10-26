@@ -149,7 +149,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#114](https://github.com/thordin9/apotheke/pull/114): PLAN step 13 (first part), QR labels, barcode lookup and
   lending. Merged.
 - [#119](https://github.com/thordin9/apotheke/pull/119): #118 follow-up L-270: EXIF orientation is read from a memory
-  stream, so a rotated stored photo goes out upright with `allow_url_fopen` off. Open.
+  stream, so a rotated stored photo goes out upright with `allow_url_fopen` off. Merged.
+- [#120](https://github.com/thordin9/apotheke/pull/120): QA notes. N-261: register, admin-add and rename refuse a
+  user name with a null character before trimming (stricter than legacy until main's N-251). N-280: the EXIF test
+  checks corner colours for orientations 2-8. N-281: the stub helpers use curl, and CI runs the Autofill and Media
+  suites with `allow_url_fopen` off. Open.
 
 ## Lanes
 
@@ -162,7 +166,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, open).
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, open).
   Touches `Media\ImageStore` and the Autofill module only.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
@@ -173,7 +177,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #119 (L-270, rotated photos with `allow_url_fopen` off).
+1. Review and merge #120 (N-261, N-280, N-281).
 2. Review and merge #115 (stocktake, step 13 second part), then a follow-up PR (L-230, L-240 and the N-items), then
    the N-63 router fix.
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
