@@ -91,4 +91,35 @@ final class StocktakeTest extends DatabaseTestCase
         $this->assertSame([['Saw', null]], array_map(fn($l) => [$l['item_name'], $l['item_id']], $rep['missing']));
         $this->assertContains('stocktakes', backup_tables());
     }
+
+    /**
+     * A finish, cancel or tick that read the stocktake as open while another client was closing it answers 409 and
+     * changes nothing once that close commits (L-240, L-340): no second set of moves, no cancel over a finish, and no
+     * line added to a finished stocktake.
+     */
+    public function testWritesThatRaceACloseAnswer409(): void
+    {
+        $tent = $this->item('Tent', $this->attic);
+        foreach (['finish', 'cancel', 'tick'] as $what) {
+            $id = stocktake_start($this->garage);
+            if ($what === 'finish') stocktake_check($id, $tent);
+            $lines = stocktake_lines($id);
+            $wait = $this->holdInAnotherClient([["UPDATE stocktakes SET status = 'done', finished_at = ? WHERE id = ?", [now_utc(), $id]]], 300);
+            try {
+                match ($what) {
+                    'finish' => stocktake_finish($id, true),
+                    'cancel' => stocktake_cancel($id),
+                    'tick' => stocktake_check($id, $tent),
+                };
+                $this->fail("$what: expected 409");
+            } catch (UserError $e) {
+                $this->assertSame(409, $e->getCode(), "$what: " . $e->getMessage());
+            } finally {
+                $this->assertStringEndsWith("committed\n", $wait());
+            }
+            $this->assertSame('done', stocktake_get($id)['status'], $what);
+            $this->assertEquals($lines, stocktake_lines($id), "$what: lines unchanged");
+            $this->assertSame($this->attic, (int)item_get($tent)['location_id'], "$what: nothing moved");
+        }
+    }
 }

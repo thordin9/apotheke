@@ -63,4 +63,29 @@ final class LendingTest extends DatabaseTestCase
         }
         $this->assertFalse(is_lent(item_get($a)));
     }
+
+    /**
+     * A lend or return while another client's write on the item is still open waits for it and then reads the
+     * committed item (L-230): a return after another return logs nothing, and a lend logs the other client's borrower
+     * as "before". Without the lock first, PostgreSQL logs from a stale read and SQLite answers "database is locked".
+     */
+    public function testLendAndReturnWaitForAnotherClientsWrite(): void
+    {
+        $id = $this->item('Drill');
+        item_lend($id, 'Maria', null, null);
+        $actions = fn(): array => array_column(array_reverse(activity_list($id)), 'action');
+        $before = $actions();
+
+        $wait = $this->holdInAnotherClient([['UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL WHERE id = ?', [$id]]], 300);
+        item_return($id);
+        $this->assertStringEndsWith("committed\n", $wait());
+        $this->assertNull(item_get($id)['lent_to']);
+        $this->assertSame($before, $actions(), 'returned by the other client: this return logs nothing');
+
+        $wait = $this->holdInAnotherClient([['UPDATE items SET lent_to = ?, lent_at = ? WHERE id = ?', ['Nikos', local_today(), $id]]], 300);
+        item_lend($id, 'Eleni', null, null);
+        $this->assertStringEndsWith("committed\n", $wait());
+        $this->assertSame('Eleni', item_get($id)['lent_to']);
+        $this->assertSame(['to' => 'Eleni', 'at' => local_today(), 'before' => 'Nikos'], activity_list($id, 1, 1)[0]['details']);
+    }
 }

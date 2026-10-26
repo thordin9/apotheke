@@ -247,27 +247,82 @@ final class HardeningTest extends DatabaseTestCase
         $this->assertSame(0, (int)$this->pdo->query('SELECT COUNT(*) FROM items')->fetchColumn());
     }
 
-    /** after_commit() inside a migration waits for migrate's COMMIT and is dropped on a rollback, on every driver and PHP version. */
+    /**
+     * after_commit() inside a migration waits for migrate's COMMIT and is dropped on a rollback, on every driver and
+     * PHP version: the callback sees the migration from a second connection (N-312), and right after a failed
+     * migration the flag is off and after_commit() runs at once (N-313).
+     */
     public function testAfterCommitInsideAMigrationWaitsForTheCommit(): void
     {
         $GLOBALS['mig_ran'] = [];
+        $GLOBALS['mig_other'] = $this->connectAgain();
         $dir = sys_get_temp_dir() . '/apotheke-mig-' . bin2hex(random_bytes(4));
         mkdir($dir);
-        $step = fn(string $sql): string => "<?php return function (PDO \$pdo): void { after_commit(function (): void { \$GLOBALS['mig_ran'][] = 'after'; }); \$GLOBALS['mig_ran'][] = 'step'; \$pdo->exec('$sql'); };";
+        $step = fn(string $sql): string => "<?php return function (PDO \$pdo): void { after_commit(function (): void { \$GLOBALS['mig_ran'][] = 'after ' . \$GLOBALS['mig_other']->query(\"SELECT COUNT(*) FROM schema_migrations WHERE version = '0902'\")->fetchColumn(); }); \$GLOBALS['mig_ran'][] = 'step'; \$pdo->exec('$sql'); };";
         try {
             file_put_contents("$dir/0902_after.php", $step('CREATE TABLE mig_after ('));
             try { migrate($this->pdo, $this->driver, ['dir' => $dir]); $this->fail('expected a failure'); } catch (PDOException) {}
             $this->assertSame(['step'], $GLOBALS['mig_ran'], 'a failed migration drops it');
+            $this->assertFalse(migrate_active(), 'the flag is off after a failed migration');
+            after_commit(function (): void { $GLOBALS['mig_ran'][] = 'after a failure'; });
+            $this->assertSame(['step', 'after a failure'], $GLOBALS['mig_ran'], 'and after_commit() runs at once');
             file_put_contents("$dir/0902_after.php", $step('CREATE TABLE mig_after (id INTEGER)'));
             $this->assertSame(['0902'], migrate($this->pdo, $this->driver, ['dir' => $dir]));
-            $this->assertSame(['step', 'step', 'after'], $GLOBALS['mig_ran'], 'runs after the commit');
+            $this->assertSame(['step', 'after a failure', 'step', 'after 1'], $GLOBALS['mig_ran'], 'runs after the commit, which another connection sees');
             after_commit(function (): void { $GLOBALS['mig_ran'][] = 'outside'; });
-            $this->assertSame(['step', 'step', 'after', 'outside'], $GLOBALS['mig_ran'], 'outside a transaction it runs at once again');
+            $this->assertSame('outside', end($GLOBALS['mig_ran']), 'outside a transaction it runs at once again');
         } finally {
             array_map('unlink', glob($dir . '/*') ?: []);
             @rmdir($dir);
-            unset($GLOBALS['mig_ran']);
+            unset($GLOBALS['mig_ran'], $GLOBALS['mig_other']);
         }
+    }
+
+    /**
+     * bin/migrate.php gives its connection to db(), so a migration that calls after_commit() or db() does not open a
+     * second connection (N-311). With a second one, SQLite answered "database is locked" and PostgreSQL waited on the
+     * migrations lock. Runs a copy of the app with one extra migration.
+     */
+    public function testTheMigrateCommandSharesItsConnection(): void
+    {
+        $app = sys_get_temp_dir() . '/apotheke-cli-' . bin2hex(random_bytes(4));
+        $root = dirname(__DIR__, 2);
+        mkdir($app);
+        try {
+            foreach (['bin', 'src', 'migrations'] as $d) exec('cp -R ' . escapeshellarg("$root/$d") . ' ' . escapeshellarg("$app/$d"));
+            file_put_contents("$app/migrations/9990_after_commit.php", "<?php return function (PDO \$pdo): void { db()->exec('CREATE TABLE cli_after (id INTEGER)'); after_commit(function (): void { db()->exec('INSERT INTO cli_after (id) VALUES (1)'); }); };");
+            $env = array_merge(getenv(), $this->driver === 'pgsql' ? ['DB_SCHEMA' => 'c_' . bin2hex(random_bytes(6))] : ['SQLITE_PATH' => "$app/cli.sqlite"]);
+            $proc = proc_open([PHP_BINARY, "$app/bin/migrate.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
+            stream_set_blocking($pipes[1], false);
+            $out = '';
+            $deadline = microtime(true) + 20;
+            while (proc_get_status($proc)['running'] && microtime(true) < $deadline) { $out .= stream_get_contents($pipes[1]); usleep(50000); }
+            $running = proc_get_status($proc)['running'];
+            if ($running) proc_terminate($proc, 9);
+            $out .= stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+            $code = proc_close($proc);
+            $this->assertFalse($running, 'migrate.php did not finish: ' . $out);
+            $this->assertSame(0, $code, $out);
+            $this->assertStringContainsString('applied 9990 after_commit', $out);
+            $pdo = db_connect(['sqlite_path' => "$app/cli.sqlite", 'schema' => $env['DB_SCHEMA'] ?? ''] + cfg()['db']);
+            $this->assertSame(1, (int)$pdo->query('SELECT COUNT(*) FROM cli_after')->fetchColumn(), 'the queued step ran after the commit');
+            if ($this->driver === 'pgsql') $pdo->exec('DROP SCHEMA "' . $env['DB_SCHEMA'] . '" CASCADE');
+        } finally {
+            exec('rm -rf ' . escapeshellarg($app));
+        }
+    }
+
+    /** A failed password check waits until sign_in_fail_ms after the request began; once past it, it does not wait. */
+    public function testSignInPaceWaitsForTheDeadlineFromTheStart(): void
+    {
+        $slept = [];
+        $sleep = function (int $us) use (&$slept): void { $slept[] = $us; };
+        $ms = cfg()['sign_in_fail_ms'];
+        $waited = sign_in_pace(microtime(true) - 0.3, $sleep);
+        $this->assertSame([$waited], $slept);
+        $this->assertEqualsWithDelta(($ms - 300) * 1000, $waited, 20000, 'the rest of the deadline, not a fixed sleep');
+        $this->assertSame(0, sign_in_pace(microtime(true) - $ms / 1000 - 0.01, $sleep), 'past the deadline');
+        $this->assertCount(1, $slept);
     }
 
     public function testAFailingAfterCommitCallbackDoesNotStopTheOthers(): void
