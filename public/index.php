@@ -119,8 +119,9 @@ try {
             check_csrf();
             $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
             try {
+                rate_limit('login_address');   // all names from this address
                 rate_limit('login', $who);
-                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); redirect('/'); }
+                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_clear('login_address'); redirect('/'); }
                 usleep(400000);
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
@@ -195,7 +196,7 @@ try {
         if ($method === 'POST') {
             check_csrf();
             try {
-                if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                user_check_current($me, (string)($_POST['current'] ?? ''));
                 user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
             } catch (UserError $e) {
                 http_response_code($e->getCode() ?: 422);
@@ -327,6 +328,12 @@ try {
         // changing the location of an existing item (or adding a new location on the way) needs "move"
         $locCol = tax('location')['col'];
         if ($existing && ((isset($_POST[$locCol]) && ($vals[$locCol] ?? null) !== ($existing[$locCol] === null ? null : (int)$existing[$locCol])) || $vals['new_location'] !== '')) require_perm('move');
+        $formError = function (UserError $e) use (&$vals, $existing): never {
+            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], 422);
+            http_response_code(422);
+            view_form($existing, $vals, locations(), categories(), $e->getMessage());
+            exit;
+        };
         try {
             if ($vals['name'] === '') throw new UserError('Please give the item a name.');
             if ($qty === false) throw new UserError('Quantity must be a whole number between 0 and 1,000,000.');
@@ -337,23 +344,42 @@ try {
                 if ($vals['new_' . $kind] === '' && $raw[$kind] === '__new') throw new UserError('Type a name for the new ' . $t['one'] . '.');
                 if ($vals[$t['col']] !== null && !tax_get($kind, $vals[$t['col']])) throw new UserError('That ' . $t['one'] . ' no longer exists. Please pick another.');
             }
-            foreach (KINDS as $kind) {
-                if ($vals['new_' . $kind] !== '') {
-                    // typed a new entry (inline field / no-JS fallback): create it, or reuse a same-named one
-                    $vals[tax($kind)['col']] = tax_create($kind, $vals['new_' . $kind])['id'];
-                    $vals['new_' . $kind] = '';
-                }
-            }
-            $file = pick_upload(['photo', 'photo2']);
-            $newImage = $file ? image_store($file) : null;
         } catch (UserError $e) {
-            if (wants_json()) json_out(['ok' => false, 'error' => $e->getMessage()], 422);
-            http_response_code(422);
-            view_form($existing, $vals, locations(), categories(), $e->getMessage());
-            exit;
+            $formError($e);
+        }
+        // The photo is stored before the transaction and stays armed for cleanup until the save commits: a failed
+        // save keeps no photo and no new location or category. A refused photo keeps the new entries, as before.
+        $newImage = null;
+        $storeError = null;
+        try {
+            $file = pick_upload(['photo', 'photo2']);
+            if ($file) {
+                $newImage = image_store($file);
+                image_upload_cleanup_arm($newImage);
+            }
+        } catch (UserError $e) {
+            $storeError = $e;
         }
         $before = $existing ? undo_snapshot([(int)$existing['id']]) : [];
-        $savedId = item_save($existing, $fields + $vals, $newImage, !empty($_POST['remove_image']));
+        $savedId = db_tx(function () use (&$vals, $fields, $existing, $newImage, $storeError) {
+            try {
+                foreach (KINDS as $kind) {
+                    if ($vals['new_' . $kind] !== '') {
+                        // typed a new entry (inline field / no-JS fallback): create it, or reuse a same-named one
+                        $vals[tax($kind)['col']] = tax_create($kind, $vals['new_' . $kind])['id'];
+                        $vals['new_' . $kind] = '';
+                    }
+                }
+            } catch (UserError $e) {
+                return $e;   // keeps what was created, as before
+            }
+            return $storeError ?? item_save($existing, $fields + $vals, $newImage, !empty($_POST['remove_image']));
+        });
+        if ($newImage !== null) {
+            if ($savedId instanceof UserError) image_delete($newImage);
+            image_upload_cleanup_disarm($newImage);
+        }
+        if ($savedId instanceof UserError) $formError($savedId);
         $undo = null;
         if ($before) {
             $strip = fn(array $s) => [array_diff_key($s['row'], ['updated_at' => 1, 'search' => 1, 'image' => 1]), $s['tags']];
@@ -415,7 +441,9 @@ try {
                 } catch (UserError $e) {
                     throw new UserError($e->getMessage(), 422);
                 }
+                image_upload_cleanup_arm($name);   // until its row commits
                 photo_add($iid, $name);
+                image_upload_cleanup_disarm($name);
                 $added++;
             }
             if (wants_json()) json_out(['ok' => true, 'added' => $added, 'count' => count(photos_for($iid))]);
@@ -638,11 +666,11 @@ try {
         $me = current_user();
         try {
             if ($mode === 'disable') {
-                if (!$me['guest'] && !user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                if (!$me['guest']) user_check_current($me, (string)($_POST['current'] ?? ''));
                 auth_turn_off();
             } elseif (!$me['guest']) {
                 // signed in: change your own password
-                if (!user_verify($me['username'], (string)($_POST['current'] ?? ''))) throw new UserError('The current password is not correct.', 403);
+                user_check_current($me, (string)($_POST['current'] ?? ''));
                 user_set_password($me['id'], (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
                 login_session($me['id'], keepSignIn: true);
             } else {
