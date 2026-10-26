@@ -101,10 +101,14 @@ final class SecurityController extends AuthPages
                 $name = $name !== '' ? $name : 'admin';
                 $user = $this->userAdmin()->findByName($name);
                 if ($user !== null) {
-                    // An account exists already: sign in as that admin to turn sign-in back on.
+                    // An account exists already: sign in as that admin to turn sign-in back on (limited like a sign-in).
+                    $mine = $this->limiter()->hit('login_address');
+                    $this->limiter()->hit('login', $name);
                     if ($user['role'] !== 'admin' || $this->accounts()->verify($name, $this->post('new')) === null) {
                         throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     }
+                    $this->limiter()->clear('login', $name);
+                    $this->limiter()->forget($mine);
                     $uid = $user['id'];
                 } else {
                     /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
