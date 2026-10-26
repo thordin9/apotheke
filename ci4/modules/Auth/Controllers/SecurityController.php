@@ -97,14 +97,16 @@ final class SecurityController extends AuthPages
                 $epoch = $this->userAdmin()->setPassword($me['id'], $this->post('new'), $this->post('confirm'));
                 (new SessionGate(time()))->signIn($me['id'], $epoch, keepSignIn: true);
             } else {
-                $name = Text::cleanLine($this->post('username'), Accounts::USERNAME_MAX * 2);
+                $raw = $this->post('username');
+                $name = Text::cleanLine($raw, Accounts::USERNAME_MAX * 2);
                 $name = $name !== '' ? $name : 'admin';
-                $user = $this->userAdmin()->findByName($name);
-                if ($user !== null) {
+                $nul = str_contains($raw, "\0");   // never matches an account, and never creates one (N-221)
+                $user = $nul ? null : $this->userAdmin()->findByName($name);
+                if ($user !== null || $nul) {
                     // An account exists already: sign in as that admin to turn sign-in back on (limited like a sign-in).
                     $mine = $this->limiter()->hit('login_address');
                     $this->limiter()->hit('login', $name);
-                    if ($user['role'] !== 'admin' || $this->accounts()->verify($name, $this->post('new')) === null) {
+                    if ($user === null || $user['role'] !== 'admin' || $this->accounts()->verify($name, $this->post('new')) === null) {
                         throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     }
                     $this->limiter()->clear('login', $name);

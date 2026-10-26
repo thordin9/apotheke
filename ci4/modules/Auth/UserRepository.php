@@ -55,11 +55,10 @@ final class UserRepository
      */
     public function findByName(string $name): ?array
     {
-        $key = self::key($name);
-        if (str_contains($key, "\0")) {
-            return null;   // no account name has one; the driver would cut the bound value at it (N-160)
+        if (str_contains($name, "\0")) {
+            return null;   // no account name has one, anywhere (N-160, N-221); the driver would cut the bound value at it
         }
-        $rows = Writes::rows($this->db, 'SELECT * FROM users WHERE username_key = ?', [$key]);
+        $rows = Writes::rows($this->db, 'SELECT * FROM users WHERE username_key = ?', [self::key($name)]);
 
         return $rows === [] ? null : self::row($rows[0]);
     }

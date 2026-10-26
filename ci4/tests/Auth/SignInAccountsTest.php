@@ -529,6 +529,19 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame($before, $this->snapshot(), 'nothing changed');
     }
 
+    /** N-160, N-221: a name with a null character anywhere, before trimming, finds no account (legacy user_by_name()). */
+    #[DataProvider('drivers')]
+    public function testANameWithANullCharacterFindsNoAccount(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $this->account('ada', 'admin', 'active', 4);
+        $this->assertNotNull($this->users()->findByName(' ADA '));
+        foreach (["ada\0x", "\0ada", "ada\0", "ADA\0"] as $name) {
+            $this->assertNull($this->users()->findByName($name), (string)json_encode($name));
+            $this->assertNull($this->accounts()->verify($name, self::PW), (string)json_encode($name));
+        }
+    }
+
     public function testFindHidesOnlyDatabaseErrors(): void
     {
         $this->database = TestDatabase::create('sqlite');
