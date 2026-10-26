@@ -22,7 +22,7 @@ use CodeIgniter\HTTP\ResponseInterface;
  */
 final class SignInController extends AuthPages
 {
-    /** GET and POST /login */
+    /** /login: POST signs in, every other method shows the page (legacy, N-63) */
     public function login(): ResponseInterface
     {
         // A failed sign-in answers at a fixed deadline from here (Auth\SignInPace).
@@ -56,7 +56,7 @@ final class SignInController extends AuthPages
         }
     }
 
-    /** GET and POST /register */
+    /** /register: POST registers, every other method shows the page (legacy, N-63) */
     public function register(): ResponseInterface
     {
         $this->firstAdmin();

@@ -177,6 +177,9 @@ final class PermissionFilterTest extends CIUnitTestCase
                 }
             }
         }
+        // The sign-in, registration and account pages answer PUT, PATCH and DELETE as well (N-63).
+        $this->assertSame(['/account', '/login', '/register'], self::pageVerbPaths($collection));
+        $seen = array_values(array_unique($seen));
         sort($seen);
         $expected = array_map(static fn (string $r): string => '/' . $r, [...array_keys(self::POST_ROUTES + self::VIEW_POST_ROUTES + self::SELF_POST_ROUTES), ...self::NONE_POST_ROUTES]);
         sort($expected);
@@ -184,6 +187,31 @@ final class PermissionFilterTest extends CIUnitTestCase
         foreach (self::POST_ROUTES + self::VIEW_POST_ROUTES + self::SELF_POST_ROUTES as $route => $need) {
             $this->assertSame($need, $rules->need('POST', '/' . $route, []));
         }
+    }
+
+    /**
+     * The paths with a PUT, PATCH and DELETE route, each with the same
+     * permission option as its POST route.
+     *
+     * @return list<string>
+     */
+    private static function pageVerbPaths(\CodeIgniter\Router\RouteCollection $collection): array
+    {
+        $paths = [];
+        foreach (array_keys($collection->getRoutes('PUT')) as $route) {
+            $route = (string)$route;
+            $post = $collection->getRoutesOptions($route, 'POST')['permission'] ?? null;
+            foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+                self::assertSame($post, $collection->getRoutesOptions($route, $verb)['permission'] ?? null, $verb . ' ' . $route);
+            }
+            $paths[] = '/' . $route;
+        }
+        foreach (['PATCH', 'DELETE'] as $verb) {
+            self::assertSame(array_keys($collection->getRoutes('PUT')), array_keys($collection->getRoutes($verb)), $verb);
+        }
+        sort($paths);
+
+        return $paths;
     }
 
     /** Every GET route is answered before legacy's check (`none`) or records legacy's permission. */

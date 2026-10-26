@@ -48,12 +48,15 @@ foreach (['locations', 'categories'] as $segment) {
 
 // Auth: sign-in, registration and sign-out (legacy answers these before its permission
 // check and checks the CSRF token itself, so they are `none` and skip the global CSRF
-// filter, Config\Filters), then your own account (`self`).
+// filter, Config\Filters), then your own account (`self`). Legacy shows these three pages
+// for every method but POST, so PUT, PATCH and DELETE get the page too (N-63); on
+// /account they still need the CSRF token, as every non-safe method does (SEC-N10).
 $signIn = '\\Apotheke\\Auth\\Controllers\\SignInController';
-$routes->match(['GET', 'HEAD', 'POST'], 'login', $signIn . '::login', $none);
-$routes->match(['GET', 'HEAD', 'POST'], 'register', $signIn . '::register', $none);
+$pageVerbs = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
+$routes->match($pageVerbs, 'login', $signIn . '::login', $none);
+$routes->match($pageVerbs, 'register', $signIn . '::register', $none);
 $routes->post('logout', $signIn . '::logout', $none);
-$routes->match(['GET', 'HEAD', 'POST'], 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
+$routes->match($pageVerbs, 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
 $routes->post('account/signout', '\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere', ['permission' => 'self']);
 
 // Catalog: the list and search, the overview, saved filters. GET (and HEAD) needs view, POST edit.
