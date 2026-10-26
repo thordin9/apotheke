@@ -49,7 +49,7 @@ final class AccountController extends AuthPages
         }
         $account = ['id' => $me['id'], 'username' => $me['username'], 'role' => $me['role']];
         $this->visitor = $me;
-        if ($this->request->getMethod() === 'POST') {
+        if ($this->posted()) {
             try {
                 $epoch = $this->accounts()->changeOwnPassword($account, $this->post('current'), $this->post('new'), $this->post('confirm'), $this->limiter());
             } catch (UserError $e) {

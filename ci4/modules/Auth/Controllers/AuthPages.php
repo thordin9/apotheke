@@ -33,6 +33,16 @@ abstract class AuthPages extends Controller
         }
     }
 
+    /**
+     * Whether the request came as a POST, as legacy's REQUEST_METHOD: CI4's
+     * `_method` override (a POST read as PUT, PATCH or DELETE) does not turn
+     * a sign-in, registration or new password into the page (N-352).
+     */
+    protected function posted(): bool
+    {
+        return $this->request->getServer('REQUEST_METHOD') === 'POST';
+    }
+
     /** A posted field as legacy's (string)$_POST[...] (an array reads as "Array"). */
     protected function post(string $field): string
     {
