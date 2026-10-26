@@ -85,6 +85,14 @@ final class UserAdminTest extends CIUnitTestCase
         $users->rename($id, 'NEO');
         $this->assertSame('NEO', $this->repo()->find($id)['username'] ?? null);
         $this->assertUserError(422, null, fn () => $users->rename($id, 'Ada'));
+        // N-261: a null character anywhere is refused before trimming, never trimmed into a shorter name.
+        $rule = 'User names use letters, digits and . _ @ - (at most 40 characters, no spaces).';
+        foreach (["\0zed", "zed\0", "z\0ed", " zed\0 "] as $nul) {
+            $this->assertUserError(422, $rule, fn () => $users->create($nul, self::PW, 'editor', self::PW), (string)json_encode($nul));
+            $this->assertUserError(422, $rule, fn () => $users->rename($id, $nul), (string)json_encode($nul));
+        }
+        $this->assertNull($this->repo()->findByName('zed'), 'no account was created');
+        $this->assertSame('NEO', $this->repo()->find($id)['username'] ?? null, 'nothing was renamed');
         // A new password renews the account's session epoch and returns it.
         $before = $this->repo()->find($id)['session_epoch'] ?? null;
         $epoch = $users->setPassword($id, 'newer-password', 'newer-password');

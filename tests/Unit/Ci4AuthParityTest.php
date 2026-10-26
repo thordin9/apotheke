@@ -97,6 +97,50 @@ final class Ci4AuthParityTest extends TestCase
         $this->assertStringContainsString('"rex"', (string)$l['tables']['body']);
     }
 
+    /**
+     * N-261, a deliberate difference until main's N-251 lands: a name with a
+     * null character at either end. Legacy trims it into "rez" and creates that
+     * account; CI4 refuses it (422, the invalid-name message) and creates none.
+     * When main refuses it too, make this an equality check.
+     */
+    public function testANullCharacterInARegisteredNameIsRefusedOnCi4(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $seen = [];
+        foreach (['legacy', 'ci4'] as $app) {
+            $dir = tmpdir('auth-nul-' . $app);
+            $server = new Server($dir, [], $app);
+            try {
+                $this->assertSame(200, $server->client()->get('/healthz')['status'], (string)@file_get_contents($server->log));
+                $pdo = testdb($dir);
+                $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+                    ->execute(['ada', 'ada', password_hash(self::PW, PASSWORD_BCRYPT, ['cost' => 4]), 'admin', 'active', '2026-01-01 00:00:00']);
+                $this->setting($pdo, 'auth_enabled', 'true');
+                $this->setting($pdo, 'auth_register_disabled', 'false');
+                foreach (["\0rez", "rez\0"] as $i => $name) {
+                    $client = $server->client();
+                    $token = bin2hex(random_bytes(32));
+                    $sid = bin2hex(random_bytes(13));
+                    file_put_contents($dir . '/sessions/sess_' . $sid, 'csrf|s:64:"' . $token . '";last_activity|i:' . time() . ';');
+                    $client->cookies['apothekesid'] = $sid;
+                    $r = $client->req('POST', '/register', ['csrf' => $token, 'username' => $name, 'new' => self::PW, 'confirm' => self::PW]);
+                    $users = $pdo->query('SELECT username FROM users ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+                    $seen[$app][] = [$r['status'], str_contains((string)$r['body'], 'User names use letters, digits and . _ @ - (at most 40 characters, no spaces).'), $users];
+                    $pdo->exec("DELETE FROM users WHERE username <> 'ada'");
+                }
+            } finally {
+                $server->stop();
+                testdb_drop($dir);
+                rrmdir($dir);
+                @unlink($dir . '.server.log');
+            }
+        }
+        $this->assertSame([[303, false, ['ada', 'rez']], [303, false, ['ada', 'rez']]], $seen['legacy'], 'legacy trims the null character (N-251, open on main)');
+        $this->assertSame([[422, true, ['ada']], [422, true, ['ada']]], $seen['ci4'], 'CI4 refuses the name as sent (N-261)');
+    }
+
     /** @return array<string,array<string,mixed>> case => what matters in the answer */
     private function visit(Server $server, string $dir): array
     {

@@ -256,6 +256,10 @@ final class SignInAccountsTest extends CIUnitTestCase
             ['rex', str_repeat('x', 201), str_repeat('x', 201), 'That password is too long.'],
             ['rex', self::PW, self::PW . 'x', 'The two passwords do not match.'],
             ['rex', "long-\0-enough", "long-\0-enough", 'Passwords cannot contain a null character.'],
+            // N-261: refused as sent, not trimmed into "rex".
+            ["\0rex", self::PW, self::PW, 'User names use letters, digits and . _ @ - (at most 40 characters, no spaces).'],
+            ["rex\0", self::PW, self::PW, 'User names use letters, digits and . _ @ - (at most 40 characters, no spaces).'],
+            [" re\0x ", self::PW, self::PW, 'User names use letters, digits and . _ @ - (at most 40 characters, no spaces).'],
         ];
         foreach ($cases as [$name, $pw, $confirm, $message]) {
             try {

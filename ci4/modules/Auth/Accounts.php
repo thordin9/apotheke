@@ -117,9 +117,12 @@ final class Accounts
         $this->users->touchLastLogin($user['id'], $this->clock->now());
     }
 
-    /** Legacy user_name_valid(). */
+    /** Legacy user_name_valid(); stricter: a null character anywhere, before trimming, is refused (N-261). */
     public function nameValid(string $name, ?int $except = null): string
     {
+        if (str_contains($name, "\0")) {
+            throw new UserError('User names use letters, digits and . _ @ - (at most ' . self::USERNAME_MAX . ' characters, no spaces).', 422);
+        }
         $name = trim($name);
         if ($name === '') {
             throw new UserError('Enter a user name.', 422);

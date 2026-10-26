@@ -78,7 +78,8 @@ final class SignInController extends AuthPages
         $who = \Apotheke\Core\Libraries\Text::cleanLine($raw, Accounts::USERNAME_MAX * 2);
         try {
             $this->limiter()->hit('register');
-            $user = $this->accounts()->register($who, $this->post('new'), $this->post('confirm'), (string)$settings->get('auth_register_role'), (bool)$settings->get('auth_register_approval'));
+            // Checked on the name as sent: a null character anywhere is refused, never trimmed away (N-261).
+            $user = $this->accounts()->register(str_contains($raw, "\0") ? $raw : $who, $this->post('new'), $this->post('confirm'), (string)$settings->get('auth_register_role'), (bool)$settings->get('auth_register_approval'));
         } catch (UserError $e) {
             return $this->page($this->registerPage($e->getMessage(), $who), self::code($e, 422));
         }
