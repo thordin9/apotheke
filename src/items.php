@@ -240,15 +240,14 @@ function tax_rename(string $kind, int $id, string $name): void
 function tax_set_default(string $kind, int $id, bool $on): void
 {
     $tb = tax($kind)['table'];
-    $pdo = db();
-    $pdo->beginTransaction();
-    if ($on) {
-        $pdo->exec("UPDATE $tb SET is_default = 0 WHERE is_default = 1");
-        $pdo->prepare("UPDATE $tb SET is_default = 1 WHERE id = ?")->execute([$id]);
-    } else {
-        $pdo->prepare("UPDATE $tb SET is_default = 0 WHERE id = ?")->execute([$id]);
-    }
-    $pdo->commit();
+    db_tx(function (PDO $pdo) use ($tb, $id, $on): void {
+        if ($on) {
+            $pdo->exec("UPDATE $tb SET is_default = 0 WHERE is_default = 1");
+            $pdo->prepare("UPDATE $tb SET is_default = 1 WHERE id = ?")->execute([$id]);
+        } else {
+            $pdo->prepare("UPDATE $tb SET is_default = 0 WHERE id = ?")->execute([$id]);
+        }
+    });
 }
 
 /** Delete an entry; its items are moved to $moveTo or left unassigned (null). Returns number of items affected. */
@@ -601,27 +600,11 @@ function db_tx(callable $fn): mixed
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
-        after_commit_queue(true);   // rolled back: nothing to run
+        after_commit_end(false);
         throw $e;
     }
-    foreach (after_commit_queue(true) as $after) $after();
+    after_commit_end(true);
     return $r;
-}
-
-/** Run $fn once the outermost transaction has committed (now when none is open); a rollback drops it. */
-function after_commit(callable $fn): void
-{
-    if (!db()->inTransaction()) { $fn(); return; }
-    $queue = &after_commit_queue();
-    $queue[] = $fn;
-}
-
-/** @return list<callable> the pending callbacks (by reference); $take empties the queue and returns what it held */
-function &after_commit_queue(bool $take = false): array
-{
-    static $queue = [];
-    if ($take) { $out = $queue; $queue = []; return $out; }
-    return $queue;
 }
 
 /* ---------- activity log (written inside the same transaction as the change) ---------- */

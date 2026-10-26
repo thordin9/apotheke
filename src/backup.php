@@ -319,9 +319,11 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
+        after_commit_end(false);
         if ($e instanceof PDOException) throw new UserError('The backup could not be restored (' . preg_replace('/\s+/', ' ', mb_substr($e->getMessage(), 0, 200)) . '). Nothing was changed.');
         throw $e;
     }
+    after_commit_end(true);
     if (is_array($dump['settings'] ?? null)) {
         $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
         foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";

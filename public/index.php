@@ -679,9 +679,11 @@ try {
                 $u = user_by_name($name);
                 if ($u) {
                     // an account exists already: sign in as that admin to turn sign-in back on
-                    rate_limit('login', $name);   // limited like the current-password check
+                    $mine = rate_limit('login_address');   // limited like the current-password check
+                    rate_limit('login', $name);
                     if ($u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     rate_limit_clear('login', $name);
+                    rate_limit_forget($mine);
                     $uid = $u['id'];
                 } else {
                     $uid = db_tx(fn() => user_create($name, (string)($_POST['new'] ?? ''), 'admin', (string)($_POST['confirm'] ?? '')));

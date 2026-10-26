@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **security:** hardening: password checks outside the sign-in form also count toward the per-address cap; clean-up after a save runs only after its commit, and one failing step no longer skips the rest; upgrading resets the per-address counters once for IPv4-compatible (`::/96`, including `::1`) and NAT64 (`64:ff9b::/96`) clients. ([#112](https://github.com/thordin9/apotheke/pull/112))
+
 ## [2.6.16] - 2026-10-26
 
 ### Fixed
