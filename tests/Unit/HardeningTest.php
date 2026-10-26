@@ -291,7 +291,7 @@ final class HardeningTest extends DatabaseTestCase
         try {
             foreach (['bin', 'src', 'migrations'] as $d) exec('cp -R ' . escapeshellarg("$root/$d") . ' ' . escapeshellarg("$app/$d"));
             file_put_contents("$app/migrations/9990_after_commit.php", "<?php return function (PDO \$pdo): void { db()->exec('CREATE TABLE cli_after (id INTEGER)'); after_commit(function (): void { db()->exec('INSERT INTO cli_after (id) VALUES (1)'); }); };");
-            $env = array_merge(getenv(), $this->driver === 'pgsql' ? ['DB_SCHEMA' => 'c_' . bin2hex(random_bytes(6))] : ['SQLITE_PATH' => "$app/cli.sqlite"]);
+            $env = array_merge(getenv(), ['APOTHEKE_APP' => 'legacy'], $this->driver === 'pgsql' ? ['DB_SCHEMA' => 'c_' . bin2hex(random_bytes(6))] : ['SQLITE_PATH' => "$app/cli.sqlite"]);
             $proc = proc_open([PHP_BINARY, "$app/bin/migrate.php"], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, $env);
             stream_set_blocking($pipes[1], false);
             $out = '';
