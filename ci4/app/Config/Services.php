@@ -861,4 +861,58 @@ class Services extends BaseService
 
         return new \Apotheke\BulkMerge\Views\BulkMergeView(static::layout(), (int)$s->get('undo_seconds'), (string)$s->get('currency'));
     }
+
+    /** The QR labels page (Labels, PLAN 13), with legacy public_url()'s base for this request. */
+    public static function labelsView(bool $getShared = true): \Apotheke\Labels\Views\LabelsView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('labelsView');
+        }
+        $s = static::settings();
+        $cfg = [];
+        foreach (['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_border', 'label_show_sub', 'label_show_url'] as $k) {
+            $cfg[$k] = (int)$s->get($k);
+        }
+        $publicUrl = (string)$s->get('public_url');
+        $server = static::request()->getServer();
+        $check = static::hostCheck(false);
+        $base = (new \Apotheke\Core\Http\RequestScheme((bool)$s->get('trust_proxy')))
+            ->publicBase(is_array($server) ? $server : [], static fn (string $host): bool => $check->passes($host), $publicUrl);
+
+        return new \Apotheke\Labels\Views\LabelsView(static::layout(), $cfg, $publicUrl, $base);
+    }
+
+    /** The barcode lookup (Catalog, PLAN 13). */
+    public static function barcode(bool $getShared = true): \Apotheke\Catalog\Barcode
+    {
+        if ($getShared) {
+            return static::getSharedInstance('barcode');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Catalog\Barcode($db);
+    }
+
+    /** Lending: lend, return and the items that are out (Lending, PLAN 13). */
+    public static function loans(bool $getShared = true): \Apotheke\Lending\Loans
+    {
+        if ($getShared) {
+            return static::getSharedInstance('loans');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Lending\Loans($db, new \Apotheke\Core\Libraries\Clock(), static::calendar(), static::itemHistory(), static::itemRepository());
+    }
+
+    /** The "Lent out" page (Lending). */
+    public static function lentView(bool $getShared = true): \Apotheke\Lending\Views\LentView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('lentView');
+        }
+
+        return new \Apotheke\Lending\Views\LentView(static::layout(), static::calendar(), static::itemView());
+    }
 }

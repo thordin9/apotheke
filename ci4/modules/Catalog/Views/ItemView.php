@@ -313,12 +313,48 @@ final class ItemView
 <?php if ($toast !== null): ?><div class="toast" role="status"><?= self::h($toast) ?></div><?php endif; ?>
 <?php
 
-        return $head . (string)ob_get_clean()
-            . '<dialog class="scan" id="scan-dialog" aria-label="Scan a barcode">'
+        return $head . (string)ob_get_clean() . self::scanDialog() . $this->page->end();
+    }
+
+    /** Legacy scan_dialog_html(): the camera dialog of the Scan buttons (app.js). */
+    public static function scanDialog(): string
+    {
+        return '<dialog class="scan" id="scan-dialog" aria-label="Scan a barcode">'
             . '<video id="scan-video" playsinline muted></video>'
             . '<p class="scan-msg" id="scan-msg">Point the camera at a barcode</p>'
-            . '<button type="button" class="btn btn-wide" id="scan-cancel">Cancel – type it instead</button></dialog>'
-            . $this->page->end();
+            . '<button type="button" class="btn btn-wide" id="scan-cancel">Cancel – type it instead</button></dialog>';
+    }
+
+    /** Legacy view_barcode(): type (or scan) a code and go to its item or a new item with the code. */
+    public function barcode(): string
+    {
+        $head = $this->page->start('Barcode', 'page-barcode');
+        ob_start();
+        ?>
+<header class="top top-simple">
+  <div class="bar">
+    <a class="btn btn-ghost btn-round" href="/" aria-label="Back"><?= self::icon('back') ?></a>
+    <h1 class="title-sm">Find by barcode</h1>
+    <?= $this->page->menu() ?>
+  </div>
+</header>
+<main class="wrap narrow">
+  <form method="get" action="/barcode" class="barcode-form" id="barcode-form">
+    <div class="field">
+      <label class="field-l" for="code">Barcode</label>
+      <div class="scanrow">
+        <input type="text" name="code" id="code" required maxlength="<?= ItemInput::BARCODE_MAX ?>" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="go" placeholder="e.g. 4006381333931">
+        <button type="button" class="btn" data-scan="#code" data-scan-submit hidden><?= self::icon('qr') ?> Scan</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-wide" id="code-go"><?= self::icon('search') ?> Look up</button>
+  </form>
+  <p class="hint" id="scan-hint">Type the digits under the barcode. If one item has this barcode it opens; if none does, a new item is started with the code filled in.</p>
+</main>
+<?= self::scanDialog() ?>
+<?php
+
+        return $head . (string)ob_get_clean() . $this->page->end();
     }
 
     /**
