@@ -173,9 +173,23 @@ function user_check_current(array $me, #[\SensitiveParameter] string $current): 
 {
     $mine = rate_limit('login_address');   // the same per-address cap as the sign-in form
     rate_limit('login', $me['username']);
-    if (!user_verify($me['username'], $current)) throw new UserError('The current password is not correct.', 403);
+    if (!user_verify($me['username'], $current)) { sign_in_pace(); throw new UserError('The current password is not correct.', 403); }
     rate_limit_clear('login', $me['username']);
     rate_limit_forget($mine);
+}
+
+/**
+ * After a failed password check (sign-in, current password, turning sign-in back on): wait until sign_in_fail_ms
+ * after the request began, so the answer time does not depend on the account, its role or its stored hash.
+ * A success does not wait. $started and $sleep are for tests. Returns the microseconds waited.
+ */
+function sign_in_pace(?float $started = null, ?callable $sleep = null): int
+{
+    $started ??= (float)($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true));
+    $left = (int)(($started + cfg()['sign_in_fail_ms'] / 1000 - microtime(true)) * 1e6);
+    if ($left <= 0) return 0;
+    ($sleep ?? 'usleep')($left);
+    return $left;
 }
 
 /** Check a user name + password; returns the user or null (always spends the same hashing time). */
