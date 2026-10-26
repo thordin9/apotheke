@@ -80,6 +80,7 @@ final class SecurityController extends AuthPages
     /** POST /settings/password: turn sign-in off, change your own password, or turn sign-in on. */
     public function password(): ResponseInterface
     {
+        $started = $this->accounts()->startSignIn();   // a failed admin check answers at the sign-in deadline (L-310)
         $disable = $this->post('mode') === 'disable';
         $me = $this->visitorNow();
         try {
@@ -103,7 +104,11 @@ final class SecurityController extends AuthPages
                     // An account exists already: sign in as that admin to turn sign-in back on (limited like a sign-in).
                     $mine = $this->limiter()->hit('login_address');
                     $this->limiter()->hit('login', $name);
-                    if ($user === null || $user['role'] !== 'admin' || $this->accounts()->verify($name, $this->post('new')) === null) {
+                    $checked = $this->accounts()->signIn($started, $nul ? $raw : $name, $this->post('new'));   // always one password check, whatever the name (N-304)
+                    if ($checked === null || $user === null || $user['role'] !== 'admin') {
+                        if ($checked !== null) {
+                            $this->accounts()->padFailure($started);   // a right password for a non-admin waits too (L-330)
+                        }
                         throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     }
                     $this->limiter()->clear('login', $name);

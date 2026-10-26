@@ -159,6 +159,26 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame($before, $this->snapshot(), 'no hash was replaced');
     }
 
+    /** An unknown name spends a password check against DUMMY_HASH, as long as a wrong password on a current hash. */
+    public function testAnUnknownNameSpendsAPasswordCheck(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $this->account('new', 'editor', 'active', 12);
+        $accounts = $this->accounts();
+        $time = static function (string $name) use ($accounts): float {
+            $t = hrtime(true);
+            self::assertNull($accounts->verify($name, 'wrong-password'));
+
+            return (hrtime(true) - $t) / 1e6;
+        };
+        $unknown = $known = [];
+        for ($i = 0; $i < 3; $i++) {
+            $unknown[] = $time('nobody');
+            $known[] = $time('new');
+        }
+        $this->assertGreaterThan(min($known) / 2, min($unknown), (string)json_encode(['unknown' => $unknown, 'known' => $known]));
+    }
+
     public function testTheDummyHashIsAtTheDefaultCost(): void
     {
         $this->assertFalse(password_needs_rehash(Accounts::DUMMY_HASH, PASSWORD_DEFAULT));
@@ -335,6 +355,33 @@ final class SignInAccountsTest extends CIUnitTestCase
         // After the window the right password clears the account's attempts from this address.
         $accounts->checkCurrent($me, self::PW, new RateLimiter($this->db(), '10.0.0.1', $now + 901));
         $this->assertSame(0, $this->attempts('login'));
+    }
+
+    /** L-310: a wrong current password answers at the sign-in deadline, for a cost-10 and a cost-12 hash; a right one does not wait. */
+    #[DataProvider('drivers')]
+    public function testAWrongCurrentPasswordWaitsForTheDeadline(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $sleeps = [];
+        $accounts = new Accounts($this->users(), new RoleRepository($this->db()), new Clock(), new SignInPace(3000, null, static function (int $us) use (&$sleeps): void {
+            $sleeps[] = $us;
+        }));
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', time());
+        foreach (['old' => 10, 'new' => 12] as $name => $cost) {
+            $me = ['id' => $this->account($name, 'editor', 'active', $cost), 'username' => $name];
+            $sleeps = [];
+            try {
+                $accounts->checkCurrent($me, 'wrong-password', $limiter);
+                $this->fail('a wrong current password');
+            } catch (UserError $e) {
+                $this->assertSame(403, $e->getCode());
+            }
+            $this->assertCount(1, $sleeps, "cost $cost: padded to the deadline");
+            $this->assertGreaterThan(2_000_000, $sleeps[0], "cost $cost: the rest of the 3 s deadline");
+            $sleeps = [];
+            $accounts->checkCurrent($me, self::PW, $limiter);
+            $this->assertSame([], $sleeps, "cost $cost: a right one does not wait");
+        }
     }
 
     /** L-170, legacy #112: the current-password check has the per-address cap; a success takes back only its own row. */
@@ -680,7 +727,9 @@ final class SignInAccountsTest extends CIUnitTestCase
 
     private function accounts(): Accounts
     {
-        return new Accounts($this->users(), new RoleRepository($this->db()), new Clock());
+        // Failures do not sleep here; testAWrongCurrentPasswordWaitsForTheDeadline checks the wait.
+        return new Accounts($this->users(), new RoleRepository($this->db()), new Clock(), new SignInPace(SignInPace::DEFAULT_MS, null, static function (int $us): void {
+        }));
     }
 
     private function users(): UserRepository

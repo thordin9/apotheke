@@ -63,6 +63,12 @@ final class Accounts
         return $user;
     }
 
+    /** A failure signIn() let through (a right password refused for another reason): wait until the same deadline. */
+    public function padFailure(int $started): void
+    {
+        $this->pace->pad($started);
+    }
+
     /**
      * Legacy user_verify(): the account for this name and password, or null.
      * Unknown names and wrong passwords give the same null. A hash made with
@@ -185,16 +191,18 @@ final class Accounts
     /**
      * Legacy user_check_current(): the signed-in account's current password,
      * limited like a sign-in: the per-address cap first, then that account
-     * from this address (429); a wrong one is 403. A right one clears that
+     * from this address (429); a wrong one is 403 at SignInPace's deadline,
+     * as a failed sign-in (L-310). A right one clears that
      * account's sign-in attempts and takes back only its own per-address try.
      *
      * @param array{username:string} $me
      */
     public function checkCurrent(array $me, #[\SensitiveParameter] string $current, RateLimiter $limiter): void
     {
+        $started = $this->pace->start();
         $mine = $limiter->hit('login_address');   // the same per-address cap as the sign-in form
         $limiter->hit('login', $me['username']);
-        if ($this->verify($me['username'], $current) === null) {
+        if ($this->signIn($started, $me['username'], $current) === null) {   // a failure answers at the sign-in deadline (L-310)
             throw new UserError('The current password is not correct.', 403);
         }
         $limiter->clear('login', $me['username']);
