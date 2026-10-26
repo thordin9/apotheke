@@ -354,6 +354,60 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->assertSame(substr(hash('sha256', '10.0.0.1'), 0, 32), $limiter->bucket('register', 'eda'));
     }
 
+    #[DataProvider('drivers')]
+    public function testTheAddressCapCountsEveryName(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $now = 1_800_000_000;
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', $now);
+        for ($i = 0; $i < 30; $i++) {
+            $limiter->hit('login_address');
+        }
+        $this->assertLimited(fn () => $limiter->hit('login_address'), 'Too many attempts from this address – please wait 15 minutes and try again.');
+        $this->assertSame(30, $this->attempts('login_address'), 'a refused attempt takes its row back');
+        $this->assertSame(substr(hash('sha256', '10.0.0.1'), 0, 32), $limiter->bucket('login_address', 'eda'), 'the address only, as legacy');
+        (new RateLimiter($this->db(), '10.0.0.2', $now))->hit('login_address');
+        (new RateLimiter($this->db(), '10.0.0.1', $now + 901))->hit('login_address');
+        $limiter->clear('login_address');
+        $this->assertSame(0, $this->bucketCount($limiter->bucket('login_address', null)));
+        $this->assertSame(1, $this->attempts('login_address'), 'the other address keeps its attempt');
+    }
+
+    /** The attempt is recorded before the count, so one recorded meanwhile by another request counts against this one. */
+    #[DataProvider('drivers')]
+    public function testAnAttemptRecordedMeanwhileCounts(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $now = 1_800_000_000;
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', $now);
+        for ($i = 0; $i < 9; $i++) {
+            $limiter->hit('login', 'eda');
+        }
+        // A request that has recorded its attempt but not counted yet.
+        $this->db()->table('auth_attempts')->insert(['kind' => 'login', 'client' => $limiter->bucket('login', 'eda'), 'at' => $now]);
+        $this->assertLimited(fn () => $limiter->hit('login', 'eda'), 'Too many attempts for this account from this address – please wait 15 minutes and try again.');
+        $this->assertSame(10, $this->attempts('login'));
+    }
+
+    /** A refused attempt whose row cannot be taken back throws, and the attempt stays counted. */
+    #[DataProvider('drivers')]
+    public function testAFailedReleaseFailsLoudly(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $limiter = new RateLimiter($this->db(), '10.0.0.1', 1_800_000_000);
+        for ($i = 0; $i < 10; $i++) {
+            $limiter->hit('login', 'eda');
+        }
+        $this->failOn('auth_attempts', 'DELETE');
+        try {
+            $limiter->hit('login', 'eda');
+            $this->fail('the failed write must throw');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: auth_attempts release', $e->getMessage());
+        }
+        $this->assertSame(11, $this->attempts('login'));
+    }
+
     /** @return iterable<string,array{0:string,1:string,2:string}> */
     public static function failures(): iterable
     {
