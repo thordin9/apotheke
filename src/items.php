@@ -599,11 +599,29 @@ function db_tx(callable $fn): mixed
     try {
         $r = $fn($pdo);
         $pdo->commit();
-        return $r;
     } catch (Throwable $e) {
         $pdo->rollBack();
+        after_commit_queue(true);   // rolled back: nothing to run
         throw $e;
     }
+    foreach (after_commit_queue(true) as $after) $after();
+    return $r;
+}
+
+/** Run $fn once the outermost transaction has committed (now when none is open); a rollback drops it. */
+function after_commit(callable $fn): void
+{
+    if (!db()->inTransaction()) { $fn(); return; }
+    $queue = &after_commit_queue();
+    $queue[] = $fn;
+}
+
+/** @return list<callable> the pending callbacks (by reference); $take empties the queue and returns what it held */
+function &after_commit_queue(bool $take = false): array
+{
+    static $queue = [];
+    if ($take) { $out = $queue; $queue = []; return $out; }
+    return $queue;
 }
 
 /* ---------- activity log (written inside the same transaction as the change) ---------- */
@@ -704,7 +722,7 @@ function item_save(?array $existing, array $in, ?string $newImage, bool $removeI
         }
         return $id;
     });
-    foreach ($drop as $f) image_delete($f);   // files only after the commit
+    after_commit(function () use ($drop): void { foreach ($drop as $f) image_delete($f); });   // files only after the commit
     return $id;
 }
 
@@ -760,9 +778,10 @@ function photos_renumber(int $itemId, ?array $order = null): void
 function photo_add(int $itemId, string $file): int
 {
     return db_tx(function () use ($itemId, $file): int {
+        // write the item row first: adds to one item at the same time then count one after the other
+        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
         if (count(photos_for($itemId)) >= max_photos()) throw new UserError('An item can have at most ' . max_photos() . ' photos.');
         $pid = photo_insert($itemId, $file);
-        db()->prepare('UPDATE items SET updated_at = ? WHERE id = ?')->execute([now_utc(), $itemId]);
         activity_log($itemId, (string)(item_get($itemId)['name'] ?? ''), 'photo', ['change' => 'added', 'count' => count(photos_for($itemId))]);
         return $pid;
     });
@@ -802,7 +821,7 @@ function photo_action(int $itemId, int $photoId, string $action): int
         }
         return $new;
     });
-    if ($drop !== null) image_delete($drop);
+    if ($drop !== null) after_commit(fn() => image_delete($drop));
     return $r;
 }
 

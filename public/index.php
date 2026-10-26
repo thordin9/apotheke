@@ -119,9 +119,10 @@ try {
             check_csrf();
             $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
             try {
-                rate_limit('login_address');   // all names from this address
+                $mine = rate_limit('login_address');   // all names from this address (see trusted_proxies)
                 rate_limit('login', $who);
-                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_clear('login_address'); redirect('/'); }
+                // a success clears its account's count and takes back only its own address row
+                if (login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_forget($mine); redirect('/'); }
                 usleep(400000);
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
@@ -678,7 +679,9 @@ try {
                 $u = user_by_name($name);
                 if ($u) {
                     // an account exists already: sign in as that admin to turn sign-in back on
+                    rate_limit('login', $name);   // limited like the current-password check
                     if ($u['role'] !== 'admin' || !user_verify($name, (string)($_POST['new'] ?? ''))) throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    rate_limit_clear('login', $name);
                     $uid = $u['id'];
                 } else {
                     $uid = db_tx(fn() => user_create($name, (string)($_POST['new'] ?? ''), 'admin', (string)($_POST['confirm'] ?? '')));

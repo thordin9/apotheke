@@ -74,7 +74,6 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** CodeIgniter's own session service no longer starts a second session beside Apotheke's session on HTML responses, so a signed-in session keeps its id and CSRF token (#76 L-1). ([#82](https://github.com/thordin9/apotheke/pull/82))
 - **ci4:** links and redirects built by CodeIgniter use the Control Panel's public address (or `PUBLIC_URL`), else the request's scheme with "Trust the reverse proxy" and an allowed host name, as the legacy app does. Saving or clearing the AI autofill token from a plain form redirects with a relative address (#76 L-2). ([#82](https://github.com/thordin9/apotheke/pull/82))
 - **ci4:** each request starts without session data, so a long-lived worker never carries one request's session into the next (#76 L-3). ([#82](https://github.com/thordin9/apotheke/pull/82))
-- **security:** hardening: sign-in limits now hold for requests that arrive together and also cover the current-password check and all names from one address; passwords and `APP_PASSWORD` with a null character are refused; the last active admin always stays; a photo save that fails leaves no files or new places, and a photo edit keeps its original. ([#106](https://github.com/thordin9/apotheke/pull/106))
 - **ci4:** sign-in limits match legacy (#106): an attempt is recorded before the window is counted, so requests that arrive together see each other, and sign-ins from one address have a cap of 30 per 15 minutes for every name, kept in the same `auth_attempts` rows as legacy. ([#109](https://github.com/thordin9/apotheke/pull/109))
 
 ### Maintenance
@@ -94,6 +93,36 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` 3f729a3 (2.6.9) into `feature/ci4`. The legacy app gets main's 2.6.2–2.6.9 hardening (Host allow-list, sign-in import limits, restore check, ImageMagick policy, image decode limits and the PNG cap, the CLI admin fix, Docker localhost bind and required sign-in, the `session_idle_hours` idle sign-out). Migration 0027 (`session_idle_hours`) is in the CI4 settings schema copy; CI4 does not enforce the idle limit yet. `scripts/lint.sh` runs `release.php check-links`, so an unlinked `[Unreleased]` bullet fails lint on `feature/ci4` too, and the link check skips elided `(…#anchor)` placeholders in quoted QA suggestions. ([#83](https://github.com/thordin9/apotheke/pull/83))
 - **ci4:** sync `main` 32b1ef8 (2.6.10) into `feature/ci4`. The legacy app gets main's #81 follow-ups (an `APP_PASSWORD` of at least 8 characters, nginx's 421 with the app's text, the ImageMagick policy check and the release-notes dedupe). Short `APP_PASSWORD` test fixtures are now 8 characters or more, the link check skips only `(…)` and `(…#anchor)` placeholders, and the autofill docs say CI4 suggest has no photo size limits yet. ([#85](https://github.com/thordin9/apotheke/pull/85))
 - **ci4:** sync `main` c917cdb (#106 hardening) into `feature/ci4`. The legacy app gets the sign-in limit, NUL-password, last-admin and photo-save hardening. The CI4 photo and users goldens now compare those cases in full; the auth golden leaves out the attempt counts until CI4 gets the per-address cap and the current-password throttle. ([#107](https://github.com/thordin9/apotheke/pull/107))
+
+## [2.6.16] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: a successful sign-in no longer resets the per-address cap; IPv6 clients count by their /64 for it; turning sign-in back on is limited like a sign-in; photo adds at the same time stay within the photo limit; a replaced photo's files are removed only after the save commits. ([#111](https://github.com/thordin9/apotheke/pull/111))
+
+### Maintenance
+
+- test: cover password limits, admin races and photo adds ([#111](https://github.com/thordin9/apotheke/pull/111))
+- docs: sign-in address cap and trusted proxies ([#111](https://github.com/thordin9/apotheke/pull/111))
+- **qa:** docs: PR 111 main hardening follow-up QA report ([#111](https://github.com/thordin9/apotheke/pull/111))
+
+## [2.6.15] - 2026-10-25
+
+### Fixed
+
+- **security:** hardening: sign-in limits now hold for requests that arrive together and also cover the current-password check and all names from one address; passwords and `APP_PASSWORD` with a null character are refused; the last active admin always stays; a photo save that fails leaves no files or new places, and a photo edit keeps its original. ([#106](https://github.com/thordin9/apotheke/pull/106))
+
+### Maintenance
+
+- **qa:** docs: drop QA reports older than v2.6.0 and add an index ([#88](https://github.com/thordin9/apotheke/pull/88))
+- **changelog:** docs: summarise pre-2.6.0 releases and fix QA nits ([#88](https://github.com/thordin9/apotheke/pull/88))
+- test: use 8-character APP_PASSWORD fixtures ([#88](https://github.com/thordin9/apotheke/pull/88))
+- docs: trim README and docs, merge overlapping pages ([#88](https://github.com/thordin9/apotheke/pull/88))
+- ci: allowlist S-L5 CI4 placeholder test keys in gitleaks ([#88](https://github.com/thordin9/apotheke/pull/88))
+- **security:** test: cover sign-in limits, admins and photo saves ([#106](https://github.com/thordin9/apotheke/pull/106))
+- docs: sign-in limits and password rules ([#106](https://github.com/thordin9/apotheke/pull/106))
+- docs: link the changelog entry to its pull request ([#106](https://github.com/thordin9/apotheke/pull/106))
+- **qa:** docs: PR 106 main hardening QA report ([#106](https://github.com/thordin9/apotheke/pull/106))
 
 ## [2.6.14] - 2026-10-24
 
@@ -436,7 +465,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.14...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.16...HEAD
+[2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16
+[2.6.15]: https://github.com/thordin9/apotheke/compare/v2.6.14...v2.6.15
 [2.6.14]: https://github.com/thordin9/apotheke/compare/v2.6.13...v2.6.14
 [2.6.13]: https://github.com/thordin9/apotheke/compare/v2.6.12...v2.6.13
 [2.6.12]: https://github.com/thordin9/apotheke/compare/v2.6.11...v2.6.12
