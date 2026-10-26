@@ -192,6 +192,32 @@ final class ImageStore
         return ['name' => $name, 'width' => $cw, 'height' => $ch];
     }
 
+    /**
+     * A copy of a stored photo under a new random name: served copy,
+     * thumbnail and original (legacy image_copy(), for Duplicate). A photo
+     * whose original is listed but gone is not copied (M-90).
+     */
+    public function copy(string $file): string
+    {
+        if (!self::validName($file) || $this->served->read('full', $file) === null) {
+            throw new UserError('A photo file is missing.');
+        }
+        $new = bin2hex(random_bytes(16)) . '.jpg';
+        if (!$this->served->copy($file, $new)) {
+            throw new \RuntimeException('could not copy photo');
+        }
+        try {
+            if (!$this->originals->copy($file, $new)) {
+                throw new \RuntimeException('could not copy original');
+            }
+        } catch (\Throwable $e) {
+            $this->delete($new);
+            throw $e;
+        }
+
+        return $new;
+    }
+
     /** Remove the served copy, the thumbnail, the original and its map entry. */
     public function delete(?string $name): void
     {

@@ -298,6 +298,9 @@ jobs:
           tests/visual/originals.spec.ts tests/visual/branding.spec.ts
           tests/visual/add.spec.ts tests/visual/item.spec.ts tests/visual/undo.spec.ts
           tests/visual/history.spec.ts tests/visual/expiry.spec.ts tests/visual/photos.spec.ts
+          tests/visual/bulk.spec.ts tests/visual/merge.spec.ts tests/visual/duplicate.spec.ts
+          tests/visual/stock.spec.ts tests/visual/attachments.spec.ts tests/visual/users.spec.ts
+          tests/visual/roles.spec.ts
       - name: Upload HTML report, traces and screenshot diffs
         if: failure()
         uses: actions/upload-artifact@v4
