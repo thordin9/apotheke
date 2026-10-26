@@ -8,9 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.16] - 2026-10-26
+
 ### Fixed
 
 - **security:** hardening: a successful sign-in no longer resets the per-address cap; IPv6 clients count by their /64 for it; turning sign-in back on is limited like a sign-in; photo adds at the same time stay within the photo limit; a replaced photo's files are removed only after the save commits. ([#111](https://github.com/thordin9/apotheke/pull/111))
+
+### Maintenance
+
+- test: cover password limits, admin races and photo adds ([#111](https://github.com/thordin9/apotheke/pull/111))
+- docs: sign-in address cap and trusted proxies ([#111](https://github.com/thordin9/apotheke/pull/111))
+- **qa:** docs: PR 111 main hardening follow-up QA report ([#111](https://github.com/thordin9/apotheke/pull/111))
 
 ## [2.6.15] - 2026-10-25
 
@@ -371,7 +379,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.15...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.16...HEAD
+[2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16
 [2.6.15]: https://github.com/thordin9/apotheke/compare/v2.6.14...v2.6.15
 [2.6.14]: https://github.com/thordin9/apotheke/compare/v2.6.13...v2.6.14
 [2.6.13]: https://github.com/thordin9/apotheke/compare/v2.6.12...v2.6.13
