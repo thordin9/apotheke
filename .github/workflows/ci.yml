@@ -179,6 +179,9 @@ jobs:
         run: |
           php -r 'echo "Imagick HEIC/HEIF: ", json_encode(Imagick::queryFormats("HEI*")), PHP_EOL;'
           vendor/bin/phpunit -c ci4/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
+      - name: CI4 autofill EXIF with allow_url_fopen off (L-270)
+        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
+        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c ci4/phpunit.xml.dist --filter 'AutofillTest::testRotatedStoredPhotoGoesOutUprightWithoutUrlFopen' --fail-on-skipped --fail-on-empty-test-suite --testdox
       - name: Prove CI4 used PostgreSQL
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
         run: php scripts/ci4-pgsql-proof.php

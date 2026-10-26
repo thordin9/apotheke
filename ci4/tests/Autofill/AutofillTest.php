@@ -621,6 +621,46 @@ final class AutofillTest extends CIUnitTestCase
     }
 
     /**
+     * L-270: a stored photo with EXIF Orientation 6 goes out upright, as
+     * legacy sends it from the file path, even with allow_url_fopen off. CI
+     * runs this test again under `php -d allow_url_fopen=0`.
+     */
+    public function testRotatedStoredPhotoGoesOutUprightWithoutUrlFopen(): void
+    {
+        $posted = [];
+        $af = $this->stack(function (string $method, string $url, ?string $body) use (&$posted): array {
+            $posted[] = $this->jpegIn((string)$body);
+
+            return $this->okSuggest();
+        });
+        $this->settings->store(['autofill_enabled' => true, 'autofill_url' => 'http://autofill.test', 'autofill_timeout' => 5, 'autofill_max_image_bytes' => 1048576]);
+        $af->rememberInfo($this->info(null, null));
+        $db = $this->database->db;
+        $this->assertTrue($db->table('items')->insert([
+            'name' => 'Hammer', 'quantity' => 1, 'notes' => '', 'search' => 'hammer',
+            'created_at' => '2020-01-01 00:00:00', 'updated_at' => '2020-01-01 00:00:00',
+        ]));
+        $itemId = (int)$db->insertID();
+        $rotated = $this->withOrientation($this->jpeg(1536, 1024, 95), 6);
+        $tmp = (string)tempnam(sys_get_temp_dir(), 'af-up');
+        file_put_contents($tmp, $rotated);
+        $name = $this->images->store($tmp, strlen($rotated));
+        $this->assertTrue($db->table('item_photos')->insert(['item_id' => $itemId, 'file' => $name, 'position' => 0, 'created_at' => '2020-01-01 00:00:00']));
+
+        try {
+            $r = $af->suggestPhotoId((string)$db->insertID());
+            $this->assertTrue($r['ok'], $r['message'] ?? '');
+            $this->assertCount(1, $posted);
+            $size = getimagesizefromstring($posted[0]);
+            $this->assertSame([683, 1024], [$size[0] ?? 0, $size[1] ?? 0], 'allow_url_fopen=' . var_export(ini_get('allow_url_fopen'), true));
+            $this->assertSame($af->analysis()->jpeg($rotated, AutofillService::IMAGE_SIDE, 80, null, $tmp), $posted[0], 'legacy reads EXIF from the path');
+        } finally {
+            unlink($tmp);
+        }
+        $this->assertSame([], glob($this->database->dataDir() . '/autofill/tmp/*') ?: []);
+    }
+
+    /**
      * A browser form (no fetch, no Accept: application/json) saves and clears
      * the token with 303. The redirect must not start CI4's session beside
      * the native one.
@@ -954,6 +994,15 @@ final class AutofillTest extends CIUnitTestCase
         imagejpeg($im, null, $quality);
 
         return (string)ob_get_clean();
+    }
+
+    /** $jpeg with a big-endian EXIF APP1 holding only Orientation. */
+    private function withOrientation(string $jpeg, int $orientation): string
+    {
+        $tiff = "MM\x00\x2A" . pack('N', 8) . pack('n', 1) . pack('nnNnn', 0x0112, 3, 1, $orientation, 0) . pack('N', 0);
+        $app1 = "Exif\x00\x00" . $tiff;
+
+        return "\xFF\xD8\xFF\xE1" . pack('n', strlen($app1) + 2) . $app1 . substr($jpeg, 2);
     }
 
     /** Seeded noise. High quality so a later re-encode at 80 and 70 differs in size. */
