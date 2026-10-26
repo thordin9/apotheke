@@ -114,6 +114,28 @@ final class StocktakesTest extends CIUnitTestCase
         $this->assertSame('found', $takes->check($take, $expected)['state'], 'an open one still ticks');
     }
 
+    /**
+     * A tick while another client holds the write lock, finishing another
+     * stocktake (N-341): it takes the write lock first, so on SQLite it waits
+     * for that commit instead of failing on a read lock it cannot upgrade
+     * ("database is locked"), then ticks.
+     */
+    #[DataProvider('drivers')]
+    public function testATickWaitsForAnotherClientsWrite(string $driver): void
+    {
+        [, $other] = $this->seed($driver, 'Other');
+        [$takes, $take, $misplaced, $home] = $this->seed($driver);
+        $expected = $this->itemNamed('First expected');
+        $stray = $this->addItem('First stray', $home);
+        foreach ([[$expected, true, 'found'], [$stray, true, 'misplaced'], [$misplaced, false, 'none']] as [$item, $found, $state]) {
+            $wait = $this->testDb()->holdInAnotherClient([["UPDATE stocktakes SET status = 'done', finished_at = '2026-06-15 10:00:00' WHERE id = ?", [$other]]], 300);
+            $this->assertSame($state, $takes->check($take, $item, $found)['state']);
+            $this->assertStringEndsWith("committed\n", $wait());
+            $this->db()->query("UPDATE stocktakes SET status = 'open', finished_at = NULL WHERE id = ?", [$other]);
+        }
+        $this->assertSame([[$expected, 1], [$stray, 1]], array_map(static fn (array $r): array => [(int)$r['item_id'], (int)$r['found']], $this->lineRows($take)));
+    }
+
     /** A plain finish stores the counts and the moves once; a cancel of an open one cancels it. */
     #[DataProvider('drivers')]
     public function testFinishAndCancel(string $driver): void

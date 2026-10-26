@@ -122,7 +122,10 @@ final class Stocktakes
 
     /**
      * Tick ($found) or untick an item. An item that was not expected here is
-     * added as misplaced; unticking a misplaced item removes it again.
+     * added as misplaced; unticking a misplaced item removes it again. The
+     * transaction writes first (stillOpen()), so it holds the write lock
+     * before its first read: on SQLite a tick during another client's write
+     * waits for it instead of failing on a read lock it cannot upgrade.
      *
      * @return array{state:string,name:string,home:string} state: found, misplaced, missing or none
      */
