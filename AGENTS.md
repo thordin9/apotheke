@@ -54,7 +54,7 @@ These apply to code under `ci4/`. deptrac enforces the graph in CI; a violation 
   * Catalog → Taxonomy, Media, Search, Activity, Undo, Notes, Settings
   * BulkMerge → Catalog, Taxonomy, Media, Undo, Layout, Settings (bulk actions, merge, duplicate and quantity; history through `Core\Libraries\ItemHistory`). Attachments are Catalog's (`Items\Attachments`).
   * Favourites → Catalog
-  * Lending, Stocktake and Labels → Catalog, Taxonomy
+  * Labels → Catalog, Taxonomy, Layout, Settings (the QR encoder `Labels\QrCode`, loaded after `QrJit::guard()`); Lending → Catalog, Taxonomy, Media (thumbnail names), Layout, Settings; Stocktake → Catalog, Taxonomy. The barcode lookup is Catalog's (`Barcode`).
   * ImportExport → Catalog, Taxonomy
   * Backup → all repositories, plus Media and Settings
   * Autofill → Media, Settings, Taxonomy (context names). A stored photo's bytes come from Media's read-only `ImageStore::analysisBytes()` (the kept original, else the served JPEG); the warn-once pair and the temporary JPEG go through `Apotheke\Core\Storage\Storage` (local disk under `DATA_DIR`). deptrac allows Autofill → Core, Settings and Media; the photo row lookup and the category/tag names are still SQL.

@@ -40,13 +40,39 @@ final class LegacyPathRouterTest extends CIUnitTestCase
         $config = config(App::class);
         $request = new IncomingRequest($config, new SiteURI($config, ltrim((string)parse_url($uri, PHP_URL_PATH), '/')), null, new UserAgent());
         $request->setGlobal('server', ['REQUEST_URI' => $uri] + $_SERVER);
-        $router = new LegacyPathRouter($routes, $request);
+        // GET whatever an earlier test left in $_SERVER.
+        $router = new LegacyPathRouter($routes, $request->withMethod('GET'));
         if ($routed === '') {
             $this->expectException(PageNotFoundException::class);
         }
         $router->handle();
         $this->assertSame('\\Apotheke\\Catalog\\Controllers\\ListController', $router->controllerName(), $uri);
         $this->assertSame($routed === '/' ? 'index' : 'stats', $router->methodName(), $uri);
+    }
+
+    /** Legacy answers every path under /barcode/ with the lookup: a code may hold any character. */
+    public function testEveryPathUnderBarcodeIsTheLookup(): void
+    {
+        $routes = Services::routes();
+        $routes->loadRoutes();
+        $config = config(App::class);
+        foreach (['/barcode/123', '/barcode/', '/barcode/a+b', '/barcode/a%2Fb/', '/barcode/a/../b', '/barcode//x', '/barcode/%2e'] as $uri) {
+            $request = new IncomingRequest($config, new SiteURI($config, ltrim((string)parse_url($uri, PHP_URL_PATH), '/')), null, new UserAgent());
+            $request->setGlobal('server', ['REQUEST_URI' => $uri, 'REQUEST_METHOD' => 'GET'] + $_SERVER);
+            $router = new LegacyPathRouter($routes, $request->withMethod('GET'));
+            $router->handle();
+            $this->assertSame(['\\Apotheke\\Catalog\\Controllers\\BarcodeController', 'lookup'], [$router->controllerName(), $router->methodName()], $uri);
+        }
+        foreach (['/barcode' => 'index', '/barcodes/1' => ''] as $uri => $method) {
+            $request = new IncomingRequest($config, new SiteURI($config, ltrim($uri, '/')), null, new UserAgent());
+            $request->setGlobal('server', ['REQUEST_URI' => $uri, 'REQUEST_METHOD' => 'GET'] + $_SERVER);
+            $router = new LegacyPathRouter($routes, $request->withMethod('GET'));
+            if ($method === '') {
+                $this->expectException(PageNotFoundException::class);
+            }
+            $router->handle();
+            $this->assertSame($method, $router->methodName(), $uri);
+        }
     }
 
     public function testThePathIsDecodedOnceAndNotTrimmed(): void

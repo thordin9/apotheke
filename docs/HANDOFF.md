@@ -50,23 +50,32 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the photo before its transaction (M-91). A photo add locks the item first, so adds at once stay within
   `max_photos` (P6). An edit replaces the photo only if it still shows the file it read (compare-and-swap); the
   other request of a double submit drops its own files (M-90). `tests/Unit/Ci4PhotoRacesTest.php` sends these
-  requests at once and `ci4/tests/Catalog/PhotoRepositoryTest.php` interleaves them. Not yet: lend (13); its
-  buttons are drawn and answer 404 on CI4 until then.
+  requests at once and `ci4/tests/Catalog/PhotoRepositoryTest.php` interleaves them. The lend buttons answer
+  since step 13 (below).
 - Bulk, merge, duplicate, quantity and attachments (step 11b, #108): POST `/item/{id}/qty`, `/item/{id}/duplicate`,
   GET/POST `/item/{id}/merge`, POST `/bulk` and the attachment routes answer as legacy does, with the same tables
   and files (`tests/Unit/Ci4BulkMergeParityTest.php`, SQLite and PostgreSQL, failed writes included). New module
   `BulkMerge`; attachments are Catalog's `Items\Attachments`. Duplicate copies photos through `ImageStore::copy()`.
+- Labels, barcode and lending (step 13, first part, #114): GET `/labels` (all locations, one location, with its
+  sub-locations, per item, or `?ids=` from the list), `/item/{id}/label`, `/barcode` and `/barcode/{code}`, POST
+  `/item/{id}/lend` and `/item/{id}/return`, and `/lent` answer as legacy does, QR codes included
+  (`tests/Unit/Ci4LabelsLendingParityTest.php`, SQLite and PostgreSQL, failed writes included;
+  `Ci4LabelsQrParityTest` compares the SVG with legacy `qr_svg()` and decodes it with zbarimg). New modules `Labels`
+  (`QrCode`, legacy's encoder; `QrJit::guard()` turns function JIT off before it loads) and `Lending`; the lookup is
+  Catalog's `Barcode`. Every path under `/barcode/` is the lookup (`LegacyPathRouter`), as on legacy. Stocktake
+  follows in its own PR.
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
-  `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users` and `roles`
+  `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
+  `labels`, `barcode` and `lending`
   on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
   describe or test no longer exists (N-85), or that this list does not name:
-  - `list`: the labels page has an empty state (`/labels`).
+  - `labels`: print labels for a selection; sizes from the Control Panel @smoke (`/settings/labels`).
   - `search`: shows the engine in System (`/settings/system`).
   - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel,
-    lending, labels, import/export, backup).
+    stocktake, import/export, backup).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -95,7 +104,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
   `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`); `auth status` stays in
   `bin/settings.php` (no migration).
-- Not ported yet: BulkMerge and Backup.
+- Not ported yet: stocktake, the Control Panel pages (`/settings/labels` …), import/export and Backup.
 
 ## Pull requests
 
@@ -136,7 +145,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   null-character sign-in names checked before trimming). Merged.
 - [#118](https://github.com/thordin9/apotheke/pull/118): PLAN step 12, autofill reads stored photos through Media
   (`ImageStore::analysisBytes()`: the kept original, else the served JPEG). Live check 1 run by QA after the PM's
-  go-ahead. Open.
+  go-ahead. Merged.
+- [#114](https://github.com/thordin9/apotheke/pull/114): PLAN step 13 (first part), QR labels, barcode lookup and
+  lending. Open.
 
 ## Lanes
 
@@ -149,18 +160,19 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, open); live check 1 (≤25 Neurons) run by QA.
+  Step 12, autofill client: stored photos through Media (#118, merged); live check 1 (≤25 Neurons) run by QA.
   Touches `Media\ImageStore` and the Autofill module only.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
-  forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged). Owns the N-63 router
-  follow-up below.
+  forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
+  lending (#114), then stocktake. Owns the N-63 router follow-up below.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #118 (autofill reads photos through Media).
+1. Review and merge #114 (step 13, first part), then #115 (stocktake, step 13 second part), then a follow-up PR
+   (L-230, L-240 and the N-items), then the N-63 router fix.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. Live check 1 for the autofill client (#118, PLAN §4.4), run by QA.
@@ -168,7 +180,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Tracked
 
 - CI4 router (N-63, an N-51 follow-up): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404
-  where legacy shows the page (stricter). Owner: Coder2 (CI4 lane).
+  where legacy shows the page (stricter). Owner: Coder2 (CI4 lane). Not folded into step 13: it changes the Auth
+  controllers that #110 also changes, so it gets its own small PR after #110.
 - Legacy photo edit race (#103 M-90): on `main`, two crop/rotate requests for one photo at once can commit a photo
   without its original, and `image_original_copy()` succeeds when the original is gone. CI4 compares and swaps
   `item_photos.file` and fails the copy. Candidate for the next `main` hardening PR.
