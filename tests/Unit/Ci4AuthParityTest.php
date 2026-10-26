@@ -72,6 +72,12 @@ final class Ci4AuthParityTest extends TestCase
             $this->assertSame($l['GET /register as editor'], $l[$verb . ' /register, registration open'], $verb . ' /register shows the open page (N-351)');
         }
         $this->assertStringContainsString('<form', (string)$l['GET /register as editor']['body']);
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $this->assertSame($l['login wrong password'], $l['login wrong password, _method ' . $verb], $verb . ': a sign-in (N-352)');
+            $this->assertSame([303, '/?done=welcome'], [$l['register, _method ' . $verb]['status'], $l['register, _method ' . $verb]['location']], $verb . ': a registration');
+            $this->assertSame($l['account wrong current'], $l['account wrong current, _method ' . $verb], $verb . ': a new password');
+        }
+        $this->assertStringContainsString('"sampatch"', (string)$l['tables']['body']);
         $this->assertSame(['n' => 0], $l['accounts after PUT, PATCH and DELETE /register'], 'no account created');
         $this->assertStringContainsString('id="login-form"', (string)$l['signed-out GET /login']['body']);
         $this->assertStringContainsString('id="login-guest"', (string)$l['guest GET /login']['body']);
@@ -276,6 +282,10 @@ final class Ci4AuthParityTest extends TestCase
         $as('login array name', 'POST', '/login', ['username' => ['a'], 'password' => 'x']);
         $as('login long name', 'POST', '/login', ['username' => str_repeat('ü ', 60), 'password' => 'x']);
         $as('login pending', 'POST', '/login', ['username' => 'pam', 'password' => self::PW]);
+        // N-352: legacy ignores _method, so these are a sign-in, a registration and a new password.
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('login wrong password, _method ' . $verb, 'POST', '/login', ['_method' => $verb, 'username' => 'vera', 'password' => 'nope-nope']);
+        }
         [$client, $token, $ip, $sid] = $browser(null);
         $r = $client->req('POST', '/login', ['csrf' => $token, 'username' => 'VERA', 'password' => self::PW], [], ['X-Forwarded-For: ' . $ip]);
         $record('login vera', $r);
@@ -333,6 +343,9 @@ final class Ci4AuthParityTest extends TestCase
         $record('register from another address', $second->req('POST', '/register', ['csrf' => $token2, 'username' => 'rey', 'new' => 'short', 'confirm' => 'short'], [], ['X-Forwarded-For: 10.8.8.8']));
         $pdo->exec("UPDATE auth_attempts SET at = at - 3601 WHERE kind = 'register'");
         $record('register after the window', $second->req('POST', '/register', ['csrf' => $token2, 'username' => 'rey', 'new' => 'short', 'confirm' => 'short'], [], ['X-Forwarded-For: ' . $ip]));
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('register, _method ' . $verb, 'POST', '/register', ['_method' => $verb, 'username' => 'sam' . strtolower($verb), 'new' => self::PW, 'confirm' => self::PW]);
+        }
         $this->setting($pdo, 'auth_register_approval', 'true');
         $as('register pia (approval)', 'POST', '/register', ['username' => 'pia', 'new' => self::PW, 'confirm' => self::PW]);
         $as('register without csrf', 'POST', '/register', ['username' => 'zoe', 'new' => self::PW, 'confirm' => self::PW], [], null, false);
@@ -353,6 +366,9 @@ final class Ci4AuthParityTest extends TestCase
 
         // Your account: a new password, sign out everywhere.
         $as('account wrong current', 'POST', '/account', ['current' => 'wrong', 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda');
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('account wrong current, _method ' . $verb, 'POST', '/account', ['_method' => $verb, 'current' => 'wrong', 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda');
+        }
         $as('account short', 'POST', '/account', ['current' => self::PW, 'new' => 'short', 'confirm' => 'short'], [], 'eda');
         $as('account mismatch', 'POST', '/account', ['current' => self::PW, 'new' => 'new-password', 'confirm' => 'other-password'], [], 'eda');
         foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {

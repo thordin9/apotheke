@@ -31,7 +31,7 @@ final class SignInController extends AuthPages
         if (!$this->settings()->signInEnabled() || $this->signedIn()) {
             return $this->redirectTo('/');
         }
-        if ($this->request->getMethod() !== 'POST') {
+        if (!$this->posted()) {
             return $this->page($this->loginPage(null, '', $this->query('registered')));
         }
         $this->checkCsrf();
@@ -70,7 +70,7 @@ final class SignInController extends AuthPages
         if ($this->signedIn()) {
             return $this->redirectTo('/');
         }
-        if ($this->request->getMethod() !== 'POST') {
+        if (!$this->posted()) {
             return $this->page($this->registerPage(null, ''), 200, true);
         }
         $this->checkCsrf();
