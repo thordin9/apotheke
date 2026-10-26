@@ -104,20 +104,6 @@ final class HardeningHttpTest extends TestCase
         $this->assertSame(429, $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => 'ada', 'password' => 'long-enough'])['status'], 'still capped');
     }
 
-    /** A name with a null character inside never matches an account, even with that account's password (N-160). */
-    public function testANameWithANulNeverSignsIn(): void
-    {
-        if (apotheke_app() === 'legacy' && db_driver() === 'pgsql') {
-            $this->markTestSkipped('Legacy on PostgreSQL cuts the bound name at the null character (main follow-up).');
-        }
-        foreach (["ada\0x", "a\0da", " ada\0 x"] as $name) {
-            $c = $this->server->client();
-            $r = $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => $name, 'password' => 'long-enough']);
-            $this->assertSame(401, $r['status'], bin2hex($name));
-            $this->assertStringContainsString('Wrong user name or password.', $r['body'], bin2hex($name));
-        }
-    }
-
     /** Changing your password and turning sign-in off check the current password with the sign-in limit. */
     public function testTheSecurityPasswordFormIsLimited(): void
     {
@@ -262,6 +248,36 @@ final class HardeningHttpTest extends TestCase
         $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'another-one']);
         $this->assertSame(303, $r['status']);
         $this->assertSame(5, $count());
+    }
+
+    /** A sign-in name with a null character anywhere never signs in, and the account's limit still applies. */
+    public function testSignInNamesWithANullCharacterAreRefused(): void
+    {
+        foreach (["ada\0x", "\0ada", "ada\0", "ADA\0"] as $name) {
+            $c = $this->server->client();
+            $r = $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => $name, 'password' => 'long-enough']);
+            $this->assertSame(401, $r['status'], json_encode($name));
+            $this->assertStringContainsString('Wrong user name or password.', $r['body']);
+            $this->assertNotSame(200, $c->get('/')['status'], json_encode($name) . ': not signed in');
+        }
+        $this->pdo->exec('DELETE FROM auth_attempts');
+        $key = substr(hash('sha256', "127.0.0.1\0ada"), 0, 32);
+        $st = $this->pdo->prepare("INSERT INTO auth_attempts (kind, client, at) VALUES ('login', ?, ?)");
+        for ($i = 0; $i < 10; $i++) $st->execute([$key, time()]);
+        $c = $this->server->client();
+        $this->assertSame(429, $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => "ada\0", 'password' => 'long-enough'])['status'], 'same account limit');
+        $this->pdo->exec('DELETE FROM auth_attempts');
+        $this->signIn('ada');
+
+        $this->setting('auth_enabled', false);
+        $users = (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+        foreach (["ada\0x", "\0ada", "ada\0"] as $name) {
+            $g = $this->server->client();
+            $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => $name, 'new' => 'long-enough', 'confirm' => 'long-enough']);
+            $this->assertSame(403, $r['status'], 'turning sign-in on as ' . json_encode($name));
+        }
+        $this->assertSame('false', (string)$this->pdo->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn(), 'still off');
+        $this->assertSame($users, (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'no account created');
     }
 
     /** Two admins deleting each other, or one demoting while the other deletes, at the same time: one admin stays. */
