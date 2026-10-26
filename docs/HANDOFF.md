@@ -167,6 +167,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#123](https://github.com/thordin9/apotheke/pull/123): #114/#115 QA notes: lend/return lock first (L-230),
   stocktake finish/cancel only while open (L-240), borrower name without control characters (N-234), test fixes
   N-211, N-232/N-243, N-233, and the Routes comment (N-242). Merged.
+- [#125](https://github.com/thordin9/apotheke/pull/125): N-63, `/login`, `/register` and `/account` show their page
+  for PUT, PATCH and DELETE as legacy does (`/account` still needs the CSRF token there). Merged.
 
 ## Lanes
 
@@ -184,8 +186,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   and `SignInAccountsTest` (listed in the PR).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
-  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123). Owns the N-63 router
-  follow-up below.
+  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
@@ -193,16 +194,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 1. Review and merge #124 (sync v2.6.20, N-304, L-310 and L-330 for CI4, N-290, N-291).
-2. The N-63 router fix.
-3. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests.
-4. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
+2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests.
+3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 
 ## Tracked
 
-- CI4 router (N-63, an N-51 follow-up): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404
-  where legacy shows the page (stricter). Owner: Coder2 (CI4 lane). Not folded into step 13: it changes the Auth
-  controllers that #110 also changes, so it gets its own small PR after #110.
+- `/account` with PUT, PATCH or DELETE (#125, N-63): CI4 wants the CSRF token, as on every non-safe method, where
+  legacy shows the page without it. Stricter; no change.
 - Legacy photo edit race (#103 M-90): on `main`, two crop/rotate requests for one photo at once can commit a photo
   without its original, and `image_original_copy()` succeeds when the original is gone. CI4 compares and swaps
   `item_photos.file` and fails the copy. Candidate for the next `main` hardening PR.

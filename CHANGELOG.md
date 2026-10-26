@@ -85,6 +85,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** registering, adding a user and renaming one refuse a user name with a null character anywhere, also at the start or end, with the invalid-name message (422) instead of trimming it into a shorter name. Legacy does the same since 2.6.19 (#121). ([#120](https://github.com/thordin9/apotheke/pull/120))
 - **ci4:** hardening, as on legacy 2.6.20 (#122): turning sign-in back on always spends one password check, whatever the name. Every refusal there, also of a right password for an account that is not an admin, and a wrong current password answer at the same deadline as a failed sign-in, whatever the cost of the stored hash. ([#124](https://github.com/thordin9/apotheke/pull/124))
 - **ci4:** lending and stocktakes under concurrent requests (PLAN step 13 follow-ups). A lend or return locks the item first, so on SQLite it waits for another write instead of failing, and a return that waited for another one logs nothing twice. Finishing or cancelling a stocktake closes it only while it is still open, so a second finish or cancel answers 409 and changes nothing. Control characters are removed from the borrower's name. ([#123](https://github.com/thordin9/apotheke/pull/123))
+- **ci4:** `/login`, `/register` and `/account` show their page for PUT, PATCH and DELETE as legacy does, instead of 404; on `/account` these methods still need the CSRF token, as every non-safe method does on CI4. ([#125](https://github.com/thordin9/apotheke/pull/125))
 
 ### Maintenance
 
