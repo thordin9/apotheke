@@ -10,7 +10,7 @@ require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/ApothekeConfig.php'
 final class ApothekeConfigTest extends TestCase
 {
     /** @var array<string,mixed> */
-    private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => [], 'sign_in_fail_ms' => 1000];
+    private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => []];
 
     public function testLoadMatchesTheLegacyLoader(): void
     {
@@ -21,7 +21,7 @@ final class ApothekeConfigTest extends TestCase
         $env = ['PAGE_SIZE' => '12', 'DB_PASSWORD' => 'pw', 'ORIGINALS_DIR' => 'camera'];
         $legacy = config_load($root, $file, $env);
         $ours = ApothekeConfig::load($root, $file, $env)->values();
-        // Keys main added (SEC-M3/M2, #126), which this branch's legacy tree gets with the next main sync.
+        // Keys main added for SEC-M3/M2, which this branch's legacy tree gets with the next main sync.
         foreach (self::FROM_MAIN as $key => $default) {
             if (!array_key_exists($key, $legacy)) {
                 $this->assertSame($default, $ours[$key], $key);
@@ -38,6 +38,17 @@ final class ApothekeConfigTest extends TestCase
         $config = ApothekeConfig::load($root, null, ['DATA_DIR' => '/tmp/apo-data']);
         $this->assertSame('/tmp/apo-data/originals', $config->originalsDir());
         $this->assertSame('/tmp/apo-data/catalog.sqlite', $config->database()['sqlite_path']);
+    }
+
+    /** SIGN_IN_FAIL_MS maps to sign_in_fail_ms, clamped to 400–10000 as on legacy ('abc' reads as 0, so 400). */
+    public function testSignInFailMsMatchesTheLegacyLoader(): void
+    {
+        $this->assertSame('sign_in_fail_ms', ApothekeConfig::ENV_MAP['SIGN_IN_FAIL_MS']);
+        foreach (['' => 1000, '1500' => 1500, '0' => 400, '99999' => 10000, 'abc' => 400] as $raw => $want) {
+            $env = $raw === '' ? [] : ['SIGN_IN_FAIL_MS' => (string)$raw];
+            $this->assertSame($want, config_load('/repo', null, $env)['sign_in_fail_ms'], 'legacy ' . $raw);
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['sign_in_fail_ms'], 'ci4 ' . $raw);
+        }
     }
 
     public function testAbsoluteOriginalsAreKept(): void
