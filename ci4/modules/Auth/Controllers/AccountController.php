@@ -37,7 +37,7 @@ final class AccountController extends AuthPages
         return $this->redirectTo('/account?done=out');
     }
 
-    /** GET and POST /account */
+    /** /account: POST changes the password, every other method shows the page (legacy, N-63) */
     public function index(): ResponseInterface
     {
         $me = $this->me();
