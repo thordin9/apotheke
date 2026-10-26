@@ -53,7 +53,8 @@ final class Loans
     /** Mark an item as lent to someone (also changes who has it or the due date). */
     public function lend(int $id, string $to, ?string $at, ?string $due): void
     {
-        $to = Text::cleanLine($to, 100);
+        // Control characters go (a NUL cut the name on SQLite); whitespace ones are spaces, as before.
+        $to = Text::cleanLine((string)preg_replace('/[^\P{Cc}\s]/u', '', $to), 100);
         if ($to === '') {
             throw new UserError('Enter who you lent it to.');
         }
@@ -66,6 +67,7 @@ final class Loans
             throw new UserError('The due date cannot be before the lent date.');
         }
         Writes::transaction($this->db, function () use ($id, $to, $at, $due): void {
+            $this->hold($id);
             $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
             Writes::check($this->db->query('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?', [$to, $at, $due, $this->clock->now(), $id]), 'lend');
             $this->history->log($id, (string)$it['name'], 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $it['lent_to']], static fn (mixed $v): bool => $v !== null));
@@ -76,6 +78,7 @@ final class Loans
     public function giveBack(int $id): void
     {
         Writes::transaction($this->db, function () use ($id): void {
+            $this->hold($id);
             $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
             if ($it['lent_to'] === null) {
                 return;
@@ -84,6 +87,24 @@ final class Loans
             $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable($this->calendar->today()))->format('%a');
             $this->history->log($id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
         });
+    }
+
+    /**
+     * Inside the transaction, before its first read: the item row locked for
+     * it, as UserRepository::holdActiveAdmins() does. PostgreSQL locks it
+     * without writing (SELECT … FOR UPDATE), so a second return waits and
+     * then sees the item back. SQLite takes its one write lock with a no-op
+     * write, so a concurrent lend or return waits for it instead of failing
+     * on a read lock it cannot upgrade.
+     */
+    private function hold(int $id): void
+    {
+        if ($this->db->DBDriver === 'Postgre') {
+            Writes::rows($this->db, 'SELECT id FROM items WHERE id = ? FOR UPDATE', [$id]);
+
+            return;
+        }
+        Writes::check($this->db->query('UPDATE items SET lent_to = lent_to WHERE id = ?', [$id]), 'lock item');
     }
 
     /**
