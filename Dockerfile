@@ -94,11 +94,13 @@ COPY --chown=root:root config.example.php VERSION /var/www/app/
 # CI4 (APOTHEKE_APP=ci4): nginx serves ci4/public; app, modules, vendor, writable and spark stay outside it.
 COPY --chown=root:root ci4 /var/www/app/ci4
 COPY --from=ci4-vendor --chown=root:root /ci4/vendor /var/www/app/ci4/vendor
+# The autoloader check runs on 8.4 only: CI4's Composer platform check refuses PHP < 8.4, so the 8.3 image ships CI4
+# but cannot run it (the entrypoint says so).
 RUN set -eux; \
     mkdir -p /var/www/app/ci4/writable/cache /var/www/app/ci4/writable/logs /var/www/app/ci4/writable/session \
         /var/www/app/ci4/writable/uploads /var/www/app/ci4/writable/debugbar; \
     chown -R www-data:www-data /var/www/app/ci4/writable; \
-    php -r 'require "/var/www/app/ci4/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'
+    php -r 'if (PHP_VERSION_ID < 80400) exit(0); require "/var/www/app/ci4/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'
 
 # legacy (default) or ci4: which app the container runs. Override at run time with -e APOTHEKE_APP=ci4.
 ARG APOTHEKE_APP=legacy
