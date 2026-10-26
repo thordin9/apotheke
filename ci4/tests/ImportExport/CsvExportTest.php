@@ -64,6 +64,10 @@ final class CsvExportTest extends CIUnitTestCase
 
         $all = $export->lines('EUR');
         $this->assertStringStartsWith("\xEF\xBB\xBFid,name,", (string)$all->current());
+        if ($driver === 'pgsql') {
+            // A cursor, not one pg_query() result that libpq holds whole.
+            $this->assertSame([['name' => 'apotheke_export']], $db->query('SELECT name FROM pg_cursors')->getResultArray());
+        }
         $pdo->exec("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES ('b', 1, '', 'b', '2026-01-01', '2026-01-01')");
         $rest = iterator_to_array((static function (\Generator $g): \Generator {
             for ($g->next(); $g->valid(); $g->next()) {

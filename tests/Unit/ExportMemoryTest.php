@@ -38,6 +38,12 @@ final class ExportMemoryTest extends TestCase
                 $last = substr($body, (int)strrpos($body, "\n", -2) + 1);
                 $this->assertSame('8000,"Item 08000",,,1,' . str_repeat('n', 3000) . ',,2026-01-01,2026-01-01,"A, B",,,,,,,,,,' . "\n", $last, $app);
                 $hashes[$app] = hash('sha256', $body);
+                if ($app === 'ci4') {
+                    // CI4 runs the items query before it sends anything: a failing read is a 500 page.
+                    testdb($dir)->exec('ALTER TABLE items RENAME TO items_gone');
+                    $failed = $server->client()->get('/export.csv');
+                    $this->assertSame([500, 'text/html; charset=UTF-8'], [$failed['status'], $failed['headers']['content-type'] ?? null]);
+                }
             } finally {
                 $server->stop();
                 testdb_drop($dir);
