@@ -201,6 +201,7 @@ final class Stocktakes
         }
 
         return Writes::transaction($this->db, function () use ($s, $to, $applyMoves): int {
+            $this->close($s['id'], 'done');
             $rep = $this->report($s['id']);
             $moved = 0;
             if ($applyMoves) {
@@ -217,8 +218,8 @@ final class Stocktakes
                 }
             }
             $sum = ['expected' => $rep['expected'], 'found' => count($rep['found']), 'missing' => count($rep['missing']), 'misplaced' => count($rep['misplaced']), 'moved' => $moved];
-            Writes::check($this->db->query("UPDATE stocktakes SET status = 'done', finished_at = ?, moves_applied = ?, summary = ? WHERE id = ?",
-                [$this->clock->now(), $moved, (string)json_encode($sum), $s['id']]), 'finish stocktake');
+            Writes::check($this->db->query('UPDATE stocktakes SET moves_applied = ?, summary = ? WHERE id = ?',
+                [$moved, (string)json_encode($sum), $s['id']]), 'finish stocktake');
 
             return $moved;
         });
@@ -230,7 +231,22 @@ final class Stocktakes
         if ($s['status'] !== 'open') {
             throw new UserError('This stocktake is already finished.', 409);
         }
-        Writes::check($this->db->query("UPDATE stocktakes SET status = 'cancelled', finished_at = ? WHERE id = ?", [$this->clock->now(), $stocktakeId]), 'cancel stocktake');
+        $this->close($stocktakeId, 'cancelled');
+    }
+
+    /**
+     * Mark an open stocktake done or cancelled, as the first write of its
+     * transaction. Only one finish or cancel gets the open stocktake: one
+     * that read it as open before another closed it answers 409 and changes
+     * nothing (on PostgreSQL it waits for the other's row lock first).
+     */
+    private function close(int $stocktakeId, string $status): void
+    {
+        Writes::check($this->db->query("UPDATE stocktakes SET status = ?, finished_at = ? WHERE id = ? AND status = 'open'",
+            [$status, $this->clock->now(), $stocktakeId]), $status === 'done' ? 'finish stocktake' : 'cancel stocktake');
+        if ($this->db->affectedRows() !== 1) {
+            throw new UserError('This stocktake is already finished.', 409);
+        }
     }
 
     /**

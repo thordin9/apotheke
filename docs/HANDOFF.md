@@ -62,11 +62,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (`tests/Unit/Ci4LabelsLendingParityTest.php`, SQLite and PostgreSQL, failed writes included;
   `Ci4LabelsQrParityTest` compares the SVG with legacy `qr_svg()` and decodes it with zbarimg). New modules `Labels`
   (`QrCode`, legacy's encoder; `QrJit::guard()` turns function JIT off before it loads) and `Lending`; the lookup is
-  Catalog's `Barcode`. Every path under `/barcode/` is the lookup (`LegacyPathRouter`), as on legacy.
+  Catalog's `Barcode`. Every path under `/barcode/` is the lookup (`LegacyPathRouter`), as on legacy. Lend and
+  return lock the item first (#123).
 - Stocktake (step 13, second part, #115, built on #114): GET/POST `/stocktake` and `/stocktake/{id}` with `/check`,
   `/report`, `/finish` and `/cancel` answer as legacy does, fetch JSON included, with the same `stocktakes` and
   `stocktake_lines` rows (`tests/Unit/Ci4StocktakeParityTest.php`, SQLite and PostgreSQL, failed writes included).
-  New module `Stocktake`; looking is `view`, changes `stocktake`, finishing with moves also `move`.
+  New module `Stocktake`; looking is `view`, changes `stocktake`, finishing with moves also `move`. Finish and
+  cancel close it only while it is open; the second one answers 409 (#123). `ci4/tests/Lending` and
+  `ci4/tests/Stocktake` hold a transaction open in another process (`TestDatabase::holdInAnotherClient()`).
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
@@ -160,7 +163,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   suites with `allow_url_fopen` off. Merged.
 - [#123](https://github.com/thordin9/apotheke/pull/123): #114/#115 QA notes: lend/return lock first (L-230),
   stocktake finish/cancel only while open (L-240), borrower name without control characters (N-234), test fixes
-  N-211, N-232/N-243, N-233, and the Routes comment (N-242). Open.
+  N-211, N-232/N-243, N-233, and the Routes comment (N-242). Merged.
 - [#125](https://github.com/thordin9/apotheke/pull/125): N-63, `/login`, `/register` and `/account` show their page
   for PUT, PATCH and DELETE as legacy does (`/account` still needs the CSRF token there). Open.
 
@@ -179,14 +182,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Touches `Media\ImageStore` and the Autofill module only.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
-  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123); N-63 (#125).
+  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #123 (step 13 follow-ups) and #125 (N-63).
+1. Review and merge #125 (N-63).
 2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests.
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.

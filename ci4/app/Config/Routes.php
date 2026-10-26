@@ -128,7 +128,9 @@ $routes->match(['GET', 'HEAD'], 'lent', '\\Apotheke\\Lending\\Controllers\\Lendi
 
 // PLAN 13: stocktakes (Stocktake). Looking is "view", every change "stocktake" (legacy
 // route_perm()); finishing with moves also checks "move". Every act answers every method,
-// so a missing stocktake is "Stocktake not found." before anything else, as in legacy.
+// so a missing stocktake is "Stocktake not found." before the act is checked, as in legacy.
+// A POST without a valid CSRF token is refused (419) before that, even for a missing
+// stocktake, where legacy answers 404: the global CSRF filter runs first.
 $stocktake = '\\Apotheke\\Stocktake\\Controllers\\StocktakeController';
 $routes->match(['GET', 'HEAD'], 'stocktake', $stocktake . '::index', ['permission' => 'view']);
 $routes->post('stocktake', $stocktake . '::index', ['permission' => 'stocktake']);
