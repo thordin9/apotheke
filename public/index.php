@@ -123,8 +123,9 @@ try {
                 $mine = rate_limit('login_address');   // all names from this address (see trusted_proxies)
                 rate_limit('login', $who);
                 // a success clears its account's count and takes back only its own address row
-                // a name with a null character anywhere (checked before trimming) never matches an account
-                if (!str_contains($raw, "\0") && login($who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_forget($mine); redirect('/'); }
+                // a name with a null character anywhere (checked before trimming) never matches an account,
+                // and costs the same password hash as an unknown name
+                if (login(str_contains($raw, "\0") ? $raw : $who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_forget($mine); redirect('/'); }
                 usleep(400000);
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
@@ -142,10 +143,12 @@ try {
         if (signed_in()) redirect('/');
         if ($method === 'POST') {
             check_csrf();
-            $who = clean_line((string)($_POST['username'] ?? ''), USERNAME_MAX * 2);
+            $raw = (string)($_POST['username'] ?? '');
+            $who = clean_line($raw, USERNAME_MAX * 2);
             try {
                 rate_limit('register');
-                $u = user_register($who, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
+                // a name with a null character anywhere (checked before trimming) is refused like any invalid name
+                $u = user_register(str_contains($raw, "\0") ? $raw : $who, (string)($_POST['new'] ?? ''), (string)($_POST['confirm'] ?? ''));
             } catch (UserError $e) {
                 http_response_code($e->getCode() ?: 422);
                 view_register($e->getMessage(), $who);
