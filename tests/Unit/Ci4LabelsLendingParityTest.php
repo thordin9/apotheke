@@ -43,6 +43,13 @@ final class Ci4LabelsLendingParityTest extends TestCase
         // The cases are what they claim to be.
         $this->assertSame(3, substr_count((string)$l['labels all locations']['body'], '<figure class="label"'));
         $this->assertStringContainsString('<svg class="qr"', (string)$l['labels all locations']['body']);
+        // The SVG is inline in the page, which carries the security headers and legacy's strict CSP.
+        foreach (['labels all locations', 'item label', 'barcode form', 'lent list'] as $case) {
+            $this->assertSame(['nosniff', 'text/html; charset=UTF-8'], [$l[$case]['nosniff'], $l[$case]['type']], $case);
+            $this->assertStringContainsString("default-src 'self'", (string)$l[$case]['csp'], $case);
+            $this->assertStringContainsString("script-src 'self'", (string)$l[$case]['csp'], $case);
+            $this->assertStringContainsString("object-src 'none'", (string)$l[$case]['csp'], $case);
+        }
         $this->assertStringContainsString('data-url="http://labels.example/?loc=1"', (string)$l['labels all locations']['body']);
         $this->assertStringContainsString('Location + sub-locations', (string)$l['labels one location']['body']);
         $this->assertSame(2, substr_count((string)$l['labels location and sub-locations']['body'], '<figure class="label"'));
