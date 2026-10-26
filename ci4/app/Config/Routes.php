@@ -101,3 +101,15 @@ $routes->post('settings/users/([0-9]+)/(role|password|rename|delete|approve)', $
 $routes->post('settings/roles', $security . '::role', $users);
 $routes->post('settings/roles/([a-z0-9-]+)', $security . '::role/$1', $users);
 $routes->post('settings/roles/([a-z0-9-]+)/delete', $security . '::role/$1/delete', $users);
+
+// PLAN 11b: attachments (Catalog), and quantity, duplicate, merge and the list's bulk actions
+// (BulkMerge). Permissions as legacy route_perm(); /bulk also checks the action's own.
+$routes->post('item/([0-9]+)/attachments', $catalog . 'AttachmentController::add/$1', ['permission' => 'edit']);
+$routes->post('item/([0-9]+)/attachments/([0-9]+)/delete', $catalog . 'AttachmentController::remove/$1/$2', ['permission' => 'edit']);
+$routes->match(['GET', 'HEAD'], 'attachment/([0-9]+)', $catalog . 'AttachmentController::download/$1', ['permission' => 'view']);
+$bulkMerge = '\\Apotheke\\BulkMerge\\Controllers\\BulkMergeController';
+$routes->post('item/([0-9]+)/qty', $bulkMerge . '::qty/$1', ['permission' => 'edit']);
+$routes->post('item/([0-9]+)/duplicate', $bulkMerge . '::duplicate/$1', ['permission' => 'create']);
+$routes->match(['GET', 'HEAD'], 'item/([0-9]+)/merge', $bulkMerge . '::mergePage/$1', ['permission' => 'delete']);
+$routes->post('item/([0-9]+)/merge', $bulkMerge . '::merge/$1', ['permission' => 'delete']);
+$routes->post('bulk', $bulkMerge . '::bulk', ['permission' => 'bulk']);

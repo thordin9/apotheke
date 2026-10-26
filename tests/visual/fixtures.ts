@@ -32,11 +32,8 @@ type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: Ap
  * test fails tests/Unit/Ci4E2eSkipListTest.php, so a stale entry cannot linger.
  */
 export const CI4_UNPORTED: Record<string, string> = {
-  'item.spec.ts: item page › quantity +/- on the item page': 'POST /item/{id}/qty (11b)',
   'list.spec.ts: empty catalog › the labels page has an empty state': '/labels',
-  'list.spec.ts: list, overview and search › quantity +/- on a card': 'POST /item/{id}/qty (11b)',
   'search.spec.ts: full-text search › shows the engine in System': '/settings/system',
-  'undo.spec.ts: undo › bulk move, then undo; dismiss hides the bar': 'POST /bulk (11b)',
 };
 
 const freePort = () => new Promise<number>((res, rej) => {

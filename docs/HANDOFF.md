@@ -30,7 +30,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `/filters` (saved filters) are byte-identical to legacy. Search (FTS5 or pg_trgm, typo matching) rebuilds its index
   in one transaction when the data changes. Favourites: POST `/item/{id}/fav` and `/recent/clear`; the list reads
   recently viewed through Catalog's `RecentItems`, which also records an opened item page (and sets the device
-  cookie on the first one). POST `/bulk` waits for 11b. Acceptance: the PM accepted the legacy-vs-CI4 golden test
+  cookie on the first one). POST `/bulk` is step 11b (below). Acceptance: the PM accepted the legacy-vs-CI4 golden test
   (`tests/Unit/Ci4CatalogParityTest.php`) in place of the `list`, `search`, `saved-filters`, `favourites` and
   `value` specs; the specs now also run against CI4 (see Playwright on CI4). Like legacy, CI4 routes the exact
   decoded path: a trailing slash or a dot segment (`/stats/`, `/./stats`, `/%2e/stats`, `/a/../stats`) answers 404
@@ -50,20 +50,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the photo before its transaction (M-91). A photo add locks the item first, so adds at once stay within
   `max_photos` (P6). An edit replaces the photo only if it still shows the file it read (compare-and-swap); the
   other request of a double submit drops its own files (M-90). `tests/Unit/Ci4PhotoRacesTest.php` sends these
-  requests at once and `ci4/tests/Catalog/PhotoRepositoryTest.php` interleaves them. Not yet: quantity,
-  duplicate, attachments upload and lend (11b, 13). Their buttons are drawn and answer 404 on CI4 until then.
+  requests at once and `ci4/tests/Catalog/PhotoRepositoryTest.php` interleaves them. Not yet: lend (13); its
+  buttons are drawn and answer 404 on CI4 until then.
+- Bulk, merge, duplicate, quantity and attachments (step 11b, #108): POST `/item/{id}/qty`, `/item/{id}/duplicate`,
+  GET/POST `/item/{id}/merge`, POST `/bulk` and the attachment routes answer as legacy does, with the same tables
+  and files (`tests/Unit/Ci4BulkMergeParityTest.php`, SQLite and PostgreSQL, failed writes included). New module
+  `BulkMerge`; attachments are Catalog's `Items\Attachments`. Duplicate copies photos through `ImageStore::copy()`.
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
-  `undo`, `history`, `expiry` and `photos` on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
+  `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users` and `roles`
+  on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
   describe or test no longer exists (N-85), or that this list does not name:
-  - `list`: the labels page has an empty state (`/labels`); quantity +/- on a card (POST `/item/{id}/qty`, 11b).
+  - `list`: the labels page has an empty state (`/labels`).
   - `search`: shows the engine in System (`/settings/system`).
-  - `item`: quantity +/- on the item page (11b).
-  - `undo`: bulk move, then undo; dismiss hides the bar (POST `/bulk`, 11b).
-  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, roles, users, control
-    panel, duplicate, bulk, merge, stock, attachments, lending, labels, import/export, backup).
+  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel,
+    lending, labels, import/export, backup).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -119,7 +122,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#104](https://github.com/thordin9/apotheke/pull/104): PLAN step 7 part B (first half), the users and roles pages.
   Merged.
 - [#105](https://github.com/thordin9/apotheke/pull/105): PLAN step 7 part B (second half), the CLI account forms,
-  plus N-111. Open.
+  plus N-111. Merged.
+- [#108](https://github.com/thordin9/apotheke/pull/108): PLAN step 11b, bulk, merge, duplicate, quantity and
+  attachments, plus #104 N-112 (`users` and `roles` on CI4). Open.
 
 ## Lanes
 
@@ -128,18 +133,19 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (#103, merged). Stays out of the auth, account, users/roles, taxonomy and Notes files
   (only the route table in `PermissionFilterTest` gets the new photo routes).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
-  forms (#105, open). Owns the N-63 router follow-up below.
+  forms (#105, merged); step 11b (#108, open). Stays out of the Auth files of the #106 hardening port. Owns the
+  N-63 router follow-up below.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #105 (the CLI account forms); step 7 is then complete on CI4.
+1. Review and merge #108 (step 11b) and the `main` sync #107.
 2. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 3. Autofill reads photos through Media.
-4. PLAN 11b: BulkMerge (bulk, merge, duplicate, quantity) and attachments.
+4. Port the #106 hardening to CI4.
 
 ## Tracked
 

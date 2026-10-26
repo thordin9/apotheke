@@ -80,6 +80,12 @@ final class PermissionFilterTest extends CIUnitTestCase
         'settings/roles' => 'users',
         'settings/roles/desk' => 'users',
         'settings/roles/desk/delete' => 'users',
+        'item/1/attachments' => 'edit',
+        'item/1/attachments/1/delete' => 'edit',
+        'item/1/qty' => 'edit',
+        'item/1/duplicate' => 'create',
+        'item/1/merge' => 'delete',
+        'bulk' => 'bulk',
     ];
 
     /** State-changing routes for your own account: signed in with an account (`self`), whatever the role. */
@@ -194,8 +200,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(46, $n, "28 GET and 18 HEAD routes");
-        $this->assertSame(52, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(50, $n, "30 GET and 20 HEAD routes");
+        $this->assertSame(56, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**

@@ -68,6 +68,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Undo\\
+    - name: BulkMerge
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\BulkMerge\\
   ruleset:
     Auth:
       - Core
@@ -122,3 +126,12 @@ deptrac:
     # Undo: tokens only; putting items back is Catalog's (it saves items).
     Undo:
       - Core
+    # BulkMerge (PLAN 11b): bulk actions, merge, duplicate and quantity, on Catalog's items.
+    BulkMerge:
+      - Core
+      - Layout
+      - Settings
+      - Catalog
+      - Taxonomy
+      - Media
+      - Undo
