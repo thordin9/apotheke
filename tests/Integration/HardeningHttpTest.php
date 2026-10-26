@@ -6,7 +6,7 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 
 /**
- * Sign-in limits, the last admin, and photo writes, over HTTP against `php -S` with workers, on the configured
+ * Sign-in limits, the last admin, role edits and photo writes, over HTTP against `php -S` with workers, on the configured
  * driver. Requests that must overlap are sent at the same time on raw sockets, each in its own session.
  */
 final class HardeningHttpTest extends TestCase
@@ -149,6 +149,32 @@ final class HardeningHttpTest extends TestCase
             $this->assertContains(proc_close($cli), [0, 1], "round $round: $said");
             $this->assertContains($page['status'], [303, 403, 409], "round $round: " . substr($page['body'], 0, 200));
             $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "command line and page, round $round");
+        }
+    }
+
+    /** Role edits and a role delete sent at once all go through, one after the other, and an admin stays. */
+    public function testRoleEditsAtOnceAllGoThrough(): void
+    {
+        $ids = $this->pdo->query('SELECT username, id FROM users')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $clients = array_map(fn (): Client => $this->signIn('ada'), range(1, 4));
+        $add = $this->pdo->prepare("INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES (?, ?, '[\"view\"]', 0, '2026-01-01 00:00:00')");
+        for ($round = 1; $round <= 10; $round++) {
+            $this->pdo->exec("DELETE FROM roles WHERE role_key IN ('desk', 'packers')");
+            $add->execute(['desk', 'Desk']);
+            $add->execute(['packers', 'Packers']);
+            $this->pdo->prepare("UPDATE users SET role = 'packers' WHERE id = ?")->execute([$ids['bea']]);
+            $perms = $round % 2 ? ['view', 'create'] : ['view', 'labels'];
+            [$a, $b, $c, $d] = $clients;
+            $answers = $this->parallel([
+                [$a, 'POST', '/settings/roles/editor', ['csrf' => $a->csrf(), 'perms' => $perms]],
+                [$b, 'POST', '/settings/roles/viewer', ['csrf' => $b->csrf(), 'perms' => $perms]],
+                [$c, 'POST', '/settings/roles/desk', ['csrf' => $c->csrf(), 'name' => 'Desk ' . $round, 'perms' => $perms]],
+                [$d, 'POST', '/settings/roles/packers/delete', ['csrf' => $d->csrf()]],
+            ]);
+            $this->assertSame([303, 303, 303, 303], array_column($answers, 'status'), "round $round: " . json_encode(array_map(fn (array $x): string => $x['status'] . ' ' . substr(strip_tags($x['body']), 0, 120), $answers)));
+            $this->assertGreaterThanOrEqual(1, (int)$this->pdo->query("SELECT COUNT(*) FROM users WHERE role = 'admin' AND status = 'active'")->fetchColumn(), "round $round");
+            $this->assertSame('viewer', $this->pdo->query('SELECT role FROM users WHERE id = ' . (int)$ids['bea'])->fetchColumn(), "round $round: moved off the deleted role");
+            $this->assertSame(['Desk ' . $round], $this->pdo->query("SELECT name FROM roles WHERE role_key IN ('desk', 'packers')")->fetchAll(PDO::FETCH_COLUMN), "round $round");
         }
     }
 

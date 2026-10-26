@@ -110,6 +110,39 @@ final class UserAdminTest extends CIUnitTestCase
     }
 
     /** Only an admin changes an admin account or grants admin; checks run in legacy's order. */
+    /**
+     * The last-admin check reads the account again under the admin lock: a
+     * change committed between the first read and the lock (here a trigger
+     * on the lock's own write makes ada the only admin) is what it checks.
+     */
+    #[DataProvider('drivers')]
+    public function testTheLastAdminCheckReadsTheAccountUnderTheLock(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $ada = $this->account('ada', 'editor');
+        $bea = $this->account('bea', 'admin');
+        $db = $this->db();
+        $db->query('CREATE TABLE lock_hook (armed INTEGER)');
+        $swap = "UPDATE users SET role = 'admin' WHERE username = 'ada'; UPDATE users SET role = 'editor' WHERE username = 'bea';";
+        if ($driver === 'pgsql') {
+            $db->query("CREATE FUNCTION lock_hook() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN IF NOT EXISTS (SELECT 1 FROM lock_hook) THEN RETURN NULL; END IF; DELETE FROM lock_hook; "
+                . str_replace("'", "''", $swap) . " RETURN NULL; END'");
+            $db->query('CREATE TRIGGER lock_hook AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION lock_hook()');
+        } else {
+            $db->query('CREATE TRIGGER lock_hook AFTER UPDATE ON users WHEN EXISTS (SELECT 1 FROM lock_hook) BEGIN DELETE FROM lock_hook; ' . $swap . ' END');
+        }
+        $users = $this->users();
+        foreach (['demote' => [fn () => $users->setRole($ada, 'viewer'), '“ada” is the only admin – make someone else an admin first.'],
+            'delete' => [fn () => $users->delete($ada), '“ada” is the only admin and cannot be deleted.']] as $what => [$change, $message]) {
+            $db->query('DELETE FROM lock_hook');   // a rolled-back change keeps it armed
+            $this->repo()->setRole($ada, 'editor');
+            $this->repo()->setRole($bea, 'admin');
+            $db->query('INSERT INTO lock_hook (armed) VALUES (1)');
+            $this->assertUserError(409, $message, $change, $what);
+            $this->assertSame(['editor', 'admin'], [$this->repo()->find($ada)['role'] ?? null, $this->repo()->find($bea)['role'] ?? null], $what . ': rolled back');
+        }
+    }
+
     #[DataProvider('drivers')]
     public function testANonAdminCannotTouchAnAdmin(string $driver): void
     {
