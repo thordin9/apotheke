@@ -216,11 +216,15 @@ final class Client
      * @param array<string,array{name:string,type:string,data:string}> $files
      * @return array{status:int,headers:array<string,string>,body:string,json:mixed}
      */
-    public function req(string $method, string $path, array $fields = [], array $files = [], array $headers = []): array
+    public function req(string $method, string $path, array $fields = [], array $files = [], array $headers = [], ?string $form = null): array
     {
         $h = $headers;
         $body = '';
-        if ($files) {
+        if ($form !== null) {
+            // A urlencoded body for any method ($fields go only with POST).
+            $body = $form;
+            $h[] = 'Content-Type: application/x-www-form-urlencoded';
+        } elseif ($files) {
             $b = '----apotheke' . bin2hex(random_bytes(8));
             foreach ($fields as $k => $v) {
                 $body .= "--$b\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n";
@@ -458,6 +462,19 @@ function sqlite(string $file): PDO
 }
 
 /** Card titles from a list JSON response. */
+/**
+ * A Set-Cookie value with its clock-dependent parts settled, for comparing
+ * two answers: expires= reads expires=X and a Max-Age of 10 s or more is
+ * rounded to 10 s, so two requests that straddle a second compare equal
+ * (34559999 and 34560000 both read 34560000).
+ */
+function cookie_times_settled(string $cookie): string
+{
+    $cookie = (string)preg_replace('/expires=[^;]+/i', 'expires=X', $cookie);
+
+    return (string)preg_replace_callback('/Max-Age=(-?\d+)/i', static fn (array $m): string => 'Max-Age=' . ((int)$m[1] < 10 ? (int)$m[1] : (int)(round((int)$m[1] / 10) * 10)), $cookie);
+}
+
 function titles(array $r): array
 {
     preg_match_all('#class="card-title"[^>]*>(.*?)</a>#s', (string)($r['json']['html'] ?? ''), $m);

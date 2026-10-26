@@ -46,13 +46,31 @@ final class Ci4AuthParityTest extends TestCase
         // N-63: legacy shows /account for PUT, PATCH and DELETE without a token; CI4 wants the
         // token on every non-safe method (SEC-N10) and shows the same page once it is sent.
         $untokened = [];
+        $webdav = [];
         foreach ($answers as $app => $cases) {
-            foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            foreach (['PUT', 'PATCH', 'DELETE', 'CONNECT'] as $verb) {
                 $untokened[$app][$verb] = $cases['eda ' . $verb . ' /account without csrf']['status'];
                 unset($answers[$app]['eda ' . $verb . ' /account without csrf']);
             }
+            // N-353: a method CI4 cannot route (PROPFIND) gets 404 there, the page or a redirect on legacy.
+            foreach ($cases as $case => $answer) {
+                if (str_contains($case, ' PROPFIND ')) {
+                    $webdav[$app][$case] = [$answer['status'], $answer['location']];
+                    unset($answers[$app][$case]);
+                }
+            }
         }
-        $this->assertSame(['legacy' => ['PUT' => 200, 'PATCH' => 200, 'DELETE' => 200], 'ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419]], $untokened);
+        $this->assertSame(['legacy' => ['PUT' => 200, 'PATCH' => 200, 'DELETE' => 200, 'CONNECT' => 200], 'ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419, 'CONNECT' => 419]], $untokened);
+        $this->assertCount(15, $webdav['ci4']);
+        foreach ($webdav['ci4'] as $case => $answer) {
+            // Signed out, /account still goes to /login first on both (the permission check).
+            $out = str_ends_with($case, 'PROPFIND /account') && (str_starts_with($case, 'guest ') || str_starts_with($case, 'signed-out '));
+            $this->assertSame($out ? [303, '/login'] : [404, null], $answer, $case);
+            $this->assertTrue(!$out || $webdav['legacy'][$case] === $answer, $case);
+        }
+        $this->assertSame([200, null], $webdav['legacy']['signed-out PROPFIND /login']);
+        $this->assertSame([200, null], $webdav['legacy']['eda PROPFIND /account']);
+        $this->assertSame([303, '/'], $webdav['legacy']['ada PROPFIND /login']);
         $this->assertGreaterThan(80, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
@@ -61,13 +79,27 @@ final class Ci4AuthParityTest extends TestCase
         // The cases are what they claim to be.
         $l = $answers['legacy'];
         $this->assertSame(200, $l['signed-out GET /login']['status']);
-        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+        foreach (['OPTIONS', 'TRACE'] as $verb) {
+            $this->assertSame($l['eda GET /account']['body'], $l['eda ' . $verb . ' /account without csrf']['body'], $verb . ' /account (N-353)');
+        }
+        foreach (['PUT', 'PATCH', 'DELETE', 'OPTIONS', 'TRACE', 'CONNECT'] as $verb) {
             $this->assertSame($l['signed-out GET /login'], $l['signed-out ' . $verb . ' /login'], $verb . ' /login shows the page (N-63)');
             $this->assertSame($l['signed-out GET /register'], $l['signed-out ' . $verb . ' /register'], $verb . ' /register');
             $this->assertSame(303, $l['ada ' . $verb . ' /login']['status'], $verb);
             $this->assertSame($l['eda GET /account']['status'], $l['eda ' . $verb . ' /account']['status'], $verb . ' /account with the token shows the page');
             $this->assertStringContainsString('<form', (string)$l['eda ' . $verb . ' /account']['body'], $verb);
         }
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $this->assertSame($l['GET /register as editor'], $l[$verb . ' /register, registration open'], $verb . ' /register shows the open page (N-351)');
+        }
+        $this->assertStringContainsString('<form', (string)$l['GET /register as editor']['body']);
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $this->assertSame($l['login wrong password'], $l['login wrong password, _method ' . $verb], $verb . ': a sign-in (N-352)');
+            $this->assertSame([303, '/?done=welcome'], [$l['register, _method ' . $verb]['status'], $l['register, _method ' . $verb]['location']], $verb . ': a registration');
+            $this->assertSame($l['account wrong current'], $l['account wrong current, _method ' . $verb], $verb . ': a new password');
+        }
+        $this->assertStringContainsString('"sampatch"', (string)$l['tables']['body']);
+        $this->assertSame(['n' => 0], $l['accounts after PUT, PATCH and DELETE /register'], 'no account created');
         $this->assertStringContainsString('id="login-form"', (string)$l['signed-out GET /login']['body']);
         $this->assertStringContainsString('id="login-guest"', (string)$l['guest GET /login']['body']);
         $this->assertSame([303, '/'], [$l['ada GET /login']['status'], $l['ada GET /login']['location']]);
@@ -226,12 +258,17 @@ final class Ci4AuthParityTest extends TestCase
             }
             $as($visitor . ' GET /login fetch', 'GET', '/login', [], $fetch, $who);
             $as($visitor . ' HEAD /account', 'HEAD', '/account', [], [], $who);
-            // N-63: legacy shows these pages for every method but POST.
-            foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            // N-63, N-353: legacy shows these pages for every method but POST.
+            foreach (['PUT', 'PATCH', 'DELETE', 'OPTIONS', 'TRACE', 'CONNECT'] as $verb) {
                 $as($visitor . ' ' . $verb . ' /login', $verb, '/login', [], [], $who);
                 $as($visitor . ' ' . $verb . ' /register', $verb, '/register', [], [], $who);
                 [$client, $token, $ip] = $browser($who);
                 $record($visitor . ' ' . $verb . ' /account', $client->req($verb, '/account', [], [], ['X-CSRF-Token: ' . $token, 'X-Forwarded-For: ' . $ip]));
+            }
+            // N-353, a known difference: CI4 cannot route WebDAV methods and answers 404.
+            foreach (['/login', '/register', '/account'] as $path) {
+                [$client, $token, $ip] = $browser($who);
+                $record($visitor . ' PROPFIND ' . $path, $client->req('PROPFIND', $path, [], [], ['X-CSRF-Token: ' . $token, 'X-Forwarded-For: ' . $ip]));
             }
             $as($visitor . ' POST /login without csrf', 'POST', '/login', ['username' => 'x', 'password' => 'y'], [], $who, false);
             $as($visitor . ' signout without csrf', 'POST', '/account/signout', [], [], $who, false);
@@ -247,6 +284,13 @@ final class Ci4AuthParityTest extends TestCase
         $this->setting($pdo, 'auth_register_disabled', 'false');
         $this->setting($pdo, 'auth_register_role', '"editor"');
         $as('GET /register as editor', 'GET', '/register');
+        // N-351: with registration open, PUT, PATCH and DELETE with a full form still only show the page.
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            [$client, $token, $ip] = $browser(null);
+            $form = http_build_query(['csrf' => $token, 'username' => 'pat' . strtolower($verb), 'new' => self::PW, 'confirm' => self::PW]);
+            $record($verb . ' /register, registration open', $client->req($verb, '/register', [], [], ['X-Forwarded-For: ' . $ip], $form));
+        }
+        $out['accounts after PUT, PATCH and DELETE /register'] = ['n' => (int)$pdo->query("SELECT COUNT(*) FROM users WHERE username LIKE 'pat%'")->fetchColumn()];
         $this->setting($pdo, 'auth_register_role', '"admin"');
         $this->setting($pdo, 'auth_register_approval', 'true');
         $as('GET /register admin role, approval', 'GET', '/register');
@@ -264,6 +308,10 @@ final class Ci4AuthParityTest extends TestCase
         $as('login array name', 'POST', '/login', ['username' => ['a'], 'password' => 'x']);
         $as('login long name', 'POST', '/login', ['username' => str_repeat('ü ', 60), 'password' => 'x']);
         $as('login pending', 'POST', '/login', ['username' => 'pam', 'password' => self::PW]);
+        // N-352: legacy ignores _method, so these are a sign-in, a registration and a new password.
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('login wrong password, _method ' . $verb, 'POST', '/login', ['_method' => $verb, 'username' => 'vera', 'password' => 'nope-nope']);
+        }
         [$client, $token, $ip, $sid] = $browser(null);
         $r = $client->req('POST', '/login', ['csrf' => $token, 'username' => 'VERA', 'password' => self::PW], [], ['X-Forwarded-For: ' . $ip]);
         $record('login vera', $r);
@@ -321,6 +369,9 @@ final class Ci4AuthParityTest extends TestCase
         $record('register from another address', $second->req('POST', '/register', ['csrf' => $token2, 'username' => 'rey', 'new' => 'short', 'confirm' => 'short'], [], ['X-Forwarded-For: 10.8.8.8']));
         $pdo->exec("UPDATE auth_attempts SET at = at - 3601 WHERE kind = 'register'");
         $record('register after the window', $second->req('POST', '/register', ['csrf' => $token2, 'username' => 'rey', 'new' => 'short', 'confirm' => 'short'], [], ['X-Forwarded-For: ' . $ip]));
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('register, _method ' . $verb, 'POST', '/register', ['_method' => $verb, 'username' => 'sam' . strtolower($verb), 'new' => self::PW, 'confirm' => self::PW]);
+        }
         $this->setting($pdo, 'auth_register_approval', 'true');
         $as('register pia (approval)', 'POST', '/register', ['username' => 'pia', 'new' => self::PW, 'confirm' => self::PW]);
         $as('register without csrf', 'POST', '/register', ['username' => 'zoe', 'new' => self::PW, 'confirm' => self::PW], [], null, false);
@@ -341,9 +392,15 @@ final class Ci4AuthParityTest extends TestCase
 
         // Your account: a new password, sign out everywhere.
         $as('account wrong current', 'POST', '/account', ['current' => 'wrong', 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda');
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('account wrong current, _method ' . $verb, 'POST', '/account', ['_method' => $verb, 'current' => 'wrong', 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda');
+        }
         $as('account short', 'POST', '/account', ['current' => self::PW, 'new' => 'short', 'confirm' => 'short'], [], 'eda');
         $as('account mismatch', 'POST', '/account', ['current' => self::PW, 'new' => 'new-password', 'confirm' => 'other-password'], [], 'eda');
-        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+        foreach (['PUT', 'PATCH', 'DELETE', 'CONNECT'] as $verb) {
+            $as('eda ' . $verb . ' /account without csrf', $verb, '/account', [], [], 'eda');
+        }
+        foreach (['OPTIONS', 'TRACE'] as $verb) {   // safe methods: no token needed on either
             $as('eda ' . $verb . ' /account without csrf', $verb, '/account', [], [], 'eda');
         }
         $as('account without csrf', 'POST', '/account', ['current' => self::PW, 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda', false);

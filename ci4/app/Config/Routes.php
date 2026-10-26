@@ -49,14 +49,14 @@ foreach (['locations', 'categories'] as $segment) {
 // Auth: sign-in, registration and sign-out (legacy answers these before its permission
 // check and checks the CSRF token itself, so they are `none` and skip the global CSRF
 // filter, Config\Filters), then your own account (`self`). Legacy shows these three pages
-// for every method but POST, so PUT, PATCH and DELETE get the page too (N-63); on
-// /account they still need the CSRF token, as every non-safe method does (SEC-N10).
+// for every method but POST, so they take every method CI4 routes (add(): also OPTIONS,
+// TRACE and CONNECT; N-63, N-353); on /account a non-safe one still needs the CSRF token
+// (SEC-N10). Methods CI4 cannot route (WebDAV PROPFIND and the like) get 404.
 $signIn = '\\Apotheke\\Auth\\Controllers\\SignInController';
-$pageVerbs = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
-$routes->match($pageVerbs, 'login', $signIn . '::login', $none);
-$routes->match($pageVerbs, 'register', $signIn . '::register', $none);
+$routes->add('login', $signIn . '::login', $none);
+$routes->add('register', $signIn . '::register', $none);
 $routes->post('logout', $signIn . '::logout', $none);
-$routes->match($pageVerbs, 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
+$routes->add('account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
 $routes->post('account/signout', '\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere', ['permission' => 'self']);
 
 // Catalog: the list and search, the overview, saved filters. GET (and HEAD) needs view, POST edit.
@@ -146,7 +146,8 @@ $routes->post('stocktake/([0-9]+)/(check|report|finish|cancel)', $stocktake . ':
 // an import redirects when done and is otherwise 404 but for GET (N-372). PUT, PATCH
 // and DELETE need the CSRF token, as every non-safe method does (SEC-N10).
 $import = '\\Apotheke\\ImportExport\\Controllers\\ImportController';
-$routes->match($pageVerbs, 'import', $import . '::index', ['permission' => 'import']);
-$routes->match($pageVerbs, 'import/([0-9]+)', $import . '::import/$1', ['permission' => 'import']);
-$routes->match($pageVerbs, 'import/([0-9]+)/(preview|commit)', $import . '::import/$1/$2', ['permission' => 'import']);
+$importVerbs = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
+$routes->match($importVerbs, 'import', $import . '::index', ['permission' => 'import']);
+$routes->match($importVerbs, 'import/([0-9]+)', $import . '::import/$1', ['permission' => 'import']);
+$routes->match($importVerbs, 'import/([0-9]+)/(preview|commit)', $import . '::import/$1/$2', ['permission' => 'import']);
 $routes->match(['GET', 'HEAD'], 'export.csv', $import . '::export', ['permission' => 'export']);
