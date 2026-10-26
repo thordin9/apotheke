@@ -94,6 +94,19 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` 32b1ef8 (2.6.10) into `feature/ci4`. The legacy app gets main's #81 follow-ups (an `APP_PASSWORD` of at least 8 characters, nginx's 421 with the app's text, the ImageMagick policy check and the release-notes dedupe). Short `APP_PASSWORD` test fixtures are now 8 characters or more, the link check skips only `(…)` and `(…#anchor)` placeholders, and the autofill docs say CI4 suggest has no photo size limits yet. ([#85](https://github.com/thordin9/apotheke/pull/85))
 - **ci4:** sync `main` c917cdb (#106 hardening) into `feature/ci4`. The legacy app gets the sign-in limit, NUL-password, last-admin and photo-save hardening. The CI4 photo and users goldens now compare those cases in full; the auth golden leaves out the attempt counts until CI4 gets the per-address cap and the current-password throttle. ([#107](https://github.com/thordin9/apotheke/pull/107))
 
+## [2.6.17] - 2026-10-26
+
+### Fixed
+
+- **security:** hardening: password checks outside the sign-in form also count toward the per-address cap; clean-up after a save runs only after its commit, and one failing step no longer skips the rest; upgrading resets the per-address counters once for IPv4-compatible (`::/96`, including `::1`) and NAT64 (`64:ff9b::/96`) clients. ([#112](https://github.com/thordin9/apotheke/pull/112))
+
+### Maintenance
+
+- test: cover after-commit order, account keys and password caps ([#112](https://github.com/thordin9/apotheke/pull/112))
+- docs: password checks count toward the address cap ([#112](https://github.com/thordin9/apotheke/pull/112))
+- docs: keep the #112 changelog entry under Unreleased ([#112](https://github.com/thordin9/apotheke/pull/112))
+- **qa:** docs: PR 112 main hardening follow-up 2 QA report ([#112](https://github.com/thordin9/apotheke/pull/112))
+
 ## [2.6.16] - 2026-10-26
 
 ### Fixed
@@ -465,7 +478,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.16...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.17...HEAD
+[2.6.17]: https://github.com/thordin9/apotheke/compare/v2.6.16...v2.6.17
 [2.6.16]: https://github.com/thordin9/apotheke/compare/v2.6.15...v2.6.16
 [2.6.15]: https://github.com/thordin9/apotheke/compare/v2.6.14...v2.6.15
 [2.6.14]: https://github.com/thordin9/apotheke/compare/v2.6.13...v2.6.14

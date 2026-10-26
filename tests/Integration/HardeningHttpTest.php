@@ -158,6 +158,39 @@ final class HardeningHttpTest extends TestCase
         }
     }
 
+    /** The password checks outside the sign-in form share the per-address cap; a success takes back only its own try. */
+    public function testPasswordChecksHaveTheAddressCap(): void
+    {
+        $key = substr(hash('sha256', '127.0.0.1'), 0, 32);
+        $fill = function (int $n) use ($key): void {
+            $this->pdo->exec('DELETE FROM auth_attempts');
+            $st = $this->pdo->prepare("INSERT INTO auth_attempts (kind, client, at) VALUES ('login_address', ?, ?)");
+            for ($i = 0; $i < $n; $i++) $st->execute([$key, time()]);
+        };
+        $count = fn(): int => (int)$this->pdo->query("SELECT COUNT(*) FROM auth_attempts WHERE kind = 'login_address'")->fetchColumn();
+        $c = $this->signIn('ada');
+        $fill(30);
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(429, $r['status'], '/account');
+        $r = $c->post('/settings/password', ['csrf' => $c->csrf(), 'mode' => 'disable', 'current' => 'long-enough']);
+        $this->assertSame(429, $r['status'], 'turning sign-in off');
+        $fill(5);
+        $r = $c->post('/account', ['csrf' => $c->csrf(), 'current' => 'long-enough', 'new' => 'another-one', 'confirm' => 'another-one']);
+        $this->assertSame(303, $r['status']);
+        $this->assertSame(5, $count(), 'only its own row is taken back');
+
+        $this->setting('auth_enabled', false);
+        $g = $this->server->client();
+        $fill(30);
+        $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'another-one']);
+        $this->assertSame(429, $r['status'], 'turning sign-in on');
+        $this->assertSame('false', (string)$this->pdo->query("SELECT value FROM settings WHERE name = 'auth_enabled'")->fetchColumn());
+        $fill(5);
+        $r = $g->post('/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => 'ada', 'new' => 'another-one']);
+        $this->assertSame(303, $r['status']);
+        $this->assertSame(5, $count());
+    }
+
     /** Two admins deleting each other, or one demoting while the other deletes, at the same time: one admin stays. */
     public function testDeletesAndDemotionsAtOnceKeepAnAdmin(): void
     {

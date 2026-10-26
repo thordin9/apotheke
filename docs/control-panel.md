@@ -93,7 +93,7 @@ manage users, and pending admins don't count. `auth_attempts` rate-limits sign-i
 from one client, and 30 / 15 min for all accounts from one address; an IPv6 client counts by its /64) and
 registration (5 / hour per address). A successful sign-in clears its account's count, not the address's. A
 current-password check (Your account, Users & sign-in), and the admin password that turns sign-in back on, count as
-a sign-in try for that account. Everyone behind one address shares the address cap, so list a reverse proxy in
+a sign-in try for that account and toward the address cap. Everyone behind one address shares the address cap, so list a reverse proxy in
 `TRUSTED_PROXIES`. One client's
 attempts against one account do not use up the limit for anyone else. How the client address is found behind a proxy (`trust_proxy`, `TRUSTED_PROXIES`):
 [Deployment](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
