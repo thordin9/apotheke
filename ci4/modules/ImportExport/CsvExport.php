@@ -41,8 +41,8 @@ final class CsvExport
 
     /**
      * The file, one CSV line per value; $currency is the currency setting.
-     * The items query runs when the generator starts (current()), so a
-     * failing read can still answer 500 before anything is sent.
+     * The items query runs before the first line is yielded, so a failing
+     * read can still answer 500 before anything is sent.
      *
      * @return Generator<int, string>
      */

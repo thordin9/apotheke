@@ -56,15 +56,7 @@ final class ImportController extends CatalogController
         if ($imp['status'] === 'done') {
             return $this->redirectTo('/import?done=' . $imp['id']);
         }
-        try {
-            [$header, $rows] = $imports->rows($imp);
-        } catch (UserError $e) {
-            // N-373: a submit of this import finished meanwhile and took its file.
-            if ($e->getCode() === 410 && ($imports->get($imp['id'])['status'] ?? '') === 'done') {
-                return $this->redirectTo('/import?done=' . $imp['id']);
-            }
-            throw $e;
-        }
+        [$header, $rows] = $imports->rows($imp);
         $method = $this->request->getMethod();   // HEAD is GET here (HeadAsGet)
         $post = $method === 'POST';
         if ($act === '' && $method === 'GET') {
@@ -98,11 +90,9 @@ final class ImportController extends CatalogController
     {
         /** @var CsvExport $export */
         $export = service('csvExport');
-        $lines = $export->lines((string)$this->settings()->get('currency'));
-        $lines->current();   // the items query runs here: a failing read is still a 500 page
-
-        // Streamed as it is sent (L-370): legacy writes each row to php://output.
-        return StreamedResponse::from($this->response, config(App::class), $lines)->setStatusCode(200)
+        // Streamed as it is sent (L-370): legacy writes each row to php://output. The items
+        // query runs before the first line, so a failing read is still a 500 page.
+        return StreamedResponse::from($this->response, config(App::class), $export->lines((string)$this->settings()->get('currency')))->setStatusCode(200)
             ->setHeader('Content-Type', 'text/csv; charset=utf-8')
             ->removeHeader('Cache-Control')->setHeader('Cache-Control', self::SESSION_CACHE)
             ->setHeader('Content-Disposition', 'attachment; filename="apotheke-' . $this->calendar()->today() . '.csv"');

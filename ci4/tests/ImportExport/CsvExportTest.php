@@ -59,7 +59,11 @@ final class CsvExportTest extends CIUnitTestCase
         $this->database = TestDatabase::create($driver);
         $db = $this->database->db;
         $pdo = $this->database->pdo();
-        $pdo->exec("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES ('a', 1, '', 'a', '2026-01-01', '2026-01-01')");
+        $item = $pdo->prepare("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES (?, 1, '', ?, '2026-01-01', '2026-01-01')");
+        for ($i = 1; $i <= CsvExport::BATCH + 1; $i++) {
+            $item->execute(['a' . $i, sprintf('a%04d', $i)]);
+        }
+        $pdo->exec("INSERT INTO tags (name, name_key, sort_key, created_at) VALUES ('t', 't', 't', '2026-01-01')");
         $export = new CsvExport($db);
 
         $all = $export->lines('EUR');
@@ -68,14 +72,17 @@ final class CsvExportTest extends CIUnitTestCase
             // A cursor, not one pg_query() result that libpq holds whole.
             $this->assertSame([['name' => 'apotheke_export']], $db->query('SELECT name FROM pg_cursors')->getResultArray());
         }
+        // Another client adds an item and tags one in the second batch, whose tags are read later.
         $pdo->exec("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES ('b', 1, '', 'b', '2026-01-01', '2026-01-01')");
+        $pdo->exec('INSERT INTO item_tags (item_id, tag_id) SELECT ' . (CsvExport::BATCH + 1) . ', id FROM tags');
         $rest = iterator_to_array((static function (\Generator $g): \Generator {
             for ($g->next(); $g->valid(); $g->next()) {
                 yield $g->current();
             }
         })($all), false);
         if ($driver === 'pgsql') {
-            $this->assertCount(1, $rest, 'the snapshot was taken when the export started');
+            $this->assertCount(CsvExport::BATCH + 1, $rest, 'the snapshot was taken when the export started');
+            $this->assertStringNotContainsString(',t,', implode('', $rest), 'tags read later come from the same snapshot');
         }
         $this->assertSame(0, (int)$db->transDepth);
 
