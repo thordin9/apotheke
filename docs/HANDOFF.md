@@ -144,6 +144,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106 for accounts: the current-password limit,
   per account and per address (L-170), the last-admin lock (L-110; role edits take it first, also on SQLite), the
   `APP_PASSWORD` null-character check and SIGTERM at the CLI prompt (N-133). Merged.
+- [#117](https://github.com/thordin9/apotheke/pull/117): sync `main` v2.6.18 (#116) and its CI4 counterpart (N-221,
+  null-character sign-in names checked before trimming). Merged.
 - [#114](https://github.com/thordin9/apotheke/pull/114): PLAN step 13 (first part), QR labels, barcode lookup and
   lending. Open.
 - [#115](https://github.com/thordin9/apotheke/pull/115): PLAN step 13 (second part), stocktake; built on #114, merge
@@ -159,6 +161,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   scope, a success takes back only its own address row, turning sign-in on is limited, replaced covers removed after
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
+  #116 port (#117): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114) and stocktake (#115). Owns the N-63 router follow-up below.

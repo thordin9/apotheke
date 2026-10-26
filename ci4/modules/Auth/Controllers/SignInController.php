@@ -35,11 +35,13 @@ final class SignInController extends AuthPages
             return $this->page($this->loginPage(null, '', $this->query('registered')));
         }
         $this->checkCsrf();
-        $who = \Apotheke\Core\Libraries\Text::cleanLine($this->post('username'), Accounts::USERNAME_MAX * 2);
+        $raw = $this->post('username');
+        $who = \Apotheke\Core\Libraries\Text::cleanLine($raw, Accounts::USERNAME_MAX * 2);
         try {
             $mine = $this->limiter()->hit('login_address');   // all names from this address
             $this->limiter()->hit('login', $who);
-            $user = $this->accounts()->signIn($started, $who, $this->post('password'));
+            // A name with a null character anywhere (checked before trimming) never matches an account (N-221).
+            $user = $this->accounts()->signIn($started, str_contains($raw, "\0") ? $raw : $who, $this->post('password'));
             if ($user !== null) {
                 $this->accounts()->admit($user);
                 (new SessionGate(time()))->signIn($user['id'], (new SessionEpoch())->of($user));
@@ -72,7 +74,8 @@ final class SignInController extends AuthPages
             return $this->page($this->registerPage(null, ''), 200, true);
         }
         $this->checkCsrf();
-        $who = \Apotheke\Core\Libraries\Text::cleanLine($this->post('username'), Accounts::USERNAME_MAX * 2);
+        $raw = $this->post('username');
+        $who = \Apotheke\Core\Libraries\Text::cleanLine($raw, Accounts::USERNAME_MAX * 2);
         try {
             $this->limiter()->hit('register');
             $user = $this->accounts()->register($who, $this->post('new'), $this->post('confirm'), (string)$settings->get('auth_register_role'), (bool)$settings->get('auth_register_approval'));

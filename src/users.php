@@ -44,6 +44,7 @@ function user_get(int $id): ?array
 
 function user_by_name(string $name): ?array
 {
+    if (str_contains($name, "\0")) return null;   // no account name has one; refuse before the value reaches the driver
     $st = db()->prepare('SELECT * FROM users WHERE username_key = ?');
     $st->execute([user_key($name)]);
     $r = $st->fetch();
