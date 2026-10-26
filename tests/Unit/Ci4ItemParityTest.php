@@ -194,7 +194,7 @@ final class Ci4ItemParityTest extends TestCase
                 if (preg_match('/^set-cookie:\s*(([^=]+)=.*)$/i', $line, $m) === 1) {
                     $names[] = $m[2];
                     if ($m[2] === 'apo_dev') {
-                        $cookie = $hide(preg_replace('/expires=[^;]+/', 'expires=X', $m[1]));
+                        $cookie = $hide(cookie_times_settled($m[1]));
                     }
                 }
             }

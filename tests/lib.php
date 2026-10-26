@@ -459,6 +459,19 @@ function sqlite(string $file): PDO
 }
 
 /** Card titles from a list JSON response. */
+/**
+ * A Set-Cookie value with its clock-dependent parts settled, for comparing
+ * two answers: expires= reads expires=X and a Max-Age of 10 s or more is
+ * rounded to 10 s, so two requests that straddle a second compare equal
+ * (34559999 and 34560000 both read 34560000).
+ */
+function cookie_times_settled(string $cookie): string
+{
+    $cookie = (string)preg_replace('/expires=[^;]+/i', 'expires=X', $cookie);
+
+    return (string)preg_replace_callback('/Max-Age=(-?\d+)/i', static fn (array $m): string => 'Max-Age=' . ((int)$m[1] < 10 ? (int)$m[1] : (int)(round((int)$m[1] / 10) * 10)), $cookie);
+}
+
 function titles(array $r): array
 {
     preg_match_all('#class="card-title"[^>]*>(.*?)</a>#s', (string)($r['json']['html'] ?? ''), $m);
