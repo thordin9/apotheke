@@ -1258,7 +1258,7 @@ try {
         try {
             [$imp['mapping'], $imp['options']] = import_set_mapping($imp['id'], $header, $_POST);
             if ($act === 'commit') {
-                import_commit($imp);
+                import_commit($imp);   // null: another submit imported it first; it gets the same answer
                 redirect('/import?done=' . $imp['id']);
             }
             view_import_map($imp, $header, $rows, import_run($imp, false), null);

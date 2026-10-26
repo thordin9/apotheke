@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **import:** hardening: a CSV import run takes the import's lock as its first write, reads the uploaded file after it, and a commit marks the import done in its own transaction, so submits at the same time import a file once and no longer answer with a server error; a submit that finds the import done goes to the done page. ([#130](https://github.com/thordin9/apotheke/pull/130))
+
 ## [2.6.21] - 2026-10-26
 
 ### Fixed
