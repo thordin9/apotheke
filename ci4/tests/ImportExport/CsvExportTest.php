@@ -40,7 +40,7 @@ final class CsvExportTest extends CIUnitTestCase
         $item = $this->database->pdo()->prepare("INSERT INTO items (name, quantity, notes, serial, barcode, search, sort_key, created_at, updated_at) VALUES (?, 1, ?, ?, ?, '', ?, '2026-01-01', '2026-01-01')");
         $item->execute(["\tTab", "\rCR", "'\tq", "x\t", 'a']);
         $item->execute(["''\rr", 'plain', "'r", "\t", 'b']);
-        $lines = iterator_to_array(new CsvExport($this->database->db)->lines('EUR'), false);
+        $lines = iterator_to_array((new CsvExport($this->database->db))->lines('EUR'), false);
         $this->assertCount(3, $lines);
         $this->assertSame([
             self::csv(['1', "'\tTab", '', '', '1', "'\rCR", '', '2026-01-01', '2026-01-01', '', '', '', '', "''\tq", '', '', '', '', '', "x\t"]),
