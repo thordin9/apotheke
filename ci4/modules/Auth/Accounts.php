@@ -63,6 +63,12 @@ final class Accounts
         return $user;
     }
 
+    /** A failure signIn() let through (a right password refused for another reason): wait until the same deadline. */
+    public function padFailure(int $started): void
+    {
+        $this->pace->pad($started);
+    }
+
     /**
      * Legacy user_verify(): the account for this name and password, or null.
      * Unknown names and wrong passwords give the same null. A hash made with

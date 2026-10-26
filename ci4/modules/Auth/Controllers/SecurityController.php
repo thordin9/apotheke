@@ -104,8 +104,11 @@ final class SecurityController extends AuthPages
                     // An account exists already: sign in as that admin to turn sign-in back on (limited like a sign-in).
                     $mine = $this->limiter()->hit('login_address');
                     $this->limiter()->hit('login', $name);
-                    $ok = $this->accounts()->signIn($started, $nul ? $raw : $name, $this->post('new')) !== null;   // always one password check, whatever the name (N-304)
-                    if (!$ok || $user === null || $user['role'] !== 'admin') {
+                    $checked = $this->accounts()->signIn($started, $nul ? $raw : $name, $this->post('new'));   // always one password check, whatever the name (N-304)
+                    if ($checked === null || $user === null || $user['role'] !== 'admin') {
+                        if ($checked !== null) {
+                            $this->accounts()->padFailure($started);   // a right password for a non-admin waits too (L-330)
+                        }
                         throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
                     }
                     $this->limiter()->clear('login', $name);
