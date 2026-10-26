@@ -89,6 +89,9 @@ final class BackupHelpersTest extends CIUnitTestCase
             // Stricter than legacy: two entries of one name (made by renaming the second after zipping).
             'a name twice' => [['backup.json' => '{}', "images/$h32.jpg" => 'a', "images/$h32.jpX" => 'b'], "Unexpected file in backup: images/$h32.jpg"],
             'no backup.json' => [["images/$h32.jpg" => 'a'], 'This is not an Apotheke backup (backup.json is missing).'],
+            // Entries that say they unpack to 3 × 4 GB - 1 (the central directory's sizes, patched after zipping).
+            'too large' => [['backup.json' => '{}', "images/$h32.jpg" => 'a', 'images/' . str_repeat('b', 32) . '.jpg' => 'b'], 'The backup is too large to unpack.'],
+            'too many files' => ['many', 'The backup has too many files.'],
         ];
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
         foreach ($cases as $label => [$entries, $message]) {
@@ -97,6 +100,13 @@ final class BackupHelpersTest extends CIUnitTestCase
             try {
                 if ($entries === null) {
                     file_put_contents($path, 'PK not really');
+                } elseif ($entries === 'many') {
+                    $zip = new ZipArchive();
+                    $this->assertTrue($zip->open($path, ZipArchive::OVERWRITE));
+                    for ($i = 0; $i <= Restorer::MAX_ENTRIES; $i++) {
+                        $zip->addEmptyDir('d' . $i);
+                    }
+                    $zip->close();
                 } else {
                     $zip = new ZipArchive();
                     $this->assertTrue($zip->open($path, ZipArchive::OVERWRITE));
@@ -104,7 +114,13 @@ final class BackupHelpersTest extends CIUnitTestCase
                         $zip->addFromString($name, $data);
                     }
                     $zip->close();
-                    file_put_contents($path, str_replace("images/$h32.jpX", "images/$h32.jpg", (string)file_get_contents($path)));
+                    $bytes = str_replace("images/$h32.jpX", "images/$h32.jpg", (string)file_get_contents($path));
+                    if ($label === 'too large') {
+                        for ($at = strpos($bytes, "PK\x01\x02"); $at !== false; $at = strpos($bytes, "PK\x01\x02", $at + 4)) {
+                            $bytes = substr_replace($bytes, "\xff\xff\xff\xff", $at + 24, 4);
+                        }
+                    }
+                    file_put_contents($path, $bytes);
                 }
                 try {
                     $restorer->open($path);

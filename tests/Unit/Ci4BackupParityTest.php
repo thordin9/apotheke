@@ -198,6 +198,12 @@ final class Ci4BackupParityTest extends TestCase
         $as('upload other name', 'POST', '/backup/restore', [], $file($crafted(['backup.json' => $dump, 'images/x.php' => '<?php'])));
         $as('upload key file', 'POST', '/backup/restore', [], $file($crafted(['backup.json' => $dump, 'app.key' => 'k'])));
         $as('upload no json', 'POST', '/backup/restore', [], $file($crafted(['images/' . self::PHOTO => 'x'])));
+        // Entries that say they unpack to 3 × 4 GB - 1 (the central directory's sizes, patched after zipping).
+        $large = $crafted(['backup.json' => $dump, 'images/' . self::PHOTO => 'x', 'images/' . self::PHOTO2 => 'y']);
+        for ($at = strpos($large, "PK\x01\x02"); $at !== false; $at = strpos($large, "PK\x01\x02", $at + 4)) {
+            $large = substr_replace($large, "\xff\xff\xff\xff", $at + 24, 4);
+        }
+        $as('upload too large unpacked', 'POST', '/backup/restore', [], $file($large));
         $as('upload bad json', 'POST', '/backup/restore', [], $file($crafted(['backup.json' => '{"format":'])));
         $as('upload deep json', 'POST', '/backup/restore', [], $file($crafted(['backup.json' => str_repeat('[', 70) . str_repeat(']', 70)])));
         $as('upload other format', 'POST', '/backup/restore', [], $file($crafted(['backup.json' => ['format' => 'apotheke-settings'] + $dump])));
@@ -367,6 +373,13 @@ final class Ci4BackupParityTest extends TestCase
             }
             $o['settings'] = $pdo->query("SELECT name, value FROM settings WHERE name NOT IN ('auth_enabled') ORDER BY name")->fetchAll();
             $o['undo_tokens'] = (int)$pdo->query('SELECT COUNT(*) FROM undo_tokens')->fetchColumn();
+            // The next id of each table, so a restore must reset the sequences.
+            $o['sequences'] = [];
+            foreach (['locations', 'categories', 'tags', 'items', 'item_photos', 'item_attachments', 'activity', 'saved_filters'] as $t) {
+                $o['sequences'][$t] = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql'
+                    ? $pdo->query('SELECT last_value, is_called FROM ' . $pdo->query("SELECT pg_get_serial_sequence('$t', 'id')")->fetchColumn())->fetch(PDO::FETCH_NUM)
+                    : $pdo->query("SELECT seq FROM sqlite_sequence WHERE name = '$t'")->fetchColumn();
+            }
             $files = [];
             foreach (['images', 'thumbs', 'files', 'originals', 'originals/map'] as $sub) {
                 foreach (glob($dir . '/' . $sub . '/*') ?: [] as $f) {
@@ -415,7 +428,10 @@ final class Ci4BackupParityTest extends TestCase
     private function seed(PDO $pdo, string $dir): void
     {
         $pdo->exec("INSERT INTO locations (name, name_key, sort_key, created_at) VALUES ('Garage & <i', 'garage & <i', 'garage & <i', '2026-01-01 00:00:00'), ('Attic', 'attic', 'attic', '2026-01-01 00:00:00')");
+        // A parent with a higher id than its child: the restore inserts both before it checks the key.
+        $pdo->exec("INSERT INTO locations (name, name_key, sort_key, created_at) VALUES ('Shed', 'shed', 'shed', '2026-01-01 00:00:00')");
         $pdo->exec('UPDATE locations SET parent_id = 1 WHERE id = 2');
+        $pdo->exec('UPDATE locations SET parent_id = 3 WHERE id = 1');
         $pdo->exec("INSERT INTO categories (name, name_key, sort_key, created_at) VALUES ('Tools', 'tools', 'tools', '2026-01-01 00:00:00')");
         $pdo->exec("INSERT INTO tags (name, name_key, sort_key, created_at) VALUES ('red', 'red', 'red', '2026-01-01 00:00:00'), ('Big', 'big', 'big', '2026-01-01 00:00:00')");
         $item = $pdo->prepare('INSERT INTO items (name, location_id, category_id, quantity, notes, value_cents, image, search, sort_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
@@ -489,7 +505,8 @@ final class Ci4BackupParityTest extends TestCase
      */
     private static function catalog(array $state): array
     {
-        unset($state['settings'], $state['undo_tokens'], $state['waiting uploads']);
+        // A restored sequence names the next id, the original the last one: equal in use, not in value.
+        unset($state['settings'], $state['undo_tokens'], $state['waiting uploads'], $state['sequences']);
 
         return $state;
     }
