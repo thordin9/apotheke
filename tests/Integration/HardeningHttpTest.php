@@ -219,7 +219,7 @@ final class HardeningHttpTest extends TestCase
         $this->assertSame($users, (int)$this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn(), 'no account created');
     }
 
-    /** A sign-in name with a null character spends the same password hash as an unknown name. */
+    /** A sign-in name with a null character or an unknown name spends the same password hash as a known name with a wrong password. */
     public function testANullCharacterNameTakesAsLongAsAnUnknownName(): void
     {
         $time = function (string $name): float {
@@ -229,13 +229,36 @@ final class HardeningHttpTest extends TestCase
             $this->assertSame(401, $c->post('/login', ['csrf' => $csrf, 'username' => $name, 'password' => 'wrong-pass'])['status']);
             return (hrtime(true) - $t) / 1e6;
         };
-        $nul = $unknown = [];
+        $nul = $unknown = $known = [];
         for ($i = 0; $i < 6; $i++) {
             $nul[] = $time("ada\0");
             $unknown[] = $time('nobody');
+            $known[] = $time('bea');   // not "ada": tries with "ada\0" count toward that account's limit
         }
         // the fastest of each: load only adds time, and a skipped bcrypt check is about 50 ms
-        $this->assertGreaterThan(min($unknown) - 20, min($nul), json_encode(['nul' => $nul, 'unknown' => $unknown]));
+        $all = json_encode(['nul' => $nul, 'unknown' => $unknown, 'known' => $known]);
+        $this->assertGreaterThan(min($unknown) - 20, min($nul), $all);
+        $this->assertGreaterThan(min($known) - 20, min($unknown), $all);
+        $this->assertGreaterThan(min($known) - 20, min($nul), $all);
+    }
+
+    /** Turning sign-in back on with a null-character name spends the same password check as an admin with a wrong password. */
+    public function testReEnablingWithANullCharacterNameTakesAsLongAsAWrongPassword(): void
+    {
+        $this->setting('auth_enabled', false);
+        $time = function (string $name): float {
+            $g = $this->server->client();
+            $csrf = $g->csrf();
+            $t = hrtime(true);
+            $this->assertSame(403, $g->post('/settings/password', ['csrf' => $csrf, 'mode' => 'change', 'username' => $name, 'new' => 'wrong-pass', 'confirm' => 'wrong-pass'])['status']);
+            return (hrtime(true) - $t) / 1e6;
+        };
+        $nul = $known = [];
+        for ($i = 0; $i < 4; $i++) {   // both count toward the account limit for "ada"
+            $nul[] = $time("\0ada");
+            $known[] = $time('ada');
+        }
+        $this->assertGreaterThan(min($known) - 20, min($nul), json_encode(['nul' => $nul, 'known' => $known]));
     }
 
     /** New names with a null character anywhere are refused like other invalid names: registration, adding and renaming. */
