@@ -53,7 +53,8 @@ final class Loans
     /** Mark an item as lent to someone (also changes who has it or the due date). */
     public function lend(int $id, string $to, ?string $at, ?string $due): void
     {
-        $to = Text::cleanLine($to, 100);
+        // Control characters go (a NUL cut the name on SQLite); whitespace ones are spaces, as before.
+        $to = Text::cleanLine((string)preg_replace('/[^\P{Cc}\s]/u', '', $to), 100);
         if ($to === '') {
             throw new UserError('Enter who you lent it to.');
         }

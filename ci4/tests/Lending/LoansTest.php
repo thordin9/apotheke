@@ -6,6 +6,7 @@ namespace Tests\Lending;
 
 use Apotheke\Activity\ActivityLogger;
 use Apotheke\Catalog\Calendar;
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Lending\Loans;
 use CodeIgniter\Database\BaseConnection;
@@ -65,6 +66,31 @@ final class LoansTest extends CIUnitTestCase
         $this->assertStringEndsWith("committed\n", $wait());
         $this->assertNull($this->row($item, 'lent_to')['lent_to']);
         $this->assertSame(['lent', 'returned', 'lent'], $this->actions());
+    }
+
+    /**
+     * N-234: control characters leave the borrower's name, in the item and
+     * in its history alike; whitespace ones become one space, as before.
+     */
+    #[DataProvider('drivers')]
+    public function testTheBorrowerNameLosesControlCharacters(string $driver): void
+    {
+        [$loans, $item] = $this->seed($driver);
+        foreach (["Ni\0kos" => 'Nikos', "\x07Ana\x1b[1m\x7f" => 'Ana[1m', "Eleni\u{85}\u{9f}x" => 'Eleni x', " Bo\t\r\n  <b>&\" " => 'Bo <b>&"', "Ma\0\0\x01\u{80}ria" => 'Maria'] as $in => $stored) {
+            $loans->lend($item, $in, '2026-06-01', null);
+            $this->assertSame($stored, $this->row($item, 'lent_to')['lent_to'], json_encode($in));
+            $last = $this->db()->query("SELECT details FROM activity WHERE action = 'lent' ORDER BY id DESC")->getRowArray()['details'] ?? '';
+            $this->assertSame($stored, json_decode((string)$last, true)['to'] ?? null, json_encode($in) . ' in the history');
+        }
+        foreach (["\0", "\x01\x02 \x7f", "\xff"] as $in) {
+            try {
+                $loans->lend($item, $in, null, null);
+                $this->fail(json_encode(bin2hex($in)) . ' was taken as a name');
+            } catch (UserError $e) {
+                $this->assertSame('Enter who you lent it to.', $e->getMessage());
+            }
+        }
+        $this->assertSame('Maria', $this->row($item, 'lent_to')['lent_to']);
     }
 
     /** @return array{0:Loans,1:int} */
