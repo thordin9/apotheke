@@ -122,3 +122,14 @@ $routes->match(['GET', 'HEAD'], 'barcode', $catalog . 'BarcodeController::index'
 $routes->match(['GET', 'HEAD'], 'barcode/lookup', $catalog . 'BarcodeController::lookup', ['permission' => 'view']);
 $routes->post('item/([0-9]+)/(lend|return)', '\\Apotheke\\Lending\\Controllers\\LendingController::act/$1/$2', ['permission' => 'lend']);
 $routes->match(['GET', 'HEAD'], 'lent', '\\Apotheke\\Lending\\Controllers\\LendingController::index', ['permission' => 'view']);
+
+// PLAN 13: stocktakes (Stocktake). Looking is "view", every change "stocktake" (legacy
+// route_perm()); finishing with moves also checks "move". Every act answers every method,
+// so a missing stocktake is "Stocktake not found." before anything else, as in legacy.
+$stocktake = '\\Apotheke\\Stocktake\\Controllers\\StocktakeController';
+$routes->match(['GET', 'HEAD'], 'stocktake', $stocktake . '::index', ['permission' => 'view']);
+$routes->post('stocktake', $stocktake . '::index', ['permission' => 'stocktake']);
+$routes->match(['GET', 'HEAD'], 'stocktake/([0-9]+)', $stocktake . '::take/$1', ['permission' => 'view']);
+$routes->match(['GET', 'HEAD'], 'stocktake/([0-9]+)/(check|report|finish|cancel)', $stocktake . '::take/$1/$2', ['permission' => 'view']);
+$routes->post('stocktake/([0-9]+)', $stocktake . '::take/$1', ['permission' => 'stocktake']);
+$routes->post('stocktake/([0-9]+)/(check|report|finish|cancel)', $stocktake . '::take/$1/$2', ['permission' => 'stocktake']);

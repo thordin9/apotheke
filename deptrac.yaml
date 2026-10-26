@@ -80,6 +80,10 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Apotheke\\Lending\\
+    - name: Stocktake
+      collectors:
+        - type: classLike
+          value: ^Apotheke\\Stocktake\\
   ruleset:
     Auth:
       - Core
@@ -160,3 +164,13 @@ deptrac:
       - Catalog
       - Taxonomy
       - Media
+    # Stocktake (PLAN 13): check a location against the catalog. Times as the history shows them
+    # (Activity), thumbnail names with Media.
+    Stocktake:
+      - Core
+      - Layout
+      - Settings
+      - Catalog
+      - Taxonomy
+      - Media
+      - Activity
