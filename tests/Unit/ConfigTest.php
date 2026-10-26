@@ -44,6 +44,14 @@ final class ConfigTest extends TestCase
         $this->assertSame(3650, config_load('/app', null, ['EXPIRY_SOON_DAYS' => '99999'])['expiry_soon_days']);
     }
 
+    public function testSignInFailMsFromEnvIsClamped(): void
+    {
+        $this->assertSame(1000, config_load('/app', null, [])['sign_in_fail_ms']);
+        $this->assertSame(1500, config_load('/app', null, ['SIGN_IN_FAIL_MS' => '1500'])['sign_in_fail_ms']);
+        $this->assertSame(400, config_load('/app', null, ['SIGN_IN_FAIL_MS' => '0'])['sign_in_fail_ms']);
+        $this->assertSame(10000, config_load('/app', null, ['SIGN_IN_FAIL_MS' => '99999'])['sign_in_fail_ms']);
+    }
+
     public function testAllowedHostsFromEnv(): void
     {
         $this->assertSame('', config_load('/app', null, [])['allowed_hosts']);

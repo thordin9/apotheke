@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **security:** hardening: lending, returning, finishing, cancelling and ticking a stocktake take their lock or check the stocktake is still open as their first write, so requests at the same time no longer apply twice or change a closed stocktake; every failed password check (sign-in, current password, turning sign-in back on) answers a fixed time after the request began (`SIGN_IN_FAIL_MS`, default 1000 ms); `bin/migrate.php` shares its connection with code that runs inside a migration. ([#126](https://github.com/thordin9/apotheke/pull/126))
+
 ## [2.6.20] - 2026-10-26
 
 ### Fixed
