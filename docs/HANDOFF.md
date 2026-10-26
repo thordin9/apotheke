@@ -73,7 +73,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `/import/{id}` with `/preview` and `/commit` answer as legacy does, with the same rows and the same waiting upload
   in `DATA_DIR/tmp` (`tests/Unit/Ci4ImportExportParityTest.php`, SQLite and PostgreSQL, failed writes included).
   New module `ImportExport`; rows are saved through Catalog, Taxonomy and Lending. A run locks the import first; a
-  second submit of one import waits, finds it done and imports nothing (`Ci4ImportRaceTest`).
+  second submit or a preview of one import waits, finds it done and shows the done page (`Ci4ImportRaceTest`, #131).
+  The export streams its lines (`Core\Http\StreamedResponse`, batches of 500; a cursor in a read-only snapshot on
+  PostgreSQL), so memory stays flat (`ExportMemoryTest`). Uploads left waiting for a day lose their file (#131).
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
@@ -178,7 +180,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#128](https://github.com/thordin9/apotheke/pull/128): QA notes batch 3. A stocktake tick changes lines only while it
   is open, with the write lock first (L-340, N-341); `/register` PUT/PATCH/DELETE with registration open (N-351); the
   auth pages ignore `_method` (N-352) and answer every method CI4 routes (N-353); cookie Max-Age settled in the
-  parity tests. Open.
+  parity tests. Merged.
+- [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
+  recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
+  stale uploads swept (N-374), TAB/CR cells tested (N-375). Open.
 
 ## Lanes
 
@@ -197,21 +202,28 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
-  step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, open);
-  then the step 14 follow-ups and backup and restore.
+  step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
+  follow-ups (#131, open); then backup and restore.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #128 (QA notes batch 3); then the step 14 follow-ups and step 14 backup and restore.
+1. Review and merge #131 (#127's QA notes); then step 14's backup and restore.
 2. Port L-230, L-240, N-234, L-340 and N-341 to legacy on `main`, so both apps behave the same under concurrent
-   requests (L-340: a stocktake tick's first write only while the stocktake is open).
+   requests (L-340: a stocktake tick's first write only while the stocktake is open), and with them the import lock
+   ([#130](https://github.com/thordin9/apotheke/pull/130), open), the done check for a waiting preview (N-373) and
+   the stale-upload sweep (N-374).
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 
 ## Tracked
+
+- Import pages (#131): CI4 checks the CSRF token first, so a tokenless POST to a done import or to `/import/{id}`
+  answers 419 (legacy 303 and 404), and PUT, PATCH and DELETE on `/import` need the token (legacy shows the page).
+  Stricter; no change. Until the `main` port (Next steps), legacy keeps waiting uploads and answers 410 to a preview
+  that raced a submit.
 
 - `/account` with PUT, PATCH or DELETE (#125, N-63): CI4 wants the CSRF token, as on every non-safe method, where
   legacy shows the page without it. Stricter; no change. The same holds for CONNECT (#128).
