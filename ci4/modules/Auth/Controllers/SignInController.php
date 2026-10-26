@@ -37,14 +37,14 @@ final class SignInController extends AuthPages
         $this->checkCsrf();
         $who = \Apotheke\Core\Libraries\Text::cleanLine($this->post('username'), Accounts::USERNAME_MAX * 2);
         try {
-            $this->limiter()->hit('login_address');   // all names from this address
+            $mine = $this->limiter()->hit('login_address');   // all names from this address
             $this->limiter()->hit('login', $who);
             $user = $this->accounts()->signIn($started, $who, $this->post('password'));
             if ($user !== null) {
                 $this->accounts()->admit($user);
                 (new SessionGate(time()))->signIn($user['id'], (new SessionEpoch())->of($user));
                 $this->limiter()->clear('login', $who);
-                $this->limiter()->clear('login_address');
+                $this->limiter()->forget($mine);   // a success takes back only its own address row
 
                 return $this->redirectTo('/');
             }
