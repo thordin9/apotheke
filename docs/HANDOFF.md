@@ -157,7 +157,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#120](https://github.com/thordin9/apotheke/pull/120): QA notes. N-261: register, admin-add and rename refuse a
   user name with a null character before trimming (stricter than legacy until main's N-251). N-280: the EXIF test
   checks corner colours for orientations 2-8. N-281: the stub helpers use curl, and CI runs the Autofill and Media
-  suites with `allow_url_fopen` off. Open.
+  suites with `allow_url_fopen` off. Merged.
+- [#123](https://github.com/thordin9/apotheke/pull/123): #114/#115 QA notes: lend/return lock first (L-230),
+  stocktake finish/cancel only while open (L-240), borrower name without control characters (N-234), test fixes
+  N-211, N-232/N-243, N-233, and the Routes comment (N-242). Open.
+- [#125](https://github.com/thordin9/apotheke/pull/125): N-63, `/login`, `/register` and `/account` show their page
+  for PUT, PATCH and DELETE as legacy does (`/account` still needs the CSRF token there). Open.
 
 ## Lanes
 
@@ -170,19 +175,19 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, open).
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged).
   Touches `Media\ImageStore` and the Autofill module only.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
-  lending (#114, merged) and stocktake (#115, merged). Owns the N-63 router follow-up below.
+  lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123); N-63 (#125).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #120 (N-261, N-280, N-281).
-2. Stocktake follow-up PR (L-230, L-240 and the N-items from #115), then the N-63 router fix.
+1. Review and merge #123 (step 13 follow-ups) and #125 (N-63).
+2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests.
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 4. After legacy's N-251 ([#121](https://github.com/thordin9/apotheke/pull/121) on `main`) merges, switch CI4's
@@ -190,9 +195,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Tracked
 
-- CI4 router (N-63, an N-51 follow-up): PUT, PATCH and DELETE on `/login`, `/register` and `/account` answer 404
-  where legacy shows the page (stricter). Owner: Coder2 (CI4 lane). Not folded into step 13: it changes the Auth
-  controllers that #110 also changes, so it gets its own small PR after #110.
+- `/account` with PUT, PATCH or DELETE (#125, N-63): CI4 wants the CSRF token, as on every non-safe method, where
+  legacy shows the page without it. Stricter; no change.
 - Legacy photo edit race (#103 M-90): on `main`, two crop/rotate requests for one photo at once can commit a photo
   without its original, and `image_original_copy()` succeeds when the original is gone. CI4 compares and swaps
   `item_photos.file` and fails the copy. Candidate for the next `main` hardening PR.
