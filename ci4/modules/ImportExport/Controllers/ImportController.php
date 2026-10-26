@@ -28,6 +28,7 @@ final class ImportController extends CatalogController
     public function index(): ResponseInterface
     {
         $imports = $this->imports();
+        $imports->sweep();   // N-374: on every upload and listing
         if ($this->request->getMethod() === 'POST') {
             $f = $this->request->getFile('csv');
             $file = $f instanceof UploadedFile

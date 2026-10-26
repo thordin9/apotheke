@@ -92,6 +92,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** the import pages check the CSRF token first, as every CI4 POST does. A POST without the token to an import that is already done answers 419 where legacy redirects to the done page (303), and a POST without the token to `/import/{id}` answers 419 where legacy answers 404. Stricter; no change (QA N-371). ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** `/import` shows its page for PUT, PATCH and DELETE as legacy does, instead of 404, and `/import/{id}` with these methods redirects a done import and otherwise answers 404, as on legacy. They need the `import` permission and the CSRF token, as every non-safe method does on CI4 (QA N-372). ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** a preview sent while a submit of the same import is still running waits for it and then shows the done page (303 to `/import?done=…`), as a later submit does, instead of 410 "The uploaded file is gone". Legacy still answers 410 here (QA N-373). ([#129](https://github.com/thordin9/apotheke/pull/129))
+- **ci4:** an upload left waiting for more than a day loses its stored file in `DATA_DIR/tmp` on the next upload or visit to the import page; only files of imports still waiting are removed, and the row stays in the history (opening it asks for the file again, 410). Legacy keeps these files (QA N-374). ([#129](https://github.com/thordin9/apotheke/pull/129))
 
 ### Maintenance
 

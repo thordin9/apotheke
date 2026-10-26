@@ -26,6 +26,7 @@ use Throwable;
  * committed in one transaction). The files of the CSV export import as they
  * are: same headers, "id" updates the item with that id. The upload waits in
  * DATA_DIR/tmp/import-<id>.csv; the `imports` table keeps the history.
+ * sweep() deletes the files of uploads left waiting for a day (N-374).
  *
  * A run takes the import's row first, so on SQLite it holds the write lock
  * before its first read, and two imports of one file run one after the
@@ -39,6 +40,9 @@ use Throwable;
 final class Imports
 {
     public const MAX_BYTES = 5 * 1024 * 1024;
+
+    /** An upload not imported for this long loses its stored file (N-374). */
+    public const STALE_SECONDS = 86400;
 
     public const PREVIEW_ROWS = 50;
 
@@ -119,6 +123,29 @@ final class Imports
         $this->files->write(self::key($id), $csv);
 
         return $id;
+    }
+
+    /**
+     * Delete the stored files of uploads still waiting after STALE_SECONDS
+     * (N-374): only files of `uploaded` imports, only DATA_DIR/tmp/import-<id>.csv
+     * through Storage. The rows stay in the history; opening one answers
+     * 410 "upload it again", as for any missing file. Returns the ids swept.
+     *
+     * @return list<int>
+     */
+    public function sweep(): array
+    {
+        $cutoff = gmdate('Y-m-d H:i:s', $this->clock->unix() - self::STALE_SECONDS);
+        $ids = [];
+        foreach (Writes::rows($this->db, "SELECT id FROM imports WHERE status = 'uploaded' AND created_at < ? ORDER BY id", [$cutoff]) as $r) {
+            $id = (int)$r['id'];
+            if ($this->files->exists(self::key($id))) {
+                $this->files->delete(self::key($id));
+                $ids[] = $id;
+            }
+        }
+
+        return $ids;
     }
 
     /**
