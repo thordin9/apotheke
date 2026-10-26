@@ -147,7 +147,7 @@ final class Ci4LayoutParityTest extends TestCase
             $cookie = $r['headers']['set-cookie'] ?? null;
             $answer = ['status' => $r['status'], 'type' => $r['headers']['content-type'] ?? null, 'location' => $r['headers']['location'] ?? null,
                 'json' => $r['json'], 'body' => $r['json'] === null ? $body : null,
-                'cookie' => $cookie === null ? null : preg_replace('#expires=[^;]+; #', '', str_starts_with($cookie, 'apothekesid=') ? 'apothekesid=SID' : $cookie)];
+                'cookie' => $cookie === null ? null : preg_replace('#expires=X; #', '', cookie_times_settled(str_starts_with($cookie, 'apothekesid=') ? 'apothekesid=SID' : $cookie))];
             foreach (['x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'] as $name) {
                 $answer[$name] = $r['headers'][$name] ?? null;
             }
@@ -212,7 +212,7 @@ final class Ci4LayoutParityTest extends TestCase
             $r = $client->post('/theme', ['csrf' => $token, 'theme' => 'dark', 'back' => $back]);
             $location = $r['headers']['location'] ?? null;
             $this->controlBack[$app][$name] = [$r['status'], $location];
-            $out['theme back ' . $name] = ['cookie' => preg_replace('#expires=[^;]+; #', '', (string)($r['headers']['set-cookie'] ?? '')),
+            $out['theme back ' . $name] = ['cookie' => preg_replace('#expires=X; #', '', cookie_times_settled((string)($r['headers']['set-cookie'] ?? ''))),
                 'redirect' => $name === 'nul' ? null : $r['status']];
         }
         return $out;
