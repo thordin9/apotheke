@@ -73,9 +73,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `/import/{id}` with `/preview` and `/commit` answer as legacy does, with the same rows and the same waiting upload
   in `DATA_DIR/tmp` (`tests/Unit/Ci4ImportExportParityTest.php`, SQLite and PostgreSQL, failed writes included).
   New module `ImportExport`; rows are saved through Catalog, Taxonomy and Lending. A run locks the import first; a
-  second submit or a preview of one import waits, finds it done and shows the done page (`Ci4ImportRaceTest`, #129).
+  second submit or a preview of one import waits, finds it done and shows the done page (`Ci4ImportRaceTest`, #131).
   The export streams its lines (`Core\Http\StreamedResponse`, batches of 500; a cursor in a read-only snapshot on
-  PostgreSQL), so memory stays flat (`ExportMemoryTest`). Uploads left waiting for a day lose their file (#129).
+  PostgreSQL), so memory stays flat (`ExportMemoryTest`). Uploads left waiting for a day lose their file (#131).
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
@@ -176,8 +176,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   N-211, N-232/N-243, N-233, and the Routes comment (N-242). Merged.
 - [#125](https://github.com/thordin9/apotheke/pull/125): N-63, `/login`, `/register` and `/account` show their page
   for PUT, PATCH and DELETE as legacy does (`/account` still needs the CSRF token there). Merged.
-- [#127](https://github.com/thordin9/apotheke/pull/127): PLAN step 14 (first part), CSV import and export. Open.
-- [#129](https://github.com/thordin9/apotheke/pull/129): #127 QA notes: streamed export (L-370), CSRF-first answers
+- [#127](https://github.com/thordin9/apotheke/pull/127): PLAN step 14 (first part), CSV import and export. Merged.
+- [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
   stale uploads swept (N-374), TAB/CR cells tested (N-375). Open.
 
@@ -198,22 +198,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged); step 14 import/export
-  (#127) and its QA follow-ups (#129), then backup and restore.
+  (#127) and its QA follow-ups (#131), then backup and restore.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #127 (step 14, first part); then step 14's backup and restore.
-2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests; with
-   them the import lock and its done check for a waiting preview (N-373) and the stale-upload sweep (N-374).
+1. Review and merge #131 (#127's QA notes); then step 14's backup and restore.
+2. Port L-230, L-240 and N-234 to legacy on `main`, so both apps behave the same under concurrent requests, and
+   with them the import lock ([#130](https://github.com/thordin9/apotheke/pull/130), open), the done check for a waiting
+   preview (N-373) and the stale-upload sweep (N-374).
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
 
 ## Tracked
 
-- Import pages (#129): CI4 checks the CSRF token first, so a tokenless POST to a done import or to `/import/{id}`
+- Import pages (#131): CI4 checks the CSRF token first, so a tokenless POST to a done import or to `/import/{id}`
   answers 419 (legacy 303 and 404), and PUT, PATCH and DELETE on `/import` need the token (legacy shows the page).
   Stricter; no change. Until the `main` port (Next steps), legacy keeps waiting uploads and answers 410 to a preview
   that raced a submit.
