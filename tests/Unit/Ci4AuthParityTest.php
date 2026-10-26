@@ -43,6 +43,16 @@ final class Ci4AuthParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
+        // N-63: legacy shows /account for PUT, PATCH and DELETE without a token; CI4 wants the
+        // token on every non-safe method (SEC-N10) and shows the same page once it is sent.
+        $untokened = [];
+        foreach ($answers as $app => $cases) {
+            foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+                $untokened[$app][$verb] = $cases['eda ' . $verb . ' /account without csrf']['status'];
+                unset($answers[$app]['eda ' . $verb . ' /account without csrf']);
+            }
+        }
+        $this->assertSame(['legacy' => ['PUT' => 200, 'PATCH' => 200, 'DELETE' => 200], 'ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419]], $untokened);
         $this->assertGreaterThan(80, count($answers['legacy']));
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
@@ -51,6 +61,13 @@ final class Ci4AuthParityTest extends TestCase
         // The cases are what they claim to be.
         $l = $answers['legacy'];
         $this->assertSame(200, $l['signed-out GET /login']['status']);
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $this->assertSame($l['signed-out GET /login'], $l['signed-out ' . $verb . ' /login'], $verb . ' /login shows the page (N-63)');
+            $this->assertSame($l['signed-out GET /register'], $l['signed-out ' . $verb . ' /register'], $verb . ' /register');
+            $this->assertSame(303, $l['ada ' . $verb . ' /login']['status'], $verb);
+            $this->assertSame($l['eda GET /account']['status'], $l['eda ' . $verb . ' /account']['status'], $verb . ' /account with the token shows the page');
+            $this->assertStringContainsString('<form', (string)$l['eda ' . $verb . ' /account']['body'], $verb);
+        }
         $this->assertStringContainsString('id="login-form"', (string)$l['signed-out GET /login']['body']);
         $this->assertStringContainsString('id="login-guest"', (string)$l['guest GET /login']['body']);
         $this->assertSame([303, '/'], [$l['ada GET /login']['status'], $l['ada GET /login']['location']]);
@@ -210,6 +227,13 @@ final class Ci4AuthParityTest extends TestCase
             }
             $as($visitor . ' GET /login fetch', 'GET', '/login', [], $fetch, $who);
             $as($visitor . ' HEAD /account', 'HEAD', '/account', [], [], $who);
+            // N-63: legacy shows these pages for every method but POST.
+            foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+                $as($visitor . ' ' . $verb . ' /login', $verb, '/login', [], [], $who);
+                $as($visitor . ' ' . $verb . ' /register', $verb, '/register', [], [], $who);
+                [$client, $token, $ip] = $browser($who);
+                $record($visitor . ' ' . $verb . ' /account', $client->req($verb, '/account', [], [], ['X-CSRF-Token: ' . $token, 'X-Forwarded-For: ' . $ip]));
+            }
             $as($visitor . ' POST /login without csrf', 'POST', '/login', ['username' => 'x', 'password' => 'y'], [], $who, false);
             $as($visitor . ' signout without csrf', 'POST', '/account/signout', [], [], $who, false);
             $as($visitor . ' signout fetch without csrf', 'POST', '/account/signout', [], $fetch, $who, false);
@@ -320,6 +344,9 @@ final class Ci4AuthParityTest extends TestCase
         $as('account wrong current', 'POST', '/account', ['current' => 'wrong', 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda');
         $as('account short', 'POST', '/account', ['current' => self::PW, 'new' => 'short', 'confirm' => 'short'], [], 'eda');
         $as('account mismatch', 'POST', '/account', ['current' => self::PW, 'new' => 'new-password', 'confirm' => 'other-password'], [], 'eda');
+        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            $as('eda ' . $verb . ' /account without csrf', $verb, '/account', [], [], 'eda');
+        }
         $as('account without csrf', 'POST', '/account', ['current' => self::PW, 'new' => 'new-password', 'confirm' => 'new-password'], [], 'eda', false);
         // The current password is limited like a sign-in for that account from this address (#106).
         [$client, $token, $ip] = $browser('eda');
