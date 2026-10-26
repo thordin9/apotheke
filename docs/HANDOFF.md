@@ -5,7 +5,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Current state
 
-- `feature/ci4` carries `main` up to v2.6.20 (sync [#123](https://github.com/thordin9/apotheke/pull/123)), including the legacy session limits, `user signout NAME`
+- `feature/ci4` carries `main` up to v2.6.20 (sync [#124](https://github.com/thordin9/apotheke/pull/124)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
   in development.
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
@@ -158,7 +158,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   user name with a null character before trimming (stricter than legacy until main's N-251). N-280: the EXIF test
   checks corner colours for orientations 2-8. N-281: the stub helpers use curl, and CI runs the Autofill and Media
   suites with `allow_url_fopen` off. Merged.
-- [#123](https://github.com/thordin9/apotheke/pull/123): sync `main` v2.6.20 (#121, #122) and the CI4 counterparts:
+- [#124](https://github.com/thordin9/apotheke/pull/124): sync `main` v2.6.20 (#121, #122) and the CI4 counterparts:
   N-304 (turning sign-in on always spends one password check), L-310 (a wrong password there or for the current
   password answers at the sign-in deadline), the null-name parity check, N-290 and N-291. Open.
 
@@ -173,8 +173,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#123, open).
-  Touches `Media\ImageStore` and the Autofill module only; #123 also touches Coder2's `Accounts`, `SecurityController`
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, open).
+  Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
   and `SignInAccountsTest` (listed in the PR).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
@@ -185,7 +185,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #123 (sync v2.6.20, N-304 and L-310 for CI4, N-290, N-291).
+1. Review and merge #124 (sync v2.6.20, N-304 and L-310 for CI4, N-290, N-291).
 2. Stocktake follow-up PR (L-230, L-240 and the N-items from #115), then the N-63 router fix.
 3. Port the Docker bind and app-password start-up hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75)
    (SEC-M3) into the CI4 image.
