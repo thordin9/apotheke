@@ -25,6 +25,16 @@ final class HardeningTest extends DatabaseTestCase
         $this->assertNull(user_verify('ada', "long-enough\0x"));
     }
 
+    public function testANameWithANullCharacterFindsNoAccount(): void
+    {
+        user_create('ada', 'long-enough', 'admin');
+        $this->assertNotNull(user_by_name('ada'));
+        foreach (["ada\0x", "\0ada", "ada\0"] as $name) {
+            $this->assertNull(user_by_name($name), json_encode($name));
+            $this->assertNull(user_verify($name, 'long-enough'), json_encode($name));
+        }
+    }
+
     public function testAppPasswordWithANullCharacterIsRefused(): void
     {
         $this->assertNotNull(app_password_problem("long-enough\0"));
