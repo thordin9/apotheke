@@ -1074,12 +1074,12 @@ final class AutofillTest extends CIUnitTestCase
 
     private function clearStub(): void
     {
-        @file_get_contents(self::$stubBase . '/_stub/uploads', false, stream_context_create(['http' => ['method' => 'DELETE']]));
+        $this->stub('DELETE', '/_stub/uploads');
     }
 
     private function suggestCount(): int
     {
-        $n = json_decode((string)file_get_contents(self::$stubBase . '/_stub/count'), true);
+        $n = json_decode($this->stub('GET', '/_stub/count'), true);
 
         return (int)($n['n'] ?? 0);
     }
@@ -1087,8 +1087,22 @@ final class AutofillTest extends CIUnitTestCase
     /** @return list<array<string,mixed>> */
     private function uploads(): array
     {
-        $rows = json_decode((string)file_get_contents(self::$stubBase . '/_stub/uploads'), true);
+        $rows = json_decode($this->stub('GET', '/_stub/uploads'), true);
 
         return is_array($rows) ? $rows : [];
+    }
+
+    /** One request to the stub's test endpoints with curl, so it works with allow_url_fopen off (N-281). Anything but 200 fails the test. */
+    private function stub(string $method, string $path): string
+    {
+        $ch = curl_init(self::$stubBase . $path);
+        $this->assertNotFalse($ch);
+        curl_setopt_array($ch, [CURLOPT_CUSTOMREQUEST => $method, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 10]);
+        $body = curl_exec($ch);
+        $status = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($ch);
+        $this->assertSame(200, $status, $method . ' ' . $path . ': ' . $error);
+
+        return (string)$body;
     }
 }
