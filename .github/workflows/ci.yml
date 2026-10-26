@@ -181,7 +181,7 @@ jobs:
           vendor/bin/phpunit -c ci4/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
       - name: CI4 Autofill and Media suites with allow_url_fopen off (L-270, N-281)
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
-        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c ci4/phpunit.xml.dist --fail-on-empty-test-suite ci4/tests/Autofill ci4/tests/Media
+        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c ci4/phpunit.xml.dist --fail-on-skipped --fail-on-empty-test-suite --testdox ci4/tests/Autofill ci4/tests/Media
       - name: Prove CI4 used PostgreSQL
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
         run: php scripts/ci4-pgsql-proof.php
