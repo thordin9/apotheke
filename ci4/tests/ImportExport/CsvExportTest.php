@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
- * The CSV export's lines (L-370). Byte parity with legacy, batches
+ * The CSV export's lines (L-370, N-375). Byte parity with legacy, batches
  * included, is tests/Unit/Ci4ImportExportParityTest.php and ExportMemoryTest.
  */
 final class CsvExportTest extends CIUnitTestCase
@@ -30,6 +30,22 @@ final class CsvExportTest extends CIUnitTestCase
         $this->database?->drop();
         $this->database = null;
         parent::tearDown();
+    }
+
+    /** N-375: a cell starting with TAB or CR (after any apostrophes) gets one more apostrophe. */
+    #[DataProvider('drivers')]
+    public function testCellsStartingWithTabOrCarriageReturnAreGuarded(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $item = $this->database->pdo()->prepare("INSERT INTO items (name, quantity, notes, serial, barcode, search, sort_key, created_at, updated_at) VALUES (?, 1, ?, ?, ?, '', ?, '2026-01-01', '2026-01-01')");
+        $item->execute(["\tTab", "\rCR", "'\tq", "x\t", 'a']);
+        $item->execute(["''\rr", 'plain', "'r", "\t", 'b']);
+        $lines = iterator_to_array(new CsvExport($this->database->db)->lines('EUR'), false);
+        $this->assertCount(3, $lines);
+        $this->assertSame([
+            self::csv(['1', "'\tTab", '', '', '1', "'\rCR", '', '2026-01-01', '2026-01-01', '', '', '', '', "''\tq", '', '', '', '', '', "x\t"]),
+            self::csv(['2', "'''\rr", '', '', '1', 'plain', '', '2026-01-01', '2026-01-01', '', '', '', '', "'r", '', '', '', '', '', "'\t"]),
+        ], array_slice($lines, 1));
     }
 
     /**
@@ -74,5 +90,16 @@ final class CsvExportTest extends CIUnitTestCase
             $this->assertStringNotContainsString('did not run', $e->getMessage());
         }
         $pdo->exec('ALTER TABLE items_gone RENAME TO items');
+    }
+
+    /** @param list<string> $cells */
+    private static function csv(array $cells): string
+    {
+        $fh = fopen('php://memory', 'r+');
+        self::assertNotFalse($fh);
+        fputcsv($fh, $cells, ',', '"', '\\');
+        rewind($fh);
+
+        return (string)stream_get_contents($fh);
     }
 }

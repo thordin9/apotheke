@@ -88,6 +88,7 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** lending and stocktakes under concurrent requests (PLAN step 13 follow-ups). A lend or return locks the item first, so on SQLite it waits for another write instead of failing, and a return that waited for another one logs nothing twice. Finishing or cancelling a stocktake closes it only while it is still open, so a second finish or cancel answers 409 and changes nothing. Control characters are removed from the borrower's name. ([#123](https://github.com/thordin9/apotheke/pull/123))
 - **ci4:** `/login`, `/register` and `/account` show their page for PUT, PATCH and DELETE as legacy does, instead of 404; on `/account` these methods still need the CSRF token, as every non-safe method does on CI4. ([#125](https://github.com/thordin9/apotheke/pull/125))
 - **ci4:** GET `/export.csv` streams the file as legacy does: items are read in batches of 500 (from a cursor in a read-only snapshot on PostgreSQL), each batch reads only its own tags, and every line goes out as it is written, so memory no longer grows with the number of items. At 200,000 items the export used about 360 MB (SQLite) or 490 MB (PostgreSQL) and failed at the 256 MB limit; it now stays near 3 MB (QA L-370). ([#129](https://github.com/thordin9/apotheke/pull/129))
+- **ci4:** the export tests cover cells that start with a TAB or a carriage return, so the formula guard for them is checked (QA N-375). ([#129](https://github.com/thordin9/apotheke/pull/129))
 
 ### Maintenance
 
