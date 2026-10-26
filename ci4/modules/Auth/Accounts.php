@@ -145,7 +145,7 @@ final class Accounts
             throw new UserError('That password is too long.', 422);
         }
         if (str_contains($new, "\0")) {
-            // Stricter than legacy, where password_hash() refuses it later (500).
+            // bcrypt stops at a NUL byte and reads only the first 72 bytes (docs/control-panel.md)
             throw new UserError('Passwords cannot contain a null character.', 422);
         }
         if ($confirm !== null && !hash_equals($new, $confirm)) {
@@ -180,17 +180,31 @@ final class Accounts
     }
 
     /**
-     * Legacy POST /account: the current password must match (403), then
-     * user_set_password(), which renews the session epoch. Returns the new
-     * epoch for the session that stays signed in.
+     * Legacy user_check_current(): the signed-in account's current password,
+     * limited like a sign-in for that account from this address (429); a
+     * wrong one is 403. A right one clears that account's sign-in attempts.
      *
-     * @param array{id:int,username:string} $me
+     * @param array{username:string} $me
      */
-    public function changeOwnPassword(array $me, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $new, #[\SensitiveParameter] string $confirm): string
+    public function checkCurrent(array $me, #[\SensitiveParameter] string $current, RateLimiter $limiter): void
     {
+        $limiter->hit('login', $me['username']);
         if ($this->verify($me['username'], $current) === null) {
             throw new UserError('The current password is not correct.', 403);
         }
+        $limiter->clear('login', $me['username']);
+    }
+
+    /**
+     * Legacy POST /account: checkCurrent(), then user_set_password(), which
+     * renews the session epoch. Returns the new epoch for the session that
+     * stays signed in.
+     *
+     * @param array{id:int,username:string} $me
+     */
+    public function changeOwnPassword(array $me, #[\SensitiveParameter] string $current, #[\SensitiveParameter] string $new, #[\SensitiveParameter] string $confirm, RateLimiter $limiter): string
+    {
+        $this->checkCurrent($me, $current, $limiter);
         if ($this->users->find($me['id']) === null) {
             throw new UserError('User not found.', 404);
         }
@@ -202,12 +216,16 @@ final class Accounts
     /**
      * Legacy auth_enabled() on an install without accounts: with sign-in on,
      * APP_PASSWORD becomes the password of the account "admin". A blank or
-     * too short APP_PASSWORD stops (the message never contains the value).
+     * too short APP_PASSWORD, or one with a null character, stops (legacy
+     * app_password_problem(); the message never contains the value).
      */
     public function ensureFirstAdmin(bool $signInSetting, #[\SensitiveParameter] string $appPassword): void
     {
         if (!$signInSetting || $appPassword === '' || $this->users->count() > 0) {
             return;
+        }
+        if (str_contains($appPassword, "\0")) {
+            throw new RuntimeException('APP_PASSWORD cannot contain a null character.');
         }
         if (trim($appPassword) === '' || mb_strlen($appPassword) < self::PASSWORD_MIN) {
             throw new RuntimeException('APP_PASSWORD is too short: use at least ' . self::PASSWORD_MIN . ' characters (not only spaces), or leave it empty.');

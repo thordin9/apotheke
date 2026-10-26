@@ -102,6 +102,41 @@ final class UserRepository
     }
 
     /** Legacy user_approve(). */
+    /**
+     * $fn in one transaction (Writes::transaction; nesting is flat).
+     *
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    public function atomically(callable $fn): mixed
+    {
+        return Writes::transaction($this->db, $fn);
+    }
+
+    /**
+     * Legacy users_lock_admins(), inside a transaction: a no-op write on the
+     * active admin accounts. Two changes that could each remove an admin then
+     * run one after the other (L-110).
+     */
+    public function lockActiveAdmins(): void
+    {
+        Writes::check($this->db->query("UPDATE users SET role = role WHERE role = 'admin' AND status = 'active'"), 'users admin lock');
+    }
+
+    /**
+     * Inside a transaction: the active admin rows locked for this transaction
+     * without writing them (PostgreSQL SELECT … FOR UPDATE; SQLite has one
+     * writer at a time, so its transaction's own write serialises it). For
+     * changes legacy makes without users_lock_admins() (the roles editor).
+     */
+    public function holdActiveAdmins(): void
+    {
+        if ($this->db->DBDriver === 'Postgre') {
+            Writes::rows($this->db, "SELECT id FROM users WHERE role = 'admin' AND status = 'active' FOR UPDATE");
+        }
+    }
+
     public function approve(int $id): void
     {
         Writes::check($this->db->query("UPDATE users SET status = 'active' WHERE id = ?", [$id]), 'users approve');
