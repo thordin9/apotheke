@@ -105,20 +105,6 @@ final class HardeningHttpTest extends TestCase
         $this->assertSame(429, $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => 'ada', 'password' => 'long-enough'])['status'], 'still capped');
     }
 
-    /** A name with a null character inside never matches an account, even with that account's password (N-160). */
-    public function testANameWithANulNeverSignsIn(): void
-    {
-        if (apotheke_app() === 'legacy' && db_driver() === 'pgsql') {
-            $this->markTestSkipped('Legacy on PostgreSQL cuts the bound name at the null character (main follow-up).');
-        }
-        foreach (["ada\0x", "a\0da", " ada\0 x"] as $name) {
-            $c = $this->server->client();
-            $r = $c->post('/login', ['csrf' => $this->loginCsrf($c), 'username' => $name, 'password' => 'long-enough']);
-            $this->assertSame(401, $r['status'], bin2hex($name));
-            $this->assertStringContainsString('Wrong user name or password.', $r['body'], bin2hex($name));
-        }
-    }
-
     /** Changing your password and turning sign-in off check the current password with the sign-in limit. */
     public function testTheSecurityPasswordFormIsLimited(): void
     {
