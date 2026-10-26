@@ -8,9 +8,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.20] - 2026-10-26
+
 ### Fixed
 
 - **security:** hardening: an unknown sign-in name spends a password check at the current default cost on every PHP version, turning sign-in back on always spends one password check, and cleanups queued inside a migration wait for its commit. ([#122](https://github.com/thordin9/apotheke/pull/122))
+
+### Maintenance
+
+- test: sign-in timing for known names, failed import and migrate queue ([#122](https://github.com/thordin9/apotheke/pull/122))
+- **qa:** docs: add PR 122 QA report ([#122](https://github.com/thordin9/apotheke/pull/122))
 
 ## [2.6.19] - 2026-10-26
 
@@ -419,7 +426,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.19...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.20...HEAD
+[2.6.20]: https://github.com/thordin9/apotheke/compare/v2.6.19...v2.6.20
 [2.6.19]: https://github.com/thordin9/apotheke/compare/v2.6.18...v2.6.19
 [2.6.18]: https://github.com/thordin9/apotheke/compare/v2.6.17...v2.6.18
 [2.6.17]: https://github.com/thordin9/apotheke/compare/v2.6.16...v2.6.17
