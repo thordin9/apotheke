@@ -135,6 +135,7 @@ final class Stocktakes
         $it = $this->items->get($itemId) ?? throw new UserError('Item not found.', 404);
 
         return Writes::transaction($this->db, function () use ($stocktakeId, $it, $found): array {
+            $this->stillOpen($stocktakeId);
             $id = (int)$it['id'];
             $name = (string)$it['name'];
             $loc = is_int($it['location_id']) ? $it['location_id'] : null;
@@ -246,6 +247,20 @@ final class Stocktakes
             [$status, $this->clock->now(), $stocktakeId]), $status === 'done' ? 'finish stocktake' : 'cancel stocktake');
         if ($this->db->affectedRows() !== 1) {
             throw new UserError('This stocktake is already finished.', 409);
+        }
+    }
+
+    /**
+     * The first write of a tick's transaction: it goes on only while the
+     * stocktake is still open. A tick that read it as open before a finish
+     * or cancel closed it answers as a finished stocktake (409) and adds or
+     * changes no line (on PostgreSQL it waits for the closing row lock first).
+     */
+    private function stillOpen(int $stocktakeId): void
+    {
+        Writes::check($this->db->query("UPDATE stocktakes SET status = status WHERE id = ? AND status = 'open'", [$stocktakeId]), 'check stocktake');
+        if ($this->db->affectedRows() !== 1) {
+            throw new UserError('This stocktake is finished.', 409);
         }
     }
 

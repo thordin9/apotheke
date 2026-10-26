@@ -87,6 +87,33 @@ final class StocktakesTest extends CIUnitTestCase
         $this->assertSame(['done', '2026-06-15 10:00:00', 2], $this->take($take));
     }
 
+    /**
+     * A tick that read the stocktake as open while another client finished
+     * it (L-340): it waits for the finish, answers like a finished stocktake
+     * and adds, changes or removes no line.
+     */
+    #[DataProvider('drivers')]
+    public function testATickDuringAnotherClientsFinishChangesNoLine(string $driver): void
+    {
+        [$takes, $take, $misplaced, $home] = $this->seed($driver);
+        $expected = $this->itemNamed('First expected');
+        $stray = $this->addItem('First stray', $home);
+        $before = $this->lineRows($take);
+        foreach ([[$stray, true], [$expected, true], [$misplaced, false]] as [$item, $found]) {
+            $wait = $this->testDb()->holdInAnotherClient([["UPDATE stocktakes SET status = 'done', finished_at = '2026-06-15 10:00:00' WHERE id = ? AND status = 'open'", [$take]]], 300);
+            try {
+                $takes->check($take, $item, $found);
+                $this->fail('expected a 409');
+            } catch (UserError $e) {
+                $this->assertSame([409, 'This stocktake is finished.'], [$e->getCode(), $e->getMessage()]);
+            }
+            $this->assertStringEndsWith("committed\n", $wait());
+            $this->assertSame($before, $this->lineRows($take), 'no line added, ticked or removed');
+            $this->db()->query("UPDATE stocktakes SET status = 'open', finished_at = NULL WHERE id = ?", [$take]);
+        }
+        $this->assertSame('found', $takes->check($take, $expected)['state'], 'an open one still ticks');
+    }
+
     /** A plain finish stores the counts and the moves once; a cancel of an open one cancels it. */
     #[DataProvider('drivers')]
     public function testFinishAndCancel(string $driver): void
@@ -138,6 +165,25 @@ final class StocktakesTest extends CIUnitTestCase
         $this->assertSame('misplaced', $takes->check($take, $item)['state']);
 
         return [$takes, $take, $item, $home];
+    }
+
+    private function addItem(string $name, int $loc): int
+    {
+        $this->db()->query('INSERT INTO items (name, location_id, quantity, notes, search, sort_key, created_at, updated_at) VALUES (?, ?, 1, \'\', ?, ?, ?, ?)',
+            [$name, $loc, mb_strtolower($name), Text::natkey($name), '2026-01-02 08:00:00', '2026-01-02 08:00:00']);
+
+        return (int)$this->db()->insertID();
+    }
+
+    private function itemNamed(string $name): int
+    {
+        return (int)($this->db()->query('SELECT id FROM items WHERE name = ?', [$name])->getRowArray()['id'] ?? 0);
+    }
+
+    /** @return list<array<string,mixed>> the stocktake's lines as stored */
+    private function lineRows(int $take): array
+    {
+        return $this->db()->query('SELECT id, item_id, expected, found, found_at FROM stocktake_lines WHERE stocktake_id = ? ORDER BY id', [$take])->getResultArray();
     }
 
     /** @param BaseConnection<object|resource, object|resource> $db */
