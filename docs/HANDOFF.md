@@ -159,8 +159,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   checks corner colours for orientations 2-8. N-281: the stub helpers use curl, and CI runs the Autofill and Media
   suites with `allow_url_fopen` off. Merged.
 - [#124](https://github.com/thordin9/apotheke/pull/124): sync `main` v2.6.20 (#121, #122) and the CI4 counterparts:
-  N-304 (turning sign-in on always spends one password check), L-310 (a wrong password there or for the current
-  password answers at the sign-in deadline), the null-name parity check, N-290 and N-291. Open.
+  N-304 (turning sign-in on always spends one password check), L-310 and L-330 (every refusal there and a wrong
+  current password answer at the sign-in deadline), the null-name parity check, N-290 and N-291. Open.
 
 ## Lanes
 
