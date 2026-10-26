@@ -58,9 +58,10 @@ function user_key(string $name): string
 
 function user_name_valid(string $name, ?int $except = null): string
 {
+    $nul = str_contains($name, "\0");   // checked before trim(), which drops one at either end
     $name = trim($name);
-    if ($name === '') throw new UserError('Enter a user name.', 422);
-    if (mb_strlen($name) > USERNAME_MAX || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N}._@-]*$/uD', $name)) {
+    if ($name === '' && !$nul) throw new UserError('Enter a user name.', 422);
+    if ($nul || mb_strlen($name) > USERNAME_MAX || !preg_match('/^[\p{L}\p{N}][\p{L}\p{N}._@-]*$/uD', $name)) {
         throw new UserError('User names use letters, digits and . _ @ - (at most ' . USERNAME_MAX . ' characters, no spaces).', 422);
     }
     $other = user_by_name($name);
