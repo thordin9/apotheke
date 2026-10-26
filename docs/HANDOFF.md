@@ -128,7 +128,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#109](https://github.com/thordin9/apotheke/pull/109): CI4 port of #106's sign-in limits: the attempt is
   recorded before the count (L-61) and the per-address cap (`login_address`, L-66). Merged.
 - [#110](https://github.com/thordin9/apotheke/pull/110): CI4 port of #106 for accounts: the current-password limit,
-  the last-admin lock (L-110), the `APP_PASSWORD` null-character check and SIGTERM at the CLI prompt (N-133). Open.
+  the last-admin lock (L-110; role edits take it first, also on SQLite), the `APP_PASSWORD` null-character check
+  and SIGTERM at the CLI prompt (N-133). Open.
 
 ## Lanes
 
