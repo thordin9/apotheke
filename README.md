@@ -71,7 +71,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Stocktake | 46.2 % | 98.2 % | 99.5 % |
 | Users & roles | 95.3 % | 89.5 % | 97.3 % |
 | Full-text search | 89.0 % | 87.7 % | 90.8 % |
-| CSV import | 61.5 % | 97.5 % | 99.3 % |
+| CSV import | 62.5 % | 96.5 % | 99.3 % |
 | Photos | 59.6 % | 87.2 % | 87.2 % |
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 12.7 % | 99.4 % | 99.3 % |
@@ -79,7 +79,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Backup & restore | 87.8 % | 89.5 % | 96.9 % |
 | Database, migrations, legacy | 81.7 % | 81.5 % | 91.9 % |
 | Bootstrap, config, QR, seed | 73.6 % | 75.6 % | 91.0 % |
-| **All PHP** (7600 lines) | **66.9 %** | **89.3 %** | **95.5 %** |
+| **All PHP** (7607 lines) | **67.0 %** | **89.2 %** | **95.5 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

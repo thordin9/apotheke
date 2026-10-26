@@ -8,9 +8,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.22] - 2026-10-26
+
 ### Fixed
 
 - **import:** hardening: a CSV import run takes the import's lock as its first write, reads the uploaded file after it, and a commit marks the import done in its own transaction, so submits at the same time import a file once and no longer answer with a server error; a submit that finds the import done goes to the done page. ([#130](https://github.com/thordin9/apotheke/pull/130))
+
+### Maintenance
+
+- test: concurrent CSV import commit and preview ([#130](https://github.com/thordin9/apotheke/pull/130))
+- **qa:** docs: add PR 130 QA report ([#130](https://github.com/thordin9/apotheke/pull/130))
 
 ## [2.6.21] - 2026-10-26
 
@@ -441,7 +448,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.21...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.22...HEAD
+[2.6.22]: https://github.com/thordin9/apotheke/compare/v2.6.21...v2.6.22
 [2.6.21]: https://github.com/thordin9/apotheke/compare/v2.6.20...v2.6.21
 [2.6.20]: https://github.com/thordin9/apotheke/compare/v2.6.19...v2.6.20
 [2.6.19]: https://github.com/thordin9/apotheke/compare/v2.6.18...v2.6.19
