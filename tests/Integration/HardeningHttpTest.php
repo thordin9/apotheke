@@ -322,6 +322,54 @@ final class HardeningHttpTest extends TestCase
         $this->assertGreaterThan(min($known) - 20, min($nul), json_encode(['nul' => $nul, 'known' => $known]));
     }
 
+    /**
+     * Every failed password check answers at SIGN_IN_FAIL_MS after the request began, whatever the name, the account's
+     * role or its stored hash cost (L-310, L-330): sign-in, the current password, and turning sign-in back on, a right
+     * password for a non-admin included. That check still runs (its stale hash is upgraded). A success does not wait.
+     */
+    public function testFailedPasswordChecksAnswerAtTheDeadline(): void
+    {
+        $this->server->stop();
+        $this->server = new Server($this->dir, ['PHP_CLI_SERVER_WORKERS' => '8', 'SIGN_IN_FAIL_MS' => '1000']);
+        $add = $this->pdo->prepare("INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, 'active', '2026-01-01 00:00:00')");
+        $add->execute(['old', 'old', password_hash('long-enough', PASSWORD_BCRYPT, ['cost' => 4]), 'admin']);
+        $add->execute(['slow', 'slow', password_hash('long-enough', PASSWORD_BCRYPT, ['cost' => 13]), 'admin']);
+        $add->execute(['cy', 'cy', password_hash('long-enough', PASSWORD_BCRYPT, ['cost' => 4]), 'viewer']);
+        $time = function (Client $c, string $path, array $fields, int $status): float {
+            $t = hrtime(true);
+            $r = $c->post($path, $fields);
+            $ms = (hrtime(true) - $t) / 1e6;
+            $this->assertSame($status, $r['status'], $path . ' ' . json_encode($fields));
+            return $ms;
+        };
+        $ms = [];
+        for ($i = 0; $i < 2; $i++) {
+            foreach (['nobody', 'ada', 'old', 'slow', "ada\0"] as $name) {
+                $c = $this->server->client();
+                $ms["sign-in $name"][] = $time($c, '/login', ['csrf' => $this->loginCsrf($c), 'username' => $name, 'password' => 'wrong-pass'], 401);
+            }
+        }
+        $c = $this->server->client();
+        $this->assertLessThan(1000, $time($c, '/login', ['csrf' => $this->loginCsrf($c), 'username' => 'bea', 'password' => 'long-enough'], 303), 'a success does not wait');
+        for ($i = 0; $i < 2; $i++) $ms['current password'][] = $time($c, '/account', ['csrf' => $c->csrf(), 'current' => 'wrong-pass', 'new' => 'another-one', 'confirm' => 'another-one'], 403);
+
+        $this->setting('auth_enabled', false);
+        $cyHash = fn(): string => (string)$this->pdo->query("SELECT password_hash FROM users WHERE username = 'cy'")->fetchColumn();
+        $this->assertTrue(password_needs_rehash($cyHash(), PASSWORD_DEFAULT));
+        for ($i = 0; $i < 2; $i++) {
+            foreach (['ada' => 'wrong-pass', 'cy' => 'long-enough', "\0ada" => 'wrong-pass'] as $name => $pw) {
+                $g = $this->server->client();
+                $ms["turn on $name"][] = $time($g, '/settings/password', ['csrf' => $g->csrf(), 'mode' => 'change', 'username' => $name, 'new' => $pw, 'confirm' => $pw], 403);
+            }
+        }
+        $this->assertFalse(password_needs_rehash($cyHash(), PASSWORD_DEFAULT), 'the non-admin\'s right password was checked: its cost-4 hash was upgraded');
+
+        $all = json_encode($ms);
+        $fastest = array_map('min', $ms);
+        foreach ($ms as $case => $times) $this->assertGreaterThanOrEqual(1000, min($times), "$case: $all");
+        $this->assertLessThan(150, max($fastest) - min($fastest), "the same deadline, not a sleep after the check: $all");
+    }
+
     /** New names with a null character anywhere are refused like other invalid names: registration, adding and renaming. */
     public function testNewNamesWithANullCharacterAreRefused(): void
     {

@@ -126,7 +126,7 @@ try {
                 // a name with a null character anywhere (checked before trimming) never matches an account,
                 // and costs the same password hash as an unknown name
                 if (login(str_contains($raw, "\0") ? $raw : $who, (string)($_POST['password'] ?? ''))) { rate_limit_clear('login', $who); rate_limit_forget($mine); redirect('/'); }
-                usleep(400000);
+                sign_in_pace();
                 http_response_code(401);
                 view_login('Wrong user name or password.', $who);
             } catch (UserError $e) {
@@ -689,7 +689,10 @@ try {
                     $mine = rate_limit('login_address');   // limited like the current-password check
                     rate_limit('login', $name);
                     $ok = user_verify($nul ? $raw : $name, (string)($_POST['new'] ?? ''));   // always one password check, whatever the name
-                    if (!$ok || !$u || $u['role'] !== 'admin') throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    if (!$ok || !$u || $u['role'] !== 'admin') {
+                        sign_in_pace();   // every refusal, a right password for a non-admin too
+                        throw new UserError('Enter the password of the admin “' . $name . '” to turn sign-in on again.', 403);
+                    }
                     rate_limit_clear('login', $name);
                     rate_limit_forget($mine);
                     $uid = $u['id'];
@@ -1255,7 +1258,7 @@ try {
         try {
             [$imp['mapping'], $imp['options']] = import_set_mapping($imp['id'], $header, $_POST);
             if ($act === 'commit') {
-                import_commit($imp);
+                import_commit($imp);   // null: another submit imported it first; it gets the same answer
                 redirect('/import?done=' . $imp['id']);
             }
             view_import_map($imp, $header, $rows, import_run($imp, false), null);
