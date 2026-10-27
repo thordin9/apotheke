@@ -4,12 +4,13 @@
 # Checks: no APP_PASSWORD -> exit 78 with a clear message; a bad ALLOW_NO_LOGIN -> exit 64; a too-short APP_PASSWORD
 # -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without
 # APP_PASSWORD (sign-in already on in the database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
-# APOTHEKE_APP=ci4 runs every container with that app (PLAN step 15).
+# APOTHEKE_APP=ci4 runs every container with that app (PLAN step 15). Also: a symbolic link in place of a data
+# directory -> exit 78 (L-430); with CI4, a link in place of the session marker is replaced, not followed (L-430).
 set -euo pipefail
 image="${1:?usage: docker-signin-checks.sh IMAGE}"
 app=(-e "APOTHEKE_APP=${APOTHEKE_APP:-legacy}")
 name="apotheke-signin-$$"
-data=$(mktemp -d)
+data=$(mktemp -d "${TMPDIR:-/tmp}/apotheke-signin.XXXXXX")
 chmod 0777 "$data"
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
@@ -44,8 +45,11 @@ starts() {
 }
 
 insh() { docker run --rm -v "$data:/data" --entrypoint sh "$image" -c "$1"; }
-# a session file left by the legacy app, for the CI4 one-time prune check below
-if [[ ${APOTHEKE_APP:-} == ci4 ]]; then insh 'mkdir -p /data/sessions && touch /data/sessions/sess_legacy'; fi
+# a session file left by the legacy app, for the prune checks below; for CI4 also a dangling link, planted by
+# www-data, where the marker goes (L-430)
+plant='touch /data/sessions/sess_legacy'
+if [[ ${APOTHEKE_APP:-} == ci4 ]]; then plant="$plant && ln -s /data/l430-marker /data/sessions/.ci4"; fi
+insh "mkdir -p /data/sessions && chown www-data:www-data /data/sessions && su -s /bin/sh www-data -c '$plant'"
 
 echo "== no APP_PASSWORD: refuses to start"
 out=$(refused 78)
@@ -70,6 +74,13 @@ out=$(refused 78 -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=1)
 grep -q 'could not read the sign-in setting' <<<"$out"
 echo "   ok"
 
+echo "== a symbolic link in place of a data directory: refuses to start, the target is not created (L-430)"
+insh "rmdir /data/thumbs && su -s /bin/sh www-data -c 'ln -s /data/l430-dir /data/thumbs'"
+out=$(refused 78 -e ALLOW_NO_LOGIN=1)
+grep -q 'thumbs must be a directory, not a symbolic link' <<<"$out"
+insh 'test -L /data/thumbs && test ! -e /data/l430-dir && rm /data/thumbs'
+echo "   ok"
+
 echo "== APP_PASSWORD set: starts"
 pw=$(openssl rand -hex 16)
 starts -e APP_PASSWORD="$pw"
@@ -80,6 +91,10 @@ if [[ ${APOTHEKE_APP:-} == ci4 ]]; then
   insh 'test ! -e /data/sessions/sess_legacy && test -e /data/sessions/.ci4 && touch /data/sessions/sess_ci4'
   starts
   insh 'test -e /data/sessions/sess_ci4'
+  echo "   ok"
+  echo "== the dangling link in place of the marker was replaced by a www-data file, its target not created (L-430)"
+  # shellcheck disable=SC2016 # expanded in the container
+  insh 'test ! -e /data/l430-marker && test ! -L /data/sessions/.ci4 && test -f /data/sessions/.ci4 && test "$(stat -c %U /data/sessions/.ci4)" = www-data'
   echo "   ok"
 fi
 

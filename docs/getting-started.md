@@ -67,7 +67,8 @@ release tag, with pecl.php.net as a second source, each pinned by its own sha256
 JIT is off. The default `ARG PHP_VERSION=8.3.36` is the shipped image; `docker build --build-arg PHP_VERSION=8.4.27`
 builds the CI test image for the CI4 port from the same Dockerfile. `tini` is PID 1 and `docker/entrypoint.sh`:
 
-1. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`,
+1. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`
+   (it refuses to start, exit code 78, when one of them is a symbolic link),
 2. checks that sign-in is on (see above),
 3. renders `docker/nginx.conf` with the port from `PORT` (default `9091`),
 4. starts php-fpm (unix socket `/run/php-fpm.sock`), waits for the socket, then starts nginx,

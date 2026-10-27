@@ -87,6 +87,25 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString("ARG APOTHEKE_APP=legacy\n", $this->dockerfile());
     }
 
+    /** L-430: root never follows a link in the www-data-owned data dir, and nginx keeps its temp files off /tmp. */
+    public function testRootWritesInTheDataDirDoNotFollowLinks(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $sh = (string)file_get_contents($root . '/docker/entrypoint.sh');
+        $mkdir = strpos($sh, 'mkdir -p "$DATA_DIR/images"');
+        $this->assertNotFalse($mkdir);
+        $this->assertLessThan($mkdir, strpos($sh, 'if [ -L "$DATA_DIR/$d" ]; then'), 'links are refused before mkdir');
+        $this->assertStringContainsString('for d in images thumbs originals originals/map sessions; do', $sh);
+        $this->assertStringContainsString('-exec chown -h www-data:www-data {} +', $sh);
+        $this->assertStringContainsString("  mark='cd \"\$1\" && if [ -L .ci4 ] || [ ! -e .ci4 ]; then\n", $sh);
+        $this->assertStringContainsString('  if [ "$(id -u)" = 0 ]; then su -s /bin/sh www-data -c "$mark" sh "$DATA_DIR/sessions"; else', $sh);
+        $this->assertDoesNotMatchRegularExpression('/(touch|chown|chmod|mkdir)[^\n]*\.ci4/', $sh);
+        $nginx = (string)file_get_contents($root . '/docker/nginx.conf');
+        $this->assertStringNotContainsString('/tmp/', $nginx . $sh);
+        $this->assertStringContainsString('client_body_temp_path /run/apotheke-nginx/body;', $nginx);
+        $this->assertStringContainsString('fastcgi_temp_path /run/apotheke-nginx/fastcgi;', $nginx);
+    }
+
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);
