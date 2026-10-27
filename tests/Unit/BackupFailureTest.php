@@ -184,6 +184,76 @@ final class BackupFailureTest extends TestCase
         });
     }
 
+    /**
+     * A file in the zip that is bigger than one restore may unpack (its size from the zip's directory) is refused
+     * before anything is read or written: 422 on the web (whose memory limit it would exceed), exit 1 on the CLI.
+     */
+    public function testAnEntryOverTheSizeCapIsRefusedBeforeItIsRead(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $before = $this->state($pdo, $dir);
+            $name = 'originals/' . self::NEW_ORIGINAL;
+            $big = $this->withZeros($good, $name, 300 * 1024 * 1024);
+            $this->assertLessThan(2 * 1024 * 1024, strlen($big));
+            $message = 'A file in the backup is too large to restore: ' . $name;
+            $this->confirmFails($server, $dir, $good, $big, $message);
+            $this->assertSame($before, $this->state($pdo, $dir), 'web');
+            file_put_contents($dir . '/cli.zip', $big);
+            $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+            $this->assertSame([1, 'Invalid backup: ' . $message . "\n"], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+            unlink($dir . '/cli.zip');
+            $this->assertSame($before, $this->state($pdo, $dir), 'CLI');
+        });
+    }
+
+    /**
+     * A restore stopped by a fatal error (here out of memory on the last file, under the size cap) skips the usual
+     * cleanup; the files it had written are removed on shutdown, so nothing is left behind.
+     */
+    public function testARestoreStoppedByAFatalErrorLeavesNoFiles(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $before = $this->state($pdo, $dir);
+            file_put_contents($dir . '/cli.zip', $this->withZeros($good, 'originals/' . self::NEW_ORIGINAL, 100 * 1024 * 1024));
+            $cli = $this->cliTogether($dir, [[$dir . '/cli.zip', '--yes']], ['-d', 'memory_limit=64M'])[0];
+            $this->assertSame(255, $cli['exit'], $cli['stdout'] . $cli['stderr']);
+            $this->assertStringContainsString('Allowed memory size', $cli['stdout'] . $cli['stderr']);
+            unlink($dir . '/cli.zip');
+            $this->assertSame($before, $this->state($pdo, $dir));
+            $this->assertSame([], glob($dir . '/{images,thumbs,files,originals}/.restore-*', GLOB_BRACE) ?: []);
+        });
+    }
+
+    /**
+     * A link where a new file would go, also one that points nowhere, stops the restore (422, exit 1). The link is
+     * left as it is and its target is not made; nothing else changes.
+     */
+    public function testALinkWhereANewFileGoesStopsTheRestore(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $before = $this->state($pdo, $dir);
+            $paths = ['images/' . self::NEW_PHOTO, 'thumbs/' . self::NEW_PHOTO, 'files/' . self::NEW_FILE, 'originals/' . self::NEW_ORIGINAL];
+            foreach ($paths as $i => $path) {
+                $target = $dir . '/nowhere-' . $i;
+                $this->assertTrue(symlink($target, $dir . '/' . $path));
+                if ($i % 2 === 0) {
+                    $this->confirmFails($server, $dir, $good, $good, self::FAILED);
+                } else {
+                    file_put_contents($dir . '/cli.zip', $good);
+                    $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+                    $this->assertSame([1, self::FAILED . "\n"], [$cli['exit'], $cli['stderr']], $path . ' ' . $cli['stdout']);
+                    unlink($dir . '/cli.zip');
+                }
+                clearstatcache();
+                $this->assertTrue(is_link($dir . '/' . $path), "$path: the link stays");
+                $this->assertSame($target, readlink($dir . '/' . $path), "$path: the link is unchanged");
+                $this->assertFileDoesNotExist($target, "$path: its target is not made");
+                unlink($dir . '/' . $path);
+                $this->assertSame($before, $this->state($pdo, $dir), $path);
+            }
+        });
+    }
+
     /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
     private function withCatalog(callable $fn): void
     {
@@ -312,6 +382,33 @@ final class BackupFailureTest extends TestCase
         return $bytes;
     }
 
+    /** The zip with $name replaced by $size zero bytes, deflated, so the zip stays small and its sizes are honest. */
+    private function withZeros(string $zip, string $name, int $size): string
+    {
+        $entries = self::read($zip);
+        $path = tempnam(sys_get_temp_dir(), 'coder2-l480-');
+        $zeros = $path . '.zeros';
+        $fh = fopen($zeros, 'w');
+        ftruncate($fh, $size);   // sparse: nothing is written
+        fclose($fh);
+        $z = new ZipArchive();
+        $this->assertTrue($z->open($path, ZipArchive::OVERWRITE));
+        foreach ($entries as $n => $bytes) {
+            if ($n === $name) {
+                $z->addFile($zeros, $n);
+                $z->setCompressionName($n, ZipArchive::CM_DEFLATE, 1);
+            } else {
+                $z->addFromString($n, $bytes);
+                $z->setCompressionName($n, ZipArchive::CM_STORE);
+            }
+        }
+        $z->close();
+        unlink($zeros);
+        $bytes = (string)file_get_contents($path);
+        unlink($path);
+        return $bytes;
+    }
+
     /** The zip with one byte of $name's stored data changed (its checksum no longer matches). */
     private static function damage(string $zip, string $name): string
     {
@@ -381,13 +478,14 @@ final class BackupFailureTest extends TestCase
     /**
      * bin/restore.php runs started together.
      * @param list<list<string>> $runs
+     * @param list<string> $php options for php itself
      * @return list<array{stdout:string,stderr:string,exit:int}>
      */
-    private function cliTogether(string $dir, array $runs): array
+    private function cliTogether(string $dir, array $runs, array $php = []): array
     {
         $procs = [];
         foreach ($runs as $i => $args) {
-            $p = proc_open([PHP_BINARY, ROOT . '/bin/restore.php', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, self::env($dir));
+            $p = proc_open([PHP_BINARY, ...$php, ROOT . '/bin/restore.php', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, self::env($dir));
             $this->assertIsResource($p);
             fclose($pipes[0]);
             $procs[$i] = [$p, $pipes[1], $pipes[2]];
