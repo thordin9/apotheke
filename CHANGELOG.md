@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **backup:** reliability: a restore that fails part-way leaves the catalog, the photo, thumbnail, attachment and camera files, and the photos' camera-file links as they were, and one restore runs at a time: another one started meanwhile, in the browser (409) or with `bin/restore.php` (exit 1), is told to try again when the first has finished. ([#135](https://github.com/thordin9/apotheke/pull/135))
+
 ## [2.6.22] - 2026-10-26
 
 ### Fixed

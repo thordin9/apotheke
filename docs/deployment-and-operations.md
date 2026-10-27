@@ -67,6 +67,11 @@ and column is known to this version (a backup from a **newer** schema is refused
 Missing photo files produce a warning. Photos in `data/images` that the restored data doesn't reference are left on
 disk.
 
+One restore runs at a time: while one runs, another one (from the browser or `bin/restore.php`) is refused with
+“Another restore is running. Try again when it has finished.” A restore that fails part-way removes the photo,
+thumbnail, attachment and camera files it had added, and links photos to the backup's camera files only once the data
+is in, so the catalog and `data/` are as they were.
+
 Other options: a copy of `data/` while the container is stopped, or `sqlite3 data/catalog.sqlite ".backup copy.sqlite"`
 while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
 

@@ -1220,7 +1220,9 @@ try {
         try {
             $restored = backup_restore(db(), db_driver(), DATA_DIR, $file);
         } catch (UserError $e) {
-            http_response_code(422);
+            // exit skips the finally: the upload waits for the hourly sweep, so a restore refused
+            // while another runs (409) can be confirmed again
+            http_response_code($e->getCode() === 409 ? 409 : 422);
             view_backup(backup_counts(db(), db_driver()), $e->getMessage());
             exit;
         } finally {
