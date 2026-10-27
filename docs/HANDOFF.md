@@ -8,13 +8,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - `feature/ci4` carries `main` up to v2.6.22 (sync [#129](https://github.com/thordin9/apotheke/pull/129)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
   in development, and at run time on the PHP 8.4 image (step 15, [#132](https://github.com/thordin9/apotheke/pull/132)).
-  The CI4 image has no backup pages until step 14's second part.
+  The CI4 image serves the backup pages since step 14's second part (#133).
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes; stored photos read through Media), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
   shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
   served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity, Catalog, Search
-  and Favourites, ImportExport (below).
+  and Favourites, ImportExport and Backup (below).
 - Layout: byte-identical to legacy `page_start()`, `page_end()`, `menu_html()` and `view_error()`. Every error answer
   that legacy draws as a page (404, 403, 419, 413, the same-origin 403, 500) is that page; a fetch gets legacy's JSON.
   The bundled assets are a copy under `ci4/public/assets`, kept equal to `public/assets` by a test. The undo bar joins
@@ -77,18 +77,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   second submit or a preview of one import waits, finds it done and shows the done page (`Ci4ImportRaceTest`, #131).
   The export streams its lines (`Core\Http\StreamedResponse`, batches of 500; a cursor in a read-only snapshot on
   PostgreSQL), so memory stays flat (`ExportMemoryTest`). Uploads left waiting for a day lose their file (#131).
+- Backup and restore (step 14, second part, [#133](https://github.com/thordin9/apotheke/pull/133)): GET `/backup`, `/backup.zip`, `/backup/restore/check`,
+  POST `/backup/restore` (dry run) and `/backup/restore/confirm`, and `bin/backup.php` / `bin/restore.php`
+  (`spark apotheke:backup|restore`) answer as legacy does, with the same zip entries, tables and files; a zip from
+  either app restores on the other (`Ci4BackupParityTest`, `Ci4BackupCliTest`, SQLite and PostgreSQL). New module
+  `Backup`. A restore takes the write lock first, so a concurrent write waits and is replaced (`Ci4BackupRaceTest`);
+  `backup.json` is written row by row (`BackupMemoryTest`, 24 MB limit).
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
-  `labels`, `barcode`, `lending`, `stocktake` and `import`
+  `labels`, `barcode`, `lending`, `stocktake`, `import` and `data`
   on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
   describe or test no longer exists (N-85), or that this list does not name:
   - `labels`: print labels for a selection; sizes from the Control Panel @smoke (`/settings/labels`).
   - `search`: shows the engine in System (`/settings/system`).
-  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel,
-    import/export, backup).
+  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -118,7 +123,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
   `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`); `auth status` stays in
   `bin/settings.php` (no migration).
-- Not ported yet: the Control Panel pages (`/settings/labels` …) and Backup (step 14, second part).
+- Not ported yet: the Control Panel pages (`/settings/labels` …).
 
 ## Pull requests
 
@@ -186,10 +191,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   L-240, N-234 and L-340, `SIGN_IN_FAIL_MS`, the shared migrate connection; #130: the legacy CSV import lock). `ApothekeConfig` loads `sign_in_fail_ms` as legacy does. Merged.
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
-  stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged.
+  stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged at 57eae25.
 - [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 15, the Docker image on PHP 8.4 (the shipped
   default now, legacy and CI4 with `APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at
-  start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Open.
+  start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Merged at
+  7e927f7.
+- [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore). Open.
 
 ## Lanes
 
@@ -204,38 +211,55 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
   Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 and v2.6.22 (#129, merged).
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
-  and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, open): `Dockerfile`, `docker/`, the
+  and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, merged): `Dockerfile`, `docker/`, the
   docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
   import/export and Backup files.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged); then backup and restore.
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, open).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
+1. Review and merge #133 (step 14's backup and restore). With it the docker scripts run their restore checks on CI4
+   too (N-431).
+2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
    `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
-2. Step 14 (Coder2): backup and restore.
 3. Deferred (PM call: `main` gets urgent fixes only): porting to legacy on `main` the done check for a waiting preview
    (N-373) and the stale-upload sweep (N-374) from [#131](https://github.com/thordin9/apotheke/pull/131).
-4. Review and merge #132 (step 15: the CI4 image on PHP 8.4, with the Docker bind and app-password start-up
-   hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75), SEC-M3). The restore checks of the docker
-   scripts skip CI4 until it has the backup pages: on CI4, `/backup/restore` answers 404 until
-   [#133](https://github.com/thordin9/apotheke/pull/133) lands (N-431).
+4. Port L-440 with the restore lock (L-450) to legacy on `main` (a failed restore removes the files it wrote; original
+   links after the commit; one restore at a time, with L-455 and N-456), then streaming restore (L-441 follow-up) on CI4.
 5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
 6. Later, #132 QA nits (deferred): the exit-78 message for a linked data directory should name `ORIGINALS_DIR` or
    mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
    `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
    and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
+7. Then the Control Panel pages.
 
 ## Tracked
 
+- Backup and restore (#133), where CI4 is stricter than legacy; no change unless the PM decides otherwise:
+  a failed restore shows a general message without the database's own text (page and CLI); a zip that holds two
+  entries of one name is refused; a missing thumbnail is drawn again only within Media's decode limits; restored
+  files are written through `Core\Storage`; on PostgreSQL the restore locks the catalog tables before it deletes;
+  `bin/backup.php` to a path it cannot write prints `Cannot write …` and exits 1. Restore still reads `backup.json`
+  into memory, as legacy does (candidate for streaming); backup reads `DATA_DIR` and `ORIGINALS_DIR` directly
+  (Cloudflare phase: move behind `Storage`).
+- Restore files (#133, L-440), stricter than legacy: a CI4 restore that fails at any point (an entry that cannot be
+  read or written, a database error) removes the files it created and rewrites the camera-original links only
+  after the rows commit, so files and links stay as they were. Legacy keeps the files and the new links; pinned in
+  `Ci4BackupParityTest`, for a later `main` PR. Restore memory (L-441): CI4 refuses, before decoding, a
+  `backup.json` that would not fit in the memory left ("too large to restore within the memory limit", 422 or
+  exit 1), where legacy answers 500; a backup close to the limit may be refused. Streaming restore is next.
+- Restore lock (#133, L-450), CI4 only: one restore runs at a time, web and CLI alike, behind an exclusive lock on
+  `DATA_DIR/tmp/restore.lock` held for the files and the rows. A second restore started meanwhile is refused at once
+  with "Another restore is running. Try again when it has finished." (409 on the page, which keeps the upload so it
+  can be confirmed again; exit 1 in `bin/restore.php`). The lock opens read-only when another user made the file (L-455) and refuses a link (N-456). Legacy has no lock yet; port with L-440.
 - Sign-in deadline setting: both apps pace with `SIGN_IN_FAIL_MS` (#126; CI4 since #132, L-400), default 1000 ms,
   clamped to 400–10000; CI4's `signin.failDeadlineMs` / `signin_failDeadlineMs` are gone. Legacy starts the deadline
   at the request's start, CI4 at the controller's.

@@ -151,3 +151,13 @@ $routes->match($importVerbs, 'import', $import . '::index', ['permission' => 'im
 $routes->match($importVerbs, 'import/([0-9]+)', $import . '::import/$1', ['permission' => 'import']);
 $routes->match($importVerbs, 'import/([0-9]+)/(preview|commit)', $import . '::import/$1/$2', ['permission' => 'import']);
 $routes->match(['GET', 'HEAD'], 'export.csv', $import . '::export', ['permission' => 'export']);
+
+// PLAN 14, part 2: backup and restore (Backup). Every route needs "backup" (legacy
+// route_perm()), except the restore probe nginx asks before a large upload: legacy answers
+// it before its permission check (204, 401 or 403) and never starts a session.
+$backup = '\\Apotheke\\Backup\\Controllers\\BackupController';
+$routes->match(['GET', 'HEAD'], 'backup', $backup . '::index', ['permission' => 'backup']);
+$routes->match(['GET', 'HEAD'], 'backup.zip', $backup . '::download', ['permission' => 'backup']);
+$routes->match(['GET', 'HEAD'], 'backup/restore/check', $backup . '::check', ['permission' => 'none']);
+$routes->post('backup/restore', $backup . '::upload', ['permission' => 'backup']);
+$routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 'backup']);
