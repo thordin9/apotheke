@@ -28,12 +28,20 @@ require_once dirname(__DIR__) . '/lib.php';
  *   leaves no temp file and no file.
  * - N-481: a link where a new file would go stops the restore; the link
  *   is neither replaced nor removed, and nothing changes.
+ * - A restore into a fresh data directory leaves every folder with the
+ *   mode legacy gives it, under two umasks (files/ was 0700).
+ * - The camera link map is written through a temp file: a link at a map
+ *   name is left as it is and nothing is written through it.
  */
 final class Ci4BackupRestoreChecksTest extends TestCase
 {
     private const CLOCK = '2026-06-15 21:30:00';
 
     private const PHOTO = 'abcdef0123456789abcdef0123456789.jpg';
+
+    private const FILE = '99998888777766665555444433332222.pdf';
+
+    private const ORIGINAL = 'bb00000000000000000000000000000000000000000000000000000000000002.png';
 
     protected function setUp(): void
     {
@@ -442,6 +450,118 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $this->assertFileDoesNotExist($dir . '/thumbs/' . $photo);
             $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn());
         });
+    }
+
+    public function testARestoreIntoAFreshDataDirMakesEachFolderWithLegacysMode(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $want = [
+                0022 => ['files' => 0750, 'images' => 0755, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0755, 'thumbs' => 0755, 'tmp' => 0750],
+                0002 => ['files' => 0770, 'images' => 0775, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0775, 'thumbs' => 0775, 'tmp' => 0770],
+            ];
+            foreach ($want as $umask => $modes) {
+                $seen = [];
+                foreach (['legacy', 'ci4'] as $app) {
+                    foreach (['images', 'thumbs', 'files', 'originals', 'tmp', 'sessions'] as $sub) {
+                        rrmdir($dir . '/' . $sub);
+                    }
+                    $r = $this->cliAs($dir, $app, $umask, ['full.zip', '--yes']);
+                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$app: " . $r['stdout']);
+                    $this->assertFileExists($dir . '/files/' . self::FILE, $app);
+                    $seen[$app] = self::folderModes($dir);
+                }
+                $label = sprintf('umask %04o', $umask);
+                $this->assertSame(array_map(static fn (int $m): string => sprintf('%04o', $m), $modes), $seen['ci4'], $label);
+                // tmp/ comes from the restore lock, which legacy here gets with the v2.6.23 sync (0770, as checked above).
+                $this->assertSame($seen['legacy'], array_intersect_key($seen['ci4'], $seen['legacy']), "$label: as legacy");
+                $this->assertSame([], array_values(array_diff(array_keys($seen['legacy']), array_keys($seen['ci4']))), $label);
+            }
+        });
+    }
+
+    public function testALinkAtACameraMapNameIsLeftAlone(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            foreach (['dangling' => false, 'real target' => true] as $case => $real) {
+                $target = $dir . '/target-' . ($real ? 'real' : 'dangling');
+                if ($real) {
+                    file_put_contents($target, 'keep');
+                }
+                @unlink($map);
+                symlink($target, $map);
+                $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+                $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$case: " . $r['stdout']);
+                clearstatcache();
+                $this->assertTrue(is_link($map), "$case: the link is not replaced");
+                $this->assertSame($target, readlink($map), $case);
+                if ($real) {
+                    $this->assertSame('keep', file_get_contents($target), "$case: nothing is written through it");
+                } else {
+                    $this->assertFileDoesNotExist($target, "$case: nothing is written through it");
+                }
+                $this->assertFileExists($dir . '/originals/' . self::ORIGINAL, $case);
+                $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), "$case: no temp file is left");
+            }
+            unlink($map);
+            $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+            $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+            clearstatcache();
+            $this->assertFalse(is_link($map));
+            $this->assertSame(self::ORIGINAL, file_get_contents($map), 'with the link gone, the map is written');
+            $this->assertSame(0640, fileperms($map) & 0777);
+        });
+    }
+
+    /**
+     * The download's rows plus an attachment and a camera original for the photo.
+     *
+     * @param array<string,mixed> $dump
+     * @return array<string,string|array<mixed>>
+     */
+    private function fullBackup(array $dump): array
+    {
+        $files = &$dump['tables']['item_attachments'];
+        $files['rows'][] = array_map(static fn (string $c): mixed => ['id' => 1, 'item_id' => 1, 'file' => self::FILE, 'name' => 'm.pdf', 'mime' => 'application/pdf', 'size' => 10, 'created_at' => '2026-01-02 08:00:00'][$c] ?? null, $files['columns']);
+        unset($files);
+
+        return ['backup.json' => $dump, 'images/' . self::PHOTO => img_jpeg(64, 48), 'thumbs/' . self::PHOTO => img_jpeg(32, 24),
+            'files/' . self::FILE => "%PDF-1.4\n%", 'originals/index.json' => [self::PHOTO => self::ORIGINAL], 'originals/' . self::ORIGINAL => img_png(8, 8)];
+    }
+
+    /** @return array<string,string> every folder under $dir, relative, with its mode in octal */
+    private static function folderModes(string $dir): array
+    {
+        clearstatcache();
+        $modes = [];
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+        foreach ($it as $f) {
+            if ($f->isDir() && !$f->isLink()) {
+                $modes[substr($f->getPathname(), strlen($dir) + 1)] = sprintf('%04o', fileperms($f->getPathname()) & 0777);
+            }
+        }
+        ksort($modes);
+
+        return $modes;
+    }
+
+    /**
+     * bin/restore.php as $app, under $umask.
+     *
+     * @param list<string> $args
+     * @return array{stdout:string,stderr:string,exit:int}
+     */
+    private function cliAs(string $dir, string $app, int $umask, array $args): array
+    {
+        $cmd = ['/bin/bash', '-c', sprintf('umask %04o && exec "$@"', $umask), 'bash', PHP_BINARY, ROOT . '/bin/restore.php', ...$args];
+        $env = array_merge($this->cliEnv($dir), ['APOTHEKE_APP' => $app]);
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $env);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+
+        return $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
     }
 
     /** @param callable(Server, string, PDO): void $fn */

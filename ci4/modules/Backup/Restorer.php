@@ -99,6 +99,9 @@ final class Restorer
     /** backup.json's depth, as legacy decodes it. */
     private const DEPTH = 64;
 
+    /** files/ when a restore makes it, before the umask (legacy backup_restore()). */
+    private const FILES_MODE = 0770;
+
     /** Legacy's quality for a thumbnail drawn again. */
     private const THUMB_QUALITY = 76;
 
@@ -822,6 +825,8 @@ final class Restorer
 
     /**
      * Attachments whose content is the type their name says; one that exists is kept.
+     * files/ is made with legacy's mode (0770 before the umask), also when the
+     * backup has no attachments, as legacy does.
      *
      * @param list<string> $files
      * @param list<string> $warnings
@@ -829,6 +834,10 @@ final class Restorer
      */
     private function restoreAttachments(ZipArchive $zip, array $files, string $tmp, array &$warnings, array &$created): void
     {
+        $dir = rtrim($this->backups->dataDir(), '/') . '/files';
+        if (!is_dir($dir)) {
+            @mkdir($dir, self::FILES_MODE, true);   // the app does not make it at start; a failure shows at the first write
+        }
         foreach ($files as $f) {
             $path = $this->extract($zip, 'files/' . $f, $tmp);
             if ($path === null) {
