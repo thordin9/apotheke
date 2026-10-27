@@ -725,8 +725,9 @@ final class Restorer
     }
 
     /**
-     * The camera-original links, once the rows are in (legacy writes them
-     * with the bytes, before the rows).
+     * The camera-original links, once the rows are in, and each linked
+     * original made 0640 like a new one (legacy originals_chmod_file(), also
+     * for an original that was already there).
      *
      * @param array<string,string> $links map key => original name
      * @param list<string> $warnings
@@ -735,6 +736,10 @@ final class Restorer
     {
         try {
             foreach ($links as $key => $base) {
+                $file = $this->backups->originalsDir() . '/' . $base;
+                if (!is_link($file) && is_file($file)) {
+                    @chmod($file, 0640);   // ignored where the filesystem cannot chmod, as in legacy
+                }
                 $this->originals->write($key, $base);
             }
         } catch (Throwable) {
