@@ -74,6 +74,11 @@ final class Backups
         return $this->dataDir;
     }
 
+    public function originalsDir(): string
+    {
+        return $this->originalsDir;
+    }
+
     public function driver(): string
     {
         return $this->db->DBDriver === 'Postgre' ? 'pgsql' : 'sqlite';
@@ -130,14 +135,18 @@ final class Backups
         return implode(', ', $parts);
     }
 
-    /** DATA_DIR/tmp, where an hour-old restore upload is removed (legacy backup_tmp_dir()). */
+    /**
+     * DATA_DIR/tmp, where an hour-old restore upload is removed (legacy
+     * backup_tmp_dir()), and an hour-old entry a restore copied out and
+     * could not remove (it was stopped).
+     */
     public function tmpDir(): string
     {
         $d = $this->dataDir . '/tmp';
         if (!is_dir($d)) {
             @mkdir($d, 0770, true);
         }
-        foreach (glob($d . '/restore-*.zip') ?: [] as $f) {
+        foreach (array_merge(glob($d . '/restore-*.zip') ?: [], glob($d . '/restore-*.part') ?: []) as $f) {
             if (@filemtime($f) < time() - 3600) {
                 @unlink($f);
             }
@@ -153,6 +162,10 @@ final class Backups
      */
     public function create(string $zipPath): array
     {
+        // N-446: a folder that is not there is this message, not a server error, before any work.
+        if (!is_dir(dirname($zipPath)) || !is_writable(dirname($zipPath))) {
+            throw new RuntimeException("Cannot write $zipPath");
+        }
         $json = $this->tmpDir() . '/backup-' . bin2hex(random_bytes(8)) . '.json';
         try {
             [$counts, $photos, $attachments] = $this->writeDump($json);
@@ -195,7 +208,14 @@ final class Backups
                 }
                 $zip->addFile($full, 'files/' . $f);
             }
-            if (!$zip->close()) {
+            // N-446: the zip holds the whole catalog, so only its owner may read it (0600).
+            $umask = umask(0077);
+            try {
+                $closed = @$zip->close();
+            } finally {
+                umask($umask);
+            }
+            if (!$closed) {
                 throw new RuntimeException("Cannot write $zipPath");
             }
         } finally {
@@ -228,7 +248,7 @@ final class Backups
         }
         try {
             $put = static function (string $s) use ($out): void {
-                if (fwrite($out, $s) !== strlen($s)) {
+                if (@fwrite($out, $s) !== strlen($s)) {   // a full disk is this message (N-452)
                     throw new RuntimeException('Cannot write the backup.');
                 }
             };

@@ -134,4 +134,85 @@ final class LocalStorageTest extends CIUnitTestCase
         $names = array_map('basename', glob($this->root . '/autofill/{,.}*', GLOB_BRACE) ?: []);
         $this->assertSame(['info.json'], array_values(array_filter($names, static fn (string $n): bool => $n !== '.' && $n !== '..')));
     }
+
+    public function testWriteStreamStoresTheWholeStream(): void
+    {
+        $store = new LocalStorage($this->root, 0640);
+        $bytes = random_bytes(200_000);
+        $fh = fopen('php://memory', 'w+b');
+        fwrite($fh, $bytes);
+        rewind($fh);
+        $store->writeStream('files/a.bin', $fh);
+        fclose($fh);
+        $this->assertSame($bytes, $store->read('files/a.bin'));
+        $this->assertSame(0640, fileperms($this->root . '/files/a.bin') & 0777);
+        $this->assertSame(['a.bin'], self::names($this->root . '/files'));
+    }
+
+    /** A stream whose read comes back empty before its end (a read error) is not stored as if it had ended. */
+    public function testWriteStreamRefusesAStreamThatStopsBeforeItsEnd(): void
+    {
+        if (!in_array('apotheke-stall', stream_get_wrappers(), true)) {
+            stream_wrapper_register('apotheke-stall', StallingStream::class);
+        }
+        $store = new LocalStorage($this->root);
+        $fh = fopen('apotheke-stall://x', 'rb');
+        try {
+            $store->writeStream('files/a.bin', $fh);
+            $this->fail('the short stream was stored');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Could not store the file.', $e->getMessage());
+        } finally {
+            fclose($fh);
+        }
+        $this->assertSame([], self::names($this->root . '/files'), 'nothing left behind');
+    }
+
+    /**
+     * N-452: a disk that fills up mid-write (here a file size limit) leaves
+     * no partial temp file, also when warnings are thrown as exceptions, and
+     * the caller gets the storage error.
+     */
+    public function testAFullDiskLeavesNoPartialTempFile(): void
+    {
+        if (!function_exists('proc_open') || !is_executable('/bin/bash')) {
+            $this->markTestSkipped('needs bash');
+        }
+        foreach (['bytes', 'stream'] as $mode) {
+            $cmd = "trap '' XFSZ; ulimit -f 64; exec " . escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(dirname(__DIR__) . '/_support/full-disk-write.php') . ' ' . escapeshellarg($this->root) . ' ' . $mode;
+            $out = (string)shell_exec('/bin/bash -c ' . escapeshellarg($cmd) . ' 2>&1');
+            $this->assertSame("RuntimeException\n", $out, $mode);
+            $this->assertSame([], self::names($this->root . '/files'), $mode . ': nothing left behind');
+        }
+    }
+
+    /** @return list<string> the names in $dir, hidden ones included */
+    private static function names(string $dir): array
+    {
+        return array_values(array_diff(scandir($dir) ?: [], ['.', '..']));
+    }
+}
+
+/** Gives some bytes, then empty reads without reaching its end, then ends. */
+final class StallingStream
+{
+    /** @var resource|null */
+    public $context;
+
+    private int $reads = 0;
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$opened): bool
+    {
+        return true;
+    }
+
+    public function stream_read(int $count): string
+    {
+        return $this->reads++ === 0 ? 'part' : '';
+    }
+
+    public function stream_eof(): bool
+    {
+        return $this->reads > 20;
+    }
 }
