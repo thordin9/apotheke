@@ -69,7 +69,7 @@ foreach ($rows as [$area, $n, $l, $c, $pct, $d, $dm]) {
     printf($md ? "| %s | %d | %.2f | %.2f | %+.0f%% | %+.2f | %+.2f |\n" : "  %-10s n=%-4d legacy %7.2f  ci4 %7.2f  %+5.0f%%  %+6.2f ms  (median %+6.2f ms)\n", $area, $n, $l, $c, $pct, $d, $dm);
 }
 echo $md ? "\n" : '';
-printf("p95 budget: %s; %s\n", $budget === '' ? 'none (report only)' : "CI4 within legacy $budget per area",
+printf("budget: %s; %s\n", $budget === '' ? 'none (report only)' : "CI4 within legacy $budget per area",
     $budget === '' ? 'not checked' : ($over === [] ? 'met' : count($over) . ' area(s) over'));
 if (isset($opts['json'])) {
     file_put_contents($opts['json'], json_encode(['diffs' => $gate['diffs'], 'p95' => $rows, 'budget' => ['max_pct' => $maxPct, 'max_abs_ms' => $maxAbs, 'stat' => $stat], 'over' => $over], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));

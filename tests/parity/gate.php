@@ -4,14 +4,16 @@ declare(strict_types=1);
 /**
  * PLAN step 16, part 1: the parity gate. One scenario walks every ported area (all but backup and restore) on a
  * legacy and a CI4 server, both on this PHP (8.4 in CI), with the same seeded data and a frozen clock. After each
- * step it keeps the answer (status, type, Location, Cache-Control, the cookies set, the body or JSON), the stub's
- * last autofill upload, every table and the data dir (path, mode, sha256). parity_gate() returns the differences per
+ * step it keeps the answer (status, type, Location, Cache-Control, Pragma, Expires, every Set-Cookie in full, the
+ * security headers, the body or JSON; parity_gate_headers()), the stub's last autofill upload, every table and the data dir (path, mode, sha256). parity_gate() returns the differences per
  * area; there must be none. The allowlist (four quirks) never hides one.
  *
  * Normalised on both sides alike: the per-session CSRF token, the asset cache busters, random 32- and 64-hex names
- * (photos, originals, undo tokens, attachments) numbered in order of appearance, password hashes, session epochs,
- * the wall-clock `elapsed_ms` of a stub call and the `at` time in the autofill cache, and the PHP session's
- * Cache-Control on non-JSON pages other than 200, as the area tests do. The autofill cache is compared under
+ * (photos, originals, undo tokens, attachments) numbered in order of appearance, the salt and hash of a password
+ * hash (algorithm and cost stay), session epochs, the session ID by shape, cookie expiry relative to the answer's
+ * Date, the wall-clock `elapsed_ms` of a stub call and the `at` time in the autofill cache, and the one documented
+ * Cache-Control pair (PARITY_GATE_CACHE_PAIR). The users the app created sign in with the passwords it stored.
+ * The autofill cache is compared under
  * legacy's file names (PARITY_GATE_LAYOUT). A step marked `pending` names the parts of the answer that belong to a
  * page not ported yet; those are reported apart and the rest of the step must still match.
  *
@@ -130,7 +132,7 @@ function parity_p95_limit(string|false $raw, string $name): ?float
 }
 
 /**
- * The p95 budget for one area: CI4 may be at most $maxPct % above legacy and at most $maxAbsMs ms above it (each
+ * The budget for one area (p95, or the median for the absolute bound with PARITY_BUDGET_STAT=median): CI4 may be at most $maxPct % above legacy and at most $maxAbsMs ms above it (each
  * null = not checked). Returns what was exceeded, empty when within budget.
  * @return list<string>
  */
@@ -246,19 +248,12 @@ function parity_gate_run(Server $server, string $dir, StubServer $stub): array
                 $v = is_string($v) ? $hide(str_replace($token, 'SESSION-TOKEN', $v)) : $v;
             });
         }
-        $cache = $r['headers']['cache-control'] ?? '';
-        $cache = $r['status'] === 200 || $json !== null ? $cache : (str_contains($cache, 'no-store') ? 'no-store …' : $cache);
-        $cookies = [];
-        foreach ($r['raw'] as $line) {
-            if (preg_match('/^set-cookie:\s*([^=]+)=/i', $line, $m) === 1) $cookies[] = $m[1];
-        }
-        sort($cookies);
         $type = $r['headers']['content-type'] ?? null;
         $binary = $type !== null && !preg_match('#^(text/|application/(json|xml|javascript|manifest))|svg#', $type);
         $record = [
             'status' => $r['status'], 'type' => $type,
             'location' => isset($r['headers']['location']) ? $hide($r['headers']['location']) : null,
-            'cache' => $cache, 'cookies' => $cookies,
+            ...parity_gate_headers($r['status'], $json !== null, $r['raw'], $hide),
             'disposition' => isset($r['headers']['content-disposition']) ? $hide($r['headers']['content-disposition']) : null,
             'json' => $json,
             'body' => $json !== null ? null : ($binary ? 'sha256:' . hash('sha256', $r['body']) : $hide(str_replace($token, 'SESSION-TOKEN', $body))),
@@ -314,10 +309,13 @@ function parity_gate_run(Server $server, string $dir, StubServer $stub): array
     $as('users', 'add neo', 'POST', '/settings/users', $add(' neo ', 'editor'));
     $as('users', 'add taken name', 'POST', '/settings/users', $add('ADA', 'editor'));
     $as('users', 'add fetch', 'POST', '/settings/users/0', $add('nia', 'viewer'), ['headers' => $fetch]);
+    // Each password the app stored must sign in (a wrong hash or the wrong password fails here, L-471).
+    $as('users', 'nia signs in', 'POST', '/login', ['username' => 'nia', 'password' => PARITY_GATE_PW], ['who' => null]);
     $neo = (int)$pdo->query("SELECT id FROM users WHERE username_key = 'neo'")->fetchColumn();
     $as('users', 'neo becomes viewer', 'POST', "/settings/users/$neo/role", ['role' => 'viewer']);
     $as('users', 'rename neo', 'POST', "/settings/users/$neo/rename", ['username' => 'Neon']);
     $as('users', 'neo password', 'POST', "/settings/users/$neo/password", ['new' => 'neon-password', 'confirm' => 'neon-password']);
+    $as('users', 'Neon signs in with the new password', 'POST', '/login', ['username' => 'Neon', 'password' => 'neon-password'], ['who' => null]);
     $as('users', 'add role', 'POST', '/settings/roles', ['name' => 'Counter <x>', 'perms' => ['view', 'stocktake']]);
     $as('users', 'save role', 'POST', '/settings/roles/counter-x', ['name' => 'Counter', 'perms' => ['view', 'stocktake', 'lend']]);
     $as('users', 'delete neo', 'POST', "/settings/users/$neo/delete");
@@ -496,7 +494,84 @@ function parity_gate_stub(?array $last): ?array
     return $last;
 }
 
-/** Every table, rows sorted, random names numbered, password hashes and session stamps hidden. */
+/** The security headers the gate compares exactly (absent = null). */
+const PARITY_GATE_SECURITY_HEADERS = ['content-security-policy', 'cross-origin-opener-policy', 'cross-origin-resource-policy',
+    'permissions-policy', 'referrer-policy', 'strict-transport-security', 'x-content-type-options', 'x-frame-options'];
+
+/**
+ * The one documented Cache-Control pair (docs/testing.md, "Parity gate"): on a non-JSON answer other than 200, PHP's
+ * session cache limiter on legacy and CodeIgniter's noCache() on CI4. Any other value is compared exactly.
+ */
+const PARITY_GATE_CACHE_PAIR = ['no-store, no-cache, must-revalidate' => 'legacy', 'no-store, max-age=0, no-cache' => 'ci4'];
+
+/**
+ * The headers of one answer as the gate compares them: Cache-Control, Pragma and Expires; every Set-Cookie in full
+ * (parity_gate_cookie()); the security headers.
+ * @param list<string> $raw the raw header lines
+ * @return array{cache:string, pragma:?string, expires:?string, cookies:list<string>, security:array<string,?string>}
+ */
+function parity_gate_headers(int $status, bool $json, array $raw, callable $hide): array
+{
+    $h = [];
+    $cookies = [];
+    foreach ($raw as $line) {
+        if (!preg_match('/^([A-Za-z0-9-]+):\s*(.*)$/', $line, $m)) continue;
+        $name = strtolower($m[1]);
+        if ($name === 'set-cookie') $cookies[] = $m[2];
+        else $h[$name] = trim($m[2]);
+    }
+    $date = isset($h['date']) ? (int)strtotime($h['date']) : time();
+    $cache = $h['cache-control'] ?? '';
+    if ($status !== 200 && !$json && isset(PARITY_GATE_CACHE_PAIR[$cache])) $cache = 'no-store, no-cache (session pair)';
+    $cookies = array_map(static fn (string $c): string => parity_gate_cookie($c, $date, $hide), $cookies);
+    sort($cookies);
+    $security = [];
+    foreach (PARITY_GATE_SECURITY_HEADERS as $name) $security[$name] = $h[$name] ?? null;
+    return ['cache' => $cache, 'pragma' => $h['pragma'] ?? null, 'expires' => $h['expires'] ?? null, 'cookies' => $cookies, 'security' => $security];
+}
+
+/**
+ * One Set-Cookie, normalised only where a value differs per run: the session ID and any CSRF cookie by shape
+ * (length and alphabet), random hex names numbered ($hide); Expires as a bucket relative to the answer's Date (past,
+ * minutes, or days). Name, other values and every attribute (Path, Domain, SameSite, Secure, HttpOnly, Max-Age) stay;
+ * attribute names are lower-cased and sorted.
+ */
+function parity_gate_cookie(string $cookie, int $date, callable $hide): string
+{
+    $parts = array_map('trim', explode(';', $cookie));
+    [$name, $value] = array_pad(explode('=', (string)array_shift($parts), 2), 2, '');
+    if ($value !== '' && $value !== 'deleted' && ($name === 'apothekesid' || stripos($name, 'csrf') !== false)) {
+        $value = sprintf('<%d %s>', strlen($value), preg_match('/^[0-9a-f]+$/', $value) ? 'hex' : (preg_match('/^[A-Za-z0-9,-]+$/', $value) ? 'sid' : 'other'));
+    } else {
+        $value = $hide(rawurldecode($value));
+    }
+    $attrs = [];
+    foreach ($parts as $part) {
+        if ($part === '') continue;
+        [$k, $v] = array_pad(explode('=', $part, 2), 2, null);
+        $k = strtolower(trim($k));
+        if ($k === 'expires' && $v !== null) {
+            $d = (int)strtotime($v) - $date;
+            $v = $d <= 0 ? 'past' : ($d < 86400 ? '+' . (int)round($d / 60) . 'min' : '+' . (int)round($d / 86400) . 'd');
+        }
+        $attrs[] = $v === null ? $k : $k . '=' . $v;
+    }
+    sort($attrs);
+    return implode('; ', [$name . '=' . $value, ...$attrs]);
+}
+
+/**
+ * A password hash with its algorithm and cost kept and only the salt and hash masked: `$2y$12$…(53)`,
+ * `$argon2id$v=19$m=65536,t=4,p=1$…`. Anything else is returned as it is.
+ */
+function parity_gate_hash(string $v): string
+{
+    if (preg_match('/^(\$2[aby]\$\d{2}\$)([.\/A-Za-z0-9]{53})$/', $v, $m) === 1) return $m[1] . '…(53)';
+    if (preg_match('/^(\$argon2(?:id|i)\$v=\d+\$m=\d+,t=\d+,p=\d+\$)[^$]+\$[^$]+$/', $v, $m) === 1) return $m[1] . '…';
+    return $v;
+}
+
+/** Every table, rows sorted, random names numbered, password hashes (algorithm and cost kept) and session stamps hidden. */
 function parity_gate_db(PDO $pdo, callable $hide): array
 {
     $tables = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql'
@@ -511,7 +586,7 @@ function parity_gate_db(PDO $pdo, callable $hide): array
             foreach ($row as $k => &$v) {
                 if ($v === null || is_int($v)) continue;
                 $v = (string)$v;
-                if (preg_match('/^\$(2y|argon2)/', $v) === 1) $v = 'HASH';
+                if (preg_match('/^\$(2[aby]|argon2)/', $v) === 1) $v = parity_gate_hash($v);
                 if ($k === 'session_epoch') $v = 'EPOCH';
             }
             unset($v);
