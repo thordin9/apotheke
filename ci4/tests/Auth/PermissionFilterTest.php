@@ -159,7 +159,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $rules = new RoutePermission();
         $check = new PermissionCheck(new RoleRepository($this->unreachableDb()));
         $seen = [];
-        foreach (['POST', 'PUT', 'PATCH', 'DELETE'] as $verb) {
+        foreach (['POST', 'PUT', 'PATCH', 'DELETE', 'CONNECT'] as $verb) {
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 foreach (self::sample((string)$route) as $path) {
@@ -178,7 +178,7 @@ final class PermissionFilterTest extends CIUnitTestCase
                 }
             }
         }
-        // The sign-in, registration and account pages answer PUT, PATCH and DELETE as well (N-63), and so do the import pages (N-372).
+        // The sign-in, registration and account pages answer every web method (N-63, N-380), and so do the import pages (N-372, N-420).
         $this->assertSame(['/account', '/import', '/import/([0-9]+)', '/import/([0-9]+)/(preview|commit)', '/login', '/register'], self::pageVerbPaths($collection));
         $seen = array_values(array_unique($seen));
         sort($seen);
@@ -207,7 +207,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             }
             $paths[] = '/' . $route;
         }
-        foreach (['PATCH', 'DELETE'] as $verb) {
+        foreach (['PATCH', 'DELETE', 'OPTIONS', 'TRACE', 'CONNECT'] as $verb) {
             self::assertSame(array_keys($collection->getRoutes('PUT')), array_keys($collection->getRoutes($verb)), $verb);
         }
         sort($paths);
@@ -225,7 +225,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $collection->loadRoutes();
         $web = array_values(array_diff(\CodeIgniter\Router\Router::HTTP_METHODS, ['CLI']));
         $this->assertCount(9, $web);
-        foreach (['login', 'register', 'account'] as $route) {
+        foreach (['login', 'register', 'account', 'import', 'import/([0-9]+)', 'import/([0-9]+)/(preview|commit)'] as $route) {
             $need = $collection->getRoutesOptions($route, 'GET')['permission'] ?? null;
             $this->assertNotNull($need, $route);
             foreach ($web as $verb) {
