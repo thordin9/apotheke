@@ -33,7 +33,7 @@ final class Accounts
     ) {
     }
 
-    /** The failed sign-in deadline in milliseconds (Config\SignIn, clamped). */
+    /** The failed sign-in deadline in milliseconds (SIGN_IN_FAIL_MS, clamped). */
     public function failDeadlineMs(): int
     {
         return $this->pace->deadlineMs;
