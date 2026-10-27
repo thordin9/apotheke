@@ -244,7 +244,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 8. p95 (PM decision on #134): the +20 % target stays the bar, and step 16 is done only once
    `PARITY_P95_MAX_PCT=20` passes. Until then the `parity-gate` job enforces a temporary budget,
    `PARITY_P95_MAX_ABS_MS` (CI4 within legacy + 8 ms on SQLite, + 20 ms on PostgreSQL, per area), tightened when
-   the boot-cost step lands. If it fails on a slow runner, CI switches to the median gap
+   the boot-cost step lands. The p95 gap failed once on a slow runner, so CI compares the median gap
    (`PARITY_BUDGET_STAT=median`, same values; not widened again). Next lane, right after #134: the boot-cost
    step (one database connection for `BootMigration`'s migration check, keeping `Ci4DsnCredentialsTest` and
    `Ci4DatabaseDownTest` green, then trim the boot), then enforce 20 %. Part 2 still waits for #133, which

@@ -70,7 +70,7 @@ ms. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above
 not met yet); `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI sets the temporary absolute
 budget, 8 ms on SQLite and 20 ms on PostgreSQL; it is tightened when the boot-cost step lands, and then CI enforces
 20 %. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the medians instead of the p95 (the PM's fallback
-if runner noise fails the p95 gap; CI uses p95, and the +N % bound always compares p95). An empty variable checks
+once runner noise failed the p95 gap; CI uses it, and the +N % bound always compares p95). An empty variable checks
 nothing (the statistic defaults to p95); any other value that is not a number >= 0, or not `p95` or `median`, exits 2.
 
 ```bash
