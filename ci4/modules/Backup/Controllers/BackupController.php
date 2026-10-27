@@ -78,7 +78,10 @@ final class BackupController extends CatalogController
         }
         $token = bin2hex(random_bytes(16));
         $dest = $backups->tmpDir() . '/restore-' . $token . '.zip';
-        if (!is_uploaded_file($f->getTempName()) || !move_uploaded_file($f->getTempName(), $dest)) {
+        // N-452: a full disk is this message, with nothing left behind, not a server error.
+        if (!is_uploaded_file($f->getTempName()) || !@move_uploaded_file($f->getTempName(), $dest)) {
+            @unlink($dest);
+
             return $this->fail('The upload could not be stored.');
         }
         try {
@@ -112,7 +115,8 @@ final class BackupController extends CatalogController
         }
         @set_time_limit(300);
         try {
-            $restored = $restorer->restore($file);
+            // N-443, stricter than legacy: the backup's settings only for a user who may change settings.
+            $restored = $restorer->restore($file, $this->may('settings'));
         } catch (UserError $e) {
             // As legacy (its exit skips the finally): the upload waits for the hourly sweep,
             // so a restore refused while another runs (409, L-450) can be confirmed again.
@@ -140,6 +144,20 @@ final class BackupController extends CatalogController
 
         return $this->response->setStatusCode($status)->setBody('')
             ->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
+    }
+
+    /** Does the request's user have $permission? */
+    private function may(string $permission): bool
+    {
+        /** @var PermissionGate $gate */
+        $gate = service('permissionGate');
+        try {
+            $gate->require($permission);
+
+            return true;
+        } catch (UserError) {
+            return false;
+        }
     }
 
     /** @return Generator<int, string> the file's bytes; the file is removed at the end */

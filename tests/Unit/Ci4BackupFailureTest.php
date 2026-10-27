@@ -80,14 +80,19 @@ final class Ci4BackupFailureTest extends TestCase
             unlink($dir . '/cli.zip');
             $this->assertSame($before, $this->state($pdo, $dir), 'database error (CLI)');
             $pdo->exec($pg ? 'DROP TRIGGER apotheke_test_fail ON activity' : 'DROP TRIGGER apotheke_test_fail');
+            clearstatcache();
+            $this->assertSame(0644, fileperms($dir . '/originals/' . self::ORIGINAL) & 0777, 'a failed restore leaves the mode of a linked original');
 
-            // The same backup restores: new files, and the photo linked to the new original.
+            // The same backup restores: new files, and the photos linked to the new and the old original.
             [$client, $csrf] = $this->client($server, $dir);
             $token = self::token($client->post('/backup/restore', ['csrf' => $csrf], self::upload($good))['body']);
             $r = $client->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $token, 'confirm' => '1']);
             $this->assertSame([303, '/backup?restored=1'], [$r['status'], $r['headers']['location'] ?? null], preg_match('/<p[^>]*class="[^"]*err[^"]*"[^>]*>(.*?)<\/p>/s', (string)$r['body'], $m) === 1 ? $m[1] : substr((string)$r['body'], 0, 3000));
             $after = $this->state($pdo, $dir);
             $this->assertSame(self::NEW_ORIGINAL, $after['files']['originals/map/' . substr(self::PHOTO, 0, 32)]);
+            $this->assertSame(self::ORIGINAL, $after['files']['originals/map/' . substr(self::NEW_PHOTO, 0, 32)]);
+            clearstatcache();
+            $this->assertSame(0640, fileperms($dir . '/originals/' . self::ORIGINAL) & 0777, 'a linked original gets its mode once the rows are in');
             foreach (['images/' . self::NEW_PHOTO, 'thumbs/' . self::NEW_PHOTO, 'files/' . self::NEW_FILE, 'originals/' . self::NEW_ORIGINAL] as $f) {
                 $this->assertArrayHasKey($f, $after['files']);
                 $this->assertArrayNotHasKey($f, $before['files']);
@@ -320,7 +325,7 @@ final class Ci4BackupFailureTest extends TestCase
             'images/' . self::NEW_PHOTO => img_jpeg(72, 40),
             'thumbs/' . self::NEW_PHOTO => img_jpeg(36, 20),
             'files/' . self::NEW_FILE => "%PDF-1.4\n%",
-            'originals/index.json' => (string)json_encode([self::PHOTO => self::NEW_ORIGINAL, self::NEW_PHOTO => self::NEW_ORIGINAL]),
+            'originals/index.json' => (string)json_encode([self::PHOTO => self::NEW_ORIGINAL, self::NEW_PHOTO => self::ORIGINAL]),
             'originals/' . self::NEW_ORIGINAL => img_png(72, 40),
         ]);
     }
@@ -425,6 +430,7 @@ final class Ci4BackupFailureTest extends TestCase
         file_put_contents($dir . '/images/' . self::PHOTO, img_jpeg(64, 48));
         file_put_contents($dir . '/thumbs/' . self::PHOTO, img_jpeg(32, 24));
         file_put_contents($dir . '/originals/' . self::ORIGINAL, img_png(64, 48));
+        chmod($dir . '/originals/' . self::ORIGINAL, 0644);   // made before originals were 0640: a restore sets that only once it succeeds
         file_put_contents($dir . '/originals/map/' . substr(self::PHOTO, 0, 32), self::ORIGINAL);
     }
 }
