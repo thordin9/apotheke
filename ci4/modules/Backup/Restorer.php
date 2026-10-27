@@ -26,6 +26,13 @@ use ZipArchive;
  * the files go first, under their own random names, so nothing that exists
  * is overwritten, and files no longer named are kept.
  *
+ * Stricter than legacy (L-440): a restore that fails at any point leaves
+ * the files as they were. Every file it creates is noted and removed again
+ * on failure, and the camera-original links (originals/map/) are rewritten
+ * only after the rows commit. A listed entry that cannot be read fails the
+ * restore. Before backup.json is read and decoded, its size is checked
+ * against the memory left (L-441).
+ *
  * Every entry name must be one the backup writes, so no entry can name a
  * path outside its folder. Files are written through Storage (no symlinked
  * path, written whole or not at all). A missing thumbnail is drawn again
@@ -39,6 +46,13 @@ final class Restorer
     public const MAX_UNPACKED = 4 * 1024 * 1024 * 1024;
 
     public const MAX_ENTRIES = 100_000;
+
+    public const FAILED = 'The backup could not be restored. Nothing was changed.';
+
+    public const TOO_LARGE = 'This backup is too large to restore within the memory limit. Nothing was changed.';
+
+    /** Kept free beside the estimate: the restore's own work after decoding. */
+    private const MEMORY_MARGIN = 4 * 1024 * 1024;
 
     /** Legacy's quality for a thumbnail drawn again. */
     private const THUMB_QUALITY = 76;
@@ -107,14 +121,23 @@ final class Restorer
         $dump = $b['dump'];
         $zip = $b['zip'];
         $warnings = $b['warnings'];
+        // Files this restore creates, removed again if it fails; the original links it would write.
+        $created = [];
+        $links = [];
         try {
-            $written = $this->restorePhotos($zip, $dump, $warnings);
-            $this->restoreAttachments($zip, $dump, $warnings);
-            $this->restoreOriginals($zip, $dump, $warnings);
-        } finally {
-            $zip->close();
+            try {
+                $written = $this->restorePhotos($zip, $dump, $warnings, $created);
+                $this->restoreAttachments($zip, $dump, $warnings, $created);
+                $this->restoreOriginals($zip, $dump, $warnings, $created, $links);
+            } finally {
+                $zip->close();
+            }
+            $this->restoreRows($dump);
+        } catch (Throwable $e) {
+            $this->discard($created);
+            throw $e instanceof UserError ? $e : new UserError(self::FAILED, 0, $e);
         }
-        $this->restoreRows($dump);
+        $this->linkOriginals($links, $warnings);
         $cleared = false;
         if (is_array($dump['settings'] ?? null)) {
             $r = $this->settings->import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]), null);
@@ -155,9 +178,20 @@ final class Restorer
         if ($total > self::MAX_UNPACKED) {
             throw new UserError('The backup is too large to unpack.');
         }
+        $stat = $zip->statName('backup.json');
+        if ($stat === false) {
+            throw new UserError('This is not an Apotheke backup (backup.json is missing).');
+        }
+        // The text, and decoded at least as much again (L-441).
+        if (!self::fits(2 * (int)$stat['size'], self::headroom())) {
+            throw new UserError(self::TOO_LARGE);
+        }
         $json = $zip->getFromName('backup.json');
         if ($json === false) {
             throw new UserError('This is not an Apotheke backup (backup.json is missing).');
+        }
+        if (!self::fits(self::decodedSize($json), self::headroom())) {
+            throw new UserError(self::TOO_LARGE);
         }
         try {
             $dump = json_decode($json, true, 64, JSON_THROW_ON_ERROR);
@@ -232,6 +266,90 @@ final class Restorer
     }
 
     /**
+     * About what json_decode() of $json takes, on the high side: the text's
+     * bytes, plus a value's zval and string header (48) for every comma, a
+     * list's table (200) for every bracket and a map's (450) for every
+     * brace. Measured on PHP 8.4, from rows of one integer to long notes.
+     */
+    public static function decodedSize(string $json): int
+    {
+        return strlen($json) + 48 * substr_count($json, ',') + 200 * substr_count($json, '[') + 450 * substr_count($json, '{');
+    }
+
+    /** The bytes PHP may still allocate, or null without a memory limit. */
+    public static function headroom(): ?int
+    {
+        $limit = ini_parse_quantity((string)ini_get('memory_limit'));
+
+        return $limit <= 0 ? null : $limit - memory_get_usage();
+    }
+
+    /** Does $need, plus the margin, fit in $headroom (null: no limit)? */
+    public static function fits(int $need, ?int $headroom): bool
+    {
+        return $headroom === null || $need + self::MEMORY_MARGIN <= $headroom;
+    }
+
+    /**
+     * An entry's bytes, or null when the zip has no such entry. One that is
+     * there but cannot be read (damaged) fails the restore.
+     */
+    private static function entry(ZipArchive $zip, string $name): ?string
+    {
+        if ($zip->locateName($name) === false) {
+            return null;
+        }
+        $data = @$zip->getFromName($name);   // a damaged entry is false, not a warning
+        if ($data === false) {
+            throw new UserError(self::FAILED);
+        }
+
+        return $data;
+    }
+
+    /**
+     * Write a file that is not there yet and note it, so a failed restore
+     * can remove it again.
+     *
+     * @param list<array{Storage,string}> $created
+     */
+    private static function create(Storage $store, string $key, string $bytes, array &$created): void
+    {
+        $store->write($key, $bytes);
+        $created[] = [$store, $key];
+    }
+
+    /** @param list<array{Storage,string}> $created */
+    private function discard(array $created): void
+    {
+        foreach (array_reverse($created) as [$store, $key]) {
+            try {
+                $store->delete($key);
+            } catch (Throwable) {
+                // Best effort: the name is random and no row refers to it.
+            }
+        }
+    }
+
+    /**
+     * The camera-original links, once the rows are in (legacy writes them
+     * with the bytes, before the rows).
+     *
+     * @param array<string,string> $links map key => original name
+     * @param list<string> $warnings
+     */
+    private function linkOriginals(array $links, array &$warnings): void
+    {
+        try {
+            foreach ($links as $key => $base) {
+                $this->originals->write($key, $base);
+            }
+        } catch (Throwable) {
+            $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+        }
+    }
+
+    /**
      * Photo names the dump's rows refer to (legacy backup_photo_files()).
      *
      * @param array<string,mixed> $dump
@@ -300,13 +418,14 @@ final class Restorer
      *
      * @param array<string,mixed> $dump
      * @param list<string> $warnings
+     * @param list<array{Storage,string}> $created
      */
-    private function restorePhotos(ZipArchive $zip, array $dump, array &$warnings): int
+    private function restorePhotos(ZipArchive $zip, array $dump, array &$warnings, array &$created): int
     {
         $written = 0;
         foreach (self::photoFiles($dump) as $f) {
-            $data = $zip->getFromName('images/' . $f);
-            if ($data === false) {
+            $data = self::entry($zip, 'images/' . $f);
+            if ($data === null) {
                 continue;
             }
             $info = @getimagesizefromstring($data);
@@ -315,15 +434,15 @@ final class Restorer
                 continue;
             }
             if (!$this->data->exists('images/' . $f)) {
-                $this->data->write('images/' . $f, $data);
+                self::create($this->data, 'images/' . $f, $data, $created);
             }
             if (!$this->data->exists('thumbs/' . $f)) {
-                $thumb = $zip->getFromName('thumbs/' . $f);
-                $ti = $thumb === false ? false : @getimagesizefromstring($thumb);
+                $thumb = self::entry($zip, 'thumbs/' . $f);
+                $ti = $thumb === null ? false : @getimagesizefromstring($thumb);
                 if (is_string($thumb) && $ti !== false && $ti[2] === IMAGETYPE_JPEG) {
-                    $this->data->write('thumbs/' . $f, $thumb);
+                    self::create($this->data, 'thumbs/' . $f, $thumb, $created);
                 } elseif (!self::overDecodeLimits((int)$info[0], (int)$info[1]) && ($im = @imagecreatefromstring($data)) !== false) {
-                    $this->data->write('thumbs/' . $f, $this->thumbJpeg($im));
+                    self::create($this->data, 'thumbs/' . $f, $this->thumbJpeg($im), $created);
                 }
             }
             $written++;
@@ -361,33 +480,37 @@ final class Restorer
      *
      * @param array<string,mixed> $dump
      * @param list<string> $warnings
+     * @param list<array{Storage,string}> $created
      */
-    private function restoreAttachments(ZipArchive $zip, array $dump, array &$warnings): void
+    private function restoreAttachments(ZipArchive $zip, array $dump, array &$warnings, array &$created): void
     {
         foreach (self::attachmentFiles($dump) as $f) {
-            $data = $zip->getFromName('files/' . $f);
-            if ($data === false || $this->data->exists('files/' . $f)) {
+            $data = self::entry($zip, 'files/' . $f);
+            if ($data === null || $this->data->exists('files/' . $f)) {
                 continue;
             }
             if (Attachments::sniff(substr($data, 0, 16)) !== pathinfo($f, PATHINFO_EXTENSION)) {
                 $warnings[] = "Attachment $f does not match its type and was skipped.";
                 continue;
             }
-            $this->data->write('files/' . $f, $data);
+            self::create($this->data, 'files/' . $f, $data, $created);
         }
     }
 
     /**
      * Camera files back next to their served photos (legacy
      * backup_restore_originals()). Bytes are written only when missing; the
-     * map entry is rewritten to point at the file from this zip.
+     * map entry that points at the file from this zip goes into $links, for
+     * after the rows commit.
      *
      * @param array<string,mixed> $dump
      * @param list<string> $warnings
+     * @param list<array{Storage,string}> $created
+     * @param array<string,string> $links
      */
-    private function restoreOriginals(ZipArchive $zip, array $dump, array &$warnings): void
+    private function restoreOriginals(ZipArchive $zip, array $dump, array &$warnings, array &$created, array &$links): void
     {
-        $raw = $zip->getFromName('originals/index.json');
+        $raw = self::entry($zip, 'originals/index.json');
         if (!is_string($raw) || $raw === '') {
             return;
         }
@@ -409,16 +532,16 @@ final class Restorer
             if (!is_string($base) || !self::originalNameOk($base)) {
                 continue;
             }
-            $data = $zip->getFromName('originals/' . $base);
-            if ($data === false) {
+            $data = self::entry($zip, 'originals/' . $base);
+            if ($data === null) {
                 $warnings[] = "Original $base is missing from the archive.";
                 continue;
             }
             try {
                 if (!$this->originals->exists($base)) {
-                    $this->originals->write($base, $data);
+                    self::create($this->originals, $base, $data, $created);
                 }
-                $this->originals->write('map/' . substr($served, 0, 32), $base);
+                $links['map/' . substr($served, 0, 32)] = $base;
             } catch (Throwable) {
                 $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
 
@@ -485,7 +608,7 @@ final class Restorer
                 }
             });
         } catch (WriteFailed) {
-            throw new UserError('The backup could not be restored. Nothing was changed.');
+            throw new UserError(self::FAILED);
         }
     }
 }
