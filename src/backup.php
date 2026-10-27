@@ -553,19 +553,36 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
 }
 
 /**
- * The camera-original links, once the rows are in.
+ * The camera-original links, once the rows are in. Each map file is written to a new temp file in the map folder and
+ * renamed into place, so it is never written through a link. A map name that is a link, or anything but a plain file,
+ * is skipped with the camera-files warning and left as it is: the rows are in by now, so it no longer stops the restore.
  * @param array<string,string> $links map path => original path
  * @param list<string> $warnings
  */
 function backup_restore_link_originals(array $links, array &$warnings): void
 {
+    $warning = 'Camera files could not be restored (originals directory is not writable).';
     foreach ($links as $map => $dest) {
         originals_chmod_file($dest);
-        if (@file_put_contents($map, basename($dest), LOCK_EX) === false) {
-            $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+        $named = @lstat($map);
+        if ($named !== false && !backup_plain_file($named)) {
+            if (!in_array($warning, $warnings, true)) $warnings[] = $warning;
+            continue;
+        }
+        $tmp = dirname($map) . '/.map-' . bin2hex(random_bytes(6));
+        $fh = @fopen($tmp, 'x');
+        $text = basename($dest);
+        $ok = $fh !== false && @fwrite($fh, $text) === strlen($text);
+        if ($fh !== false) $ok = fclose($fh) && $ok;
+        if ($ok && $named !== false && fileowner($tmp) !== $named['uid']) {   // a root CLI restore keeps the web user's file
+            @chown($tmp, $named['uid']);
+            @chgrp($tmp, $named['gid']);
+        }
+        if (!$ok || !@chmod($tmp, 0640) || !@rename($tmp, $map)) {
+            @unlink($tmp);
+            $warnings[] = $warning;
             return;
         }
-        originals_chmod_file($map);
     }
 }
 
