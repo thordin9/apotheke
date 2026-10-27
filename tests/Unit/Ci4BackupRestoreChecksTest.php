@@ -34,7 +34,8 @@ require_once dirname(__DIR__) . '/lib.php';
  *   name is left as it is and nothing is written through it, and the
  *   other map entries are still written.
  * - L-560: a link at a camera file's name, dangling or to a real file,
- *   stops the restore; the target keeps its mode (0604) and bytes.
+ *   stops the restore; the target keeps its mode (0604) and bytes. On
+ *   PostgreSQL, one swapped in before the commit is not made 0640.
  * - Short writes: an entry that does not fit under a file size limit
  *   (`prlimit --fsize`, XFSZ ignored) fails the restore and leaves no temp
  *   file and no file.
@@ -562,6 +563,48 @@ final class Ci4BackupRestoreChecksTest extends TestCase
                 $this->assertFileDoesNotExist($dir . '/originals/map/' . substr(self::PHOTO, 0, 32), $case);
                 $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), "$case: nothing changed");
             }
+        });
+    }
+
+    /**
+     * L-560 (PostgreSQL, where the restore waits for a table lock): a camera
+     * file swapped for a link after it was written and before the rows
+     * commit is not made 0640 through the link.
+     */
+    public function testACameraFileSwappedForALinkBeforeTheCommitKeepsItsTargetsMode(): void
+    {
+        if (test_driver() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL: the restore waits for a held table lock');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $original = $dir . '/originals/' . self::ORIGINAL;
+            $target = $dir . '/camera-real';
+            file_put_contents($target, 'keep');
+            chmod($target, 0604);
+            $pdo->exec('BEGIN');
+            $pdo->exec('LOCK TABLE locations IN EXCLUSIVE MODE');
+            try {
+                $restore = $this->cliStart($dir, ['full.zip', '--yes']);
+                $waiting = false;
+                for ($i = 0; $i < 500 && !$waiting; $i++) {
+                    usleep(20_000);
+                    $waiting = (int)$pdo->query("SELECT COUNT(*) FROM pg_locks WHERE NOT granted AND relation = 'locations'::regclass")->fetchColumn() > 0;
+                }
+                $this->assertTrue($waiting, 'the restore waits for the rows');
+                clearstatcache();
+                $this->assertFileExists($original, 'the camera file is written before the rows');
+                unlink($original);
+                symlink($target, $original);
+            } finally {
+                $pdo->exec('ROLLBACK');
+            }
+            $r = $this->cliFinish($restore);
+            $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+            clearstatcache();
+            $this->assertSame(0604, fileperms($target) & 0777, 'no chmod through the link');
+            $this->assertSame('keep', file_get_contents($target));
+            $this->assertTrue(is_link($original));
         });
     }
 
