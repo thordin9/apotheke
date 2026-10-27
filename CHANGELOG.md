@@ -8,12 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.24] - 2026-10-27
+
 ### Fixed
 
 - **backup:** reliability: a restore refuses a backup holding a file bigger than one restore unpacks (200 MiB, `backup.json` aside) before reading it, in the browser (422) and with `bin/restore.php` (exit 1); a restore stopped by a fatal error, such as running out of memory, still removes the files it had written; a link where a restore would write a new file, or at an existing camera file's name, stops the restore and is left as it is; a short write, such as on a full disk, fails the restore; the photos' camera-file links are written through a temp file and renamed into place, and one whose name is taken by a link is skipped while the restore continues; the restore lock is only ever a plain file. A failed restore leaves the catalog and the existing files as they were; folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a restore whose process is killed can leave the new files it had written, which nothing refers to. ([#141](https://github.com/thordin9/apotheke/pull/141))
 
 ### Maintenance
 
+- **readme:** docs: refresh the coverage table from the CI run ([#141](https://github.com/thordin9/apotheke/pull/141))
+- **readme:** docs: refresh the coverage table from the head's CI run ([#141](https://github.com/thordin9/apotheke/pull/141))
+- **qa:** docs: add the PR 141 restore entry cap QA review ([#141](https://github.com/thordin9/apotheke/pull/141))
 - **backup:** test: cover the entry size cap, links, the lock file, and failed and refused restores in the browser ([#141](https://github.com/thordin9/apotheke/pull/141))
 
 ## [2.6.23] - 2026-10-27
@@ -467,7 +472,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.23...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.24...HEAD
+[2.6.24]: https://github.com/thordin9/apotheke/compare/v2.6.23...v2.6.24
 [2.6.23]: https://github.com/thordin9/apotheke/compare/v2.6.22...v2.6.23
 [2.6.22]: https://github.com/thordin9/apotheke/compare/v2.6.21...v2.6.22
 [2.6.21]: https://github.com/thordin9/apotheke/compare/v2.6.20...v2.6.21
