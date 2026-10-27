@@ -152,7 +152,21 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertMatchesRegularExpression('/^  di-rule:\\n    name: DI rule\\n/m', $yml);
         $this->assertStringContainsString('php scripts/ci4-arch.php deptrac', $yml);
         $this->assertStringContainsString('php scripts/ci4-arch.php di', $yml);
-        $this->assertSame(2, substr_count($yml, "php-version: '8.4'"));
+        // deptrac, DI rule, and the second setup-php of upgrade-rollback (8.3 then 8.4 in one job).
+        $this->assertSame(3, substr_count($yml, "php-version: '8.4'"));
+    }
+
+    /** PLAN step 16 part 2: one job sets up legacy's PHP 8.3 and CI4's 8.4, on both databases. */
+    public function testUpgradeRollbackJobSetsUpPhp83AndPhp84(): void
+    {
+        $yml = $this->ci();
+        $this->assertSame(1, preg_match('/^  upgrade-rollback:\n((?:(?:    .*)?\n)+)/m', $yml, $m), 'the upgrade-rollback job exists');
+        $job = $m[1];
+        $this->assertMatchesRegularExpression("/php-version: '8\\.3'\n(?:.*\n)*?.*php-version: '8\\.4'\n/", $job, '8.3 is set up, then 8.4');
+        $this->assertStringContainsString('db: [sqlite, pgsql]', $job);
+        $this->assertStringContainsString('PHP83: php8.3', $job);
+        $this->assertStringContainsString('PHP84: php8.4', $job);
+        $this->assertStringContainsString('run: bash scripts/upgrade-rollback.sh', $job);
     }
 
     public function testLintMobilePlaywrightAndDockerRunOnPhp83AndPhp84(): void
