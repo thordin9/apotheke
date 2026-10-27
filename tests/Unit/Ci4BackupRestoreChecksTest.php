@@ -19,7 +19,7 @@ require_once dirname(__DIR__) . '/lib.php';
  * - N-446: bin/backup.php into a missing folder says "Cannot write", and
  *   the zip is written 0600.
  * - N-445 (PostgreSQL): a restore that loses a deadlock to another write
- *   is tried again, and then restores.
+ *   is tried again, and then restores; one that loses three times stops.
  * - L-480, N-442: an entry over MAX_ENTRY is refused from the zip's
  *   directory, before any of it is read or any file written.
  * - L-480: an entry larger than the size the zip gives it is refused, and
@@ -205,6 +205,81 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $this->assertSame([0, ''], [$out['exit'], $out['stderr']], $out['stdout']);
             $this->assertSame(['Drill'], $pdo->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'the catalog is the backup');
             $this->assertSame(['Garage'], $pdo->query('SELECT name FROM locations ORDER BY id')->fetchAll(PDO::FETCH_COLUMN));
+        });
+    }
+
+    public function testARestoreThatKeepsLosingDeadlocksStopsAfterThreeAttempts(): void
+    {
+        if (test_driver() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL: SQLite has one writer, no deadlock');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            file_put_contents($dir . '/home.zip', $server->client()->get('/backup.zip')['body']);
+            // The other client never lets go: each attempt waits for the last table it holds,
+            // then it writes a table the attempt already locked (the lock order is
+            // locations, categories, tags, items), and the attempt loses the deadlock.
+            $other = testdb($dir);
+            $other->beginTransaction();
+            $other->exec("UPDATE items SET name = 'Other' WHERE id = 1");
+            $restore = $this->cliStart($dir, ['home.zip', '--yes']);
+            $waitsFor = function (string $table) use ($pdo, $restore): bool {
+                for ($i = 0; $i < 500; $i++) {
+                    if ((int)$pdo->query("SELECT COUNT(*) FROM pg_locks WHERE NOT granted AND relation = '$table'::regclass")->fetchColumn() > 0) {
+                        return true;
+                    }
+                    if (!proc_get_status($restore[0])['running']) {
+                        return false;
+                    }
+                    usleep(20_000);
+                }
+
+                return false;
+            };
+            $writes = [
+                'items' => "INSERT INTO tags (name, name_key, sort_key, created_at) VALUES ('Red', 'red', 'red', '2026-01-01')",
+                'tags' => "INSERT INTO categories (name, name_key, created_at) VALUES ('Tools', 'tools', '2026-01-01')",
+                'categories' => "INSERT INTO locations (name, name_key, sort_key, created_at) VALUES ('Shed', 'shed', 'shed', '2026-01-01')",
+            ];
+            try {
+                foreach ($writes as $held => $sql) {
+                    $this->assertTrue($waitsFor($held), 'the restore waits for ' . $held);
+                    $other->exec($sql);   // returns once the restore has lost the deadlock
+                }
+                $this->assertFalse($waitsFor('locations'), 'no fourth attempt');
+            } finally {
+                $other->rollBack();
+            }
+            $out = $this->cliFinish($restore);
+            $this->assertSame(1, $out['exit'], $out['stdout'] . $out['stderr']);
+            $this->assertStringContainsString('Another change was being saved at the same time', $out['stderr']);
+            $this->assertSame(['Drill'], $pdo->query('SELECT name FROM items ORDER BY id')->fetchAll(PDO::FETCH_COLUMN), 'nothing changed');
+            $this->assertSame(['Garage'], $pdo->query('SELECT name FROM locations ORDER BY id')->fetchAll(PDO::FETCH_COLUMN));
+        });
+    }
+
+    /**
+     * N-452: an upload moved onto a full disk (DATA_DIR/tmp on another, 1 MB
+     * file system, so the move is a copy that stops part way) leaves nothing.
+     */
+    public function testAnUploadThatFillsTheDiskLeavesNothing(): void
+    {
+        if (PHP_OS_FAMILY !== 'Linux' || !is_executable('/usr/bin/sudo')) {
+            $this->markTestSkipped('needs Linux and sudo to mount a small tmpfs');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            @mkdir($dir . '/tmp', 0770, true);
+            exec('sudo -n mount -t tmpfs -o size=1m,uid=' . getmyuid() . ',gid=' . getmygid() . ',mode=0770 tmpfs ' . escapeshellarg($dir . '/tmp') . ' 2>&1', $out, $rc);
+            if ($rc !== 0) {
+                $this->markTestSkipped('cannot mount a tmpfs: ' . implode(' ', $out));
+            }
+            try {
+                [$client, $csrf] = $this->session($server, $dir, null);
+                $up = $client->post('/backup/restore', ['csrf' => $csrf], ['backup' => ['name' => 'backup.zip', 'type' => 'application/zip', 'data' => random_bytes(2 * 1024 * 1024)]]);
+                $this->assertStringContainsString('The upload could not be stored.', (string)$up['body']);
+                $this->assertSame([], glob($dir . '/tmp/restore-*') ?: [], 'no partial upload is left');
+            } finally {
+                exec('sudo -n umount ' . escapeshellarg($dir . '/tmp'));
+            }
         });
     }
 
