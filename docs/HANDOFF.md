@@ -205,12 +205,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Merged into `main` at e8cf10d, released as v2.6.23.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
   restore notes (N-442 to N-459, L-480, N-481). Merged at 0173924.
+- [#139](https://github.com/thordin9/apotheke/pull/139): sync `main` v2.6.23 (#135: the legacy restore lock and
+  failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Merged at 3660252.
 - [#142](https://github.com/thordin9/apotheke/pull/142): a restore makes `files/` with legacy's mode (0770 before the
   umask; it was 0700); a link at a camera map name is skipped and the other map entries are still written; and the
   #141 parity items: a link at a camera file's name stops the restore (L-560), the lock's stat cache is cleared before
-  its open (N-562), and writes check flush and close. Open, full gate after #141.
+  its open (N-562), and writes check flush and close. Open,
+  full gate.
 - [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
-  camera link map through a temp file, L-560, L-561, N-562, N-564). Open on `main`, full gate (QA delta check).
+  camera link map through a temp file, L-560, L-561, N-562, N-564). Merged into `main` at 3f81db2, released as
+  v2.6.24.
 - [#140](https://github.com/thordin9/apotheke/pull/140): PLAN step 16 part 2, the upgrade and rollback gate
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
   legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Merged at
@@ -234,11 +238,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   import/export and Backup files. Step 16 part 1, the parity gate (#134, merged at 27c422b): `tests/parity/gate.php`,
   `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
   attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 is unblocked (#133 is merged).
+  Sync v2.6.23 (#139, open). Step 16 part 2 (#140, merged). Next: step 16 part 3 (boot trim, p95 enforcement).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, open); `main` restore follow-up (#141, open);
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, open); `main` restore follow-up (#141, merged into `main` at 3f81db2, v2.6.24);
   QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
@@ -248,11 +253,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
-   follow-up) is on `main` under the full gate; #142 (restored folder modes) follows it. Then QA notes batch 4
-   (N-380, N-381, N-420 to N-424, N-520, N-521, N-563, N-565 to N-567; branch `ci4/qa-notes-batch4`), merging
-   `feature/ci4` in first. Coder's step 16 part 3 then makes the `files/` mode a hard check in the upgrade/rollback
-   job. Coder's v2.6.23 sync (#139, which replaced #138) also touches
-   `Ci4BackupParityTest` and `BackupFailureTest`; whichever merges second merges the other in.
+   follow-up) is merged into `main` (3f81db2, v2.6.24); #142 (restored folder modes) is under the full gate. Next:
+   QA notes batch 4 (N-380, N-381, N-420 to N-424, N-520, N-521, N-563, N-565 to N-567; branch
+   `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's step 16 part 3 then makes the `files/` mode a hard check in the upgrade/rollback
+   job. Coder's v2.6.23 sync (#139) is merged (3660252) and merged into #142; Coder's v2.6.24 sync is #143.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
    `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
