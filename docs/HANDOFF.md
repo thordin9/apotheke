@@ -188,7 +188,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   parity tests. Merged.
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
-  stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged.
+  stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged at 57eae25.
 - [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 14, second part (backup and restore). Open.
 
 ## Lanes
@@ -209,7 +209,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged); step 14 part 2, backup and restore (#132, open).
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#132, open).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
