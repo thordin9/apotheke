@@ -199,7 +199,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore). Merged (31de273).
 - [#134](https://github.com/thordin9/apotheke/pull/134): PLAN step 16 part 1, the parity gate (196 steps, 0 differences on SQLite and PostgreSQL;
   p95 reported, +20 % not met on light pages; CI enforces a temporary budget of legacy + 8 ms on SQLite and + 20 ms
-  on PostgreSQL, on the median gap). Open.
+  on PostgreSQL, on the median gap). Merged (27c422b).
+- [#137](https://github.com/thordin9/apotheke/pull/137): boot cost (L-472): one database login per request, cheaper
+  PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Open.
 
 ## Lanes
 
@@ -216,7 +218,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
   and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, merged): `Dockerfile`, `docker/`, the
   docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
-  import/export and Backup files. Step 16 part 1, the parity gate (#134, open): `tests/parity/gate.php`,
+  import/export and Backup files. Step 16 part 1, the parity gate (#134, merged): `tests/parity/gate.php`,
   `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
   attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 waits for #133.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
@@ -261,6 +263,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    headers and Cache-Control exactly but for one documented pair; password hashes keep algorithm and cost, and the
    users the app created sign in). N-475, N-476 and N-477 are folded in. Deferred: N-473 and N-474 (as in QA's
    #134 report), and L-472, which is the boot-cost lane in item 8.
+   Boot cost (#137, L-472): `BootMigration` checks the schema on CI4's connection (one login per request,
+   `Ci4OneConnectionTest`); the runner connects only to migrate. Local gate: PostgreSQL within +20 % p95 in every
+   area; SQLite still +64 to +144 % in 8 areas (about 1 to 2 ms of framework boot at the median: route table,
+   request and response, filters, configs), a further step. Once #137 is merged, CI can tighten the temporary budget
+   (median, about + 4 ms SQLite and + 5 ms PostgreSQL) and enforce 20 % on PostgreSQL.
 10. Then the Control Panel pages.
 
 ## Tracked

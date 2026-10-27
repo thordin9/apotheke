@@ -79,7 +79,7 @@ temporary absolute budget, 8 ms on SQLite and 20 ms on PostgreSQL, on the median
 boot-cost step lands, and then CI enforces 20 %. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
 medians instead of the p95 (the PM's fallback once runner noise failed the p95 gap; CI uses it, and the +N % bound
 always compares p95). An empty variable checks nothing (the statistic defaults to p95); any other value that is not a
-number >= 0, or not `p95` or `median`, exits 2.
+number >= 0, or not `p95` or `median`, exits 2. The gate starts its CI4 server with `APOTHEKE_TEST_PGSQL_PROBE=0`, so the harness's PostgreSQL probe (a `CREATE` and an `INSERT` on every request of the pgsql leg) is not timed.
 
 ```bash
 php scripts/parity-gate.php                     # SQLite: differences per area, then the p95 table
