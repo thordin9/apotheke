@@ -560,6 +560,30 @@ function parity_gate_cookie(string $cookie, int $date, callable $hide): string
     return implode('; ', [$name . '=' . $value, ...$attrs]);
 }
 
+/** The passwords the scenario stores; a stored hash is shown with the one it verifies (L-471). */
+const PARITY_GATE_PASSWORDS = [PARITY_GATE_PW, 'neon-password', 'another-one'];
+
+/**
+ * A stored password hash as the gate compares it: algorithm and cost (parity_gate_hash()) and which scenario
+ * password it verifies (`=1` for the first of PARITY_GATE_PASSWORDS, `=none`), so a hash of the wrong password or
+ * at another cost is a difference. password_verify() runs once per distinct hash.
+ */
+function parity_gate_password(string $v): string
+{
+    static $seen = [];
+    if (!isset($seen[$v])) {
+        $which = 'none';
+        foreach (PARITY_GATE_PASSWORDS as $i => $pw) {
+            if (password_verify($pw, $v)) {
+                $which = (string)($i + 1);
+                break;
+            }
+        }
+        $seen[$v] = parity_gate_hash($v) . ' =' . $which;
+    }
+    return $seen[$v];
+}
+
 /**
  * A password hash with its algorithm and cost kept and only the salt and hash masked: `$2y$12$…(53)`,
  * `$argon2id$v=19$m=65536,t=4,p=1$…`. Anything else is returned as it is.
@@ -586,7 +610,7 @@ function parity_gate_db(PDO $pdo, callable $hide): array
             foreach ($row as $k => &$v) {
                 if ($v === null || is_int($v)) continue;
                 $v = (string)$v;
-                if (preg_match('/^\$(2[aby]|argon2)/', $v) === 1) $v = parity_gate_hash($v);
+                if (preg_match('/^\$(2[aby]|argon2)/', $v) === 1) $v = parity_gate_password($v);
                 if ($k === 'session_epoch') $v = 'EPOCH';
             }
             unset($v);

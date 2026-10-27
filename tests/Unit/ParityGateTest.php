@@ -113,6 +113,10 @@ final class ParityGateTest extends TestCase
             'HSTS added' => [...self::THEME_303, 'Strict-Transport-Security: max-age=1'],
             'public max-age on a redirect' => self::swap(self::THEME_303, 'Cache-Control: no-store, no-cache, must-revalidate', 'Cache-Control: public, max-age=3600'),
             'Pragma removed' => self::swap(self::THEME_303, 'Pragma: no-cache', ''),
+            'no-store lost' => self::swap(self::THEME_303, 'Cache-Control: no-store, no-cache, must-revalidate', 'Cache-Control: no-cache, must-revalidate'),
+            'Cache-Control removed' => self::swap(self::THEME_303, 'Cache-Control: no-store, no-cache, must-revalidate', ''),
+            'session cookie Secure added' => self::swap(self::THEME_303, ' HttpOnly;', ' HttpOnly; Secure;'),
+            'session cookie SameSite=None' => self::swap(self::THEME_303, 'HttpOnly; SameSite=Lax', 'HttpOnly; SameSite=None'),
         ];
         foreach ($injected as $what => $raw) {
             $this->assertNotSame([], parity_diff($legacy, self::headers($raw)), $what);
@@ -160,6 +164,27 @@ final class ParityGateTest extends TestCase
             $this->assertMatchesRegularExpression('/^\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+\$…$/', parity_gate_hash(password_hash('x', PASSWORD_ARGON2ID)));
         }
         $this->assertSame('plain', parity_gate_hash('plain'));
+    }
+
+    /** L-471: a stored hash at cost 4 or of the wrong password is a difference in the tables the gate compares. */
+    public function testCostFourAndWrongPasswordHashesFailTheGate(): void
+    {
+        $pdo = new PDO('sqlite::memory:');
+        $pdo->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password_hash TEXT)');
+        $snapshot = static function (string $hash) use ($pdo): array {
+            $pdo->exec('DELETE FROM users');
+            $pdo->prepare('INSERT INTO users VALUES (1, ?, ?)')->execute(['nia', $hash]);
+            return parity_gate_db($pdo, static fn (string $s): string => $s);
+        };
+        $legacy = $snapshot(password_hash(PARITY_GATE_PW, PASSWORD_BCRYPT, ['cost' => 12]));
+        $this->assertSame('$2y$12$…(53) =1', $legacy['users'][0]['password_hash']);
+        $this->assertSame([], parity_diff($legacy, $snapshot(password_hash(PARITY_GATE_PW, PASSWORD_BCRYPT, ['cost' => 12]))), 'another salt');
+        $cost4 = $snapshot(password_hash(PARITY_GATE_PW, PASSWORD_BCRYPT, ['cost' => 4]));
+        $this->assertNotSame([], parity_diff($legacy, $cost4), 'cost 4');
+        $wrong = $snapshot(password_hash('wrong-password', PASSWORD_BCRYPT, ['cost' => 12]));
+        $this->assertSame('$2y$12$…(53) =none', $wrong['users'][0]['password_hash']);
+        $this->assertNotSame([], parity_diff($legacy, $wrong), 'wrong password');
+        $this->assertNotSame([], parity_diff($legacy, $snapshot(password_hash('neon-password', PASSWORD_BCRYPT, ['cost' => 12]))), 'another scenario password');
     }
 
     public function testTheAllowlistStillHoldsOnlyTheFourQuirks(): void
