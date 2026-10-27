@@ -133,4 +133,46 @@ final class BackupHelpersTest extends CIUnitTestCase
             }
         }
     }
+
+    public function testTheMemoryEstimateCoversWhatDecodingTakes(): void
+    {
+        $shapes = [
+            'pairs of integers' => array_map(static fn (int $i): array => [$i, $i + 1], range(1, 20000)),
+            'single values' => array_map(static fn (int $i): array => [$i], range(1, 20000)),
+            'short strings' => array_map(static fn (int $i): array => ['a', 'b', 'c'], range(1, 20000)),
+            'long notes' => array_map(static fn (int $i): array => [$i, "Item $i", str_repeat('n', 2000), null], range(1, 2000)),
+            'objects' => array_map(static fn (int $i): array => ['k' => $i], range(1, 20000)),
+        ];
+        foreach ($shapes as $label => $rows) {
+            $json = (string)json_encode(['tables' => ['items' => ['columns' => ['a', 'b'], 'rows' => $rows]]]);
+            unset($rows);
+            gc_collect_cycles();
+            $before = memory_get_usage();
+            $decoded = json_decode($json, true);
+            $used = memory_get_usage() - $before;
+            unset($decoded);
+            $this->assertGreaterThanOrEqual($used, Restorer::decodedSize($json), $label);
+            $this->assertLessThan(4 * $used, Restorer::decodedSize($json), $label . ': not far above');
+        }
+        $this->assertSame(5 + 48 + 200, Restorer::decodedSize('[1,2]'));
+        $this->assertSame(7 + 450, Restorer::decodedSize('{"a":1}'));
+    }
+
+    public function testTheMemoryCheckKeepsAMargin(): void
+    {
+        $margin = 4 * 1024 * 1024;
+        $this->assertTrue(Restorer::fits(PHP_INT_MAX - $margin, null), 'no memory limit');
+        $this->assertTrue(Restorer::fits(1000, 1000 + $margin));
+        $this->assertFalse(Restorer::fits(1001, 1000 + $margin));
+        $this->assertFalse(Restorer::fits(0, $margin - 1));
+        $limit = ini_get('memory_limit');
+        try {
+            ini_set('memory_limit', '-1');
+            $this->assertNull(Restorer::headroom());
+            ini_set('memory_limit', '512M');
+            $this->assertSame(512 * 1024 * 1024 - memory_get_usage(), Restorer::headroom());
+        } finally {
+            ini_set('memory_limit', (string)$limit);
+        }
+    }
 }

@@ -40,6 +40,9 @@ final class Ci4BackupParityTest extends TestCase
     /** @var array<string,bool> case => the page showed the database's error text */
     private array $details = [];
 
+    /** @var array<string,bool> per failed restore: were the files left as they were (L-440) */
+    private array $kept = [];
+
     protected function setUp(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -51,13 +54,19 @@ final class Ci4BackupParityTest extends TestCase
     {
         $answers = [];
         $details = [];
+        $kept = [];
         foreach (['legacy', 'ci4'] as $app) {
             $this->details = [];
+            $this->kept = [];
             $answers[$app] = $this->run_($app, fn (Server $s, string $dir): array => $this->visit($s, $dir, $app));
             $details[$app] = array_keys(array_filter($this->details));
+            $kept[$app] = $this->kept;
         }
         $this->assertSame(['confirm failing write', 'confirm broken rows'], $details['legacy']);
         $this->assertSame([], $details['ci4'], 'CI4 shows no database error text');
+        // L-440, stricter than legacy (HANDOFF Tracked): a failed restore leaves CI4's files as they were.
+        $this->assertSame(['confirm failing write' => false, 'confirm broken rows' => true], $kept['legacy'], 'legacy keeps the files of a failed restore (the broken rows zip has none)');
+        $this->assertSame(['confirm failing write' => true, 'confirm broken rows' => true], $kept['ci4']);
         $this->compare($answers);
         $l = $answers['legacy'];
         // The cases are what they claim to be.
@@ -257,7 +266,9 @@ final class Ci4BackupParityTest extends TestCase
         $pdo->exec($pg ? 'CREATE TRIGGER apotheke_test_fail BEFORE INSERT ON activity FOR EACH ROW EXECUTE FUNCTION apotheke_test_fail()'
             : "CREATE TRIGGER apotheke_test_fail BEFORE INSERT ON activity BEGIN SELECT RAISE(ABORT, 'test failure'); END");
         $unchanged = $state();
+        $files = self::fileTree($dir);
         $as('confirm failing write', 'POST', '/backup/restore/confirm', ['token' => $token, 'confirm' => '1']);
+        $this->filesKept('confirm failing write', $dir, $files);
         $pdo->exec($pg ? 'DROP TRIGGER apotheke_test_fail ON activity' : 'DROP TRIGGER apotheke_test_fail');
         $this->out['confirm failing write']['unchanged'] = self::withoutFiles($unchanged) === self::withoutFiles($this->out['confirm failing write']['tables']);
         // Rows that break a foreign key: nothing is changed either.
@@ -265,7 +276,9 @@ final class Ci4BackupParityTest extends TestCase
         $bad['tables']['items']['rows'][0][array_search('location_id', $bad['tables']['items']['columns'], true)] = 999;
         $r = $as('upload broken rows', 'POST', '/backup/restore', [], $file($crafted(['backup.json' => $bad])));
         $unchanged = $state();
+        $files = self::fileTree($dir);
         $as('confirm broken rows', 'POST', '/backup/restore/confirm', ['token' => self::token($r['body']), 'confirm' => '1']);
+        $this->filesKept('confirm broken rows', $dir, $files);
         $this->out['confirm broken rows']['unchanged'] = self::withoutFiles($unchanged) === self::withoutFiles($this->out['confirm broken rows']['tables']);
 
         $r = $as('upload again', 'POST', '/backup/restore', [], $file($zip));
@@ -495,6 +508,42 @@ final class Ci4BackupParityTest extends TestCase
     private static function token(string $html): string
     {
         return preg_match('/name="token" value="([a-f0-9]{32})"/', $html, $m) === 1 ? $m[1] : '';
+    }
+
+    /** @return array<string,string> every file of the served, thumbnail, attachment and original folders, with its bytes */
+    private static function fileTree(string $dir): array
+    {
+        $out = [];
+        foreach (['images', 'thumbs', 'files', 'originals', 'originals/map'] as $sub) {
+            foreach (glob($dir . '/' . $sub . '/*') ?: [] as $f) {
+                if (is_file($f)) {
+                    $out[$sub . '/' . basename($f)] = (string)file_get_contents($f);
+                }
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * After a failed restore: were the files left as they were? The answer is
+     * recorded, then the tree is put back (legacy keeps the zip's files), so
+     * the two apps go on from the same files and the case compares without them.
+     *
+     * @param array<string,string> $before
+     */
+    private function filesKept(string $case, string $dir, array $before): void
+    {
+        $this->kept[$case] = self::fileTree($dir) === $before;
+        foreach (self::fileTree($dir) as $name => $bytes) {
+            if (!isset($before[$name])) {
+                unlink($dir . '/' . $name);
+            } elseif ($before[$name] !== $bytes) {
+                file_put_contents($dir . '/' . $name, $before[$name]);
+            }
+        }
+        $this->out[$case]['tables'] = self::withoutFiles($this->out[$case]['tables']);
     }
 
     /**
