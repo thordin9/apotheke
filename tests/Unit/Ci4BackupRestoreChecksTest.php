@@ -22,6 +22,9 @@ require_once dirname(__DIR__) . '/lib.php';
  *   is tried again, and then restores.
  * - L-480, N-442: an entry over MAX_ENTRY is refused from the zip's
  *   directory, before any of it is read or any file written.
+ * - L-480: an entry larger than the size the zip gives it is refused, and
+ *   at most a chunk past that size is unpacked (a 300 MB entry that says
+ *   100 bytes, under `ulimit -f`).
  * - N-481: a link where a new file would go stops the restore; the link
  *   is neither replaced nor removed, and nothing changes.
  */
@@ -237,6 +240,68 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         });
     }
 
+    public function testAnEntryLargerThanItsSizeIsRefusedWithoutUnpackingIt(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $dump = $this->dump($server, $dir);
+            $files = &$dump['tables']['item_attachments'];
+            foreach (['7', '8'] as $id => $c) {
+                $files['rows'][] = array_map(static fn (string $col): mixed => ['id' => $id + 1, 'item_id' => 1, 'file' => str_repeat($c, 32) . '.pdf', 'name' => 'a.pdf', 'mime' => 'application/pdf', 'size' => 9, 'created_at' => '2026-01-02 08:00:00'][$col] ?? null, $files['columns']);
+            }
+            unset($files);
+            $json = (string)json_encode($dump, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $small = str_repeat('7', 32) . '.pdf';
+            $big = str_repeat('8', 32) . '.pdf';
+            // A small lie (one read): the CRC is right, only the size is not.
+            $this->zip($dir . '/small.zip', ['backup.json' => $dump, 'files/' . $small => str_repeat("%PDF-1.4 x\n", 80)]);
+            self::sayEntrySize($dir . '/small.zip', 'files/' . $small, 100);
+            // A large one: 300 MB of zeros that say 100 bytes, restored with at most 20 MB of file writes.
+            $zeros = $dir . '/zeros.bin';
+            $fh = fopen($zeros, 'wb');
+            ftruncate($fh, 300 * 1024 * 1024);
+            fclose($fh);
+            $z = new ZipArchive();
+            $this->assertTrue($z->open($dir . '/big.zip', ZipArchive::CREATE | ZipArchive::OVERWRITE));
+            $z->addFromString('backup.json', $json);
+            $z->addFile($zeros, 'files/' . $big);
+            $z->close();
+            unlink($zeros);
+            self::sayEntrySize($dir . '/big.zip', 'files/' . $big, 100);
+            $before = $pdo->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn();
+            foreach (['small.zip' => null, 'big.zip' => 20480] as $zip => $limitKb) {
+                $r = $this->cli($dir, 'restore', [$zip, '--yes'], $limitKb);
+                $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], $zip . ' ' . $r['stdout']);
+            }
+            $this->assertFileDoesNotExist($dir . '/files/' . $small);
+            $this->assertFileDoesNotExist($dir . '/files/' . $big);
+            $this->assertSame($before, $pdo->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn());
+            $this->assertSame([], glob($dir . '/tmp/restore-*.part') ?: []);
+        });
+    }
+
+    /** Rewrite the unpacked size entry $name gives in both its headers (no data descriptor, no ZIP64). */
+    private static function sayEntrySize(string $zipPath, string $name, int $size): void
+    {
+        $b = (string)file_get_contents($zipPath);
+        foreach (["PK\x03\x04" => [22, 26, 30], "PK\x01\x02" => [24, 28, 46]] as $sig => [$at, $nameLen, $nameAt]) {
+            for ($p = strpos($b, $sig); $p !== false; $p = strpos($b, $sig, $p + 4)) {
+                $n = unpack('v', substr($b, $p + $nameLen, 2))[1];
+                if (substr($b, $p + $nameAt, $n) === $name) {
+                    $b = substr_replace($b, pack('V', $size), $p + $at, 4);
+                    break;
+                }
+            }
+        }
+        file_put_contents($zipPath, $b);
+        $z = new ZipArchive();
+        $z->open($zipPath, ZipArchive::RDONLY);
+        $said = $z->statName($name)['size'] ?? null;
+        $z->close();
+        if ($said !== $size) {
+            throw new \RuntimeException("could not rewrite the size of $name");
+        }
+    }
+
     public function testALinkWhereANewFileGoesStopsTheRestore(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
@@ -372,9 +437,13 @@ final class Ci4BackupRestoreChecksTest extends TestCase
      * @param list<string> $args
      * @return array{stdout:string,stderr:string,exit:int}
      */
-    private function cli(string $dir, string $form, array $args): array
+    private function cli(string $dir, string $form, array $args, ?int $fileLimitKb = null): array
     {
-        $proc = proc_open([PHP_BINARY, ROOT . '/bin/' . $form . '.php', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $this->cliEnv($dir));
+        $cmd = [PHP_BINARY, ROOT . '/bin/' . $form . '.php', ...$args];
+        if ($fileLimitKb !== null) {   // a larger write kills the process (SIGXFSZ)
+            $cmd = ['/bin/bash', '-c', 'ulimit -f ' . $fileLimitKb . ' && exec "$@"', 'bash', ...$cmd];
+        }
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $this->cliEnv($dir));
         $this->assertIsResource($proc);
         fclose($pipes[0]);
 
