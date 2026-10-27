@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2317,SC2329 # cleanup() and pg() run from the EXIT trap
+# PLAN step 16 part 2 (§3.6): upgrade and rollback on one data directory and database.
+#   legacy@8.3 seeds (demo JPEGs + a PNG and a HEIC with originals, tags, an attachment, a saved filter, a stocktake:
+#   every carried table non-empty) → CI4@8.4 on the same data → legacy@8.3 again, then cross-restore: a CI4 backup
+#   restored by legacy@8.3 and a legacy backup restored by CI4@8.4, each over the same install and into a fresh data
+#   directory and database. After every step the normalised DB dump and the sha256 of images/, thumbs/, originals/
+#   (map/ included) and files/ must equal the seeded state, and originals must be 0750/0640 (tests/upgrade/). Last,
+#   mutation checks prove that an emptied or dropped table, a changed or missing attachment and a wrong mode fail.
+# Env: DB_DRIVER=sqlite|pgsql (pgsql: TEST_PG_HOST, TEST_PG_PORT, TEST_PG_DB, TEST_PG_USER, TEST_PG_PASSWORD),
+#      PHP83 and PHP84 (default php8.3, php8.4), UPGRADE_WORK (a path that must not exist yet; default: a new
+#      mktemp -d), UPGRADE_KEEP=1 keeps it. The script removes only the work dir and the upg_<run>_* schemas it made.
+# Uses bin/seed.php, bin/migrate.php, bin/backup.php and bin/restore.php unchanged.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PHP83=${PHP83:-php8.3}
+PHP84=${PHP84:-php8.4}
+DRIVER=${DB_DRIVER:-sqlite}
+WORK=
+SCHEMAS=()
+SERVER_PID=
+fail=0
+
+"$PHP83" -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 3 ? 0 : 1);' || { echo "PHP83 is not PHP 8.3" >&2; exit 2; }
+"$PHP84" -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 4 ? 0 : 1);' || { echo "PHP84 is not PHP 8.4" >&2; exit 2; }
+
+pg() { PGOPTIONS=--client-min-messages=warning PGPASSWORD="$TEST_PG_PASSWORD" psql -X -q -v ON_ERROR_STOP=1 -h "$TEST_PG_HOST" -p "$TEST_PG_PORT" -U "$TEST_PG_USER" -d "$TEST_PG_DB" -c "$1"; }
+
+cleanup() {
+  if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
+  if [ "$DRIVER" = pgsql ]; then for s in "${SCHEMAS[@]}"; do pg "DROP SCHEMA IF EXISTS $s CASCADE" || true; done; fi
+  if [ -z "$WORK" ]; then return; fi
+  if [ "${UPGRADE_KEEP:-}" = 1 ]; then echo "kept $WORK"; else rm -rf "$WORK"; fi
+}
+trap cleanup EXIT
+
+if [ -n "${UPGRADE_WORK:-}" ]; then
+  if [ -e "$UPGRADE_WORK" ] || [ -L "$UPGRADE_WORK" ]; then echo "UPGRADE_WORK $UPGRADE_WORK already exists; give a new path" >&2; exit 2; fi
+  mkdir -m 0700 "$UPGRADE_WORK"
+  WORK=$UPGRADE_WORK
+else
+  WORK=$(mktemp -d "${TMPDIR:-/tmp}/upgrade-rollback.XXXXXX")
+fi
+RUN=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+SCHEMAS=("upg_${RUN}_main" "upg_${RUN}_restore_legacy" "upg_${RUN}_restore_ci4")
+
+# Environment for one install: its data directory and (pgsql) its own schema.
+install_env() {
+  local dir=$1 schema=$2
+  export DATA_DIR="$WORK/$dir" TZ=Europe/Athens APP_PASSWORD='' APP_KEY='' APP_KEY_FILE='' SEED_DEFAULTS=0 \
+    APOTHEKE_CONFIG=/nonexistent DB_DRIVER="$DRIVER"
+  unset ORIGINALS_DIR SQLITE_PATH APOTHEKE_APP
+  if [ "$DRIVER" = pgsql ]; then
+    export DB_HOST="$TEST_PG_HOST" DB_PORT="$TEST_PG_PORT" DB_NAME="$TEST_PG_DB" DB_USER="$TEST_PG_USER" \
+      DB_PASSWORD="$TEST_PG_PASSWORD" DB_SCHEMA="$schema"
+  fi
+  mkdir -p "$DATA_DIR"
+}
+
+snap() { "$PHP84" "$ROOT/tests/upgrade/snapshot.php" --scope="$1" > "$WORK/$2.json"; }
+check() { "$PHP84" "$ROOT/tests/upgrade/compare.php" "$1" "$WORK/$2.json" "$WORK/$3.json" || fail=1; }
+# A mutation must make the check fail with a DIFF or FAIL line; a pass (or a crash) means the gate is blind to it.
+#   must_fail LABEL BEFORE AFTER   compares two snapshots;   must_fail LABEL --guard SNAPSHOT   runs the seed guard
+must_fail() {
+  local label=$1 code=0
+  if [ "$2" = --guard ]; then
+    "$PHP84" "$ROOT/tests/upgrade/compare.php" --guard "$label" "$WORK/$3.json" > "$WORK/mutation.txt" 2>&1 || code=$?
+  else
+    "$PHP84" "$ROOT/tests/upgrade/compare.php" "$label" "$WORK/$2.json" "$WORK/$3.json" > "$WORK/mutation.txt" 2>&1 || code=$?
+  fi
+  if [ "$code" = 1 ] && grep -qE '^(DIFF|FAIL) ' "$WORK/mutation.txt"; then
+    echo "ok mutation caught: $label: $(grep -m1 -E '^(DIFF|FAIL) ' "$WORK/mutation.txt" | cut -c1-140)"
+  else
+    cat "$WORK/mutation.txt"; echo "FAIL mutation not caught (exit $code): $label"; fail=1
+  fi
+}
+
+# Starts the app (legacy or ci4) on a free port, checks /healthz, the list and one served photo, then stops it.
+serve_check() {
+  local app=$1 php=$2 port base docroot front photo
+  # shellcheck disable=SC2016 # PHP code, not shell
+  port=$("$php" -r '$s = stream_socket_server("tcp://127.0.0.1:0"); echo substr(strrchr(stream_socket_get_name($s, false), ":"), 1);')
+  base="http://127.0.0.1:$port"
+  if [ "$app" = ci4 ]; then docroot="$ROOT/ci4/public" front="$ROOT/ci4/public/router.php"; else docroot="$ROOT/public" front="$ROOT/public/index.php"; fi
+  APOTHEKE_APP=$app "$php" -S "127.0.0.1:$port" -t "$docroot" "$front" > "$WORK/server-$app-$port.log" 2>&1 &
+  SERVER_PID=$!
+  for _ in $(seq 100); do curl -fs -o /dev/null "$base/healthz" && break; sleep 0.1; done
+  local ok=1
+  [ "$(curl -s -o /dev/null -w '%{http_code}' "$base/healthz")" = 200 ] || { echo "FAIL $app: /healthz is not 200"; ok=0; }
+  curl -fs "$base/" > "$WORK/list-$app.html" || { echo "FAIL $app: / did not answer 200"; ok=0; }
+  for name in 'Cordless drill' 'Upgrade check'; do
+    grep -q "$name" "$WORK/list-$app.html" || { echo "FAIL $app: the list does not show \"$name\""; ok=0; }
+  done
+  photo=$(find "$DATA_DIR/images" -maxdepth 1 -name '*.jpg' -printf '%f\n' | sort | head -n 1)
+  for kind in full:images thumb:thumbs; do
+    if [ -z "$photo" ] || ! curl -fs -o "$WORK/media.bin" "$base/media/${kind%%:*}/$photo" || ! cmp -s "$WORK/media.bin" "$DATA_DIR/${kind#*:}/$photo"; then
+      echo "FAIL $app: /media/${kind%%:*}/$photo is not the stored file"; ok=0
+    fi
+  done
+  kill "$SERVER_PID"; wait "$SERVER_PID" 2>/dev/null || true; SERVER_PID=
+  if [ "$ok" = 1 ]; then echo "ok $app@$("$php" -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;') serves /healthz, the list and a photo with its thumbnail"; else fail=1; fi
+}
+
+# bin/migrate.php --status must list every migration as applied (no unknown or pending one after a switch).
+status_check() {
+  local app=$1 php=$2 out
+  out=$(APOTHEKE_APP=$app "$php" "$ROOT/bin/migrate.php" --status)
+  if [ "$(grep -cE '^ +[0-9]{4} ' <<<"$out")" -lt 28 ] || grep -E '^ +[0-9]{4} ' <<<"$out" | grep -vq ' applied '; then
+    echo "$out"; echo "FAIL $app: bin/migrate.php --status shows a migration that is not applied"; fail=1
+  else
+    echo "ok $app: $(grep -cE '^ +[0-9]{4} ' <<<"$out") migrations applied"
+  fi
+}
+
+echo "upgrade/rollback: $DRIVER, $("$PHP83" -r 'echo PHP_VERSION;') and $("$PHP84" -r 'echo PHP_VERSION;'), work dir $WORK"
+
+# 1. legacy@8.3 seeds.
+install_env data "${SCHEMAS[0]}"
+"$PHP83" "$ROOT/bin/seed.php" --demo
+"$PHP83" "$ROOT/tests/upgrade/seed-extra.php"
+snap all seeded
+snap backup seeded-backup
+"$PHP84" "$ROOT/tests/upgrade/compare.php" --guard 'seed' "$WORK/seeded.json" || { echo "upgrade/rollback: the seed is too thin"; exit 1; }
+"$PHP83" "$ROOT/bin/backup.php" "$WORK/legacy.zip"
+serve_check legacy "$PHP83"
+snap all legacy-served
+check 'legacy@8.3 served' seeded legacy-served
+
+# 2. Upgrade: CI4@8.4 on the same data directory and database.
+status_check ci4 "$PHP84"
+snap all upgraded
+check 'upgrade to CI4@8.4' seeded upgraded
+serve_check ci4 "$PHP84"
+APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/backup.php" "$WORK/ci4.zip"
+snap all ci4-served
+check 'CI4@8.4 served and backed up' seeded ci4-served
+
+# 3. Rollback A: legacy@8.3 on the same data directory and database.
+status_check legacy "$PHP83"
+serve_check legacy "$PHP83"
+snap all rolled-back
+check 'rollback to legacy@8.3' seeded rolled-back
+
+# 4. Rollback B (§3.6 step 4) and its reverse: each app restores the other's zip over the same install.
+"$PHP83" "$ROOT/bin/restore.php" "$WORK/ci4.zip" --yes
+snap backup restored-in-place-legacy
+check 'CI4 backup restored over the install by legacy@8.3' seeded-backup restored-in-place-legacy
+APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
+snap backup restored-in-place-ci4
+check 'legacy backup restored over the install by CI4@8.4' seeded-backup restored-in-place-ci4
+
+# 5. Cross-restore into fresh installs.
+install_env restore-legacy "${SCHEMAS[1]}"
+"$PHP83" "$ROOT/bin/restore.php" "$WORK/ci4.zip" --yes
+snap backup restored-legacy
+check 'CI4 backup restored on legacy@8.3' seeded-backup restored-legacy
+
+install_env restore-ci4 "${SCHEMAS[2]}"
+APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
+snap backup restored-ci4
+check 'legacy backup restored on CI4@8.4' seeded-backup restored-ci4
+
+# 6. Mutation checks on that disposable install: each step must fail against the step before it.
+mutate() { "$PHP84" "$ROOT/tests/upgrade/mutate.php" "$1"; }
+mutate 'DELETE FROM item_tags'
+snap backup m1
+must_fail 'emptied carried table (item_tags)' seeded-backup m1
+must_fail 'seed guard on an emptied carried table' --guard m1
+mutate 'DROP TABLE saved_filters'
+snap backup m2
+must_fail 'dropped carried table (saved_filters)' m1 m2
+attachment=$(find "$DATA_DIR/files" -maxdepth 1 -type f -name '*.pdf' | sort | head -n 1)
+printf 'x' >> "$attachment"
+snap backup m3
+must_fail 'changed files/ attachment' m2 m3
+rm "$attachment"
+snap backup m4
+must_fail 'missing files/ attachment' m2 m4
+original=$(find "$DATA_DIR/originals" -maxdepth 1 -type f -name '*.png' | head -n 1)
+chmod 0644 "$original"
+snap backup m5
+must_fail 'original readable by others (0644)' m4 m5
+
+if [ "$fail" = 0 ]; then echo "upgrade/rollback: all steps equal"; else echo "upgrade/rollback: differences found"; fi
+exit "$fail"

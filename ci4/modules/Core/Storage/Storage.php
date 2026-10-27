@@ -23,6 +23,14 @@ interface Storage
      */
     public function write(string $key, string $bytes): void;
 
+    /**
+     * As write(), with the bytes read from $stream to its end, so a large
+     * file never has to be in memory.
+     *
+     * @param resource $stream
+     */
+    public function writeStream(string $key, mixed $stream): void;
+
     /** Remove the key. A missing key is fine. */
     public function delete(string $key): void;
 

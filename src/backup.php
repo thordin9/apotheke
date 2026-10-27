@@ -20,6 +20,9 @@ const BACKUP_FORMAT  = 'apotheke-backup';
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_UNPACKED = 4 * 1024 * 1024 * 1024;   // zip-bomb guard: 4 GB unpacked
 const BACKUP_MAX_ENTRIES  = 100_000;
+const BACKUP_RESTORE_FAILED = 'The backup could not be restored. Nothing was changed.';
+const BACKUP_RESTORE_BUSY   = 'Another restore is running. Try again when it has finished.';
+const BACKUP_RESTORE_LOCK   = 'restore.lock';   // in DATA_DIR/tmp, held for the whole restore
 
 /** Tables in foreign-key order (parents first). Restore deletes in reverse. */
 function backup_tables(): array
@@ -246,84 +249,172 @@ function backup_counts(PDO $pdo, string $driver): array
 
 /**
  * Replace all catalog data with the backup's.
+ *
+ * One restore runs at a time (web and CLI): the whole restore, files and rows, holds an exclusive lock on
+ * DATA_DIR/tmp/restore.lock, and a second one is refused at once (code 409). A restore that fails at any point
+ * removes every file it wrote, and the camera-original links are rewritten only after the rows commit, so the
+ * files, the links and the data are as they were.
  * @return array{tables:array<string,int>,photos:int,warnings:string[]}
  */
 function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPath): array
+{
+    $lock = backup_restore_lock($dataDir);
+    try {
+        return backup_restore_locked($pdo, $driver, $dataDir, $zipPath);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+/**
+ * DATA_DIR/tmp/restore.lock, held exclusively. Not waited for: while another restore holds it, the answer is busy.
+ * Never through a link. A lock file another user made (say a root CLI restore) may not be writable here; flock()
+ * works on a read handle too.
+ * @return resource
+ */
+function backup_restore_lock(string $dataDir)
+{
+    $dir = "$dataDir/tmp";
+    if (!is_dir($dir)) @mkdir($dir, 0770, true);
+    $path = $dir . '/' . BACKUP_RESTORE_LOCK;
+    if (is_link($path)) throw new UserError(BACKUP_RESTORE_FAILED);
+    $fh = @fopen($path, 'c');
+    if ($fh === false) $fh = @fopen($path, 'r');
+    if ($fh === false) throw new UserError(BACKUP_RESTORE_FAILED);
+    if (!flock($fh, LOCK_EX | LOCK_NB)) {
+        fclose($fh);
+        throw new UserError(BACKUP_RESTORE_BUSY, 409);
+    }
+    return $fh;
+}
+
+/**
+ * An entry's bytes, or null when the zip has no such entry. One that is there but cannot be read, or whose bytes do
+ * not match its checksum (not every PHP version checks it), fails the restore.
+ */
+function backup_restore_entry(ZipArchive $zip, string $name): ?string
+{
+    $s = $zip->statName($name);
+    if ($s === false) return null;
+    $data = @$zip->getFromName($name);
+    if ($data === false || strlen($data) !== (int)$s['size'] || crc32($data) !== (int)$s['crc']) throw new UserError(BACKUP_RESTORE_FAILED);
+    return $data;
+}
+
+/**
+ * Write a file that is not there yet, whole or not at all, and note it so a failed restore can remove it again.
+ * @param list<string> $created
+ */
+function backup_restore_create(string $path, string $bytes, array &$created): void
+{
+    $tmp = dirname($path) . '/.restore-' . bin2hex(random_bytes(6));
+    if (@file_put_contents($tmp, $bytes, LOCK_EX) !== strlen($bytes) || !@rename($tmp, $path)) {
+        @unlink($tmp);
+        throw new UserError(BACKUP_RESTORE_FAILED);
+    }
+    $created[] = $path;
+}
+
+/**
+ * @param list<string> $created
+ */
+function backup_restore_discard(array $created): void
+{
+    foreach (array_reverse($created) as $path) @unlink($path);   // best effort: the name is random and no row refers to it
+}
+
+/** @return array{tables:array<string,int>,photos:int,warnings:string[]} */
+function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string $zipPath): array
 {
     $b = backup_open($zipPath, $pdo, $driver);
     $dump = $b['dump'];
     /** @var ZipArchive $zip */
     $zip = $b['zip'];
-
-    // 1) photo files first: decode-check each one, never overwrite (names are random)
+    // files this restore creates, removed again if it fails; the original links, written after the rows commit
+    $created = [];
+    $links = [];
     $written = 0;
-    foreach (['images', 'thumbs'] as $sub) if (!is_dir("$dataDir/$sub")) mkdir("$dataDir/$sub", 0775, true);
-    foreach (backup_photo_files($dump) as $f) {
-        $data = $zip->getFromName("images/$f");
-        if ($data === false) continue;
-        $info = @getimagesizefromstring($data);
-        if (!$info || $info[2] !== IMAGETYPE_JPEG) { $b['warnings'][] = "Photo $f is not a JPEG and was skipped."; continue; }
-        if (!is_file("$dataDir/images/$f")) file_put_contents("$dataDir/images/$f", $data, LOCK_EX);
-        if (!is_file("$dataDir/thumbs/$f")) {
-            $thumb = $zip->getFromName("thumbs/$f");
-            if ($thumb !== false && ($ti = @getimagesizefromstring($thumb)) && $ti[2] === IMAGETYPE_JPEG) {
-                file_put_contents("$dataDir/thumbs/$f", $thumb, LOCK_EX);
-            } elseif (($im = @imagecreatefromstring($data)) !== false) {
-                imagejpeg(image_fit($im, image_thumb_max()), "$dataDir/thumbs/$f", 76);   // regenerate a missing thumbnail
-            }
-        }
-        $written++;
-    }
-    if (!is_dir("$dataDir/files")) mkdir("$dataDir/files", 0770, true);
-    foreach (backup_attachment_files($dump) as $f) {
-        $data = $zip->getFromName("files/$f");
-        if ($data === false || is_file("$dataDir/files/$f")) continue;
-        $tmp = "$dataDir/files/.restore-" . bin2hex(random_bytes(6));
-        file_put_contents($tmp, $data, LOCK_EX);
-        if (attach_sniff($tmp) !== pathinfo($f, PATHINFO_EXTENSION)) { @unlink($tmp); $b['warnings'][] = "Attachment $f does not match its type and was skipped."; continue; }
-        rename($tmp, "$dataDir/files/$f");
-    }
-    backup_restore_originals($zip, $dump, $b['warnings']);
-    $zip->close();
-
-    // 2) data: one transaction, children deleted first, parents inserted first
-    $tables = array_values(array_filter(backup_tables(), fn($t) => backup_table_exists($pdo, $driver, $t)));
-    $pdo->beginTransaction();
     try {
-        if ($driver === 'sqlite') $pdo->exec('PRAGMA defer_foreign_keys = ON');
-        foreach (array_reverse($tables) as $t) $pdo->exec("DELETE FROM $t");
-        foreach ($tables as $t) {
-            $tb = $dump['tables'][$t] ?? null;
-            if (!$tb || !$tb['rows']) continue;
-            $cols = $tb['columns'];
-            $ins = $pdo->prepare("INSERT INTO $t (" . implode(', ', $cols) . ') VALUES (' . implode(',', array_fill(0, count($cols), '?')) . ')');
-            foreach ($tb['rows'] as $r) {
-                foreach ($r as $k => $v) $ins->bindValue($k + 1, $v, match (true) { $v === null => PDO::PARAM_NULL, is_int($v) => PDO::PARAM_INT, is_bool($v) => PDO::PARAM_BOOL, default => PDO::PARAM_STR });
-                $ins->execute();
+        try {
+            // 1) photo files first: decode-check each one, never overwrite (names are random)
+            foreach (['images', 'thumbs'] as $sub) if (!is_dir("$dataDir/$sub")) mkdir("$dataDir/$sub", 0775, true);
+            foreach (backup_photo_files($dump) as $f) {
+                $data = backup_restore_entry($zip, "images/$f");
+                if ($data === null) continue;
+                $info = @getimagesizefromstring($data);
+                if (!$info || $info[2] !== IMAGETYPE_JPEG) { $b['warnings'][] = "Photo $f is not a JPEG and was skipped."; continue; }
+                if (!is_file("$dataDir/images/$f")) backup_restore_create("$dataDir/images/$f", $data, $created);
+                if (!is_file("$dataDir/thumbs/$f")) {
+                    $thumb = backup_restore_entry($zip, "thumbs/$f");
+                    if ($thumb !== null && ($ti = @getimagesizefromstring($thumb)) && $ti[2] === IMAGETYPE_JPEG) {
+                        backup_restore_create("$dataDir/thumbs/$f", $thumb, $created);
+                    } elseif (($im = @imagecreatefromstring($data)) !== false) {
+                        ob_start();   // regenerate a missing thumbnail
+                        imagejpeg(image_fit($im, image_thumb_max()), null, 76);
+                        backup_restore_create("$dataDir/thumbs/$f", (string)ob_get_clean(), $created);
+                    }
+                }
+                $written++;
             }
-        }
-        foreach ($tables as $t) {
-            if (!in_array('id', backup_columns($pdo, $driver, $t), true)) continue;
-            // Never hand out an id again: past the highest restored id and, for items, past every id in the history
-            // (the activity log outlives deleted items).
-            $max = "SELECT MAX(id) AS m FROM $t" . ($t === 'items' && in_array('activity', $tables, true) ? ' UNION ALL SELECT MAX(item_id) AS m FROM activity' : '');
-            $next = (int)$pdo->query("SELECT COALESCE(MAX(m), 0) FROM ($max) x")->fetchColumn();
-            if ($driver === 'pgsql') {
-                // identity columns don't advance on explicit ids
-                $pdo->query("SELECT setval(pg_get_serial_sequence('$t', 'id'), $next + 1, false)");
-            } else {
-                $pdo->prepare('DELETE FROM sqlite_sequence WHERE name = ?')->execute([$t]);
-                $pdo->prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)')->execute([$t, $next]);
+            if (!is_dir("$dataDir/files")) mkdir("$dataDir/files", 0770, true);
+            foreach (backup_attachment_files($dump) as $f) {
+                $data = backup_restore_entry($zip, "files/$f");
+                if ($data === null || is_file("$dataDir/files/$f")) continue;
+                $tmp = "$dataDir/files/.restore-" . bin2hex(random_bytes(6));
+                if (@file_put_contents($tmp, $data, LOCK_EX) !== strlen($data)) { @unlink($tmp); throw new UserError(BACKUP_RESTORE_FAILED); }
+                if (attach_sniff($tmp) !== pathinfo($f, PATHINFO_EXTENSION)) { @unlink($tmp); $b['warnings'][] = "Attachment $f does not match its type and was skipped."; continue; }
+                if (!@rename($tmp, "$dataDir/files/$f")) { @unlink($tmp); throw new UserError(BACKUP_RESTORE_FAILED); }
+                $created[] = "$dataDir/files/$f";
             }
+            backup_restore_originals($zip, $dump, $b['warnings'], $created, $links);
+        } finally {
+            $zip->close();
         }
-        $pdo->commit();
+
+        // 2) data: one transaction, children deleted first, parents inserted first
+        $tables = array_values(array_filter(backup_tables(), fn($t) => backup_table_exists($pdo, $driver, $t)));
+        $pdo->beginTransaction();
+        try {
+            if ($driver === 'sqlite') $pdo->exec('PRAGMA defer_foreign_keys = ON');
+            foreach (array_reverse($tables) as $t) $pdo->exec("DELETE FROM $t");
+            foreach ($tables as $t) {
+                $tb = $dump['tables'][$t] ?? null;
+                if (!$tb || !$tb['rows']) continue;
+                $cols = $tb['columns'];
+                $ins = $pdo->prepare("INSERT INTO $t (" . implode(', ', $cols) . ') VALUES (' . implode(',', array_fill(0, count($cols), '?')) . ')');
+                foreach ($tb['rows'] as $r) {
+                    foreach ($r as $k => $v) $ins->bindValue($k + 1, $v, match (true) { $v === null => PDO::PARAM_NULL, is_int($v) => PDO::PARAM_INT, is_bool($v) => PDO::PARAM_BOOL, default => PDO::PARAM_STR });
+                    $ins->execute();
+                }
+            }
+            foreach ($tables as $t) {
+                if (!in_array('id', backup_columns($pdo, $driver, $t), true)) continue;
+                // Never hand out an id again: past the highest restored id and, for items, past every id in the history
+                // (the activity log outlives deleted items).
+                $max = "SELECT MAX(id) AS m FROM $t" . ($t === 'items' && in_array('activity', $tables, true) ? ' UNION ALL SELECT MAX(item_id) AS m FROM activity' : '');
+                $next = (int)$pdo->query("SELECT COALESCE(MAX(m), 0) FROM ($max) x")->fetchColumn();
+                if ($driver === 'pgsql') {
+                    // identity columns don't advance on explicit ids
+                    $pdo->query("SELECT setval(pg_get_serial_sequence('$t', 'id'), $next + 1, false)");
+                } else {
+                    $pdo->prepare('DELETE FROM sqlite_sequence WHERE name = ?')->execute([$t]);
+                    $pdo->prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)')->execute([$t, $next]);
+                }
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            after_commit_end(false);
+            if ($e instanceof PDOException) throw new UserError('The backup could not be restored (' . preg_replace('/\s+/', ' ', mb_substr($e->getMessage(), 0, 200)) . '). Nothing was changed.');
+            throw $e;
+        }
     } catch (Throwable $e) {
-        $pdo->rollBack();
-        after_commit_end(false);
-        if ($e instanceof PDOException) throw new UserError('The backup could not be restored (' . preg_replace('/\s+/', ' ', mb_substr($e->getMessage(), 0, 200)) . '). Nothing was changed.');
+        backup_restore_discard($created);
         throw $e;
     }
     after_commit_end(true);
+    backup_restore_link_originals($links, $b['warnings']);
     if (is_array($dump['settings'] ?? null)) {
         $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
         foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";
@@ -345,13 +436,16 @@ function backup_summary_text(array $counts, int $photos): string
 }
 
 /**
- * Put camera files back next to the served photos. Bytes are written only when missing (names are random).
- * The map entry is rewritten so the served name points at the file from this zip. A backup with no index is unchanged.
+ * Put camera files back next to the served photos. Bytes are written only when missing (names are random), and
+ * noted in $created. The map entry that points the served name at the file from this zip goes into $links, for
+ * backup_restore_link_originals() once the rows commit. A backup with no index is unchanged.
  * @param list<string> $warnings
+ * @param list<string> $created
+ * @param array<string,string> $links map path => original path
  */
-function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings): void
+function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings, array &$created, array &$links): void
 {
-    $raw = $zip->getFromName('originals/index.json');
+    $raw = backup_restore_entry($zip, 'originals/index.json');
     if (!is_string($raw) || $raw === '') return;
     try {
         $index = json_decode($raw, true, 8, JSON_THROW_ON_ERROR);
@@ -368,13 +462,35 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
     foreach ($index as $served => $base) {
         if (!is_string($served) || !valid_image_name($served) || !isset($photos[$served])) continue;
         if (!is_string($base) || !image_original_basename_ok($base)) continue;
-        $data = $zip->getFromName('originals/' . $base);
-        if ($data === false) { $warnings[] = "Original $base is missing from the archive."; continue; }
+        $data = backup_restore_entry($zip, 'originals/' . $base);
+        if ($data === null) { $warnings[] = "Original $base is missing from the archive."; continue; }
         $dest = ORIGINALS_DIR . '/' . $base;
-        if (!is_file($dest)) file_put_contents($dest, $data, LOCK_EX);
+        if (!is_file($dest)) {
+            try {
+                backup_restore_create($dest, $data, $created);
+            } catch (UserError) {
+                $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+                return;
+            }
+            originals_chmod_file($dest);
+        }
+        $links[ORIGINALS_DIR . '/map/' . substr($served, 0, 32)] = $dest;
+    }
+}
+
+/**
+ * The camera-original links, once the rows are in.
+ * @param array<string,string> $links map path => original path
+ * @param list<string> $warnings
+ */
+function backup_restore_link_originals(array $links, array &$warnings): void
+{
+    foreach ($links as $map => $dest) {
         originals_chmod_file($dest);
-        $map = ORIGINALS_DIR . '/map/' . substr($served, 0, 32);
-        file_put_contents($map, $base, LOCK_EX);
+        if (@file_put_contents($map, basename($dest), LOCK_EX) === false) {
+            $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+            return;
+        }
         originals_chmod_file($map);
     }
 }

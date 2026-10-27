@@ -187,6 +187,16 @@ final class ParityGateTest extends TestCase
         $this->assertNotSame([], parity_diff($legacy, $snapshot(password_hash('neon-password', PASSWORD_BCRYPT, ['cost' => 12]))), 'another scenario password');
     }
 
+    public function testAssetCacheBustersAreNormalisedInJsonToo(): void
+    {
+        $src = (string)file_get_contents(dirname(__DIR__) . '/parity/gate.php');
+        $this->assertStringContainsString("parity_gate_cache_bust(\$v)", $src, 'JSON strings go through the cache-buster rule (N-490)');
+        $this->assertSame('/assets/icon-192.png?v=V', parity_gate_cache_bust('/assets/icon-192.png?v=36769388'));
+        $this->assertSame(parity_gate_cache_bust('/assets/icon-512.png?v=3a553164'), parity_gate_cache_bust('/assets/icon-512.png?v=375eb896'));
+        $this->assertSame('/assets/icon.png?v=12', parity_gate_cache_bust('/assets/icon.png?v=12'), 'only the 8-hex shape');
+        $this->assertSame('/media/x.png?v=36769388', parity_gate_cache_bust('/media/x.png?v=36769388'), 'only /assets/');
+    }
+
     public function testTheAllowlistStillHoldsOnlyTheFourQuirks(): void
     {
         $this->assertSame(['N-2', 'QA L-2', 'N-4', 'I-3'], array_column(parity_allowlist_load(), 'id'));

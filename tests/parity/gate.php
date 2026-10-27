@@ -240,13 +240,13 @@ function parity_gate_run(Server $server, string $dir, StubServer $stub): array
         $r = $client->req($method, $path, $fields, $o['files'] ?? [], $o['headers'] ?? []);
         $last = $r;
         if (getenv('PARITY_DEBUG') === $area . ': ' . $case) fwrite(STDERR, implode("\n", $r['raw']) . "\n\n");
-        $body = (string)preg_replace('#(/assets/[a-z0-9.-]+)\?v=[0-9a-f]{8}#', '$1?v=V', $r['body']);
+        $body = parity_gate_cache_bust($r['body']);
         $json = $r['json'];
         if (is_array($json)) {
             array_walk_recursive($json, static function (&$v, $k) use ($token, $hide): void {
                 // Wall-clock time of the call to the stub: only its presence and type can match.
                 if ($k === 'elapsed_ms') $v = is_int($v) ? 'MS' : $v;
-                $v = is_string($v) ? $hide(str_replace($token, 'SESSION-TOKEN', $v)) : $v;
+                $v = is_string($v) ? $hide(str_replace($token, 'SESSION-TOKEN', parity_gate_cache_bust($v))) : $v;
             });
         }
         $type = $r['headers']['content-type'] ?? null;
@@ -504,6 +504,12 @@ const PARITY_GATE_SECURITY_HEADERS = ['content-security-policy', 'cross-origin-o
  * session cache limiter on legacy and CodeIgniter's noCache() on CI4. Any other value is compared exactly.
  */
 const PARITY_GATE_CACHE_PAIR = ['no-store, no-cache, must-revalidate' => 'legacy', 'no-store, max-age=0, no-cache' => 'ci4'];
+
+/** `?v=` asset cache-busters come from file times or contents, so HTML and JSON (the manifest icons) compare them as `?v=V` (N-490). */
+function parity_gate_cache_bust(string $s): string
+{
+    return (string)preg_replace('#(/assets/[a-z0-9.-]+)\?v=[0-9a-f]{8}#', '$1?v=V', $s);
+}
 
 /**
  * The headers of one answer as the gate compares them: Cache-Control, Pragma and Expires; every Set-Cookie in full

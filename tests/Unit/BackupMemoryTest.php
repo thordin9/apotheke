@@ -12,10 +12,11 @@ require_once dirname(__DIR__) . '/lib.php';
  * limited to 24 MB can only write that way. Legacy builds it in memory, so
  * it runs at the usual limit, and CI4's backup.json must be its bytes.
  *
- * L-441: restoring that backup at 24 MB is refused before backup.json is
- * read (web and CLI), and a small backup.json that would decode to more than
- * the memory left is refused before it is decoded; nothing changes. At
- * 256 MB the same backup restores.
+ * L-441, N-454: the restore streams too. That backup restores at 24 MB, on
+ * the web (upload, then confirm) and on the CLI, so neither backup.json nor
+ * its rows are ever whole in memory. One value larger than the memory left
+ * is refused before it is read whole, with nothing changed; L-451: one
+ * 48 MB value restores at 128 MB, as on legacy.
  */
 final class BackupMemoryTest extends TestCase
 {
@@ -41,7 +42,7 @@ final class BackupMemoryTest extends TestCase
                 if ($app === 'ci4') {
                     $this->assertSame(hash('sha256', $json['legacy']), hash('sha256', $json['ci4']), 'web');
                     $this->assertCliBackup($dir, $json['legacy']);
-                    $this->assertRestoreRefused($server, $dir, (string)$r['body']);
+                    $this->assertRestoreStreams($server, $dir, (string)$r['body']);
                 }
             } finally {
                 $server->stop();
@@ -60,13 +61,12 @@ final class BackupMemoryTest extends TestCase
         $this->assertSame(hash('sha256', $expected), hash('sha256', $this->backupJson((string)file_get_contents($dir . '/cli.zip'), $dir . '/cli-copy.zip')), 'cli');
     }
 
-    /** L-441: refused within the memory limit, on the web and the CLI, with nothing changed; restored at 256 MB. */
-    private function assertRestoreRefused(Server $server, string $dir, string $zip): void
+    /** L-441, L-451, N-454: restored within the memory limit, web and CLI; a value too large for it is refused. */
+    private function assertRestoreStreams(Server $server, string $dir, string $zip): void
     {
         $pdo = testdb($dir);
         $pdo->exec('DELETE FROM items WHERE id > 100');
-        $before = $this->catalog($pdo, $dir);
-        $refused = 'This backup is too large to restore within the memory limit. Nothing was changed.';
+        $this->assertSame(100, $this->catalog($pdo, $dir)['items']);
 
         $client = $server->client();
         $csrf = bin2hex(random_bytes(32));
@@ -75,27 +75,62 @@ final class BackupMemoryTest extends TestCase
         file_put_contents($dir . '/sessions/sess_' . $sid, 'csrf|s:64:"' . $csrf . '";last_activity|i:' . time() . ';');
         $client->cookies['apothekesid'] = $sid;
         $r = $client->post('/backup/restore', ['csrf' => $csrf], ['backup' => ['name' => 'backup.zip', 'type' => 'application/zip', 'data' => $zip]]);
-        $this->assertSame(422, $r['status'], substr((string)$r['body'], 0, 500));
-        $this->assertStringContainsString($refused, (string)$r['body']);
-        $this->assertSame($before, $this->catalog($pdo, $dir), 'web');
+        $this->assertSame(200, $r['status'], substr((string)$r['body'], 0, 500));
+        $this->assertSame(1, preg_match('/name="token" value="([a-f0-9]{32})"/', (string)$r['body'], $m));
+        $r = $client->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $m[1], 'confirm' => '1']);
+        $this->assertSame([303, '/backup?restored=1'], [$r['status'], $r['headers']['location'] ?? null], substr((string)$r['body'], 0, 500));
+        $this->assertSame(['items' => self::ITEMS, 'notes' => self::ITEMS * 3000], array_slice($this->catalog($pdo, $dir), 0, 2), 'web');
 
+        $pdo->exec('DELETE FROM items WHERE id > 100');
         $r = $this->cli($dir, 'restore', ['cli.zip', '--yes'], '24M');
-        $this->assertSame([1, 'Invalid backup: ' . $refused . "\n"], [$r['exit'], $r['stderr']], $r['stdout']);   // the CLI's wording for a backup it will not open
-        $this->assertSame($before, $this->catalog($pdo, $dir), 'CLI');
+        $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+        $this->assertSame(['items' => self::ITEMS, 'notes' => self::ITEMS * 3000], array_slice($this->catalog($pdo, $dir), 0, 2), 'CLI');
 
-        // 6 MB of JSON that would decode to far more than 48 MB: refused before decoding.
+        // One 30 MB value at 24 MB: refused before it is read whole; nothing changed.
+        $pdo->exec('DELETE FROM items WHERE id > 100');
+        $before = $this->catalog($pdo, $dir);
+        $refused = 'This backup is too large to restore within the memory limit. Nothing was changed.';
+        $this->oneLargeNote($zip, $dir . '/large.zip', 30 * 1024 * 1024);
+        $r = $this->cli($dir, 'restore', ['large.zip', '--yes'], '24M');
+        $this->assertSame([1, 'Invalid backup: ' . $refused . "\n"], [$r['exit'], $r['stderr']], $r['stdout']);   // the CLI's wording for a backup it will not open
+        $this->assertSame($before, $this->catalog($pdo, $dir), 'large value');
+
+        // A small backup.json that would decode to far more: no longer decoded whole, so only "not a backup".
         $path = $dir . '/dense.zip';
         $z = new ZipArchive();
         $this->assertTrue($z->open($path, ZipArchive::CREATE));
         $z->addFromString('backup.json', '[' . str_repeat('[1,2],', 1_000_000) . '[1,2]]');
         $z->close();
-        $r = $this->cli($dir, 'restore', ['dense.zip', '--yes'], '48M');
-        $this->assertSame([1, 'Invalid backup: ' . $refused . "\n"], [$r['exit'], $r['stderr']], $r['stdout']);   // the CLI's wording for a backup it will not open
+        $r = $this->cli($dir, 'restore', ['dense.zip', '--yes'], '24M');
+        $this->assertSame([1, "Invalid backup: This is not an Apotheke backup.\n"], [$r['exit'], $r['stderr']], $r['stdout']);
         $this->assertSame($before, $this->catalog($pdo, $dir), 'dense');
 
-        $r = $this->cli($dir, 'restore', ['cli.zip', '--yes'], '256M');
+        // L-451: one 48 MB value restores at 128 MB.
+        $this->oneLargeNote($zip, $dir . '/large.zip', 48 * 1024 * 1024);
+        $r = $this->cli($dir, 'restore', ['large.zip', '--yes'], '128M');
         $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
-        $this->assertSame(self::ITEMS, (int)$pdo->query('SELECT COUNT(*) FROM items')->fetchColumn());
+        $this->assertSame([1, 48 * 1024 * 1024], array_map('intval', $pdo->query('SELECT COUNT(*), MAX(LENGTH(notes)) FROM items')->fetch(PDO::FETCH_NUM)));
+        foreach (glob($dir . '/tmp/restore-*.part') ?: [] as $f) {
+            $this->fail('a temp entry was left: ' . basename($f));
+        }
+    }
+
+    /** $zip's backup with its items replaced by one item whose notes are $bytes long, written to $path. */
+    private function oneLargeNote(string $zip, string $path, int $bytes): void
+    {
+        $json = $this->backupJson($zip, $path);
+        $dump = json_decode($json, true, 64, JSON_THROW_ON_ERROR);
+        unset($json);
+        $items = &$dump['tables']['items'];
+        $row = $items['rows'][0];
+        $row[array_search('notes', $items['columns'], true)] = '@NOTES@';
+        $items['rows'] = [$row];
+        unset($items);
+        [$head, $tail] = explode('"@NOTES@"', json_encode($dump, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), 2);
+        $z = new ZipArchive();
+        $this->assertTrue($z->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $z->addFromString('backup.json', $head . '"' . str_repeat('n', $bytes) . '"' . $tail);
+        $z->close();
     }
 
     /** @return array{items:int,notes:int,files:list<string>} */
