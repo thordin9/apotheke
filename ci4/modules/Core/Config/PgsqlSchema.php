@@ -13,6 +13,10 @@ use RuntimeException;
 /**
  * Create a PostgreSQL schema only when pg_namespace has no exact match, then
  * select it. A failed CREATE or SET search_path is not ignored.
+ *
+ * The usual case, a schema that exists and this role may use, takes two
+ * statements: SET search_path, then current_schema() names it. Only when it
+ * does not is pg_namespace read, and the schema created if it is missing.
  */
 final class PgsqlSchema
 {
@@ -22,6 +26,10 @@ final class PgsqlSchema
             return;
         }
         $quoted = '"' . str_replace('"', '""', $schema) . '"';
+        $session->exec('SET search_path TO ' . $quoted);
+        if ($session->currentSchema() === $schema) {
+            return;
+        }
         if (!$session->exists($schema)) {
             try {
                 $session->exec('CREATE SCHEMA IF NOT EXISTS ' . $quoted);

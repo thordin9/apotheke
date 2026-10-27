@@ -30,8 +30,37 @@ class Services extends BaseService
     }
 
     /**
-     * The CI4 connection. Migrations run once per process before it is used
-     * (BootMigration), not on every request, and through apotheke:migrate.
+     * The request, without CI4's user-agent tables: nothing reads the parsed
+     * browser, platform or robot, and building Config\UserAgents (four long
+     * lists, each entry checked against the environment) and matching the
+     * header against them was a fixed cost on every request (boot cost step).
+     * getUserAgent() still returns the header as sent.
+     */
+    public static function incomingrequest(?\Config\App $config = null, bool $getShared = true): \CodeIgniter\HTTP\IncomingRequest
+    {
+        if ($getShared) {
+            return static::getSharedInstance('request', $config);
+        }
+        $config ??= config(\Config\App::class);
+
+        return new \CodeIgniter\HTTP\IncomingRequest(
+            $config,
+            static::get('uri'),
+            'php://input',
+            new \CodeIgniter\HTTP\UserAgent(new class extends \Config\UserAgents {
+                public array $platforms = [];
+                public array $browsers = [];
+                public array $mobiles = [];
+                public array $robots = [];
+            }),
+        );
+    }
+
+    /**
+     * The CI4 connection: one database login per request. BootMigration checks
+     * the schema on it once per process (not on every request in a worker) and
+     * opens the migration runner's own connection only when a migration is
+     * missing; apotheke:migrate is the explicit way.
      */
     public static function apothekeDb(bool $getShared = true): object
     {
@@ -39,24 +68,31 @@ class Services extends BaseService
             return static::getSharedInstance('apothekeDb');
         }
         $config = static::apothekeConfig();
-        \Apotheke\Migrations\BootMigration::ensure($config);
         if (PHP_SAPI === 'cli') {
             // spark fires no pre_system; on the web Events.php has already wired the group.
             \Apotheke\Core\Boot\FrameworkWiring::apply($config);
         }
         $dbConfig = $config->database();
-        $factory = new \Apotheke\Core\Config\DatabaseFactory($config, new \Apotheke\Core\Config\DsnTranslator());
+        $translator = new \Apotheke\Core\Config\DsnTranslator();
+        if ($translator->credentialsDiffer($dbConfig)) {
+            \Apotheke\Migrations\PdoMigrationRunner::warnCredentialsDiffer();
+        }
+        $factory = new \Apotheke\Core\Config\DatabaseFactory($config, $translator);
         try {
             $db = \Config\Database::connect();
             $factory->apply($db);
         } catch (\CodeIgniter\Database\Exceptions\DatabaseException $e) {
             // CI4 connects lazily, on apply()'s first query. A refused connect carries
-            // libpq's text, which names the user. Report it as the sanitized line.
-            if (($dbConfig['driver'] ?? '') !== 'pgsql' || !isset($db) || $db->connID !== false) {
+            // libpq's text, which names the user. Report it as the sanitized line, as
+            // legacy db() does for either driver (a SQLite file that cannot be opened).
+            if (!isset($db) || $db->connID !== false) {
                 throw $e;
             }
-            throw new \Apotheke\Migrations\MigrateConnectException(\Apotheke\Migrations\PdoMigrationRunner::connectFailure($dbConfig));
+            // The runner's file declares the exception too: load it before naming the class.
+            $line = \Apotheke\Migrations\PdoMigrationRunner::connectFailure($dbConfig);
+            throw new \Apotheke\Migrations\MigrateConnectException($line);
         }
+        \Apotheke\Migrations\BootMigration::ensure($config, $db);
 
         return $db;
     }

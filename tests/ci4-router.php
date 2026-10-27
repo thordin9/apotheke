@@ -6,14 +6,16 @@ declare(strict_types=1);
  * Router for the PHP built-in server that tests/lib.php starts.
  * Static files and camera originals behave like ci4/public/router.php.
  * On the pgsql leg, after CI4 wires the connection, this checks the driver
- * is Postgre and inserts public.apotheke_ci4_pgsql_probe. Shipped boot does neither.
+ * is Postgre and inserts public.apotheke_ci4_pgsql_probe (on every request, unless
+ * APOTHEKE_TEST_PGSQL_PROBE=0). Shipped boot does neither.
  */
 
 if (!function_exists('ci4_test_arm_pgsql_probe')) {
     function ci4_test_arm_pgsql_probe(): void
     {
         static $armed = false;
-        if ($armed || getenv('APOTHEKE_TEST_DB') !== 'pgsql') {
+        // APOTHEKE_TEST_PGSQL_PROBE=0: a timing run (the parity gate) leaves out the probe's two statements.
+        if ($armed || getenv('APOTHEKE_TEST_DB') !== 'pgsql' || getenv('APOTHEKE_TEST_PGSQL_PROBE') === '0') {
             return;
         }
         $armed = true;
@@ -64,8 +66,8 @@ if (!function_exists('ci4_test_arm_pgsql_probe')) {
 if (!function_exists('ci4_test_arm_wrong_ci4_password')) {
     /**
      * Test only. APOTHEKE_TEST_CI4_WRONG_PASSWORD gives CI4's own Postgre
-     * connection a different password from the one the migration runner uses,
-     * so the runner connects and CI4's lazy connect is refused.
+     * connection a different password from the configured one, so CI4's lazy
+     * connect (the request's only login) is refused.
      */
     function ci4_test_arm_wrong_ci4_password(): void
     {
