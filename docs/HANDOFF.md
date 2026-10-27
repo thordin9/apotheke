@@ -256,6 +256,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Ci4BackupParityTest`, for a later `main` PR. Restore memory (L-441): CI4 refuses, before decoding, a
   `backup.json` that would not fit in the memory left ("too large to restore within the memory limit", 422 or
   exit 1), where legacy answers 500; a backup close to the limit may be refused. Streaming restore is next.
+- Restore lock (#133, L-450), CI4 only: one restore runs at a time, web and CLI alike, behind an exclusive lock on
+  `DATA_DIR/tmp/restore.lock` held for the files and the rows. A second restore started meanwhile is refused at once
+  with "Another restore is running. Try again when it has finished." (409 on the page, which keeps the upload so it
+  can be confirmed again; exit 1 in `bin/restore.php`). Legacy has no lock yet; port with L-440.
 - Sign-in deadline setting: both apps pace with `SIGN_IN_FAIL_MS` (#126; CI4 since #132, L-400), default 1000 ms,
   clamped to 400–10000; CI4's `signin.failDeadlineMs` / `signin_failDeadlineMs` are gone. Legacy starts the deadline
   at the request's start, CI4 at the controller's.
