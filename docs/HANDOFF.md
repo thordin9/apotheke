@@ -210,8 +210,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#142](https://github.com/thordin9/apotheke/pull/142): a restore makes `files/` with legacy's mode (0770 before the
   umask; it was 0700); a link at a camera map name is skipped and the other map entries are still written; and the
   #141 parity items: a link at a camera file's name stops the restore (L-560), the lock's stat cache is cleared before
-  its open (N-562), and writes check flush and close. Open,
-  full gate.
+  its open (N-562), and writes check flush and close. A replaced file keeps its owner and group (L-590), and a restore
+  stopped by a fatal error removes its files. Open, full gate.
 - [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
   camera link map through a temp file, L-560, L-561, N-562, N-564). Merged into `main` at 3f81db2, released as
   v2.6.24.
