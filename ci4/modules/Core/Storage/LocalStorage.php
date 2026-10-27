@@ -84,6 +84,8 @@ final class LocalStorage implements Storage
         try {
             $ok = $fill($fh);
         } finally {
+            // every byte, flushed and closed: a short write (a full disk) fails
+            $ok = @fflush($fh) && $ok;
             $ok = @fclose($fh) && $ok;
             if (!$ok) {
                 @unlink($tmp);
