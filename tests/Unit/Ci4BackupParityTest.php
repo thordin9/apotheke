@@ -64,8 +64,8 @@ final class Ci4BackupParityTest extends TestCase
         }
         $this->assertSame(['confirm failing write', 'confirm broken rows'], $details['legacy']);
         $this->assertSame([], $details['ci4'], 'CI4 shows no database error text');
-        // L-440, stricter than legacy (HANDOFF Tracked): a failed restore leaves CI4's files as they were.
-        $this->assertSame(['confirm failing write' => false, 'confirm broken rows' => true], $kept['legacy'], 'legacy keeps the files of a failed restore (the broken rows zip has none)');
+        // L-440: since v2.6.23 (#135) both apps put a failed restore's files back as they were.
+        $this->assertSame(['confirm failing write' => true, 'confirm broken rows' => true], $kept['legacy'], 'legacy restores the files of a failed restore since v2.6.23 (#135)');
         $this->assertSame(['confirm failing write' => true, 'confirm broken rows' => true], $kept['ci4']);
         $this->compare($answers);
         $l = $answers['legacy'];

@@ -207,6 +207,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   restore notes (N-442 to N-459, L-480, N-481). Open.
 - [#137](https://github.com/thordin9/apotheke/pull/137): boot cost (L-472): one database login per request, cheaper
   PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Open.
+- [#139](https://github.com/thordin9/apotheke/pull/139): sync `main` v2.6.23 (#135: the legacy restore lock and
+  failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Open.
 - [#140](https://github.com/thordin9/apotheke/pull/140): PLAN step 16 part 2, the upgrade and rollback gate
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
   legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Open.
@@ -229,6 +231,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   import/export and Backup files. Step 16 part 1, the parity gate (#134, merged at 27c422b): `tests/parity/gate.php`,
   `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
   attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 is unblocked (#133 is merged).
+  Sync v2.6.23 (#139, open). Step 16 part 2 (#140, merged). Next: step 16 part 3 (boot trim, p95 enforcement).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
