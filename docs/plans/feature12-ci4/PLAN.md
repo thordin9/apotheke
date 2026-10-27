@@ -357,7 +357,9 @@ cover, left/right, delete, edit) and their `photos` spec follow as 11a part 2 (#
 
 Step 14 status ([#127](https://github.com/thordin9/apotheke/pull/127)): ImportExport is ported (`/export.csv`, the CSV
 upload, mapping, preview and import), with the golden test `tests/Unit/Ci4ImportExportParityTest.php`; the `import`
-spec runs on CI4. Backup and restore follow as the second part.
+spec runs on CI4. Backup and restore are the second part ([#133](https://github.com/thordin9/apotheke/pull/133)): the Backup module (web, spark,
+`bin/backup.php`, `bin/restore.php`), with `tests/Unit/Ci4BackupParityTest.php` (cross-restore both ways, pre-#28
+zips) and `Ci4BackupCliTest`; the `data` spec runs on CI4.
 
 ### 4.3 Autofill acceptance matrix (autofill client PR, #12)
 
