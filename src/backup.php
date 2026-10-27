@@ -292,6 +292,7 @@ function backup_restore_lock(string $dataDir, ?Closure $afterCheck = null, ?Clos
     if ($named !== false && !backup_plain_file($named)) throw new UserError(BACKUP_RESTORE_FAILED);
     if ($afterCheck !== null) $afterCheck();
     if ($named === false) backup_restore_lock_create($path);
+    clearstatcache(true, $path);
     $fh = @fopen($path, 'r');
     if ($fh === false) throw new UserError(BACKUP_RESTORE_FAILED);
     if ($afterOpen !== null) $afterOpen();
@@ -360,7 +361,11 @@ function backup_restore_create(string $path, string $bytes, array &$created): vo
 function backup_restore_temp(string $path, string $bytes): string
 {
     $tmp = dirname($path) . '/.restore-' . bin2hex(random_bytes(6));
-    if (@file_put_contents($tmp, $bytes, LOCK_EX) !== strlen($bytes)) {
+    $fh = @fopen($tmp, 'x');
+    // every byte, flushed and closed: a short write (a full disk) fails the restore
+    $ok = $fh !== false && @fwrite($fh, $bytes) === strlen($bytes) && @fflush($fh);
+    if ($fh !== false) $ok = @fclose($fh) && $ok;
+    if (!$ok) {
         @unlink($tmp);
         throw new UserError(BACKUP_RESTORE_FAILED);
     }
@@ -538,8 +543,9 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
         $data = backup_restore_entry($zip, 'originals/' . $base);
         if ($data === null) { $warnings[] = "Original $base is missing from the archive."; continue; }
         $dest = ORIGINALS_DIR . '/' . $base;
+        // a link at a camera file's name, to anything or nowhere, stops the restore: its mode is set once the rows are in
+        if (is_link($dest)) throw new UserError(BACKUP_RESTORE_FAILED);
         if (!is_file($dest)) {
-            if (is_link($dest)) throw new UserError(BACKUP_RESTORE_FAILED);   // not a folder that cannot be written: stop
             try {
                 backup_restore_create($dest, $data, $created);
             } catch (UserError) {
@@ -563,7 +569,8 @@ function backup_restore_link_originals(array $links, array &$warnings): void
 {
     $warning = 'Camera files could not be restored (originals directory is not writable).';
     foreach ($links as $map => $dest) {
-        originals_chmod_file($dest);
+        $file = @lstat($dest);
+        if ($file !== false && backup_plain_file($file)) @chmod($dest, 0640);   // never through a link
         $named = @lstat($map);
         if ($named !== false && !backup_plain_file($named)) {
             if (!in_array($warning, $warnings, true)) $warnings[] = $warning;
