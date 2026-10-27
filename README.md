@@ -83,10 +83,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 12.7 % | 99.4 % | 99.3 % |
 | Control Panel settings | 73.2 % | 88.2 % | 92.9 % |
-| Backup & restore | 87.8 % | 89.5 % | 96.9 % |
+| Backup & restore | 87.1 % | 85.6 % | 95.2 % |
 | Database, migrations, legacy | 81.7 % | 81.5 % | 91.9 % |
 | Bootstrap, config, QR, seed | 73.6 % | 75.6 % | 91.0 % |
-| **All PHP** (7607 lines) | **67.0 %** | **89.2 %** | **95.5 %** |
+| **All PHP** (7650 lines) | **67.1 %** | **89.1 %** | **95.4 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
