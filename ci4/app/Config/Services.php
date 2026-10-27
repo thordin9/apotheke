@@ -30,6 +30,33 @@ class Services extends BaseService
     }
 
     /**
+     * The request, without CI4's user-agent tables: nothing reads the parsed
+     * browser, platform or robot, and building Config\UserAgents (four long
+     * lists, each entry checked against the environment) and matching the
+     * header against them was a fixed cost on every request (boot cost step).
+     * getUserAgent() still returns the header as sent.
+     */
+    public static function incomingrequest(?\Config\App $config = null, bool $getShared = true)
+    {
+        if ($getShared) {
+            return static::getSharedInstance('request', $config);
+        }
+        $config ??= config(\Config\App::class);
+
+        return new \CodeIgniter\HTTP\IncomingRequest(
+            $config,
+            static::get('uri'),
+            'php://input',
+            new \CodeIgniter\HTTP\UserAgent(new class extends \Config\UserAgents {
+                public array $platforms = [];
+                public array $browsers = [];
+                public array $mobiles = [];
+                public array $robots = [];
+            }),
+        );
+    }
+
+    /**
      * The CI4 connection: one database login per request. BootMigration checks
      * the schema on it once per process (not on every request in a worker) and
      * opens the migration runner's own connection only when a migration is
