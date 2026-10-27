@@ -129,7 +129,7 @@ final class BackupCli
             }
         }
         try {
-            $r = $this->restorer->restore($this->path($file));
+            $r = $this->restorer->restore($this->path($file), true);   // the command line may restore the settings
         } catch (UserError $e) {
             fwrite($this->err, $e->getMessage() . "\n");
 

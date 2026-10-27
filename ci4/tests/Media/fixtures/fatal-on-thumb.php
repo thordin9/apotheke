@@ -49,6 +49,11 @@ final class FatalOnThumb implements Storage
         $this->inner->write($key, $bytes);
     }
 
+    public function writeStream(string $key, mixed $stream): void
+    {
+        $this->inner->writeStream($key, $stream);
+    }
+
     public function delete(string $key): void
     {
         $this->inner->delete($key);
