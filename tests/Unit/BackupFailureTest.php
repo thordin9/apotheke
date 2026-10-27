@@ -71,7 +71,13 @@ final class BackupFailureTest extends TestCase
             file_put_contents($dir . '/cli.zip', $good);
             $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
             $this->assertSame(1, $cli['exit'], $cli['stdout'] . $cli['stderr']);
-            $this->assertStringContainsString('test failure', $cli['stderr']);
+            if (getenv('APOTHEKE_APP') === 'ci4') {
+                // CI4 prints a sanitized line, never the database's error text.
+                $this->assertStringContainsString('The backup could not be restored. Nothing was changed.', $cli['stderr']);
+                $this->assertStringNotContainsString('test failure', $cli['stderr']);
+            } else {
+                $this->assertStringContainsString('test failure', $cli['stderr']);
+            }
             $this->assertStringEndsWith("Nothing was changed.\n", $cli['stderr']);
             unlink($dir . '/cli.zip');
             $this->assertSame($before, $this->state($pdo, $dir), 'database error (CLI)');
