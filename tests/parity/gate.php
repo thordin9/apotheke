@@ -504,18 +504,18 @@ const PARITY_GATE_SECURITY_HEADERS = ['content-security-policy', 'cross-origin-o
  */
 const PARITY_GATE_CACHE_PAIR = ['no-store, no-cache, must-revalidate' => 'legacy', 'no-store, max-age=0, no-cache' => 'ci4'];
 
-/**
- * The headers of one answer as the gate compares them: Cache-Control, Pragma and Expires; every Set-Cookie in full
- * (parity_gate_cookie()); the security headers.
- * @param list<string> $raw the raw header lines
- * @return array{cache:string, pragma:?string, expires:?string, cookies:list<string>, security:array<string,?string>}
- */
 /** `?v=` asset cache-busters come from file times or contents, so HTML and JSON (the manifest icons) compare them as `?v=V` (N-490). */
 function parity_gate_cache_bust(string $s): string
 {
     return (string)preg_replace('#(/assets/[a-z0-9.-]+)\?v=[0-9a-f]{8}#', '$1?v=V', $s);
 }
 
+/**
+ * The headers of one answer as the gate compares them: Cache-Control, Pragma and Expires; every Set-Cookie in full
+ * (parity_gate_cookie()); the security headers.
+ * @param list<string> $raw the raw header lines
+ * @return array{cache:string, pragma:?string, expires:?string, cookies:list<string>, security:array<string,?string>}
+ */
 function parity_gate_headers(int $status, bool $json, array $raw, callable $hide): array
 {
     $h = [];
