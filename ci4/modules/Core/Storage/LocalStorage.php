@@ -32,6 +32,35 @@ final class LocalStorage implements Storage
 
     public function write(string $key, string $bytes): void
     {
+        $this->put($key, static fn ($fh): bool => self::writeAll($fh, $bytes));
+    }
+
+    public function writeStream(string $key, mixed $stream): void
+    {
+        $this->put($key, static function ($fh) use ($stream): bool {
+            while (!feof($stream)) {
+                $chunk = @fread($stream, 65536);
+                if ($chunk === false || ($chunk === '' && !feof($stream))) {
+                    return false;
+                }
+                if (!self::writeAll($fh, $chunk)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+    }
+
+    /**
+     * Write through a hidden temp file in the key's folder, then rename it
+     * into place. A write that fails part way (a full disk, N-452) removes
+     * the temp file, also when a warning is thrown as an exception.
+     *
+     * @param \Closure(resource):bool $fill writes the bytes; false when it could not
+     */
+    private function put(string $key, \Closure $fill): void
+    {
         $path = $this->path($key);
         if ($path === null) {
             throw new InvalidArgumentException('Invalid storage key.');
@@ -48,18 +77,18 @@ final class LocalStorage implements Storage
         if ($fh === false) {
             throw new RuntimeException('Could not store the file.');
         }
-        $written = 0;
-        $len = strlen($bytes);
-        while ($written < $len) {
-            $n = fwrite($fh, substr($bytes, $written));
-            if ($n === false || $n === 0) {
-                fclose($fh);
+        $ok = false;
+        try {
+            $ok = $fill($fh);
+        } finally {
+            $ok = @fclose($fh) && $ok;
+            if (!$ok) {
                 @unlink($tmp);
-                throw new RuntimeException('Could not store the file.');
             }
-            $written += $n;
         }
-        fclose($fh);
+        if (!$ok) {
+            throw new RuntimeException('Could not store the file.');
+        }
         if ($this->fileMode !== null) {
             @chmod($tmp, $this->fileMode);
         }
@@ -67,6 +96,19 @@ final class LocalStorage implements Storage
             @unlink($tmp);
             throw new RuntimeException('Could not store the file.');
         }
+    }
+
+    /** @param resource $fh */
+    private static function writeAll($fh, string $bytes): bool
+    {
+        $len = strlen($bytes);
+        $written = @fwrite($fh, $bytes);
+        while ($written !== false && $written > 0 && $written < $len) {
+            $n = @fwrite($fh, substr($bytes, $written));
+            $written = $n === false || $n === 0 ? false : $written + $n;
+        }
+
+        return $written === $len;
     }
 
     public function delete(string $key): void
