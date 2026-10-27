@@ -229,6 +229,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    scripts skip CI4 until it has the backup pages: on CI4, `/backup/restore` answers 404 until
    [#133](https://github.com/thordin9/apotheke/pull/133) lands (N-431).
 5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
+6. Later, #132 QA nits (deferred): the exit-78 message for a linked data directory should name `ORIGINALS_DIR` or
+   mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
+   `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
+   and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
 
 ## Tracked
 
