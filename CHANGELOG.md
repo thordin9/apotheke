@@ -8,6 +8,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **backup:** reliability: a restore refuses a backup holding a file bigger than one restore unpacks (200 MiB, `backup.json` aside) before reading it, in the browser (422) and with `bin/restore.php` (exit 1); a restore stopped by a fatal error, such as running out of memory, still removes the files it had written; a link where a restore would write a new file, or at an existing camera file's name, stops the restore and is left as it is; a short write, such as on a full disk, fails the restore; the photos' camera-file links are written through a temp file and renamed into place, and one whose name is taken by a link is skipped while the restore continues; the restore lock is only ever a plain file. A failed restore leaves the catalog and the existing files as they were; folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a restore whose process is killed can leave the new files it had written, which nothing refers to. ([#141](https://github.com/thordin9/apotheke/pull/141))
+
+### Maintenance
+
+- **backup:** test: cover the entry size cap, links, the lock file, and failed and refused restores in the browser ([#141](https://github.com/thordin9/apotheke/pull/141))
+
 ## [2.6.23] - 2026-10-27
 
 ### Fixed
