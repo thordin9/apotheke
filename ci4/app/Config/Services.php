@@ -57,6 +57,19 @@ class Services extends BaseService
     }
 
     /**
+     * The route collection, from the compiled routes when they match
+     * app/Config/Routes.php (PLAN step 16 part 3; CompiledRouteCollection).
+     */
+    public static function routes(bool $getShared = true): \CodeIgniter\Router\RouteCollection
+    {
+        if ($getShared) {
+            return static::getSharedInstance('routes');
+        }
+
+        return new \Apotheke\Core\Http\CompiledRouteCollection(static::get('locator'), new \Config\Modules(), config(\Config\Routing::class));
+    }
+
+    /**
      * The CI4 connection: one database login per request. BootMigration checks
      * the schema on it once per process (not on every request in a worker) and
      * opens the migration runner's own connection only when a migration is
