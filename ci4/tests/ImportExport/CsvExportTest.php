@@ -104,6 +104,50 @@ final class CsvExportTest extends CIUnitTestCase
     }
 
     /**
+     * N-422: each batch reads the tags of its own items only, so memory does
+     * not grow with the number of tagged items.
+     */
+    #[DataProvider('drivers')]
+    public function testEachBatchReadsOnlyItsOwnItemsTags(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $pdo = $this->database->pdo();
+        $pdo->exec("INSERT INTO tags (name, name_key, sort_key, created_at) VALUES ('t', 't', 't', '2026-01-01')");
+        $item = $pdo->prepare("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES (?, 1, '', ?, '2026-01-01', '2026-01-01')");
+        $n = 2 * CsvExport::BATCH + 1;
+        for ($i = 1; $i <= $n; $i++) {
+            $item->execute(['a' . $i, sprintf('a%04d', $i)]);
+        }
+        $pdo->exec('INSERT INTO item_tags (item_id, tag_id) SELECT i.id, t.id FROM items i, tags t');
+
+        $tagQueries = [];
+        $listener = static function (\CodeIgniter\Database\Query $q) use (&$tagQueries): void {
+            if (str_contains($q->getQuery(), 'FROM item_tags')) {
+                $tagQueries[] = $q->getQuery();
+            }
+        };
+        \CodeIgniter\Events\Events::on('DBQuery', $listener);
+        try {
+            $lines = iterator_to_array((new CsvExport($db))->lines('EUR'), false);
+        } finally {
+            \CodeIgniter\Events\Events::removeListener('DBQuery', $listener);
+        }
+        $this->assertCount($n + 1, $lines);
+        $ids = array_map(static fn (string $l): int => (int)strtok($l, ','), array_slice($lines, 1));
+        $this->assertStringContainsString(',t,', $lines[$n], 'every item still has its tag');
+        $batches = array_chunk($ids, CsvExport::BATCH);
+        $this->assertCount(count($batches), $tagQueries, 'one tag query per batch');
+        foreach ($tagQueries as $i => $sql) {
+            $read = array_map(static fn (array $r): int => (int)$r['item_id'], $db->query($sql)->getResultArray());
+            sort($read);
+            $batch = $batches[$i];
+            sort($batch);
+            $this->assertSame($batch, $read, 'batch ' . $i . ' reads its own items\' tags');
+        }
+    }
+
+    /**
      * N-421: on PostgreSQL the export's transaction bounds its statements and
      * the wait between two batches; the settings end with it.
      */
