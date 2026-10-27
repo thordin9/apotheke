@@ -19,7 +19,7 @@ final class ParityGateTest extends TestCase
         $this->assertSame(19.0, parity_p95(array_map('floatval', range(20, 1, -1))), 'sorted first; rank ceil(0.95 × 20) = 19');
     }
 
-    /** The temporary budget: CI4's p95 within legacy + N ms (5 on SQLite, 12 on PG in CI), next to the +N % bar. */
+    /** The temporary budget: CI4's p95 within legacy + N ms (8 on SQLite, 20 on PG in CI), next to the +N % bar. */
     public function testTheP95BudgetFailsOnlyWhenExceeded(): void
     {
         $this->assertSame([], parity_p95_over(2.08, 7.08, null, 5.0), 'exactly +5 ms is within budget');
@@ -32,6 +32,20 @@ final class ParityGateTest extends TestCase
         $this->assertSame([], parity_p95_over(10.0, 12.0, 20.0, null), 'exactly +20 % is within budget');
         $this->assertSame([], parity_p95_over(1.0, 50.0, null, null), 'no limit set: report only');
         $this->assertSame([], parity_p95_over(0.0, 3.0, 20.0, 5.0), 'no legacy samples: the % bound cannot apply');
+    }
+
+    /** The PM's fallback: the absolute budget may compare medians instead of p95. */
+    public function testTheBudgetStatisticIsP95OrMedian(): void
+    {
+        $this->assertSame(3.0, parity_median([5.0, 1.0, 3.0]));
+        $this->assertSame(2.0, parity_median([4.0, 1.0, 3.0, 2.0]), 'nearest rank: the lower middle');
+        $this->assertSame(0.0, parity_median([]));
+        $this->assertSame('p95', parity_budget_stat(false));
+        $this->assertSame('p95', parity_budget_stat(''));
+        $this->assertSame('p95', parity_budget_stat('p95'));
+        $this->assertSame('median', parity_budget_stat(' Median '));
+        $this->expectException(InvalidArgumentException::class);
+        parity_budget_stat('p50');
     }
 
     public function testP95LimitsComeFromTheEnvironment(): void

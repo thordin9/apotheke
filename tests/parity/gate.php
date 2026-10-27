@@ -86,12 +86,36 @@ function parity_gate(int $rounds = 15): array
     }
 }
 
-/** p95 (nearest rank) of samples in ms. @param list<float> $ms */
-function parity_p95(array $ms): float
+/** The $q quantile (nearest rank) of samples in ms. @param list<float> $ms */
+function parity_quantile(array $ms, float $q): float
 {
     if ($ms === []) return 0.0;
     sort($ms);
-    return $ms[max(0, (int)ceil(0.95 * count($ms)) - 1)];
+    return $ms[max(0, (int)ceil($q * count($ms)) - 1)];
+}
+
+/** p95 (nearest rank) of samples in ms. @param list<float> $ms */
+function parity_p95(array $ms): float
+{
+    return parity_quantile($ms, 0.95);
+}
+
+/** Median (nearest rank, the lower middle) of samples in ms. @param list<float> $ms */
+function parity_median(array $ms): float
+{
+    return parity_quantile($ms, 0.5);
+}
+
+/**
+ * Which statistic the absolute budget (PARITY_P95_MAX_ABS_MS) compares: `p95` (unset or empty) or `median`, the
+ * PM's fallback when runner noise fails the p95 gap. The +N % bound always compares p95.
+ */
+function parity_budget_stat(string|false $raw): string
+{
+    $v = $raw === false ? '' : strtolower(trim($raw));
+    if ($v === '') return 'p95';
+    if ($v !== 'p95' && $v !== 'median') throw new InvalidArgumentException("PARITY_BUDGET_STAT must be p95 or median, got '$raw'");
+    return $v;
 }
 
 /**
