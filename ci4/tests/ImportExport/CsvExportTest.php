@@ -103,6 +103,34 @@ final class CsvExportTest extends CIUnitTestCase
         $pdo->exec('ALTER TABLE items_gone RENAME TO items');
     }
 
+    /**
+     * N-421: on PostgreSQL the export's transaction bounds its statements and
+     * the wait between two batches; the settings end with it.
+     */
+    public function testThePostgresSnapshotIsBounded(): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->markTestSkipped('PostgreSQL is not configured');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        $db = $this->database->db;
+        $this->database->pdo()->exec("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES ('a', 1, '', 'a', '2026-01-01', '2026-01-01')");
+        $show = static fn (string $name): string => (string)$db->query('SHOW ' . $name)->getRow(0, 'array')[$name];
+        $before = [$show('statement_timeout'), $show('idle_in_transaction_session_timeout')];
+        $this->assertNotSame(['1min', '5min'], $before, 'the server defaults differ from the bounds');
+
+        $lines = (new CsvExport($db))->lines('EUR');
+        $lines->current();
+        $this->assertSame(['1min', '5min'], [$show('statement_timeout'), $show('idle_in_transaction_session_timeout')], 'set while the snapshot is open');
+        $this->assertSame([CsvExport::PG_STATEMENT_TIMEOUT, CsvExport::PG_IDLE_TIMEOUT], ['60s', '5min']);
+        $rows = 0;
+        for ($lines->next(); $lines->valid(); $lines->next()) {
+            $rows++;
+        }
+        $this->assertSame(1, $rows);
+        $this->assertSame($before, [$show('statement_timeout'), $show('idle_in_transaction_session_timeout')], 'they end with the snapshot');
+    }
+
     /** @param list<string> $cells */
     private static function csv(array $cells): string
     {
