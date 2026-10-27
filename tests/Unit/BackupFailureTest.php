@@ -300,6 +300,29 @@ final class BackupFailureTest extends TestCase
         }
     }
 
+    /**
+     * A camera-link map file that shares its data with another file (a hard link) is replaced, not written in place:
+     * the other file keeps its bytes.
+     */
+    public function testACameraMapFileIsReplacedNotWrittenInPlace(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            $other = $dir . '/elsewhere';
+            file_put_contents($other, 'keep me');
+            unlink($map);
+            $this->assertTrue(link($other, $map));
+            file_put_contents($dir . '/cli.zip', $good);
+            $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+            $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+            unlink($dir . '/cli.zip');
+            clearstatcache();
+            $this->assertSame('keep me', file_get_contents($other));
+            $this->assertSame([self::NEW_ORIGINAL, '640', 1], [file_get_contents($map), sprintf('%o', fileperms($map) & 0777), stat($map)['nlink']]);
+            unlink($other);
+        });
+    }
+
     /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
     private function withCatalog(callable $fn): void
     {
