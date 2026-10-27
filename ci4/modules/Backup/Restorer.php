@@ -31,7 +31,9 @@ use ZipArchive;
  * on failure, and the camera-original links (originals/map/) are rewritten
  * only after the rows commit. A listed entry that cannot be read fails the
  * restore. Before backup.json is read and decoded, its size is checked
- * against the memory left (L-441).
+ * against the memory left (L-441). One restore runs at a time: the whole
+ * restore holds an exclusive lock on DATA_DIR/tmp/restore.lock, and a
+ * second one is refused at once with BUSY (L-450).
  *
  * Every entry name must be one the backup writes, so no entry can name a
  * path outside its folder. Files are written through Storage (no symlinked
@@ -48,6 +50,11 @@ final class Restorer
     public const MAX_ENTRIES = 100_000;
 
     public const FAILED = 'The backup could not be restored. Nothing was changed.';
+
+    public const BUSY = 'Another restore is running. Try again when it has finished.';
+
+    /** In DATA_DIR/tmp; held for the whole restore (L-450). */
+    public const LOCK_FILE = 'restore.lock';
 
     public const TOO_LARGE = 'This backup is too large to restore within the memory limit. Nothing was changed.';
 
@@ -116,6 +123,41 @@ final class Restorer
      * @return array{tables:array<string,int>,photos:int,warnings:list<string>,token_cleared:bool}
      */
     public function restore(string $zipPath): array
+    {
+        // L-450: one restore at a time, files and rows alike (web and CLI); a second one is refused at once.
+        $lock = $this->lock();
+        try {
+            return $this->restoreLocked($zipPath);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    /**
+     * DATA_DIR/tmp/restore.lock, held exclusively. Not waited for: while
+     * another restore holds it, the answer is BUSY (409).
+     *
+     * @return resource
+     */
+    private function lock()
+    {
+        $fh = @fopen($this->backups->tmpDir() . '/' . self::LOCK_FILE, 'c');
+        if ($fh === false) {
+            throw new UserError(self::FAILED);
+        }
+        if (!flock($fh, LOCK_EX | LOCK_NB)) {
+            fclose($fh);
+            throw new UserError(self::BUSY, 409);
+        }
+
+        return $fh;
+    }
+
+    /**
+     * @return array{tables:array<string,int>,photos:int,warnings:list<string>,token_cleared:bool}
+     */
+    private function restoreLocked(string $zipPath): array
     {
         $b = $this->open($zipPath);
         $dump = $b['dump'];

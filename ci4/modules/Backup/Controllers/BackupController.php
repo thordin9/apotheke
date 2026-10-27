@@ -114,8 +114,9 @@ final class BackupController extends CatalogController
         try {
             $restored = $restorer->restore($file);
         } catch (UserError $e) {
-            // As legacy (its exit skips the finally): the upload waits for the hourly sweep.
-            return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage()), 422);
+            // As legacy (its exit skips the finally): the upload waits for the hourly sweep,
+            // so a restore refused while another runs (409, L-450) can be confirmed again.
+            return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage()), $e->getCode() === 409 ? 409 : 422);
         } catch (\Throwable $e) {
             @unlink($file);
             throw $e;
