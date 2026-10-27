@@ -1,7 +1,7 @@
 # Default is the shipped image. Bump this patch pin on each PHP security release.
-# CI's 8.4 leg passes an exact PHP_VERSION build-arg (see .github/workflows/ci.yml).
+# CI's Docker job passes the same exact PHP_VERSION build-arg (see .github/workflows/ci.yml).
 # The CI4 app (APOTHEKE_APP=ci4) needs PHP 8.4; the entrypoint refuses it on an older image.
-ARG PHP_VERSION=8.3.36
+ARG PHP_VERSION=8.4.27
 
 # CI4's Composer packages without dev dependencies, and its optimised autoloader. intl is checked in the image below.
 FROM composer:2.10.3 AS ci4-vendor
@@ -94,8 +94,8 @@ COPY --chown=root:root config.example.php VERSION /var/www/app/
 # CI4 (APOTHEKE_APP=ci4): nginx serves ci4/public; app, modules, vendor, writable and spark stay outside it.
 COPY --chown=root:root ci4 /var/www/app/ci4
 COPY --from=ci4-vendor --chown=root:root /ci4/vendor /var/www/app/ci4/vendor
-# The autoloader check runs on 8.4 only: CI4's Composer platform check refuses PHP < 8.4, so the 8.3 image ships CI4
-# but cannot run it (the entrypoint says so).
+# The autoloader check runs on 8.4 or later only: CI4's Composer platform check refuses PHP < 8.4, so an image built
+# with an older PHP_VERSION ships CI4 but cannot run it (the entrypoint says so).
 RUN set -eux; \
     mkdir -p /var/www/app/ci4/writable/cache /var/www/app/ci4/writable/logs /var/www/app/ci4/writable/session \
         /var/www/app/ci4/writable/uploads /var/www/app/ci4/writable/debugbar; \

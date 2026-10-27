@@ -85,6 +85,7 @@ final class DockerfileTest extends TestCase
             $this->assertStringContainsString("\n{$line}\n", "\n{$ignore}", $line);
         }
         $this->assertStringContainsString("ARG APOTHEKE_APP=legacy\n", $this->dockerfile());
+        $this->assertTrue(version_compare((string)$this->pin($this->dockerfile()), '8.4.0', '>='), 'the shipped image runs CI4');
     }
 
     /** L-430: root never follows a link in the www-data-owned data dir, and nginx keeps its temp files off /tmp. */

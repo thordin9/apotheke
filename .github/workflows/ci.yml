@@ -81,7 +81,7 @@ jobs:
       matrix:
         # PHP 8.4 × both apps. scripts/ci4-leg.sh accepts only legacy and ci4.
         # legacy@8.4 runs the same PHPUnit suite as legacy@8.3.
-        # Lint, mobile, Playwright and Docker also run on 8.3 and 8.4.
+        # Lint, mobile and Playwright also run on 8.3 and 8.4; Docker builds the shipped 8.4 image.
         # ci4 requires PHP ^8.4 (ci4/composer.json), so the 8.3 legs test legacy only.
         # For ci4, the migration runner goldens run on 8.3 and the /healthz goldens on 8.4.
         app: [legacy, ci4]
@@ -322,12 +322,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Exact PHP patches, passed as the PHP_VERSION build-arg. 8.3 is the shipped
-        # default (Dockerfile ARG PHP_VERSION) and must match it; 8.4 is the ci4 image.
-        # ci4 requires PHP ^8.4 (ci4/composer.json), so the 8.3 leg tests legacy only.
+        # The exact PHP patch, passed as the PHP_VERSION build-arg. It is the shipped
+        # default (Dockerfile ARG PHP_VERSION) and must match it. The one image serves
+        # legacy (the default) and ci4 (APOTHEKE_APP=ci4).
         include:
-          - php: '8.3'
-            php_patch: '8.3.36'
           - php: '8.4'
             php_patch: '8.4.27'
     services:
@@ -436,14 +434,6 @@ jobs:
           code=$(docker inspect -f '{{.State.ExitCode}}' apotheke)
           echo "stopped in $(( $(date +%s) - start ))s with exit code $code"
           test "$code" = 0
-      - name: CI4 refuses the PHP 8.3 image (APOTHEKE_APP=ci4 needs 8.4)
-        if: matrix.php == '8.3'
-        run: |
-          set -euo pipefail
-          code=0; out=$(docker run --rm -e APOTHEKE_APP=ci4 -e ALLOW_NO_LOGIN=1 apotheke:ci 2>&1) || code=$?
-          echo "$out"
-          test "$code" = 64
-          grep -q 'needs the PHP 8.4 image' <<<"$out"
       - name: CI4 image, sign-in required at start (#75 port; APOTHEKE_APP=ci4)
         if: matrix.php == '8.4'
         run: APOTHEKE_APP=ci4 bash scripts/docker-signin-checks.sh apotheke:ci

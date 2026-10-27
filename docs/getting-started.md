@@ -60,12 +60,12 @@ through; add any other variable from [Configuration](configuration.md) under `en
 source to use with Docker, because it stays out of the `./data` volume. For `APP_KEY_FILE` and its file permissions
 see [Stored secrets](configuration.md#stored-secrets).
 
-**What's in the image:** `php:8.3.36-fpm-alpine` with nginx in the same container and the `gd`, `imagick` (HEIC/HEIF
+**What's in the image:** `php:8.4.27-fpm-alpine` with nginx in the same container and the `gd`, `imagick` (HEIC/HEIF
 via `libheif`), `exif`, `opcache`, `pdo_pgsql`, `sodium` and `zip` extensions. Imagick is built from its GitHub
 release tag, with pecl.php.net as a second source, each pinned by its own sha256 (`IMAGICK_SHA256` and
 `IMAGICK_PECL_SHA256` next to `IMAGICK_VERSION` in the `Dockerfile`; change all three to upgrade). Opcache is on and
-JIT is off. The default `ARG PHP_VERSION=8.3.36` is the shipped image; `docker build --build-arg PHP_VERSION=8.4.27`
-builds the CI test image for the CI4 port from the same Dockerfile. `tini` is PID 1 and `docker/entrypoint.sh`:
+JIT is off. The default `ARG PHP_VERSION=8.4.27` is the shipped image. It serves the legacy app, or the CI4 port
+with `APOTHEKE_APP=ci4`. `tini` is PID 1 and `docker/entrypoint.sh`:
 
 1. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`
    (it refuses to start, exit code 78, when one of them is a symbolic link),
@@ -124,7 +124,7 @@ is set. With `--network host`, set `-e PORT=8081` (or any free port) so nginx li
 
 ## Without Docker
 
-Requirements: PHP 8.2+ (CI and the Docker image use 8.3) with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP),
+Requirements: PHP 8.2+ (the Docker image uses 8.4; CI also tests 8.3) with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP),
 `mbstring`, `sodium` (stored secrets) and `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG
 logo uploads, `opcache` for speed. Optional `imagick` reads HEIC and files GD cannot; without it a HEIC upload is kept
 and shown as a placeholder. SQLite is built in; PostgreSQL is tested with 17. If you turn on function JIT, see
