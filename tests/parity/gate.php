@@ -36,7 +36,8 @@ function parity_gate(int $rounds = 15): array
         throw new RuntimeException('skip');
     }
     $stub = new StubServer();
-    $env = ['APOTHEKE_CLOCK' => '2026-06-15 09:00:00', 'PUBLIC_URL' => 'http://catalog.example/'];
+    // APOTHEKE_TEST_PGSQL_PROBE=0: the harness's pgsql probe (a CREATE and an INSERT on every CI4 request) is not timed.
+    $env = ['APOTHEKE_CLOCK' => '2026-06-15 09:00:00', 'PUBLIC_URL' => 'http://catalog.example/', 'APOTHEKE_TEST_PGSQL_PROBE' => '0'];
     $runs = [];
     try {
         foreach (['legacy', 'ci4'] as $app) {
