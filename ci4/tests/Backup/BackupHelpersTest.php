@@ -6,6 +6,7 @@ namespace Tests\Backup;
 
 use Apotheke\Backup\Backups;
 use Apotheke\Backup\Commands\BackupCli;
+use Apotheke\Backup\JsonReader;
 use Apotheke\Backup\Restorer;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Core\Exceptions\UserError;
@@ -31,7 +32,9 @@ final class BackupHelpersTest extends CIUnitTestCase
         foreach (['', '/backup.json', 'backup.json/', './backup.json', '../backup.json', 'app.key', 'config.php',
             'images', "images/../$h32.jpg", "images/$h32.png", "images/{$h32}0.jpg", 'images/' . strtoupper($h32) . '.jpg',
             "images/$h32.jpg\n", "thumbs/sub/$h32.jpg", "files/$h32.exe", "files/$h32.heic", "originals/$h32.jpg",
-            "originals/$h64.pdf", "originals/index.json\n", "files\\$h32.pdf", "other/$h32.jpg"] as $bad) {
+            "originals/$h64.pdf", "originals/index.json\n", "files\\$h32.pdf", "other/$h32.jpg",
+            // N-444: every rule is anchored at its end.
+            "files/$h32.pdf.php", "files/$h32.pdfx", "images/$h32.jpg.php", "thumbs/$h32.jpgx", "originals/$h64.png.php", 'images/x', "files/$h32.pdf\n"] as $bad) {
             $this->assertFalse(Restorer::entryNameOk($bad), json_encode($bad, JSON_THROW_ON_ERROR));
         }
         $this->assertTrue(Restorer::originalNameOk("$h64.png"));
@@ -49,16 +52,15 @@ final class BackupHelpersTest extends CIUnitTestCase
     public function testPhotoAndAttachmentNamesComeFromTheirColumns(): void
     {
         $a = str_repeat('a', 32);
-        $b = str_repeat('b', 32);
-        $dump = ['tables' => [
-            'items' => ['columns' => ['id', 'image'], 'rows' => [[1, "$b.jpg"], [2, null], [3, '../x.jpg'], 'odd']],
-            'item_photos' => ['columns' => ['item_id', 'file'], 'rows' => [[1, "$a.jpg"], [1, "$b.jpg"], [1, 5]]],
-            'item_attachments' => ['columns' => ['file', 'item_id'], 'rows' => [["$a.pdf", 1], ["$a.exe", 1], ["$b.png", 2]]],
-        ]];
-        $this->assertSame(["$a.jpg", "$b.jpg"], Restorer::photoFiles($dump));
-        $this->assertSame(["$a.pdf", "$b.png"], Restorer::attachmentFiles($dump));
-        $this->assertSame([], Restorer::photoFiles(['tables' => ['items' => ['columns' => ['id'], 'rows' => [[1]]]]]));
-        $this->assertSame([], Restorer::attachmentFiles(['tables' => ['item_attachments' => 'odd']]));
+        $this->assertSame(['items' => 'image', 'item_photos' => 'file', 'item_attachments' => 'file'], Restorer::FILE_COLUMNS);
+        $this->assertSame("$a.jpg", Restorer::fileName('items', "$a.jpg"));
+        $this->assertSame("$a.jpg", Restorer::fileName('item_photos', "$a.jpg"));
+        $this->assertSame("$a.pdf", Restorer::fileName('item_attachments', "$a.pdf"));
+        $this->assertNull(Restorer::fileName('item_photos', "$a.pdf"), 'a photo is a .jpg');
+        $this->assertNull(Restorer::fileName('item_attachments', "$a.exe"));
+        foreach ([null, 5, '../x.jpg', ["$a.jpg"]] as $v) {
+            $this->assertNull(Restorer::fileName('items', $v), var_export($v, true));
+        }
     }
 
     public function testAMissingThumbnailIsDrawnOnlyWithinTheDecodeLimits(): void
@@ -92,6 +94,8 @@ final class BackupHelpersTest extends CIUnitTestCase
             // Entries that say they unpack to 3 × 4 GB - 1 (the central directory's sizes, patched after zipping).
             'too large' => [['backup.json' => '{}', "images/$h32.jpg" => 'a', 'images/' . str_repeat('b', 32) . '.jpg' => 'b'], 'The backup is too large to unpack.'],
             'too many files' => ['many', 'The backup has too many files.'],
+            // N-442: one entry that says it unpacks to more than MAX_ENTRY (backup.json may).
+            'one too large' => [['backup.json' => '{}', "images/$h32.jpg" => 'a'], "A file in the backup is too large to restore: images/$h32.jpg"],
         ];
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
         foreach ($cases as $label => [$entries, $message]) {
@@ -115,9 +119,10 @@ final class BackupHelpersTest extends CIUnitTestCase
                     }
                     $zip->close();
                     $bytes = str_replace("images/$h32.jpX", "images/$h32.jpg", (string)file_get_contents($path));
-                    if ($label === 'too large') {
+                    if ($label === 'too large' || $label === 'one too large') {
+                        $size = $label === 'too large' ? "\xff\xff\xff\xff" : pack('V', Restorer::MAX_ENTRY + 1);
                         for ($at = strpos($bytes, "PK\x01\x02"); $at !== false; $at = strpos($bytes, "PK\x01\x02", $at + 4)) {
-                            $bytes = substr_replace($bytes, "\xff\xff\xff\xff", $at + 24, 4);
+                            $bytes = substr_replace($bytes, $size, $at + 24, 4);
                         }
                     }
                     file_put_contents($path, $bytes);
@@ -151,11 +156,11 @@ final class BackupHelpersTest extends CIUnitTestCase
             $decoded = json_decode($json, true);
             $used = memory_get_usage() - $before;
             unset($decoded);
-            $this->assertGreaterThanOrEqual($used, Restorer::decodedSize($json), $label);
-            $this->assertLessThan(4 * $used, Restorer::decodedSize($json), $label . ': not far above');
+            $this->assertGreaterThanOrEqual($used, JsonReader::decodedSize($json), $label);
+            $this->assertLessThan(4 * $used, JsonReader::decodedSize($json), $label . ': not far above');
         }
-        $this->assertSame(5 + 48 + 200, Restorer::decodedSize('[1,2]'));
-        $this->assertSame(7 + 450, Restorer::decodedSize('{"a":1}'));
+        $this->assertSame(5 + 48 + 200, JsonReader::decodedSize('[1,2]'));
+        $this->assertSame(7 + 450, JsonReader::decodedSize('{"a":1}'));
     }
 
     public function testTheMemoryCheckKeepsAMargin(): void
@@ -188,7 +193,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         try {
             foreach ([1, 2] as $round) {
                 try {
-                    $restorer->restore($dir . '/missing.zip');
+                    $restorer->restore($dir . '/missing.zip', true);
                     $this->fail('a missing zip was restored');
                 } catch (UserError $e) {
                     $this->assertNotSame(Restorer::BUSY, $e->getMessage(), "round $round");
@@ -222,7 +227,7 @@ final class BackupHelpersTest extends CIUnitTestCase
                 $this->markTestSkipped('running as root: a 0444 file stays writable');
             }
             try {
-                $restorer->restore($dir . '/missing.zip');
+                $restorer->restore($dir . '/missing.zip', true);
                 $this->fail('a missing zip was restored');
             } catch (UserError $e) {
                 $this->assertNotSame(Restorer::FAILED, $e->getMessage(), 'a read-only lock file must still lock');
@@ -232,7 +237,7 @@ final class BackupHelpersTest extends CIUnitTestCase
             $held = fopen($lockPath, 'r');
             $this->assertTrue(flock($held, LOCK_EX | LOCK_NB));
             try {
-                $restorer->restore($dir . '/missing.zip');
+                $restorer->restore($dir . '/missing.zip', true);
                 $this->fail('a second restore ran');
             } catch (UserError $e) {
                 $this->assertSame(Restorer::BUSY, $e->getMessage());
@@ -246,10 +251,10 @@ final class BackupHelpersTest extends CIUnitTestCase
             $target = $dir . '/elsewhere';
             symlink($target, $lockPath);
             try {
-                $restorer->restore($dir . '/missing.zip');
+                $restorer->restore($dir . '/missing.zip', true);
                 $this->fail('a restore ran through a linked lock file');
             } catch (UserError $e) {
-                $this->assertSame(Restorer::FAILED, $e->getMessage());
+                $this->assertSame(Restorer::LOCK_REFUSED, $e->getMessage(), 'N-459: it says why');
             }
             $this->assertFileDoesNotExist($target, 'the link target was created');
         } finally {
@@ -257,6 +262,49 @@ final class BackupHelpersTest extends CIUnitTestCase
             array_map('unlink', glob($dir . '/tmp/*') ?: []);
             @rmdir($dir . '/tmp');
             @unlink($dir . '/elsewhere');
+            @rmdir($dir);
+        }
+    }
+
+    /** N-458: the lock opened must be the plain file its name points at (a link swapped in after the check is refused). */
+    public function testTheLockFileMustBeThePlainFileItsNameNames(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-lock-' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        try {
+            file_put_contents($dir . '/a', '');
+            file_put_contents($dir . '/b', '');
+            symlink($dir . '/a', $dir . '/link');
+            $fh = fopen($dir . '/a', 'r');
+            $open = fstat($fh);
+            fclose($fh);
+            $this->assertTrue(Restorer::sameFile($open, lstat($dir . '/a')));
+            $this->assertFalse(Restorer::sameFile($open, lstat($dir . '/b')), 'another file');
+            $this->assertFalse(Restorer::sameFile($open, lstat($dir . '/link')), 'a link to it');
+            $this->assertFalse(Restorer::sameFile($open, false), 'gone');
+            $this->assertFalse(Restorer::sameFile(false, lstat($dir . '/a')));
+            $this->assertFalse(Restorer::sameFile($open, ['mode' => 0100644, 'dev' => $open['dev']] + ['ino' => $open['ino'] + 1]), 'same device, other inode');
+            $this->assertFalse(Restorer::sameFile($open, ['mode' => 0100644, 'ino' => $open['ino'], 'dev' => $open['dev'] + 1]), 'same inode, other device');
+            $this->assertTrue(Restorer::plainFile(lstat($dir . '/a')));
+            $this->assertFalse(Restorer::plainFile(lstat($dir . '/link')));
+            $this->assertFalse(Restorer::plainFile(lstat($dir)));
+
+            // A directory where the lock file goes is refused, with the reason.
+            mkdir($dir . '/tmp/' . Restorer::LOCK_FILE, 0700, true);
+            $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
+            (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
+            $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
+            (function (Backups $b): void { $this->backups = $b; })->call($restorer, $backups);
+            try {
+                $restorer->restore($dir . '/missing.zip', true);
+                $this->fail('a restore ran with a folder as its lock');
+            } catch (UserError $e) {
+                $this->assertSame(Restorer::LOCK_REFUSED, $e->getMessage());
+            }
+        } finally {
+            @rmdir($dir . '/tmp/' . Restorer::LOCK_FILE);
+            @rmdir($dir . '/tmp');
+            array_map('unlink', glob($dir . '/*') ?: []);
             @rmdir($dir);
         }
     }
