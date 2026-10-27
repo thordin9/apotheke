@@ -580,8 +580,10 @@ jobs:
       TEST_PG_DB: apotheke
       TEST_PG_USER: apotheke
       TEST_PG_PASSWORD: 'apotheke\test'
-      PARITY_P95_MAX_ABS_MS: ${{ matrix.db == 'pgsql' && '20' || '8' }}
+      PARITY_P95_MAX_ABS_MS: ${{ matrix.db == 'pgsql' && '20' || '3' }}
       PARITY_BUDGET_STAT: median
+      # Step 16 done criterion (decision by Stathis, 2026-10-27, via the PM): PG p95 within +20 %; SQLite median + 3 ms.
+      PARITY_P95_MAX_PCT: ${{ matrix.db == 'pgsql' && '20' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
