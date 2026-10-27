@@ -19,6 +19,39 @@ final class ParityGateTest extends TestCase
         $this->assertSame(19.0, parity_p95(array_map('floatval', range(20, 1, -1))), 'sorted first; rank ceil(0.95 × 20) = 19');
     }
 
+    /** The temporary budget: CI4's p95 within legacy + N ms (5 on SQLite, 12 on PG in CI), next to the +N % bar. */
+    public function testTheP95BudgetFailsOnlyWhenExceeded(): void
+    {
+        $this->assertSame([], parity_p95_over(2.08, 7.08, null, 5.0), 'exactly +5 ms is within budget');
+        $this->assertSame(['+5.01 ms > +5 ms'], parity_p95_over(2.0, 7.01, null, 5.0));
+        $this->assertSame(['+15.94 ms > +12 ms'], parity_p95_over(10.97, 26.91, null, 12.0));
+        $this->assertSame([], parity_p95_over(10.97, 22.97, null, 12.0));
+        $this->assertSame([], parity_p95_over(9.0, 3.0, 20.0, 5.0), 'CI4 faster is fine');
+        $this->assertSame(['+100% > +20%'], parity_p95_over(2.0, 4.0, 20.0, 5.0), 'both bounds apply: +2 ms but +100 %');
+        $this->assertSame(['+150% > +20%', '+6.00 ms > +5 ms'], parity_p95_over(4.0, 10.0, 20.0, 5.0));
+        $this->assertSame([], parity_p95_over(10.0, 12.0, 20.0, null), 'exactly +20 % is within budget');
+        $this->assertSame([], parity_p95_over(1.0, 50.0, null, null), 'no limit set: report only');
+        $this->assertSame([], parity_p95_over(0.0, 3.0, 20.0, 5.0), 'no legacy samples: the % bound cannot apply');
+    }
+
+    public function testP95LimitsComeFromTheEnvironment(): void
+    {
+        $this->assertNull(parity_p95_limit(false, 'X'));
+        $this->assertNull(parity_p95_limit('', 'X'));
+        $this->assertNull(parity_p95_limit('  ', 'X'));
+        $this->assertSame(5.0, parity_p95_limit('5', 'X'));
+        $this->assertSame(12.5, parity_p95_limit(' 12.5 ', 'X'));
+        $this->assertSame(0.0, parity_p95_limit('0', 'X'));
+        foreach (['5ms', 'abc', '-1'] as $bad) {
+            try {
+                parity_p95_limit($bad, 'PARITY_P95_MAX_ABS_MS');
+                $this->fail("'$bad' must not switch the guard off");
+            } catch (InvalidArgumentException $e) {
+                $this->assertStringContainsString('PARITY_P95_MAX_ABS_MS', $e->getMessage());
+            }
+        }
+    }
+
     public function testTheAllowlistStillHoldsOnlyTheFourQuirks(): void
     {
         $this->assertSame(['N-2', 'QA L-2', 'N-4', 'I-3'], array_column(parity_allowlist_load(), 'id'));

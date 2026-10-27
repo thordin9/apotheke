@@ -94,6 +94,31 @@ function parity_p95(array $ms): float
     return $ms[max(0, (int)ceil(0.95 * count($ms)) - 1)];
 }
 
+/**
+ * A p95 limit from the environment (PARITY_P95_MAX_PCT, PARITY_P95_MAX_ABS_MS): unset or empty is no limit;
+ * anything but a number >= 0 is an error, so a typo cannot switch the guard off.
+ */
+function parity_p95_limit(string|false $raw, string $name): ?float
+{
+    if ($raw === false || trim($raw) === '') return null;
+    if (!is_numeric(trim($raw)) || (float)$raw < 0) throw new InvalidArgumentException("$name must be a number >= 0, got '$raw'");
+    return (float)$raw;
+}
+
+/**
+ * The p95 budget for one area: CI4 may be at most $maxPct % above legacy and at most $maxAbsMs ms above it (each
+ * null = not checked). Returns what was exceeded, empty when within budget.
+ * @return list<string>
+ */
+function parity_p95_over(float $legacy, float $ci4, ?float $maxPct, ?float $maxAbsMs): array
+{
+    $over = [];
+    $pct = $legacy > 0 ? ($ci4 / $legacy - 1) * 100 : 0.0;
+    if ($maxPct !== null && $pct > $maxPct) $over[] = sprintf('%+.0f%% > +%s%%', $pct, $maxPct);
+    if ($maxAbsMs !== null && $ci4 - $legacy > $maxAbsMs) $over[] = sprintf('%+.2f ms > +%s ms', $ci4 - $legacy, $maxAbsMs);
+    return $over;
+}
+
 function parity_gate_setting(PDO $pdo, string $name, mixed $value): void
 {
     $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute([$name]);
