@@ -654,6 +654,108 @@ $c->post("/item/$nails/delete", ['csrf' => $tok]);
 T::ok($code === 0 && str_contains($out, 'Restored:') && item_exists_in($db, $nails), 'bin/restore.php --yes restores', $out);
 [$code, $out] = $run(['bin/restore.php', __FILE__, '--dry-run']);
 T::ok($code === 1 && str_contains($out, 'Invalid backup'), 'bin/restore.php rejects a non-backup', $out);
+// A restore that fails or is refused leaves the files and the catalog as they were (browser).
+$zipEntries = function (string $path): array {
+    $z = new ZipArchive();
+    $z->open($path, ZipArchive::RDONLY);
+    $out = [];
+    for ($i = 0; $i < $z->numFiles; $i++) $out[(string)$z->getNameIndex($i)] = (string)$z->getFromIndex($i);
+    $z->close();
+    return $out;
+};
+$zipOf = function (array $entries, array $zeros = []) use ($bk): string {
+    $p = dirname($bk) . '/variant.zip';
+    @unlink($p);
+    $z = new ZipArchive();
+    $z->open($p, ZipArchive::CREATE);
+    foreach ($entries as $n => $bytes) $z->addFromString($n, $bytes);
+    foreach ($zeros as $n => $size) {   // $size zero bytes, deflated from a sparse file: a small zip with honest sizes
+        $fh = fopen("$p.zeros", 'w');
+        ftruncate($fh, $size);
+        fclose($fh);
+        $z->addFile("$p.zeros", $n);
+        $z->setCompressionName($n, ZipArchive::CM_DEFLATE, 1);
+    }
+    $z->close();
+    @unlink("$p.zeros");
+    $bytes = (string)file_get_contents($p);
+    unlink($p);
+    return $bytes;
+};
+$dataFiles = function () use ($dir): array {
+    $out = [];
+    foreach (['images', 'thumbs', 'files', 'originals'] as $sub) {
+        if (!is_dir("$dir/$sub")) continue;
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator("$dir/$sub", FilesystemIterator::SKIP_DOTS)) as $f) {
+            $out[substr((string)$f, strlen($dir) + 1)] = is_link((string)$f) ? 'link ' . readlink((string)$f) : hash_file('sha256', (string)$f) . ' ' . decoct(fileperms((string)$f) & 0777);
+        }
+    }
+    ksort($out);
+    return $out;
+};
+$confirmRestore = function (string $zip) use ($c, $tok, $zipUp): array {
+    $r = $c->post('/backup/restore', ['csrf' => $tok], $zipUp($zip));
+    if ($r['status'] !== 200) return $r;
+    preg_match('/name="token" value="([a-f0-9]{32})"/', $r['body'], $tm);
+    return $c->post('/backup/restore/confirm', ['csrf' => $tok, 'token' => $tm[1] ?? '', 'confirm' => '1']);
+};
+$items = fn() => $db->query('SELECT * FROM items ORDER BY id')->fetchAll();
+$base = $zipEntries($cli);
+$bkDump = json_decode($base['backup.json'], true);
+$newPhoto = str_repeat('7', 32) . '.jpg';
+$newFile = str_repeat('6', 32) . '.pdf';
+$oddFile = str_repeat('5', 32) . '.pdf';
+$newOrig = str_repeat('e', 64) . '.png';
+$ph = &$bkDump['tables']['item_photos'];
+$ph['rows'][] = array_map(fn($col, $v) => ['id' => 900001, 'file' => $newPhoto, 'position' => 99][$col] ?? $v, $ph['columns'], $ph['rows'][0]);
+unset($ph);
+$firstItem = (int)$bkDump['tables']['items']['rows'][0][array_search('id', $bkDump['tables']['items']['columns'], true)];
+$at = &$bkDump['tables']['item_attachments'];
+foreach ([900001 => $newFile, 900002 => $oddFile] as $aid => $af) {
+    $at['rows'][] = array_map(fn($col) => ['id' => $aid, 'item_id' => $firstItem, 'file' => $af, 'name' => 'manual.pdf', 'mime' => 'application/pdf', 'size' => 9, 'created_at' => '2026-01-02 08:00:00'][$col] ?? null, $at['columns']);
+}
+unset($at);
+$origIdx = json_decode($base['originals/index.json'] ?? '{}', true) + [$newPhoto => $newOrig];
+// no thumbnail for the new photo (drawn again), one attachment of the wrong type (skipped), a new camera file
+$more = ['images/' . $newPhoto => img_jpeg(60, 40), 'files/' . $newFile => "%PDF-1.4\n%", 'files/' . $oddFile => img_png(4, 4),
+    'originals/index.json' => (string)json_encode($origIdx), 'originals/' . $newOrig => img_png(60, 40)];
+$withNew = array_merge($base, ['backup.json' => (string)json_encode($bkDump)], $more);
+$broken = $bkDump;
+$broken['tables']['items']['rows'][0][array_search('location_id', $broken['tables']['items']['columns'], true)] = 999999;
+$filesBefore = $dataFiles();
+$itemsNow = $items();
+$r = $confirmRestore($zipOf(array_merge($withNew, ['backup.json' => (string)json_encode($broken)])));
+T::ok($r['status'] === 422 && str_contains($r['body'], 'Nothing was changed.'), 'a restore that fails at the rows answers 422', substr($r['body'], 0, 300));
+T::eq([$filesBefore, $itemsNow], [$dataFiles(), $items()], 'a restore that fails at the rows leaves the files and the catalog as they were');
+$held = fopen("$dir/tmp/restore.lock", 'r');
+flock($held, LOCK_EX | LOCK_NB);
+$r = $confirmRestore(file_get_contents($cli));
+flock($held, LOCK_UN);
+fclose($held);
+T::ok($r['status'] === 409 && str_contains($r['body'], 'Another restore is running.'), 'a restore while another runs answers 409');
+rename("$dir/tmp/restore.lock", "$dir/tmp/restore.lock.kept");
+symlink("$dir/tmp/elsewhere", "$dir/tmp/restore.lock");
+$r = $confirmRestore(file_get_contents($cli));
+T::ok($r['status'] === 422 && !file_exists("$dir/tmp/elsewhere"), 'a linked restore lock is refused and its target is not made');
+unlink("$dir/tmp/restore.lock");
+rename("$dir/tmp/restore.lock.kept", "$dir/tmp/restore.lock");
+symlink("$dir/nowhere", "$dir/images/$newPhoto");
+$r = $confirmRestore($zipOf($withNew));
+T::ok($r['status'] === 422 && is_link("$dir/images/$newPhoto") && !file_exists("$dir/nowhere"), 'a link where a new photo goes stops the restore and stays');
+unlink("$dir/images/$newPhoto");
+T::eq([$filesBefore, $itemsNow], [$dataFiles(), $items()], 'refused restores leave the files and the catalog as they were');
+$waiting = glob("$dir/tmp/restore-*") ?: [];   // failed confirms keep theirs, for the hourly sweep
+$r = $c->post('/backup/restore', ['csrf' => $tok], $zipUp($zipOf($base, ['images/' . str_repeat('8', 32) . '.jpg' => 300 * 1024 * 1024])));
+T::ok($r['status'] === 422 && str_contains($r['body'], 'A file in the backup is too large to restore'), 'a file in the backup over the size cap is refused', substr($r['body'], 0, 300));
+T::eq($waiting, glob("$dir/tmp/restore-*") ?: [], 'the refused upload is removed');
+mkdir("$dir/originals/$newOrig");   // a camera file that cannot be written is a warning only
+$r = $confirmRestore($zipOf($withNew));
+rmdir("$dir/originals/$newOrig");
+T::ok($r['status'] === 303 && is_file("$dir/images/$newPhoto") && is_file("$dir/thumbs/$newPhoto") && is_file("$dir/files/$newFile"), 'the restore with a new photo succeeds and draws its thumbnail', substr($r['body'], 0, 300));
+T::ok(!file_exists("$dir/files/$oddFile") && !glob("$dir/{images,thumbs,files,originals}/.restore-*", GLOB_BRACE) && test_original($dir, $newPhoto) === null, 'the attachment of the wrong type is skipped, no temp file is left, the camera file is not linked');
+[$code, $out] = $run(['bin/restore.php', $cli, '--yes']);
+T::ok($code === 0, 'back to the catalog before', $out);
+foreach (glob("$dir/tmp/restore-*") ?: [] as $f) unlink($f);
 
 T::section('Activity history');
 $hid = $savedId($c->api('/save', ['csrf' => $tok, 'name' => 'History item', 'location_id' => $ids['loc']['box 2'], 'quantity' => 2]));

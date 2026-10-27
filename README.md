@@ -72,7 +72,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | PHPUnit (unit) | HTTP integration | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 96.9 % | 96.9 % |
+| Front controller & routes | – | 97.4 % | 97.4 % |
 | Items, search, bulk, lending | 88.9 % | 90.3 % | 95.4 % |
 | Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
 | Stocktake | 46.2 % | 98.2 % | 99.5 % |
@@ -83,10 +83,10 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
 | Views (HTML) | 12.7 % | 99.4 % | 99.3 % |
 | Control Panel settings | 73.2 % | 88.2 % | 92.9 % |
-| Backup & restore | 87.1 % | 85.6 % | 95.2 % |
+| Backup & restore | 93.4 % | 91.2 % | 97.8 % |
 | Database, migrations, legacy | 81.7 % | 81.5 % | 91.9 % |
 | Bootstrap, config, QR, seed | 73.6 % | 75.6 % | 91.0 % |
-| **All PHP** (7650 lines) | **67.1 %** | **89.1 %** | **95.4 %** |
+| **All PHP** (7698 lines) | **67.5 %** | **89.4 %** | **95.6 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|

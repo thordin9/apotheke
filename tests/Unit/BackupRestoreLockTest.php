@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
-/** The restore lock (DATA_DIR/tmp/restore.lock): let go after every restore, any owner's file, never a link. */
+/** The restore lock (DATA_DIR/tmp/restore.lock): let go after every restore, any owner's file, only ever a plain file. */
 final class BackupRestoreLockTest extends TestCase
 {
     private string $dir;
@@ -17,7 +17,10 @@ final class BackupRestoreLockTest extends TestCase
     protected function tearDown(): void
     {
         @chmod($this->dir . '/tmp/' . BACKUP_RESTORE_LOCK, 0644);
-        foreach (glob($this->dir . '/tmp/*') ?: [] as $f) @unlink($f);
+        foreach (array_diff(@scandir($this->dir . '/tmp') ?: [], ['.', '..']) as $f) {
+            $f = $this->dir . '/tmp/' . $f;
+            is_dir($f) && !is_link($f) ? @rmdir($f) : @unlink($f);
+        }
         @unlink($this->dir . '/elsewhere');
         @rmdir($this->dir . '/tmp');
         @rmdir($this->dir);
@@ -95,5 +98,85 @@ final class BackupRestoreLockTest extends TestCase
         $this->assertFileDoesNotExist($target, 'the link target was created');
         touch($target);
         $this->assertSame(BACKUP_RESTORE_FAILED, $this->restoreMissing()->getMessage(), 'also when the target exists');
+    }
+
+    /** Anything but a plain file at the lock path (a folder, a pipe) is refused. */
+    public function testALockPathThatIsNotAPlainFileIsRefused(): void
+    {
+        $path = $this->dir . '/tmp/' . BACKUP_RESTORE_LOCK;
+        mkdir($path);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $this->restoreMissing()->getMessage(), 'a folder');
+        rmdir($path);
+        if (!function_exists('posix_mkfifo')) $this->markTestSkipped('no posix_mkfifo');
+        posix_mkfifo($path, 0600);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $this->restoreMissing()->getMessage(), 'a pipe');
+    }
+
+    /** A new lock file is made in place, as a plain file, with no temp file left over. */
+    public function testANewLockFileIsAPlainFile(): void
+    {
+        $this->assertSame('That file is not a zip archive.', $this->restoreMissing()->getMessage());
+        $path = $this->dir . '/tmp/' . BACKUP_RESTORE_LOCK;
+        $this->assertTrue(is_file($path) && !is_link($path));
+        $this->assertSame([$path], glob($this->dir . '/tmp/{,.}*.lock*', GLOB_BRACE));
+    }
+
+    /**
+     * A link put at the name between the check and the open is never followed: when nothing was there, its target is
+     * not made; when a plain file was there, the file opened is not the one at the name, so the lock is refused.
+     */
+    public function testALinkSwappedInAfterTheCheckIsRefused(): void
+    {
+        $path = $this->dir . '/tmp/' . BACKUP_RESTORE_LOCK;
+        $target = $this->dir . '/elsewhere';
+        $fail = function (Closure $swap, ?Closure $afterOpen = null): string {
+            try {
+                $fh = backup_restore_lock($this->dir, $swap, $afterOpen);
+                fclose($fh);
+                return 'locked';
+            } catch (UserError $e) {
+                return $e->getMessage();
+            }
+        };
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(fn() => symlink($target, $path)), 'nothing there, then a link');
+        $this->assertFileDoesNotExist($target, 'the link target was created');
+        unlink($path);
+
+        touch($path);
+        touch($target);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path, $target): void {
+            unlink($path);
+            symlink($target, $path);
+        }), 'a plain file, then a link to a file');
+        $held = fopen($target, 'r');
+        $this->assertTrue(flock($held, LOCK_EX | LOCK_NB), 'the target was not left locked');
+        flock($held, LOCK_UN);
+        fclose($held);
+        unlink($path);
+
+        $this->assertSame('locked', $fail(fn() => touch($path)), 'nothing there, then a plain file another restore made');
+
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path): void {
+            rename($path, "$path.moved");   // the same file, now behind a link: what the name was checked as is not enough
+            symlink("$path.moved", $path);
+        }), 'the checked file, then a link to it');
+        unlink($path);
+        unlink("$path.moved");
+
+        touch($path);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path, $target): void {
+            unlink($path);
+            symlink($target, $path);
+        }, function () use ($path): void {
+            unlink($path);   // after the open: a plain file again, but not the one that was opened
+            touch($path);
+        }), 'a link opened, then a plain file at the name');
+        unlink($path);
+
+        touch($path);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path): void {
+            unlink($path);
+            mkdir($path);
+        }), 'a plain file, then a folder');
     }
 }

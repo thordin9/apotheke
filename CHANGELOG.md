@@ -129,6 +129,20 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` 935f144 (2.6.19, 2.6.20) into `feature/ci4`. The legacy app gets #121 and #122. `Ci4AuthParityTest` now checks that both apps refuse a registered name with a null character at either end, a CI4 register-form test covers it too, and the `allow_url_fopen` off step fails on a skipped test again. ([#124](https://github.com/thordin9/apotheke/pull/124))
 - **ci4:** sync `main` dd019fb (2.6.21, 2.6.22) into `feature/ci4`. The legacy app gets #126 (lend, return and stocktake locks, `SIGN_IN_FAIL_MS`, the shared migrate connection) and #130 (the CSV import lock); the test server sets `SIGN_IN_FAIL_MS` for both apps, CI4's `ApothekeConfig` loads `sign_in_fail_ms` as legacy does (CI4 paces with it since [#132](https://github.com/thordin9/apotheke/pull/132); its deadline starts at the controller, not at the request start), and the migrate connection test runs legacy `bin/migrate.php` on the CI4 legs too. CI4 already has the lend, return and stocktake close locks and its own sign-in deadline. ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** sync `main` 458a3c5 (2.6.23) into `feature/ci4`. The legacy app gets #135 (one restore at a time, and a failed restore's files are undone); the CI4 restore is unchanged. ([#139](https://github.com/thordin9/apotheke/pull/139))
+- **ci4:** Sync main v2.6.24 into feature/ci4 ([#143](https://github.com/thordin9/apotheke/pull/143))
+
+## [2.6.24] - 2026-10-27
+
+### Fixed
+
+- **backup:** reliability: a restore refuses a backup holding a file bigger than one restore unpacks (200 MiB, `backup.json` aside) before reading it, in the browser (422) and with `bin/restore.php` (exit 1); a restore stopped by a fatal error, such as running out of memory, still removes the files it had written; a link where a restore would write a new file, or at an existing camera file's name, stops the restore and is left as it is; a short write, such as on a full disk, fails the restore; the photos' camera-file links are written through a temp file and renamed into place, and one whose name is taken by a link is skipped while the restore continues; the restore lock is only ever a plain file. A failed restore leaves the catalog and the existing files as they were; folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a restore whose process is killed can leave the new files it had written, which nothing refers to. ([#141](https://github.com/thordin9/apotheke/pull/141))
+
+### Maintenance
+
+- **readme:** docs: refresh the coverage table from the CI run ([#141](https://github.com/thordin9/apotheke/pull/141))
+- **readme:** docs: refresh the coverage table from the head's CI run ([#141](https://github.com/thordin9/apotheke/pull/141))
+- **qa:** docs: add the PR 141 restore entry cap QA review ([#141](https://github.com/thordin9/apotheke/pull/141))
+- **backup:** test: cover the entry size cap, links, the lock file, and failed and refused restores in the browser ([#141](https://github.com/thordin9/apotheke/pull/141))
 
 ## [2.6.23] - 2026-10-27
 
@@ -581,7 +595,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.23...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.24...HEAD
+[2.6.24]: https://github.com/thordin9/apotheke/compare/v2.6.23...v2.6.24
 [2.6.23]: https://github.com/thordin9/apotheke/compare/v2.6.22...v2.6.23
 [2.6.22]: https://github.com/thordin9/apotheke/compare/v2.6.21...v2.6.22
 [2.6.21]: https://github.com/thordin9/apotheke/compare/v2.6.20...v2.6.21

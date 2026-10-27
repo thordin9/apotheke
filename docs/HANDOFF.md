@@ -210,6 +210,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#140](https://github.com/thordin9/apotheke/pull/140): PLAN step 16 part 2, the upgrade and rollback gate
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
   legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Open.
+- [#143](https://github.com/thordin9/apotheke/pull/143): sync `main` v2.6.24 (#141: the legacy restore entry cap,
+  no writes through links, short-write checks and the camera link map written through a temp file in `src/backup.php`).
+  CI4 restore code unchanged. Open.
 
 ## Lanes
 
