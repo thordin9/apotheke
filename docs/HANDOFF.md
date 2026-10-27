@@ -233,7 +233,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 3. Deferred (PM call: `main` gets urgent fixes only): porting to legacy on `main` the done check for a waiting preview
    (N-373) and the stale-upload sweep (N-374) from [#131](https://github.com/thordin9/apotheke/pull/131).
 4. Port L-440 with the restore lock (L-450) to legacy on `main` (a failed restore removes the files it wrote; original
-   links after the commit; one restore at a time), then streaming restore (L-441 follow-up) on CI4.
+   links after the commit; one restore at a time, with L-455 and N-456), then streaming restore (L-441 follow-up) on CI4.
 5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
 6. Later, #132 QA nits (deferred): the exit-78 message for a linked data directory should name `ORIGINALS_DIR` or
    mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
@@ -259,7 +259,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Restore lock (#133, L-450), CI4 only: one restore runs at a time, web and CLI alike, behind an exclusive lock on
   `DATA_DIR/tmp/restore.lock` held for the files and the rows. A second restore started meanwhile is refused at once
   with "Another restore is running. Try again when it has finished." (409 on the page, which keeps the upload so it
-  can be confirmed again; exit 1 in `bin/restore.php`). Legacy has no lock yet; port with L-440.
+  can be confirmed again; exit 1 in `bin/restore.php`). The lock opens read-only when another user made the file (L-455) and refuses a link (N-456). Legacy has no lock yet; port with L-440.
 - Sign-in deadline setting: both apps pace with `SIGN_IN_FAIL_MS` (#126; CI4 since #132, L-400), default 1000 ms,
   clamped to 400–10000; CI4's `signin.failDeadlineMs` / `signin_failDeadlineMs` are gone. Legacy starts the deadline
   at the request's start, CI4 at the controller's.
