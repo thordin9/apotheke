@@ -222,6 +222,12 @@ final class BackupFailureTest extends TestCase
             $before = $this->state($pdo, $dir);
             file_put_contents($dir . '/cli.zip', $this->withZeros($good, 'originals/' . self::NEW_ORIGINAL, 100 * 1024 * 1024));
             $cli = $this->cliTogether($dir, [[$dir . '/cli.zip', '--yes']], ['-d', 'memory_limit=64M'])[0];
+            if (getenv('APOTHEKE_APP') === 'ci4') {
+                // CI4 streams each entry (#136, L-441), so this restore fits in 64M and succeeds.
+                $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+                $this->assertSame([], glob($dir . '/{images,thumbs,files,originals}/.restore-*', GLOB_BRACE) ?: []);
+                return;
+            }
             $this->assertSame(255, $cli['exit'], $cli['stdout'] . $cli['stderr']);
             $this->assertStringContainsString('Allowed memory size', $cli['stdout'] . $cli['stderr']);
             unlink($dir . '/cli.zip');
