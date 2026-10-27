@@ -18,6 +18,15 @@ require_once dirname(__DIR__) . '/Config/DsnTranslator.php';
  * Runs from Config/Boot before Composer's autoloader. A bad DSN or photo
  * storage inside the web root stops the process here.
  */
+// Apotheke's settings come from ApothekeConfig (defaults < config.php < environment). CI4's own
+// configs do not also read dotted environment overrides (app.*, database.*, cookie.*, ...) or
+// registrars: none is documented or used, and checking every property of every config against the
+// environment was a fixed cost on each request (boot cost step). Not a cache: nothing is stored.
+if (!class_exists(\CodeIgniter\Config\BaseConfig::class, false)) {
+    require_once SYSTEMPATH . 'Config/BaseConfig.php';
+}
+\CodeIgniter\Config\BaseConfig::$override = false;
+
 $config = ApothekeConfig::fromEnvironment();
 try {
     (new DsnTranslator())->translate($config->database());
