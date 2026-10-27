@@ -211,7 +211,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
   legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Merged at b1bc52d.
 - [#137](https://github.com/thordin9/apotheke/pull/137): boot cost (L-472): one database login per request, cheaper
-  PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Open.
+  PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Merged at 0d801b7.
 - Step 16 part 3 (`cursor/ci4-step16-trim`, PR opens after #137): compiled routes, no file cache handler; CI enforces
   PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by Stathis, 2026-10-27, via the PM); N-546.
 
