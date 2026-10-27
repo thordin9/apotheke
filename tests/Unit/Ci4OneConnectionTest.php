@@ -17,7 +17,8 @@ final class Ci4OneConnectionTest extends TestCase
 {
     use SkipsOutsideCi;
 
-    private const REQUESTS = ['/healthz', '/health', '/healthz', '/health', '/healthz'];
+    /** /login is a page route (session, settings); with no account yet it redirects (QA #137 N-501). */
+    private const REQUESTS = ['/healthz', '/health', '/login', '/health', '/healthz'];
 
     private ?PDO $admin = null;
     private string $database = '';
@@ -81,7 +82,7 @@ final class Ci4OneConnectionTest extends TestCase
             $migrated = $this->sessions($start + 1);
             foreach (self::REQUESTS as $path) {
                 $got = $server->client()->get($path);
-                $this->assertSame(200, $got['status'], $app . ' ' . $path);
+                $this->assertContains($got['status'], [200, 303], $app . ' ' . $path);
             }
             $after = $this->sessions($migrated + count(self::REQUESTS));
 

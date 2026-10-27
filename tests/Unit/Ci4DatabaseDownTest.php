@@ -30,6 +30,7 @@ final class Ci4DatabaseDownTest extends TestCase
             $legacyDir = tmpdir('legacy-dbdown');
             $ci4 = new Server($dir, $env, 'ci4', ROOT . '/ci4/public/router.php');
             $legacy = new Server($legacyDir, $env, 'legacy');
+            $before = $this->ci4Logs();
             try {
                 $got = $ci4->client()->get($path);
                 $want = $legacy->client()->get($path);
@@ -50,6 +51,7 @@ final class Ci4DatabaseDownTest extends TestCase
                 $this->assertNoSecrets($blob);
                 $this->assertStringNotContainsString('MigrateConnectException', $blob);
                 $this->assertStringNotContainsString('Server error', $blob);
+                $this->assertSame($before, $this->ci4Logs(), 'CI4 wrote to ci4/writable/logs');
             } finally {
                 $ci4->stop();
                 $legacy->stop();
@@ -59,6 +61,57 @@ final class Ci4DatabaseDownTest extends TestCase
                 @unlink($legacyDir . '.server.log');
             }
         }
+    }
+
+    /**
+     * A SQLite file that cannot be opened (QA #137 L-500): the sanitized line in the server log, as legacy,
+     * and no framework log entry with a stack trace in ci4/writable/logs.
+     */
+    public function testUnopenableSqliteFileIsTheSanitizedLineWithoutAFrameworkLog(): void
+    {
+        $this->requireCi4();
+        $file = '/proc/no-such-ci4-dbdown-dir/catalog.sqlite';
+        $env = ['DB_DRIVER' => 'sqlite', 'SQLITE_PATH' => $file, 'CI_ENVIRONMENT' => 'production', 'APOTHEKE_TEST_DB' => null];
+        $line = db_connect_failure_message('sqlite', $file);
+        $dir = tmpdir('ci4-sqlitedown');
+        $legacyDir = tmpdir('legacy-sqlitedown');
+        $ci4 = new Server($dir, $env, 'ci4', ROOT . '/ci4/public/router.php');
+        $legacy = new Server($legacyDir, $env, 'legacy');
+        $before = $this->ci4Logs();
+        try {
+            foreach (['/healthz', '/health'] as $path) {
+                $got = $ci4->client()->get($path);
+                $want = $legacy->client()->get($path);
+                $log = (string)@file_get_contents($ci4->log);
+                $blob = implode("\n", $got['raw'] ?? []) . "\n" . $got['body'] . "\n" . $log;
+                $this->assertSame(500, $got['status'], $path . $blob);
+                $this->assertSame($want['status'], $got['status'], $path);
+                $this->assertSame($want['body'], $got['body'], $path);
+                $this->assertStringContainsString('] ' . $line . "\n", $log, $blob);
+                $this->assertStringNotContainsString('Stack trace', $blob);
+                $this->assertStringNotContainsString('SQLite3 error', $blob);
+            }
+            $this->assertSame($before, $this->ci4Logs(), 'CI4 wrote to ci4/writable/logs');
+        } finally {
+            $ci4->stop();
+            $legacy->stop();
+            rrmdir($dir);
+            rrmdir($legacyDir);
+            @unlink($dir . '.server.log');
+            @unlink($legacyDir . '.server.log');
+        }
+    }
+
+    /** @return array<string,int|false> CI4's framework log files and their sizes */
+    private function ci4Logs(): array
+    {
+        clearstatcache();
+        $sizes = [];
+        foreach (glob(ROOT . '/ci4/writable/logs/*.log') ?: [] as $file) {
+            $sizes[basename($file)] = filesize($file);
+        }
+
+        return $sizes;
     }
 
     /**
