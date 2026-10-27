@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2317 # cleanup() and pg() run from the EXIT trap
+# shellcheck disable=SC2317,SC2329 # cleanup() and pg() run from the EXIT trap
 # PLAN step 16 part 2 (§3.6): upgrade and rollback on one data directory and database.
 #   legacy@8.3 seeds (demo JPEGs + a PNG and a HEIC, with originals) → CI4@8.4 on the same data → legacy@8.3 again,
 #   then cross-restore: a CI4 backup restored by legacy@8.3 and a legacy backup restored by CI4@8.4, each over the

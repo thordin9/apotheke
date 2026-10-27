@@ -152,7 +152,8 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertMatchesRegularExpression('/^  di-rule:\\n    name: DI rule\\n/m', $yml);
         $this->assertStringContainsString('php scripts/ci4-arch.php deptrac', $yml);
         $this->assertStringContainsString('php scripts/ci4-arch.php di', $yml);
-        $this->assertSame(2, substr_count($yml, "php-version: '8.4'"));
+        // deptrac, DI rule, and the second setup-php of upgrade-rollback (8.3 then 8.4 in one job).
+        $this->assertSame(3, substr_count($yml, "php-version: '8.4'"));
     }
 
     public function testLintMobilePlaywrightAndDockerRunOnPhp83AndPhp84(): void
