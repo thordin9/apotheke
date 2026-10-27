@@ -204,7 +204,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#135](https://github.com/thordin9/apotheke/pull/135) (`main`): the legacy port of L-440 and the restore lock.
   Merged into `main` at e8cf10d, released as v2.6.23.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
-  restore notes (N-442 to N-459, L-480, N-481). Open.
+  restore notes (N-442 to N-459, L-480, N-481). Merged at 0173924.
+- [#142](https://github.com/thordin9/apotheke/pull/142): a restore makes `files/` with legacy's mode (0770 before the
+  umask; it was 0700) and the camera link map is written through a temp file, as before. Open, full gate.
+- [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
+  camera link map through a temp file). Open, full gate.
 
 ## Lanes
 
@@ -228,7 +232,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, open);
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, open); `main` restore follow-up (#141, open);
   QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
@@ -237,9 +241,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
-   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). Review and merge #136 (streaming restore). Then a small
-   `main` follow-up (L-480, N-481 to N-486), then QA notes batch 4 (N-380, N-381, N-420 to N-424; branch
-   `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's v2.6.23 sync (#138) also touches
+   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). Review and
+   merge #141 (`main` follow-up) and #142 (restored folder modes), both under the full gate; then QA notes batch 4
+   (N-380, N-381, N-420 to N-424; branch `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's step 16
+   part 3 then makes the `files/` mode a hard check in the upgrade/rollback job. Coder's v2.6.23 sync (#138) also touches
    `Ci4BackupParityTest` and `BackupFailureTest`; whichever merges second merges the other in.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
