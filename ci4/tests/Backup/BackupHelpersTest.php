@@ -289,6 +289,29 @@ final class BackupHelpersTest extends CIUnitTestCase
             $this->assertFalse(Restorer::plainFile(lstat($dir . '/link')));
             $this->assertFalse(Restorer::plainFile(lstat($dir)));
 
+            // A link swapped in after the check: to a file it is refused, and a dangling one creates nothing.
+            $lock = $dir . '/lock';
+            foreach (['to a file' => $dir . '/b', 'dangling' => $dir . '/nothing'] as $what => $target) {
+                @unlink($lock);
+                try {
+                    $fh = Restorer::openLock($lock, static function () use ($lock, $target): void {
+                        @unlink($lock);
+                        symlink($target, $lock);
+                    });
+                    fclose($fh);
+                    $this->fail("a lock was taken through a link $what");
+                } catch (UserError $e) {
+                    $this->assertContains($e->getMessage(), [Restorer::LOCK_REFUSED, Restorer::FAILED], $what);
+                }
+                $this->assertTrue(is_link($lock), $what);
+            }
+            $this->assertFileDoesNotExist($dir . '/nothing', 'nothing is created through a dangling link');
+            unlink($lock);
+            $fh = Restorer::openLock($lock, static fn () => null);
+            $this->assertTrue(Restorer::plainFile(lstat($lock)));
+            $this->assertSame([], glob($dir . '/.lock-*') ?: [], 'the name it was made under is gone');
+            fclose($fh);
+
             // A directory where the lock file goes is refused, with the reason.
             mkdir($dir . '/tmp/' . Restorer::LOCK_FILE, 0700, true);
             $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();

@@ -187,18 +187,33 @@ final class Restorer
      */
     private function lock()
     {
-        $path = $this->backups->tmpDir() . '/' . self::LOCK_FILE;
+        return self::openLock($this->backups->tmpDir() . '/' . self::LOCK_FILE);
+    }
+
+    /**
+     * Open and lock the lock file $path (see lock()). $afterCheck runs
+     * between the check of the name and the open, where another process
+     * could swap the file (a test seam for N-458).
+     *
+     * @param ?Closure():void $afterCheck
+     * @return resource
+     */
+    public static function openLock(string $path, ?Closure $afterCheck = null)
+    {
         // N-456, N-459: never through a link or anything but a plain file, and say why.
         $named = @lstat($path);
         if ($named !== false && !self::plainFile($named)) {
             throw new UserError(self::LOCK_REFUSED);
         }
-        // N-458: 'x' creates the file and never follows a link; a file that is there is opened read-only,
-        // which creates nothing (L-455: flock() works on a read handle, whoever made the file).
-        $fh = @fopen($path, 'x');
-        if ($fh === false) {
-            $fh = @fopen($path, 'r');
+        if ($afterCheck !== null) {
+            $afterCheck();
         }
+        if ($named === false) {
+            self::createLock($path);
+        }
+        // A file that is there is opened read-only, which creates nothing (L-455: flock() works on a read
+        // handle, whoever made the file).
+        $fh = @fopen($path, 'r');
         if ($fh === false) {
             throw new UserError(self::FAILED);
         }
@@ -214,6 +229,30 @@ final class Restorer
         }
 
         return $fh;
+    }
+
+    /**
+     * Create the lock file $path when nothing is there. N-458: PHP's
+     * fopen() follows a link at the name even with 'x', so the file is made
+     * under a random name and hard-linked into place: link() never follows
+     * a link and fails when the name exists. Only where the file system has
+     * no hard links is 'x' used.
+     */
+    private static function createLock(string $path): void
+    {
+        $tmp = dirname($path) . '/.' . basename($path) . '-' . bin2hex(random_bytes(8));
+        $fh = @fopen($tmp, 'x');
+        if ($fh === false) {
+            return;   // the open below says FAILED
+        }
+        fclose($fh);
+        try {
+            if (!@link($tmp, $path) && @lstat($path) === false && ($fh = @fopen($path, 'x')) !== false) {
+                fclose($fh);
+            }
+        } finally {
+            @unlink($tmp);
+        }
     }
 
     /** @param array<int|string,int> $stat */
