@@ -91,6 +91,26 @@ PARITY_DEBUG='autofill: suggest' php scripts/parity-gate.php --rounds=0   # raw 
 
 Turn pcov off for timing (`php -d pcov.enabled=0 …`); the gate's own servers already run with it off and opcache on.
 
+### Upgrade and rollback (PLAN step 16, part 2)
+
+[`scripts/upgrade-rollback.sh`](../scripts/upgrade-rollback.sh) runs PLAN §3.6 on one data directory and database:
+legacy on PHP 8.3 seeds the demo catalog (`bin/seed.php --demo`, JPEG photos) plus a PNG and a HEIC photo with
+their originals, CI4 on PHP 8.4 takes over (`bin/migrate.php --status` shows every migration applied; `/healthz`,
+the list and a photo with its thumbnail answer), then legacy on 8.3 again. Each app then restores the other's
+`bin/backup.php` zip with `bin/restore.php`, over the same install and into a fresh one. After every step
+[`tests/upgrade/snapshot.php`](../tests/upgrade/snapshot.php) takes every table (columns and rows, sorted) and the
+sha256 of every file under `images/`, `thumbs/` and `originals/` (`map/` included), and
+[`compare.php`](../tests/upgrade/compare.php) fails on any difference from the seeded state; a file mode
+difference is printed as `WARN` only. After a restore only the backed-up tables and the settings are compared,
+without `settings.updated_at`. CI runs it on SQLite and PostgreSQL (`upgrade-rollback`).
+
+```bash
+DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh            # needs php8.3, php8.4 and ci4/vendor
+DB_DRIVER=pgsql TEST_PG_HOST=127.0.0.1 TEST_PG_PORT=5432 TEST_PG_DB=apotheke TEST_PG_USER=apotheke \
+  TEST_PG_PASSWORD=secret bash scripts/upgrade-rollback.sh     # schemas upg_*, dropped at the end
+UPGRADE_KEEP=1 DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh   # keep the work dir and snapshots
+```
+
 ## PHPUnit
 
 ```bash
