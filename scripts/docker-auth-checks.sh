@@ -2,10 +2,9 @@
 # Web-server behaviour of the Docker image with sign-in on (SEC-L2, SEC-M3): no session for anonymous requests,
 # large restore bodies only after sign-in. The container must run with APP_PASSWORD; pass the same value in APP_PW.
 # Usage: APP_PW=… scripts/docker-auth-checks.sh [base-url]   (default http://127.0.0.1:9092)
-# APOTHEKE_APP=ci4: the container runs CI4, which has no backup pages yet (PLAN step 14); the restore checks are skipped.
+# APOTHEKE_APP=ci4: the container runs CI4; the same checks apply (its backup pages, PLAN step 14, N-431).
 set -euo pipefail
 base=${1:-http://127.0.0.1:9092}
-restore=1; [[ ${APOTHEKE_APP:-} == ci4 ]] && restore=0
 : "${APP_PW:?set APP_PW to the APP_PASSWORD of the container}"
 fail=0
 check() { # name expected actual
@@ -22,7 +21,6 @@ check "anonymous / -> sign-in"           303 "$(code "$base/")"
 check "anonymous / sets no cookie"       "" "$(hdr Set-Cookie "$base/")"
 check "anonymous 404 sets no cookie"     "" "$(hdr Set-Cookie "$base/no/such/page")"
 check "unknown Host refused"             421 "$(code -H 'Host: other.example' "$base/")"
-if [[ $restore == 1 ]]; then
 check "restore check: not signed in"     401 "$(code "$base/backup/restore/check")"
 # nginx asks the app before it reads the body: refused without an upload
 check "30 MB restore refused before sign-in" 401 "$(code -X POST -F "backup=@$work/big" "$base/backup/restore")"
@@ -30,7 +28,6 @@ check "30 MB restore refused before sign-in" 401 "$(code -X POST -F "backup=@$wo
 check "30 MB restore with unknown Host"  421 "$(code -H 'Host: other.example' -X POST -F "backup=@$work/big" "$base/backup/restore")"
 check "its 421 body is the app's"        "$(curl -s -H 'Host: other.example' "$base/")" \
   "$(curl -s -H 'Host: other.example' -X POST -F "backup=@$work/big" "$base/backup/restore")"
-fi
 
 curl -s -c "$jar" -b "$jar" -o "$work/login.html" "$base/login"
 tok=$(sed -n 's/.*name="csrf" value="\([a-f0-9]*\)".*/\1/p' "$work/login.html")
@@ -43,12 +40,10 @@ if [[ -n ${FAIL_MS:-} ]]; then
 fi
 check "sign-in page has a token"         1 "$([[ ${#tok} == 64 ]] && echo 1 || echo "${#tok}")"
 check "sign in"                          303 "$(code -c "$jar" -b "$jar" --data-urlencode "csrf=$tok" --data-urlencode 'username=admin' --data-urlencode "password@$work/pw" "$base/login")"
-if [[ $restore == 1 ]]; then
 check "restore check: admin"             204 "$(code -b "$jar" "$base/backup/restore/check")"
 curl -s -b "$jar" -o "$work/backup.html" "$base/backup"
 tok=$(sed -n 's/.*name="csrf" content="\([a-f0-9]*\)".*/\1/p' "$work/backup.html")
 tok=${tok%%$'\n'*}
 # signed in: the 30 MB body reaches the app, which rejects the non-zip with 422 (not 401/413)
 check "30 MB restore accepted after sign-in" 422 "$(code -b "$jar" -X POST -F "csrf=$tok" -F "backup=@$work/big" "$base/backup/restore")"
-fi
 exit $fail

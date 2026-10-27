@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Web-server behaviour of the Docker image (nginx + php-fpm), on top of scripts/smoke.sh.
 # Usage: scripts/docker-checks.sh [base-url]   (default http://127.0.0.1:9091)
-# APOTHEKE_APP=ci4: the container runs CI4, which has no backup pages yet (PLAN step 14), so /backup/restore is a 404 there.
+# APOTHEKE_APP=ci4: the container runs CI4; the same checks apply (its backup pages, PLAN step 14, N-431).
 set -euo pipefail
 base=${1:-http://127.0.0.1:9091}
 fail=0
@@ -50,9 +50,7 @@ check "plain POST reaches the app"    419 "$(code -X POST -d 'name=x' "$base/loc
 # sessions on demand (SEC-L2): no cookie for a 404 or static branding
 check "404 sets no session cookie"    "" "$(hdr Set-Cookie "$base/no/such/page")"
 check "favicon sets no cookie"        "" "$(hdr Set-Cookie "$base/favicon.ico")"
-if [[ ${APOTHEKE_APP:-} != ci4 ]]; then
 check "restore check (sign-in off)"   204 "$(code "$base/backup/restore/check")"
-fi
 check "restore check is not public"   404 "$(code "$base/_restore_check")"
 
 big=$(mktemp); trap 'rm -f "$big"' EXIT
@@ -60,10 +58,5 @@ head -c $((30 * 1024 * 1024)) /dev/zero > "$big"
 check "30 MB body rejected on /save (22m limit)" 413 "$(code -X POST -F "photo=@$big" "$base/save")"
 # /backup/restore accepts it at the HTTP layer (the app then rejects the CSRF/zip, but not with 413)
 # (sign-in is off here, so the restore check lets it through; the app then refuses the missing CSRF token with 419)
-if [[ ${APOTHEKE_APP:-} != ci4 ]]; then
 check "30 MB body accepted by /backup/restore" 419 "$(code -X POST -F "backup=@$big" "$base/backup/restore")"
-else
-check "no restore page on CI4 yet (N-431)" 404 "$(code "$base/backup/restore")"
-check "no restore upload on CI4 yet (N-431)" 404 "$(code -X POST -F "backup=@$big" "$base/backup/restore")"
-fi
 exit $fail
