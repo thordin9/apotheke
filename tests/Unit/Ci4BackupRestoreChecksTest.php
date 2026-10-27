@@ -636,6 +636,129 @@ final class Ci4BackupRestoreChecksTest extends TestCase
     }
 
     /**
+     * A restore stopped by a fatal error before the rows commit leaves no
+     * file it wrote (legacy removes them on shutdown too). The fatal error is
+     * raised from a signal handler (a prepended file, through
+     * PHP_INI_SCAN_DIR) once the attachment is written and while the camera
+     * file is still being unpacked.
+     */
+    public function testARestoreStoppedByAFatalErrorLeavesNoFiles(): void
+    {
+        if (!function_exists('pcntl_signal') || !function_exists('posix_kill')) {
+            $this->markTestSkipped('needs pcntl and posix');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $entries = $this->fullBackup($this->dump($server, $dir));
+            $entries['originals/' . self::ORIGINAL] = str_repeat("\0", 100 * 1024 * 1024);   // time to stop it in
+            $this->zip($dir . '/big.zip', $entries);
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            mkdir($dir . '/ini');
+            file_put_contents($dir . '/ini/zz-fatal.ini', "memory_limit=128M\nauto_prepend_file=" . $dir . "/ini/fatal.php\n");
+            file_put_contents($dir . '/ini/fatal.php', '<?php
+if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
+    $d = ' . var_export($dir, true) . ';
+    pcntl_async_signals(true);
+    pcntl_signal(SIGUSR1, static function () use ($d): void {
+        clearstatcache();
+        if (is_file($d . "/files/' . self::FILE . '") && !is_file($d . "/originals/' . self::ORIGINAL . '") && (glob($d . "/originals/.*.tmp-*") ?: []) === []) {
+            pcntl_signal(SIGUSR1, SIG_IGN);
+            touch($d . "/ini/hit");
+            $x = str_repeat("x", 1 << 30);   // over memory_limit: a fatal error
+        }
+    });
+    file_put_contents($d . "/ini/pid", (string)getmypid());
+}
+');
+            $env = array_merge($this->cliEnv($dir), ['PHP_INI_SCAN_DIR' => ':' . $dir . '/ini']);
+            $proc = proc_open([PHP_BINARY, ROOT . '/bin/restore.php', 'big.zip', '--yes'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $env);
+            $this->assertIsResource($proc);
+            fclose($pipes[0]);
+            while (proc_get_status($proc)['running']) {
+                $pid = (int)@file_get_contents($dir . '/ini/pid');
+                if ($pid > 0 && !is_file($dir . '/ini/hit')) {   // once raised, no more signals (PHP resets the handler as it ends)
+                    @posix_kill($pid, SIGUSR1);
+                }
+                usleep(2000);
+            }
+            $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+            $this->assertFileExists($dir . '/ini/hit', 'the fatal error was raised: ' . $r['stdout'] . $r['stderr']);
+            $this->assertContains($r['exit'], [1, 255], $r['stdout'] . $r['stderr']);   // CodeIgniter's shutdown handler exits 1
+            $this->assertStringContainsString('Allowed memory size', $r['stdout'] . $r['stderr']);
+            clearstatcache();
+            $this->assertFileDoesNotExist($dir . '/files/' . self::FILE, 'the files written are removed');
+            $this->assertFileDoesNotExist($dir . '/originals/' . self::ORIGINAL);
+            $this->assertFileDoesNotExist($dir . '/originals/map/' . substr(self::PHOTO, 0, 32));
+            $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+        });
+    }
+
+    /**
+     * L-590: a root command line restore that replaces a camera map entry
+     * keeps the entry's owner, group and mode, as legacy does, so the web
+     * user can still read it. Runs only where `sudo -n` works.
+     */
+    public function testARootRestoreKeepsTheOwnerOfAReplacedMapEntry(): void
+    {
+        exec('sudo -n true 2>/dev/null', $_, $code);
+        if ($code !== 0) {
+            $this->markTestSkipped('needs passwordless sudo');
+        }
+        $nobody = posix_getpwnam('nobody');
+        if ($nobody === false) {
+            $this->markTestSkipped('needs the nobody user');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo) use ($nobody): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            @mkdir($dir . '/tmp', 0770, true);
+            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            try {
+                foreach (['legacy', 'ci4'] as $app) {
+                    @unlink($map);
+                    file_put_contents($map, 'old');
+                    chmod($map, 0640);
+                    $this->sudo(['chown', $nobody['uid'] . ':' . $nobody['gid'], $map]);
+                    $env = array_merge($this->cliEnv($dir), ['APOTHEKE_APP' => $app]);
+                    $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+                        PHP_BINARY, ROOT . '/bin/restore.php', 'full.zip', '--yes'];
+                    $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
+                    $this->assertIsResource($proc);
+                    fclose($pipes[0]);
+                    $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$app: " . $r['stdout']);
+                    clearstatcache();
+                    $this->assertSame(self::ORIGINAL, $this->sudo(['cat', $map]), "$app: the entry is replaced");
+                    $this->assertSame([$nobody['uid'], $nobody['gid'], 0640], [fileowner($map), filegroup($map), fileperms($map) & 0777], "$app: owner, group and mode are kept");
+                    $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), "$app: no temp file is left");
+                    $this->giveBack($dir);
+                }
+            } finally {
+                $this->giveBack($dir);
+            }
+        });
+    }
+
+    /** @param list<string> $args a command run with `sudo -n`; its output */
+    private function sudo(array $args): string
+    {
+        $proc = proc_open(['sudo', '-n', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+        $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+        $this->assertSame(0, $r['exit'], implode(' ', $args) . ': ' . $r['stderr']);
+
+        return $r['stdout'];
+    }
+
+    /** The files a root run made under $dir and ci4/writable go back to this user, so they can be removed. */
+    private function giveBack(string $dir): void
+    {
+        $me = posix_geteuid() . ':' . posix_getegid();
+        foreach ([$dir, ROOT . '/ci4/writable'] as $root) {
+            $this->sudo(['find', $root, '(', '-uid', '0', '-o', '-gid', '0', ')', '-exec', 'chown', '-h', $me, '{}', '+']);
+        }
+    }
+
+    /**
      * The download's rows plus an attachment and a camera original for the photo.
      *
      * @param array<string,mixed> $dump

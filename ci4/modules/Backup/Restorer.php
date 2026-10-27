@@ -8,6 +8,7 @@ use Apotheke\Catalog\Items\Attachments;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Storage\Storage;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Media\ImageStore;
@@ -99,6 +100,9 @@ final class Restorer
     /** backup.json's depth, as legacy decodes it. */
     private const DEPTH = 64;
 
+    /** The RequestCleanup key of the files a restore has written but not committed. */
+    private const CLEANUP = 'backup:restore';
+
     /** files/ when a restore makes it, before the umask (legacy backup_restore()). */
     private const FILES_MODE = 0770;
 
@@ -110,6 +114,7 @@ final class Restorer
      * @param Closure():list<string> $known the migration versions this install has
      * @param Storage $data rooted at DATA_DIR (images/, thumbs/, files/)
      * @param Storage $originals rooted at ORIGINALS_DIR
+     * @param RequestCleanup $cleanup removes the files of a restore stopped by a fatal error
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -120,6 +125,7 @@ final class Restorer
         private readonly Storage $data,
         private readonly Storage $originals,
         private readonly int $thumbMax,
+        private readonly RequestCleanup $cleanup,
     ) {
     }
 
@@ -290,6 +296,14 @@ final class Restorer
         $created = [];
         $links = [];
         $folders = $this->missingFolders();
+        // A fatal error (the time limit, running out of memory) skips the
+        // catch below: the exception handler then removes the files and
+        // folders through RequestCleanup, unless the rows are in by then
+        // (legacy backup_restore_locked() does it on shutdown).
+        $this->cleanup->add(self::CLEANUP, function () use (&$created, $folders): void {
+            $this->discard($created);
+            self::removeEmpty($folders);
+        });
         try {
             try {
                 $written = $this->restorePhotos($zip, $b['photoFiles'], $tmp, $warnings, $created);
@@ -299,9 +313,11 @@ final class Restorer
                 $zip->close();
             }
             $this->restoreRows($b['json'], $b['offsets']);
+            $this->cleanup->drop(self::CLEANUP);
         } catch (Throwable $e) {
             $this->discard($created);
             self::removeEmpty($folders);
+            $this->cleanup->drop(self::CLEANUP);
             throw $e instanceof UserError ? $e : new UserError(self::FAILED, 0, $e);
         } finally {
             @unlink($b['json']);
