@@ -101,6 +101,166 @@ final class Ci4BackupFailureTest extends TestCase
         }
     }
 
+    /**
+     * L-450: while one restore runs (here the test holds its lock), another
+     * is refused at once: 409 on the web, exit 1 on the CLI, nothing changed.
+     * The waiting upload stays, so the same confirm works once the lock is free.
+     */
+    public function testARestoreWhileAnotherRunsIsRefused(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $before = $this->state($pdo, $dir);
+            $busy = 'Another restore is running. Try again when it has finished.';
+            [$client, $csrf] = $this->client($server, $dir);
+            $token = self::token((string)$client->post('/backup/restore', ['csrf' => $csrf], self::upload($good))['body']);
+            $this->assertNotSame('', $token);
+            $lock = fopen($dir . '/tmp/restore.lock', 'c');
+            $this->assertIsResource($lock);
+            $this->assertTrue(flock($lock, LOCK_EX | LOCK_NB));
+            try {
+                $t = microtime(true);
+                $r = $client->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $token, 'confirm' => '1']);
+                $this->assertSame(409, $r['status']);
+                $this->assertStringContainsString($busy, (string)$r['body']);
+                file_put_contents($dir . '/cli.zip', $good);
+                $cli = $this->cli($dir, ['cli.zip', '--yes']);
+                $this->assertSame([1, $busy . "\n"], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+                $this->assertLessThan(5.0, microtime(true) - $t, 'refused at once, not after waiting');
+                $this->assertSame($before, $this->state($pdo, $dir));
+            } finally {
+                flock($lock, LOCK_UN);
+                fclose($lock);
+            }
+            $r = $client->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $token, 'confirm' => '1']);
+            $this->assertSame([303, '/backup?restored=1'], [$r['status'], $r['headers']['location'] ?? null]);
+            // The lock is free again after a restore, also after a failed one.
+            $cli = $this->cli($dir, ['cli.zip', '--yes']);
+            $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+            $lock = fopen($dir . '/tmp/restore.lock', 'c');
+            $this->assertIsResource($lock);
+            $this->assertTrue(flock($lock, LOCK_EX | LOCK_NB), 'released');
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        });
+    }
+
+    /**
+     * L-450: a failing and a good restore of the same new photo at once,
+     * round after round. The failing one never takes away a file the good
+     * one relies on: after the good one succeeds every photo and thumbnail
+     * its rows name exists; else it was refused (BUSY) or failed whole.
+     */
+    public function testAFailingAndAGoodRestoreAtOnceLeaveAWholeCatalog(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $dump = json_decode((string)self::read($good)['backup.json'], true, 64, JSON_THROW_ON_ERROR);
+            $items = &$dump['tables']['items'];
+            $items['rows'][0][array_search('location_id', $items['columns'], true)] = 999;   // breaks a key: fails at the rows
+            unset($items);
+            file_put_contents($dir . '/good.zip', $good);
+            file_put_contents($dir . '/bad.zip', $this->rezip($good, ['backup.json' => (string)json_encode($dump, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]));
+            $baseline = $this->state($pdo, $dir);
+            $busy = "Another restore is running. Try again when it has finished.\n";
+            $failed = "The backup could not be restored. Nothing was changed.\n";
+            $seen = [];
+            for ($round = 0; $round < 12; $round++) {
+                $runs = $this->cliTogether($dir, [['bad.zip', '--yes'], ['good.zip', '--yes']]);
+                [$bad, $ok] = $runs;
+                $this->assertContains([$bad['exit'], $bad['stderr']], [[1, $failed], [1, $busy]], "round $round: failing restore");
+                $this->assertContains([$ok['exit'], $ok['stderr']], [[0, ''], [1, $busy]], "round $round: good restore");
+                $state = $this->state($pdo, $dir);
+                if ($ok['exit'] === 0) {
+                    foreach ($state['tables']['item_photos'] as $row) {
+                        foreach (['images/', 'thumbs/'] as $sub) {
+                            $this->assertArrayHasKey($sub . $row['file'], $state['files'], "round $round: the good restore's $sub" . $row['file']);
+                        }
+                    }
+                } else {
+                    $this->assertSame($baseline['tables'], $state['tables'], "round $round");
+                }
+                $seen[$bad['exit'] . '/' . $ok['exit']] = true;
+                // Back to the start: the catalog without the new photo, and none of its files.
+                $this->restoreTables($pdo, $baseline['tables']);
+                foreach ($state['files'] as $f => $bytes) {
+                    if (!isset($baseline['files'][$f])) {
+                        unlink($dir . '/' . $f);
+                    } elseif ($baseline['files'][$f] !== $bytes) {
+                        file_put_contents($dir . '/' . $f, $baseline['files'][$f]);   // the photo's original link
+                    }
+                }
+                $this->assertSame($baseline, $this->state($pdo, $dir), "round $round: reset");
+            }
+            $this->assertNotEmpty($seen);
+        });
+    }
+
+    /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
+    private function withCatalog(callable $fn): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $dir = tmpdir('backup-failure');
+        $server = new Server($dir, ['APOTHEKE_CLOCK' => self::CLOCK], 'ci4');
+        try {
+            $this->assertSame(200, $server->client()->get('/healthz')['status'], (string)@file_get_contents($server->log));
+            $pdo = testdb($dir);
+            $this->seed($pdo, $dir);
+            $download = $this->client($server, $dir)[0]->get('/backup.zip');
+            $this->assertSame(200, $download['status']);
+            @mkdir($dir . '/tmp', 0770, true);
+            $fn($server, $dir, $pdo, $this->bigger((string)$download['body']));
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
+    }
+
+    /** @param array<string,list<array<string,mixed>>> $tables back into the database, as they were */
+    private function restoreTables(PDO $pdo, array $tables): void
+    {
+        $pdo->beginTransaction();
+        foreach (['item_photos', 'item_attachments'] as $t) {
+            $pdo->exec("DELETE FROM $t");
+            foreach ($tables[$t] as $row) {
+                $cols = array_keys($row);
+                $pdo->prepare("INSERT INTO $t (" . implode(', ', $cols) . ') VALUES (' . implode(', ', array_fill(0, count($cols), '?')) . ')')->execute(array_values($row));
+            }
+        }
+        $pdo->commit();
+    }
+
+    /**
+     * bin/restore.php runs started together.
+     *
+     * @param list<list<string>> $runs
+     * @return list<array{stdout:string,stderr:string,exit:int}>
+     */
+    private function cliTogether(string $dir, array $runs): array
+    {
+        $env = array_merge(getenv(), test_server_env($dir), ['APOTHEKE_CLOCK' => self::CLOCK, 'APOTHEKE_APP' => 'ci4', 'CI_ENVIRONMENT' => 'production']);
+        unset($env['APP_PASSWORD']);
+        $procs = [];
+        foreach ($runs as $i => $args) {
+            $procs[$i] = proc_open([PHP_BINARY, ROOT . '/bin/restore.php', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, array_map('strval', $env));
+            $this->assertIsResource($procs[$i]);
+            fclose($pipes[0]);
+            $procs[$i] = [$procs[$i], $pipes[1], $pipes[2]];
+        }
+        $out = [];
+        foreach ($procs as $i => [$proc, $o, $e]) {
+            $stdout = (string)stream_get_contents($o);
+            $stderr = (string)stream_get_contents($e);
+            fclose($o);
+            fclose($e);
+            $out[$i] = ['stdout' => $stdout, 'stderr' => $stderr, 'exit' => proc_close($proc)];
+        }
+
+        return $out;
+    }
+
     /** Upload $upload, swap the waiting file for $confirm, confirm: 422 with $message. */
     private function confirmFails(Server $server, string $dir, string $upload, string $confirm, string $message): void
     {

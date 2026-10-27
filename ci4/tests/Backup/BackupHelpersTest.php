@@ -175,4 +175,33 @@ final class BackupHelpersTest extends CIUnitTestCase
             ini_set('memory_limit', (string)$limit);
         }
     }
+
+    /** L-450: restore() lets the lock go when it returns or throws, so the same process can restore again. */
+    public function testTheRestoreLockIsReleasedInTheSameProcess(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-lock-' . bin2hex(random_bytes(4));
+        mkdir($dir . '/tmp', 0700, true);
+        $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
+        (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
+        $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
+        (function (Backups $b): void { $this->backups = $b; })->call($restorer, $backups);
+        try {
+            foreach ([1, 2] as $round) {
+                try {
+                    $restorer->restore($dir . '/missing.zip');
+                    $this->fail('a missing zip was restored');
+                } catch (UserError $e) {
+                    $this->assertNotSame(Restorer::BUSY, $e->getMessage(), "round $round");
+                }
+                $fh = fopen($dir . '/tmp/' . Restorer::LOCK_FILE, 'c');
+                $this->assertTrue(flock($fh, LOCK_EX | LOCK_NB), "released after round $round");
+                flock($fh, LOCK_UN);
+                fclose($fh);
+            }
+        } finally {
+            array_map('unlink', glob($dir . '/tmp/*') ?: []);
+            @rmdir($dir . '/tmp');
+            @rmdir($dir);
+        }
+    }
 }
