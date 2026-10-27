@@ -277,12 +277,13 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
  * DATA_DIR/tmp/restore.lock, held exclusively. Not waited for: while another restore holds it, the answer is busy.
  * Only ever a plain file, never through a link: one that is made is made without following a link, and the file
  * that was opened must be the plain file at the name. A lock file another user made (say a root CLI restore) is opened
- * read-only; flock() works on a read handle too. $afterCheck runs between the check of the name and the open (a test
- * seam).
+ * read-only; flock() works on a read handle too. $afterCheck runs between the check of the name and the open, and
+ * $afterOpen between the open and the check of what was opened (test seams).
  * @param ?Closure():void $afterCheck
+ * @param ?Closure():void $afterOpen
  * @return resource
  */
-function backup_restore_lock(string $dataDir, ?Closure $afterCheck = null)
+function backup_restore_lock(string $dataDir, ?Closure $afterCheck = null, ?Closure $afterOpen = null)
 {
     $dir = "$dataDir/tmp";
     if (!is_dir($dir)) @mkdir($dir, 0770, true);
@@ -293,6 +294,7 @@ function backup_restore_lock(string $dataDir, ?Closure $afterCheck = null)
     if ($named === false) backup_restore_lock_create($path);
     $fh = @fopen($path, 'r');
     if ($fh === false) throw new UserError(BACKUP_RESTORE_FAILED);
+    if ($afterOpen !== null) $afterOpen();
     clearstatcache(true, $path);
     $open = fstat($fh);
     $now = @lstat($path);

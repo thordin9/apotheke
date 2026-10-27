@@ -129,9 +129,9 @@ final class BackupRestoreLockTest extends TestCase
     {
         $path = $this->dir . '/tmp/' . BACKUP_RESTORE_LOCK;
         $target = $this->dir . '/elsewhere';
-        $fail = function (Closure $swap) use ($path): string {
+        $fail = function (Closure $swap, ?Closure $afterOpen = null): string {
             try {
-                $fh = backup_restore_lock($this->dir, $swap);
+                $fh = backup_restore_lock($this->dir, $swap, $afterOpen);
                 fclose($fh);
                 return 'locked';
             } catch (UserError $e) {
@@ -155,5 +155,28 @@ final class BackupRestoreLockTest extends TestCase
         unlink($path);
 
         $this->assertSame('locked', $fail(fn() => touch($path)), 'nothing there, then a plain file another restore made');
+
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path): void {
+            rename($path, "$path.moved");   // the same file, now behind a link: what the name was checked as is not enough
+            symlink("$path.moved", $path);
+        }), 'the checked file, then a link to it');
+        unlink($path);
+        unlink("$path.moved");
+
+        touch($path);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path, $target): void {
+            unlink($path);
+            symlink($target, $path);
+        }, function () use ($path): void {
+            unlink($path);   // after the open: a plain file again, but not the one that was opened
+            touch($path);
+        }), 'a link opened, then a plain file at the name');
+        unlink($path);
+
+        touch($path);
+        $this->assertSame(BACKUP_RESTORE_FAILED, $fail(function () use ($path): void {
+            unlink($path);
+            mkdir($path);
+        }), 'a plain file, then a folder');
     }
 }
