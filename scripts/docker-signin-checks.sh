@@ -4,8 +4,9 @@
 # Checks: no APP_PASSWORD -> exit 78 with a clear message; a bad ALLOW_NO_LOGIN -> exit 64; a too-short APP_PASSWORD
 # -> exit 78; a database that can't be read -> exit 78; APP_PASSWORD -> starts; the same data volume later without
 # APP_PASSWORD (sign-in already on in the database) -> starts; ALLOW_NO_LOGIN=1 -> starts.
-# APOTHEKE_APP=ci4 runs every container with that app (PLAN step 15). Also: a symbolic link in place of a data
-# directory -> exit 78 (L-430); with CI4, a link in place of the session marker is replaced, not followed (L-430).
+# APOTHEKE_APP=ci4 runs every container with that app (PLAN step 15). Also: an unknown APOTHEKE_APP -> exit 64; a
+# symbolic link in place of a data directory -> exit 78 (L-430); the session prune and its marker are CI4-only, and a
+# link in place of the marker is replaced, not followed (L-430).
 set -euo pipefail
 image="${1:?usage: docker-signin-checks.sh IMAGE}"
 app=(-e "APOTHEKE_APP=${APOTHEKE_APP:-legacy}")
@@ -74,6 +75,11 @@ out=$(refused 78 -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=1)
 grep -q 'could not read the sign-in setting' <<<"$out"
 echo "   ok"
 
+echo "== an unknown APOTHEKE_APP: refuses to start, is not served as legacy (N-432)"
+out=$(refused 64 -e APOTHEKE_APP=ci5 -e ALLOW_NO_LOGIN=1)
+grep -q 'APOTHEKE_APP must be legacy, ci4 or empty' <<<"$out"
+echo "   ok"
+
 echo "== a symbolic link in place of a data directory: refuses to start, the target is not created (L-430)"
 insh "rmdir /data/thumbs && su -s /bin/sh www-data -c 'ln -s /data/l430-dir /data/thumbs'"
 out=$(refused 78 -e ALLOW_NO_LOGIN=1)
@@ -95,6 +101,10 @@ if [[ ${APOTHEKE_APP:-} == ci4 ]]; then
   echo "== the dangling link in place of the marker was replaced by a www-data file, its target not created (L-430)"
   # shellcheck disable=SC2016 # expanded in the container
   insh 'test ! -e /data/l430-marker && test ! -L /data/sessions/.ci4 && test -f /data/sessions/.ci4 && test "$(stat -c %U /data/sessions/.ci4)" = www-data'
+  echo "   ok"
+else
+  echo "== legacy starts keep the sessions and write no CI4 marker (N-432)"
+  insh 'test -e /data/sessions/sess_legacy && test ! -e /data/sessions/.ci4 && test ! -L /data/sessions/.ci4'
   echo "   ok"
 fi
 

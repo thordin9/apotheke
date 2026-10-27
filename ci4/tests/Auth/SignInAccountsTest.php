@@ -199,6 +199,28 @@ final class SignInAccountsTest extends CIUnitTestCase
         }
     }
 
+    /** CI4's former names, `signin.failDeadlineMs` and `signin_failDeadlineMs`, are not read (L-400, N-432). */
+    public function testTheFormerDeadlineNamesAreNotRead(): void
+    {
+        $names = ['signin.failDeadlineMs', 'signin_failDeadlineMs'];
+        foreach ($names as $name) {
+            $_ENV[$name] = $_SERVER[$name] = '5000';
+            putenv("{$name}=5000");
+        }
+        $this->database = TestDatabase::create('sqlite');
+        \Config\Services::injectMock('apothekeDb', $this->db());
+        \Config\Services::injectMock('apothekeConfig', \Apotheke\Core\Config\ApothekeConfig::load('/repo', null, []));
+        try {
+            $this->assertSame(1000, \Config\Services::accounts(false)->failDeadlineMs());
+        } finally {
+            foreach ($names as $name) {
+                unset($_ENV[$name], $_SERVER[$name]);
+                putenv($name);
+            }
+            \Config\Services::reset(true);
+        }
+    }
+
     /** @return iterable<string,array{0:?string,1:int}> */
     public static function deadlineOverrides(): iterable
     {
