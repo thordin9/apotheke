@@ -24,7 +24,8 @@ require_once dirname(__DIR__) . '/lib.php';
  *   directory, before any of it is read or any file written.
  * - L-480: an entry larger than the size the zip gives it is refused, and
  *   at most a chunk past that size is unpacked (a 300 MB entry that says
- *   100 bytes, under `ulimit -f`).
+ *   100 bytes, under `ulimit -f`). N-452: a restore that runs out of disk
+ *   leaves no temp file and no file.
  * - N-481: a link where a new file would go stops the restore; the link
  *   is neither replaced nor removed, and nothing changes.
  */
@@ -267,9 +268,21 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $z->close();
             unlink($zeros);
             self::sayEntrySize($dir . '/big.zip', 'files/' . $big, 100);
+            // N-452: an honest 30 MB attachment where only 20 MB fit (writes fail, the signal is ignored).
+            $pdf = $dir . '/big.pdf';
+            file_put_contents($pdf, "%PDF-1.4\n");
+            $fh = fopen($pdf, 'r+b');
+            ftruncate($fh, 30 * 1024 * 1024);
+            fclose($fh);
+            $z = new ZipArchive();
+            $this->assertTrue($z->open($dir . '/full.zip', ZipArchive::CREATE | ZipArchive::OVERWRITE));
+            $z->addFromString('backup.json', $json);
+            $z->addFile($pdf, 'files/' . $big);
+            $z->close();
+            unlink($pdf);
             $before = $pdo->query('SELECT COUNT(*) FROM item_attachments')->fetchColumn();
-            foreach (['small.zip' => null, 'big.zip' => 20480] as $zip => $limitKb) {
-                $r = $this->cli($dir, 'restore', [$zip, '--yes'], $limitKb);
+            foreach (['small.zip' => [null, false], 'big.zip' => [20480, false], 'full.zip' => [20480, true]] as $zip => [$limitKb, $full]) {
+                $r = $this->cli($dir, 'restore', [$zip, '--yes'], $limitKb, $full);
                 $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], $zip . ' ' . $r['stdout']);
             }
             $this->assertFileDoesNotExist($dir . '/files/' . $small);
@@ -437,11 +450,11 @@ final class Ci4BackupRestoreChecksTest extends TestCase
      * @param list<string> $args
      * @return array{stdout:string,stderr:string,exit:int}
      */
-    private function cli(string $dir, string $form, array $args, ?int $fileLimitKb = null): array
+    private function cli(string $dir, string $form, array $args, ?int $fileLimitKb = null, bool $diskFull = false): array
     {
         $cmd = [PHP_BINARY, ROOT . '/bin/' . $form . '.php', ...$args];
-        if ($fileLimitKb !== null) {   // a larger write kills the process (SIGXFSZ)
-            $cmd = ['/bin/bash', '-c', 'ulimit -f ' . $fileLimitKb . ' && exec "$@"', 'bash', ...$cmd];
+        if ($fileLimitKb !== null) {   // a larger write kills the process (SIGXFSZ), or with $diskFull fails as on a full disk
+            $cmd = ['/bin/bash', '-c', ($diskFull ? "trap '' XFSZ && " : '') . 'ulimit -f ' . $fileLimitKb . ' && exec "$@"', 'bash', ...$cmd];
         }
         $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $this->cliEnv($dir));
         $this->assertIsResource($proc);
