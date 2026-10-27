@@ -200,7 +200,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#134](https://github.com/thordin9/apotheke/pull/134): PLAN step 16 part 1, the parity gate (196 steps, 0 differences on SQLite and PostgreSQL;
   p95 reported, +20 % not met on light pages; CI enforces a temporary budget of legacy + 8 ms on SQLite and + 20 ms
   on PostgreSQL, on the median gap). Merged (27c422b).
-- [#137](https://github.com/thordin9/apotheke/pull/137): sync `main` v2.6.23 (#135: the legacy restore lock and
+- [#138](https://github.com/thordin9/apotheke/pull/138): sync `main` v2.6.23 (#135: the legacy restore lock and
   failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Open.
 
 ## Lanes
@@ -220,7 +220,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
   import/export and Backup files. Step 16 part 1, the parity gate (#134, merged at 27c422b): `tests/parity/gate.php`,
   `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
-  attachments directory mode, PostgreSQL undo snapshot types). Sync v2.6.23 (#137, open). Next: the boot-cost
+  attachments directory mode, PostgreSQL undo snapshot types). Sync v2.6.23 (#138, open). Next: the boot-cost
   step (L-472), then step 16 part 2 (upgrade/rollback, unblocked by #133).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
