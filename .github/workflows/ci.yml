@@ -621,3 +621,64 @@ jobs:
           name: parity-gate-${{ matrix.db }}
           path: ${{ runner.temp }}/parity-gate.*
           if-no-files-found: ignore
+
+  # PLAN step 16 (part 2, §3.6): upgrade and rollback. legacy@8.3 (the 2.5.x reference) seeds demo data with JPEG,
+  # PNG and HEIC originals, CI4@8.4 runs on the same data directory and database, then legacy@8.3 again; each app
+  # restores the other's backup zip, over the install and into a fresh one. The normalised DB dump and the sha256 of
+  # images/, thumbs/, originals/, map/ and files/ must stay equal after every step, originals 0750/0640; mutation
+  # checks prove the comparison catches a lost table or attachment (scripts/upgrade-rollback.sh).
+  upgrade-rollback:
+    name: Upgrade and rollback (legacy@8.3 → CI4@8.4 → legacy@8.3, ${{ matrix.db }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, pgsql]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: apotheke
+          POSTGRES_USER: apotheke
+          POSTGRES_PASSWORD: 'apotheke\test'
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_DRIVER: ${{ matrix.db }}
+      TEST_PG_HOST: 127.0.0.1
+      TEST_PG_PORT: '5432'
+      TEST_PG_DB: apotheke
+      TEST_PG_USER: apotheke
+      TEST_PG_PASSWORD: 'apotheke\test'
+      PHP83: php8.3
+      PHP84: php8.4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, zip, imagick, sodium
+          coverage: none
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, zip, imagick, sodium
+          coverage: none
+          tools: composer:v2
+      - name: Install the HEIC decoder (the seed stores a HEIC photo)
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            if timeout 120 sudo apt-get -o Acquire::Retries=3 update -qq \
+              && timeout 180 sudo apt-get -o Acquire::Retries=3 install -y -qq libheif-plugin-libde265; then
+              exit 0
+            fi
+            [ "$i" -lt 3 ] && sleep $((i * 15))
+          done
+          exit 1
+      - name: Install CI4 dependencies (legacy needs none)
+        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+      - name: Upgrade and rollback
+        run: bash scripts/upgrade-rollback.sh
