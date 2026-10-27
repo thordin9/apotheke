@@ -742,6 +742,16 @@ class Services extends BaseService
         };
     }
 
+    /** Routes with TRACE and CONNECT for match() (Core\Http\WebRouteCollection, N-380). */
+    public static function routes(bool $getShared = true): \CodeIgniter\Router\RouteCollection
+    {
+        if ($getShared) {
+            return static::getSharedInstance('routes');
+        }
+
+        return new \Apotheke\Core\Http\WebRouteCollection(static::locator(), new \Config\Modules(), config(\Config\Routing::class));
+    }
+
     /** The router matches legacy's exact request path (Core\Http\LegacyPathRouter). */
     public static function router(?\CodeIgniter\Router\RouteCollectionInterface $routes = null, ?\CodeIgniter\HTTP\Request $request = null, bool $getShared = true): \CodeIgniter\Router\Router
     {

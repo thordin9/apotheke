@@ -49,14 +49,17 @@ foreach (['locations', 'categories'] as $segment) {
 // Auth: sign-in, registration and sign-out (legacy answers these before its permission
 // check and checks the CSRF token itself, so they are `none` and skip the global CSRF
 // filter, Config\Filters), then your own account (`self`). Legacy shows these three pages
-// for every method but POST, so they take every method CI4 routes (add(): also OPTIONS,
-// TRACE and CONNECT; N-63, N-353); on /account a non-safe one still needs the CSRF token
-// (SEC-N10). Methods CI4 cannot route (WebDAV PROPFIND and the like) get 404.
+// for every method but POST, so they take every web method CI4 routes ($webVerbs; N-63,
+// N-353); on /account a non-safe one still needs the CSRF token (SEC-N10). Methods CI4
+// cannot route (WebDAV PROPFIND and the like) get 404.
+// $webVerbs is CI4's Router::HTTP_METHODS without CLI: add() would also register a CLI
+// route (N-380). Config\Services::routes() adds TRACE and CONNECT to match().
+$webVerbs = \Apotheke\Core\Http\WebRouteCollection::WEB_METHODS;
 $signIn = '\\Apotheke\\Auth\\Controllers\\SignInController';
-$routes->add('login', $signIn . '::login', $none);
-$routes->add('register', $signIn . '::register', $none);
+$routes->match($webVerbs, 'login', $signIn . '::login', $none);
+$routes->match($webVerbs, 'register', $signIn . '::register', $none);
 $routes->post('logout', $signIn . '::logout', $none);
-$routes->add('account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
+$routes->match($webVerbs, 'account', '\\Apotheke\\Auth\\Controllers\\AccountController::index', ['permission' => 'self']);
 $routes->post('account/signout', '\\Apotheke\\Auth\\Controllers\\AccountController::signOutEverywhere', ['permission' => 'self']);
 
 // Catalog: the list and search, the overview, saved filters. GET (and HEAD) needs view, POST edit.

@@ -215,6 +215,27 @@ final class PermissionFilterTest extends CIUnitTestCase
         return $paths;
     }
 
+    /**
+     * The pages legacy shows for every method take each web method CI4 routes,
+     * the same permission on each, and no CLI route (N-380: add() registers one).
+     */
+    public function testEveryMethodPagesTakeEachWebMethodAndNoCliRoute(): void
+    {
+        $collection = Services::routes();
+        $collection->loadRoutes();
+        $web = array_values(array_diff(\CodeIgniter\Router\Router::HTTP_METHODS, ['CLI']));
+        $this->assertCount(9, $web);
+        foreach (['login', 'register', 'account'] as $route) {
+            $need = $collection->getRoutesOptions($route, 'GET')['permission'] ?? null;
+            $this->assertNotNull($need, $route);
+            foreach ($web as $verb) {
+                $this->assertArrayHasKey($route, $collection->getRoutes($verb), $verb . ' ' . $route);
+                $this->assertSame($need, $collection->getRoutesOptions($route, $verb)['permission'] ?? null, $verb . ' ' . $route);
+            }
+        }
+        $this->assertSame([], array_keys($collection->getRoutes('CLI')), 'no route answers on the command line');
+    }
+
     /** Every GET route is answered before legacy's check (`none`) or records legacy's permission. */
     public function testEveryGetRouteRecordsItsLegacyPermission(): void
     {
