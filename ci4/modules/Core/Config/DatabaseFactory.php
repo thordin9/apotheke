@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Config;
 
+use CodeIgniter\Database\Exceptions\DatabaseException;
 use SQLite3;
 
 /** CI4 connection settings plus the pragmas and session setup legacy applies on connect. */
@@ -23,6 +24,20 @@ final class DatabaseFactory
     {
         $driver = (string)($connection->DBDriver ?? '');
         if ($driver === 'SQLite3') {
+            // CI4's initialize() logs a failed open with its stack trace to writable/logs on
+            // every request (QA #137 L-500). Open the file here instead: a failure is CI4's own
+            // "Unable to connect", which Services::apothekeDb turns into the sanitized line.
+            // initialize() then only applies the driver's settings (foreign keys, busy timeout).
+            if (!$connection->connID) {
+                try {
+                    $connection->connID = $connection->connect();
+                } catch (\Throwable) {
+                    $connection->connID = false;
+
+                    throw new DatabaseException('Unable to connect to the database.');
+                }
+                $connection->initialize();
+            }
             $connection->query('PRAGMA journal_mode = WAL');
             $connection->query('PRAGMA synchronous = NORMAL');
 
