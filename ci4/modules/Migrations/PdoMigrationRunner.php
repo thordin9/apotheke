@@ -39,6 +39,20 @@ final class PdoMigrationRunner
     /** Warn once per PHP process (a request under php-fpm or php -S, one run under spark); config does not change within it. */
     private static bool $warnedCredentialsDiffer = false;
 
+    /**
+     * The differing-credentials warning, once per process. CI4's own connect
+     * (Config\Services::apothekeDb) and this runner share it, so a request that
+     * also migrates still logs it once.
+     */
+    public static function warnCredentialsDiffer(): void
+    {
+        if (self::$warnedCredentialsDiffer) {
+            return;
+        }
+        self::$warnedCredentialsDiffer = true;
+        error_log('[apotheke] ' . self::CREDENTIALS_DIFFER);
+    }
+
     /** @param array<string,mixed> $db */
     public function connect(array $db): PDO
     {
@@ -53,9 +67,8 @@ final class PdoMigrationRunner
             } catch (DsnException $e) {
                 throw new MigrateConnectException($e->getMessage());
             }
-            if ($differs && !self::$warnedCredentialsDiffer) {
-                self::$warnedCredentialsDiffer = true;
-                error_log('[apotheke] ' . self::CREDENTIALS_DIFFER);
+            if ($differs) {
+                self::warnCredentialsDiffer();
             }
         }
         unset($db['password']);

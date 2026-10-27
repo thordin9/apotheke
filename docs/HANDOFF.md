@@ -205,6 +205,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Merged into `main` at e8cf10d, released as v2.6.23.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
   restore notes (N-442 to N-459, L-480, N-481). Merged at 0173924.
+- [#137](https://github.com/thordin9/apotheke/pull/137): boot cost (L-472): one database login per request, cheaper
+  PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Merged at
+  0d801b7.
 - [#139](https://github.com/thordin9/apotheke/pull/139): sync `main` v2.6.23 (#135: the legacy restore lock and
   failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Merged at 3660252.
 - [#142](https://github.com/thordin9/apotheke/pull/142): a restore makes `files/` with legacy's mode (0770 before the
@@ -286,6 +289,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    headers and Cache-Control exactly but for one documented pair; password hashes keep algorithm and cost, and the
    users the app created sign in). N-475, N-476 and N-477 are folded in. Deferred: N-473 and N-474 (as in QA's
    #134 report), and L-472, which is the boot-cost lane in item 8.
+   Boot cost (#137, L-472): `BootMigration` checks the schema on CI4's connection (one login per request,
+   `Ci4OneConnectionTest`); the runner connects only to migrate. Local gate: PostgreSQL within +20 % p95 in every
+   area; SQLite still +64 to +144 % in 8 areas (about 1 to 2 ms of framework boot at the median: route table,
+   request and response, filters, configs), a further step. Once #137 is merged, CI can tighten the temporary budget
+   (median, about + 4 ms SQLite and + 5 ms PostgreSQL) and enforce 20 % on PostgreSQL.
 10. Then the Control Panel pages.
 
 ## Tracked

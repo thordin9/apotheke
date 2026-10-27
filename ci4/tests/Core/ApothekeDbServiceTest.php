@@ -63,7 +63,8 @@ final class ApothekeDbServiceTest extends CIUnitTestCase
 
         // Request 3: no second migration check for the same database.
         $this->newRequest();
-        $this->assertFalse(BootMigration::ensure(Services::apothekeConfig()));
+        $db = Services::apothekeDb(false);
+        $this->assertFalse(BootMigration::ensure(Services::apothekeConfig(), $db));
     }
 
     private function newRequest(): void

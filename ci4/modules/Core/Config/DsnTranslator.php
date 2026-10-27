@@ -124,6 +124,28 @@ final class DsnTranslator
     }
 
     /**
+     * Whether DB_DSN sets a user or password that differs from the DB_USER and
+     * DB_PASSWORD that are used (PostgreSQL only). The caller logs the
+     * value-free warning; this never returns a value.
+     *
+     * @param array<string,mixed> $db
+     */
+    public function credentialsDiffer(array $db): bool
+    {
+        if (($db['driver'] ?? '') !== 'pgsql') {
+            return false;
+        }
+        $dsn = $this->pdoDsn($db);
+        if (!str_starts_with($dsn, 'pgsql:')) {
+            return false;
+        }
+        require_once dirname(__DIR__, 4) . '/src/config.php';
+        $keywords = config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6)));
+
+        return self::credentials($keywords ?? [], $db)[2];
+    }
+
+    /**
      * The one credential rule for every CI4 connection, on any PHP version.
      * Legacy db_connect() hands DB_USER and DB_PASSWORD to PDO, and on PHP 8.3
      * (the shipped image) PDO always appends them after the DSN, so they win
