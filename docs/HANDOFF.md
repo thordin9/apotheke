@@ -224,7 +224,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    from `main` [#75](https://github.com/thordin9/apotheke/pull/75) (SEC-M3).
 3. Port to legacy on `main` the done check for a waiting preview (N-373) and the stale-upload sweep (N-374) from
    [#131](https://github.com/thordin9/apotheke/pull/131).
-4. Then the Control Panel pages.
+4. Port L-440 to legacy on `main` (a failed restore removes the files it wrote; original links after the commit),
+   then streaming restore (L-441 follow-up) on CI4.
+5. Then the Control Panel pages.
 
 ## Tracked
 
@@ -235,6 +237,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `bin/backup.php` to a path it cannot write prints `Cannot write …` and exits 1. Restore still reads `backup.json`
   into memory, as legacy does (candidate for streaming); backup reads `DATA_DIR` and `ORIGINALS_DIR` directly
   (Cloudflare phase: move behind `Storage`).
+- Restore files (#133, L-440), stricter than legacy: a CI4 restore that fails at any point (an entry that cannot be
+  read or written, a database error) removes the files it created and rewrites the camera-original links only
+  after the rows commit, so files and links stay as they were. Legacy keeps the files and the new links; pinned in
+  `Ci4BackupParityTest`, for a later `main` PR. Restore memory (L-441): CI4 refuses, before decoding, a
+  `backup.json` that would not fit in the memory left ("too large to restore within the memory limit", 422 or
+  exit 1), where legacy answers 500; a backup close to the limit may be refused. Streaming restore is next.
 - Sign-in deadline setting: legacy paces with `SIGN_IN_FAIL_MS` (#126). CI4's `ApothekeConfig` loads it, but
   `SignInPace` still takes `signin.failDeadlineMs`; both default to 1000 ms and clamp to 400–10000. Legacy starts the deadline at the request's start, CI4 at the controller's.
   Step 15 decides how the image sets it.
