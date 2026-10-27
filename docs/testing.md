@@ -65,8 +65,11 @@ autofill cache is compared under legacy's names (`autofill-info.json`, `tmp/`), 
 list the parts of an answer that come from a page CI4 has not ported (the Control Panel), apart from the
 differences; the rest of the step must match.
 
-It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area. The +20 % budget is
-reported, not enforced; `PARITY_P95_MAX_PCT=20` makes it fail the run.
+It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area with CI4's lead in
+ms. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's (the PLAN bar for step 16,
+not met yet); `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI sets the temporary absolute
+budget, 5 ms on SQLite and 12 ms on PostgreSQL, until the boot-cost step lands; then it enforces 20 %. An empty
+variable checks nothing; a value that is not a number >= 0 exits 2.
 
 ```bash
 php scripts/parity-gate.php                     # SQLite: differences per area, then the p95 table
