@@ -14,8 +14,11 @@ use RuntimeException;
  */
 final class LocalStorage implements Storage
 {
-    /** $fileMode: chmod for written files (originals use 0640); null keeps the umask's mode. */
-    public function __construct(private readonly string $root, private readonly ?int $fileMode = null)
+    /**
+     * $fileMode: chmod for written files (originals use 0640); null keeps the umask's mode.
+     * $dirMode: mode for missing directories, before the umask (attachments use legacy's 0770).
+     */
+    public function __construct(private readonly string $root, private readonly ?int $fileMode = null, private readonly int $dirMode = 0700)
     {
     }
 
@@ -37,7 +40,7 @@ final class LocalStorage implements Storage
             throw new InvalidArgumentException('Invalid storage key.');
         }
         $dir = dirname($path);
-        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+        if (!is_dir($dir) && !@mkdir($dir, $this->dirMode, true) && !is_dir($dir)) {
             throw new RuntimeException('Could not store the file.');
         }
         if ($this->path($key) === null) {

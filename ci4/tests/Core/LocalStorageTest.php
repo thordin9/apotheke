@@ -57,6 +57,20 @@ final class LocalStorageTest extends CIUnitTestCase
         $this->assertNull($store->modifiedAt('../a.jpg'));
     }
 
+    /** #134 (N-475): a missing directory gets the mode given (attachments: legacy's 0770), before the umask. */
+    public function testMissingDirectoriesGetTheDirMode(): void
+    {
+        $old = umask(0007);
+        try {
+            (new LocalStorage($this->root))->write('a/x', '1');
+            (new LocalStorage($this->root, null, 0770))->write('files/y.pdf', '%PDF');
+        } finally {
+            umask($old);
+        }
+        $this->assertSame(0700, fileperms($this->root . '/a') & 0777, 'default 0700');
+        $this->assertSame(0770, fileperms($this->root . '/files') & 0777);
+    }
+
     public function testKeysCannotLeaveTheRoot(): void
     {
         $store = new LocalStorage($this->root);

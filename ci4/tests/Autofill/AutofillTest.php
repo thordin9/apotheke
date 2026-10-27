@@ -540,6 +540,8 @@ final class AutofillTest extends CIUnitTestCase
             'csrf' => 'csrf-test-token',
         ]);
         $response->assertStatus(200);
+        // #134: legacy's json_out() sends no-store alone, not CodeIgniter's no-store, max-age=0, no-cache (N-475).
+        $this->assertSame('no-store', $response->response()->getHeaderLine('Cache-Control'));
         $body = json_decode($response->response()->getBody(), true);
         $this->assertTrue($body['ok'], $body['message'] ?? $response->response()->getBody());
         $this->assertSame($original, (string)file_get_contents($originals . '/' . $base));
