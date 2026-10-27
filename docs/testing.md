@@ -59,18 +59,18 @@ failure mode, the token), quantity, duplicate, attachments, merge, bulk actions 
 stocktake, CSV export and import, and the settings CLI. About 196 steps. After every step it compares the answer
 (status, type, Location, body or JSON; Cache-Control, Pragma and Expires; every Set-Cookie in full, with Path,
 Domain, SameSite, Secure, HttpOnly and Max-Age; X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
-Content-Security-Policy, Permissions-Policy, Strict-Transport-Security and the Cross-Origin policies, absent or
-not), the stub's last upload, and after every write every table and the data directory (path, mode, sha256). The
-users the app created then sign in with the passwords it stored. Normalised alike on both sides: CSRF tokens, asset
-cache busters, random hex names (numbered in order of appearance), the salt and hash of a password hash (algorithm
-and cost are compared), session epochs, the session ID by length and alphabet, cookie expiry as a bucket relative to
-the answer's Date, and wall-clock times. Cache-Control is compared exactly except for one documented pair: on a
-non-JSON answer other than 200, legacy's `no-store, no-cache, must-revalidate` (PHP's session cache limiter) equals
-CI4's `no-store, max-age=0, no-cache` (CodeIgniter's `noCache()`); both forbid storing. The
-autofill cache is compared under legacy's names (`autofill-info.json`, `tmp/`), because CI4 keeps it behind
-`Storage` as `autofill/info.json` and `autofill/tmp/` by design (#69). Any difference fails. Steps marked `pending`
-list the parts of an answer that come from a page CI4 has not ported (the Control Panel), apart from the
-differences; the rest of the step must match.
+Content-Security-Policy, Permissions-Policy, Strict-Transport-Security and the Cross-Origin policies, absent or not),
+the stub's last upload, and after every write every table and the data directory (path, mode, sha256). The users the
+app created then sign in with the passwords it stored, and each stored hash is shown with the scenario password it
+verifies. Normalised alike on both sides: CSRF tokens, asset cache busters, random hex names (numbered in order of
+appearance), the salt and hash of a password hash (algorithm and cost are compared), session epochs, the session ID
+by length and alphabet, cookie expiry as a bucket relative to the answer's Date, and wall-clock times. Cache-Control
+is compared exactly except for one documented pair: on a non-JSON answer other than 200, legacy's `no-store,
+no-cache, must-revalidate` (PHP's session cache limiter) equals CI4's `no-store, max-age=0, no-cache` (CodeIgniter's
+`noCache()`); both forbid storing. The autofill cache is compared under legacy's names (`autofill-info.json`,
+`tmp/`), because CI4 keeps it behind `Storage` as `autofill/info.json` and `autofill/tmp/` by design (#69). Any
+difference fails. Steps marked `pending` list the parts of an answer that come from a page CI4 has not ported (the
+Control Panel), apart from the differences; the rest of the step must match.
 
 It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area with CI4's lead in ms
 at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's (the
