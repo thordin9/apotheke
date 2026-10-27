@@ -266,6 +266,29 @@ final class BackupHelpersTest extends CIUnitTestCase
         }
     }
 
+    /** N-452: an hour-old upload or entry copy in DATA_DIR/tmp is swept; a newer one and other files stay. */
+    public function testTheTempFolderIsSwept(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-sweep-' . bin2hex(random_bytes(4));
+        mkdir($dir . '/tmp', 0700, true);
+        try {
+            $old = time() - 3700;
+            foreach (['restore-a.zip' => $old, 'restore-b.part' => $old, 'restore-c.part' => time(), 'restore.lock' => $old, 'other.part' => $old] as $f => $t) {
+                touch($dir . '/tmp/' . $f, $t);
+            }
+            $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
+            (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
+            $this->assertSame($dir . '/tmp', $backups->tmpDir());
+            $left = array_map('basename', glob($dir . '/tmp/*') ?: []);
+            sort($left);
+            $this->assertSame(['other.part', 'restore-c.part', 'restore.lock'], $left);
+        } finally {
+            array_map('unlink', glob($dir . '/tmp/*') ?: []);
+            @rmdir($dir . '/tmp');
+            @rmdir($dir);
+        }
+    }
+
     /** N-458: the lock opened must be the plain file its name points at (a link swapped in after the check is refused). */
     public function testTheLockFileMustBeThePlainFileItsNameNames(): void
     {

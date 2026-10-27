@@ -82,9 +82,10 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $drawn = str_repeat('1', 32) . '.jpg';
             $notJpeg = str_repeat('2', 32) . '.jpg';
             $wide = str_repeat('3', 32) . '.jpg';
+            $pngThumb = str_repeat('9', 32) . '.jpg';
             $dump = $this->dump($server, $dir);
             $photos = &$dump['tables']['item_photos'];
-            foreach ([$drawn, $notJpeg, $wide] as $i => $f) {
+            foreach ([$drawn, $notJpeg, $wide, $pngThumb] as $i => $f) {
                 $photos['rows'][] = array_map(static fn (string $c, mixed $v): mixed => ['id' => 10 + $i, 'file' => $f, 'position' => 1 + $i][$c] ?? $v, $photos['columns'], $photos['rows'][0]);
             }
             unset($photos);
@@ -92,7 +93,8 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             ob_start();
             imagejpeg($im);
             $wideJpeg = (string)ob_get_clean();
-            $this->zip($dir . '/photos.zip', ['backup.json' => $dump, 'images/' . $drawn => img_jpeg(2000, 1500), 'images/' . $notJpeg => img_png(40, 30), 'images/' . $wide => $wideJpeg]);
+            $this->zip($dir . '/photos.zip', ['backup.json' => $dump, 'images/' . $drawn => img_jpeg(2000, 1500), 'images/' . $notJpeg => img_png(40, 30), 'images/' . $wide => $wideJpeg,
+                'images/' . $pngThumb => img_jpeg(400, 300), 'thumbs/' . $pngThumb => img_png(40, 30)]);
             $cli = $this->cli($dir, 'restore', ['photos.zip', '--yes']);
             $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
 
@@ -105,6 +107,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $this->assertFileDoesNotExist($dir . '/thumbs/' . $notJpeg);
             $this->assertFileExists($dir . '/images/' . $wide);
             $this->assertFileDoesNotExist($dir . '/thumbs/' . $wide, 'N-444: no thumbnail is drawn past the decode limits');
+            $this->assertSame(IMAGETYPE_JPEG, (@getimagesize($dir . '/thumbs/' . $pngThumb) ?: [2 => null])[2], 'a thumbnail that is not a JPEG is drawn again');
             $this->assertSame([], glob($dir . '/tmp/restore-*.part') ?: [], 'no temp entry is left');
         });
     }
