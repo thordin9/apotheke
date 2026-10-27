@@ -189,7 +189,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged.
 - [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 15, the Docker image on PHP 8.4 (the shipped
   default now, legacy and CI4 with `APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at
-  start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Open.
+  start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Merged (7e927f7).
+- [#134](https://github.com/thordin9/apotheke/pull/134): PLAN step 16 part 1, the parity gate (194 steps, 0 differences on SQLite and PostgreSQL;
+  p95 reported, +20 % not met on light pages). Open.
 
 ## Lanes
 
@@ -204,9 +206,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
   Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 and v2.6.22 (#129, merged).
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
-  and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, open): `Dockerfile`, `docker/`, the
+  and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, merged): `Dockerfile`, `docker/`, the
   docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
-  import/export and Backup files.
+  import/export and Backup files. Step 16 part 1, the parity gate (#134, open): `tests/parity/gate.php`,
+  `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
+  attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 waits for #133.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -224,8 +228,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 2. Step 14 (Coder2): backup and restore.
 3. Deferred (PM call: `main` gets urgent fixes only): porting to legacy on `main` the done check for a waiting preview
    (N-373) and the stale-upload sweep (N-374) from [#131](https://github.com/thordin9/apotheke/pull/131).
-4. Review and merge #132 (step 15: the CI4 image on PHP 8.4, with the Docker bind and app-password start-up
-   hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75), SEC-M3). The restore checks of the docker
+4. #132 (step 15) is merged as 7e927f7. The restore checks of the docker
    scripts skip CI4 until it has the backup pages: on CI4, `/backup/restore` answers 404 until
    [#133](https://github.com/thordin9/apotheke/pull/133) lands (N-431).
 5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
@@ -233,6 +236,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
    `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
    and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
+7. Step 16 part 2 (upgrade/rollback job vs legacy@8.3) after #133. The parity gate marks two autofill steps
+   `pending` (the html fragment of the Control Panel page); drop the marks when that page is ported. CI4's p95 is
+   2 to 3 ms (SQLite) and about 10 ms (PostgreSQL: the boot migration check opens a second connection) above
+   legacy on light pages: PM decision needed on the +20 % criterion or a boot-cost step (#134).
 
 ## Tracked
 

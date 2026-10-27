@@ -49,6 +49,35 @@ fails the test. On the legacy@8.4 CI cell this is legacy@8.4 versus legacy@8.4.
 vendor/bin/phpunit --filter ParityRecorderTest
 ```
 
+### Parity gate (PLAN step 16)
+
+[`tests/parity/gate.php`](../tests/parity/gate.php) walks every ported area (all but backup and restore) on a legacy
+and a CI4 server, both on the running PHP (8.4) and database (`APOTHEKE_TEST_DB`), with the same seeded catalog and a
+frozen clock: health and static files, layout, sign-in and account, users and roles, locations and categories, the
+list and search, items, photos (PNG, HEIC, broken files, cover, order, rotate), autofill against the stub (each
+failure mode, the token), quantity, duplicate, attachments, merge, bulk actions and undo, labels, barcodes, lending,
+stocktake, CSV export and import, and the settings CLI. About 190 steps. After every step it compares the answer
+(status, type, Location, Cache-Control, cookies, body or JSON), the stub's last upload, and after every write every
+table and the data directory (path, mode, sha256). Normalised alike on both sides: CSRF tokens, asset cache busters,
+random hex names (numbered in order of appearance), password hashes, session epochs and wall-clock times. The
+autofill cache is compared under legacy's names (`autofill-info.json`, `tmp/`), because CI4 keeps it behind
+`Storage` as `autofill/info.json` and `autofill/tmp/` by design (#69). Any difference fails. Steps marked `pending`
+list the parts of an answer that come from a page CI4 has not ported (the Control Panel), apart from the
+differences; the rest of the step must match.
+
+It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area. The +20 % budget is
+reported, not enforced; `PARITY_P95_MAX_PCT=20` makes it fail the run.
+
+```bash
+php scripts/parity-gate.php                     # SQLite: differences per area, then the p95 table
+APOTHEKE_TEST_DB=pgsql DB_DRIVER=pgsql TEST_PG_PASSWORD=secret php scripts/parity-gate.php --markdown
+php scripts/parity-gate.php --rounds=0          # differences only, no timing
+PARITY_GATE=1 vendor/bin/phpunit --filter ParityGateTest
+PARITY_DEBUG='autofill: suggest' php scripts/parity-gate.php --rounds=0   # raw headers of one step
+```
+
+Turn pcov off for timing (`php -d pcov.enabled=0 …`); the gate's own servers already run with it off and opcache on.
+
 ## PHPUnit
 
 ```bash
