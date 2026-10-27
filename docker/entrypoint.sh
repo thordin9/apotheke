@@ -6,11 +6,33 @@
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 #  - refuses to start the app with sign-in off (hardening, SEC-M3): set APP_PASSWORD, keep sign-in on in the
 #    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose
+#  - APOTHEKE_APP=ci4 serves the CodeIgniter 4 app (PHP 8.4 or later) instead of the legacy one
 set -eu
 DATA_DIR="${DATA_DIR:-/data}"
+case "${APOTHEKE_APP:-legacy}" in
+  legacy|'') ROOT=/var/www/app/public ;;
+  ci4)
+    ROOT=/var/www/app/ci4/public
+    php -r 'exit(PHP_VERSION_ID >= 80400 ? 0 : 1);' || { echo "APOTHEKE_APP=ci4 needs the PHP 8.4 image" >&2; exit 64; }
+    ;;
+  *) echo "APOTHEKE_APP must be legacy, ci4 or empty" >&2; exit 64 ;;
+esac
+# Root writes into DATA_DIR (owned by www-data) never follow a symbolic link (L-430): the directories below must be
+# real ones, chown changes links themselves (-h), and the CI4 marker is written as www-data.
+for d in images thumbs originals originals/map sessions; do
+  if [ -L "$DATA_DIR/$d" ]; then echo "apotheke: $DATA_DIR/$d must be a directory, not a symbolic link" >&2; exit 78; fi
+done
 mkdir -p "$DATA_DIR/images" "$DATA_DIR/thumbs" "$DATA_DIR/originals/map" "$DATA_DIR/sessions"
-find "$DATA_DIR" \! -user www-data -exec chown www-data:www-data {} + 2>/dev/null || true
+find "$DATA_DIR" \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
 chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
+# The first CI4 start signs everyone out once: legacy sessions are not carried over (PLAN 3.5). A link in place of
+# the marker counts as no marker and is replaced by a file.
+if [ "$ROOT" = /var/www/app/ci4/public ]; then
+  # shellcheck disable=SC2016 # expanded by the shell that runs it
+  mark='cd "$1" && if [ -L .ci4 ] || [ ! -e .ci4 ]; then
+    find . -maxdepth 1 -type f -name "sess_*" -delete && rm -f .ci4 && : > .ci4; fi'
+  if [ "$(id -u)" = 0 ]; then su -s /bin/sh www-data -c "$mark" sh "$DATA_DIR/sessions"; else sh -c "$mark" sh "$DATA_DIR/sessions"; fi
+fi
 
 if [ "$#" -gt 0 ] && [ "$1" != "apotheke" ]; then exec "$@"; fi
 
@@ -39,8 +61,9 @@ esac
 
 PORT="${PORT:-9091}"
 case "$PORT" in ''|*[!0-9]*) echo "PORT must be a number" >&2; exit 64;; esac
-sed "s/__PORT__/$PORT/g" /etc/nginx/apotheke.conf.template > /etc/nginx/nginx.conf
-mkdir -p /tmp/nginx-body /tmp/nginx-fastcgi
+sed -e "s/__PORT__/$PORT/g" -e "s#__ROOT__#$ROOT#g" /etc/nginx/apotheke.conf.template > /etc/nginx/nginx.conf
+# nginx temp dirs live under the root-owned /run, not the world-writable /tmp (L-430)
+mkdir -p /run/apotheke-nginx
 nginx -t -q
 
 php-fpm -F &
@@ -52,7 +75,7 @@ ngx=$!
 stopping=0
 stop() { stopping=1; kill -QUIT "$ngx" 2>/dev/null || true; kill -QUIT "$fpm" 2>/dev/null || true; }
 trap stop TERM INT QUIT
-echo "apotheke: nginx on :$PORT, php-fpm on /run/php-fpm.sock"
+echo "apotheke: nginx on :$PORT ($ROOT), php-fpm on /run/php-fpm.sock"
 while [ "$stopping" = 0 ] && kill -0 "$fpm" 2>/dev/null && kill -0 "$ngx" 2>/dev/null; do
   sleep 1 & wait $! || true
 done

@@ -68,6 +68,45 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('su -p -s /bin/sh www-data', $sh);
     }
 
+    /**
+     * PLAN step 15: APOTHEKE_APP=ci4 serves ci4/public only, needs PHP 8.4, and goes through the same sign-in check
+     * as legacy (#75 port). The CI4 packages, writable dir and .env from a checkout never reach the image.
+     */
+    public function testCi4ServesItsPublicDirAfterTheSameSignInCheck(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $sh = (string)file_get_contents($root . '/docker/entrypoint.sh');
+        $this->assertStringContainsString('        root __ROOT__;', (string)file_get_contents($root . '/docker/nginx.conf'));
+        $this->assertStringContainsString('-e "s#__ROOT__#$ROOT#g"', $sh);
+        $this->assertSame(1, preg_match('/^  ci4\)\n    ROOT=\/var\/www\/app\/ci4\/public\n    php -r \'exit\(PHP_VERSION_ID >= 80400 \? 0 : 1\);\' \|\| \{[^\n]*exit 64; \}$/m', $sh), $sh);
+        $this->assertLessThan(strpos($sh, 'bin/settings.php auth status'), strpos($sh, 'ROOT=/var/www/app/ci4/public'), 'the app is chosen before the sign-in check, which runs for both');
+        $ignore = (string)file_get_contents($root . '/.dockerignore');
+        foreach (['ci4/vendor/', 'ci4/writable/', 'ci4/.env'] as $line) {
+            $this->assertStringContainsString("\n{$line}\n", "\n{$ignore}", $line);
+        }
+        $this->assertStringContainsString("ARG APOTHEKE_APP=legacy\n", $this->dockerfile());
+        $this->assertTrue(version_compare((string)$this->pin($this->dockerfile()), '8.4.0', '>='), 'the shipped image runs CI4');
+    }
+
+    /** L-430: root never follows a link in the www-data-owned data dir, and nginx keeps its temp files off /tmp. */
+    public function testRootWritesInTheDataDirDoNotFollowLinks(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $sh = (string)file_get_contents($root . '/docker/entrypoint.sh');
+        $mkdir = strpos($sh, 'mkdir -p "$DATA_DIR/images"');
+        $this->assertNotFalse($mkdir);
+        $this->assertLessThan($mkdir, strpos($sh, 'if [ -L "$DATA_DIR/$d" ]; then'), 'links are refused before mkdir');
+        $this->assertStringContainsString('for d in images thumbs originals originals/map sessions; do', $sh);
+        $this->assertStringContainsString('-exec chown -h www-data:www-data {} +', $sh);
+        $this->assertStringContainsString("  mark='cd \"\$1\" && if [ -L .ci4 ] || [ ! -e .ci4 ]; then\n", $sh);
+        $this->assertStringContainsString('  if [ "$(id -u)" = 0 ]; then su -s /bin/sh www-data -c "$mark" sh "$DATA_DIR/sessions"; else', $sh);
+        $this->assertDoesNotMatchRegularExpression('/(touch|chown|chmod|mkdir)[^\n]*\.ci4/', $sh);
+        $nginx = (string)file_get_contents($root . '/docker/nginx.conf');
+        $this->assertStringNotContainsString('/tmp/', $nginx . $sh);
+        $this->assertStringContainsString('client_body_temp_path /run/apotheke-nginx/body;', $nginx);
+        $this->assertStringContainsString('fastcgi_temp_path /run/apotheke-nginx/fastcgi;', $nginx);
+    }
+
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);

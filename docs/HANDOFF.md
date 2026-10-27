@@ -7,7 +7,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - `feature/ci4` carries `main` up to v2.6.22 (sync [#129](https://github.com/thordin9/apotheke/pull/129)), including the legacy session limits, `user signout NAME`
   and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
-  in development.
+  in development, and at run time on the PHP 8.4 image (step 15, [#132](https://github.com/thordin9/apotheke/pull/132)).
+  The CI4 image serves the backup pages since step 14's second part (#133).
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes; stored photos read through Media), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
@@ -115,7 +116,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `createrole_self_grant = 'set, inherit'`), see [testing](testing.md) (N-71).
 - Sign-in (step 7, part A): `/login`, `/register`, `/logout`, `/account`, `/account/signout` byte-identical to
   legacy (rate limits, first admin, new session ID, `keepSignIn`, CSRF checked in the controller). Failed sign-ins
-  answer at a fixed deadline (`Config\SignIn`, 1 s), and so do a wrong current password and a failed check to
+  answer at a fixed deadline (`SIGN_IN_FAIL_MS`, 1 s by default), and so do a wrong current password and a failed check to
   turn sign-in on (L-310); null-character passwords never match and are refused (422).
 - Users & sign-in (step 7, part B, first half): `/settings/security` with its settings, `/settings/password`,
   `/settings/users…` and `/settings/roles…` byte-identical to legacy (`tests/Unit/Ci4UsersRolesParityTest.php`).
@@ -191,6 +192,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
   stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged at 57eae25.
+- [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 15, the Docker image on PHP 8.4 (the shipped
+  default now, legacy and CI4 with `APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at
+  start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Merged at
+  7e927f7.
 - [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore). Open.
 
 ## Lanes
@@ -204,10 +209,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the outer commit. Coder2 ports the current-password throttle with its per-address cap (L-170), the last-admin lock
   and the `APP_PASSWORD` null-character check (#110). `HardeningHttpTest` has no CI4 skips left.
   #116 port (#117, merged): null-character sign-in names refused before trimming on `/login` and turning sign-in on.
-  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 and v2.6.22 (#129, open). Next: step 15, the Docker image on PHP 8.4 for CI4,
-  with the #75 port. Touches `Media\ImageStore` and the Autofill module only; #124 also touched Coder2's `Accounts`,
-  `SecurityController` and `SignInAccountsTest` (listed in that PR). Stays out of the step 14 import/export and
-  Backup files.
+  Step 12, autofill client: stored photos through Media (#118, merged; live check 1 passed); L-270 (#119, merged); QA notes N-261, N-280, N-281 (#120, merged); sync v2.6.20 (#124, merged); sync v2.6.21 and v2.6.22 (#129, merged).
+  Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
+  and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, merged): `Dockerfile`, `docker/`, the
+  docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
+  import/export and Backup files.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -219,14 +225,21 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #133 (step 14's backup and restore).
-2. Step 15 (Coder): the Docker image on PHP 8.4 for CI4, with the Docker bind and app-password start-up hardening
-   from `main` [#75](https://github.com/thordin9/apotheke/pull/75) (SEC-M3).
-3. Port to legacy on `main` the done check for a waiting preview (N-373) and the stale-upload sweep (N-374) from
-   [#131](https://github.com/thordin9/apotheke/pull/131).
-4. Port L-440 to legacy on `main` (a failed restore removes the files it wrote; original links after the commit),
-   then streaming restore (L-441 follow-up) on CI4.
-5. Then the Control Panel pages.
+1. Review and merge #133 (step 14's backup and restore). With it the docker scripts run their restore checks on CI4
+   too (N-431).
+2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
+   [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
+   `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
+3. Deferred (PM call: `main` gets urgent fixes only): porting to legacy on `main` the done check for a waiting preview
+   (N-373) and the stale-upload sweep (N-374) from [#131](https://github.com/thordin9/apotheke/pull/131).
+4. Port L-440 with the restore lock (L-450) to legacy on `main` (a failed restore removes the files it wrote; original
+   links after the commit; one restore at a time), then streaming restore (L-441 follow-up) on CI4.
+5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
+6. Later, #132 QA nits (deferred): the exit-78 message for a linked data directory should name `ORIGINALS_DIR` or
+   mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
+   `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
+   and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
+7. Then the Control Panel pages.
 
 ## Tracked
 
@@ -243,9 +256,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Ci4BackupParityTest`, for a later `main` PR. Restore memory (L-441): CI4 refuses, before decoding, a
   `backup.json` that would not fit in the memory left ("too large to restore within the memory limit", 422 or
   exit 1), where legacy answers 500; a backup close to the limit may be refused. Streaming restore is next.
-- Sign-in deadline setting: legacy paces with `SIGN_IN_FAIL_MS` (#126). CI4's `ApothekeConfig` loads it, but
-  `SignInPace` still takes `signin.failDeadlineMs`; both default to 1000 ms and clamp to 400–10000. Legacy starts the deadline at the request's start, CI4 at the controller's.
-  Step 15 decides how the image sets it.
+- Sign-in deadline setting: both apps pace with `SIGN_IN_FAIL_MS` (#126; CI4 since #132, L-400), default 1000 ms,
+  clamped to 400–10000; CI4's `signin.failDeadlineMs` / `signin_failDeadlineMs` are gone. Legacy starts the deadline
+  at the request's start, CI4 at the controller's.
 - Import pages (#131): CI4 checks the CSRF token first, so a tokenless POST to a done import or to `/import/{id}`
   answers 419 (legacy 303 and 404), and PUT, PATCH and DELETE on `/import` need the token (legacy shows the page).
   Stricter; no change. Until the `main` port (Next steps), legacy keeps waiting uploads and answers 410 to a preview
