@@ -103,7 +103,7 @@ final class SettingsAutofillController extends Controller
         $response = service('response');
         $response->setStatusCode($status);
         $response->setHeader('Content-Type', 'application/json; charset=utf-8');
-        $response->setHeader('Cache-Control', 'no-store');
+        $response->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
         $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $response->setBody(is_string($json) ? $json : '');
 

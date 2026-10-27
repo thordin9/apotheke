@@ -210,7 +210,9 @@ final class ItemController extends CatalogController
                 return $this->json(['ok' => false, 'error' => $e->getMessage()], 422);
             }
 
-            return $this->html($this->form($existing, $vals, $e->getMessage()), 422);
+            // Legacy's form page does not call no_store(): PHP's session header stays (parity gate, QA L-471).
+            return $this->html($this->form($existing, $vals, $e->getMessage()), 422)
+                ->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
         }
         $token = null;
         if ($before !== []) {

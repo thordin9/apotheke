@@ -306,6 +306,7 @@ jobs:
           tests/visual/roles.spec.ts tests/visual/labels.spec.ts tests/visual/barcode.spec.ts
           tests/visual/lending.spec.ts tests/visual/stocktake.spec.ts tests/visual/import.spec.ts
           tests/visual/data.spec.ts
+          tests/visual/auth.spec.ts tests/visual/qa-fixes.spec.ts tests/visual/qa-v2.spec.ts
       - name: Upload HTML report, traces and screenshot diffs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -545,3 +546,78 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Scan full git history
         run: gitleaks git --log-opts="--all" --redact --no-banner --exit-code 1
+
+  # PLAN step 16 (part 1): the parity gate. One scenario over every ported area on a legacy and a CI4 server,
+  # both on PHP 8.4, compared step by step (answer, tables, data dir, autofill uploads). Any difference fails the
+  # job; the allowlist holds only the four approved quirks and hides nothing here. The p95 table per area goes to
+  # the job summary. PARITY_P95_MAX_ABS_MS is the temporary budget (CI4 within legacy + 8 ms on SQLite, + 20 ms
+  # on PG, per area), tightened when the boot-cost step lands, then PARITY_P95_MAX_PCT=20 (docs/testing.md, "Parity gate").
+  # It compares the median gap (PARITY_BUDGET_STAT): the p95 gap failed once on a slow runner (run 40459027682).
+  parity-gate:
+    name: Parity gate (CI4 vs legacy @ PHP ${{ matrix.php }}, ${{ matrix.db }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4']
+        db: [sqlite, pgsql]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: apotheke
+          POSTGRES_USER: apotheke
+          POSTGRES_PASSWORD: 'apotheke\test'
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_DRIVER: ${{ matrix.db }}
+      APOTHEKE_TEST_DB: ${{ matrix.db }}
+      TEST_PG_HOST: 127.0.0.1
+      TEST_PG_PORT: '5432'
+      TEST_PG_DB: apotheke
+      TEST_PG_USER: apotheke
+      TEST_PG_PASSWORD: 'apotheke\test'
+      PARITY_P95_MAX_ABS_MS: ${{ matrix.db == 'pgsql' && '20' || '8' }}
+      PARITY_BUDGET_STAT: median
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, dom, zip, imagick, sodium, opcache
+          coverage: none
+          tools: composer:v2
+      - name: Install the HEIC decoder (both apps convert the HEIC step)
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            if timeout 120 sudo apt-get -o Acquire::Retries=3 update -qq \
+              && timeout 180 sudo apt-get -o Acquire::Retries=3 install -y -qq libheif-plugin-libde265; then
+              exit 0
+            fi
+            [ "$i" -lt 3 ] && sleep $((i * 15))
+          done
+          exit 1
+      - name: Install dependencies (root and ci4)
+        run: |
+          composer install --no-interaction --no-progress --prefer-dist
+          composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+      - name: Parity gate
+        run: |
+          set -o pipefail
+          php scripts/parity-gate.php --rounds=15 --markdown --json "$RUNNER_TEMP/parity-gate.json" | tee "$RUNNER_TEMP/parity-gate.txt"
+      - name: Job summary (differences and p95 per area)
+        if: always()
+        run: |
+          { echo "### Parity gate (${{ matrix.db }})"; echo '```'; sed -n '1,/^$/p' "$RUNNER_TEMP/parity-gate.txt"; grep '^OVER BUDGET' "$RUNNER_TEMP/parity-gate.txt";
+            echo '```';
+            sed -n '/^| Area/,$p' "$RUNNER_TEMP/parity-gate.txt"; } >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parity-gate-${{ matrix.db }}
+          path: ${{ runner.temp }}/parity-gate.*
+          if-no-files-found: ignore

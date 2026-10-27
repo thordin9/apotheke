@@ -86,14 +86,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
-  `labels`, `barcode`, `lending`, `stocktake`, `import` and `data`
+  `labels`, `barcode`, `lending`, `stocktake`, `import`, `data`, `auth`, `qa-fixes` and `qa-v2` (#134, N-477)
   on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
   describe or test no longer exists (N-85), or that this list does not name:
   - `labels`: print labels for a selection; sizes from the Control Panel @smoke (`/settings/labels`).
   - `search`: shows the engine in System (`/settings/system`).
-  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel).
+  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (control panel).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -198,8 +198,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   7e927f7.
 - [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore), with
   L-440 and the restore lock (L-450, L-455, N-456). Merged at 31de273.
-- [#134](https://github.com/thordin9/apotheke/pull/134): PLAN step 16, part 1, the full parity gate (CI4 and legacy
-  on PHP 8.4). Open.
+- [#134](https://github.com/thordin9/apotheke/pull/134): PLAN step 16 part 1, the parity gate (196 steps, 0 differences on SQLite and PostgreSQL;
+  p95 reported, +20 % not met on light pages; CI enforces a temporary budget of legacy + 8 ms on SQLite and + 20 ms
+  on PostgreSQL, on the median gap). Merged at 27c422b.
 - [#135](https://github.com/thordin9/apotheke/pull/135) (`main`): the legacy port of L-440 and the restore lock.
   Open, under the full gate.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
@@ -220,7 +221,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
   and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, merged): `Dockerfile`, `docker/`, the
   docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
-  import/export and Backup files.
+  import/export and Backup files. Step 16 part 1, the parity gate (#134, open): `tests/parity/gate.php`,
+  `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
+  attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 waits for #133.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -233,8 +236,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-1. Review and merge #136 (streaming restore) and #134 (parity gate); #135 on `main` after its full gate. Then open
-   QA notes batch 4 (N-380, N-381, N-420 to N-424; branch `ci4/qa-notes-batch4`), merging `feature/ci4` in first.
+1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
+   (N-431). Review and merge #136 (streaming restore); #135 on `main` after its full gate. Then open QA notes batch 4
+   (N-380, N-381, N-420 to N-424; branch `ci4/qa-notes-batch4`), merging `feature/ci4` in first.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
    `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
@@ -247,7 +251,24 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
    `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
    and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
-7. Then the Control Panel pages.
+7. Step 16 part 2 (upgrade/rollback job vs legacy@8.3, cross-restore) is unblocked: #133 is merged. It follows the
+   boot-cost step (item 8). The parity gate marks two autofill steps
+   `pending` (the html fragment of the Control Panel page); drop the marks when that page is ported. CI4's p95 is
+   2 to 4 ms (SQLite; up to about 7 on CI runners) and about 10 ms (PostgreSQL, up to about 18 on CI: the boot
+   migration check opens a second connection) above legacy on light pages (see item 8).
+8. p95 (PM decision on #134): the +20 % target stays the bar, and step 16 is done only once
+   `PARITY_P95_MAX_PCT=20` passes. Until then the `parity-gate` job enforces a temporary budget,
+   `PARITY_P95_MAX_ABS_MS` (CI4 within legacy + 8 ms on SQLite, + 20 ms on PostgreSQL, per area), tightened when
+   the boot-cost step lands. The p95 gap failed once on a slow runner, so CI compares the median gap
+   (`PARITY_BUDGET_STAT=median`, same values; not widened again). Next lane, right after #134: the boot-cost
+   step (one database connection for `BootMigration`'s migration check, keeping `Ci4DsnCredentialsTest` and
+   `Ci4DatabaseDownTest` green, then trim the boot; L-472), then enforce 20 %, then step 16 part 2. #133 is merged
+   and `feature/ci4` (31de273) is merged into #134. Backup and restore stay out of the part 1 gate (part 2 covers them).
+9. #134 QA review: M-470 and L-471 are fixed in #134 (the gate compares every Set-Cookie in full, the security
+   headers and Cache-Control exactly but for one documented pair; password hashes keep algorithm and cost, and the
+   users the app created sign in). N-475, N-476 and N-477 are folded in. Deferred: N-473 and N-474 (as in QA's
+   #134 report), and L-472, which is the boot-cost lane in item 8.
+10. Then the Control Panel pages.
 
 ## Tracked
 

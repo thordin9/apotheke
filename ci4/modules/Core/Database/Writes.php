@@ -45,6 +45,51 @@ final class Writes
     }
 
     /**
+     * Rows of a SELECT typed as legacy's PDO returns them, for rows that are
+     * stored as JSON (undo snapshots). The Postgre driver returns every
+     * column as a string; pdo_pgsql returns integer columns as int, float4
+     * and float8 as float and boolean as bool (numeric stays a string).
+     * SQLite3 already returns the storage class, as pdo_sqlite does.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param list<int|string|null> $binds
+     * @return list<array<string,mixed>>
+     */
+    public static function typedRows(BaseConnection $db, string $sql, array $binds = []): array
+    {
+        $result = $db->query($sql, $binds);
+        if (!$result instanceof BaseResult) {
+            throw new WriteFailed('Database read failed');
+        }
+        /** @var list<array<string,mixed>> $rows */
+        $rows = $result->getResultArray();
+        if ($db->DBDriver !== 'Postgre' || $rows === []) {
+            return $rows;
+        }
+        $types = [];
+        foreach ($result->getFieldData() as $field) {
+            $types[(string)$field->name] = (string)$field->type_name;
+        }
+        foreach ($rows as &$row) {
+            foreach ($row as $name => &$value) {
+                if (!is_string($value)) {
+                    continue;
+                }
+                $value = match ($types[$name] ?? '') {
+                    'int2', 'int4', 'int8' => (int)$value,
+                    'float4', 'float8' => (float)$value,
+                    'bool' => $value === 't',
+                    default => $value,
+                };
+            }
+            unset($value);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /**
      * Run $fn in a transaction, joining one that is already open. Any failed
      * statement inside (transStatus() false) or a failed commit throws and
      * rolls back; the outermost call clears the failure flag afterwards so

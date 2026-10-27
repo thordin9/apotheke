@@ -804,7 +804,7 @@ class Services extends BaseService
         $s = static::settings();
 
         return new \Apotheke\Catalog\Items\Attachments($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::itemRepository(),
-            new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'));
+            new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir(), null, 0770), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'));
     }
 
     /** The +/- buttons (BulkMerge, PLAN 11b). */

@@ -49,14 +49,15 @@ final class UndoTokens
     {
         $out = [];
         foreach ($ids as $id) {
-            $row = $this->rows('SELECT * FROM items WHERE id = ?', [$id])[0] ?? null;
+            // Typed as legacy's PDO returns them, so the stored JSON is the same on both apps (and on rollback).
+            $row = Writes::typedRows($this->db, 'SELECT * FROM items WHERE id = ?', [$id])[0] ?? null;
             if ($row === null) {
                 continue;
             }
             $out[] = ['row' => $row,
                 'tags' => array_map(static fn (array $r): string => (string)$r['name'], $this->rows('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ? ORDER BY t.name', [$id])),
-                'photos' => $this->rows('SELECT file, position, created_at FROM item_photos WHERE item_id = ? ORDER BY position, id', [$id]),
-                'attachments' => $this->rows('SELECT file, name, mime, size, created_at FROM item_attachments WHERE item_id = ? ORDER BY id', [$id])];
+                'photos' => Writes::typedRows($this->db, 'SELECT file, position, created_at FROM item_photos WHERE item_id = ? ORDER BY position, id', [$id]),
+                'attachments' => Writes::typedRows($this->db, 'SELECT file, name, mime, size, created_at FROM item_attachments WHERE item_id = ? ORDER BY id', [$id])];
         }
 
         return $out;
