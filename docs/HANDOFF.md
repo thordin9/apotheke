@@ -76,7 +76,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   second submit or a preview of one import waits, finds it done and shows the done page (`Ci4ImportRaceTest`, #131).
   The export streams its lines (`Core\Http\StreamedResponse`, batches of 500; a cursor in a read-only snapshot on
   PostgreSQL), so memory stays flat (`ExportMemoryTest`). Uploads left waiting for a day lose their file (#131).
-- Backup and restore (step 14, second part, [#132](https://github.com/thordin9/apotheke/pull/132)): GET `/backup`, `/backup.zip`, `/backup/restore/check`,
+- Backup and restore (step 14, second part, [#133](https://github.com/thordin9/apotheke/pull/133)): GET `/backup`, `/backup.zip`, `/backup/restore/check`,
   POST `/backup/restore` (dry run) and `/backup/restore/confirm`, and `bin/backup.php` / `bin/restore.php`
   (`spark apotheke:backup|restore`) answer as legacy does, with the same zip entries, tables and files; a zip from
   either app restores on the other (`Ci4BackupParityTest`, `Ci4BackupCliTest`, SQLite and PostgreSQL). New module
@@ -187,11 +187,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   auth pages ignore `_method` (N-352) and answer every method CI4 routes (N-353); cookie Max-Age settled in the
   parity tests. Merged.
 - [#129](https://github.com/thordin9/apotheke/pull/129): sync `main` v2.6.21 and v2.6.22 (#126: the legacy port of L-230,
-  L-240, N-234 and L-340, `SIGN_IN_FAIL_MS`, the shared migrate connection; #130: the legacy CSV import lock). `ApothekeConfig` loads `sign_in_fail_ms` as legacy does. Open.
+  L-240, N-234 and L-340, `SIGN_IN_FAIL_MS`, the shared migrate connection; #130: the legacy CSV import lock). `ApothekeConfig` loads `sign_in_fail_ms` as legacy does. Merged.
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
   stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged at 57eae25.
-- [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 14, second part (backup and restore). Open.
+- [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore). Open.
 
 ## Lanes
 
@@ -212,14 +212,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#132, open).
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, open).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #132 (step 14's backup and restore).
+1. Review and merge #133 (step 14's backup and restore).
 2. Step 15 (Coder): the Docker image on PHP 8.4 for CI4, with the Docker bind and app-password start-up hardening
    from `main` [#75](https://github.com/thordin9/apotheke/pull/75) (SEC-M3).
 3. Port to legacy on `main` the done check for a waiting preview (N-373) and the stale-upload sweep (N-374) from
@@ -228,7 +228,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Tracked
 
-- Backup and restore (#132), where CI4 is stricter than legacy; no change unless the PM decides otherwise:
+- Backup and restore (#133), where CI4 is stricter than legacy; no change unless the PM decides otherwise:
   a failed restore shows a general message without the database's own text (page and CLI); a zip that holds two
   entries of one name is refused; a missing thumbnail is drawn again only within Media's decode limits; restored
   files are written through `Core\Storage`; on PostgreSQL the restore locks the catalog tables before it deletes;
