@@ -254,6 +254,52 @@ final class BackupFailureTest extends TestCase
         });
     }
 
+    /**
+     * A link at a camera-link map name, pointing nowhere or at a real file, is not written through after the rows are
+     * in: the restore succeeds (web, then CLI), the link stays as it is and its target is untouched; the other map
+     * file is written.
+     */
+    public function testALinkAtACameraMapNameIsLeftAlone(): void
+    {
+        foreach (['nowhere' => false, 'a real file' => true] as $what => $real) {
+            $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good) use ($what, $real): void {
+                $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+                $target = $dir . '/elsewhere';
+                if ($real) {
+                    file_put_contents($target, 'keep me');
+                    chmod($target, 0604);
+                }
+                unlink($map);
+                $this->assertTrue(symlink($target, $map));
+                if ($real) {
+                    file_put_contents($dir . '/cli.zip', $good);
+                    $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+                    $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+                    unlink($dir . '/cli.zip');
+                } else {
+                    $c = $server->client();
+                    $csrf = $c->csrf();
+                    $token = self::token((string)$c->post('/backup/restore', ['csrf' => $csrf], self::upload($good))['body']);
+                    $r = $c->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $token, 'confirm' => '1']);
+                    $this->assertSame([303, '/backup?restored=1'], [$r['status'], $r['headers']['location'] ?? null], $what);
+                }
+                clearstatcache();
+                $this->assertTrue(is_link($map), "$what: the link stays");
+                $this->assertSame($target, readlink($map), "$what: the link is unchanged");
+                if ($real) {
+                    $this->assertSame(['keep me', '604'], [file_get_contents($target), sprintf('%o', fileperms($target) & 0777)], "$what: its target is untouched");
+                } else {
+                    $this->assertFileDoesNotExist($target, "$what: its target is not made");
+                }
+                $other = $dir . '/originals/map/' . substr(self::NEW_PHOTO, 0, 32);
+                $this->assertSame([self::ORIGINAL, '640'], [file_get_contents($other), sprintf('%o', fileperms($other) & 0777)], "$what: the other map file is written");
+                $this->assertSame([], glob($dir . '/originals/map/.map-*') ?: [], "$what: no temp file");
+                unlink($map);
+                @unlink($target);
+            });
+        }
+    }
+
     /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
     private function withCatalog(callable $fn): void
     {
