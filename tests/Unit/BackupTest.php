@@ -400,6 +400,33 @@ final class BackupTest extends DatabaseTestCase
         }
     }
 
+    /** backup.json is not held to the per-file cap: it is the catalog, and may be bigger. */
+    public function testBackupJsonMayBeBiggerThanTheSizeCap(): void
+    {
+        $json = $this->tmp('.json');
+        $fh = fopen($json, 'w');
+        fwrite($fh, (string)json_encode($this->validDump()));
+        $chunk = str_repeat(' ', 1024 * 1024);   // JSON whitespace after the value
+        for ($i = 0; $i <= BACKUP_MAX_ENTRY / strlen($chunk); $i++) fwrite($fh, $chunk);
+        fclose($fh);
+        $this->assertGreaterThan(BACKUP_MAX_ENTRY, filesize($json));
+        $p = $this->tmp('.zip');
+        $z = new ZipArchive();
+        $z->open($p, ZipArchive::CREATE);
+        $z->addFile($json, 'backup.json');
+        $z->setCompressionName('backup.json', ZipArchive::CM_DEFLATE, 1);
+        $z->close();
+        unlink($json);
+        $was = ini_set('memory_limit', '1G');
+        try {
+            $b = backup_open($p, $this->pdo, $this->driver);
+            $b['zip']->close();
+            $this->assertArrayHasKey('items', $b['tables']);
+        } finally {
+            ini_set('memory_limit', (string)$was);
+        }
+    }
+
     /** An attachment whose bytes are not its type is skipped with a warning, and its temp file is removed. */
     public function testAnAttachmentOfTheWrongTypeLeavesNoTempFile(): void
     {
