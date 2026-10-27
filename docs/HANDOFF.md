@@ -206,9 +206,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
   restore notes (N-442 to N-459, L-480, N-481). Merged at 0173924.
 - [#142](https://github.com/thordin9/apotheke/pull/142): a restore makes `files/` with legacy's mode (0770 before the
-  umask; it was 0700) and the camera link map is written through a temp file, as before. Open, full gate.
+  umask; it was 0700); a link at a camera map name is skipped and the other map entries are still written; and the
+  #141 parity items: a link at a camera file's name stops the restore (L-560), the lock's stat cache is cleared before
+  its open (N-562), and writes check flush and close. Open, full gate after #141.
 - [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
-  camera link map through a temp file). Open, full gate.
+  camera link map through a temp file, L-560, L-561, N-562, N-564). Open on `main`, full gate (QA delta check).
 
 ## Lanes
 
@@ -241,10 +243,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
-   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). Review and
-   merge #141 (`main` follow-up) and #142 (restored folder modes), both under the full gate; then QA notes batch 4
-   (N-380, N-381, N-420 to N-424; branch `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's step 16
-   part 3 then makes the `files/` mode a hard check in the upgrade/rollback job. Coder's v2.6.23 sync (#138) also touches
+   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
+   follow-up) is on `main` under the full gate; #142 (restored folder modes) follows it. Then QA notes batch 4
+   (N-380, N-381, N-420 to N-424, N-520, N-521, N-563, N-565 to N-567; branch `ci4/qa-notes-batch4`), merging
+   `feature/ci4` in first. Coder's step 16 part 3 then makes the `files/` mode a hard check in the upgrade/rollback
+   job. Coder's v2.6.23 sync (#139, which replaced #138) also touches
    `Ci4BackupParityTest` and `BackupFailureTest`; whichever merges second merges the other in.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
