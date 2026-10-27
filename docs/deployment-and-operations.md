@@ -75,6 +75,8 @@ and links photos to the backup's camera files only once the data is in, so the c
 they were. Folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a
 restore whose process is killed can leave the new files it had written; nothing refers to them. A link where a restore
 would write a new file stops the restore and is left as it is.
+The photos' camera-file links are written after the data is in, each through a temp file renamed into place; a link
+at one of their names is left as it is, and that camera file is not linked (a warning).
 
 Other options: a copy of `data/` while the container is stopped, or `sqlite3 data/catalog.sqlite ".backup copy.sqlite"`
 while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
