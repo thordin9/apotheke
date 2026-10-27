@@ -202,7 +202,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   p95 reported, +20 % not met on light pages; CI enforces a temporary budget of legacy + 8 ms on SQLite and + 20 ms
   on PostgreSQL, on the median gap). Merged at 27c422b.
 - [#135](https://github.com/thordin9/apotheke/pull/135) (`main`): the legacy port of L-440 and the restore lock.
-  Open, under the full gate.
+  Merged into `main` at e8cf10d, released as v2.6.23.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
   restore notes (N-442 to N-459, L-480, N-481). Open.
 
@@ -221,9 +221,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Touches `Media\ImageStore` and the Autofill module only; #124 also touches Coder2's `Accounts`, `SecurityController`
   and `SignInAccountsTest` (listed in the PR). Step 15, the Docker image (#132, merged): `Dockerfile`, `docker/`, the
   docker scripts and CI job, `Config\Services::accounts()` and its `SignInAccountsTest` case. Stays out of the step 14
-  import/export and Backup files. Step 16 part 1, the parity gate (#134, open): `tests/parity/gate.php`,
+  import/export and Backup files. Step 16 part 1, the parity gate (#134, merged at 27c422b): `tests/parity/gate.php`,
   `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
-  attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 waits for #133.
+  attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 is unblocked (#133 is merged).
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -237,8 +237,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
-   (N-431). Review and merge #136 (streaming restore); #135 on `main` after its full gate. Then open QA notes batch 4
-   (N-380, N-381, N-420 to N-424; branch `ci4/qa-notes-batch4`), merging `feature/ci4` in first.
+   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). Review and merge #136 (streaming restore). Then a small
+   `main` follow-up (L-480, N-481 to N-486), then QA notes batch 4 (N-380, N-381, N-420 to N-424; branch
+   `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's v2.6.23 sync (#138) also touches
+   `Ci4BackupParityTest` and `BackupFailureTest`; whichever merges second merges the other in.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
    `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
