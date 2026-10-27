@@ -31,8 +31,9 @@ final class DatabaseFactory
         if ($driver === 'Postgre') {
             // CI4 logs pg_connect()'s warning, and libpq's text names the user.
             // With warnings muted, a failed connect is only CI4's own
-            // "Unable to connect to the database." (the runner already logged
-            // in with the same settings, so this is rare).
+            // "Unable to connect to the database."; Services::apothekeDb turns
+            // it into the sanitized line. This is the request's only login
+            // (BootMigration checks the schema on this connection).
             set_error_handler(static fn (): bool => true);
             try {
                 $connection->initialize();

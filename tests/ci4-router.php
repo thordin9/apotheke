@@ -64,8 +64,8 @@ if (!function_exists('ci4_test_arm_pgsql_probe')) {
 if (!function_exists('ci4_test_arm_wrong_ci4_password')) {
     /**
      * Test only. APOTHEKE_TEST_CI4_WRONG_PASSWORD gives CI4's own Postgre
-     * connection a different password from the one the migration runner uses,
-     * so the runner connects and CI4's lazy connect is refused.
+     * connection a different password from the configured one, so CI4's lazy
+     * connect (the request's only login) is refused.
      */
     function ci4_test_arm_wrong_ci4_password(): void
     {

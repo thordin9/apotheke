@@ -62,7 +62,7 @@ final class Ci4DatabaseDownTest extends TestCase
     }
 
     /**
-     * The runner connects, CI4's own Postgre connect is refused (wrong password).
+     * CI4's own Postgre connect, the request's only login, is refused (wrong password).
      * This is the only test that catches a missing catch in Services::apothekeDb, so in
      * CI it fails rather than skips when PostgreSQL is down or accepts any password.
      */
