@@ -187,9 +187,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#131](https://github.com/thordin9/apotheke/pull/131): #127 QA notes: streamed export (L-370), CSRF-first answers
   recorded (N-371), PUT/PATCH/DELETE on the import pages (N-372), a waiting preview shows the done page (N-373),
   stale uploads swept (N-374), TAB/CR cells tested (N-375). Merged.
-- [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 15, the Docker image on PHP 8.4 for CI4
-  (`APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at start) and L-400 (CI4 reads
-  `SIGN_IN_FAIL_MS`). Open.
+- [#132](https://github.com/thordin9/apotheke/pull/132): PLAN step 15, the Docker image on PHP 8.4 (the shipped
+  default now, legacy and CI4 with `APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at
+  start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Open.
 
 ## Lanes
 
@@ -226,7 +226,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    (N-373) and the stale-upload sweep (N-374) from [#131](https://github.com/thordin9/apotheke/pull/131).
 4. Review and merge #132 (step 15: the CI4 image on PHP 8.4, with the Docker bind and app-password start-up
    hardening from `main` [#75](https://github.com/thordin9/apotheke/pull/75), SEC-M3). The restore checks of the docker
-   scripts skip CI4 until it has the backup pages.
+   scripts skip CI4 until it has the backup pages: on CI4, `/backup/restore` answers 404 until
+   [#133](https://github.com/thordin9/apotheke/pull/133) lands (N-431).
+5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
 
 ## Tracked
 
