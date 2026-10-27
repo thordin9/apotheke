@@ -211,6 +211,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   its open (N-562), and writes check flush and close. Open, full gate after #141.
 - [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
   camera link map through a temp file, L-560, L-561, N-562, N-564). Open on `main`, full gate (QA delta check).
+- [#140](https://github.com/thordin9/apotheke/pull/140): PLAN step 16 part 2, the upgrade and rollback gate
+  (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
+  legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Merged at
+  b1bc52d.
 
 ## Lanes
 
