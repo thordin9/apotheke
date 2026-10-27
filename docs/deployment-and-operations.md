@@ -62,15 +62,19 @@ A nightly cron example on the host:
 
 What the restore checks: that the file is a zip with only `backup.json`, `images/*.jpg`, `thumbs/*.jpg`,
 `files/<hex>.<pdf|jpg|png|webp>`, `originals/index.json` and `originals/<64 hex>.<ext>` entries, the entry count and
-unpacked size limits, the format and version, that every table
+unpacked size limits (each file other than `backup.json` at most 200 MiB, read from the zip's directory before anything
+is unpacked), the format and version, that every table
 and column is known to this version (a backup from a **newer** schema is refused), and that rows are well-formed.
 Missing photo files produce a warning. Photos in `data/images` that the restored data doesn't reference are left on
 disk.
 
 One restore runs at a time: while one runs, another one (from the browser or `bin/restore.php`) is refused with
 “Another restore is running. Try again when it has finished.” A restore that fails part-way removes the photo,
-thumbnail, attachment and camera files it had added, and links photos to the backup's camera files only once the data
-is in, so the catalog and `data/` are as they were.
+thumbnail, attachment and camera files it had added (also when a fatal error such as running out of memory stops it),
+and links photos to the backup's camera files only once the data is in, so the catalog and the files in `data/` are as
+they were. Folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a
+restore whose process is killed can leave the new files it had written; nothing refers to them. A link where a restore
+would write a new file stops the restore and is left as it is.
 
 Other options: a copy of `data/` while the container is stopped, or `sqlite3 data/catalog.sqlite ".backup copy.sqlite"`
 while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
