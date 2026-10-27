@@ -94,20 +94,26 @@ Turn pcov off for timing (`php -d pcov.enabled=0 …`); the gate's own servers a
 ### Upgrade and rollback (PLAN step 16, part 2)
 
 [`scripts/upgrade-rollback.sh`](../scripts/upgrade-rollback.sh) runs PLAN §3.6 on one data directory and database:
-legacy on PHP 8.3 seeds the demo catalog (`bin/seed.php --demo`, JPEG photos) plus a PNG and a HEIC photo with
-their originals, CI4 on PHP 8.4 takes over (`bin/migrate.php --status` shows every migration applied; `/healthz`,
-the list and a photo with its thumbnail answer), then legacy on 8.3 again. Each app then restores the other's
-`bin/backup.php` zip with `bin/restore.php`, over the same install and into a fresh one. After every step
+legacy on PHP 8.3 seeds the demo catalog (`bin/seed.php --demo`, JPEG photos), then
+[`tests/upgrade/seed-extra.php`](../tests/upgrade/seed-extra.php) adds a PNG and a HEIC photo with their originals,
+tags, a PDF attachment under `files/`, a saved filter and a stocktake, so every table a backup carries has rows (the
+seed guard fails otherwise). CI4 on PHP 8.4 takes over (`bin/migrate.php --status` shows every migration applied;
+`/healthz`, the list and a photo with its thumbnail answer), then legacy on 8.3 again. Each app then restores the
+other's `bin/backup.php` zip with `bin/restore.php`, over the same install and into a fresh one. After every step
 [`tests/upgrade/snapshot.php`](../tests/upgrade/snapshot.php) takes every table (columns and rows, sorted) and the
-sha256 of every file under `images/`, `thumbs/` and `originals/` (`map/` included), and
-[`compare.php`](../tests/upgrade/compare.php) fails on any difference from the seeded state; a file mode
-difference is printed as `WARN` only. After a restore only the backed-up tables and the settings are compared,
-without `settings.updated_at`. CI runs it on SQLite and PostgreSQL (`upgrade-rollback`).
+sha256 of every file under `images/`, `thumbs/`, `originals/` (`map/` included) and `files/`, and
+[`compare.php`](../tests/upgrade/compare.php) fails on any difference from the seeded state, and on an originals
+directory that is not 0750 or a file there that is not 0640; other mode differences are printed as `WARN`. After a
+restore only the carried tables (`backup_tables()`, which must equal CI4's `Backups::tables()`) and the settings are
+compared, without `settings.updated_at`. Last, mutation checks on a throwaway install show that an emptied or
+dropped table, a changed or missing attachment and a 0644 original each fail. `UPGRADE_WORK` must be a new path;
+the script removes only that directory and its own `upg_<run>_*` schemas. CI runs it on SQLite and PostgreSQL
+(`upgrade-rollback`).
 
 ```bash
 DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh            # needs php8.3, php8.4 and ci4/vendor
 DB_DRIVER=pgsql TEST_PG_HOST=127.0.0.1 TEST_PG_PORT=5432 TEST_PG_DB=apotheke TEST_PG_USER=apotheke \
-  TEST_PG_PASSWORD=secret bash scripts/upgrade-rollback.sh     # schemas upg_*, dropped at the end
+  TEST_PG_PASSWORD=secret bash scripts/upgrade-rollback.sh     # schemas upg_<run>_*, dropped at the end
 UPGRADE_KEEP=1 DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh   # keep the work dir and snapshots
 ```
 
