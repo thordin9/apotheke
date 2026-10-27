@@ -461,4 +461,36 @@ final class BackupTest extends DatabaseTestCase
             $this->assertFileExists(IMG_DIR . '/' . $name, "$what: the photo is restored");
         }
     }
+
+    /** A photo folder that cannot be written fails the restore, with nothing changed and no temp file. */
+    public function testAPhotoFolderThatCannotBeWrittenFailsTheRestore(): void
+    {
+        $src = $this->dataDir();
+        $this->seedCatalog($src);
+        $zip = $this->tmp('.zip');
+        backup_create($this->pdo, $this->driver, $src, $zip);
+        $before = backup_dump($this->pdo, $this->driver);
+        $dst = $this->dataDir();
+        chmod("$dst/images", 0555);
+        try {
+            if (is_writable("$dst/images")) $this->markTestSkipped('running as root: a 0555 folder stays writable');
+            backup_restore($this->pdo, $this->driver, $dst, $zip);
+            $this->fail('expected failure');
+        } catch (UserError $e) {
+            $this->assertSame(BACKUP_RESTORE_FAILED, $e->getMessage());
+        } finally {
+            chmod("$dst/images", 0775);
+        }
+        $this->assertSame([], array_values(array_diff(scandir("$dst/images"), ['.', '..'])));
+        $this->assertSame([], array_values(array_diff(scandir("$dst/thumbs"), ['.', '..'])));
+        $this->assertSame($this->strip($before), $this->strip(backup_dump($this->pdo, $this->driver)));
+    }
+
+    /** A camera-file index that is not JSON is skipped with a warning; the rest restores. */
+    public function testAnUnreadableCameraFileIndexIsSkipped(): void
+    {
+        $this->seedCatalog($this->dataDir());
+        $r = backup_restore($this->pdo, $this->driver, $this->dataDir(), $this->zipWith(['backup.json' => $this->validDump(), 'originals/index.json' => '{']));
+        $this->assertContains('originals/index.json was skipped.', $r['warnings']);
+    }
 }
