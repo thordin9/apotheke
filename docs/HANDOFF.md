@@ -196,7 +196,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   default now, legacy and CI4 with `APOTHEKE_APP=ci4`), with the #75 port (localhost bind, sign-in required at
   start), L-400 (CI4 reads `SIGN_IN_FAIL_MS`), L-430 (entrypoint data-directory hardening) and N-432 tests. Merged at
   7e927f7.
-- [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore). Open.
+- [#133](https://github.com/thordin9/apotheke/pull/133): PLAN step 14, second part (backup and restore), with
+  L-440 and the restore lock (L-450, L-455, N-456). Merged at 31de273.
+- [#134](https://github.com/thordin9/apotheke/pull/134): PLAN step 16, part 1, the full parity gate (CI4 and legacy
+  on PHP 8.4). Open.
+- [#135](https://github.com/thordin9/apotheke/pull/135) (`main`): the legacy port of L-440 and the restore lock.
+  Open, under the full gate.
+- [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
+  restore notes (N-442 to N-459, L-480, N-481). Open.
 
 ## Lanes
 
@@ -218,22 +225,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, open).
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, open);
+  QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
 
 ## Next steps
 
-1. Review and merge #133 (step 14's backup and restore). With it the docker scripts run their restore checks on CI4
-   too (N-431).
+1. Review and merge #136 (streaming restore) and #134 (parity gate); #135 on `main` after its full gate. Then open
+   QA notes batch 4 (N-380, N-381, N-420 to N-424; branch `ci4/qa-notes-batch4`), merging `feature/ci4` in first.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
    `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
 3. Deferred (PM call: `main` gets urgent fixes only): porting to legacy on `main` the done check for a waiting preview
    (N-373) and the stale-upload sweep (N-374) from [#131](https://github.com/thordin9/apotheke/pull/131).
-4. Port L-440 with the restore lock (L-450) to legacy on `main` (a failed restore removes the files it wrote; original
-   links after the commit; one restore at a time, with L-455 and N-456), then streaming restore (L-441 follow-up) on CI4.
+4. After #135: the restore settings permission (N-443) and the streamed restore stay CI4-only unless the PM decides
+   to port them to `main`.
 5. Later: pin the `composer` build stage by digest, not only by tag (N-433).
 6. Later, #132 QA nits (deferred): the exit-78 message for a linked data directory should name `ORIGINALS_DIR` or
    mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
@@ -247,19 +255,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   a failed restore shows a general message without the database's own text (page and CLI); a zip that holds two
   entries of one name is refused; a missing thumbnail is drawn again only within Media's decode limits; restored
   files are written through `Core\Storage`; on PostgreSQL the restore locks the catalog tables before it deletes;
-  `bin/backup.php` to a path it cannot write prints `Cannot write …` and exits 1. Restore still reads `backup.json`
-  into memory, as legacy does (candidate for streaming); backup reads `DATA_DIR` and `ORIGINALS_DIR` directly
+  `bin/backup.php` to a path it cannot write prints `Cannot write …` and exits 1. Restore is streamed (#136):
+  `backup.json` a value at a time, each entry through a temp file, at most 200 MiB per entry; backup reads `DATA_DIR` and `ORIGINALS_DIR` directly
   (Cloudflare phase: move behind `Storage`).
 - Restore files (#133, L-440), stricter than legacy: a CI4 restore that fails at any point (an entry that cannot be
   read or written, a database error) removes the files it created and rewrites the camera-original links only
   after the rows commit, so files and links stay as they were. Legacy keeps the files and the new links; pinned in
-  `Ci4BackupParityTest`, for a later `main` PR. Restore memory (L-441): CI4 refuses, before decoding, a
-  `backup.json` that would not fit in the memory left ("too large to restore within the memory limit", 422 or
-  exit 1), where legacy answers 500; a backup close to the limit may be refused. Streaming restore is next.
+  `Ci4BackupParityTest`, for a later `main` PR. Restore memory (L-441, L-451, #136): memory no longer grows
+  with the backup; only one value larger than the memory left is refused ("too large to restore within the memory
+  limit", 422 or exit 1), where legacy answers 500.
 - Restore lock (#133, L-450), CI4 only: one restore runs at a time, web and CLI alike, behind an exclusive lock on
   `DATA_DIR/tmp/restore.lock` held for the files and the rows. A second restore started meanwhile is refused at once
   with "Another restore is running. Try again when it has finished." (409 on the page, which keeps the upload so it
-  can be confirmed again; exit 1 in `bin/restore.php`). The lock opens read-only when another user made the file (L-455) and refuses a link (N-456). Legacy has no lock yet; port with L-440.
+  can be confirmed again; exit 1 in `bin/restore.php`). The lock opens read-only when another user made the file (L-455) and refuses a link (N-456), also when it is swapped in while it is opened, with a message that names the file
+  (N-458, N-459). Legacy gets the lock with #135.
+- Restore on CI4 (#136), stricter than legacy: the backup's settings are restored only for a user who also has the
+  settings permission (the page says they were skipped; `bin/restore.php` restores them, N-443); `true`/`false` are
+  refused as table values (N-448); on PostgreSQL a lost deadlock is tried again, then refused with a message (N-445).
 - Sign-in deadline setting: both apps pace with `SIGN_IN_FAIL_MS` (#126; CI4 since #132, L-400), default 1000 ms,
   clamped to 400–10000; CI4's `signin.failDeadlineMs` / `signin_failDeadlineMs` are gone. Legacy starts the deadline
   at the request's start, CI4 at the controller's.
