@@ -315,6 +315,35 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         }
     }
 
+    /** N-448 and the streamed reader's stricter checks: booleans, a key twice, rows before their columns. */
+    public function testBackupJsonIsCheckedStrictly(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $dump = $this->dump($server, $dir);
+            $json = static fn (array $d): string => (string)json_encode($d, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $fav = array_search('favourite', $dump['tables']['items']['columns'], true);
+            $this->assertIsInt($fav);
+            $cases = [];
+            foreach ([true, false] as $b) {
+                $d = $dump;
+                $d['tables']['items']['rows'][0][$fav] = $b;
+                $cases[] = [$json($d), 'A value in items is not a plain value.'];
+            }
+            $cases[] = ['{"driver":"x",' . substr($json($dump), 1), 'backup.json names the same key twice.'];
+            $cases[] = [str_replace('"locations":{', '"locations":{"x":1,"x":2,', $json($dump)), 'backup.json names the same key twice.'];
+            $d = $dump;
+            $d['tables']['locations'] = ['rows' => $dump['tables']['locations']['rows'], 'columns' => $dump['tables']['locations']['columns']];
+            $cases[] = [$json($d), 'Table locations is malformed.'];
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            foreach ($cases as $i => [$text, $why]) {
+                $this->zip($dir . "/strict$i.zip", ['backup.json' => $text]);
+                $r = $this->cli($dir, 'restore', ["strict$i.zip", '--yes']);
+                $this->assertSame([1, "Invalid backup: $why\n"], [$r['exit'], $r['stderr']], "case $i: " . $r['stdout']);
+            }
+            $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn());
+        });
+    }
+
     public function testALinkWhereANewFileGoesStopsTheRestore(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
