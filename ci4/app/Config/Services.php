@@ -36,7 +36,7 @@ class Services extends BaseService
      * header against them was a fixed cost on every request (boot cost step).
      * getUserAgent() still returns the header as sent.
      */
-    public static function incomingrequest(?\Config\App $config = null, bool $getShared = true)
+    public static function incomingrequest(?\Config\App $config = null, bool $getShared = true): \CodeIgniter\HTTP\IncomingRequest
     {
         if ($getShared) {
             return static::getSharedInstance('request', $config);

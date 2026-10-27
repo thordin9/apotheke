@@ -126,7 +126,7 @@ final class BootMigration
         // A SQLite statement left open keeps its read snapshot; let a later write see the current database.
         $result->freeResult();
 
-        return array_values($rows);
+        return $rows;
     }
 
     /** @param array<string,mixed> $db */
