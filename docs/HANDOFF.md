@@ -204,14 +204,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#135](https://github.com/thordin9/apotheke/pull/135) (`main`): the legacy port of L-440 and the restore lock.
   Merged into `main` at e8cf10d, released as v2.6.23.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
-  restore notes (N-442 to N-459, L-480, N-481). Open.
+  restore notes (N-442 to N-459, L-480, N-481). Merged at 0173924.
 - [#139](https://github.com/thordin9/apotheke/pull/139): sync `main` v2.6.23 (#135: the legacy restore lock and
-  failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Open.
+  failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Merged at 3660252.
 - [#140](https://github.com/thordin9/apotheke/pull/140): PLAN step 16 part 2, the upgrade and rollback gate
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
-  legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Open.
+  legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Merged at b1bc52d.
 - [#137](https://github.com/thordin9/apotheke/pull/137): boot cost (L-472): one database login per request, cheaper
   PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Open.
+- Step 16 part 3 (`cursor/ci4-step16-trim`, PR opens after #137): compiled routes, no file cache handler; CI enforces
+  PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by Stathis, 2026-10-27, via the PM); N-546.
 
 ## Lanes
 
@@ -231,12 +233,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   import/export and Backup files. Step 16 part 1, the parity gate (#134, merged at 27c422b): `tests/parity/gate.php`,
   `scripts/parity-gate.php`, the `parity-gate` CI job, and the three CI4 fixes it found (autofill Cache-Control,
   attachments directory mode, PostgreSQL undo snapshot types). Stays out of Backup; part 2 is unblocked (#133 is merged).
-  Sync v2.6.23 (#139, open). Step 16 part 2 (#140, merged). Next: step 16 part 3 (boot trim, p95 enforcement).
+  Sync v2.6.23 (#139, merged). Step 16 part 2 (#140, merged). Step 16 part 3 (`cursor/ci4-step16-trim`): compiled
+  routes (`CompiledRouteCollection`, `app/Config/RoutesCompiled.php`, `spark apotheke:routes`), the cache handler, the
+  parity-gate budget lines in `ci.yml`, and N-546 in `scripts/upgrade-rollback.sh`.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, open);
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged);
   QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
@@ -261,19 +265,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    mounting the real directory (N-436); the window between the entrypoint's link checks and its `mkdir`, `chmod` and
    `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
    and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
-7. Step 16 part 2 (upgrade/rollback job vs legacy@8.3, cross-restore) is unblocked: #133 is merged. It follows the
-   boot-cost step (item 8). The parity gate marks two autofill steps
-   `pending` (the html fragment of the Control Panel page); drop the marks when that page is ported. CI4's p95 is
-   2 to 4 ms (SQLite; up to about 7 on CI runners) and about 10 ms (PostgreSQL, up to about 18 on CI: the boot
-   migration check opens a second connection) above legacy on light pages (see item 8).
-8. p95 (PM decision on #134): the +20 % target stays the bar, and step 16 is done only once
-   `PARITY_P95_MAX_PCT=20` passes. Until then the `parity-gate` job enforces a temporary budget,
-   `PARITY_P95_MAX_ABS_MS` (CI4 within legacy + 8 ms on SQLite, + 20 ms on PostgreSQL, per area), tightened when
-   the boot-cost step lands. The p95 gap failed once on a slow runner, so CI compares the median gap
-   (`PARITY_BUDGET_STAT=median`, same values; not widened again). Next lane, right after #134: the boot-cost
-   step (one database connection for `BootMigration`'s migration check, keeping `Ci4DsnCredentialsTest` and
-   `Ci4DatabaseDownTest` green, then trim the boot; L-472), then enforce 20 %, then step 16 part 2. #133 is merged
-   and `feature/ci4` (31de273) is merged into #134. Backup and restore stay out of the part 1 gate (part 2 covers them).
+7. Step 16 part 2 (upgrade/rollback gate) is merged (#140). The `files/` mode check becomes hard once #142 (Coder2's
+   `files/` 0750 fix and the Restorer port) is merged. The parity gate marks two autofill steps `pending` (the html
+   fragment of the Control Panel page); drop the marks when that page is ported.
+8. Step 16 done criterion (decision by Stathis, 2026-10-27, via the PM): the `parity-gate` job passes with
+   PostgreSQL p95 within +20 % of legacy per area and SQLite median within + 3 ms per area (PostgreSQL keeps its
+   + 20 ms median guard). On SQLite, CI4's database work alone costs about as much as legacy's whole request, so
+   +20 % is not reachable there without bypassing the framework. Part 3 (compiled routes) sets this in `ci.yml`;
+   step 16 is done when that PR's CI passes.
 9. #134 QA review: M-470 and L-471 are fixed in #134 (the gate compares every Set-Cookie in full, the security
    headers and Cache-Control exactly but for one documented pair; password hashes keep algorithm and cost, and the
    users the app created sign in). N-475, N-476 and N-477 are folded in. Deferred: N-473 and N-474 (as in QA's
