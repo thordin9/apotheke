@@ -73,10 +73,10 @@ difference fails. Steps marked `pending` list the parts of an answer that come f
 Control Panel), apart from the differences; the rest of the step must match.
 
 It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area with CI4's lead in ms
-at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's (the
-PLAN bar for step 16, not met yet); `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI sets the
-temporary absolute budget, 8 ms on SQLite and 20 ms on PostgreSQL, on the median gap; it is tightened when the
-boot-cost step lands, and then CI enforces 20 %. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
+at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's;
+`PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI enforces the step 16 bar (decision by Stathis,
+2026-10-27, via the PM): on PostgreSQL p95 within +20 % (and the median within + 20 ms), on SQLite the median within
++ 3 ms, because there CI4's database work alone costs about as much as legacy's whole request. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
 medians instead of the p95 (the PM's fallback once runner noise failed the p95 gap; CI uses it, and the +N % bound
 always compares p95). An empty variable checks nothing (the statistic defaults to p95); any other value that is not a
 number >= 0, or not `p95` or `median`, exits 2. The gate starts its CI4 server with `APOTHEKE_TEST_PGSQL_PROBE=0`, so the harness's PostgreSQL probe (a `CREATE` and an `INSERT` on every request of the pgsql leg) is not timed.
