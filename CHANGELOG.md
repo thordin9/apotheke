@@ -126,6 +126,18 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` ff23b38 (2.6.18) into `feature/ci4`. The legacy app gets #116; its `HardeningHttpTest` probe for null-character names runs on CI4 and on both legacy drivers and replaces the narrower #113 probe. ([#117](https://github.com/thordin9/apotheke/pull/117))
 - **ci4:** sync `main` 935f144 (2.6.19, 2.6.20) into `feature/ci4`. The legacy app gets #121 and #122. `Ci4AuthParityTest` now checks that both apps refuse a registered name with a null character at either end, a CI4 register-form test covers it too, and the `allow_url_fopen` off step fails on a skipped test again. ([#124](https://github.com/thordin9/apotheke/pull/124))
 - **ci4:** sync `main` dd019fb (2.6.21, 2.6.22) into `feature/ci4`. The legacy app gets #126 (lend, return and stocktake locks, `SIGN_IN_FAIL_MS`, the shared migrate connection) and #130 (the CSV import lock); the test server sets `SIGN_IN_FAIL_MS` for both apps, CI4's `ApothekeConfig` loads `sign_in_fail_ms` as legacy does (CI4 paces with it since [#132](https://github.com/thordin9/apotheke/pull/132); its deadline starts at the controller, not at the request start), and the migrate connection test runs legacy `bin/migrate.php` on the CI4 legs too. CI4 already has the lend, return and stocktake close locks and its own sign-in deadline. ([#129](https://github.com/thordin9/apotheke/pull/129))
+- **ci4:** sync `main` 458a3c5 (2.6.23) into `feature/ci4`. The legacy app gets #135 (one restore at a time, and a failed restore's files are undone); the CI4 restore is unchanged. ([#137](https://github.com/thordin9/apotheke/pull/137))
+
+## [2.6.23] - 2026-10-27
+
+### Fixed
+
+- **backup:** reliability: a restore that fails part-way leaves the catalog, the photo, thumbnail, attachment and camera files, and the photos' camera-file links as they were, and one restore runs at a time: another one started meanwhile, in the browser (409) or with `bin/restore.php` (exit 1), is told to try again when the first has finished. ([#135](https://github.com/thordin9/apotheke/pull/135))
+
+### Maintenance
+
+- **backup:** test: cover failed and concurrent restores and the lock ([#135](https://github.com/thordin9/apotheke/pull/135))
+- **qa:** docs: add the PR 135 restore failure QA review ([#135](https://github.com/thordin9/apotheke/pull/135))
 
 ## [2.6.22] - 2026-10-26
 
@@ -567,7 +579,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.22...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.23...HEAD
+[2.6.23]: https://github.com/thordin9/apotheke/compare/v2.6.22...v2.6.23
 [2.6.22]: https://github.com/thordin9/apotheke/compare/v2.6.21...v2.6.22
 [2.6.21]: https://github.com/thordin9/apotheke/compare/v2.6.20...v2.6.21
 [2.6.20]: https://github.com/thordin9/apotheke/compare/v2.6.19...v2.6.20
