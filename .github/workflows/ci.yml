@@ -625,7 +625,8 @@ jobs:
   # PLAN step 16 (part 2, §3.6): upgrade and rollback. legacy@8.3 (the 2.5.x reference) seeds demo data with JPEG,
   # PNG and HEIC originals, CI4@8.4 runs on the same data directory and database, then legacy@8.3 again; each app
   # restores the other's backup zip, over the install and into a fresh one. The normalised DB dump and the sha256 of
-  # images/, thumbs/, originals/ and map/ must stay equal after every step (scripts/upgrade-rollback.sh).
+  # images/, thumbs/, originals/, map/ and files/ must stay equal after every step, originals 0750/0640; mutation
+  # checks prove the comparison catches a lost table or attachment (scripts/upgrade-rollback.sh).
   upgrade-rollback:
     name: Upgrade and rollback (legacy@8.3 → CI4@8.4 → legacy@8.3, ${{ matrix.db }})
     runs-on: ubuntu-latest
