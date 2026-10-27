@@ -83,13 +83,17 @@ final class BootMigration
 
     /**
      * Legacy migrations_pending() on the CI4 connection: every migration file
-     * has its row. A read that fails counts as not current, so the runner
+     * has its row in the current schema. A read that fails counts as not current, so the runner
      * reports the database's own error.
      */
     private static function current(object $connection, string $driver): bool
     {
+        // On PostgreSQL the catalog itself, not the information_schema.tables view legacy reads: the
+        // same tables (kinds r, p, v, f) in the current schema, planned in a fraction of the time on a
+        // fresh backend. A table this role cannot read fails the next read and goes to the runner.
         $exists = $driver === 'pgsql'
-            ? "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'schema_migrations'"
+            ? "SELECT COUNT(*) AS n FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace ns ON ns.oid = c.relnamespace"
+                . " WHERE ns.nspname = current_schema() AND c.relname = 'schema_migrations' AND c.relkind IN ('r', 'p', 'v', 'f')"
             : "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'";
         $rows = self::rows($connection, $exists);
         if ($rows === null || (int)($rows[0]['n'] ?? 0) === 0) {
