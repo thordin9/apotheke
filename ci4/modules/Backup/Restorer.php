@@ -215,7 +215,8 @@ final class Restorer
             self::createLock($path);
         }
         // A file that is there is opened read-only, which creates nothing (L-455: flock() works on a read
-        // handle, whoever made the file).
+        // handle, whoever made the file). N-562: no cached stat of the name is used for the open.
+        clearstatcache(true, $path);
         $fh = @fopen($path, 'r');
         if ($fh === false) {
             throw new UserError(self::FAILED);
@@ -447,7 +448,9 @@ final class Restorer
             }
         } finally {
             fclose($in);
-            if (!@fclose($out)) {
+            // every byte, flushed and closed: a short write (a full disk) fails the restore
+            $flushed = @fflush($out);
+            if (!@fclose($out) || !$flushed) {
                 $error ??= self::FAILED;
             }
             if ($error !== null) {
@@ -730,23 +733,44 @@ final class Restorer
     /**
      * The camera-original links, once the rows are in, and each linked
      * original made 0640 like a new one (legacy originals_chmod_file(), also
-     * for an original that was already there).
+     * for an original that was already there), only while it is a plain
+     * file at its name (L-560: never through a link). Each map entry goes
+     * through a temp file in the map folder and is renamed into place, so it
+     * is never written through a link. A map name that is a link, or anything
+     * but a plain file, is skipped with the camera-files warning and left as
+     * it is; the rows are in by now, so it no longer stops the restore
+     * (legacy backup_restore_link_originals()). A write that fails stops the
+     * rest with the same warning.
      *
      * @param array<string,string> $links map key => original name
      * @param list<string> $warnings
      */
     private function linkOriginals(array $links, array &$warnings): void
     {
-        try {
-            foreach ($links as $key => $base) {
-                $file = $this->backups->originalsDir() . '/' . $base;
-                if (!is_link($file) && is_file($file)) {
-                    @chmod($file, 0640);   // ignored where the filesystem cannot chmod, as in legacy
-                }
-                $this->originals->write($key, $base);
+        $warning = 'Camera files could not be restored (originals directory is not writable).';
+        $dir = rtrim($this->backups->originalsDir(), '/');
+        foreach ($links as $key => $base) {
+            $file = $dir . '/' . $base;
+            clearstatcache(true, $file);
+            $stat = @lstat($file);
+            if ($stat !== false && self::plainFile($stat)) {
+                @chmod($file, 0640);   // ignored where the filesystem cannot chmod, as in legacy
             }
-        } catch (Throwable) {
-            $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+            clearstatcache(true, $dir . '/' . $key);
+            $named = @lstat($dir . '/' . $key);
+            if ($named !== false && !self::plainFile($named)) {
+                if (!in_array($warning, $warnings, true)) {
+                    $warnings[] = $warning;
+                }
+                continue;
+            }
+            try {
+                $this->originals->write($key, $base);
+            } catch (Throwable) {
+                $warnings[] = $warning;
+
+                return;
+            }
         }
     }
 
@@ -916,6 +940,12 @@ final class Restorer
             if ($data === null) {
                 $warnings[] = "Original $base is missing from the archive.";
                 continue;
+            }
+            // L-560: a link at a camera file's name, to anything or nowhere, stops the restore
+            if (is_link(rtrim($this->backups->originalsDir(), '/') . '/' . $base)) {
+                @unlink($data);
+
+                throw new UserError(self::FAILED);
             }
             try {
                 if (!$this->originals->exists($base)) {

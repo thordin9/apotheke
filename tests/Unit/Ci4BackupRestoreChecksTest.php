@@ -31,7 +31,13 @@ require_once dirname(__DIR__) . '/lib.php';
  * - A restore into a fresh data directory leaves every folder with the
  *   mode legacy gives it, under two umasks (files/ was 0700).
  * - The camera link map is written through a temp file: a link at a map
- *   name is left as it is and nothing is written through it.
+ *   name is left as it is and nothing is written through it, and the
+ *   other map entries are still written.
+ * - L-560: a link at a camera file's name, dangling or to a real file,
+ *   stops the restore; the target keeps its mode (0604) and bytes.
+ * - Short writes: an entry that does not fit under a file size limit
+ *   (`prlimit --fsize`, XFSZ ignored) fails the restore and leaves no temp
+ *   file and no file.
  */
 final class Ci4BackupRestoreChecksTest extends TestCase
 {
@@ -483,14 +489,25 @@ final class Ci4BackupRestoreChecksTest extends TestCase
     public function testALinkAtACameraMapNameIsLeftAlone(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
-            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $dump = $this->dump($server, $dir);
+            $second = str_repeat('7', 32) . '.jpg';
+            $secondOriginal = str_repeat('cc', 32) . '.png';
+            $photos = &$dump['tables']['item_photos'];
+            $photos['rows'][] = array_map(static fn (string $c, mixed $v): mixed => ['id' => 9, 'file' => $second, 'position' => 1][$c] ?? $v, $photos['columns'], $photos['rows'][0]);
+            unset($photos);
+            $entries = $this->fullBackup($dump);
+            $entries['originals/index.json'] = [self::PHOTO => self::ORIGINAL, $second => $secondOriginal];
+            $entries += ['images/' . $second => img_jpeg(40, 30), 'thumbs/' . $second => img_jpeg(20, 15), 'originals/' . $secondOriginal => img_png(4, 4)];
+            $this->zip($dir . '/full.zip', $entries);
             $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            $secondMap = $dir . '/originals/map/' . substr($second, 0, 32);
             foreach (['dangling' => false, 'real target' => true] as $case => $real) {
                 $target = $dir . '/target-' . ($real ? 'real' : 'dangling');
                 if ($real) {
                     file_put_contents($target, 'keep');
                 }
                 @unlink($map);
+                @unlink($secondMap);
                 symlink($target, $map);
                 $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
                 $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$case: " . $r['stdout']);
@@ -503,6 +520,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
                     $this->assertFileDoesNotExist($target, "$case: nothing is written through it");
                 }
                 $this->assertFileExists($dir . '/originals/' . self::ORIGINAL, $case);
+                $this->assertSame($secondOriginal, @file_get_contents($secondMap), "$case: the next map entry is still written");
                 $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), "$case: no temp file is left");
             }
             unlink($map);
@@ -512,6 +530,65 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $this->assertFalse(is_link($map));
             $this->assertSame(self::ORIGINAL, file_get_contents($map), 'with the link gone, the map is written');
             $this->assertSame(0640, fileperms($map) & 0777);
+        });
+    }
+
+    public function testALinkAtACameraFileStopsTheRestore(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $original = $dir . '/originals/' . self::ORIGINAL;
+            foreach (['dangling' => false, 'real target' => true] as $case => $real) {
+                $target = $dir . '/camera-' . ($real ? 'real' : 'dangling');
+                if ($real) {
+                    file_put_contents($target, 'keep');
+                    chmod($target, 0604);
+                }
+                @unlink($original);
+                symlink($target, $original);
+                $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+                $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], "$case: " . $r['stdout']);
+                clearstatcache();
+                $this->assertTrue(is_link($original), "$case: the link is not replaced");
+                $this->assertSame($target, readlink($original), $case);
+                if ($real) {
+                    $this->assertSame('keep', file_get_contents($target), "$case: nothing is written through it");
+                    $this->assertSame(0604, fileperms($target) & 0777, "$case: its mode is unchanged");
+                } else {
+                    $this->assertFileDoesNotExist($target, "$case: nothing is written through it");
+                }
+                $this->assertFileDoesNotExist($dir . '/files/' . self::FILE, "$case: the files written are removed");
+                $this->assertFileDoesNotExist($dir . '/originals/map/' . substr(self::PHOTO, 0, 32), $case);
+                $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), "$case: nothing changed");
+            }
+        });
+    }
+
+    public function testAnEntryOverTheFileSizeLimitLeavesNothing(): void
+    {
+        if (!is_executable('/usr/bin/prlimit')) {
+            $this->markTestSkipped('needs prlimit');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $entries = $this->fullBackup($this->dump($server, $dir));
+            // 5 MB of camera file where 4 MiB may be written (writes fail, the signal is ignored).
+            $entries['originals/' . self::ORIGINAL] = img_png(8, 8) . random_bytes(5 * 1024 * 1024);
+            $this->zip($dir . '/big.zip', $entries);
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $cmd = ['/usr/bin/prlimit', '--fsize=4194304', '/bin/sh', '-c', 'trap "" XFSZ; exec "$@"', 'sh', PHP_BINARY, ROOT . '/bin/restore.php', 'big.zip', '--yes'];
+            $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $this->cliEnv($dir));
+            $this->assertIsResource($proc);
+            fclose($pipes[0]);
+            $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+            $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], $r['stdout']);
+            $this->assertFileDoesNotExist($dir . '/files/' . self::FILE, 'the files written are removed');
+            $this->assertFileDoesNotExist($dir . '/originals/' . self::ORIGINAL);
+            $this->assertSame([], glob($dir . '/tmp/restore-*.part') ?: [], 'no temp file is left');
+            foreach (['files', 'originals', 'originals/map', 'images', 'thumbs'] as $sub) {
+                $this->assertSame([], glob($dir . '/' . $sub . '/.*.tmp-*') ?: [], "no temp file in $sub");
+            }
+            $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
         });
     }
 
