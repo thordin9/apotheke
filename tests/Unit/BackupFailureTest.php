@@ -323,6 +323,61 @@ final class BackupFailureTest extends TestCase
         });
     }
 
+    /**
+     * A link at an existing camera file's name, here to a real file, stops the restore before anything is set on it:
+     * the target keeps its mode and bytes, the link stays, and nothing else changes.
+     */
+    public function testALinkAtAnExistingCameraFileStopsTheRestore(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $original = $dir . '/originals/' . self::ORIGINAL;
+            $target = $dir . '/elsewhere';
+            rename($original, $target);
+            chmod($target, 0604);
+            $this->assertTrue(symlink($target, $original));
+            $before = $this->state($pdo, $dir);
+            $this->confirmFails($server, $dir, $good, $good, self::FAILED);
+            file_put_contents($dir . '/cli.zip', $good);
+            $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+            $this->assertSame([1, self::FAILED . "\n"], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+            unlink($dir . '/cli.zip');
+            clearstatcache();
+            $this->assertSame($target, readlink($original), 'the link stays');
+            $this->assertSame('604', sprintf('%o', fileperms($target) & 0777), 'the target keeps its mode');
+            $this->assertSame($before, $this->state($pdo, $dir));
+            unlink($original);
+            unlink($target);
+        });
+    }
+
+    /**
+     * A photo that can only be written in part (here a file size limit stands in for a full disk) fails the restore:
+     * exit 1, and nothing is left, no partial photo and no temp file.
+     */
+    public function testAShortWriteFailsTheRestore(): void
+    {
+        $prlimit = trim((string)shell_exec('command -v prlimit'));
+        if ($prlimit === '') $this->markTestSkipped('no prlimit');
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good) use ($prlimit): void {
+            $before = $this->state($pdo, $dir);
+            // over the limit; the database and the other files stay under it
+            file_put_contents($dir . '/cli.zip', $this->rezip($good, ['images/' . self::NEW_PHOTO => img_jpeg(72, 40) . str_repeat("\0", 5 * 1024 * 1024)]));
+            // SIGXFSZ ignored (kept across exec), so a write past the limit is short instead of killing PHP
+            $p = proc_open(['sh', '-c', 'trap "" XFSZ; exec "$@"', 'sh', $prlimit, '--fsize=' . 4 * 1024 * 1024, PHP_BINARY, ROOT . '/bin/restore.php', $dir . '/cli.zip', '--yes'],
+                [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, self::env($dir));
+            $this->assertIsResource($p);
+            fclose($pipes[0]);
+            $stdout = (string)stream_get_contents($pipes[1]);
+            $stderr = (string)stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $this->assertSame([1, self::FAILED . "\n"], [proc_close($p), $stderr], $stdout);
+            unlink($dir . '/cli.zip');
+            $this->assertSame($before, $this->state($pdo, $dir));
+            $this->assertSame([], glob($dir . '/{images,thumbs,files,originals}/.restore-*', GLOB_BRACE) ?: []);
+        });
+    }
+
     /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
     private function withCatalog(callable $fn): void
     {
