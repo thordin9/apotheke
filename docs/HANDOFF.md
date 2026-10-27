@@ -80,15 +80,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Playwright on CI4: `E2E_APP=ci4` serves the specs from `ci4/public`. CI runs `list`, `search`, `saved-filters`,
   `favourites`, `value`, `manage`, `locations-nested`, `theme`, `errors`, `originals`, `branding`, `add`, `item`,
   `undo`, `history`, `expiry`, `photos`, `bulk`, `merge`, `duplicate`, `stock`, `attachments`, `users`, `roles`,
-  `labels`, `barcode`, `lending`, `stocktake` and `import`
+  `labels`, `barcode`, `lending`, `stocktake`, `import`, `auth`, `qa-fixes` and `qa-v2` (#134, N-477)
   on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
   describe or test no longer exists (N-85), or that this list does not name:
   - `labels`: print labels for a selection; sizes from the Control Panel @smoke (`/settings/labels`).
   - `search`: shows the engine in System (`/settings/system`).
-  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (auth, control panel,
-    import/export, backup).
+  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (control panel, backup).
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -249,6 +248,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    step (one database connection for `BootMigration`'s migration check, keeping `Ci4DsnCredentialsTest` and
    `Ci4DatabaseDownTest` green, then trim the boot), then enforce 20 %. Part 2 still waits for #133, which
    conflicts with #134 on `ci.yml` and `Services.php`: whoever merges second plain-merges `feature/ci4` in.
+9. #134 QA review: M-470 and L-471 are fixed in #134 (the gate compares every Set-Cookie in full, the security
+   headers and Cache-Control exactly but for one documented pair; password hashes keep algorithm and cost, and the
+   users the app created sign in). N-475, N-476 and N-477 are folded in. Deferred: N-473 and N-474 (as in QA's
+   #134 report), and L-472, which is the boot-cost lane in item 8.
 
 ## Tracked
 

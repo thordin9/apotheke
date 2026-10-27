@@ -56,22 +56,30 @@ and a CI4 server, both on the running PHP (8.4) and database (`APOTHEKE_TEST_DB`
 frozen clock: health and static files, layout, sign-in and account, users and roles, locations and categories, the
 list and search, items, photos (PNG, HEIC, broken files, cover, order, rotate), autofill against the stub (each
 failure mode, the token), quantity, duplicate, attachments, merge, bulk actions and undo, labels, barcodes, lending,
-stocktake, CSV export and import, and the settings CLI. About 190 steps. After every step it compares the answer
-(status, type, Location, Cache-Control, cookies, body or JSON), the stub's last upload, and after every write every
-table and the data directory (path, mode, sha256). Normalised alike on both sides: CSRF tokens, asset cache busters,
-random hex names (numbered in order of appearance), password hashes, session epochs and wall-clock times. The
+stocktake, CSV export and import, and the settings CLI. About 196 steps. After every step it compares the answer
+(status, type, Location, body or JSON; Cache-Control, Pragma and Expires; every Set-Cookie in full, with Path,
+Domain, SameSite, Secure, HttpOnly and Max-Age; X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
+Content-Security-Policy, Permissions-Policy, Strict-Transport-Security and the Cross-Origin policies, absent or
+not), the stub's last upload, and after every write every table and the data directory (path, mode, sha256). The
+users the app created then sign in with the passwords it stored. Normalised alike on both sides: CSRF tokens, asset
+cache busters, random hex names (numbered in order of appearance), the salt and hash of a password hash (algorithm
+and cost are compared), session epochs, the session ID by length and alphabet, cookie expiry as a bucket relative to
+the answer's Date, and wall-clock times. Cache-Control is compared exactly except for one documented pair: on a
+non-JSON answer other than 200, legacy's `no-store, no-cache, must-revalidate` (PHP's session cache limiter) equals
+CI4's `no-store, max-age=0, no-cache` (CodeIgniter's `noCache()`); both forbid storing. The
 autofill cache is compared under legacy's names (`autofill-info.json`, `tmp/`), because CI4 keeps it behind
 `Storage` as `autofill/info.json` and `autofill/tmp/` by design (#69). Any difference fails. Steps marked `pending`
 list the parts of an answer that come from a page CI4 has not ported (the Control Panel), apart from the
 differences; the rest of the step must match.
 
-It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area with CI4's lead in
-ms. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's (the PLAN bar for step 16,
-not met yet); `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI sets the temporary absolute
-budget, 8 ms on SQLite and 20 ms on PostgreSQL; it is tightened when the boot-cost step lands, and then CI enforces
-20 %. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the medians instead of the p95 (the PM's fallback
-once runner noise failed the p95 gap; CI uses it, and the +N % bound always compares p95). An empty variable checks
-nothing (the statistic defaults to p95); any other value that is not a number >= 0, or not `p95` or `median`, exits 2.
+It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area with CI4's lead in ms
+at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's (the
+PLAN bar for step 16, not met yet); `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI sets the
+temporary absolute budget, 8 ms on SQLite and 20 ms on PostgreSQL, on the median gap; it is tightened when the
+boot-cost step lands, and then CI enforces 20 %. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
+medians instead of the p95 (the PM's fallback once runner noise failed the p95 gap; CI uses it, and the +N % bound
+always compares p95). An empty variable checks nothing (the statistic defaults to p95); any other value that is not a
+number >= 0, or not `p95` or `median`, exits 2.
 
 ```bash
 php scripts/parity-gate.php                     # SQLite: differences per area, then the p95 table
