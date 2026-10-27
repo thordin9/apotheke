@@ -204,4 +204,60 @@ final class BackupHelpersTest extends CIUnitTestCase
             @rmdir($dir);
         }
     }
+
+    /** L-455: a lock file this user cannot write (made by root's CLI restore) still locks; N-456: a linked one is refused. */
+    public function testTheRestoreLockCopesWithAReadOnlyFileAndRefusesALink(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-lock-' . bin2hex(random_bytes(4));
+        mkdir($dir . '/tmp', 0700, true);
+        $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
+        (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
+        $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
+        (function (Backups $b): void { $this->backups = $b; })->call($restorer, $backups);
+        $lockPath = $dir . '/tmp/' . Restorer::LOCK_FILE;
+        try {
+            touch($lockPath);
+            chmod($lockPath, 0444);
+            if (is_writable($lockPath)) {
+                $this->markTestSkipped('running as root: a 0444 file stays writable');
+            }
+            try {
+                $restorer->restore($dir . '/missing.zip');
+                $this->fail('a missing zip was restored');
+            } catch (UserError $e) {
+                $this->assertNotSame(Restorer::FAILED, $e->getMessage(), 'a read-only lock file must still lock');
+                $this->assertNotSame(Restorer::BUSY, $e->getMessage());
+            }
+            // Held by someone else through a read handle: the restore is refused as busy.
+            $held = fopen($lockPath, 'r');
+            $this->assertTrue(flock($held, LOCK_EX | LOCK_NB));
+            try {
+                $restorer->restore($dir . '/missing.zip');
+                $this->fail('a second restore ran');
+            } catch (UserError $e) {
+                $this->assertSame(Restorer::BUSY, $e->getMessage());
+            } finally {
+                flock($held, LOCK_UN);
+                fclose($held);
+            }
+
+            chmod($lockPath, 0644);
+            unlink($lockPath);
+            $target = $dir . '/elsewhere';
+            symlink($target, $lockPath);
+            try {
+                $restorer->restore($dir . '/missing.zip');
+                $this->fail('a restore ran through a linked lock file');
+            } catch (UserError $e) {
+                $this->assertSame(Restorer::FAILED, $e->getMessage());
+            }
+            $this->assertFileDoesNotExist($target, 'the link target was created');
+        } finally {
+            @chmod($lockPath, 0644);
+            array_map('unlink', glob($dir . '/tmp/*') ?: []);
+            @rmdir($dir . '/tmp');
+            @unlink($dir . '/elsewhere');
+            @rmdir($dir);
+        }
+    }
 }

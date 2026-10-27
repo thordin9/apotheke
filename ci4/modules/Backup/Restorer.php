@@ -142,7 +142,17 @@ final class Restorer
      */
     private function lock()
     {
-        $fh = @fopen($this->backups->tmpDir() . '/' . self::LOCK_FILE, 'c');
+        $path = $this->backups->tmpDir() . '/' . self::LOCK_FILE;
+        // N-456: never through a link (as the entrypoint refuses linked data dirs, L-430).
+        if (is_link($path)) {
+            throw new UserError(self::FAILED);
+        }
+        // L-455: a lock file another user made (say a root CLI restore) may not be writable
+        // here; flock() works on a read handle too, so fall back to one.
+        $fh = @fopen($path, 'c');
+        if ($fh === false) {
+            $fh = @fopen($path, 'r');
+        }
         if ($fh === false) {
             throw new UserError(self::FAILED);
         }
