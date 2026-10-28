@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **backup:** reliability: `bin/restore.php` runs as the user that owns the data folder; started as root it switches to that user before it touches the catalog or any file, so every restored file belongs to the data folder's owner, and when the data folder is owned by root it stops with exit 1 and changes nothing. ([#145](https://github.com/thordin9/apotheke/pull/145))
+
 ## [2.6.24] - 2026-10-27
 
 ### Fixed
