@@ -216,7 +216,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   its open (N-562), and writes check flush and close. A replaced file keeps its mode, and a restore stopped by a fatal
   error removes its files. #143's three link tests and its 64M fatal-error test pass on it. Merged at 537684b.
 - [#146](https://github.com/thordin9/apotheke/pull/146): the restore command line started as root runs as the
-  owner of `DATA_DIR` (`Backup\Commands\DataDirOwner`, in `bin/restore.php` and `apotheke:restore`), and refuses with
+  owner of `DATA_DIR` (`Backup\Commands\DataDirOwner`, in `bin/restore.php`, in `ci4/spark` before boot for
+  `apotheke:restore` only, and in `RestoreCommand`), and refuses with
   exit 1 when `DATA_DIR` is root's; storage no longer changes a file's owner or mode after creating it. Open.
 - [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
   camera link map through a temp file, L-560, L-561, N-562, N-564). Merged into `main` at 3f81db2, released as
