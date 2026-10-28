@@ -38,8 +38,8 @@ final class DatabaseFactory
                 }
                 $connection->initialize();
             }
+            // initialize() already set synchronous = 1 (NORMAL) from the group (DsnTranslator).
             $connection->query('PRAGMA journal_mode = WAL');
-            $connection->query('PRAGMA synchronous = NORMAL');
 
             return;
         }

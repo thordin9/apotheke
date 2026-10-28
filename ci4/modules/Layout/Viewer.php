@@ -39,6 +39,17 @@ final class Viewer
         return ($this->can)($this->user(), $permission);
     }
 
+    /**
+     * can() for a user already read, so a page that checks several
+     * permissions reads the user once, as legacy current_user() caches it.
+     *
+     * @param array{username:string,role:string,guest:bool,anon:bool}|null $user
+     */
+    public function allows(?array $user, string $permission): bool
+    {
+        return ($this->can)($user, $permission);
+    }
+
     public function roleName(string $role): string
     {
         return ($this->roleName)($role);
