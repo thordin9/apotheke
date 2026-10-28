@@ -25,8 +25,11 @@ final class RestoreCommand extends BaseCommand
 
     protected $usage = 'apotheke:restore backup.zip [--dry-run] [--yes]';
 
-    /** @param (Closure(resource, resource, resource):BackupCli)|null $cli */
-    public function __construct(LoggerInterface $logger, Commands $commands, private readonly ?Closure $cli = null)
+    /**
+     * @param (Closure(resource, resource, resource):BackupCli)|null $cli
+     * @param (Closure():string)|null $dataDir DATA_DIR: started as root, the command runs as its owner (DataDirOwner)
+     */
+    public function __construct(LoggerInterface $logger, Commands $commands, private readonly ?Closure $cli = null, private readonly ?Closure $dataDir = null)
     {
         parent::__construct($logger, $commands);
     }
@@ -40,6 +43,9 @@ final class RestoreCommand extends BaseCommand
         if ($this->cli === null) {
             fwrite(STDERR, "apotheke:restore is not wired (Config\\Services::commands).\n");
 
+            return 1;
+        }
+        if ($this->dataDir !== null && !DataDirOwner::become(($this->dataDir)(), STDERR)) {   // before the services are built
             return 1;
         }
 

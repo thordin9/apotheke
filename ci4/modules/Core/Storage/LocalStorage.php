@@ -57,8 +57,11 @@ final class LocalStorage implements Storage
 
     /**
      * Write through a hidden temp file in the key's folder, then rename it
-     * into place. A plain file it replaces keeps its owner, group and, without
-     * a $fileMode, its mode (L-590). A write that fails part way (a full disk, N-452) removes
+     * into place. The temp file is created with its final mode (through the
+     * umask, so nothing changes it by name later): $fileMode, else the mode
+     * of the plain file it replaces (without execute bits), else the umask's.
+     * The file belongs to the user that writes it; the restore command line
+     * runs as DATA_DIR's owner (L-590). A write that fails part way (a full disk, N-452) removes
      * the temp file, also when a warning is thrown as an exception.
      *
      * @param \Closure(resource):bool $fill writes the bytes; false when it could not
@@ -76,8 +79,18 @@ final class LocalStorage implements Storage
         if ($this->path($key) === null) {
             throw new InvalidArgumentException('Invalid storage key.');
         }
+        clearstatcache(true, $path);
+        $named = @lstat($path);
+        $mode = $this->fileMode ?? ($named !== false && ($named['mode'] & 0170000) === 0100000 ? $named['mode'] & 0777 : null);
         $tmp = $dir . '/.' . basename($path) . '.tmp-' . bin2hex(random_bytes(8));
-        $fh = @fopen($tmp, 'xb');
+        $umask = $mode === null ? null : umask(~$mode & 0777);
+        try {
+            $fh = @fopen($tmp, 'xb');
+        } finally {
+            if ($umask !== null) {
+                umask($umask);
+            }
+        }
         if ($fh === false) {
             throw new RuntimeException('Could not store the file.');
         }
@@ -95,42 +108,9 @@ final class LocalStorage implements Storage
         if (!$ok) {
             throw new RuntimeException('Could not store the file.');
         }
-        clearstatcache(true, $path);
-        $named = @lstat($path);
-        $replaced = $named !== false && ($named['mode'] & 0170000) === 0100000 ? $named : null;
-        if ($replaced !== null) {
-            self::keepOwner($tmp, $replaced);
-        }
-        $mode = $this->fileMode ?? ($replaced === null ? null : $replaced['mode'] & 07777);
-        if ($mode !== null) {
-            @chmod($tmp, $mode);
-        }
         if (!@rename($tmp, $path)) {
             @unlink($tmp);
             throw new RuntimeException('Could not store the file.');
-        }
-    }
-
-    /**
-     * A plain file that is replaced keeps its owner and group, as a write in
-     * place does (L-590: a root command line run must not leave a file the
-     * web user cannot read). Only root can give a file away; a failure is
-     * ignored, as legacy does.
-     *
-     * @param array<array-key,int> $old lstat() of the file being replaced
-     */
-    private static function keepOwner(string $tmp, array $old): void
-    {
-        clearstatcache(true, $tmp);
-        $new = @lstat($tmp);
-        if ($new === false) {
-            return;
-        }
-        if ($new['uid'] !== $old['uid']) {
-            @chown($tmp, $old['uid']);
-        }
-        if ($new['gid'] !== $old['gid']) {
-            @chgrp($tmp, $old['gid']);
         }
     }
 

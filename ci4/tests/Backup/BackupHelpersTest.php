@@ -6,6 +6,7 @@ namespace Tests\Backup;
 
 use Apotheke\Backup\Backups;
 use Apotheke\Backup\Commands\BackupCli;
+use Apotheke\Backup\Commands\DataDirOwner;
 use Apotheke\Backup\JsonReader;
 use Apotheke\Backup\Restorer;
 use Apotheke\Media\ImageLimits;
@@ -21,6 +22,21 @@ use ZipArchive;
  */
 final class BackupHelpersTest extends CIUnitTestCase
 {
+    /** Not root, the restore runs as it is, whoever owns DATA_DIR (the root cases run under sudo in Ci4BackupRestoreChecksTest). */
+    public function testTheDataDirOwnerCheckLetsANonRootUserThrough(): void
+    {
+        if (posix_geteuid() === 0) {
+            $this->markTestSkipped('runs as a non-root user');
+        }
+        $ids = [posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid()];
+        $err = fopen('php://memory', 'w+b');
+        $this->assertTrue(DataDirOwner::become('/', $err), 'a folder root owns');
+        $this->assertTrue(DataDirOwner::become('/nonexistent-' . bin2hex(random_bytes(4)), $err), 'a missing folder');
+        rewind($err);
+        $this->assertSame('', stream_get_contents($err));
+        $this->assertSame($ids, [posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid()], 'the ids are unchanged');
+    }
+
     public function testOnlyTheNamesABackupWritesAreAccepted(): void
     {
         $h32 = str_repeat('a', 32);
