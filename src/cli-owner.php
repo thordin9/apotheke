@@ -17,24 +17,43 @@ declare(strict_types=1);
 function cli_run_as_data_owner(string $dataDir, string $example = 'php bin/restore.php backup.zip'): ?string
 {
     if (cli_effective_uid() > 0) return null;
-    clearstatcache(true, $dataDir);
-    $st = @stat($dataDir);
-    $pw = $st !== false && $st['uid'] !== 0 && function_exists('posix_getpwuid') ? posix_getpwuid($st['uid']) : false;
-    $name = is_array($pw) ? (string)$pw['name'] : '';
-    if ($st === false || !is_dir($dataDir) || $st['uid'] === 0 || !is_array($pw) || !function_exists('posix_setuid') || !function_exists('posix_setgid')) {
-        return cli_owner_message($name, $example);
-    }
-    $gid = $st['gid'] !== 0 ? $st['gid'] : (int)$pw['gid'];
-    if ($gid === 0) return cli_owner_message($name, $example);
+    $target = cli_data_owner_target($dataDir, $example);
+    if (is_string($target)) return $target;
+    [$uid, $gid, $name] = $target;
     $ok = @posix_setgid($gid);
     if ($ok && function_exists('posix_initgroups')) $ok = @posix_initgroups($name, $gid);
-    $ok = $ok && @posix_setuid($st['uid']);
+    $ok = $ok && @posix_setuid($uid);
     $groups = function_exists('posix_getgroups') ? (posix_getgroups() ?: []) : [];
-    if (!$ok || posix_geteuid() !== $st['uid'] || posix_getuid() !== $st['uid'] || posix_getegid() !== $gid || posix_getgid() !== $gid
+    if (!$ok || posix_geteuid() !== $uid || posix_getuid() !== $uid || posix_getegid() !== $gid || posix_getgid() !== $gid
         || in_array(0, $groups, true)) {
         return cli_owner_message($name, $example);
     }
     return null;
+}
+
+/**
+ * The user and group cli_run_as_data_owner() switches to, as [uid, gid, name], or the message when it cannot: the
+ * folder is missing or owned by root, the owner has no account entry or only root's group, or the posix functions
+ * are missing. Root's supplementary groups have to be either replaced (posix_initgroups) or checked afterwards
+ * (posix_getgroups); with neither they cannot be confirmed, so that refuses too (N-681). $exists stands in for
+ * function_exists() in tests.
+ * @param (callable(string): bool)|null $exists
+ * @return array{int,int,string}|string
+ */
+function cli_data_owner_target(string $dataDir, string $example = 'php bin/restore.php backup.zip', ?callable $exists = null): array|string
+{
+    $exists ??= function_exists(...);
+    clearstatcache(true, $dataDir);
+    $st = @stat($dataDir);
+    $pw = $st !== false && $st['uid'] !== 0 && $exists('posix_getpwuid') ? posix_getpwuid($st['uid']) : false;
+    $name = is_array($pw) ? (string)$pw['name'] : '';
+    if ($st === false || !is_dir($dataDir) || $st['uid'] === 0 || !is_array($pw) || !$exists('posix_setuid') || !$exists('posix_setgid')
+        || (!$exists('posix_initgroups') && !$exists('posix_getgroups'))) {
+        return cli_owner_message($name, $example);
+    }
+    $gid = $st['gid'] !== 0 ? $st['gid'] : (int)$pw['gid'];
+    if ($gid === 0) return cli_owner_message($name, $example);
+    return [(int)$st['uid'], $gid, $name];
 }
 
 /** The effective user id, or -1 when it cannot be read (cli_run_as_data_owner() then treats it as root). */

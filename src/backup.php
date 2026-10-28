@@ -505,7 +505,7 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
         throw $e;
     }
     after_commit_end(true);
-    backup_restore_link_originals($links, $b['warnings']);
+    backup_restore_link_originals($links, $b['warnings'], $created);
     if (is_array($dump['settings'] ?? null)) {
         $r = settings_import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $dump['settings']]));
         foreach ($r['errors'] as $k => $msg) $b['warnings'][] = "Setting $k was not restored: $msg";
@@ -576,15 +576,17 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
  * is skipped with the camera-files warning and left as it is: the rows are in by now, so it no longer stops the restore.
  * @param array<string,string> $links map path => original path
  * @param list<string> $warnings
+ * @param list<string> $created the files this restore wrote
  */
-function backup_restore_link_originals(array $links, array &$warnings): void
+function backup_restore_link_originals(array $links, array &$warnings, array $created): void
 {
     $warning = 'Camera files could not be restored (originals directory is not writable).';
     foreach ($links as $map => $dest) {
-        // A camera file this restore wrote is 0640 already. Only one kept from an older install with another mode is
-        // changed, by name, while it is a plain file (never through a link). The restore runs as the data folder's
-        // owner (bin/restore.php switches to that user), so this changes nothing that user could not change (N-582).
-        $file = @lstat($dest);
+        // A camera file this restore wrote is 0640 from the start and is left alone (N-682). Only one kept from an older
+        // install with another mode is changed, by name, while it is a plain file (never through a link). The restore
+        // runs as the data folder's owner (bin/restore.php switches to that user), so this changes nothing that user
+        // could not change (N-582).
+        $file = in_array($dest, $created, true) ? false : @lstat($dest);
         if ($file !== false && backup_plain_file($file) && ($file['mode'] & 0777) !== 0640) @chmod($dest, 0640);
         $named = @lstat($map);
         if ($named !== false && !backup_plain_file($named)) {
