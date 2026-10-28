@@ -54,7 +54,7 @@ The test job's PostgreSQL password is the test-only value `apotheke\test`. CI4's
 
 **deptrac** and the **DI rule** run the tools from `vendor/bin` (then `ci4/vendor/bin`, then `PATH`):
 
-* [`deptrac.yaml`](../deptrac.yaml) lists Core, DevServer, Migrations, Settings and Autofill. Core depends on nothing. DevServer and Settings may depend on Core. Migrations may depend on Core and Settings. Autofill may depend on Core and Settings. Media and Taxonomy are not modules yet, so they are not edges.
+* [`deptrac.yaml`](../deptrac.yaml) has one layer per module under `ci4/modules` (21). Core depends on nothing; every other module may depend on Core and on the modules [AGENTS.md](../AGENTS.md#ci4-module-rules) lists for it, with no cycles.
 * [`phpstan-di.neon`](../phpstan-di.neon) is level 6 over `ci4/modules`, the glue config and `ci4/public`. `service()` and `Services::` are allowed only in controllers, in filter `before()`/`after()`, and in `Config/Services.php`.
 
 The DI job runs `composer audit --working-dir=ci4` before the rule. That audit is a deliberate gate. If it fails because a new advisory was published, update the dependency. The failure is not a regression in the pull request.
