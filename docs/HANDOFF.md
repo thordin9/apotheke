@@ -10,7 +10,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   in development, and at run time on the PHP 8.4 image (step 15, [#132](https://github.com/thordin9/apotheke/pull/132)).
   The CI4 image serves the backup pages since step 14's second part (#133).
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
-  `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and its four POST routes; stored photos read through Media), Auth
+  `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and `/autofill/suggest`; stored photos read through Media), ControlPanel (below), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
   shell, menu, simple header, icons, toasts, POST `/theme`, the error page), Media (originals,
   served copy and thumbnail, HEIC placeholder, decode limits, GET `/media`), Taxonomy and Activity, Catalog, Search
@@ -90,10 +90,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   on CI4 in the PHP 8.4 e2e cells, after the unchanged legacy run. A test
   that needs an unported page skips (`CI4_UNPORTED` in `tests/visual/fixtures.ts`, keyed by spec file and describe ›
   title); remove its entry when the page lands. `tests/Unit/Ci4E2eSkipListTest.php` fails on an entry whose spec,
-  describe or test no longer exists (N-85), or that this list does not name:
-  - `labels`: print labels for a selection; sizes from the Control Panel @smoke (`/settings/labels`).
-  - `search`: shows the engine in System (`/settings/system`).
-  - Not on CI4 yet: the visual screenshot specs, and the specs of pages not ported (control panel).
+  describe or test no longer exists (N-85), or that this list does not name. The list is empty since #151.
+  - Not on CI4 yet: the visual screenshot specs.
 - Permissions: a required filter applies legacy's per-route check (`user_can()`) to every CI4 request, before CSRF,
   with legacy's 401, 303 and 403 answers. The permission comes from legacy's own path, the one CI4 routes (N-70):
   each route's `permission` option (a route without one is refused; `/save` adds legacy's edit-or-create rule), or
@@ -123,7 +121,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
   `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`); `auth status` stays in
   `bin/settings.php` (no migration).
-- Not ported yet: the Control Panel pages (`/settings/labels` …).
+- Control Panel ([#151](https://github.com/thordin9/apotheke/pull/151), open): `/settings`, every section (save and
+  reset), the logo, the AI autofill token and Test buttons, and the settings file, byte-identical to legacy
+  (`tests/Unit/Ci4ControlPanelParityTest.php`). Same `settings` permission and CSRF order as legacy; legacy has no
+  rate limit on these pages, and neither does CI4.
 
 ## Pull requests
 
@@ -256,7 +257,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
   follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, open); `main` restore follow-up (#141, merged into `main` at 3f81db2, v2.6.24);
-  QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
+  QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet). Control Panel (#151, open): `ci4/modules/ControlPanel`,
+  `Settings/Branding/LogoInstaller.php`, `SettingsService::secretStorageWarning()`, the Control Panel block in
+  `Config/Routes.php` and `Config\Services`, `deptrac.yaml`, `PermissionFilterTest`, `ci4/tests/ControlPanel`,
+  `Ci4ControlPanelParityTest`, `ParityGateTest`, the scenario in `tests/parity/gate.php`, `tests/visual/fixtures.ts`,
+  the CI4 spec list in `ci.yml`, `.gitleaks.toml`, the AGENTS.md module graph, `CHANGELOG.md` and this file.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
@@ -282,8 +287,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    `chown -h` (needs a concurrent `www-data` process at start; not reproduced, N-437); a runtime test for `chown -h`
    and for the PHP 8.3 refusal path, which CI no longer builds (N-438).
 7. Step 16 part 2 (upgrade/rollback job vs legacy@8.3, cross-restore) is unblocked: #133 is merged. It follows the
-   boot-cost step (item 8). The parity gate marks two autofill steps
-   `pending` (the html fragment of the Control Panel page); drop the marks when that page is ported. CI4's p95 is
+   boot-cost step (item 8). No gate step is `pending` since #151. CI4's p95 is
    2 to 4 ms (SQLite; up to about 7 on CI runners) and about 10 ms (PostgreSQL, up to about 18 on CI: the boot
    migration check opens a second connection) above legacy on light pages (see item 8).
 8. p95 (PM decision on #134): the +20 % target stays the bar, and step 16 is done only once
@@ -303,7 +307,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    area; SQLite still +64 to +144 % in 8 areas (about 1 to 2 ms of framework boot at the median: route table,
    request and response, filters, configs), a further step. Once #137 is merged, CI can tighten the temporary budget
    (median, about + 4 ms SQLite and + 5 ms PostgreSQL) and enforce 20 % on PostgreSQL.
-10. Then the Control Panel pages.
+10. Control Panel pages: #151 (open). If #150 lands first, regenerate `RoutesCompiled.php` with these routes.
 
 ## Tracked
 
