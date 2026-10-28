@@ -17,6 +17,7 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/seed.php';
 require dirname(__DIR__) . '/src/backup.php';
+require dirname(__DIR__) . '/src/cli-owner.php';
 register_shutdown_function(static function () use ($tmp): void {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($tmp, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
     foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);

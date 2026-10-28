@@ -52,6 +52,12 @@ php bin/restore.php /backups/home.zip --yes
 
 In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`.
 
+Run `bin/restore.php` as the user that owns the data folder (the user the web server's PHP runs as), for example
+`sudo -u www-data php bin/restore.php /backups/home.zip`. Started as root, it switches to the data folder's owner
+before it reads the database or writes a file, so every restored file belongs to that user; this is what happens with
+`docker compose exec apotheke php /var/www/app/bin/restore.php …`, where `/data` belongs to `www-data`. When the data
+folder is owned by root, or the switch is not possible, it stops with exit 1 and changes nothing.
+
 A nightly cron example on the host:
 
 ```cron
