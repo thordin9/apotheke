@@ -20,10 +20,11 @@ condition = "AND"
 paths = ['''^ci4/tests/(Core/SecretBoxTest|Settings/SettingsServiceTest)\.php$''']
 regexes = ['''^cGxhY2Vob2xkZXIta2V5LW[EI]tMzItYnl0ZXMtbG9uZyE=$''']
 
-# A made-up autofill token in the first Control Panel parity test commit (58f4929). The test now builds its
-# token at run time; that commit stays in history. Both the path and the exact value must match.
+# The made-up autofill token of the Control Panel parity test (the stub service
+# accepts it only under /t/; it is not a credential). Both the path and the
+# exact value must match.
 [[allowlists]]
 description = "Control Panel parity test placeholder token flagged by generic-api-key."
 condition = "AND"
 paths = ['''^tests/Unit/Ci4ControlPanelParityTest\.php$''']
-regexes = ['''^tok\-Placeholder\-7Q$''']
+regexes = ['''^tok-Placeholder-7Q$''']
