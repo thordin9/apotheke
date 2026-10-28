@@ -48,3 +48,5 @@ try {
     exit(1);
 }
 echo 'Restored: ' . backup_summary_text($r['tables'], $r['photos']) . "\n";
+// warnings the restore itself added (camera files that could not be linked, settings that were not restored; N-593)
+foreach (array_diff($r['warnings'], $b['warnings']) as $w) echo "  warning: $w\n";
