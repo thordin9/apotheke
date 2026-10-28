@@ -135,6 +135,55 @@ final class LocalStorageTest extends CIUnitTestCase
         $this->assertSame(['info.json'], array_values(array_filter($names, static fn (string $n): bool => $n !== '.' && $n !== '..')));
     }
 
+    /**
+     * L-590: a plain file that is replaced keeps its mode without a file
+     * mode, as a write in place does, and belongs to the user that writes it
+     * (the restore command line runs as DATA_DIR's owner). The mode is set as
+     * the temp file is created (umask), and the umask is put back.
+     */
+    public function testAReplacedFileKeepsItsModeAndGetsTheWritersOwner(): void
+    {
+        $store = new LocalStorage($this->root);
+        $store->write('autofill/info.json', 'old');
+        $path = $this->root . '/autofill/info.json';
+        chmod($path, 0604);
+        $other = array_values(array_diff(posix_getgroups() ?: [], [posix_getegid()]));
+        if ($other !== []) {
+            $this->assertTrue(chgrp($path, $other[0]));
+        }
+        $umask = umask(0077);
+        try {
+            $store->write('autofill/info.json', 'new');
+            $this->assertSame(0077, umask(), 'the umask is put back');
+            clearstatcache();
+            $this->assertSame('new', (string)file_get_contents($path));
+            $this->assertSame(0604, fileperms($path) & 0777, 'the mode is kept');
+            $this->assertSame([posix_geteuid(), posix_getegid()], [fileowner($path), filegroup($path)], "the writer's owner and group");
+
+            chmod($path, 0755);
+            $store->write('autofill/info.json', 'no execute');
+            clearstatcache();
+            $this->assertSame(0644, fileperms($path) & 0777, 'without execute bits');
+
+            $fixed = new LocalStorage($this->root, 0640);
+            $fixed->write('autofill/info.json', 'again');
+            clearstatcache();
+            $this->assertSame(0640, fileperms($path) & 0777, 'a file mode wins');
+
+            unlink($path);
+            $fixed->write('autofill/info.json', 'new file');
+            clearstatcache();
+            $this->assertSame(0640, fileperms($path) & 0777, 'a file mode, whatever the umask');
+            unlink($path);
+            $store->write('autofill/info.json', 'umask');
+            clearstatcache();
+            $this->assertSame(0600, fileperms($path) & 0777, "else the umask's mode");
+            $this->assertSame(0077, umask());
+        } finally {
+            umask($umask);
+        }
+    }
+
     public function testWriteStreamStoresTheWholeStream(): void
     {
         $store = new LocalStorage($this->root, 0640);
