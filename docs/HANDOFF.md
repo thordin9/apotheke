@@ -234,6 +234,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#150](https://github.com/thordin9/apotheke/pull/150) (replaces #144): step 16 part 3: compiled routes, no file cache
   handler, the layout menu reads the user once; CI enforces PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by
   Stathis, 2026-10-27, via the PM), timing at least 200 requests per area; N-546. Open.
+- [#153](https://github.com/thordin9/apotheke/pull/153): CI allowlist for a historic Control Panel test placeholder
+  (with [#152](https://github.com/thordin9/apotheke/pull/152) on `main`). Merged at 767126a.
 
 ## Lanes
 
