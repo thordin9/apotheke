@@ -103,6 +103,78 @@ final class CsvExportTest extends CIUnitTestCase
         $pdo->exec('ALTER TABLE items_gone RENAME TO items');
     }
 
+    /**
+     * N-422: each batch reads the tags of its own items only, so memory does
+     * not grow with the number of tagged items.
+     */
+    #[DataProvider('drivers')]
+    public function testEachBatchReadsOnlyItsOwnItemsTags(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $pdo = $this->database->pdo();
+        $pdo->exec("INSERT INTO tags (name, name_key, sort_key, created_at) VALUES ('t', 't', 't', '2026-01-01')");
+        $item = $pdo->prepare("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES (?, 1, '', ?, '2026-01-01', '2026-01-01')");
+        $n = 2 * CsvExport::BATCH + 1;
+        for ($i = 1; $i <= $n; $i++) {
+            $item->execute(['a' . $i, sprintf('a%04d', $i)]);
+        }
+        $pdo->exec('INSERT INTO item_tags (item_id, tag_id) SELECT i.id, t.id FROM items i, tags t');
+
+        $tagQueries = [];
+        $listener = static function (\CodeIgniter\Database\Query $q) use (&$tagQueries): void {
+            if (str_contains($q->getQuery(), 'FROM item_tags')) {
+                $tagQueries[] = $q->getQuery();
+            }
+        };
+        \CodeIgniter\Events\Events::on('DBQuery', $listener);
+        try {
+            $lines = iterator_to_array((new CsvExport($db))->lines('EUR'), false);
+        } finally {
+            \CodeIgniter\Events\Events::removeListener('DBQuery', $listener);
+        }
+        $this->assertCount($n + 1, $lines);
+        $ids = array_map(static fn (string $l): int => (int)strtok($l, ','), array_slice($lines, 1));
+        $this->assertStringContainsString(',t,', $lines[$n], 'every item still has its tag');
+        $batches = array_chunk($ids, CsvExport::BATCH);
+        $this->assertCount(count($batches), $tagQueries, 'one tag query per batch');
+        foreach ($tagQueries as $i => $sql) {
+            $read = array_map(static fn (array $r): int => (int)$r['item_id'], $db->query($sql)->getResultArray());
+            sort($read);
+            $batch = $batches[$i];
+            sort($batch);
+            $this->assertSame($batch, $read, 'batch ' . $i . ' reads its own items\' tags');
+        }
+    }
+
+    /**
+     * N-421: on PostgreSQL the export's transaction bounds its statements and
+     * the wait between two batches; the settings end with it.
+     */
+    public function testThePostgresSnapshotIsBounded(): void
+    {
+        if (!in_array('pgsql', TestDatabase::drivers(), true)) {
+            $this->markTestSkipped('PostgreSQL is not configured');
+        }
+        $this->database = TestDatabase::create('pgsql');
+        $db = $this->database->db;
+        $this->database->pdo()->exec("INSERT INTO items (name, quantity, search, sort_key, created_at, updated_at) VALUES ('a', 1, '', 'a', '2026-01-01', '2026-01-01')");
+        $show = static fn (string $name): string => (string)$db->query('SHOW ' . $name)->getRow(0, 'array')[$name];
+        $before = [$show('statement_timeout'), $show('idle_in_transaction_session_timeout')];
+        $this->assertNotSame(['1min', '5min'], $before, 'the server defaults differ from the bounds');
+
+        $lines = (new CsvExport($db))->lines('EUR');
+        $lines->current();
+        $this->assertSame(['1min', '5min'], [$show('statement_timeout'), $show('idle_in_transaction_session_timeout')], 'set while the snapshot is open');
+        $this->assertSame([CsvExport::PG_STATEMENT_TIMEOUT, CsvExport::PG_IDLE_TIMEOUT], ['60s', '5min']);
+        $rows = 0;
+        for ($lines->next(); $lines->valid(); $lines->next()) {
+            $rows++;
+        }
+        $this->assertSame(1, $rows);
+        $this->assertSame($before, [$show('statement_timeout'), $show('idle_in_transaction_session_timeout')], 'they end with the snapshot');
+    }
+
     /** @param list<string> $cells */
     private static function csv(array $cells): string
     {

@@ -16,6 +16,11 @@ require_once dirname(__DIR__) . '/lib.php';
  */
 final class Ci4ImportExportParityTest extends TestCase
 {
+    /** Methods besides GET, HEAD and POST that legacy answers on the import pages (N-372, N-420): non-safe ones need CI4's token. */
+    private const UNSAFE = ['PUT', 'PATCH', 'DELETE', 'CONNECT'];
+
+    private const SAFE = ['OPTIONS', 'TRACE'];
+
     public function testImportAndExportMatchLegacy(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -35,16 +40,16 @@ final class Ci4ImportExportParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
-        // N-372: legacy shows the home page for PUT, PATCH and DELETE without a token; CI4 wants
-        // the token on every non-safe method (SEC-N10) and shows the same page once it is sent.
+        // N-372: legacy shows the home page for PUT, PATCH, DELETE and CONNECT without a token; CI4
+        // wants the token on every non-safe method (SEC-N10) and shows the same page once it is sent.
         $untokened = [];
         foreach ($answers as $app => $cases) {
-            foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+            foreach (self::UNSAFE as $verb) {
                 $untokened[$app][$verb] = $cases[$verb . ' home without CSRF']['status'];
                 unset($answers[$app][$verb . ' home without CSRF']);
             }
         }
-        $this->assertSame(['legacy' => ['PUT' => 200, 'PATCH' => 200, 'DELETE' => 200], 'ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419]], $untokened);
+        $this->assertSame(['legacy' => ['PUT' => 200, 'PATCH' => 200, 'DELETE' => 200, 'CONNECT' => 200], 'ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419, 'CONNECT' => 419]], $untokened);
         $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
         foreach ($answers['legacy'] as $case => $legacy) {
             $this->assertSame($legacy, $answers['ci4'][$case], $case);
@@ -71,8 +76,8 @@ final class Ci4ImportExportParityTest extends TestCase
         $this->assertSame(403, $l['viewer home']['status']);
         $this->assertSame(200, $l['viewer export']['status']);
         $this->assertSame(403, $l['looker export']['status']);
-        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
-            $this->assertSame(200, $l[$verb . ' home']['status'], $verb . ' home (N-372)');
+        foreach ([...self::UNSAFE, ...self::SAFE] as $verb) {
+            $this->assertSame(200, $l[$verb . ' home']['status'], $verb . ' home (N-372, N-420)');
             $this->assertStringContainsString('name="csv"', (string)$l[$verb . ' home']['body'], $verb . ' home is the upload page');
             $this->assertSame(404, $l[$verb . ' map']['status'], $verb . ' map');
             $this->assertSame(404, $l[$verb . ' preview']['status'], $verb . ' preview');
@@ -80,6 +85,7 @@ final class Ci4ImportExportParityTest extends TestCase
             $this->assertSame(303, $l[$verb . ' preview after commit']['status'], $verb);
         }
         $this->assertSame(403, $l['viewer PUT home']['status']);
+        $this->assertSame(403, $l['viewer OPTIONS home']['status']);
         $this->assertSame(404, $l['GET preview']['status']);
         $this->assertSame(404, $l['POST map']['status']);
         $this->assertSame(404, $l['missing import']['status']);
@@ -174,7 +180,7 @@ final class Ci4ImportExportParityTest extends TestCase
             if ($method === 'POST') {
                 $fields += ['csrf' => $token];   // a case's own csrf wins; null sends none
                 $fields = array_filter($fields, static fn ($v): bool => $v !== null);
-            } elseif (in_array($method, ['PUT', 'PATCH', 'DELETE'], true) && !array_key_exists('csrf', $fields)) {
+            } elseif (in_array($method, self::UNSAFE, true) && !array_key_exists('csrf', $fields)) {
                 $headers[] = 'X-CSRF-Token: ' . $token;   // ['csrf' => null] sends none
             }
             $r = $client->req($method, $path, $fields, $files, $headers);
@@ -254,14 +260,17 @@ final class Ci4ImportExportParityTest extends TestCase
         $as('commit with errors', 'POST', '/import/1/commit', ['col' => $cols, 'create' => '1']);
         $as('preview skipping', 'POST', '/import/1/preview', ['col' => $cols, 'create' => '1', 'skip_errors' => '1']);
         $as('map after preview', 'GET', '/import/1');
-        // N-372: legacy shows the home page for every method but POST; an import's page is GET only.
-        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+        // N-372, N-420: legacy shows the home page for every method but POST; an import's page is GET only.
+        foreach ([...self::UNSAFE, ...self::SAFE] as $verb) {
             $as($verb . ' home', $verb, '/import');
-            $as($verb . ' home without CSRF', $verb, '/import', ['csrf' => null]);
+            if (in_array($verb, self::UNSAFE, true)) {
+                $as($verb . ' home without CSRF', $verb, '/import', ['csrf' => null]);
+            }
             $as($verb . ' map', $verb, '/import/1');
             $as($verb . ' preview', $verb, '/import/1/commit');
         }
         $as('viewer PUT home', 'PUT', '/import', [], [], [], 'vera');
+        $as('viewer OPTIONS home', 'OPTIONS', '/import', [], [], [], 'vera');
 
         // A failing statement (a trigger) is a 500 and changes no table.
         $pg = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql';
@@ -284,7 +293,7 @@ final class Ci4ImportExportParityTest extends TestCase
         $as('home done array', 'GET', '/import?done[]=2');
         $as('home done unknown', 'GET', '/import?done=1');
         $as('map after commit', 'GET', '/import/2');
-        foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
+        foreach ([...self::UNSAFE, ...self::SAFE] as $verb) {
             $as($verb . ' map after commit', $verb, '/import/2');
             $as($verb . ' preview after commit', $verb, '/import/2/preview');
         }
