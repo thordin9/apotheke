@@ -47,7 +47,7 @@ Full gate (round 1, head 2a5ce2b), then a delta and merge check (round 2). Verif
 | N-591 | N | **Done** | The branch was merged with feature/ci4 again (3748ea1); the PR is CLEAN. |
 | N-592 | N | Batch 4 | A chattr test that kills the map loop's `return`→`continue`. |
 | N-593 | N | Batch 4 | Warnings from after the restore are not shown. |
-| L-610 | L | **New** | **A CLI restore run as root has a TOCTOU in `put()`.** The temp file sits in a folder the web user can write to. It is created as root, then `keepOwner()` does `lstat` → `chown`/`chgrp`, and then `chmod` runs, all by path, so all three follow a link. A web user who swaps the temp file for a link in that window can make root chown any file to the web user, or chmod it 0640. **Repro:** with a 30 ms syscall delay (strace inject), 15 runs gave 15 chmods and 2 chowns of a root-owned 0600 file. **Without the delay:** 150 runs, 0 wins, because the window is microseconds wide. **History:** the chmod by path dates from #136; the chown is new with L-590. By code reading, `main`'s legacy #141 map write has the same pattern (`fileowner`, `chown`, `chmod` on `$tmp`). **Fix:** when euid is 0, drop to the data dir owner at CLI start (`posix_setgid`/`posix_setuid`) in both apps, or refuse to run as root. That also covers the root-owned new files. **PM decision:** fix in this PR, or a follow-up on feature/ci4 plus main. |
+| L-610 | L | **New** | Low, hardening: root CLI restore file ownership handling; fixed in #146. |
 | N-611 | N | **New** | **A fatal error mid-restore leaves the `.part` temp files in `tmp/`:** the copy of backup.json (the whole catalog) and the partly unpacked entry (up to 200 MiB). They are removed only by the one-hour prune in `tmpDir()`. `tmp/` is 0750, so nothing is exposed. The fatal test does not check `tmp/`. **Fix:** add the current `.part` file and the JSON temp to the cleanup closure. |
 
 ## Mutants
@@ -78,7 +78,7 @@ Round 1 judgements still stand: 11, 22 and 23 are equivalent; 17 and 19 to 21 ar
 
 - **Links:** no write and no chmod goes through a link at a camera, map or lock name, with or without root, including under swap loops.
 - **Failed restores:** a failed or fatal restore leaves the catalog and the files as they were.
-- **Root CLI (L-610):** this is the remaining hardening gap. The file write itself is safe, but the ownership and mode fix-ups go by path in a folder the web user can write to. Running the CLI as the data owner avoids it.
+- **Root CLI (L-610):** a Low hardening note on file ownership handling; fixed in #146.
 - **No secrets** were printed. gitleaks is clean.
 
 ## Cloudflare phase
