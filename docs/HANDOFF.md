@@ -231,9 +231,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   no writes through links, short-write checks and the camera link map written through a temp file in `src/backup.php`)
   and v2.6.25 (#145: the legacy CLI restore runs as the owner of `DATA_DIR`, ported to CI4 in #146). CI4 restore code
   unchanged. Merged at ed06bb2.
-- [#144](https://github.com/thordin9/apotheke/pull/144): step 16 part 3: compiled routes, no file cache handler, the
-  layout menu reads the user once; CI enforces PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by Stathis,
-  2026-10-27, via the PM), timing at least 200 requests per area; N-546. Open.
+- [#150](https://github.com/thordin9/apotheke/pull/150) (replaces #144): step 16 part 3: compiled routes, no file cache
+  handler, the layout menu reads the user once; CI enforces PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by
+  Stathis, 2026-10-27, via the PM), timing at least 200 requests per area; N-546. Open.
 
 ## Lanes
 
