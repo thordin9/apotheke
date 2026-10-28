@@ -307,6 +307,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    request and response, filters, configs), a further step. Once #137 is merged, CI can tighten the temporary budget
    (median, about + 4 ms SQLite and + 5 ms PostgreSQL) and enforce 20 % on PostgreSQL.
 10. Then the Control Panel pages.
+11. The Control Panel settings pages port is Coder2's (in parallel with step 17) and blocks step 18 (cutover).
+12. After step 18: the `release/2.5` patch-only flow in `docs/releasing.md` and its `release.yml` guard (owner: Apotheke Coder).
 
 ## Tracked
 
