@@ -8,9 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.25] - 2026-10-28
+
 ### Fixed
 
 - **backup:** reliability: `bin/restore.php` runs as the user that owns the data folder; started as root it switches to that user before it touches the catalog or any file, so every restored file belongs to the data folder's owner, and when the data folder is owned by root it stops with exit 1 and changes nothing. ([#145](https://github.com/thordin9/apotheke/pull/145))
+
+### Maintenance
+
+- **restore:** test: cover a root CLI restore and a root-owned data dir ([#145](https://github.com/thordin9/apotheke/pull/145))
+- **changelog:** docs: note the CLI restore runs as the data-dir owner ([#145](https://github.com/thordin9/apotheke/pull/145))
+- **qa:** docs: add the PR 145 restore privilege drop QA review ([#145](https://github.com/thordin9/apotheke/pull/145))
 
 ## [2.6.24] - 2026-10-27
 
@@ -476,7 +484,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.24...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.25...HEAD
+[2.6.25]: https://github.com/thordin9/apotheke/compare/v2.6.24...v2.6.25
 [2.6.24]: https://github.com/thordin9/apotheke/compare/v2.6.23...v2.6.24
 [2.6.23]: https://github.com/thordin9/apotheke/compare/v2.6.22...v2.6.23
 [2.6.22]: https://github.com/thordin9/apotheke/compare/v2.6.21...v2.6.22
