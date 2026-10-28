@@ -256,6 +256,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Sync v2.6.23 (#139, merged). Step 16 part 2 (#140, merged). Step 16 part 3 (`cursor/ci4-step16-trim`): compiled
   routes (`CompiledRouteCollection`, `app/Config/RoutesCompiled.php`, `spark apotheke:routes`), the cache handler, the
   parity-gate budget lines in `ci.yml`, and N-546 in `scripts/upgrade-rollback.sh`.
+  Step 17, the docs rewrite (`cursor/ci4-step17-docs`, PR opens after #150): `docs/upgrade-3.0.md` (new), the CI4
+  sections of the architecture, getting-started, configuration, database, deployment, control-panel and CI pages,
+  README and the docs index. Docs only; stays out of code.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
