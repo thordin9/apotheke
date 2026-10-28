@@ -72,8 +72,8 @@ no-cache, must-revalidate` (PHP's session cache limiter) equals CI4's `no-store,
 difference fails. Steps marked `pending` list the parts of an answer that come from a page CI4 has not ported (the
 Control Panel), apart from the differences; the rest of the step must match.
 
-It also times each area's read pages, alternating legacy and CI4, and prints the p95 per area with CI4's lead in ms
-at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's;
+It also times each area's read pages, alternating legacy and CI4 (which goes first alternates per round), at least 100
+requests per area and app, and prints the p95 per area with CI4's lead in ms at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's;
 `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI enforces the step 16 bar (decision by Stathis,
 2026-10-27, via the PM): on PostgreSQL p95 within +20 % (and the median within + 20 ms), on SQLite the median within
 + 3 ms, because there CI4's database work alone costs about as much as legacy's whole request. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
@@ -103,10 +103,11 @@ other's `bin/backup.php` zip with `bin/restore.php`, over the same install and i
 [`tests/upgrade/snapshot.php`](../tests/upgrade/snapshot.php) takes every table (columns and rows, sorted) and the
 sha256 of every file under `images/`, `thumbs/`, `originals/` (`map/` included) and `files/`, and
 [`compare.php`](../tests/upgrade/compare.php) fails on any difference from the seeded state, and on an originals
-directory that is not 0750 or a file there that is not 0640; other mode differences are printed as `WARN`. After a
+directory that is not 0750 or a file there that is not 0640, and on a `files/` that is not 0750 (legacy's 0770 under
+the umask 022); other mode differences are printed as `WARN`. After a
 restore only the carried tables (`backup_tables()`, which must equal CI4's `Backups::tables()`) and the settings are
 compared, without `settings.updated_at`. Last, mutation checks on a throwaway install show that an emptied or
-dropped table, a changed or missing attachment and a 0644 original each fail. `UPGRADE_WORK` must be a new path;
+dropped table, a changed or missing attachment, a 0644 original and a 0700 `files/` each fail. `UPGRADE_WORK` must be a new path;
 the script removes only that directory and its own `upg_<run>_*` schemas. CI runs it on SQLite and PostgreSQL
 (`upgrade-rollback`).
 
