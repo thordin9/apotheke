@@ -305,7 +305,7 @@ jobs:
           tests/visual/stock.spec.ts tests/visual/attachments.spec.ts tests/visual/users.spec.ts
           tests/visual/roles.spec.ts tests/visual/labels.spec.ts tests/visual/barcode.spec.ts
           tests/visual/lending.spec.ts tests/visual/stocktake.spec.ts tests/visual/import.spec.ts
-          tests/visual/data.spec.ts
+          tests/visual/data.spec.ts tests/visual/control-panel.spec.ts tests/visual/autofill-settings.spec.ts
           tests/visual/auth.spec.ts tests/visual/qa-fixes.spec.ts tests/visual/qa-v2.spec.ts
       - name: Upload HTML report, traces and screenshot diffs
         if: failure()
