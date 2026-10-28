@@ -211,7 +211,8 @@ deptrac:
       - Activity
     # ControlPanel: the Control Panel pages (/settings and its sections). Settings are read and saved through
     # Settings, pages drawn with Layout, the shared page answers from Auth, the Test buttons and models from
-    # Autofill, upload messages from Media and the search engine (System) from Search.
+    # Autofill, upload messages from Media, the search engine (System) from Search, the default location and
+    # category (New item defaults) from Taxonomy and the local date (settings export name) from Catalog.
     ControlPanel:
       - Core
       - Layout
@@ -220,3 +221,5 @@ deptrac:
       - Autofill
       - Media
       - Search
+      - Taxonomy
+      - Catalog

@@ -192,6 +192,26 @@ final class ControlPanelView
         return $o . '<p class="hint">SVG files are cleaned (scripts, links and external references are removed). For PNG, JPEG and WebP the favicon, the iPhone home-screen icon and the app icons are generated automatically; an SVG logo is used for the header and the favicon while the PNG app icons stay the default ones.</p></section>';
     }
 
+    /**
+     * Legacy settings_items_defaults_html(): the default location and category.
+     *
+     * @param list<array{kind:string,One:string,Many:string,current:?int,options:list<array{0:int,1:string}>}> $kinds
+     */
+    public function itemDefaults(array $kinds): string
+    {
+        $o = '';
+        foreach ($kinds as $k) {
+            $opts = '<option value="">None</option>';
+            foreach ($k['options'] as [$id, $text]) {
+                $opts .= '<option value="' . $id . '"' . ($id === $k['current'] ? ' selected' : '') . '>' . self::h($text) . '</option>';
+            }
+            $o .= '<div class="field set-field"><label class="field-l" for="s-default_' . $k['kind'] . '">' . self::h($k['One']) . '</label><select name="default_' . $k['kind'] . '" id="s-default_' . $k['kind'] . '">' . $opts . '</select>'
+                . '<div class="field-desc"><small class="field-help">Pre-selected for new items (same as ★ on the ' . self::h($k['Many']) . ' page).</small></div></div>';
+        }
+
+        return $o;
+    }
+
     /** Legacy settings_data_html(). */
     private function data(string $tok): string
     {

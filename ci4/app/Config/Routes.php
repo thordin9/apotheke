@@ -87,13 +87,15 @@ $routes->post('item/([0-9]+)/photos/([0-9]+)/edit', $catalog . 'PhotoController:
 // Activity: recent activity and one item's full history.
 $routes->match(['GET', 'HEAD'], 'activity', '\\Apotheke\\Activity\\Controllers\\ActivityController::index', ['permission' => 'view']);
 
-// Control Panel (ControlPanel): the index, each section's page, save and reset, the logo, and
+// Control Panel (ControlPanel): the index, each section's page, save and reset, the logo, the settings file, and
 // AI autofill's Test buttons and access token. Every route needs settings (legacy route_perm());
 // legacy answers GET on the index and GET and POST on a section, nothing else.
 $panel = '\\Apotheke\\ControlPanel\\Controllers\\ControlPanelController';
 $autofillPanel = '\\Apotheke\\ControlPanel\\Controllers\\AutofillSettingsController';
 $settingsPerm = ['permission' => 'settings'];
 $routes->match(['GET', 'HEAD'], 'settings', $panel . '::index', $settingsPerm);
+$routes->match(['GET', 'HEAD'], 'settings/export.json', $panel . '::export', $settingsPerm);
+$routes->post('settings/import', $panel . '::import', $settingsPerm);
 $routes->post('settings/logo', $panel . '::logo', $settingsPerm);
 $routes->post('settings/logo/reset', $panel . '::logoReset', $settingsPerm);
 $routes->post('settings/autofill/token', $autofillPanel . '::token', $settingsPerm);

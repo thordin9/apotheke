@@ -5,22 +5,26 @@ declare(strict_types=1);
 namespace Apotheke\ControlPanel\Controllers;
 
 use Apotheke\Auth\Controllers\SecurityController;
+use Apotheke\Catalog\Calendar;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Media\ImageStore;
 use Apotheke\Settings\Branding\LogoInstaller;
+use Apotheke\Taxonomy\Kind;
+use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\HTTP\ResponseInterface;
 
 /**
  * Control Panel (legacy public/index.php, "control panel"): GET /settings,
  * GET and POST /settings/{section} with /reset for the sections in SECTIONS,
- * and POST /settings/logo and /settings/logo/reset. Users & sign-in is the
+ * POST /settings/logo and /settings/logo/reset, and the settings file
+ * (GET /settings/export.json, POST /settings/import). Users & sign-in is the
  * Auth module's SecurityController; Test connection, Test with a photo and
  * the access token are AutofillSettingsController's.
  */
 final class ControlPanelController extends ControlPanelPages
 {
-    /** The sections this controller draws and saves (legacy SETTINGS_SECTIONS but security, items and data). */
-    public const SECTIONS = ['general', 'appearance', 'locale', 'list', 'limits', 'labels', 'uploads', 'autofill', 'system'];
+    /** The sections this controller draws and saves (legacy SETTINGS_SECTIONS but security). */
+    public const SECTIONS = ['general', 'appearance', 'locale', 'list', 'items', 'limits', 'labels', 'uploads', 'autofill', 'data', 'system'];
 
     /** GET /settings */
     public function index(): ResponseInterface
@@ -55,6 +59,20 @@ final class ControlPanelController extends ControlPanelPages
             return $this->page($this->sectionPage($section, $raw, $errors, null), 422);
         }
         $cleared = $settings->tokenCleared();
+        if ($section === 'items') {
+            // The default location and category are stored on the lists (★ on their pages); an unknown id is ignored.
+            /** @var TaxonomyRepository $tax */
+            $tax = service('taxonomy');
+            foreach (Kind::KINDS as $kind) {
+                $value = $this->post('default_' . $kind);
+                $current = $tax->defaultId($kind);
+                if ($value === '' && $current !== null) {
+                    $tax->setDefault($kind, $current, false);
+                } elseif (ctype_digit($value) && $tax->get($kind, (int)$value) !== null && (int)$value !== $current) {
+                    $tax->setDefault($kind, (int)$value, true);
+                }
+            }
+        }
         if ($section === 'autofill') {
             $this->autofill()->primeInfo();   // never fails the save; at most 5 s
         }
@@ -69,6 +87,44 @@ final class ControlPanelController extends ControlPanelPages
         $settings->resetSection($section);
 
         return $this->redirectTo('/settings/' . $section . '?done=' . ($settings->tokenCleared() ? 'reset-token-cleared' : 'reset'));
+    }
+
+    /** GET /settings/export.json: every setting but the secret and internal ones, as a download. */
+    public function export(): ResponseInterface
+    {
+        /** @var Calendar $calendar */
+        $calendar = service('calendar');
+
+        return $this->response->setStatusCode(200)
+            ->setHeader('Content-Type', 'application/json; charset=utf-8')
+            ->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store')
+            ->setHeader('Content-Disposition', 'attachment; filename="apotheke-settings-' . $calendar->today() . '.json"')
+            ->setBody((string)json_encode($this->settings()->export(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    /** POST /settings/import: a settings file (an uploaded file, or the `json` field); invalid values are skipped and listed. */
+    public function import(): ResponseInterface
+    {
+        $file = $this->request->getFile('file');
+        $tmp = $file !== null && $file->getError() === UPLOAD_ERR_OK ? $file->getTempName() : '';
+        $json = $tmp !== '' ? (string)file_get_contents($tmp) : $this->post('json');
+        try {
+            $r = $this->settings()->import($json);
+        } catch (UserError $e) {
+            return $this->page($this->sectionPage('data', [], ['_' => $e->getMessage()], null), 422);
+        }
+        $notes = [];
+        foreach ($r['errors'] as $key => $message) {
+            $notes[] = "Skipped $key: $message";
+        }
+        if ($r['ignored'] !== []) {
+            $notes[] = 'Ignored unknown or protected keys: ' . implode(', ', $r['ignored']);
+        }
+        if ($r['token_cleared']) {
+            $notes[] = 'The AI autofill token was cleared because the service address changed: enter it again under AI autofill.';
+        }
+
+        return $this->page($this->sectionPage('data', [], [], 'Imported ' . $r['applied'] . ' setting' . ($r['applied'] === 1 ? '' : 's'), $notes));
     }
 
     /** POST /settings/logo: SVG, PNG, JPEG or WebP, at most 2 MB. */

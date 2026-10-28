@@ -96,6 +96,21 @@ final class Ci4ControlPanelParityTest extends TestCase
         $this->assertStringContainsString('af-res', (string)($l['test fetch']['json']['html'] ?? ''));
         $this->assertSame('/settings/autofill?done=reset-token-cleared', $l['autofill reset']['location']);
         $this->assertStringContainsString('id="systable"', (string)$l['ada GET /settings/system']['body']);
+        $this->assertSame((string)json_encode([['Shelf <2>'], ['Food & drink']]), $l['items save']['defaults']);
+        $this->assertSame((string)json_encode([[], ['Food & drink']]), $l['items: none and unknown ids']['defaults']);
+        $this->assertStringContainsString('id="s-default_location"', (string)$l['ada GET /settings/items']['body']);
+        $this->assertSame(422, $l['items: invalid keeps the defaults']['status']);
+        $this->assertSame([200, 'application/json; charset=utf-8'], [$l['settings export']['status'], $l['settings export']['type']]);
+        $this->assertStringContainsString('attachment; filename="apotheke-settings-', (string)$l['settings export']['disposition']);
+        $this->assertStringNotContainsString('password_hash', (string)$l['settings export']['body']);
+        $this->assertSame([403, 303], [$l['eda GET /settings/export.json']['status'], $l['guest GET /settings/export.json']['status']]);
+        $this->assertSame([419, 403], [$l['ada import without csrf']['status'], $l['vera import']['status']]);
+        $this->assertStringContainsString('Imported ', (string)$l['import as a file']['body']);
+        $this->assertStringContainsString('Ignored unknown or protected keys', (string)$l['import as a file']['body']);
+        $this->assertStringContainsString('auth_guest_disabled', (string)$l['desk imports a sign-in setting']['body']);
+        foreach (['import: not a settings file', 'import: nothing', 'import: too large'] as $case) {
+            $this->assertSame(422, $l[$case]['status'], $case);
+        }
         $this->assertSame([404, 404, 404], [$l['GET /settings/nope']['status'], $l['GET /settings/general/']['status'], $l['PUT /settings/general']['status']]);
     }
 
@@ -108,6 +123,14 @@ final class Ci4ControlPanelParityTest extends TestCase
         $add = $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)');
         foreach ([['ada', 'admin'], ['dee', 'desk'], ['eda', 'editor'], ['vera', 'viewer']] as [$name, $role]) {
             $add->execute([$name, $name, password_hash(self::PW, PASSWORD_BCRYPT, ['cost' => 4]), $role, 'active', '2026-01-01 00:00:00']);
+        }
+        $loc = $pdo->prepare('INSERT INTO locations (name, name_key, sort_key, parent_id, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+        foreach ([['Garage', null, 1], ['Shelf <2>', 1, 0], ['Attic', null, 0]] as [$name, $parent, $default]) {
+            $loc->execute([$name, mb_strtolower($name), natkey($name), $parent, $default, '2026-01-01 00:00:00']);
+        }
+        $cat = $pdo->prepare('INSERT INTO categories (name, name_key, sort_key, is_default, created_at) VALUES (?, ?, ?, 0, ?)');
+        foreach (['Tools', 'Food & drink'] as $name) {
+            $cat->execute([$name, mb_strtolower($name), natkey($name), '2026-01-01 00:00:00']);
         }
         $this->setting($pdo, 'auth_enabled', 'true');
         $this->setting($pdo, 'auth_guest_disabled', 'false');
@@ -156,11 +179,14 @@ final class Ci4ControlPanelParityTest extends TestCase
                     if ($k === 'elapsed_ms') {
                         $v = is_int($v) ? 'MS' : $v;
                     }
+                    if ($k === 'exported_at') {
+                        $v = is_string($v) && preg_match('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/', $v) === 1 ? 'T' : $v;
+                    }
                     $v = is_string($v) ? $clean($v) : $v;
                 });
             }
             $a = ['status' => $r['status'], 'type' => $r['headers']['content-type'] ?? null, 'location' => $r['headers']['location'] ?? null,
-                'cache-control' => $cache, 'set-cookie' => $cookies, 'json' => $json, 'body' => $json === null ? $clean($r['body']) : null];
+                'cache-control' => $cache, 'disposition' => $r['headers']['content-disposition'] ?? null, 'set-cookie' => $cookies, 'json' => $json, 'body' => $json === null ? $clean($r['body']) : null];
             if ($state) {
                 $rows = $pdo->query("SELECT name, value FROM settings WHERE name <> 'password_hash' ORDER BY name")->fetchAll(PDO::FETCH_KEY_PAIR);
                 $a['settings'] = json_encode($rows);
@@ -169,6 +195,8 @@ final class Ci4ControlPanelParityTest extends TestCase
                     $brand[basename($f)] = str_ends_with($f, '.svg') ? (string)file_get_contents($f) : hash_file('sha256', $f);
                 }
                 $a['brand'] = json_encode($brand);
+                $a['defaults'] = json_encode([$pdo->query('SELECT name FROM locations WHERE is_default = 1 ORDER BY id')->fetchAll(PDO::FETCH_COLUMN),
+                    $pdo->query('SELECT name FROM categories WHERE is_default = 1 ORDER BY id')->fetchAll(PDO::FETCH_COLUMN)]);
             }
             $out[$case] = $a;
         };
@@ -185,8 +213,8 @@ final class Ci4ControlPanelParityTest extends TestCase
         };
 
         // Every visitor: the pages, and what is refused before CSRF.
-        $pages = ['/settings', '/settings/general', '/settings/appearance', '/settings/locale', '/settings/list', '/settings/limits', '/settings/labels',
-            '/settings/uploads', '/settings/autofill', '/settings/system'];
+        $pages = ['/settings', '/settings/general', '/settings/appearance', '/settings/locale', '/settings/list', '/settings/items', '/settings/limits',
+            '/settings/labels', '/settings/uploads', '/settings/autofill', '/settings/data', '/settings/system', '/settings/export.json'];
         foreach (['ada' => 'ada', 'dee' => 'dee', 'eda' => 'eda', 'vera' => 'vera', 'guest' => null] as $visitor => $who) {
             foreach ($pages as $p) {
                 $as("$visitor GET $p", 'GET', $p, [], ['who' => $who]);
@@ -196,6 +224,8 @@ final class Ci4ControlPanelParityTest extends TestCase
             $as("$visitor general save", 'POST', '/settings/general', ['app_name' => 'By ' . $visitor], ['who' => $who]);
             $as("$visitor logo reset", 'POST', '/settings/logo/reset', [], ['who' => $who]);
             $as("$visitor token clear", 'POST', '/settings/autofill/token', ['action' => 'clear'], ['who' => $who]);
+            $as("$visitor import", 'POST', '/settings/import', ['json' => '{"format":"apotheke-settings","version":1,"settings":{"app_name":"Imported"}}'], ['who' => $who]);
+            $as("$visitor import without csrf", 'POST', '/settings/import', ['json' => '{}'], ['who' => $who, 'csrf' => false]);
         }
         $this->setting($pdo, 'auth_guest_disabled', 'true');
         foreach (['/settings', '/settings/general', '/settings/system'] as $p) {
@@ -280,6 +310,32 @@ final class Ci4ControlPanelParityTest extends TestCase
         foreach (['locale', 'list', 'limits'] as $s) {
             $as("$s reset", 'POST', "/settings/$s/reset");
         }
+
+        // New item defaults: the settings and the default location and category (stored on the lists).
+        $as('items save', 'POST', '/settings/items', ['default_quantity' => '2', 'default_min_qty' => '', 'default_tags' => 'home, new', 'default_notes' => 'n',
+            'default_purchase_today' => '1', 'default_expiry_months' => '24', 'default_location' => '2', 'default_category' => '2']);
+        $as('items after save', 'GET', '/settings/items?done=saved');
+        $as('items: none and unknown ids', 'POST', '/settings/items', ['default_quantity' => '1', 'default_location' => '', 'default_category' => '99']);
+        $as('items: id array', 'POST', '/settings/items', ['default_quantity' => '1', 'default_location' => ['1'], 'default_category' => '1']);
+        $as('items: invalid keeps the defaults', 'POST', '/settings/items', ['default_quantity' => '-1', 'default_expiry_months' => '0', 'default_location' => '3', 'default_category' => '']);
+        $as('items after the invalid save', 'GET', '/settings/items');
+        $as('items reset', 'POST', '/settings/items/reset');
+
+        // Backup & data: its one setting, and the settings file.
+        $as('data save', 'POST', '/settings/data', ['import_create_missing' => '0']);
+        $as('settings export', 'GET', '/settings/export.json');
+        $export = (string)json_encode(['format' => 'apotheke-settings', 'version' => 1, 'settings' => ['app_name' => 'From a file', 'page_size' => '0', 'password_hash' => 'x',
+            'auth_enabled' => false, 'logo' => 'png', 'nope' => 1, 'autofill_url' => $stub->base . '/n/imported', 'currency' => ['a']]]);
+        $as('import as a file', 'POST', '/settings/import', [], ['files' => ['file' => ['name' => 's.json', 'type' => 'application/json', 'data' => $export]]]);
+        $as('import as a field', 'POST', '/settings/import', ['json' => '{"format":"apotheke-settings","version":1,"settings":{"app_tagline":"one"}}']);
+        $as('import, the file wins over the field', 'POST', '/settings/import', ['json' => '{}'], ['files' => ['file' => ['name' => 's.json', 'type' => 'application/json', 'data' => $export]]]);
+        $as('import: not a settings file', 'POST', '/settings/import', ['json' => '{"format":"other"}']);
+        $as('import: nothing', 'POST', '/settings/import');
+        $as('import: empty file falls back to the field', 'POST', '/settings/import', ['json' => '{"format":"apotheke-settings","settings":{}}'], ['files' => ['file' => ['name' => '', 'type' => 'application/octet-stream', 'data' => '']]]);
+        $as('import: too large', 'POST', '/settings/import', ['json' => '{"format":"apotheke-settings","settings":{},"x":"' . str_repeat('x', 256 * 1024) . '"}']);
+        $as('import fetch', 'POST', '/settings/import', ['json' => '{"format":"apotheke-settings","settings":{"app_tagline":"two"}}'], ['headers' => $fetch]);
+        $as('desk imports a sign-in setting', 'POST', '/settings/import', ['json' => '{"format":"apotheke-settings","settings":{"auth_guest_disabled":true,"app_tagline":"desk"}}'], ['who' => 'dee']);
+        $as('data reset', 'POST', '/settings/data/reset');
 
         // System (read-only).
         $as('system save (nothing to save)', 'POST', '/settings/system', ['x' => '1']);

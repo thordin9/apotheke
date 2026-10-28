@@ -11,6 +11,8 @@ use Apotheke\ControlPanel\Views\AutofillView;
 use Apotheke\ControlPanel\Views\ControlPanelView;
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Settings\Branding\Branding;
+use Apotheke\Taxonomy\Kind;
+use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\HTTP\ResponseInterface;
 
 /**
@@ -49,6 +51,19 @@ abstract class ControlPanelPages extends AuthPages
             $branding = service('branding');
             $extra['logo'] = (string)$settings->get('logo');
             $extra['logoUrl'] = $branding->logoUrl();
+        } elseif ($section === 'items') {
+            /** @var TaxonomyRepository $tax */
+            $tax = service('taxonomy');
+            $defaults = [];
+            foreach (Kind::KINDS as $kind) {
+                $t = Kind::get($kind);
+                $options = [];
+                foreach ($tax->all($kind) as $r) {
+                    $options[] = [(int)$r['id'], (string)($kind === 'location' ? $r['path'] : $r['name'])];
+                }
+                $defaults[] = ['kind' => $kind, 'One' => $t['One'], 'Many' => $t['Many'], 'current' => $tax->defaultId($kind), 'options' => $options];
+            }
+            $extra['itemDefaults'] = $this->view()->itemDefaults($defaults);
         } elseif ($section === 'system') {
             /** @var SystemInfo $system */
             $system = service('systemInfo');
