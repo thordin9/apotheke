@@ -245,7 +245,7 @@ class Services extends BaseService
             \Apotheke\Backup\Commands\BackupCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Backup\Commands\BackupCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
             \Apotheke\Backup\Commands\RestoreCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
-                => new \Apotheke\Backup\Commands\RestoreCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
+                => new \Apotheke\Backup\Commands\RestoreCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err), static fn (): string => static::apothekeConfig()->dataDir()),
         ]);
     }
 

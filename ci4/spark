@@ -67,6 +67,30 @@ chdir(FCPATH);
 
 /*
  *---------------------------------------------------------------
+ * APOTHEKE: RESTORE AS THE DATA-DIR OWNER
+ *---------------------------------------------------------------
+ * apotheke:restore started as root runs as DATA_DIR's owner before
+ * CodeIgniter boots (boot prepares the data folders), or stops with
+ * exit 1. Other commands are not affected. RestoreCommand checks again.
+ */
+if ((!function_exists('posix_geteuid') || posix_geteuid() === 0)
+    && in_array('apotheke:restore', array_map('strtolower', array_slice($_SERVER['argv'] ?? [], 1)), true)) {
+    require_once __DIR__ . '/modules/Core/Config/ApothekeConfig.php';
+    require_once __DIR__ . '/modules/Backup/Commands/DataDirOwner.php';
+    try {
+        $apothekeDataDir = Apotheke\Core\Config\ApothekeConfig::fromEnvironment()->dataDir();
+    } catch (Throwable $e) {
+        fwrite(STDERR, $e->getMessage() . "\n");
+        exit(1);
+    }
+    if (!Apotheke\Backup\Commands\DataDirOwner::become($apothekeDataDir, STDERR)) {
+        exit(1);
+    }
+    unset($apothekeDataDir);
+}
+
+/*
+ *---------------------------------------------------------------
  * BOOTSTRAP THE APPLICATION
  *---------------------------------------------------------------
  * This process sets up the path constants, loads and registers

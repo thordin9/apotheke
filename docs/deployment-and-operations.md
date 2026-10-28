@@ -52,6 +52,12 @@ php bin/restore.php /backups/home.zip --yes
 
 In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`.
 
+Run the restore as the user that owns the data directory (`www-data` in Docker; for example `sudo -u www-data php
+bin/restore.php backup.zip`). With `APOTHEKE_APP=ci4`, a restore started as root (`bin/restore.php` or `php ci4/spark
+apotheke:restore`, with or without `--dry-run`) switches to that user and the data directory's group before it does
+anything else, so the files it writes belong to them; when the data directory is owned by root, or the switch is not
+possible, it stops with exit 1 and changes nothing.
+
 A nightly cron example on the host:
 
 ```cron

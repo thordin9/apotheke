@@ -693,48 +693,222 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
     }
 
     /**
-     * L-590: a root command line restore that replaces a camera map entry
-     * keeps the entry's owner, group and mode, as legacy does, so the web
-     * user can still read it. Runs only where `sudo -n` works.
+     * L-590: a root command line restore runs as DATA_DIR's owner, so a camera
+     * map entry it replaces and the files it writes belong to that user (and
+     * DATA_DIR's group), and the entry keeps its mode. Nothing it leaves is
+     * root's. Runs only where `sudo -n` works.
      */
-    public function testARootRestoreKeepsTheOwnerOfAReplacedMapEntry(): void
+    public function testARootRestoreRunsAsTheDataDirOwner(): void
+    {
+        $nobody = $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo) use ($nobody): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            file_put_contents($map, 'old');
+            chmod($map, 0640);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chown', $nobody['uid'] . ':' . $nobody['gid'], $map]);
+                $r = $this->rootRestore($dir);
+                $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+                clearstatcache();
+                $this->assertSame('Drill', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'the rows are restored');
+                $this->assertSame(self::ORIGINAL, (string)file_get_contents($map), 'the entry is replaced');
+                $owner = [posix_geteuid(), filegroup($dir)];
+                $this->assertSame([...$owner, 0640], [fileowner($map), filegroup($map), fileperms($map) & 0777], 'the entry is the data-dir owner\'s and keeps its mode');
+                foreach (['files/' . self::FILE, 'originals/' . self::ORIGINAL, 'images/' . self::PHOTO] as $f) {
+                    $this->assertSame($owner, [fileowner($dir . '/' . $f), filegroup($dir . '/' . $f)], "$f is the data-dir owner's");
+                }
+                $this->assertSame('', $this->rootOwned($dir, $since), 'no file is root\'s');
+                $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), 'no temp file is left');
+            } finally {
+                $this->giveBack($dir);
+                @unlink($since);
+            }
+        });
+    }
+
+    /** A root command line restore into a root-owned DATA_DIR is refused (exit 1) before anything is changed. */
+    public function testARootRestoreRefusesARootOwnedDataDir(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $before = self::listing($dir);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chown', '0:0', $dir]);
+                $r = $this->rootRestore($dir);
+                $this->sudo(['chown', posix_geteuid() . ':' . posix_getegid(), $dir]);
+                $this->assertSame(1, $r['exit'], $r['stdout'] . $r['stderr']);
+                $this->assertSame('', $r['stdout']);
+                $this->assertSame("Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> php bin/restore.php backup.zip. Nothing was changed.\n", $r['stderr']);
+                clearstatcache();
+                $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+                $this->assertSame($before, self::listing($dir), 'no file is written');
+                $this->assertSame('', $this->rootOwned($dir, $since), 'no file is root\'s');
+            } finally {
+                $this->giveBack($dir);
+                @unlink($since);
+            }
+        });
+    }
+
+    /**
+     * M-620: `spark apotheke:restore` started as root (a dry run and a real
+     * one) switches to DATA_DIR's owner before CodeIgniter boots, so the
+     * folders boot makes in a fresh DATA_DIR (images/, thumbs/, originals/,
+     * originals/map/, sessions/, originals/.htaccess) and the files the
+     * restore writes are not root's, nor is anything new under ci4/writable.
+     */
+    public function testASparkRestoreAsRootRunsAsTheDataDirOwnerBeforeBoot(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            foreach ([['--dry-run'], ['--yes']] as $args) {
+                $fresh = $dir . '-fresh';
+                mkdir($fresh, 0775);
+                $since = $this->sudoMarker($dir);
+                try {
+                    $r = $this->rootSpark($dir, $fresh, $args);
+                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $args[0] . ': ' . $r['stdout']);
+                    $this->assertSame('', $this->rootOwned($fresh, $since), $args[0] . ': no file is root\'s');
+                    clearstatcache();
+                    foreach (['images', 'thumbs', 'originals/map', 'sessions', 'originals/.htaccess'] as $made) {
+                        $this->assertFileExists($fresh . '/' . $made, $args[0] . ': boot made it');
+                    }
+                    if ($args[0] === '--yes') {
+                        $this->assertFileExists($fresh . '/files/' . self::FILE, 'restored');
+                        $this->assertSame('Drill', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn());
+                    }
+                } finally {
+                    $this->giveBack($fresh);
+                    rrmdir($fresh);
+                    @unlink($since);
+                }
+            }
+        });
+    }
+
+    /** `spark apotheke:restore` as root into a root-owned DATA_DIR stops with exit 1 before boot and makes nothing. */
+    public function testASparkRestoreAsRootRefusesARootOwnedDataDir(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $fresh = $dir . '-fresh';
+            mkdir($fresh, 0775);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chown', '0:0', $fresh]);
+                foreach ([['--dry-run'], ['--yes']] as $args) {
+                    $r = $this->rootSpark($dir, $fresh, $args);
+                    $this->assertSame(1, $r['exit'], $args[0] . ': ' . $r['stdout'] . $r['stderr']);
+                    $this->assertSame("Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> php bin/restore.php backup.zip. Nothing was changed.\n", $r['stderr']);
+                    $this->assertSame('', $r['stdout']);
+                }
+                clearstatcache();
+                $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
+                $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+                $this->assertSame('', $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
+            } finally {
+                $this->giveBack($fresh);
+                rrmdir($fresh);
+                @unlink($since);
+            }
+        });
+    }
+
+    /**
+     * `php ci4/spark apotheke:restore <dir>/full.zip <args>` as root, with DATA_DIR $fresh and the catalog's database.
+     *
+     * @param list<string> $args
+     * @return array{stdout:string,stderr:string,exit:int}
+     */
+    private function rootSpark(string $dir, string $fresh, array $args): array
+    {
+        $env = array_merge($this->cliEnv($dir), ['DATA_DIR' => $fresh]);
+        if (($env['DB_DRIVER'] ?? '') === 'sqlite') {
+            $env['SQLITE_PATH'] = $dir . '/catalog.sqlite';
+        }
+        unset($env['APOTHEKE_CLI_ARGS'], $env['APOTHEKE_CLI_CWD']);
+        $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+            PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:restore', $dir . '/full.zip', ...$args];
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+
+        return $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+    }
+
+    /** @return array{uid:int,gid:int} the nobody user; skips without `sudo -n` */
+    private function needsSudo(): array
     {
         exec('sudo -n true 2>/dev/null', $_, $code);
+        // On GitHub Actions both are there, so a missing one fails rather than skips.
+        $ci = getenv('GITHUB_ACTIONS') === 'true';
         if ($code !== 0) {
-            $this->markTestSkipped('needs passwordless sudo');
+            $ci ? $this->fail('needs passwordless sudo') : $this->markTestSkipped('needs passwordless sudo');
         }
         $nobody = posix_getpwnam('nobody');
         if ($nobody === false) {
-            $this->markTestSkipped('needs the nobody user');
+            $ci ? $this->fail('needs the nobody user') : $this->markTestSkipped('needs the nobody user');
         }
-        $this->withCatalog(function (Server $server, string $dir, PDO $pdo) use ($nobody): void {
-            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
-            @mkdir($dir . '/tmp', 0770, true);
-            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
-            try {
-                foreach (['legacy', 'ci4'] as $app) {
-                    @unlink($map);
-                    file_put_contents($map, 'old');
-                    chmod($map, 0640);
-                    $this->sudo(['chown', $nobody['uid'] . ':' . $nobody['gid'], $map]);
-                    $env = array_merge($this->cliEnv($dir), ['APOTHEKE_APP' => $app]);
-                    $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
-                        PHP_BINARY, ROOT . '/bin/restore.php', 'full.zip', '--yes'];
-                    $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
-                    $this->assertIsResource($proc);
-                    fclose($pipes[0]);
-                    $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
-                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$app: " . $r['stdout']);
-                    clearstatcache();
-                    $this->assertSame(self::ORIGINAL, $this->sudo(['cat', $map]), "$app: the entry is replaced");
-                    $this->assertSame([$nobody['uid'], $nobody['gid'], 0640], [fileowner($map), filegroup($map), fileperms($map) & 0777], "$app: owner, group and mode are kept");
-                    $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), "$app: no temp file is left");
-                    $this->giveBack($dir);
-                }
-            } finally {
-                $this->giveBack($dir);
-            }
-        });
+
+        return ['uid' => (int)$nobody['uid'], 'gid' => (int)$nobody['gid']];
+    }
+
+    /**
+     * bin/restore.php full.zip --yes as root (APOTHEKE_APP=ci4), started in $dir.
+     *
+     * @return array{stdout:string,stderr:string,exit:int}
+     */
+    private function rootRestore(string $dir): array
+    {
+        $env = $this->cliEnv($dir);
+        $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+            PHP_BINARY, ROOT . '/bin/restore.php', 'full.zip', '--yes'];
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+
+        return $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+    }
+
+    /** A file next to $dir; files changed after it count in rootOwned(). */
+    private function sudoMarker(string $dir): string
+    {
+        $marker = $dir . '.since';
+        touch($marker, time() - 1);
+
+        return $marker;
+    }
+
+    /** Files under $dir, or under ci4/writable and changed since $since, that root owns (or whose group is root's). */
+    private function rootOwned(string $dir, string $since): string
+    {
+        $found = $this->sudo(['find', $dir, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']);
+        $found .= $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']);
+
+        return $found;
+    }
+
+    /** @return list<string> every path under $dir, relative, with its size */
+    private static function listing(string $dir): array
+    {
+        clearstatcache();
+        $list = [];
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+        foreach ($it as $f) {
+            $list[] = substr($f->getPathname(), strlen($dir) + 1) . ' ' . ($f->isFile() ? $f->getSize() : '-');
+        }
+        sort($list);
+
+        return $list;
     }
 
     /** @param list<string> $args a command run with `sudo -n`; its output */
