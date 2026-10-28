@@ -73,10 +73,10 @@ class Modules extends BaseModules
      * @var list<string>
      */
     public $aliases = [
-        'events',
-        'filters',
-        'registrars',
-        'routes',
+        // Only services: CI4 finds Config\Services, which overrides the framework's, this way. No module
+        // ships its own Config/Routes.php, Filters.php, Events.php or Registrar.php (the app's own files
+        // load without discovery), so searching every namespace for them on each request is left out
+        // (boot cost step). A module adds its routes, filters and events in app/Config.
         'services',
     ];
 }

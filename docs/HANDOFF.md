@@ -204,15 +204,33 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#135](https://github.com/thordin9/apotheke/pull/135) (`main`): the legacy port of L-440 and the restore lock.
   Merged into `main` at e8cf10d, released as v2.6.23.
 - [#136](https://github.com/thordin9/apotheke/pull/136): streaming restore (L-441, L-451) and the #133 and #135 QA
-  restore notes (N-442 to N-459, L-480, N-481). Open.
+  restore notes (N-442 to N-459, L-480, N-481). Merged at 0173924.
+- [#137](https://github.com/thordin9/apotheke/pull/137): boot cost (L-472): one database login per request, cheaper
+  PostgreSQL schema checks, a lighter CI4 boot; PostgreSQL meets +20 % locally, SQLite does not yet. Merged at
+  0d801b7.
 - [#139](https://github.com/thordin9/apotheke/pull/139): sync `main` v2.6.23 (#135: the legacy restore lock and
-  failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Open.
+  failed-restore cleanup in `src/backup.php` and `public/index.php`). CI4 restore code unchanged. Merged at 3660252.
+- [#142](https://github.com/thordin9/apotheke/pull/142): a restore makes `files/` with legacy's mode (0770 before the
+  umask; it was 0700); a link at a camera map name is skipped and the other map entries are still written; and the
+  #141 parity items: a link at a camera file's name stops the restore (L-560), the lock's stat cache is cleared before
+  its open (N-562), and writes check flush and close. A replaced file keeps its mode, and a restore stopped by a fatal
+  error removes its files. #143's three link tests and its 64M fatal-error test pass on it. Merged at 537684b.
+- [#146](https://github.com/thordin9/apotheke/pull/146): the restore command line started as root runs as the
+  owner of `DATA_DIR` (`Backup\Commands\DataDirOwner`, in `bin/restore.php`, in `ci4/spark` before boot for
+  `apotheke:restore` only, and in `RestoreCommand`), and refuses with
+  exit 1 when `DATA_DIR` is root's; storage no longer changes a file's owner or mode after creating it. Merged at
+  b12fbbb.
+- [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
+  camera link map through a temp file, L-560, L-561, N-562, N-564). Merged into `main` at 3f81db2, released as
+  v2.6.24.
 - [#140](https://github.com/thordin9/apotheke/pull/140): PLAN step 16 part 2, the upgrade and rollback gate
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
-  legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Open.
+  legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Merged at
+  b1bc52d.
 - [#143](https://github.com/thordin9/apotheke/pull/143): sync `main` v2.6.24 (#141: the legacy restore entry cap,
-  no writes through links, short-write checks and the camera link map written through a temp file in `src/backup.php`).
-  CI4 restore code unchanged. Open.
+  no writes through links, short-write checks and the camera link map written through a temp file in `src/backup.php`)
+  and v2.6.25 (#145: the legacy CLI restore runs as the owner of `DATA_DIR`, ported to CI4 in #146). CI4 restore code
+  unchanged. Open.
 
 ## Lanes
 
@@ -237,7 +255,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, open);
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, open); `main` restore follow-up (#141, merged into `main` at 3f81db2, v2.6.24);
   QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
@@ -246,10 +264,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
-   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). Review and merge #136 (streaming restore). Then a small
-   `main` follow-up (L-480, N-481 to N-486), then QA notes batch 4 (N-380, N-381, N-420 to N-424; branch
-   `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's v2.6.23 sync (#138) also touches
-   `Ci4BackupParityTest` and `BackupFailureTest`; whichever merges second merges the other in.
+   (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
+   follow-up) is merged into `main` (3f81db2, v2.6.24); #142 (restored folder modes) is under the full gate. Next:
+   QA notes batch 4 (N-380, N-381, N-420 to N-424, N-520, N-521, N-563, N-565 to N-567; branch
+   `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's step 16 part 3 then makes the `files/` mode a hard check in the upgrade/rollback
+   job. Coder's v2.6.23 sync (#139) is merged (3660252) and merged into #142; Coder's v2.6.24 sync is #143.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
    `UPDATE … WHERE status = 'open'`, so a late tick gets 409 and changes no line.
@@ -279,6 +298,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    headers and Cache-Control exactly but for one documented pair; password hashes keep algorithm and cost, and the
    users the app created sign in). N-475, N-476 and N-477 are folded in. Deferred: N-473 and N-474 (as in QA's
    #134 report), and L-472, which is the boot-cost lane in item 8.
+   Boot cost (#137, L-472): `BootMigration` checks the schema on CI4's connection (one login per request,
+   `Ci4OneConnectionTest`); the runner connects only to migrate. Local gate: PostgreSQL within +20 % p95 in every
+   area; SQLite still +64 to +144 % in 8 areas (about 1 to 2 ms of framework boot at the median: route table,
+   request and response, filters, configs), a further step. Once #137 is merged, CI can tighten the temporary budget
+   (median, about + 4 ms SQLite and + 5 ms PostgreSQL) and enforce 20 % on PostgreSQL.
 10. Then the Control Panel pages.
 
 ## Tracked

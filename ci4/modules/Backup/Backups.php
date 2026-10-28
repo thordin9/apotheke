@@ -291,8 +291,14 @@ final class Backups
             }
             $put($first ? '[]' : '}');   // legacy json_encode() of no tables at all: []
             $put(',"settings":' . self::enc($this->settings->export()['settings']) . '}');
+            if (!@fflush($out)) {
+                throw new RuntimeException('Cannot write the backup.');
+            }
         } finally {
-            fclose($out);
+            $closed = @fclose($out);
+        }
+        if (!$closed) {   // a write the close reports late (N-452); create() removes the file
+            throw new RuntimeException('Cannot write the backup.');
         }
         ksort($photos, SORT_STRING);
         ksort($attachments, SORT_STRING);

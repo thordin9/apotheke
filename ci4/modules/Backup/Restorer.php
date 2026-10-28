@@ -8,6 +8,7 @@ use Apotheke\Catalog\Items\Attachments;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Storage\Storage;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Media\ImageStore;
@@ -99,6 +100,12 @@ final class Restorer
     /** backup.json's depth, as legacy decodes it. */
     private const DEPTH = 64;
 
+    /** The RequestCleanup key of the files a restore has written but not committed. */
+    private const CLEANUP = 'backup:restore';
+
+    /** files/ when a restore makes it, before the umask (legacy backup_restore()). */
+    private const FILES_MODE = 0770;
+
     /** Legacy's quality for a thumbnail drawn again. */
     private const THUMB_QUALITY = 76;
 
@@ -107,6 +114,7 @@ final class Restorer
      * @param Closure():list<string> $known the migration versions this install has
      * @param Storage $data rooted at DATA_DIR (images/, thumbs/, files/)
      * @param Storage $originals rooted at ORIGINALS_DIR
+     * @param RequestCleanup $cleanup removes the files of a restore stopped by a fatal error
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -117,6 +125,7 @@ final class Restorer
         private readonly Storage $data,
         private readonly Storage $originals,
         private readonly int $thumbMax,
+        private readonly RequestCleanup $cleanup,
     ) {
     }
 
@@ -212,7 +221,8 @@ final class Restorer
             self::createLock($path);
         }
         // A file that is there is opened read-only, which creates nothing (L-455: flock() works on a read
-        // handle, whoever made the file).
+        // handle, whoever made the file). N-562: no cached stat of the name is used for the open.
+        clearstatcache(true, $path);
         $fh = @fopen($path, 'r');
         if ($fh === false) {
             throw new UserError(self::FAILED);
@@ -286,6 +296,14 @@ final class Restorer
         $created = [];
         $links = [];
         $folders = $this->missingFolders();
+        // A fatal error (the time limit, running out of memory) skips the
+        // catch below: the exception handler then removes the files and
+        // folders through RequestCleanup, unless the rows are in by then
+        // (legacy backup_restore_locked() does it on shutdown).
+        $this->cleanup->add(self::CLEANUP, function () use (&$created, $folders): void {
+            $this->discard($created);
+            self::removeEmpty($folders);
+        });
         try {
             try {
                 $written = $this->restorePhotos($zip, $b['photoFiles'], $tmp, $warnings, $created);
@@ -295,9 +313,11 @@ final class Restorer
                 $zip->close();
             }
             $this->restoreRows($b['json'], $b['offsets']);
+            $this->cleanup->drop(self::CLEANUP);
         } catch (Throwable $e) {
             $this->discard($created);
             self::removeEmpty($folders);
+            $this->cleanup->drop(self::CLEANUP);
             throw $e instanceof UserError ? $e : new UserError(self::FAILED, 0, $e);
         } finally {
             @unlink($b['json']);
@@ -444,7 +464,9 @@ final class Restorer
             }
         } finally {
             fclose($in);
-            if (!@fclose($out)) {
+            // every byte, flushed and closed: a short write (a full disk) fails the restore
+            $flushed = @fflush($out);
+            if (!@fclose($out) || !$flushed) {
                 $error ??= self::FAILED;
             }
             if ($error !== null) {
@@ -727,23 +749,44 @@ final class Restorer
     /**
      * The camera-original links, once the rows are in, and each linked
      * original made 0640 like a new one (legacy originals_chmod_file(), also
-     * for an original that was already there).
+     * for an original that was already there), only while it is a plain
+     * file at its name (L-560: never through a link). Each map entry goes
+     * through a temp file in the map folder and is renamed into place, so it
+     * is never written through a link. A map name that is a link, or anything
+     * but a plain file, is skipped with the camera-files warning and left as
+     * it is; the rows are in by now, so it no longer stops the restore
+     * (legacy backup_restore_link_originals()). A write that fails stops the
+     * rest with the same warning.
      *
      * @param array<string,string> $links map key => original name
      * @param list<string> $warnings
      */
     private function linkOriginals(array $links, array &$warnings): void
     {
-        try {
-            foreach ($links as $key => $base) {
-                $file = $this->backups->originalsDir() . '/' . $base;
-                if (!is_link($file) && is_file($file)) {
-                    @chmod($file, 0640);   // ignored where the filesystem cannot chmod, as in legacy
-                }
-                $this->originals->write($key, $base);
+        $warning = 'Camera files could not be restored (originals directory is not writable).';
+        $dir = rtrim($this->backups->originalsDir(), '/');
+        foreach ($links as $key => $base) {
+            $file = $dir . '/' . $base;
+            clearstatcache(true, $file);
+            $stat = @lstat($file);
+            if ($stat !== false && self::plainFile($stat)) {
+                @chmod($file, 0640);   // ignored where the filesystem cannot chmod, as in legacy
             }
-        } catch (Throwable) {
-            $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+            clearstatcache(true, $dir . '/' . $key);
+            $named = @lstat($dir . '/' . $key);
+            if ($named !== false && !self::plainFile($named)) {
+                if (!in_array($warning, $warnings, true)) {
+                    $warnings[] = $warning;
+                }
+                continue;
+            }
+            try {
+                $this->originals->write($key, $base);
+            } catch (Throwable) {
+                $warnings[] = $warning;
+
+                return;
+            }
         }
     }
 
@@ -822,6 +865,8 @@ final class Restorer
 
     /**
      * Attachments whose content is the type their name says; one that exists is kept.
+     * files/ is made with legacy's mode (0770 before the umask), also when the
+     * backup has no attachments, as legacy does.
      *
      * @param list<string> $files
      * @param list<string> $warnings
@@ -829,6 +874,10 @@ final class Restorer
      */
     private function restoreAttachments(ZipArchive $zip, array $files, string $tmp, array &$warnings, array &$created): void
     {
+        $dir = rtrim($this->backups->dataDir(), '/') . '/files';
+        if (!is_dir($dir)) {
+            @mkdir($dir, self::FILES_MODE, true);   // the app does not make it at start; a failure shows at the first write
+        }
         foreach ($files as $f) {
             $path = $this->extract($zip, 'files/' . $f, $tmp);
             if ($path === null) {
@@ -907,6 +956,12 @@ final class Restorer
             if ($data === null) {
                 $warnings[] = "Original $base is missing from the archive.";
                 continue;
+            }
+            // L-560: a link at a camera file's name, to anything or nowhere, stops the restore
+            if (is_link(rtrim($this->backups->originalsDir(), '/') . '/' . $base)) {
+                @unlink($data);
+
+                throw new UserError(self::FAILED);
             }
             try {
                 if (!$this->originals->exists($base)) {

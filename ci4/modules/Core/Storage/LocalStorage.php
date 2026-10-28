@@ -57,7 +57,11 @@ final class LocalStorage implements Storage
 
     /**
      * Write through a hidden temp file in the key's folder, then rename it
-     * into place. A write that fails part way (a full disk, N-452) removes
+     * into place. The temp file is created with its final mode (through the
+     * umask, so nothing changes it by name later): $fileMode, else the mode
+     * of the plain file it replaces (without execute bits), else the umask's.
+     * The file belongs to the user that writes it; the restore command line
+     * runs as DATA_DIR's owner (L-590). A write that fails part way (a full disk, N-452) removes
      * the temp file, also when a warning is thrown as an exception.
      *
      * @param \Closure(resource):bool $fill writes the bytes; false when it could not
@@ -75,8 +79,18 @@ final class LocalStorage implements Storage
         if ($this->path($key) === null) {
             throw new InvalidArgumentException('Invalid storage key.');
         }
+        clearstatcache(true, $path);
+        $named = @lstat($path);
+        $mode = $this->fileMode ?? ($named !== false && ($named['mode'] & 0170000) === 0100000 ? $named['mode'] & 0777 : null);
         $tmp = $dir . '/.' . basename($path) . '.tmp-' . bin2hex(random_bytes(8));
-        $fh = @fopen($tmp, 'xb');
+        $umask = $mode === null ? null : umask(~$mode & 0777);
+        try {
+            $fh = @fopen($tmp, 'xb');
+        } finally {
+            if ($umask !== null) {
+                umask($umask);
+            }
+        }
         if ($fh === false) {
             throw new RuntimeException('Could not store the file.');
         }
@@ -84,6 +98,8 @@ final class LocalStorage implements Storage
         try {
             $ok = $fill($fh);
         } finally {
+            // every byte, flushed and closed: a short write (a full disk) fails
+            $ok = @fflush($fh) && $ok;
             $ok = @fclose($fh) && $ok;
             if (!$ok) {
                 @unlink($tmp);
@@ -91,9 +107,6 @@ final class LocalStorage implements Storage
         }
         if (!$ok) {
             throw new RuntimeException('Could not store the file.');
-        }
-        if ($this->fileMode !== null) {
-            @chmod($tmp, $this->fileMode);
         }
         if (!@rename($tmp, $path)) {
             @unlink($tmp);
