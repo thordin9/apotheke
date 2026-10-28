@@ -250,8 +250,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
   step 14 part 1, CSV import and export (#127, merged); QA notes batch 3 (#128, merged); the step 14
-  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, open); `main` restore follow-up (#141, merged into `main` at 3f81db2, v2.6.24);
-  QA notes batch 4 (`ci4/qa-notes-batch4`, not opened yet).
+  follow-ups (#131, merged at 57eae25); step 14 part 2, backup and restore (#133, merged); streaming restore and its QA notes (#136, merged); restored folder modes (#142, merged); `main` restore follow-up (#141, merged into `main` at 3f81db2, v2.6.24);
+  CLI restore as the data-dir owner (#145 on `main`, v2.6.25; #146, merged at b12fbbb). QA notes batch 4, part A
+  ([#147](https://github.com/thordin9/apotheke/pull/147), open): `Config/Routes.php` (the auth and import blocks),
+  `Core/Http/WebRoutes.php`, `CsvExport.php`, `CsvExportTest`, `PermissionFilterTest`, `Ci4ImportExportParityTest`,
+  `Ci4ImportRaceTest`, `tests/lib.php`. Part B (restore and CLI) and a `main` PR follow.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
@@ -260,9 +263,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
-   follow-up) is merged into `main` (3f81db2, v2.6.24); #142 (restored folder modes) is under the full gate. Next:
-   QA notes batch 4 (N-380, N-381, N-420 to N-424, N-520, N-521, N-563, N-565 to N-567; branch
-   `ci4/qa-notes-batch4`), merging `feature/ci4` in first. Coder's step 16 part 3 then makes the `files/` mode a hard check in the upgrade/rollback
+   follow-up) is merged into `main` (3f81db2, v2.6.24); #142 and #146 are merged (b12fbbb). Now: QA notes batch 4,
+   part A (#147: N-380, N-381, N-420 to N-422, N-424), then part B (restore and CLI notes) and the `main` notes PR. Coder's step 16 part 3 then makes the `files/` mode a hard check in the upgrade/rollback
    job. Coder's v2.6.23 sync (#139) is merged (3660252) and merged into #142; Coder's v2.6.24 sync is #143.
 2. #129 (sync v2.6.22) is merged. The legacy port of L-230, L-240, N-234, L-340 and N-341 is done on `main` by
    [#126](https://github.com/thordin9/apotheke/pull/126) (v2.6.21): a stocktake tick's first write is
