@@ -167,7 +167,7 @@ php bin/seed.php                         # starter locations/categories (idempot
 php bin/seed.php --demo                  # … plus a few demo items with generated photos
 php bin/backup.php [file.zip]            # write a backup zip (default ./apotheke-backup-<date>.zip)
 php bin/restore.php file.zip --dry-run   # validate and show what would be restored
-php bin/restore.php file.zip [--yes]     # REPLACE all data with the backup (asks first unless --yes)
+php bin/restore.php file.zip [--yes]     # REPLACE all data with the backup (asks first unless --yes); as the data folder's owner
 php bin/settings.php list                # Control Panel settings: get KEY · set KEY VALUE · reset SECTION · export · import FILE
 php bin/settings.php users               # accounts; user add|password|role|approve|rename|delete|signout NAME …; roles [reset]; auth on|off
 php bin/settings.php key generate        # print a new APP_KEY; stores nothing

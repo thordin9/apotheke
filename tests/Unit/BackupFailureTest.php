@@ -390,6 +390,122 @@ final class BackupFailureTest extends TestCase
         });
     }
 
+    /**
+     * bin/restore.php started as root (through sudo) continues as the user that owns the data folder: it restores,
+     * and every file in the data folder, the replaced camera map file and the lock included, belongs to that user.
+     */
+    public function testARootCliRestoreRunsAsTheDataFolderOwner(): void
+    {
+        $this->needSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $this->assertSame(self::ORIGINAL, file_get_contents($dir . '/originals/map/' . substr(self::PHOTO, 0, 32)));
+            file_put_contents($dir . '/cli.zip', $good);
+            try {
+                $cli = $this->rootCli($dir, [$dir . '/cli.zip', '--yes']);
+                $this->ownedByUs($dir, $cli);
+            } finally {
+                self::sudo(['chown', '-R', posix_geteuid() . ':' . posix_getegid(), $dir]);   // so the folder can be removed whatever happened
+            }
+        });
+    }
+
+    /**
+     * The root CLI restore succeeded and left every file in the data folder to this user, the data folder's owner.
+     * @param array{stdout:string,stderr:string,exit:int} $cli
+     */
+    private function ownedByUs(string $dir, array $cli): void
+    {
+        $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+        $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+        $this->assertStringContainsString('Restored:', $cli['stdout']);
+        clearstatcache();
+        $this->assertSame(self::NEW_ORIGINAL, file_get_contents($map), 'the map file was replaced');
+        $this->assertSame('640', sprintf('%o', fileperms($map) & 0777));
+        $this->assertFileExists($dir . '/originals/' . self::NEW_ORIGINAL);
+        $this->assertFileExists($dir . '/tmp/restore.lock');
+        $owner = [posix_geteuid(), posix_getegid()];
+        $all = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+        $seen = 0;
+        foreach ($all as $f) {
+            $st = lstat((string)$f);
+            $this->assertSame($owner, [$st['uid'], $st['gid']], substr((string)$f, strlen($dir) + 1) . ' belongs to the data folder owner');
+            $seen++;
+        }
+        $this->assertGreaterThan(10, $seen);
+    }
+
+    /** A data folder owned by root: bin/restore.php started as root stops with exit 1 and changes nothing. */
+    public function testARootCliRestoreRefusesARootOwnedDataFolder(): void
+    {
+        $this->needSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            file_put_contents($dir . '/cli.zip', $good);
+            $before = $this->state($pdo, $dir);
+            self::sudo(['chown', '0:0', $dir]);
+            try {
+                clearstatcache();
+                $this->assertSame(0, fileowner($dir));
+                foreach ([[], ['--dry-run']] as $extra) {
+                    $cli = $this->rootCli($dir, [$dir . '/cli.zip', '--yes', ...$extra]);
+                    $this->assertSame([1, '', cli_owner_message('') . "\n"], [$cli['exit'], $cli['stdout'], $cli['stderr']]);
+                }
+            } finally {
+                self::sudo(['chown', '-R', posix_geteuid() . ':' . posix_getegid(), $dir]);
+            }
+            $this->assertSame($before, $this->state($pdo, $dir));
+            $this->assertFileDoesNotExist($dir . '/tmp/restore.lock');
+        });
+    }
+
+    /** Not root: the restore goes on as this user; the message names the owner to run as. */
+    public function testTheOwnerCheckLetsOtherUsersThrough(): void
+    {
+        if (posix_geteuid() === 0) $this->markTestSkipped('running as root');
+        $this->assertNull(cli_run_as_data_owner('/nonexistent'));
+        $this->assertSame(posix_geteuid(), cli_effective_uid());
+        $this->assertStringContainsString('sudo -u www-data php bin/restore.php', cli_owner_message('www-data'));
+        $this->assertStringContainsString('sudo -u <owner> php bin/restore.php', cli_owner_message('root'));
+        $this->assertStringEndsWith('Nothing was changed.', cli_owner_message(''));
+    }
+
+    private function needSudo(): void
+    {
+        $why = null;
+        if (!function_exists('posix_geteuid')) $why = 'no posix';
+        elseif (posix_geteuid() === 0) $why = 'running as root';
+        elseif (self::sudo(['true']) !== 0) $why = 'no passwordless sudo';
+        if ($why === null) return;
+        if (getenv('GITHUB_ACTIONS') === 'true') $this->fail("CI runs the root CLI restore: $why");
+        $this->markTestSkipped($why);
+    }
+
+    /** @param list<string> $cmd run through sudo -n, output discarded; the exit code */
+    private static function sudo(array $cmd): int
+    {
+        $p = proc_open(['sudo', '-n', ...$cmd], [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        return is_resource($p) ? proc_close($p) : 1;
+    }
+
+    /**
+     * bin/restore.php as root, with the test's environment.
+     * @param list<string> $args
+     * @return array{stdout:string,stderr:string,exit:int}
+     */
+    private function rootCli(string $dir, array $args): array
+    {
+        $env = [];
+        foreach (self::env($dir) as $k => $v) if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $k)) $env[] = "$k=$v";
+        $p = proc_open(['sudo', '-n', 'env', '-i', ...$env, PHP_BINARY, ROOT . '/bin/restore.php', ...$args],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT);
+        $this->assertIsResource($p);
+        fclose($pipes[0]);
+        $stdout = (string)stream_get_contents($pipes[1]);
+        $stderr = (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['stdout' => $stdout, 'stderr' => $stderr, 'exit' => proc_close($p)];
+    }
+
     /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
     private function withCatalog(callable $fn): void
     {

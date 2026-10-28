@@ -52,11 +52,13 @@ php bin/restore.php /backups/home.zip --yes
 
 In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`.
 
-Run the restore as the user that owns the data directory (`www-data` in Docker; for example `sudo -u www-data php
-bin/restore.php backup.zip`). With `APOTHEKE_APP=ci4`, a restore started as root (`bin/restore.php` or `php ci4/spark
-apotheke:restore`, with or without `--dry-run`) switches to that user and the data directory's group before it does
-anything else, so the files it writes belong to them; when the data directory is owned by root, or the switch is not
-possible, it stops with exit 1 and changes nothing.
+Run `bin/restore.php` as the user that owns the data folder (the user the web server's PHP runs as), for example
+`sudo -u www-data php bin/restore.php /backups/home.zip`. Started as root, it switches to the data folder's owner
+before it reads the database or writes a file, so every restored file belongs to that user; this is what happens with
+`docker compose exec apotheke php /var/www/app/bin/restore.php …`, where `/data` belongs to `www-data`. When the data
+folder is owned by root, or the switch is not possible, it stops with exit 1 and changes nothing.
+With `APOTHEKE_APP=ci4`, `bin/restore.php` and `php ci4/spark apotheke:restore` (with or without `--dry-run`) do the
+same: started as root they switch to the data folder's owner and group before CodeIgniter starts, or stop with exit 1.
 
 A nightly cron example on the host:
 
