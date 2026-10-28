@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [2.6.26] - 2026-10-28
+
 **Upgrade note:** the data tools in `bin/` (`backup.php`, `migrate.php`, `seed.php`, `settings.php` and `restore.php`) started as root now run as the data folder's owner. When the data folder is owned by root they stop with exit 1 and change nothing: run them as the data folder's owner, for example `sudo -u www-data php bin/migrate.php`. `bin/backup.php` writes its zip as that owner, so the backup target has to be a folder the data folder's owner can write. `php bin/settings.php key generate` uses no data folder and runs as any user (L-622, L-680).
 
 ### Fixed
@@ -16,6 +18,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - **backup:** hardening: a link at a new photo, thumbnail or attachment name stops the restore and is left as it is, as at a camera file's name (N-565). A new camera file is 0640 from the start; only a kept older file with another mode is changed after the restore (N-582). ([#148](https://github.com/thordin9/apotheke/pull/148))
 - **backup:** `bin/restore.php` prints the warnings from the restore itself (camera links that could not be written, settings not restored) after `Restored:` (N-593). A failed restore in the browser removes its upload at once instead of at the hourly sweep, and so does an upload that could not be stored whole (N-567). The docs say which full-disk cases fail the restore and which skip camera files (N-580). Tests cover the lock's fresh name lookup (N-581) and a map that cannot be written (N-563). ([#148](https://github.com/thordin9/apotheke/pull/148))
 - **backup:** hardening: `php bin/settings.php key generate` prints its key before it reads the configuration or switches users, so it uses no data folder (L-680). The switch to the data folder's owner stops with exit 1 when PHP has neither `posix_initgroups` nor `posix_getgroups` (N-681). A camera file a restore creates keeps the 0640 it was created with, whatever the umask, and a test covers it (N-682). ([#148](https://github.com/thordin9/apotheke/pull/148))
+
+### Maintenance
+
+- **restore:** test: cover the CLI owner switch, links and map failures ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **restore:** docs: CLI owner, config file and full-disk cases ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **changelog:** docs: note the QA notes batch 4 fixes ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **e2e:** test: apply migration 0025 without the CLI tool ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **changelog:** docs: lead 2.6.26 with the CLI owner upgrade note ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **ci:** chore: allow the Control Panel test placeholder in gitleaks ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **qa:** docs: add the PR 148 batch 4 restore CLI QA review ([#148](https://github.com/thordin9/apotheke/pull/148))
 
 ## [2.6.25] - 2026-10-28
 
@@ -493,7 +505,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.25...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.26...HEAD
+[2.6.26]: https://github.com/thordin9/apotheke/compare/v2.6.25...v2.6.26
 [2.6.25]: https://github.com/thordin9/apotheke/compare/v2.6.24...v2.6.25
 [2.6.24]: https://github.com/thordin9/apotheke/compare/v2.6.23...v2.6.24
 [2.6.23]: https://github.com/thordin9/apotheke/compare/v2.6.22...v2.6.23
