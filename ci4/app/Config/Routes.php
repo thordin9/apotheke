@@ -29,9 +29,6 @@ $routes->post('theme', '\\Apotheke\\Layout\\Controllers\\ThemeController::save',
 
 // Autofill client. POST only.
 $routes->post('autofill/suggest', '\\Apotheke\\Autofill\\Controllers\\SuggestController::suggest', ['permission' => 'create']);
-$routes->post('settings/autofill/token', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::token', ['permission' => 'settings']);
-$routes->post('settings/autofill/test', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::test', ['permission' => 'settings']);
-$routes->post('settings/autofill/test-photo', '\\Apotheke\\Autofill\\Controllers\\SettingsAutofillController::testPhoto', ['permission' => 'settings']);
 
 // Taxonomy: /locations and /categories (Manage). GET needs view, POST edit.
 // The entry's other paths answer "<One> not found." or "Page not found." as legacy.
@@ -89,6 +86,24 @@ $routes->post('item/([0-9]+)/photos/([0-9]+)/edit', $catalog . 'PhotoController:
 
 // Activity: recent activity and one item's full history.
 $routes->match(['GET', 'HEAD'], 'activity', '\\Apotheke\\Activity\\Controllers\\ActivityController::index', ['permission' => 'view']);
+
+// Control Panel (ControlPanel): the index, each section's page, save and reset, the logo, and
+// AI autofill's Test buttons and access token. Every route needs settings (legacy route_perm());
+// legacy answers GET on the index and GET and POST on a section, nothing else.
+$panel = '\\Apotheke\\ControlPanel\\Controllers\\ControlPanelController';
+$autofillPanel = '\\Apotheke\\ControlPanel\\Controllers\\AutofillSettingsController';
+$settingsPerm = ['permission' => 'settings'];
+$routes->match(['GET', 'HEAD'], 'settings', $panel . '::index', $settingsPerm);
+$routes->post('settings/logo', $panel . '::logo', $settingsPerm);
+$routes->post('settings/logo/reset', $panel . '::logoReset', $settingsPerm);
+$routes->post('settings/autofill/token', $autofillPanel . '::token', $settingsPerm);
+$routes->post('settings/autofill/test', $autofillPanel . '::test', $settingsPerm);
+$routes->post('settings/autofill/test-photo', $autofillPanel . '::testPhoto', $settingsPerm);
+foreach (\Apotheke\ControlPanel\Controllers\ControlPanelController::SECTIONS as $section) {
+    $routes->match(['GET', 'HEAD'], 'settings/' . $section, $panel . '::show/' . $section, $settingsPerm);
+    $routes->post('settings/' . $section, $panel . '::save/' . $section, $settingsPerm);
+    $routes->post('settings/' . $section . '/reset', $panel . '::reset/' . $section, $settingsPerm);
+}
 
 // Auth: Control Panel → Users & sign-in (step 7 B): the page and its settings, sign-in
 // on or off and your own password, accounts and roles. All need users (legacy route_perm()).
