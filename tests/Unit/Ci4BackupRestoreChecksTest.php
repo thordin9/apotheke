@@ -760,12 +760,14 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
     private function needsSudo(): array
     {
         exec('sudo -n true 2>/dev/null', $_, $code);
+        // On GitHub Actions both are there, so a missing one fails rather than skips.
+        $ci = getenv('GITHUB_ACTIONS') === 'true';
         if ($code !== 0) {
-            $this->markTestSkipped('needs passwordless sudo');
+            $ci ? $this->fail('needs passwordless sudo') : $this->markTestSkipped('needs passwordless sudo');
         }
         $nobody = posix_getpwnam('nobody');
         if ($nobody === false) {
-            $this->markTestSkipped('needs the nobody user');
+            $ci ? $this->fail('needs the nobody user') : $this->markTestSkipped('needs the nobody user');
         }
 
         return ['uid' => (int)$nobody['uid'], 'gid' => (int)$nobody['gid']];
