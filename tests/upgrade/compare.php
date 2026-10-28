@@ -5,12 +5,12 @@ declare(strict_types=1);
  * PLAN step 16 part 2: checks snapshots (tests/upgrade/snapshot.php).
  *   php tests/upgrade/compare.php LABEL expected.json actual.json
  *     exit 1 when the schema, any table's rows or any file's sha256 differ, or when actual breaks the originals
- *     modes (below); any other mode difference is a warning.
+ *     or files/ modes (below); any other mode difference is a warning.
  *   php tests/upgrade/compare.php --guard LABEL seeded.json
  *     exit 1 when the seed is too thin to prove anything: no items, no kept original, no thumbnail, no attachment
  *     file, or an empty carried table.
  * Originals modes (PLAN §3.5, legacy originals_chmod_dir()/originals_chmod_file()): every directory 0750, every
- * file 0640, in every snapshot.
+ * file 0640, in every snapshot. files/ itself has legacy's mode, 0770 under the umask (0750 under 022; #142).
  */
 
 if (PHP_SAPI !== 'cli') exit(2);
@@ -61,6 +61,9 @@ foreach ($y['modes'] as $k => $m) {
             $diffs++;
             echo "DIFF $label mode $k: $m, want " . rtrim($want[0], '/') . "\n";
         }
+    } elseif ($k === 'files' && $m !== ($want = sprintf('%04o', 0o770 & ~umask()))) {
+        $diffs++;
+        echo "DIFF $label mode $k: $m, want $want\n";
     } elseif (isset($x['modes'][$k]) && $x['modes'][$k] !== $m) {
         echo "WARN $label mode $k: {$x['modes'][$k]} -> $m\n";
     }

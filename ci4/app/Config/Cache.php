@@ -21,8 +21,12 @@ class Cache extends BaseConfig
      *
      * The name of the preferred handler that should be used. If for some reason
      * it is not available, the $backupHandler will be used in its place.
+     *
+     * Apotheke caches nothing through CI4 (no cache(), no page cache), so the
+     * dummy handler: building the file handler checked writable/cache on every
+     * request (PLAN step 16 part 3).
      */
-    public string $handler = 'file';
+    public string $handler = 'dummy';
 
     /**
      * --------------------------------------------------------------------------

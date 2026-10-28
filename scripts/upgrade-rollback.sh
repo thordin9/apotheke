@@ -5,8 +5,9 @@
 #   every carried table non-empty) → CI4@8.4 on the same data → legacy@8.3 again, then cross-restore: a CI4 backup
 #   restored by legacy@8.3 and a legacy backup restored by CI4@8.4, each over the same install and into a fresh data
 #   directory and database. After every step the normalised DB dump and the sha256 of images/, thumbs/, originals/
-#   (map/ included) and files/ must equal the seeded state, and originals must be 0750/0640 (tests/upgrade/). Last,
-#   mutation checks prove that an emptied or dropped table, a changed or missing attachment and a wrong mode fail.
+#   (map/ included) and files/ must equal the seeded state, originals must be 0750/0640 and files/ 0750
+#   (tests/upgrade/). Last, mutation checks prove that an emptied or dropped table, a changed or missing attachment
+#   and a wrong mode (an original, files/) fail.
 # Env: DB_DRIVER=sqlite|pgsql (pgsql: TEST_PG_HOST, TEST_PG_PORT, TEST_PG_DB, TEST_PG_USER, TEST_PG_PASSWORD),
 #      PHP83 and PHP84 (default php8.3, php8.4), UPGRADE_WORK (a path that must not exist yet; default: a new
 #      mktemp -d), UPGRADE_KEEP=1 keeps it. The script removes only the work dir and the upg_<run>_* schemas it made.
@@ -60,19 +61,25 @@ install_env() {
 
 snap() { "$PHP84" "$ROOT/tests/upgrade/snapshot.php" --scope="$1" > "$WORK/$2.json"; }
 check() { "$PHP84" "$ROOT/tests/upgrade/compare.php" "$1" "$WORK/$2.json" "$WORK/$3.json" || fail=1; }
-# A mutation must make the check fail with a DIFF or FAIL line; a pass (or a crash) means the gate is blind to it.
-#   must_fail LABEL BEFORE AFTER   compares two snapshots;   must_fail LABEL --guard SNAPSHOT   runs the seed guard
+# A mutation must make the check fail with a DIFF or FAIL line that names what it mutated (the table, or the file
+# under the data directory); a pass, a crash or a line about something else means the gate is blind to it (N-546).
+#   must_fail LABEL TARGET BEFORE AFTER   compares two snapshots;   must_fail LABEL TARGET --guard SNAPSHOT   seed guard
 must_fail() {
-  local label=$1 code=0
-  if [ "$2" = --guard ]; then
-    "$PHP84" "$ROOT/tests/upgrade/compare.php" --guard "$label" "$WORK/$3.json" > "$WORK/mutation.txt" 2>&1 || code=$?
+  local label=$1 target=$2 code=0 caught='' line rest
+  if [ "$3" = --guard ]; then
+    "$PHP84" "$ROOT/tests/upgrade/compare.php" --guard "$label" "$WORK/$4.json" > "$WORK/mutation.txt" 2>&1 || code=$?
   else
-    "$PHP84" "$ROOT/tests/upgrade/compare.php" "$label" "$WORK/$2.json" "$WORK/$3.json" > "$WORK/mutation.txt" 2>&1 || code=$?
+    "$PHP84" "$ROOT/tests/upgrade/compare.php" "$label" "$WORK/$3.json" "$WORK/$4.json" > "$WORK/mutation.txt" 2>&1 || code=$?
   fi
-  if [ "$code" = 1 ] && grep -qE '^(DIFF|FAIL) ' "$WORK/mutation.txt"; then
-    echo "ok mutation caught: $label: $(grep -m1 -E '^(DIFF|FAIL) ' "$WORK/mutation.txt" | cut -c1-140)"
+  while IFS= read -r line; do
+    case $line in "DIFF $label "* | "FAIL $label"*) ;; *) continue ;; esac
+    rest=${line#* }; rest=${rest#"$label"}
+    case "$rest " in *" $target "* | *" $target:"*) caught=$line; break ;; esac
+  done < "$WORK/mutation.txt"
+  if [ "$code" = 1 ] && [ -n "$caught" ]; then
+    echo "ok mutation caught: $label: $(printf '%s' "$caught" | cut -c1-140)"
   else
-    cat "$WORK/mutation.txt"; echo "FAIL mutation not caught (exit $code): $label"; fail=1
+    cat "$WORK/mutation.txt"; echo "FAIL mutation not caught (exit $code, no DIFF or FAIL line names $target): $label"; fail=1
   fi
 }
 
@@ -165,22 +172,25 @@ check 'legacy backup restored on CI4@8.4' seeded-backup restored-ci4
 mutate() { "$PHP84" "$ROOT/tests/upgrade/mutate.php" "$1"; }
 mutate 'DELETE FROM item_tags'
 snap backup m1
-must_fail 'emptied carried table (item_tags)' seeded-backup m1
-must_fail 'seed guard on an emptied carried table' --guard m1
+must_fail 'emptied carried table (item_tags)' item_tags seeded-backup m1
+must_fail 'seed guard on an emptied carried table' item_tags --guard m1
 mutate 'DROP TABLE saved_filters'
 snap backup m2
-must_fail 'dropped carried table (saved_filters)' m1 m2
+must_fail 'dropped carried table (saved_filters)' saved_filters m1 m2
 attachment=$(find "$DATA_DIR/files" -maxdepth 1 -type f -name '*.pdf' | sort | head -n 1)
 printf 'x' >> "$attachment"
 snap backup m3
-must_fail 'changed files/ attachment' m2 m3
+must_fail 'changed files/ attachment' "files/${attachment##*/}" m2 m3
 rm "$attachment"
 snap backup m4
-must_fail 'missing files/ attachment' m2 m4
+must_fail 'missing files/ attachment' "files/${attachment##*/}" m2 m4
 original=$(find "$DATA_DIR/originals" -maxdepth 1 -type f -name '*.png' | head -n 1)
 chmod 0644 "$original"
 snap backup m5
-must_fail 'original readable by others (0644)' m4 m5
+must_fail 'original readable by others (0644)' "originals/${original##*/}" m4 m5
+chmod 0700 "$DATA_DIR/files"
+snap backup m6
+must_fail 'files/ not legacy mode (0700)' files m5 m6
 
 if [ "$fail" = 0 ]; then echo "upgrade/rollback: all steps equal"; else echo "upgrade/rollback: differences found"; fi
 exit "$fail"
