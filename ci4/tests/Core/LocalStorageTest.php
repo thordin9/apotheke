@@ -135,6 +135,39 @@ final class LocalStorageTest extends CIUnitTestCase
         $this->assertSame(['info.json'], array_values(array_filter($names, static fn (string $n): bool => $n !== '.' && $n !== '..')));
     }
 
+    /**
+     * L-590: a plain file that is replaced keeps its group (and its owner,
+     * which only root can give away; Ci4BackupRestoreChecksTest runs that
+     * under sudo) and, without a file mode, its mode, as a write in place does.
+     */
+    public function testAReplacedFileKeepsItsGroupAndMode(): void
+    {
+        $store = new LocalStorage($this->root);
+        $store->write('autofill/info.json', 'old');
+        $path = $this->root . '/autofill/info.json';
+        chmod($path, 0604);
+        $other = array_values(array_diff(posix_getgroups() ?: [], [posix_getegid()]));
+        if ($other !== []) {
+            $this->assertTrue(chgrp($path, $other[0]));
+        }
+        $store->write('autofill/info.json', 'new');
+        clearstatcache();
+        $this->assertSame('new', (string)file_get_contents($path));
+        $this->assertSame(0604, fileperms($path) & 0777, 'the mode is kept');
+        $this->assertSame([posix_geteuid(), $other[0] ?? posix_getegid()], [fileowner($path), filegroup($path)], 'owner and group are kept');
+
+        $fixed = new LocalStorage($this->root, 0640);
+        $fixed->write('autofill/info.json', 'again');
+        clearstatcache();
+        $this->assertSame(0640, fileperms($path) & 0777, 'a file mode wins');
+        $this->assertSame($other[0] ?? posix_getegid(), filegroup($path));
+
+        unlink($path);
+        $fixed->write('autofill/info.json', 'new file');
+        clearstatcache();
+        $this->assertSame(posix_getegid(), filegroup($path), 'a new file gets the default group');
+    }
+
     public function testWriteStreamStoresTheWholeStream(): void
     {
         $store = new LocalStorage($this->root, 0640);

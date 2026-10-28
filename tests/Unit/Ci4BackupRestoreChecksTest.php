@@ -28,12 +28,27 @@ require_once dirname(__DIR__) . '/lib.php';
  *   leaves no temp file and no file.
  * - N-481: a link where a new file would go stops the restore; the link
  *   is neither replaced nor removed, and nothing changes.
+ * - A restore into a fresh data directory leaves every folder with the
+ *   mode legacy gives it, under two umasks (files/ was 0700).
+ * - The camera link map is written through a temp file: a link at a map
+ *   name is left as it is and nothing is written through it, and the
+ *   other map entries are still written.
+ * - L-560: a link at a camera file's name, dangling or to a real file,
+ *   stops the restore; the target keeps its mode (0604) and bytes. On
+ *   PostgreSQL, one swapped in before the commit is not made 0640.
+ * - Short writes: an entry that does not fit under a file size limit
+ *   (`prlimit --fsize`, XFSZ ignored) fails the restore and leaves no temp
+ *   file and no file.
  */
 final class Ci4BackupRestoreChecksTest extends TestCase
 {
     private const CLOCK = '2026-06-15 21:30:00';
 
     private const PHOTO = 'abcdef0123456789abcdef0123456789.jpg';
+
+    private const FILE = '99998888777766665555444433332222.pdf';
+
+    private const ORIGINAL = 'bb00000000000000000000000000000000000000000000000000000000000002.png';
 
     protected function setUp(): void
     {
@@ -442,6 +457,354 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             $this->assertFileDoesNotExist($dir . '/thumbs/' . $photo);
             $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn());
         });
+    }
+
+    public function testARestoreIntoAFreshDataDirMakesEachFolderWithLegacysMode(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $want = [
+                0022 => ['files' => 0750, 'images' => 0755, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0755, 'thumbs' => 0755, 'tmp' => 0750],
+                0002 => ['files' => 0770, 'images' => 0775, 'originals' => 0750, 'originals/map' => 0750, 'sessions' => 0775, 'thumbs' => 0775, 'tmp' => 0770],
+            ];
+            foreach ($want as $umask => $modes) {
+                $seen = [];
+                foreach (['legacy', 'ci4'] as $app) {
+                    foreach (['images', 'thumbs', 'files', 'originals', 'tmp', 'sessions'] as $sub) {
+                        rrmdir($dir . '/' . $sub);
+                    }
+                    $r = $this->cliAs($dir, $app, $umask, ['full.zip', '--yes']);
+                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$app: " . $r['stdout']);
+                    $this->assertFileExists($dir . '/files/' . self::FILE, $app);
+                    $seen[$app] = self::folderModes($dir);
+                }
+                $label = sprintf('umask %04o', $umask);
+                $this->assertSame(array_map(static fn (int $m): string => sprintf('%04o', $m), $modes), $seen['ci4'], $label);
+                // tmp/ comes from the restore lock, which legacy here gets with the v2.6.23 sync (0770, as checked above).
+                $this->assertSame($seen['legacy'], array_intersect_key($seen['ci4'], $seen['legacy']), "$label: as legacy");
+                $this->assertSame([], array_values(array_diff(array_keys($seen['legacy']), array_keys($seen['ci4']))), $label);
+            }
+        });
+    }
+
+    public function testALinkAtACameraMapNameIsLeftAlone(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $dump = $this->dump($server, $dir);
+            $second = str_repeat('7', 32) . '.jpg';
+            $secondOriginal = str_repeat('cc', 32) . '.png';
+            $photos = &$dump['tables']['item_photos'];
+            $photos['rows'][] = array_map(static fn (string $c, mixed $v): mixed => ['id' => 9, 'file' => $second, 'position' => 1][$c] ?? $v, $photos['columns'], $photos['rows'][0]);
+            unset($photos);
+            $entries = $this->fullBackup($dump);
+            $entries['originals/index.json'] = [self::PHOTO => self::ORIGINAL, $second => $secondOriginal];
+            $entries += ['images/' . $second => img_jpeg(40, 30), 'thumbs/' . $second => img_jpeg(20, 15), 'originals/' . $secondOriginal => img_png(4, 4)];
+            $this->zip($dir . '/full.zip', $entries);
+            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            $secondMap = $dir . '/originals/map/' . substr($second, 0, 32);
+            foreach (['dangling' => false, 'real target' => true] as $case => $real) {
+                $target = $dir . '/target-' . ($real ? 'real' : 'dangling');
+                if ($real) {
+                    file_put_contents($target, 'keep');
+                }
+                @unlink($map);
+                @unlink($secondMap);
+                symlink($target, $map);
+                $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+                $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$case: " . $r['stdout']);
+                clearstatcache();
+                $this->assertTrue(is_link($map), "$case: the link is not replaced");
+                $this->assertSame($target, readlink($map), $case);
+                if ($real) {
+                    $this->assertSame('keep', file_get_contents($target), "$case: nothing is written through it");
+                } else {
+                    $this->assertFileDoesNotExist($target, "$case: nothing is written through it");
+                }
+                $this->assertFileExists($dir . '/originals/' . self::ORIGINAL, $case);
+                $this->assertSame($secondOriginal, @file_get_contents($secondMap), "$case: the next map entry is still written");
+                $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), "$case: no temp file is left");
+            }
+            unlink($map);
+            $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+            $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+            clearstatcache();
+            $this->assertFalse(is_link($map));
+            $this->assertSame(self::ORIGINAL, file_get_contents($map), 'with the link gone, the map is written');
+            $this->assertSame(0640, fileperms($map) & 0777);
+        });
+    }
+
+    public function testALinkAtACameraFileStopsTheRestore(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $original = $dir . '/originals/' . self::ORIGINAL;
+            foreach (['dangling' => false, 'real target' => true] as $case => $real) {
+                $target = $dir . '/camera-' . ($real ? 'real' : 'dangling');
+                if ($real) {
+                    file_put_contents($target, 'keep');
+                    chmod($target, 0604);
+                }
+                @unlink($original);
+                symlink($target, $original);
+                $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+                $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], "$case: " . $r['stdout']);
+                clearstatcache();
+                $this->assertTrue(is_link($original), "$case: the link is not replaced");
+                $this->assertSame($target, readlink($original), $case);
+                if ($real) {
+                    $this->assertSame('keep', file_get_contents($target), "$case: nothing is written through it");
+                    $this->assertSame(0604, fileperms($target) & 0777, "$case: its mode is unchanged");
+                } else {
+                    $this->assertFileDoesNotExist($target, "$case: nothing is written through it");
+                }
+                $this->assertFileDoesNotExist($dir . '/files/' . self::FILE, "$case: the files written are removed");
+                $this->assertFileDoesNotExist($dir . '/originals/map/' . substr(self::PHOTO, 0, 32), $case);
+                $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), "$case: nothing changed");
+            }
+        });
+    }
+
+    /**
+     * L-560 (PostgreSQL, where the restore waits for a table lock): a camera
+     * file swapped for a link after it was written and before the rows
+     * commit is not made 0640 through the link.
+     */
+    public function testACameraFileSwappedForALinkBeforeTheCommitKeepsItsTargetsMode(): void
+    {
+        if (test_driver() !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL: the restore waits for a held table lock');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $original = $dir . '/originals/' . self::ORIGINAL;
+            $target = $dir . '/camera-real';
+            file_put_contents($target, 'keep');
+            chmod($target, 0604);
+            $pdo->exec('BEGIN');
+            $pdo->exec('LOCK TABLE locations IN EXCLUSIVE MODE');
+            try {
+                $restore = $this->cliStart($dir, ['full.zip', '--yes']);
+                $waiting = false;
+                for ($i = 0; $i < 500 && !$waiting; $i++) {
+                    usleep(20_000);
+                    $waiting = (int)$pdo->query("SELECT COUNT(*) FROM pg_locks WHERE NOT granted AND relation = 'locations'::regclass")->fetchColumn() > 0;
+                }
+                $this->assertTrue($waiting, 'the restore waits for the rows');
+                clearstatcache();
+                $this->assertFileExists($original, 'the camera file is written before the rows');
+                unlink($original);
+                symlink($target, $original);
+            } finally {
+                $pdo->exec('ROLLBACK');
+            }
+            $r = $this->cliFinish($restore);
+            $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+            clearstatcache();
+            $this->assertSame(0604, fileperms($target) & 0777, 'no chmod through the link');
+            $this->assertSame('keep', file_get_contents($target));
+            $this->assertTrue(is_link($original));
+        });
+    }
+
+    public function testAnEntryOverTheFileSizeLimitLeavesNothing(): void
+    {
+        if (!is_executable('/usr/bin/prlimit')) {
+            $this->markTestSkipped('needs prlimit');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $entries = $this->fullBackup($this->dump($server, $dir));
+            // 5 MB of camera file where 4 MiB may be written (writes fail, the signal is ignored).
+            $entries['originals/' . self::ORIGINAL] = img_png(8, 8) . random_bytes(5 * 1024 * 1024);
+            $this->zip($dir . '/big.zip', $entries);
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $cmd = ['/usr/bin/prlimit', '--fsize=4194304', '/bin/sh', '-c', 'trap "" XFSZ; exec "$@"', 'sh', PHP_BINARY, ROOT . '/bin/restore.php', 'big.zip', '--yes'];
+            $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $this->cliEnv($dir));
+            $this->assertIsResource($proc);
+            fclose($pipes[0]);
+            $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+            $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], $r['stdout']);
+            $this->assertFileDoesNotExist($dir . '/files/' . self::FILE, 'the files written are removed');
+            $this->assertFileDoesNotExist($dir . '/originals/' . self::ORIGINAL);
+            $this->assertSame([], glob($dir . '/tmp/restore-*.part') ?: [], 'no temp file is left');
+            foreach (['files', 'originals', 'originals/map', 'images', 'thumbs'] as $sub) {
+                $this->assertSame([], glob($dir . '/' . $sub . '/.*.tmp-*') ?: [], "no temp file in $sub");
+            }
+            $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+        });
+    }
+
+    /**
+     * A restore stopped by a fatal error before the rows commit leaves no
+     * file it wrote (legacy removes them on shutdown too). The fatal error is
+     * raised from a signal handler (a prepended file, through
+     * PHP_INI_SCAN_DIR) once the attachment is written and while the camera
+     * file is still being unpacked.
+     */
+    public function testARestoreStoppedByAFatalErrorLeavesNoFiles(): void
+    {
+        if (!function_exists('pcntl_signal') || !function_exists('posix_kill')) {
+            $this->markTestSkipped('needs pcntl and posix');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $entries = $this->fullBackup($this->dump($server, $dir));
+            $entries['originals/' . self::ORIGINAL] = str_repeat("\0", 100 * 1024 * 1024);   // time to stop it in
+            $this->zip($dir . '/big.zip', $entries);
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            mkdir($dir . '/ini');
+            file_put_contents($dir . '/ini/zz-fatal.ini', "memory_limit=128M\nauto_prepend_file=" . $dir . "/ini/fatal.php\n");
+            file_put_contents($dir . '/ini/fatal.php', '<?php
+if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
+    $d = ' . var_export($dir, true) . ';
+    pcntl_async_signals(true);
+    pcntl_signal(SIGUSR1, static function () use ($d): void {
+        clearstatcache();
+        if (is_file($d . "/files/' . self::FILE . '") && !is_file($d . "/originals/' . self::ORIGINAL . '") && (glob($d . "/originals/.*.tmp-*") ?: []) === []) {
+            pcntl_signal(SIGUSR1, SIG_IGN);
+            touch($d . "/ini/hit");
+            $x = str_repeat("x", 1 << 30);   // over memory_limit: a fatal error
+        }
+    });
+    file_put_contents($d . "/ini/pid", (string)getmypid());
+}
+');
+            $env = array_merge($this->cliEnv($dir), ['PHP_INI_SCAN_DIR' => ':' . $dir . '/ini']);
+            $proc = proc_open([PHP_BINARY, ROOT . '/bin/restore.php', 'big.zip', '--yes'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $env);
+            $this->assertIsResource($proc);
+            fclose($pipes[0]);
+            while (proc_get_status($proc)['running']) {
+                $pid = (int)@file_get_contents($dir . '/ini/pid');
+                if ($pid > 0 && !is_file($dir . '/ini/hit')) {   // once raised, no more signals (PHP resets the handler as it ends)
+                    @posix_kill($pid, SIGUSR1);
+                }
+                usleep(2000);
+            }
+            $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+            $this->assertFileExists($dir . '/ini/hit', 'the fatal error was raised: ' . $r['stdout'] . $r['stderr']);
+            $this->assertContains($r['exit'], [1, 255], $r['stdout'] . $r['stderr']);   // CodeIgniter's shutdown handler exits 1
+            $this->assertStringContainsString('Allowed memory size', $r['stdout'] . $r['stderr']);
+            clearstatcache();
+            $this->assertFileDoesNotExist($dir . '/files/' . self::FILE, 'the files written are removed');
+            $this->assertFileDoesNotExist($dir . '/originals/' . self::ORIGINAL);
+            $this->assertFileDoesNotExist($dir . '/originals/map/' . substr(self::PHOTO, 0, 32));
+            $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+        });
+    }
+
+    /**
+     * L-590: a root command line restore that replaces a camera map entry
+     * keeps the entry's owner, group and mode, as legacy does, so the web
+     * user can still read it. Runs only where `sudo -n` works.
+     */
+    public function testARootRestoreKeepsTheOwnerOfAReplacedMapEntry(): void
+    {
+        exec('sudo -n true 2>/dev/null', $_, $code);
+        if ($code !== 0) {
+            $this->markTestSkipped('needs passwordless sudo');
+        }
+        $nobody = posix_getpwnam('nobody');
+        if ($nobody === false) {
+            $this->markTestSkipped('needs the nobody user');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo) use ($nobody): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            @mkdir($dir . '/tmp', 0770, true);
+            $map = $dir . '/originals/map/' . substr(self::PHOTO, 0, 32);
+            try {
+                foreach (['legacy', 'ci4'] as $app) {
+                    @unlink($map);
+                    file_put_contents($map, 'old');
+                    chmod($map, 0640);
+                    $this->sudo(['chown', $nobody['uid'] . ':' . $nobody['gid'], $map]);
+                    $env = array_merge($this->cliEnv($dir), ['APOTHEKE_APP' => $app]);
+                    $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+                        PHP_BINARY, ROOT . '/bin/restore.php', 'full.zip', '--yes'];
+                    $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
+                    $this->assertIsResource($proc);
+                    fclose($pipes[0]);
+                    $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], "$app: " . $r['stdout']);
+                    clearstatcache();
+                    $this->assertSame(self::ORIGINAL, $this->sudo(['cat', $map]), "$app: the entry is replaced");
+                    $this->assertSame([$nobody['uid'], $nobody['gid'], 0640], [fileowner($map), filegroup($map), fileperms($map) & 0777], "$app: owner, group and mode are kept");
+                    $this->assertSame([], array_values(array_filter(scandir($dir . '/originals/map') ?: [], static fn (string $f): bool => $f[0] === '.' && $f !== '.' && $f !== '..')), "$app: no temp file is left");
+                    $this->giveBack($dir);
+                }
+            } finally {
+                $this->giveBack($dir);
+            }
+        });
+    }
+
+    /** @param list<string> $args a command run with `sudo -n`; its output */
+    private function sudo(array $args): string
+    {
+        $proc = proc_open(['sudo', '-n', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+        $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+        $this->assertSame(0, $r['exit'], implode(' ', $args) . ': ' . $r['stderr']);
+
+        return $r['stdout'];
+    }
+
+    /** The files a root run made under $dir and ci4/writable go back to this user, so they can be removed. */
+    private function giveBack(string $dir): void
+    {
+        $me = posix_geteuid() . ':' . posix_getegid();
+        foreach ([$dir, ROOT . '/ci4/writable'] as $root) {
+            $this->sudo(['find', $root, '(', '-uid', '0', '-o', '-gid', '0', ')', '-exec', 'chown', '-h', $me, '{}', '+']);
+        }
+    }
+
+    /**
+     * The download's rows plus an attachment and a camera original for the photo.
+     *
+     * @param array<string,mixed> $dump
+     * @return array<string,string|array<mixed>>
+     */
+    private function fullBackup(array $dump): array
+    {
+        $files = &$dump['tables']['item_attachments'];
+        $files['rows'][] = array_map(static fn (string $c): mixed => ['id' => 1, 'item_id' => 1, 'file' => self::FILE, 'name' => 'm.pdf', 'mime' => 'application/pdf', 'size' => 10, 'created_at' => '2026-01-02 08:00:00'][$c] ?? null, $files['columns']);
+        unset($files);
+
+        return ['backup.json' => $dump, 'images/' . self::PHOTO => img_jpeg(64, 48), 'thumbs/' . self::PHOTO => img_jpeg(32, 24),
+            'files/' . self::FILE => "%PDF-1.4\n%", 'originals/index.json' => [self::PHOTO => self::ORIGINAL], 'originals/' . self::ORIGINAL => img_png(8, 8)];
+    }
+
+    /** @return array<string,string> every folder under $dir, relative, with its mode in octal */
+    private static function folderModes(string $dir): array
+    {
+        clearstatcache();
+        $modes = [];
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+        foreach ($it as $f) {
+            if ($f->isDir() && !$f->isLink()) {
+                $modes[substr($f->getPathname(), strlen($dir) + 1)] = sprintf('%04o', fileperms($f->getPathname()) & 0777);
+            }
+        }
+        ksort($modes);
+
+        return $modes;
+    }
+
+    /**
+     * bin/restore.php as $app, under $umask.
+     *
+     * @param list<string> $args
+     * @return array{stdout:string,stderr:string,exit:int}
+     */
+    private function cliAs(string $dir, string $app, int $umask, array $args): array
+    {
+        $cmd = ['/bin/bash', '-c', sprintf('umask %04o && exec "$@"', $umask), 'bash', PHP_BINARY, ROOT . '/bin/restore.php', ...$args];
+        $env = array_merge($this->cliEnv($dir), ['APOTHEKE_APP' => $app]);
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $env);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+
+        return $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
     }
 
     /** @param callable(Server, string, PDO): void $fn */

@@ -57,7 +57,8 @@ final class LocalStorage implements Storage
 
     /**
      * Write through a hidden temp file in the key's folder, then rename it
-     * into place. A write that fails part way (a full disk, N-452) removes
+     * into place. A plain file it replaces keeps its owner, group and, without
+     * a $fileMode, its mode (L-590). A write that fails part way (a full disk, N-452) removes
      * the temp file, also when a warning is thrown as an exception.
      *
      * @param \Closure(resource):bool $fill writes the bytes; false when it could not
@@ -84,6 +85,8 @@ final class LocalStorage implements Storage
         try {
             $ok = $fill($fh);
         } finally {
+            // every byte, flushed and closed: a short write (a full disk) fails
+            $ok = @fflush($fh) && $ok;
             $ok = @fclose($fh) && $ok;
             if (!$ok) {
                 @unlink($tmp);
@@ -92,12 +95,42 @@ final class LocalStorage implements Storage
         if (!$ok) {
             throw new RuntimeException('Could not store the file.');
         }
-        if ($this->fileMode !== null) {
-            @chmod($tmp, $this->fileMode);
+        clearstatcache(true, $path);
+        $named = @lstat($path);
+        $replaced = $named !== false && ($named['mode'] & 0170000) === 0100000 ? $named : null;
+        if ($replaced !== null) {
+            self::keepOwner($tmp, $replaced);
+        }
+        $mode = $this->fileMode ?? ($replaced === null ? null : $replaced['mode'] & 07777);
+        if ($mode !== null) {
+            @chmod($tmp, $mode);
         }
         if (!@rename($tmp, $path)) {
             @unlink($tmp);
             throw new RuntimeException('Could not store the file.');
+        }
+    }
+
+    /**
+     * A plain file that is replaced keeps its owner and group, as a write in
+     * place does (L-590: a root command line run must not leave a file the
+     * web user cannot read). Only root can give a file away; a failure is
+     * ignored, as legacy does.
+     *
+     * @param array<array-key,int> $old lstat() of the file being replaced
+     */
+    private static function keepOwner(string $tmp, array $old): void
+    {
+        clearstatcache(true, $tmp);
+        $new = @lstat($tmp);
+        if ($new === false) {
+            return;
+        }
+        if ($new['uid'] !== $old['uid']) {
+            @chown($tmp, $old['uid']);
+        }
+        if ($new['gid'] !== $old['gid']) {
+            @chgrp($tmp, $old['gid']);
         }
     }
 
