@@ -231,6 +231,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   no writes through links, short-write checks and the camera link map written through a temp file in `src/backup.php`)
   and v2.6.25 (#145: the legacy CLI restore runs as the owner of `DATA_DIR`, ported to CI4 in #146). CI4 restore code
   unchanged. Open.
+- [#153](https://github.com/thordin9/apotheke/pull/153): CI allowlist for a historic Control Panel test placeholder
+  (with [#152](https://github.com/thordin9/apotheke/pull/152) on `main`). Open.
 
 ## Lanes
 
