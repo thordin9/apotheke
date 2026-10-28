@@ -744,8 +744,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
                 $this->sudo(['chown', posix_geteuid() . ':' . posix_getegid(), $dir]);
                 $this->assertSame(1, $r['exit'], $r['stdout'] . $r['stderr']);
                 $this->assertSame('', $r['stdout']);
-                $this->assertStringContainsString('is owned by root', $r['stderr']);
-                $this->assertStringContainsString('sudo -u <owner>', $r['stderr']);
+                $this->assertSame("Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> php bin/restore.php backup.zip. Nothing was changed.\n", $r['stderr']);
                 clearstatcache();
                 $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
                 $this->assertSame($before, self::listing($dir), 'no file is written');

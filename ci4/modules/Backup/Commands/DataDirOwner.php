@@ -26,9 +26,7 @@ final class DataDirOwner
             if (!self::looksLikeRoot()) {
                 return true;
             }
-            fwrite($err, "The restore needs the posix extension to check which user runs it.\n");
-
-            return false;
+            return self::refuse($err, null);
         }
         $euid = posix_geteuid();
         if ($euid !== 0) {
@@ -37,32 +35,36 @@ final class DataDirOwner
         clearstatcache(true, $dataDir);
         $st = $dataDir === '' ? false : @stat($dataDir);
         if ($st === false || !is_dir($dataDir)) {
-            fwrite($err, "Running as root, but the data directory ($dataDir) is missing. Run the restore as the user that owns it.\n");
-
-            return false;
+            return self::refuse($err, null);
         }
         $uid = (int)$st['uid'];
         $gid = (int)$st['gid'];
         $pw = $uid === 0 ? false : posix_getpwuid($uid);
         if ($uid === 0 || $pw === false) {
-            fwrite($err, 'Running as root: the data directory (' . $dataDir . ') is owned by '
-                . ($uid === 0 ? 'root' : 'uid ' . $uid . ', which has no user entry') . ".\n"
-                . "Run the restore as the user that owns the data directory, for example: sudo -u <owner> php bin/restore.php backup.zip\n");
-
-            return false;
+            return self::refuse($err, null);
         }
         $name = (string)$pw['name'];
         $switched = @posix_setgid($gid) && @posix_initgroups($name, $gid) && @posix_setuid($uid);
         if (!$switched || [posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid()] !== [$uid, $uid, $gid, $gid]) {
-            fwrite($err, "Running as root: could not switch to the data directory's owner ($name). Run the restore as that user, for example: sudo -u $name php bin/restore.php backup.zip\n");
-
-            return false;
+            return self::refuse($err, $name);
         }
         putenv('HOME=' . (string)$pw['dir']);
         putenv('USER=' . $name);
         putenv('LOGNAME=' . $name);
 
         return true;
+    }
+
+    /**
+     * The message legacy bin/restore.php prints, with the owner's name when it is known.
+     *
+     * @param resource $err
+     */
+    private static function refuse(mixed $err, ?string $owner): bool
+    {
+        fwrite($err, 'Run this as the user that owns the data folder, not as root, for example: sudo -u ' . ($owner ?? '<owner>') . " php bin/restore.php backup.zip. Nothing was changed.\n");
+
+        return false;
     }
 
     /** Without posix: the effective user is unknown, so a process that may be root is treated as root. */
