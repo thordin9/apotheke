@@ -52,11 +52,13 @@ php bin/restore.php /backups/home.zip --yes
 
 In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`.
 
-Run the restore as the user that owns the data directory (`www-data` in Docker; for example `sudo -u www-data php
-bin/restore.php backup.zip`). With `APOTHEKE_APP=ci4`, a restore started as root (`bin/restore.php` or `php ci4/spark
-apotheke:restore`, with or without `--dry-run`) switches to that user and the data directory's group before it does
-anything else, so the files it writes belong to them; when the data directory is owned by root, or the switch is not
-possible, it stops with exit 1 and changes nothing.
+Run `bin/restore.php` as the user that owns the data folder (the user the web server's PHP runs as), for example
+`sudo -u www-data php bin/restore.php /backups/home.zip`. Started as root, it switches to the data folder's owner
+before it reads the database or writes a file, so every restored file belongs to that user; this is what happens with
+`docker compose exec apotheke php /var/www/app/bin/restore.php …`, where `/data` belongs to `www-data`. When the data
+folder is owned by root, or the switch is not possible, it stops with exit 1 and changes nothing.
+With `APOTHEKE_APP=ci4`, `bin/restore.php` and `php ci4/spark apotheke:restore` (with or without `--dry-run`) do the
+same: started as root they switch to the data folder's owner and group before CodeIgniter starts, or stop with exit 1.
 
 A nightly cron example on the host:
 
@@ -68,15 +70,22 @@ A nightly cron example on the host:
 
 What the restore checks: that the file is a zip with only `backup.json`, `images/*.jpg`, `thumbs/*.jpg`,
 `files/<hex>.<pdf|jpg|png|webp>`, `originals/index.json` and `originals/<64 hex>.<ext>` entries, the entry count and
-unpacked size limits, the format and version, that every table
+unpacked size limits (each file other than `backup.json` at most 200 MiB, read from the zip's directory before anything
+is unpacked), the format and version, that every table
 and column is known to this version (a backup from a **newer** schema is refused), and that rows are well-formed.
 Missing photo files produce a warning. Photos in `data/images` that the restored data doesn't reference are left on
 disk.
 
 One restore runs at a time: while one runs, another one (from the browser or `bin/restore.php`) is refused with
 “Another restore is running. Try again when it has finished.” A restore that fails part-way removes the photo,
-thumbnail, attachment and camera files it had added, and links photos to the backup's camera files only once the data
-is in, so the catalog and `data/` are as they were.
+thumbnail, attachment and camera files it had added (also when a fatal error such as running out of memory stops it),
+and links photos to the backup's camera files only once the data is in, so the catalog and the files in `data/` are as
+they were. Folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a
+restore whose process is killed can leave the new files it had written; nothing refers to them. A link where a restore
+would write a new file, or at an existing camera file's name, stops the restore and is left as it is, and a file that
+can only be written in part (a full disk) fails it. The photos' camera-file links are written after the data is in,
+each through a temp file renamed into place; a link at one of their names is left as it is, that photo is not linked
+to its camera file, and the restore continues.
 
 Other options: a copy of `data/` while the container is stopped, or `sqlite3 data/catalog.sqlite ".backup copy.sqlite"`
 while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).
