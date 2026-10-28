@@ -28,6 +28,10 @@ declare(strict_types=1);
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
+require dirname(__DIR__) . '/src/config.php';
+require dirname(__DIR__) . '/src/cli-owner.php';
+// started as root: continue as the data folder's owner before anything is read or written, or stop (L-622)
+if (($argv[1] ?? '') !== 'key' || ($argv[2] ?? '') !== 'generate') cli_data_owner_or_exit('php bin/settings.php list');   // key generate uses no data
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 
