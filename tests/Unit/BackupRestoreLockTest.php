@@ -122,6 +122,29 @@ final class BackupRestoreLockTest extends TestCase
     }
 
     /**
+     * The name is looked up afresh before the open (N-562, N-581): a link that pointed nowhere when one restore opened
+     * the name (refused) is not remembered, so the plain file put there next locks.
+     */
+    public function testALinkSeenAtTheOpenIsNotRememberedForTheNextLock(): void
+    {
+        $path = $this->dir . '/tmp/' . BACKUP_RESTORE_LOCK;
+        $target = $this->dir . '/elsewhere';
+        try {
+            fclose(backup_restore_lock($this->dir, fn() => symlink($target, $path)));
+            $this->fail('a link at the open was not refused');
+        } catch (UserError $e) {
+            $this->assertSame(BACKUP_RESTORE_FAILED, $e->getMessage());
+        }
+        $this->assertFileDoesNotExist($target, 'the link target was created');
+        // another process puts the plain file there: PHP's own unlink() and touch() would clear its caches
+        $this->assertSame('', (string)shell_exec('rm -f ' . escapeshellarg($path) . ' && touch ' . escapeshellarg($path) . ' 2>&1'));
+        $fh = backup_restore_lock($this->dir);
+        $this->assertIsResource($fh, 'the plain file now at the name locks');
+        flock($fh, LOCK_UN);
+        fclose($fh);
+    }
+
+    /**
      * A link put at the name between the check and the open is never followed: when nothing was there, its target is
      * not made; when a plain file was there, the file opened is not the one at the name, so the lock is refused.
      */

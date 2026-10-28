@@ -225,16 +225,21 @@ final class BackupFailureTest extends TestCase
     }
 
     /**
-     * A link where a new file would go, also one that points nowhere, stops the restore (422, exit 1). The link is
-     * left as it is and its target is not made; nothing else changes.
+     * A link where a new file would go, to nowhere or to a real file (N-565), stops the restore (422, exit 1). The
+     * link is left as it is, its target is not made or changed, and nothing else changes.
      */
     public function testALinkWhereANewFileGoesStopsTheRestore(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
             $before = $this->state($pdo, $dir);
             $paths = ['images/' . self::NEW_PHOTO, 'thumbs/' . self::NEW_PHOTO, 'files/' . self::NEW_FILE, 'originals/' . self::NEW_ORIGINAL];
-            foreach ($paths as $i => $path) {
+            foreach ([...$paths, ...$paths] as $i => $path) {
+                $real = $i >= count($paths);
                 $target = $dir . '/nowhere-' . $i;
+                if ($real) {
+                    file_put_contents($target, 'keep me');
+                    chmod($target, 0604);
+                }
                 $this->assertTrue(symlink($target, $dir . '/' . $path));
                 if ($i % 2 === 0) {
                     $this->confirmFails($server, $dir, $good, $good, self::FAILED);
@@ -247,7 +252,12 @@ final class BackupFailureTest extends TestCase
                 clearstatcache();
                 $this->assertTrue(is_link($dir . '/' . $path), "$path: the link stays");
                 $this->assertSame($target, readlink($dir . '/' . $path), "$path: the link is unchanged");
-                $this->assertFileDoesNotExist($target, "$path: its target is not made");
+                if ($real) {
+                    $this->assertSame(['keep me', '604'], [file_get_contents($target), sprintf('%o', fileperms($target) & 0777)], "$path: its target is untouched");
+                    unlink($target);
+                } else {
+                    $this->assertFileDoesNotExist($target, "$path: its target is not made");
+                }
                 unlink($dir . '/' . $path);
                 $this->assertSame($before, $this->state($pdo, $dir), $path);
             }
@@ -351,6 +361,37 @@ final class BackupFailureTest extends TestCase
     }
 
     /**
+     * A camera map that cannot be written (here its folder is immutable) is a warning only: the restore succeeds, the
+     * CLI prints the warning once, after the restore (N-593), no map entry changes and no temp file is left. The first
+     * failed write ends the map loop, so the warning is not repeated per entry (N-563).
+     */
+    public function testAMapThatCannotBeWrittenIsAWarningOnly(): void
+    {
+        $this->needChattr();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $map = $dir . '/originals/map';
+            $entries = static fn(): array => array_map(fn(string $f) => [basename($f), file_get_contents($f)], glob($map . '/{,.}[!.]*', GLOB_BRACE) ?: []);
+            $before = $entries();
+            $this->assertNotSame([], $before);
+            file_put_contents($dir . '/cli.zip', $good);
+            $this->assertSame(0, self::sudo(['chattr', '+i', $map]));
+            try {
+                $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+            } finally {
+                self::sudo(['chattr', '-i', $map]);
+            }
+            unlink($dir . '/cli.zip');
+            $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+            $lines = array_values(array_filter(explode("\n", $cli['stdout']), fn(string $l) => str_starts_with($l, '  warning:')));
+            $this->assertSame(['  warning: Camera files could not be restored (originals directory is not writable).'], $lines, $cli['stdout']);
+            $this->assertMatchesRegularExpression('/^Restored: .*\n  warning: Camera files/m', $cli['stdout'], 'printed after the restore');
+            clearstatcache();
+            $this->assertSame($before, $entries(), 'no map entry changed and no temp file is left');
+            $this->assertFileExists($dir . '/originals/' . self::NEW_ORIGINAL, 'the camera file itself is restored');
+        });
+    }
+
+    /**
      * A photo that can only be written in part (here a file size limit stands in for a full disk) fails the restore:
      * exit 1, and nothing is left, no partial photo and no temp file.
      */
@@ -445,6 +486,97 @@ final class BackupFailureTest extends TestCase
         });
     }
 
+    /** The bin/ tools that use the data folder, with their arguments here and the command their message suggests (L-622). */
+    private const TOOLS = [
+        'bin/backup.php' => [['{dir}/tools.zip'], 'php bin/backup.php'],
+        'bin/migrate.php' => [[], 'php bin/migrate.php'],
+        'bin/seed.php' => [[], 'php bin/seed.php'],
+        'bin/settings.php' => [['list'], 'php bin/settings.php list'],
+        'bin/restore.php' => [['{dir}/cli.zip', '--yes'], 'php bin/restore.php backup.zip'],
+    ];
+
+    /**
+     * Every bin/ tool that uses the data folder, started as root, continues as the folder's owner (L-622): each one
+     * succeeds, and every file in the data folder, the backup zip included, belongs to that user. The folder's group is
+     * root's here, so the tools take the owner's own group instead (N-621).
+     */
+    public function testRootCliToolsRunAsTheDataFolderOwner(): void
+    {
+        $this->needSudo();
+        $pw = posix_getpwuid(posix_geteuid());
+        if (!is_array($pw) || (int)$pw['gid'] !== posix_getegid() || posix_getegid() === 0) $this->markTestSkipped('this user\'s group is not its own primary group');
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            file_put_contents($dir . '/cli.zip', $good);
+            try {
+                $this->assertSame(0, self::sudo(['chgrp', '0', $dir]));
+                foreach (self::TOOLS as $script => [$args]) {
+                    $cli = $this->rootCli($dir, str_replace('{dir}', $dir, $args), $script);
+                    $this->assertSame(0, $cli['exit'], $script . ': ' . $cli['stdout'] . $cli['stderr']);
+                }
+                $this->assertFileExists($dir . '/tools.zip');
+                $owner = [posix_geteuid(), posix_getegid()];
+                $seen = 0;
+                foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST) as $f) {
+                    $st = lstat((string)$f);
+                    $this->assertSame($owner, [$st['uid'], $st['gid']], substr((string)$f, strlen($dir) + 1) . ' belongs to the data folder owner');
+                    $seen++;
+                }
+                $this->assertGreaterThan(10, $seen);
+            } finally {
+                self::sudo(['chown', '-R', posix_geteuid() . ':' . posix_getegid(), $dir]);
+            }
+        });
+    }
+
+    /** A data folder owned by root: every bin/ tool that uses it, started as root, stops with exit 1 and changes nothing. */
+    public function testRootCliToolsRefuseARootOwnedDataFolder(): void
+    {
+        $this->needSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            file_put_contents($dir . '/cli.zip', $good);
+            $before = $this->state($pdo, $dir);
+            self::sudo(['chown', '0:0', $dir]);
+            try {
+                foreach (self::TOOLS as $script => [$args, $example]) {
+                    $cli = $this->rootCli($dir, str_replace('{dir}', $dir, $args), $script);
+                    $this->assertSame([1, '', cli_owner_message('', $example) . "\n"], [$cli['exit'], $cli['stdout'], $cli['stderr']], $script);
+                }
+            } finally {
+                self::sudo(['chown', '-R', posix_geteuid() . ':' . posix_getegid(), $dir]);
+            }
+            $this->assertSame($before, $this->state($pdo, $dir));
+            $this->assertFileDoesNotExist($dir . '/tools.zip');
+        });
+    }
+
+    /**
+     * Without the posix functions the user is read from /proc; when that cannot be read either, the tool counts the
+     * user as root and stops (N-625), as CI4 does.
+     */
+    public function testAUserThatCannotBeToldCountsAsRoot(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
+            $noPosix = ['-d', 'disable_functions=posix_geteuid,posix_getpwuid,posix_setuid,posix_setgid,posix_initgroups'];
+            $run = function (array $php) use ($dir): array {
+                $p = proc_open([PHP_BINARY, ...$php, ROOT . '/bin/migrate.php'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, self::env($dir));
+                $this->assertIsResource($p);
+                fclose($pipes[0]);
+                $out = [(string)stream_get_contents($pipes[1]), (string)stream_get_contents($pipes[2])];
+                fclose($pipes[1]);
+                fclose($pipes[2]);
+                return [proc_close($p), ...$out];
+            };
+            if (posix_geteuid() !== 0) {
+                [$code, $stdout, $stderr] = $run($noPosix);
+                $this->assertSame(0, $code, 'read from /proc: not root, so it runs: ' . $stdout . $stderr);
+            }
+            // open_basedir keeps /proc/self/status from being read
+            [$code, $stdout, $stderr] = $run([...$noPosix, '-d', 'open_basedir=' . ROOT . ':' . $dir . ':' . sys_get_temp_dir()]);
+            $this->assertSame([1, ''], [$code, $stdout], $stderr);
+            $this->assertStringContainsString(cli_owner_message('', 'php bin/migrate.php'), $stderr);
+        });
+    }
+
     /** Not root: the restore goes on as this user; the message names the owner to run as. */
     public function testTheOwnerCheckLetsOtherUsersThrough(): void
     {
@@ -454,6 +586,134 @@ final class BackupFailureTest extends TestCase
         $this->assertStringContainsString('sudo -u www-data php bin/restore.php', cli_owner_message('www-data'));
         $this->assertStringContainsString('sudo -u <owner> php bin/restore.php', cli_owner_message('root'));
         $this->assertStringEndsWith('Nothing was changed.', cli_owner_message(''));
+    }
+
+    /**
+     * The switch needs a way to set or check the groups (posix_initgroups or posix_getgroups); with neither it refuses
+     * instead of going on with the groups it started with (N-681). Through the function-exists seam, so it runs
+     * without root.
+     */
+    public function testTheOwnerSwitchNeedsAWayToSetTheGroups(): void
+    {
+        if (posix_geteuid() === 0) $this->markTestSkipped('running as root');
+        $dir = tmpdir('apotheke-cli-owner');
+        try {
+            $name = (string)posix_getpwuid(posix_geteuid())['name'];
+            $without = static fn(string ...$gone): callable => static fn(string $f): bool => !in_array($f, $gone, true) && function_exists($f);
+            $target = [posix_geteuid(), posix_getegid(), $name];
+            $this->assertSame($target, cli_data_owner_target($dir, 'php bin/migrate.php'));
+            $this->assertSame($target, cli_data_owner_target($dir, 'php bin/migrate.php', $without('posix_initgroups')));
+            $this->assertSame($target, cli_data_owner_target($dir, 'php bin/migrate.php', $without('posix_getgroups')));
+            $refused = cli_owner_message($name, 'php bin/migrate.php');
+            $this->assertSame($refused, cli_data_owner_target($dir, 'php bin/migrate.php', $without('posix_initgroups', 'posix_getgroups')));
+            $this->assertSame($refused, cli_data_owner_target($dir, 'php bin/migrate.php', $without('posix_setgid')));
+            $this->assertSame([], array_values(array_diff((array)scandir($dir), ['.', '..'])));
+        } finally {
+            rrmdir($dir);
+        }
+    }
+
+    /** The same through sudo: a root tool with both group functions disabled stops with exit 1 and creates nothing (N-681). */
+    public function testARootCliToolWithoutTheGroupFunctionsRefuses(): void
+    {
+        $this->needSudo();
+        $dir = tmpdir('apotheke-cli-owner');
+        try {
+            $cli = $this->rootCli($dir, ['list'], 'bin/settings.php', ['-d', 'disable_functions=posix_initgroups,posix_getgroups']);
+            $name = (string)posix_getpwuid(posix_geteuid())['name'];
+            $this->assertSame([1, '', cli_owner_message($name, 'php bin/settings.php list') . "\n"], [$cli['exit'], $cli['stdout'], $cli['stderr']]);
+            clearstatcache();
+            $this->assertSame([], array_values(array_diff((array)scandir($dir), ['.', '..'])));
+        } finally {
+            self::sudo(['chown', '-R', posix_geteuid() . ':' . posix_getegid(), $dir]);
+            rrmdir($dir);
+        }
+    }
+
+    /**
+     * `bin/settings.php key generate` prints a key before it reads the configuration or switches users, so it touches
+     * no data folder (L-680): not one that is not there yet, and not one owned by root, also when started as root.
+     */
+    public function testSettingsKeyGenerateTouchesNoDataFolder(): void
+    {
+        $base = tmpdir('apotheke-keygen');
+        $missing = $base . '/data';
+        try {
+            $assertKey = function (array $cli): void {
+                $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+                $this->assertMatchesRegularExpression('~\A[A-Za-z0-9+/]{43}=\n\z~', $cli['stdout']);
+                $this->assertSame(32, strlen((string)base64_decode(trim($cli['stdout']), true)));
+            };
+            $p = proc_open([PHP_BINARY, ROOT . '/bin/settings.php', 'key', 'generate'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, self::env($missing));
+            $this->assertIsResource($p);
+            fclose($pipes[0]);
+            $cli = ['stdout' => (string)stream_get_contents($pipes[1]), 'stderr' => (string)stream_get_contents($pipes[2])];
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $assertKey($cli + ['exit' => proc_close($p)]);
+            clearstatcache();
+            $this->assertSame(['.', '..'], scandir($base), 'nothing created');
+
+            $this->needSudo();
+            $assertKey($this->rootCli($missing, ['key', 'generate'], 'bin/settings.php'));
+            clearstatcache();
+            $this->assertSame(['.', '..'], scandir($base), 'root: nothing created');
+            $this->assertTrue(mkdir($missing));
+            $this->assertSame(0, self::sudo(['chown', '0:0', $missing]));
+            clearstatcache();
+            $before = stat($missing);
+            $assertKey($this->rootCli($missing, ['key', 'generate'], 'bin/settings.php'));
+            clearstatcache();
+            $after = stat($missing);
+            $this->assertSame([0, $before['mtime'], $before['nlink']], [$after['uid'], $after['mtime'], $after['nlink']], 'root-owned folder unchanged');
+            $this->assertSame(['.', '..'], scandir($missing), 'root-owned folder still empty');
+        } finally {
+            self::sudo(['chown', '-R', posix_geteuid() . ':' . posix_getegid(), $base]);
+            rrmdir($base);
+        }
+    }
+
+    /**
+     * A camera file a restore creates, and each camera-link map file it writes, is 0640 from the start whatever the
+     * umask (N-682); the kept older camera file becomes 0640 once the rows are in.
+     */
+    public function testNewCameraFilesAre0640WhateverTheUmask(): void
+    {
+        foreach ([0000, 0077] as $mask) {
+            $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good) use ($mask): void {
+                file_put_contents($dir . '/cli.zip', $good);
+                $was = umask($mask);   // the CLI restore inherits it
+                try {
+                    $cli = $this->cli($dir, [$dir . '/cli.zip', '--yes']);
+                } finally {
+                    umask($was);
+                }
+                $this->assertSame([0, ''], [$cli['exit'], $cli['stderr']], $cli['stdout']);
+                clearstatcache();
+                $modes = [];
+                foreach (['originals/' . self::NEW_ORIGINAL, 'originals/' . self::ORIGINAL, 'originals/map/' . substr(self::PHOTO, 0, 32), 'originals/map/' . substr(self::NEW_PHOTO, 0, 32)] as $f) {
+                    $modes[$f] = sprintf('%o', fileperms($dir . '/' . $f) & 0777);
+                }
+                $this->assertSame(array_fill_keys(array_keys($modes), '640'), $modes, sprintf('umask %03o', $mask));
+            });
+        }
+    }
+
+    /** chattr through sudo (an immutable folder stands in for one that cannot be written, also for its owner). */
+    private function needChattr(): void
+    {
+        $why = null;
+        if (trim((string)shell_exec('command -v chattr')) === '') $why = 'no chattr';
+        elseif (self::sudo(['true']) !== 0) $why = 'no passwordless sudo';
+        else {
+            $probe = tmpdir('apotheke-chattr');
+            if (self::sudo(['chattr', '+i', $probe]) !== 0) $why = 'the file system has no immutable flag';
+            self::sudo(['chattr', '-i', $probe]);
+            rrmdir($probe);
+        }
+        if ($why === null) return;
+        if (getenv('GITHUB_ACTIONS') === 'true') $this->fail("CI runs the immutable-folder test: $why");
+        $this->markTestSkipped($why);
     }
 
     private function needSudo(): void
@@ -477,13 +737,14 @@ final class BackupFailureTest extends TestCase
     /**
      * bin/restore.php as root, with the test's environment.
      * @param list<string> $args
+     * @param list<string> $php options for php itself
      * @return array{stdout:string,stderr:string,exit:int}
      */
-    private function rootCli(string $dir, array $args): array
+    private function rootCli(string $dir, array $args, string $script = 'bin/restore.php', array $php = []): array
     {
         $env = [];
         foreach (self::env($dir) as $k => $v) if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $k)) $env[] = "$k=$v";
-        $p = proc_open(['sudo', '-n', 'env', '-i', ...$env, PHP_BINARY, ROOT . '/bin/restore.php', ...$args],
+        $p = proc_open(['sudo', '-n', 'env', '-i', ...$env, PHP_BINARY, ...$php, ROOT . '/' . $script, ...$args],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT);
         $this->assertIsResource($p);
         fclose($pipes[0]);
@@ -572,7 +833,8 @@ final class BackupFailureTest extends TestCase
         $r = $c->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $token, 'confirm' => '1']);
         $this->assertSame(422, $r['status'], $message . ' ' . substr((string)$r['body'], 0, 500));
         $this->assertStringContainsString(htmlspecialchars($message), (string)$r['body']);
-        @unlink($dir . '/tmp/restore-' . $token . '.zip');   // kept for the hourly sweep
+        clearstatcache();
+        $this->assertFileDoesNotExist($dir . '/tmp/restore-' . $token . '.zip', 'a failed restore removes its upload at once (N-567)');
     }
 
     /** @return array<string,array{name:string,type:string,data:string}> */

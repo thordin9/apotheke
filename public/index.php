@@ -1188,7 +1188,10 @@ try {
         if ($file['error'] !== UPLOAD_ERR_OK) $fail(upload_error_text((int)$file['error']));
         $token = bin2hex(random_bytes(16));
         $dest = backup_tmp_dir(DATA_DIR) . "/restore-$token.zip";
-        if (!is_uploaded_file($file['tmp_name']) || !move_uploaded_file($file['tmp_name'], $dest)) $fail('The upload could not be stored.');
+        if (!is_uploaded_file($file['tmp_name']) || !move_uploaded_file($file['tmp_name'], $dest)) {
+            @unlink($dest);   // a copy that stopped part-way (a full disk) does not wait for the hourly sweep (N-567)
+            $fail('The upload could not be stored.');
+        }
         try {
             $b = backup_open($dest, db(), db_driver());
             $b['zip']->close();
@@ -1220,8 +1223,9 @@ try {
         try {
             $restored = backup_restore(db(), db_driver(), DATA_DIR, $file);
         } catch (UserError $e) {
-            // exit skips the finally: the upload waits for the hourly sweep, so a restore refused
-            // while another runs (409) can be confirmed again
+            // exit skips the finally: a restore refused while another runs (409) keeps its upload, so it can be
+            // confirmed again; any other failure removes it now instead of at the hourly sweep (N-567)
+            if ($e->getCode() !== 409) @unlink($file);
             http_response_code($e->getCode() === 409 ? 409 : 422);
             view_backup(backup_counts(db(), db_driver()), $e->getMessage());
             exit;

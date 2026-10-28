@@ -13,9 +13,7 @@ if (PHP_SAPI !== 'cli') exit(1);
 require dirname(__DIR__) . '/src/config.php';
 require dirname(__DIR__) . '/src/cli-owner.php';
 // started as root: continue as the data folder's owner before anything is read or written, or stop
-$ownerError = cli_run_as_data_owner(cfg()['data_dir']);
-if ($ownerError !== null) { fwrite(STDERR, $ownerError . "\n"); exit(1); }
-unset($ownerError);
+cli_data_owner_or_exit('php bin/restore.php backup.zip');
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/backup.php';
@@ -50,3 +48,5 @@ try {
     exit(1);
 }
 echo 'Restored: ' . backup_summary_text($r['tables'], $r['photos']) . "\n";
+// warnings the restore itself added (camera files that could not be linked, settings that were not restored; N-593)
+foreach (array_diff($r['warnings'], $b['warnings']) as $w) echo "  warning: $w\n";

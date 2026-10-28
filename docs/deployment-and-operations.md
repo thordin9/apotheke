@@ -52,11 +52,18 @@ php bin/restore.php /backups/home.zip --yes
 
 In Docker: `docker compose exec apotheke php /var/www/app/bin/backup.php /data/backup.zip`.
 
-Run `bin/restore.php` as the user that owns the data folder (the user the web server's PHP runs as), for example
-`sudo -u www-data php bin/restore.php /backups/home.zip`. Started as root, it switches to the data folder's owner
-before it reads the database or writes a file, so every restored file belongs to that user; this is what happens with
-`docker compose exec apotheke php /var/www/app/bin/restore.php …`, where `/data` belongs to `www-data`. When the data
-folder is owned by root, or the switch is not possible, it stops with exit 1 and changes nothing.
+Run `bin/restore.php`, `bin/backup.php`, `bin/migrate.php`, `bin/seed.php` and `bin/settings.php` as the user that
+owns the data folder (the user the web server's PHP runs as), for example
+`sudo -u www-data php bin/restore.php /backups/home.zip`. Started as root, each one switches to the data folder's owner
+before it reads the database or writes a file, so every file it writes (a restored photo, a backup zip, a new SQLite
+database) belongs to that user; this is what happens with `docker compose exec apotheke php /var/www/app/bin/…`, where
+`/data` belongs to `www-data`. The group is the data folder's group, or the owner's own group when the folder's group
+is root's. When the data folder is missing or owned by root, the user cannot be told, or the switch is not possible,
+the tool stops with exit 1 and changes nothing. `bin/settings.php key generate` uses no data and runs as anyone. A
+backup written as the data folder's owner needs a target folder that user can write to.
+
+The tools read `config.php` (or the file `APOTHEKE_CONFIG` names) before they switch, as root when started as root.
+Keep that file owned by root or the data folder's owner and not writable by the web server's user.
 
 A nightly cron example on the host:
 
@@ -80,10 +87,16 @@ thumbnail, attachment and camera files it had added (also when a fatal error suc
 and links photos to the backup's camera files only once the data is in, so the catalog and the files in `data/` are as
 they were. Folders it made (`images/`, `thumbs/`, `files/`, `originals/`) and the camera-files deny file can stay, and a
 restore whose process is killed can leave the new files it had written; nothing refers to them. A link where a restore
-would write a new file, or at an existing camera file's name, stops the restore and is left as it is, and a file that
-can only be written in part (a full disk) fails it. The photos' camera-file links are written after the data is in,
-each through a temp file renamed into place; a link at one of their names is left as it is, that photo is not linked
-to its camera file, and the restore continues.
+would write a new photo, thumbnail, attachment or camera file, or at an existing camera file's name, stops the
+restore and is left as it is. A photo, thumbnail or attachment that can only be written in part (a full disk) fails
+the restore. Camera files and their links are optional: when `originals/` cannot take a camera file (full, not
+writable, or a folder at that file's name), that camera file and the ones after it are skipped with a warning and the
+restore continues; the photos are whole and keep their old camera-file links. The photos' camera-file links are
+written after the data is in, each through a temp file renamed into place; a link or a folder at one of their names is
+left as it is and that photo is not linked to its camera file, and a link that cannot be written (a full or read-only
+map folder) skips the rest of the links with a warning; the restore still succeeds. `bin/restore.php` prints these
+warnings after the `Restored:` line. A failed restore in the browser removes its upload at once; one refused because
+another restore runs keeps it, so it can be confirmed again.
 
 Other options: a copy of `data/` while the container is stopped, or `sqlite3 data/catalog.sqlite ".backup copy.sqlite"`
 while it runs (SQLite), or `pg_dump` (PostgreSQL; photos are still in `data/`).

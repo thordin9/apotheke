@@ -28,6 +28,15 @@ declare(strict_types=1);
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
+// key generate uses no configuration or data: answered before anything else, so it touches no data folder (L-680)
+if (($argv[1] ?? '') === 'key' && ($argv[2] ?? '') === 'generate') {
+    echo base64_encode(random_bytes(32)), "\n";
+    exit(0);
+}
+require dirname(__DIR__) . '/src/config.php';
+require dirname(__DIR__) . '/src/cli-owner.php';
+// started as root: continue as the data folder's owner before anything is read or written, or stop (L-622)
+cli_data_owner_or_exit('php bin/settings.php list');
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 
@@ -152,10 +161,6 @@ try {
             break;
         case 'key':
             $sub = (string)($argv[2] ?? '');
-            if ($sub === 'generate') {
-                echo base64_encode(random_bytes(32)), "\n";
-                break;
-            }
             if ($sub === 'rotate') {
                 if (isset($argv[3])) throw new UserError('The new key is not read from the command line. Set APP_KEY_NEW or pass it on stdin.');
                 $new = getenv('APP_KEY_NEW');
