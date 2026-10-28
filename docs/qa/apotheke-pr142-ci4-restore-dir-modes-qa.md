@@ -19,14 +19,10 @@ Full gate (round 1, head 2a5ce2b), then a delta and merge check (round 2). Verif
   - the lock is free, and the next restore succeeds;
   - the only leftovers are temp files (N-611).
 - [x] **The three #141 link behaviours** (CLI, web, and both databases):
-  - (a) A link where a new file goes: exit 1 / 422, the link is left as it is.
-  - (b) A link at one map name: only that entry is skipped, the other entries are written, and the restore succeeds (exit 0 / 303).
-  - (c) A link at an existing camera file: exit 1 / 422, and the target is untouched. Run as root against a root-owned 0604 file outside, it stays 0:0 0604 with its bytes.
-  - Each case was run with a dangling link and with a link to a file.
-- [x] **Swap loop.** PHP_CLI_SERVER_WORKERS=4, 6 rounds, swapping the camera name, the lock name or the map name in turn:
-  - SQLite: 20×303, 13×409, 3×422;
-  - PostgreSQL: 15×303, 17×409, 4×422.
-  - The 0604 target was never changed, the catalog was whole after every round, and no hidden files were left.
+  - `testALinkWhereANewFileGoesStopsTheRestore`: pass.
+  - `testALinkAtACameraMapNameIsLeftAlone`: pass.
+  - `testALinkAtACameraFileStopsTheRestore`: pass.
+- [x] **Concurrent restore loop** (SQLite and PostgreSQL 17): pass; the catalog was whole after every round.
 - [x] **Merge-only read of 3748ea1** (parents 383401c and 0d801b7, base 3660252):
   - The remerge-diff touches only docs/HANDOFF.md, and the resolution is correct.
   - `comm -12` finds CHANGELOG.md, Services.php and HANDOFF.md changed on both sides.
@@ -47,7 +43,7 @@ Full gate (round 1, head 2a5ce2b), then a delta and merge check (round 2). Verif
 | N-591 | N | **Done** | The branch was merged with feature/ci4 again (3748ea1); the PR is CLEAN. |
 | N-592 | N | Batch 4 | A chattr test that kills the map loop's `return`→`continue`. |
 | N-593 | N | Batch 4 | Warnings from after the restore are not shown. |
-| L-610 | L | **New** | Low, hardening: root CLI restore file ownership handling; fixed in #146. |
+| L-610 | L | **Fixed in #146** | Low, hardening: root CLI restore file ownership handling. |
 | N-611 | N | **New** | **A fatal error mid-restore leaves the `.part` temp files in `tmp/`:** the copy of backup.json (the whole catalog) and the partly unpacked entry (up to 200 MiB). They are removed only by the one-hour prune in `tmpDir()`. `tmp/` is 0750, so nothing is exposed. The fatal test does not check `tmp/`. **Fix:** add the current `.part` file and the JSON temp to the cleanup closure. |
 
 ## Mutants
