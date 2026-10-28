@@ -668,7 +668,7 @@ function parity_gate_files(string $dir, callable $hide): array
 }
 
 /** The fewest timed requests per area and app (see parity_gate_time()). */
-const PARITY_GATE_MIN_SAMPLES = 100;
+const PARITY_GATE_MIN_SAMPLES = 200;
 
 /**
  * Times the recorded reads: every round asks both apps the same request, legacy first in even rounds and CI4 first
