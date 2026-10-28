@@ -20,6 +20,7 @@ const BACKUP_FORMAT  = 'apotheke-backup';
 const BACKUP_VERSION = 1;
 const BACKUP_MAX_UNPACKED = 4 * 1024 * 1024 * 1024;   // zip-bomb guard: 4 GB unpacked
 const BACKUP_MAX_ENTRIES  = 100_000;
+const BACKUP_MAX_ENTRY    = 200 * 1024 * 1024;   // one file in the zip, unpacked (backup.json aside): the largest photo or attachment
 const BACKUP_RESTORE_FAILED = 'The backup could not be restored. Nothing was changed.';
 const BACKUP_RESTORE_BUSY   = 'Another restore is running. Try again when it has finished.';
 const BACKUP_RESTORE_LOCK   = 'restore.lock';   // in DATA_DIR/tmp, held for the whole restore
@@ -185,9 +186,11 @@ function backup_open(string $zipPath, PDO $pdo, string $driver): array
     if (!is_file($zipPath) || $zip->open($zipPath, ZipArchive::RDONLY) !== true) throw new UserError('That file is not a zip archive.');
     if ($zip->numFiles > BACKUP_MAX_ENTRIES) throw new UserError('The backup has too many files.');
     $total = 0;
+    $largest = null;
     for ($i = 0; $i < $zip->numFiles; $i++) {
         $s = $zip->statIndex($i);
-        $total += (int)($s['size'] ?? 0);
+        $size = (int)($s['size'] ?? 0);
+        $total += $size;
         $name = (string)($s['name'] ?? '');
         if ($name !== 'backup.json' && $name !== 'originals/index.json'
             && !preg_match('#^(images|thumbs)/[a-f0-9]{32}\.jpg$#D', $name) && !preg_match('#^(images|thumbs|files|originals)/$#D', $name)
@@ -195,8 +198,11 @@ function backup_open(string $zipPath, PDO $pdo, string $driver): array
             && !preg_match('#^originals/[a-f0-9]{64}\.(jpg|png|webp|gif|heic)$#D', $name)) {
             throw new UserError('Unexpected file in backup: ' . mb_substr($name, 0, 80));
         }
+        // from the zip's directory, before anything is read
+        if ($size > BACKUP_MAX_ENTRY && $name !== 'backup.json') $largest ??= $name;
     }
     if ($total > BACKUP_MAX_UNPACKED) throw new UserError('The backup is too large to unpack.');
+    if ($largest !== null) throw new UserError('A file in the backup is too large to restore: ' . mb_substr($largest, 0, 80));
     $json = $zip->getFromName('backup.json');
     if ($json === false) throw new UserError('This is not an Apotheke backup (backup.json is missing).');
     try {
@@ -269,24 +275,63 @@ function backup_restore(PDO $pdo, string $driver, string $dataDir, string $zipPa
 
 /**
  * DATA_DIR/tmp/restore.lock, held exclusively. Not waited for: while another restore holds it, the answer is busy.
- * Never through a link. A lock file another user made (say a root CLI restore) may not be writable here; flock()
- * works on a read handle too.
+ * Only ever a plain file, never through a link: one that is made is made without following a link, and the file
+ * that was opened must be the plain file at the name. A lock file another user made (say a root CLI restore) is opened
+ * read-only; flock() works on a read handle too. $afterCheck runs between the check of the name and the open, and
+ * $afterOpen between the open and the check of what was opened (test seams).
+ * @param ?Closure():void $afterCheck
+ * @param ?Closure():void $afterOpen
  * @return resource
  */
-function backup_restore_lock(string $dataDir)
+function backup_restore_lock(string $dataDir, ?Closure $afterCheck = null, ?Closure $afterOpen = null)
 {
     $dir = "$dataDir/tmp";
     if (!is_dir($dir)) @mkdir($dir, 0770, true);
     $path = $dir . '/' . BACKUP_RESTORE_LOCK;
-    if (is_link($path)) throw new UserError(BACKUP_RESTORE_FAILED);
-    $fh = @fopen($path, 'c');
-    if ($fh === false) $fh = @fopen($path, 'r');
+    $named = @lstat($path);
+    if ($named !== false && !backup_plain_file($named)) throw new UserError(BACKUP_RESTORE_FAILED);
+    if ($afterCheck !== null) $afterCheck();
+    if ($named === false) backup_restore_lock_create($path);
+    clearstatcache(true, $path);
+    $fh = @fopen($path, 'r');
     if ($fh === false) throw new UserError(BACKUP_RESTORE_FAILED);
+    if ($afterOpen !== null) $afterOpen();
+    clearstatcache(true, $path);
+    $open = fstat($fh);
+    $now = @lstat($path);
+    if ($open === false || $now === false || !backup_plain_file($now) || $open['dev'] !== $now['dev'] || $open['ino'] !== $now['ino']) {
+        fclose($fh);
+        throw new UserError(BACKUP_RESTORE_FAILED);
+    }
     if (!flock($fh, LOCK_EX | LOCK_NB)) {
         fclose($fh);
         throw new UserError(BACKUP_RESTORE_BUSY, 409);
     }
     return $fh;
+}
+
+/**
+ * Make the lock file when nothing is at $path. fopen() follows a link at the name even with 'x', so the file is made
+ * under a random name and hard-linked into place: link() never follows a link and fails when the name is taken. Only
+ * where the file system has no hard links is 'x' used.
+ */
+function backup_restore_lock_create(string $path): void
+{
+    $tmp = dirname($path) . '/.' . basename($path) . '-' . bin2hex(random_bytes(8));
+    $fh = @fopen($tmp, 'x');
+    if ($fh === false) return;   // the open that follows fails
+    fclose($fh);
+    try {
+        if (!@link($tmp, $path) && @lstat($path) === false && ($fh = @fopen($path, 'x')) !== false) fclose($fh);
+    } finally {
+        @unlink($tmp);
+    }
+}
+
+/** @param array<int|string,int> $stat from lstat() */
+function backup_plain_file(array $stat): bool
+{
+    return ($stat['mode'] & 0170000) === 0100000;
 }
 
 /**
@@ -308,10 +353,37 @@ function backup_restore_entry(ZipArchive $zip, string $name): ?string
  */
 function backup_restore_create(string $path, string $bytes, array &$created): void
 {
+    $tmp = backup_restore_temp($path, $bytes);
+    backup_restore_place($tmp, $path, $created);
+}
+
+/** $bytes in a new temp file next to $path; a failed write fails the restore. */
+function backup_restore_temp(string $path, string $bytes): string
+{
     $tmp = dirname($path) . '/.restore-' . bin2hex(random_bytes(6));
-    if (@file_put_contents($tmp, $bytes, LOCK_EX) !== strlen($bytes) || !@rename($tmp, $path)) {
+    $fh = @fopen($tmp, 'x');
+    // every byte, flushed and closed: a short write (a full disk) fails the restore
+    $ok = $fh !== false && @fwrite($fh, $bytes) === strlen($bytes) && @fflush($fh);
+    if ($fh !== false) $ok = @fclose($fh) && $ok;
+    if (!$ok) {
         @unlink($tmp);
         throw new UserError(BACKUP_RESTORE_FAILED);
+    }
+    return $tmp;
+}
+
+/**
+ * Move the temp file $tmp to $path, which must be free: anything there, a link too (even one that points nowhere),
+ * stops the restore and is left as it is. link() never replaces or follows what is at the name; only where the file
+ * system has no hard links is it renamed, after a check. Noted so a failed restore can remove it again.
+ * @param list<string> $created
+ */
+function backup_restore_place(string $tmp, string $path, array &$created): void
+{
+    try {
+        if (!@link($tmp, $path) && (@lstat($path) !== false || !@rename($tmp, $path))) throw new UserError(BACKUP_RESTORE_FAILED);
+    } finally {
+        @unlink($tmp);
     }
     $created[] = $path;
 }
@@ -335,6 +407,12 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
     $created = [];
     $links = [];
     $written = 0;
+    // A fatal error (out of memory, the time limit) skips the catch below: the files are removed on shutdown instead,
+    // unless the rows are in by then.
+    $pending = true;
+    register_shutdown_function(static function () use (&$created, &$pending): void {
+        if ($pending) backup_restore_discard($created);
+    });
     try {
         try {
             // 1) photo files first: decode-check each one, never overwrite (names are random)
@@ -361,11 +439,9 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
             foreach (backup_attachment_files($dump) as $f) {
                 $data = backup_restore_entry($zip, "files/$f");
                 if ($data === null || is_file("$dataDir/files/$f")) continue;
-                $tmp = "$dataDir/files/.restore-" . bin2hex(random_bytes(6));
-                if (@file_put_contents($tmp, $data, LOCK_EX) !== strlen($data)) { @unlink($tmp); throw new UserError(BACKUP_RESTORE_FAILED); }
+                $tmp = backup_restore_temp("$dataDir/files/$f", $data);
                 if (attach_sniff($tmp) !== pathinfo($f, PATHINFO_EXTENSION)) { @unlink($tmp); $b['warnings'][] = "Attachment $f does not match its type and was skipped."; continue; }
-                if (!@rename($tmp, "$dataDir/files/$f")) { @unlink($tmp); throw new UserError(BACKUP_RESTORE_FAILED); }
-                $created[] = "$dataDir/files/$f";
+                backup_restore_place($tmp, "$dataDir/files/$f", $created);
             }
             backup_restore_originals($zip, $dump, $b['warnings'], $created, $links);
         } finally {
@@ -403,6 +479,7 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
                 }
             }
             $pdo->commit();
+            $pending = false;
         } catch (Throwable $e) {
             $pdo->rollBack();
             after_commit_end(false);
@@ -410,6 +487,7 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
             throw $e;
         }
     } catch (Throwable $e) {
+        $pending = false;
         backup_restore_discard($created);
         throw $e;
     }
@@ -465,6 +543,8 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
         $data = backup_restore_entry($zip, 'originals/' . $base);
         if ($data === null) { $warnings[] = "Original $base is missing from the archive."; continue; }
         $dest = ORIGINALS_DIR . '/' . $base;
+        // a link at a camera file's name, to anything or nowhere, stops the restore: its mode is set once the rows are in
+        if (is_link($dest)) throw new UserError(BACKUP_RESTORE_FAILED);
         if (!is_file($dest)) {
             try {
                 backup_restore_create($dest, $data, $created);
@@ -479,19 +559,35 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
 }
 
 /**
- * The camera-original links, once the rows are in.
+ * The camera-original links, once the rows are in. Each map file is written to a new 0640 temp file in the map folder
+ * and renamed into place, so it is never written through a link. A map name that is a link, or anything but a plain file,
+ * is skipped with the camera-files warning and left as it is: the rows are in by now, so it no longer stops the restore.
  * @param array<string,string> $links map path => original path
  * @param list<string> $warnings
  */
 function backup_restore_link_originals(array $links, array &$warnings): void
 {
+    $warning = 'Camera files could not be restored (originals directory is not writable).';
     foreach ($links as $map => $dest) {
-        originals_chmod_file($dest);
-        if (@file_put_contents($map, basename($dest), LOCK_EX) === false) {
-            $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
+        $file = @lstat($dest);
+        if ($file !== false && backup_plain_file($file)) @chmod($dest, 0640);   // never through a link
+        $named = @lstat($map);
+        if ($named !== false && !backup_plain_file($named)) {
+            if (!in_array($warning, $warnings, true)) $warnings[] = $warning;
+            continue;
+        }
+        $tmp = dirname($map) . '/.map-' . bin2hex(random_bytes(6));
+        $umask = umask(0137);   // the new file is 0640 from the start
+        $fh = @fopen($tmp, 'x');
+        umask($umask);
+        $text = basename($dest);
+        $ok = $fh !== false && @fwrite($fh, $text) === strlen($text);
+        if ($fh !== false) $ok = fclose($fh) && $ok;
+        if (!$ok || !@rename($tmp, $map)) {
+            @unlink($tmp);
+            $warnings[] = $warning;
             return;
         }
-        originals_chmod_file($map);
     }
 }
 
