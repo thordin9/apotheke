@@ -155,7 +155,8 @@ final class Page
         $tok = self::e(($this->csrf)(true));
         $cur = $this->theme();
         $back = self::e(Theme::safeBack($this->requestUri));
-        $can = fn (string $p): bool => $this->viewer->can($p);
+        $me = $this->viewer->user();
+        $can = fn (string $p): bool => $this->viewer->allows($me, $p);
         $o = '<details class="menu" id="menu"><summary class="btn btn-ghost btn-round" id="menu-btn" aria-label="Menu" title="Menu">' . Icons::svg('menu') . '</summary>'
             . '<div class="menu-panel" role="menu">'
             . '<form method="post" action="/theme" class="theme-form" id="theme-form"><input type="hidden" name="csrf" value="' . $tok . '"><input type="hidden" name="back" value="' . $back . '">'
@@ -176,7 +177,6 @@ final class Page
             . ($can('backup') ? '<a class="menu-item" href="/backup" role="menuitem" id="menu-backup">' . Icons::svg('archive') . ' Backup &amp; restore</a>' : '')
             . ($can('settings') ? '<a class="menu-item" href="/settings" role="menuitem" id="menu-settings">' . Icons::svg('sliders') . ' Settings</a>'
                 : ($can('users') ? '<a class="menu-item" href="/settings/security" role="menuitem" id="menu-settings">' . Icons::svg('sliders') . ' Users &amp; sign-in</a>' : ''));
-        $me = $this->viewer->user();
         if ($me !== null && !$me['guest']) {
             $o .= '<a class="menu-item" href="/account" role="menuitem" id="menu-account">' . Icons::svg('lock') . ' <span>' . self::e($me['username']) . ' <small class="menu-role">' . self::e($this->viewer->roleName($me['role'])) . '</small></span></a>';
         }
