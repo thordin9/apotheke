@@ -25,7 +25,7 @@ src/db.php                PDO, dialects, migrations
 src/items.php             domain: items, locations, categories, search, images
 src/views.php             HTML pages and fragments
 src/backup.php            portable zip backup/restore
-src/cli-owner.php         root CLI restore runs as the data folder's owner
+src/cli-owner.php         root CLI tools run as the data folder's owner
 src/qr.php                pure-PHP QR (SVG). On every PHP version, turns function JIT off, then loads qr-encode.php
 migrations/NNNN_*.php     versioned schema steps
 bin/                      migrate, seed, backup, restore CLIs
