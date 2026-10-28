@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **backup:** hardening: `bin/backup.php`, `bin/migrate.php`, `bin/seed.php` and `bin/settings.php` started as root run as the data folder's owner, like `bin/restore.php`, so a backup zip or a new database no longer belongs to root; when the data folder is owned by root they stop with exit 1 and change nothing (L-622). The switch never keeps root's group: a data folder whose group is root's uses the owner's own group (N-621). A user that cannot be told counts as root, as on CI4 (N-625). The docs say the config file must not be writable by the web server's user (N-623). ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **backup:** hardening: a link at a new photo, thumbnail or attachment name stops the restore and is left as it is, as at a camera file's name (N-565). A new camera file is 0640 from the start; only a kept older file with another mode is changed after the restore (N-582). ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **backup:** `bin/restore.php` prints the warnings from the restore itself (camera links that could not be written, settings not restored) after `Restored:` (N-593). A failed restore in the browser removes its upload at once instead of at the hourly sweep, and so does an upload that could not be stored whole (N-567). The docs say which full-disk cases fail the restore and which skip camera files (N-580). Tests cover the lock's fresh name lookup (N-581) and a map that cannot be written (N-563). ([#148](https://github.com/thordin9/apotheke/pull/148))
+
 ## [2.6.25] - 2026-10-28
 
 ### Fixed
