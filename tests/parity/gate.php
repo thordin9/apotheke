@@ -667,8 +667,12 @@ function parity_gate_files(string $dir, callable $hide): array
     return $out;
 }
 
+/** The fewest timed requests per area and app (see parity_gate_time()). */
+const PARITY_GATE_MIN_SAMPLES = 100;
+
 /**
- * Times the recorded reads: every round asks legacy, then CI4, the same request, so load hits both alike.
+ * Times the recorded reads: every round asks both apps the same request, legacy first in even rounds and CI4 first
+ * in odd ones, so load and order hit both alike. An area gets more rounds when it has few reads.
  * @return array<string,array{legacy:list<float>,ci4:list<float>}>
  */
 function parity_gate_time(array $runs, array $reads, int $rounds): array
@@ -694,9 +698,12 @@ function parity_gate_time(array $runs, array $reads, int $rounds): array
         foreach ($list as [$path, $who, $headers]) {
             foreach (['legacy', 'ci4'] as $app) $clients[$app][$who ?? '-']->req('GET', $path, [], [], $headers); // warm
         }
-        for ($i = 0; $i < $rounds; $i++) {
+        // At least PARITY_GATE_MIN_SAMPLES per app, so the p95 is not one sample's outlier
+        // (with 15 samples the nearest-rank p95 is the slowest one); the app asked first alternates.
+        $areaRounds = max($rounds, (int)ceil(PARITY_GATE_MIN_SAMPLES / max(1, count($list))));
+        for ($i = 0; $i < $areaRounds; $i++) {
             foreach ($list as [$path, $who, $headers]) {
-                foreach (['legacy', 'ci4'] as $app) {
+                foreach ($i % 2 === 0 ? ['legacy', 'ci4'] : ['ci4', 'legacy'] as $app) {
                     $t = hrtime(true);
                     $clients[$app][$who ?? '-']->req('GET', $path, [], [], $headers);
                     $samples[$area][$app][] = (hrtime(true) - $t) / 1e6;
