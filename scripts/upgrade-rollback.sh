@@ -5,8 +5,9 @@
 #   every carried table non-empty) → CI4@8.4 on the same data → legacy@8.3 again, then cross-restore: a CI4 backup
 #   restored by legacy@8.3 and a legacy backup restored by CI4@8.4, each over the same install and into a fresh data
 #   directory and database. After every step the normalised DB dump and the sha256 of images/, thumbs/, originals/
-#   (map/ included) and files/ must equal the seeded state, and originals must be 0750/0640 (tests/upgrade/). Last,
-#   mutation checks prove that an emptied or dropped table, a changed or missing attachment and a wrong mode fail.
+#   (map/ included) and files/ must equal the seeded state, originals must be 0750/0640 and files/ 0750
+#   (tests/upgrade/). Last, mutation checks prove that an emptied or dropped table, a changed or missing attachment
+#   and a wrong mode (an original, files/) fail.
 # Env: DB_DRIVER=sqlite|pgsql (pgsql: TEST_PG_HOST, TEST_PG_PORT, TEST_PG_DB, TEST_PG_USER, TEST_PG_PASSWORD),
 #      PHP83 and PHP84 (default php8.3, php8.4), UPGRADE_WORK (a path that must not exist yet; default: a new
 #      mktemp -d), UPGRADE_KEEP=1 keeps it. The script removes only the work dir and the upg_<run>_* schemas it made.
@@ -187,6 +188,9 @@ original=$(find "$DATA_DIR/originals" -maxdepth 1 -type f -name '*.png' | head -
 chmod 0644 "$original"
 snap backup m5
 must_fail 'original readable by others (0644)' "originals/${original##*/}" m4 m5
+chmod 0700 "$DATA_DIR/files"
+snap backup m6
+must_fail 'files/ not legacy mode (0700)' files m5 m6
 
 if [ "$fail" = 0 ]; then echo "upgrade/rollback: all steps equal"; else echo "upgrade/rollback: differences found"; fi
 exit "$fail"
