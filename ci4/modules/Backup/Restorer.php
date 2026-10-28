@@ -722,19 +722,21 @@ final class Restorer
         if ($fh === false) {
             throw new UserError(self::FAILED);
         }
+        // Noted before it is written (the name is new; removing a missing key is fine), so a
+        // fatal error right after the write still removes it.
+        $created[] = [$store, $key];
         try {
             $store->writeStream($key, $fh);
         } finally {
             fclose($fh);
         }
-        $created[] = [$store, $key];
     }
 
     /** @param list<array{Storage,string}> $created */
     private static function create(Storage $store, string $key, string $bytes, array &$created): void
     {
+        $created[] = [$store, $key];   // before the write, as in createFrom()
         $store->write($key, $bytes);
-        $created[] = [$store, $key];
     }
 
     /** N-611: remove the temp copies a restore stopped by a fatal error still has in tmp/. */
