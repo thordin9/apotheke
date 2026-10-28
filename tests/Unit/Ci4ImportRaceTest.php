@@ -7,15 +7,16 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 
 /**
- * A double-submitted CSV import on CI4, on the driver of the run: while the
- * first submit's transaction is still open, the second waits for it, finds
- * the import done and answers as legacy answers a later submit (303 to
- * /import?done=…), importing nothing. Legacy has no such wait (it checks
- * the status before its transaction), so this is CI4 only. The interleavings
- * of the run itself are in ci4/tests/ImportExport/ImportsTest.php.
+ * A double-submitted CSV import on legacy and CI4, on the driver of the run:
+ * while the first submit's transaction is still open, the second waits for
+ * it, finds the import done and answers as a later submit (303 to
+ * /import?done=…), importing nothing. Legacy waits the same way since #130
+ * (N-424). The interleavings of the run itself are in
+ * ci4/tests/ImportExport/ImportsTest.php.
  *
- * A preview that waits for a submit the same way shows the done page too
- * (N-373), where it answered 410 because the submit had taken the file.
+ * A preview that waits for a submit the same way shows the done page on CI4
+ * (N-373); legacy answers 410, because the submit has taken the file, until
+ * the N-373 port to `main`.
  */
 final class Ci4ImportRaceTest extends TestCase
 {
@@ -24,8 +25,15 @@ final class Ci4ImportRaceTest extends TestCase
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $dir = tmpdir('import-race');
-        $server = new Server($dir, ['APOTHEKE_CLOCK' => '2026-06-15 21:30:00'], 'ci4');
+        foreach (['legacy', 'ci4'] as $app) {
+            $this->race($app);
+        }
+    }
+
+    private function race(string $app): void
+    {
+        $dir = tmpdir('import-race-' . $app);
+        $server = new Server($dir, ['APOTHEKE_CLOCK' => '2026-06-15 21:30:00'], $app);
         try {
             $this->assertSame(200, $server->client()->get('/healthz')['status'], (string)@file_get_contents($server->log));
             $pdo = testdb($dir);
@@ -60,9 +68,9 @@ final class Ci4ImportRaceTest extends TestCase
             fclose($pipes[2]);
             proc_close($proc);
             $this->assertSame("committed\n", $other);
-            $this->assertSame([303, '/import?done=1'], [$second['status'], $second['headers']['location'] ?? null], substr($second['body'], 0, 2000));
-            $this->assertGreaterThan(0.5, $waited, 'the second submit waited for the first');
-            $this->assertSame(0, (int)$pdo->query('SELECT COUNT(*) FROM items')->fetchColumn(), 'nothing imported twice');
+            $this->assertSame([303, '/import?done=1'], [$second['status'], $second['headers']['location'] ?? null], $app . ': ' . substr($second['body'], 0, 2000));
+            $this->assertGreaterThan(0.5, $waited, $app . ': the second submit waited for the first');
+            $this->assertSame(0, (int)$pdo->query('SELECT COUNT(*) FROM items')->fetchColumn(), $app . ': nothing imported twice');
             $this->assertStringContainsString('Imported · 2 added · 0 updated', $client->get('/import?done=1')['body']);
 
             // N-373: a preview that waits for a submit, which takes the file once it is done.
@@ -98,7 +106,7 @@ final class Ci4ImportRaceTest extends TestCase
             fclose($pipes[2]);
             proc_close($proc);
             $this->assertSame("committed\n", $other);
-            $this->assertSame([303, $server->base . '/import?done=2'], [$status, $location], substr($body, 0, 2000));
+            $this->assertSame($app === 'ci4' ? [303, $server->base . '/import?done=2'] : [410, ''], [$status, $location], $app . ': ' . substr($body, 0, 2000));
         } finally {
             $server->stop();
             testdb_drop($dir);
