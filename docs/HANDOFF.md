@@ -218,7 +218,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#146](https://github.com/thordin9/apotheke/pull/146): the restore command line started as root runs as the
   owner of `DATA_DIR` (`Backup\Commands\DataDirOwner`, in `bin/restore.php`, in `ci4/spark` before boot for
   `apotheke:restore` only, and in `RestoreCommand`), and refuses with
-  exit 1 when `DATA_DIR` is root's; storage no longer changes a file's owner or mode after creating it. Open.
+  exit 1 when `DATA_DIR` is root's; storage no longer changes a file's owner or mode after creating it. Merged at
+  b12fbbb.
 - [#141](https://github.com/thordin9/apotheke/pull/141) (`main`): the restore follow-up (L-480, N-481 to N-486, the
   camera link map through a temp file, L-560, L-561, N-562, N-564). Merged into `main` at 3f81db2, released as
   v2.6.24.
@@ -226,8 +227,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (`scripts/upgrade-rollback.sh`, CI job `upgrade-rollback`, SQLite and PostgreSQL): legacy@8.3 → CI4@8.4 →
   legacy@8.3 on one data directory and database, and cross-restore both ways; DB dump and file sha256 equal. Merged at
   b1bc52d.
-- [#144](https://github.com/thordin9/apotheke/pull/144): step 16 part 3: compiled routes, no file cache handler; CI
-  enforces PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by Stathis, 2026-10-27, via the PM); N-546. Open.
+- [#143](https://github.com/thordin9/apotheke/pull/143): sync `main` v2.6.24 (#141: the legacy restore entry cap,
+  no writes through links, short-write checks and the camera link map written through a temp file in `src/backup.php`)
+  and v2.6.25 (#145: the legacy CLI restore runs as the owner of `DATA_DIR`, ported to CI4 in #146). CI4 restore code
+  unchanged. Merged at ed06bb2.
+- [#144](https://github.com/thordin9/apotheke/pull/144): step 16 part 3: compiled routes, no file cache handler, the
+  layout menu reads the user once; CI enforces PostgreSQL p95 +20 % and SQLite median + 3 ms (decision by Stathis,
+  2026-10-27, via the PM), timing at least 100 requests per area; N-546. Open.
 
 ## Lanes
 

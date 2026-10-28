@@ -374,4 +374,150 @@ final class BackupTest extends DatabaseTestCase
         $this->assertFileDoesNotExist("$dst/images/$f2");
         $this->assertStringContainsString('not a JPEG', implode(' ', $r['warnings']));
     }
+
+    /** One file in the zip may unpack to BACKUP_MAX_ENTRY bytes, by the zip's directory; one byte more is refused. */
+    public function testAnEntryMayBeAtMostTheSizeCap(): void
+    {
+        $name = 'images/' . str_repeat('a', 32) . '.jpg';
+        foreach ([BACKUP_MAX_ENTRY => null, BACKUP_MAX_ENTRY + 1 => 'A file in the backup is too large to restore: ' . $name] as $size => $error) {
+            $zeros = $this->tmp('.zeros');
+            $fh = fopen($zeros, 'w');
+            ftruncate($fh, $size);   // sparse
+            fclose($fh);
+            $p = $this->zipWith(['backup.json' => $this->validDump()]);
+            $z = new ZipArchive();
+            $z->open($p);
+            $z->addFile($zeros, $name);
+            $z->setCompressionName($name, ZipArchive::CM_DEFLATE, 1);
+            $z->close();
+            unlink($zeros);
+            try {
+                backup_open($p, $this->pdo, $this->driver)['zip']->close();
+                $this->assertNull($error, "$size bytes");
+            } catch (UserError $e) {
+                $this->assertSame($error, $e->getMessage(), "$size bytes");
+            }
+        }
+    }
+
+    /** backup.json is not held to the per-file cap: it is the catalog, and may be bigger. */
+    public function testBackupJsonMayBeBiggerThanTheSizeCap(): void
+    {
+        $json = $this->tmp('.json');
+        $fh = fopen($json, 'w');
+        fwrite($fh, (string)json_encode($this->validDump()));
+        $chunk = str_repeat(' ', 1024 * 1024);   // JSON whitespace after the value
+        for ($i = 0; $i <= BACKUP_MAX_ENTRY / strlen($chunk); $i++) fwrite($fh, $chunk);
+        fclose($fh);
+        $this->assertGreaterThan(BACKUP_MAX_ENTRY, filesize($json));
+        $p = $this->tmp('.zip');
+        $z = new ZipArchive();
+        $z->open($p, ZipArchive::CREATE);
+        $z->addFile($json, 'backup.json');
+        $z->setCompressionName('backup.json', ZipArchive::CM_DEFLATE, 1);
+        $z->close();
+        unlink($json);
+        $was = ini_set('memory_limit', '1G');
+        try {
+            $b = backup_open($p, $this->pdo, $this->driver);
+            $b['zip']->close();
+            $this->assertArrayHasKey('items', $b['tables']);
+        } finally {
+            ini_set('memory_limit', (string)$was);
+        }
+    }
+
+    /** An attachment whose bytes are not its type is skipped with a warning, and its temp file is removed. */
+    public function testAnAttachmentOfTheWrongTypeLeavesNoTempFile(): void
+    {
+        $this->seedCatalog($this->dataDir());
+        $dump = $this->validDump();
+        $item = (int)$dump['tables']['items']['rows'][0][0];
+        $bad = str_repeat('1', 32) . '.pdf';
+        $ok = str_repeat('2', 32) . '.pdf';
+        foreach ([1 => $bad, 2 => $ok] as $id => $file) {
+            $dump['tables']['item_attachments']['rows'][] = array_map(static fn(string $c): mixed => ['id' => $id, 'item_id' => $item, 'file' => $file, 'name' => 'manual.pdf',
+                'mime' => 'application/pdf', 'size' => 9, 'created_at' => '2026-01-02 08:00:00'][$c] ?? null, $dump['tables']['item_attachments']['columns']);
+        }
+        $zip = $this->zipWith(['backup.json' => $dump, "files/$bad" => "\x89PNG\r\n\x1a\nnot a pdf", "files/$ok" => "%PDF-1.4\n%"]);
+        $dst = $this->dataDir();
+        $r = backup_restore($this->pdo, $this->driver, $dst, $zip);
+        $this->assertContains("Attachment $bad does not match its type and was skipped.", $r['warnings']);
+        $this->assertSame([$ok], array_values(array_diff(scandir("$dst/files"), ['.', '..'])), 'only the matching attachment, and no temp file');
+    }
+
+    /**
+     * Camera files that cannot be written are a warning, not a failure: the rest of the backup is restored. Here a
+     * folder holds the camera file's name, then the link's name, then the originals folder's name.
+     */
+    public function testCameraFilesThatCannotBeWrittenAreAWarning(): void
+    {
+        $bytes = $this->markedJpeg();
+        $tmp = $this->tmp('.jpg');
+        file_put_contents($tmp, $bytes);
+        $name = image_store(['error' => UPLOAD_ERR_OK, 'tmp_name' => $tmp, 'size' => strlen($bytes), 'name' => 'lamp.jpg']);
+        $id = item_save(null, ['name' => 'Lamp', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => ''], $name, false);
+        $orig = (string)image_original_path($name);
+        $map = (string)image_original_map_path($name);
+        $zip = $this->tmp('.zip');
+        backup_create($this->pdo, $this->driver, DATA_DIR, $zip);
+        $warning = 'Camera files could not be restored (originals directory is not writable).';
+        $moved = ORIGINALS_DIR . '.moved-' . bin2hex(random_bytes(4));
+        foreach (['file' => $orig, 'link' => $map, 'folder' => ORIGINALS_DIR] as $what => $blocked) {
+            item_delete(item_get($id));
+            $this->assertFileDoesNotExist(IMG_DIR . '/' . $name, $what);
+            if ($what === 'folder') {
+                rename(ORIGINALS_DIR, $moved);
+                touch(ORIGINALS_DIR);
+            } else {
+                @unlink($blocked);
+                mkdir($blocked);
+            }
+            try {
+                $r = backup_restore($this->pdo, $this->driver, DATA_DIR, $zip);
+            } finally {
+                if ($what === 'folder') {
+                    unlink(ORIGINALS_DIR);
+                    rename($moved, ORIGINALS_DIR);
+                } else {
+                    rmdir($blocked);
+                }
+            }
+            $this->assertContains($warning, $r['warnings'], $what);
+            $this->assertSame('Lamp', item_get($id)['name'] ?? null, "$what: the rows are restored");
+            $this->assertFileExists(IMG_DIR . '/' . $name, "$what: the photo is restored");
+        }
+    }
+
+    /** A photo folder that cannot be written fails the restore, with nothing changed and no temp file. */
+    public function testAPhotoFolderThatCannotBeWrittenFailsTheRestore(): void
+    {
+        $src = $this->dataDir();
+        $this->seedCatalog($src);
+        $zip = $this->tmp('.zip');
+        backup_create($this->pdo, $this->driver, $src, $zip);
+        $before = backup_dump($this->pdo, $this->driver);
+        $dst = $this->dataDir();
+        chmod("$dst/images", 0555);
+        try {
+            if (is_writable("$dst/images")) $this->markTestSkipped('running as root: a 0555 folder stays writable');
+            backup_restore($this->pdo, $this->driver, $dst, $zip);
+            $this->fail('expected failure');
+        } catch (UserError $e) {
+            $this->assertSame(BACKUP_RESTORE_FAILED, $e->getMessage());
+        } finally {
+            chmod("$dst/images", 0775);
+        }
+        $this->assertSame([], array_values(array_diff(scandir("$dst/images"), ['.', '..'])));
+        $this->assertSame([], array_values(array_diff(scandir("$dst/thumbs"), ['.', '..'])));
+        $this->assertSame($this->strip($before), $this->strip(backup_dump($this->pdo, $this->driver)));
+    }
+
+    /** A camera-file index that is not JSON is skipped with a warning; the rest restores. */
+    public function testAnUnreadableCameraFileIndexIsSkipped(): void
+    {
+        $this->seedCatalog($this->dataDir());
+        $r = backup_restore($this->pdo, $this->driver, $this->dataDir(), $this->zipWith(['backup.json' => $this->validDump(), 'originals/index.json' => '{']));
+        $this->assertContains('originals/index.json was skipped.', $r['warnings']);
+    }
 }
