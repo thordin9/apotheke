@@ -34,6 +34,22 @@ final class CsvExport
 
     private const CURSOR = 'apotheke_export';
 
+    /**
+     * PostgreSQL bounds for the export's read-only transaction (N-421), set
+     * with SET LOCAL so they end with it and the connection keeps its own
+     * settings. The snapshot stays open while the lines are sent, so a client
+     * that stops reading would hold it as long as the request lives:
+     * - statement_timeout caps the cursor query and each FETCH. The first
+     *   FETCH sorts every item; 200,000 items take a few seconds.
+     * - idle_in_transaction_session_timeout caps the wait between two
+     *   FETCHes, which is the time the client takes to read a batch (about
+     *   100 KB). Past it the server ends the session and the download stops
+     *   short; five minutes leaves room for slow links.
+     */
+    public const PG_STATEMENT_TIMEOUT = '60s';
+
+    public const PG_IDLE_TIMEOUT = '5min';
+
     /** @param BaseConnection<object|resource, object|resource> $db */
     public function __construct(private readonly BaseConnection $db)
     {
@@ -101,6 +117,8 @@ final class CsvExport
         }
         try {
             Writes::check($this->db->query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY'), 'export snapshot');
+            Writes::check($this->db->query("SET LOCAL statement_timeout = '" . self::PG_STATEMENT_TIMEOUT . "'"), 'export statement bound');
+            Writes::check($this->db->query("SET LOCAL idle_in_transaction_session_timeout = '" . self::PG_IDLE_TIMEOUT . "'"), 'export idle bound');
             Writes::check($this->db->query('DECLARE ' . self::CURSOR . ' NO SCROLL CURSOR FOR ' . self::ITEMS), 'export cursor');
             while (($rows = Writes::rows($this->db, 'FETCH FORWARD ' . self::BATCH . ' FROM ' . self::CURSOR)) !== []) {
                 yield $rows;
