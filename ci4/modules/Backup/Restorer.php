@@ -466,12 +466,14 @@ final class Restorer
             throw new UserError($damaged);
         }
         $path = $tmp . '/restore-' . bin2hex(random_bytes(8)) . '.part';
+        // N-611: noted before it is made, so a fatal error right after the open still finds it
+        $this->parts[] = $path;
         $out = @fopen($path, 'xb');
         if ($out === false) {
+            array_pop($this->parts);
             fclose($in);
             throw new UserError(self::FAILED);
         }
-        $this->parts[] = $path;
         $error = null;
         try {
             $crc = hash_init('crc32b');
