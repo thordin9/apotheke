@@ -348,20 +348,33 @@ function backup_restore_entry(ZipArchive $zip, string $name): ?string
 }
 
 /**
+ * Is a plain file at $path already, so the restore keeps it? A link there, to a file or to nowhere, stops the restore
+ * and is left as it is (N-565), as at a camera file's name.
+ */
+function backup_restore_kept(string $path): bool
+{
+    if (is_link($path)) throw new UserError(BACKUP_RESTORE_FAILED);
+    return is_file($path);
+}
+
+/**
  * Write a file that is not there yet, whole or not at all, and note it so a failed restore can remove it again.
+ * $mode, when given, is the new file's mode from the start (through the umask), so nothing changes it by name later.
  * @param list<string> $created
  */
-function backup_restore_create(string $path, string $bytes, array &$created): void
+function backup_restore_create(string $path, string $bytes, array &$created, ?int $mode = null): void
 {
-    $tmp = backup_restore_temp($path, $bytes);
+    $tmp = backup_restore_temp($path, $bytes, $mode);
     backup_restore_place($tmp, $path, $created);
 }
 
-/** $bytes in a new temp file next to $path; a failed write fails the restore. */
-function backup_restore_temp(string $path, string $bytes): string
+/** $bytes in a new temp file next to $path (mode $mode when given); a failed write fails the restore. */
+function backup_restore_temp(string $path, string $bytes, ?int $mode = null): string
 {
     $tmp = dirname($path) . '/.restore-' . bin2hex(random_bytes(6));
+    $umask = $mode === null ? null : umask(~$mode & 0777);
     $fh = @fopen($tmp, 'x');
+    if ($umask !== null) umask($umask);
     // every byte, flushed and closed: a short write (a full disk) fails the restore
     $ok = $fh !== false && @fwrite($fh, $bytes) === strlen($bytes) && @fflush($fh);
     if ($fh !== false) $ok = @fclose($fh) && $ok;
@@ -422,8 +435,8 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
                 if ($data === null) continue;
                 $info = @getimagesizefromstring($data);
                 if (!$info || $info[2] !== IMAGETYPE_JPEG) { $b['warnings'][] = "Photo $f is not a JPEG and was skipped."; continue; }
-                if (!is_file("$dataDir/images/$f")) backup_restore_create("$dataDir/images/$f", $data, $created);
-                if (!is_file("$dataDir/thumbs/$f")) {
+                if (!backup_restore_kept("$dataDir/images/$f")) backup_restore_create("$dataDir/images/$f", $data, $created);
+                if (!backup_restore_kept("$dataDir/thumbs/$f")) {
                     $thumb = backup_restore_entry($zip, "thumbs/$f");
                     if ($thumb !== null && ($ti = @getimagesizefromstring($thumb)) && $ti[2] === IMAGETYPE_JPEG) {
                         backup_restore_create("$dataDir/thumbs/$f", $thumb, $created);
@@ -438,7 +451,7 @@ function backup_restore_locked(PDO $pdo, string $driver, string $dataDir, string
             if (!is_dir("$dataDir/files")) mkdir("$dataDir/files", 0770, true);
             foreach (backup_attachment_files($dump) as $f) {
                 $data = backup_restore_entry($zip, "files/$f");
-                if ($data === null || is_file("$dataDir/files/$f")) continue;
+                if ($data === null || backup_restore_kept("$dataDir/files/$f")) continue;
                 $tmp = backup_restore_temp("$dataDir/files/$f", $data);
                 if (attach_sniff($tmp) !== pathinfo($f, PATHINFO_EXTENSION)) { @unlink($tmp); $b['warnings'][] = "Attachment $f does not match its type and was skipped."; continue; }
                 backup_restore_place($tmp, "$dataDir/files/$f", $created);
@@ -547,12 +560,11 @@ function backup_restore_originals(ZipArchive $zip, array $dump, array &$warnings
         if (is_link($dest)) throw new UserError(BACKUP_RESTORE_FAILED);
         if (!is_file($dest)) {
             try {
-                backup_restore_create($dest, $data, $created);
+                backup_restore_create($dest, $data, $created, 0640);   // 0640 from the start (N-582)
             } catch (UserError) {
                 $warnings[] = 'Camera files could not be restored (originals directory is not writable).';
                 return;
             }
-            originals_chmod_file($dest);
         }
         $links[ORIGINALS_DIR . '/map/' . substr($served, 0, 32)] = $dest;
     }
@@ -569,8 +581,11 @@ function backup_restore_link_originals(array $links, array &$warnings): void
 {
     $warning = 'Camera files could not be restored (originals directory is not writable).';
     foreach ($links as $map => $dest) {
+        // A camera file this restore wrote is 0640 already. Only one kept from an older install with another mode is
+        // changed, by name, while it is a plain file (never through a link). The restore runs as the data folder's
+        // owner (bin/restore.php switches to that user), so this changes nothing that user could not change (N-582).
         $file = @lstat($dest);
-        if ($file !== false && backup_plain_file($file)) @chmod($dest, 0640);   // never through a link
+        if ($file !== false && backup_plain_file($file) && ($file['mode'] & 0777) !== 0640) @chmod($dest, 0640);
         $named = @lstat($map);
         if ($named !== false && !backup_plain_file($named)) {
             if (!in_array($warning, $warnings, true)) $warnings[] = $warning;
