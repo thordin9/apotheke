@@ -756,6 +756,95 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         });
     }
 
+    /**
+     * M-620: `spark apotheke:restore` started as root (a dry run and a real
+     * one) switches to DATA_DIR's owner before CodeIgniter boots, so the
+     * folders boot makes in a fresh DATA_DIR (images/, thumbs/, originals/,
+     * originals/map/, sessions/, originals/.htaccess) and the files the
+     * restore writes are not root's, nor is anything new under ci4/writable.
+     */
+    public function testASparkRestoreAsRootRunsAsTheDataDirOwnerBeforeBoot(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            foreach ([['--dry-run'], ['--yes']] as $args) {
+                $fresh = $dir . '-fresh';
+                mkdir($fresh, 0775);
+                $since = $this->sudoMarker($dir);
+                try {
+                    $r = $this->rootSpark($dir, $fresh, $args);
+                    $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $args[0] . ': ' . $r['stdout']);
+                    $this->assertSame('', $this->rootOwned($fresh, $since), $args[0] . ': no file is root\'s');
+                    clearstatcache();
+                    foreach (['images', 'thumbs', 'originals/map', 'sessions', 'originals/.htaccess'] as $made) {
+                        $this->assertFileExists($fresh . '/' . $made, $args[0] . ': boot made it');
+                    }
+                    if ($args[0] === '--yes') {
+                        $this->assertFileExists($fresh . '/files/' . self::FILE, 'restored');
+                        $this->assertSame('Drill', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn());
+                    }
+                } finally {
+                    $this->giveBack($fresh);
+                    rrmdir($fresh);
+                    @unlink($since);
+                }
+            }
+        });
+    }
+
+    /** `spark apotheke:restore` as root into a root-owned DATA_DIR stops with exit 1 before boot and makes nothing. */
+    public function testASparkRestoreAsRootRefusesARootOwnedDataDir(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $fresh = $dir . '-fresh';
+            mkdir($fresh, 0775);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chown', '0:0', $fresh]);
+                foreach ([['--dry-run'], ['--yes']] as $args) {
+                    $r = $this->rootSpark($dir, $fresh, $args);
+                    $this->assertSame(1, $r['exit'], $args[0] . ': ' . $r['stdout'] . $r['stderr']);
+                    $this->assertSame("Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> php bin/restore.php backup.zip. Nothing was changed.\n", $r['stderr']);
+                    $this->assertSame('', $r['stdout']);
+                }
+                clearstatcache();
+                $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
+                $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+                $this->assertSame('', $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
+            } finally {
+                $this->giveBack($fresh);
+                rrmdir($fresh);
+                @unlink($since);
+            }
+        });
+    }
+
+    /**
+     * `php ci4/spark apotheke:restore <dir>/full.zip <args>` as root, with DATA_DIR $fresh and the catalog's database.
+     *
+     * @param list<string> $args
+     * @return array{stdout:string,stderr:string,exit:int}
+     */
+    private function rootSpark(string $dir, string $fresh, array $args): array
+    {
+        $env = array_merge($this->cliEnv($dir), ['DATA_DIR' => $fresh]);
+        if (($env['DB_DRIVER'] ?? '') === 'sqlite') {
+            $env['SQLITE_PATH'] = $dir . '/catalog.sqlite';
+        }
+        unset($env['APOTHEKE_CLI_ARGS'], $env['APOTHEKE_CLI_CWD']);
+        $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+            PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:restore', $dir . '/full.zip', ...$args];
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
+        $this->assertIsResource($proc);
+        fclose($pipes[0]);
+
+        return $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+    }
+
     /** @return array{uid:int,gid:int} the nobody user; skips without `sudo -n` */
     private function needsSudo(): array
     {
