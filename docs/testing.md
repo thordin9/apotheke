@@ -72,8 +72,9 @@ no-cache, must-revalidate` (PHP's session cache limiter) equals CI4's `no-store,
 difference fails. Steps marked `pending` list the parts of an answer that come from a page CI4 has not ported (the
 Control Panel), apart from the differences; the rest of the step must match.
 
-It also times each area's read pages, alternating legacy and CI4 (which goes first alternates per round), at least 100
-requests per area and app, and prints the p95 per area with CI4's lead in ms at p95 and at the median. `PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's;
+It also times each area's read pages, alternating legacy and CI4 (which goes first alternates per round), at least 200
+requests per area and app, and prints the p95 per area with CI4's lead in ms at p95 and at the median.
+`PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's;
 `PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI enforces the step 16 bar (decision by Stathis,
 2026-10-27, via the PM): on PostgreSQL p95 within +20 % (and the median within + 20 ms), on SQLite the median within
 + 3 ms, because there CI4's database work alone costs about as much as legacy's whole request. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
