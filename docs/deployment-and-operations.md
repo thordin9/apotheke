@@ -61,11 +61,11 @@ database) belongs to that user; this is what happens with `docker compose exec a
 is root's. When the data folder is missing or owned by root, the user cannot be told, or the switch is not possible,
 the tool stops with exit 1 and changes nothing. `bin/settings.php key generate` uses no data and runs as anyone. A
 backup written as the data folder's owner needs a target folder that user can write to.
-With `APOTHEKE_APP=ci4`, `bin/restore.php` and `php ci4/spark apotheke:restore` (with or without `--dry-run`) do the
-same: started as root they switch to the data folder's owner and group before CodeIgniter starts, or stop with exit 1.
-With `APOTHEKE_APP=ci4`, `bin/backup.php`, `bin/migrate.php` and the `bin/settings.php` forms that run on CI4 do the
-same through `ci4/spark`: started as root they switch to the data folder's owner before CodeIgniter starts, or stop
-with exit 1.
+With `APOTHEKE_APP=ci4`, `bin/restore.php`, `bin/backup.php`, `bin/migrate.php`, the `bin/settings.php` forms that run
+on CI4, and every `php ci4/spark` command (`apotheke:restore` with or without `--dry-run`, and the framework's own
+commands too) do the same: started as root they switch to the data folder's owner and group before CodeIgniter starts,
+or stop with exit 1. A user that cannot be told counts as root, and a PHP build without the posix group functions stops
+with exit 1 too.
 
 The tools read `config.php` (or the file `APOTHEKE_CONFIG` names) before they switch, as root when started as root.
 Keep that file owned by root or the data folder's owner and not writable by the web server's user.

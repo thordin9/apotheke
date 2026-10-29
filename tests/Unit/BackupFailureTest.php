@@ -568,7 +568,6 @@ final class BackupFailureTest extends TestCase
      */
     public function testAUserThatCannotBeToldCountsAsRoot(): void
     {
-        if (getenv('APOTHEKE_APP') === 'ci4') $this->markTestSkipped('CI4 gap N-625, listed in #155');
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
             $noPosix = ['-d', 'disable_functions=posix_geteuid,posix_getpwuid,posix_setuid,posix_setgid,posix_initgroups'];
             $run = function (array $php) use ($dir): array {
@@ -630,7 +629,6 @@ final class BackupFailureTest extends TestCase
     /** The same through sudo: a root tool with both group functions disabled stops with exit 1 and creates nothing (N-681). */
     public function testARootCliToolWithoutTheGroupFunctionsRefuses(): void
     {
-        if (getenv('APOTHEKE_APP') === 'ci4') $this->markTestSkipped('CI4 gap N-681, listed in #155');
         $this->needSudo();
         $dir = tmpdir('apotheke-cli-owner');
         try {

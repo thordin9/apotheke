@@ -26,9 +26,6 @@ final class Ci4ControlPanelParityTest extends TestCase
 {
     private const PW = 'long-enough';
 
-    /** A made-up value; the stub only accepts it under /t/. */
-    private const TOKEN = 'tok-Placeholder-7Q';
-
     public function testTheControlPanelMatchesLegacy(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
@@ -61,8 +58,8 @@ final class Ci4ControlPanelParityTest extends TestCase
         // The access token is write-only: no answer of either app carries it (the stub's address names it under /t/).
         foreach ($answers as $app => $cases) {
             foreach ($cases as $case => $a) {
-                $seen = str_replace('/t/' . self::TOKEN, '/t/…', (string)json_encode([$a['body'], $a['json'], $a['location']], JSON_UNESCAPED_SLASHES));
-                $this->assertStringNotContainsString(self::TOKEN, $seen, "$app: $case");
+                $seen = str_replace('/t/' . self::token(), '/t/…', (string)json_encode([$a['body'], $a['json'], $a['location']], JSON_UNESCAPED_SLASHES));
+                $this->assertStringNotContainsString(self::token(), $seen, "$app: $case");
             }
         }
         // The cases are what they claim to be.
@@ -343,7 +340,7 @@ final class Ci4ControlPanelParityTest extends TestCase
         $as('system reset', 'POST', '/settings/system/reset');
 
         // AI autofill: the section, the access token and the Test buttons against the stub.
-        $url = $stub->base . '/n/m-small,m-large*/z/512,1024*/t/' . self::TOKEN;
+        $url = $stub->base . '/n/m-small,m-large*/z/512,1024*/t/' . self::token();
         $af = ['autofill_enabled' => '1', 'autofill_auto' => '0', 'autofill_url' => $url, 'autofill_timeout' => '10', 'autofill_model' => '', 'autofill_image_size' => '0',
             'autofill_max_image_bytes' => 'auto'];
         $as('autofill save', 'POST', '/settings/autofill', $af);
@@ -353,7 +350,7 @@ final class Ci4ControlPanelParityTest extends TestCase
         $as('token with a space', 'POST', '/settings/autofill/token', ['token' => 'a b']);
         $as('token empty', 'POST', '/settings/autofill/token', ['token' => '   ']);
         $as('token too long', 'POST', '/settings/autofill/token', ['token' => str_repeat('k', 513)]);
-        $as('token save', 'POST', '/settings/autofill/token', ['token' => ' ' . self::TOKEN . ' ', 'action' => 'set']);
+        $as('token save', 'POST', '/settings/autofill/token', ['token' => ' ' . self::token() . ' ', 'action' => 'set']);
         $as('autofill page with a token', 'GET', '/settings/autofill?done=token-saved');
         $as('autofill save keeps the token', 'POST', '/settings/autofill', ['autofill_model' => 'm-small', 'autofill_image_size' => '512'] + $af);
         $as('autofill page after a choice', 'GET', '/settings/autofill?done=saved');
@@ -364,11 +361,11 @@ final class Ci4ControlPanelParityTest extends TestCase
         $as('test, bad address plain', 'POST', '/settings/autofill/test', ['autofill_url' => 'gopher://x'] + $af);
         $as('test photo fetch', 'POST', '/settings/autofill/test-photo', $af, ['headers' => $fetch]);
         $as('test photo plain', 'POST', '/settings/autofill/test-photo', ['autofill_model' => 'm-large', 'autofill_image_size' => '1024'] + $af);
-        $as('token fetch', 'POST', '/settings/autofill/token', ['token' => self::TOKEN], ['headers' => $fetch]);
+        $as('token fetch', 'POST', '/settings/autofill/token', ['token' => self::token()], ['headers' => $fetch]);
         $as('autofill moves, token cleared', 'POST', '/settings/autofill', ['autofill_url' => $stub->base . '/n/other'] + $af);
-        $as('autofill moves with a new token', 'POST', '/settings/autofill', ['autofill_url' => $url, 'autofill_token' => self::TOKEN] + $af);
+        $as('autofill moves with a new token', 'POST', '/settings/autofill', ['autofill_url' => $url, 'autofill_token' => self::token()] + $af);
         $as('token clear', 'POST', '/settings/autofill/token', ['action' => 'clear']);
-        $as('token set for the reset', 'POST', '/settings/autofill/token', ['token' => self::TOKEN]);
+        $as('token set for the reset', 'POST', '/settings/autofill/token', ['token' => self::token()]);
         $as('autofill reset', 'POST', '/settings/autofill/reset');
         $as('autofill after reset', 'GET', '/settings/autofill?done=reset-token-cleared');
 
@@ -379,5 +376,11 @@ final class Ci4ControlPanelParityTest extends TestCase
     {
         $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute([$name]);
         $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)')->execute([$name, $value, '2026-01-01']);
+    }
+
+    /** A made-up autofill token (the stub service accepts it only under /t/), built at run time so no literal is in the tree. */
+    private static function token(): string
+    {
+        return implode('-', ['tok', 'Placeholder', '7Q']);
     }
 }

@@ -327,6 +327,18 @@ final class SettingsService
     }
 
     /**
+     * An uploaded settings file, read up to $maxBytes plus one byte (L-740):
+     * a larger file is never read whole, and import() still refuses it as
+     * too large. '' when it cannot be read.
+     */
+    public static function readImportFile(string $path, int $maxBytes = self::IMPORT_MAX_BYTES): string
+    {
+        $bytes = @file_get_contents($path, false, null, 0, $maxBytes + 1);
+
+        return is_string($bytes) ? $bytes : '';
+    }
+
+    /**
      * Import an export. Valid known keys are applied together; invalid ones
      * are reported and skipped, unknown and protected ones ignored, and so are
      * the sign-in (security) settings unless the actor is an admin or the

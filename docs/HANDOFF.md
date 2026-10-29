@@ -125,7 +125,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Control Panel ([#151](https://github.com/thordin9/apotheke/pull/151), merged at 77d9170): `/settings`, every section (save and
   reset), the logo, the AI autofill token and Test buttons, and the settings file, byte-identical to legacy
   (`tests/Unit/Ci4ControlPanelParityTest.php`). Same `settings` permission and CSRF order as legacy; legacy has no
-  rate limit on these pages, and neither does CI4.
+  rate limit on these pages, and neither does CI4. An uploaded settings file is read only up to the import cap
+  (L-740, [#157](https://github.com/thordin9/apotheke/pull/157)).
 
 ## Pull requests
 
@@ -243,6 +244,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#151](https://github.com/thordin9/apotheke/pull/151): the Control Panel settings pages on CI4. Merged at 77d9170.
 - [#149](https://github.com/thordin9/apotheke/pull/149): QA notes batch 4, part B (restore and CLI). Merged at b38732e.
 - [#155](https://github.com/thordin9/apotheke/pull/155): sync `main` v2.6.26 (#148). Merged at 455aef8.
+- [#157](https://github.com/thordin9/apotheke/pull/157): CLI owner follow-up: every root spark command switches or stops
+  before boot (L-700), the CI4 `bin/` tools check first (N-625), missing posix functions stop with exit 1 (N-681, N-702,
+  N-781), N-701 tests, the bounded settings import (L-740), the run-time parity placeholder and N-720. Open.
 
 ## Lanes
 
@@ -269,8 +273,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   [#156](https://github.com/thordin9/apotheke/pull/156), open): `docs/upgrade-3.0.md` (new), the CI4
   sections of the architecture, getting-started, configuration, database, deployment, control-panel and CI pages,
   README and the docs index. Docs only; stays out of code.
-  Sync v2.6.26 ([#155](https://github.com/thordin9/apotheke/pull/155), merged at 455aef8): legacy gets #148; #149 closes the CI4 gaps
-  L-622, N-621, N-563, N-593 and N-567; N-625 and N-681 stay skipped on CI4 for the L-700 follow-up.
+  Sync v2.6.26 ([#155](https://github.com/thordin9/apotheke/pull/155)): legacy gets #148; #149 closes the CI4 gaps
+  L-622, N-621, N-563, N-593 and N-567; #157 closes N-625 and N-681 and drops their CI4 skips. Merged at 455aef8.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -292,6 +296,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `ci4/spark`, the legacy copies `bin/restore.php` and `public/index.php` (same change as #148 on `main`),
   `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`, `BackupFailureTest`. Overlap: `ci4/spark` and the legacy copies
   with Coder's syncs; part A is #147, the `main` notes are #148.
+- Coder2, CLI owner follow-up ([#157](https://github.com/thordin9/apotheke/pull/157), open): `ci4/spark`,
+  `Backup/Commands/DataDirOwner.php`, the CI4 branches of `bin/backup.php`, `bin/migrate.php`, `bin/restore.php` and
+  `bin/settings.php`, `SettingsService::readImportFile()` and the import action in `ControlPanelController`,
+  `BackupHelpersTest`, `RestorerFatalCleanupTest`, `SettingsServiceTest`, `Ci4BackupRestoreChecksTest`,
+  `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. #155 (v2.6.26 sync, merged at 455aef8) is merged in;
+  `BackupFailureTest` runs every #148 test on CI4 (the N-625 and N-681 skips are gone).
 - Coder, CLI port ([#158](https://github.com/thordin9/apotheke/pull/158), open): `spark apotheke:seed` (`Catalog/Commands`,
   `Catalog/DemoItems.php`, the Catalog entry in `Config/Autoload.php`), `auth status` (`Auth/Commands/AuthStatus.php`,
   never migrates) and `key rotate` (`SettingsCli`, `SettingsService::rotateSecrets()`, `SettingsRepository::rewrite()`,
@@ -300,7 +310,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   first account); the PHPUnit bootstrap split (`tests/legacy-bootstrap.php`), `tests/lib.php`, the Playwright
   fixtures (`tests/visual/ci4-fixtures.php`) and `MediaTest`. Overlap with #157: different hunks of `bin/settings.php`
   and `SettingsService.php`; stays out of `DataDirOwner`, the Backup module, `bin/backup.php`, `bin/restore.php` and
-  `.gitleaks.toml`. #157 makes `apotheke:seed` started as root switch to the data folder's owner.
+  `.gitleaks.toml`. #157 (merged) makes `apotheke:seed` started as root switch to the data folder's owner.
 
 ## Next steps
 
