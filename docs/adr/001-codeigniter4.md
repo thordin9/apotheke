@@ -92,3 +92,6 @@ Request hardening ported from `main` (SEC-M3, SEC-L2, SEC-N6, SEC-M1, SEC-M2):
 * After 3.0.0, the 2.5.x line gets security fixes only, on `release/2.5`, for 90 days.
 * Rollback to the 2.5.x image needs no data step, because the schema does not move ahead of 2.5.x.
 * Pages that still say "no framework" describe the legacy app until the documentation rewrite.
+* **Branch switch (2026-10-29).** The cutover landed on `feature/ci4` (#161); the branch-switch PR then makes `main`
+  the CI4 branch: `main` is fast-forwarded to `feature/ci4`, the former `main` is kept as the branch `old`, CI pushes
+  run on `main` only, and 3.0.0 is cut from `main`. Items 2 and 6 above describe the port before that switch.

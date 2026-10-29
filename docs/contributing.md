@@ -17,10 +17,10 @@ ground rules and walks through adding a feature end to end. AI agents should als
 * **Works without JavaScript** where reasonable: real forms and links first, `app.js` enhances them.
 * **Safe by default:** escape every value in views, prepared statements, the CSRF filter on every state change, history
   entries (`Activity\ActivityLog`) in the same transaction as the change.
-* **No schema change on the port.** The 25 migrations stay byte-identical and run through a PDO runner plus a
-  `LegacyFunctions` shim. Docker is the only install after the 3.0.0 cutover. Users sign in again once at upgrade.
-* **Lines of development.** Legacy `main` stays as it is until the 3.0.0 cutover. After that, 2.5.x gets security
-  fixes only, on `release/2.5`, for 90 days. CI4 pull requests target `feature/ci4`.
+* **No schema change on the port.** The 28 migrations stay byte-identical with 2.x and run through a PDO runner plus a
+  `LegacyFunctions` shim. Docker is the only install from 3.0.0. Users sign in again once at upgrade.
+* **Lines of development.** `main` is the CodeIgniter 4 app and every pull request targets it. After 3.0.0, 2.5.x gets
+  security fixes only, on `release/2.5`, for 90 days. The 2.x app is kept on the branch `old` and takes no new work.
 * **Module rules** (code under `modules/`): deptrac enforces the module dependency graph (every module may depend on
   Core, Core depends on nothing, no cycles). Use constructor injection. `service()` and `Services::` are allowed only
   in controllers, in filter `before()`/`after()`, and in `Config/Services.php` factories. The allowed edges are in
@@ -31,14 +31,13 @@ ground rules and walks through adding a feature end to end. AI agents should als
 ```bash
 git checkout -b feat/my-change origin/main
 # … code, tests, docs …
-tests/run.sh && vendor/bin/phpunit && DB_DRIVER=pgsql vendor/bin/phpunit
+tests/run.sh && vendor/bin/phpunit && DB_DRIVER=pgsql APOTHEKE_TEST_DB=pgsql vendor/bin/phpunit
 npx playwright test --grep-invert visual        # functional E2E
 scripts/check-commits.sh origin/main
 git push -u origin feat/my-change               # open a PR against main
 ```
 
-* Legacy changes open a pull request against `main`, as in the commands above. CI4 work branches from `feature/ci4` and opens the pull request against that branch.
-* **CI on `feature/ci4`.** Pushes to that branch, and every pull request into it, run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The tests run on PHP 8.4, on SQLite and PostgreSQL. Lint, headless mobile checks, Playwright and Docker build + smoke run on PHP 8.4 (the shipped image), and the upgrade-and-rollback job checks 2.6.26 → CI4@8.4 → 2.6.26 on one data directory. deptrac and the DI rule check every module under `modules/`. Nothing is released from this branch. Details: [CI](ci.md#php-84-legs).
+* **CI.** Every pull request and every push to `main` run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml). The tests run on PHP 8.4, on SQLite and PostgreSQL. Lint, headless mobile checks, Playwright and Docker build + smoke run on PHP 8.4 (the shipped image), and the upgrade-and-rollback job checks 2.6.26 → CI4@8.4 → 2.6.26 on one data directory. deptrac and the DI rule check every module under `modules/`. A green CI run for a push to `main` starts the release ([Releasing](releasing.md)). Details: [CI](ci.md#php-84-legs).
 * Each commit should pass lint and tests on its own.
 * Commit messages follow Conventional Commits, subject ≤ 72 characters (details in [CI](ci.md#commit-rules)).
 * If the UI changed, add the `update-snapshots` label to the PR, fetch the artifact with
@@ -48,7 +47,7 @@ git push -u origin feat/my-change               # open a PR against main
 
 ## Adding a feature, step by step
 
-These steps are for the CodeIgniter 4 app (`modules/`, `app/Config/`), on a branch from `feature/ci4`.
+These steps are for the CodeIgniter 4 app (`modules/`, `app/Config/`), on a branch from `main`.
 
 Using a new item field as the example:
 
@@ -81,4 +80,4 @@ Using a new item field as the example:
 * User-facing errors are `UserError`; anything else is a bug and ends up in the log.
 * Dates: store UTC `Y-m-d H:i:s` for timestamps (`now_utc()`), local `Y-m-d` for calendar dates; use `app_time()` /
   `app_now()` instead of `time()` so tests can freeze the clock.
-* No new runtime dependencies on the legacy app. CI4 dependencies are the pinned CodeIgniter 4 set; anything else needs an issue first.
+* No new runtime dependencies: the runtime Composer packages are the pinned CodeIgniter 4 set; anything else needs an issue first.

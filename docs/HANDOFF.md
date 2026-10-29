@@ -1,6 +1,9 @@
-# Hand-off: `feature/ci4`
+# Hand-off: the CodeIgniter 4 app
 
-A one-screen status of the CodeIgniter 4 port. Every pull request into `feature/ci4` updates this page. Plan and module
+A one-screen status of the CodeIgniter 4 port. Every pull request into `main` updates this page. The branch-switch PR
+makes `main` the CI4 branch: `main` is fast-forwarded to `feature/ci4`, the former `main` (the 2.x app, last release
+v2.6.26) is kept as the branch `old`, and 3.0.0 is cut from `main`. In the history below, `main` means that 2.x line
+and `feature/ci4` the CI4 branch before the switch. Plan and module
 rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md), [AGENTS.md](../AGENTS.md).
 
 ## Current state
@@ -251,7 +254,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   one-line message and exit code when the database cannot be reached; tests for N-880 and N-881, the N-883 docs
   sentence. Merged at 57d926d.
 - [#160](https://github.com/thordin9/apotheke/pull/160): `apotheke:seed` in `DataDirOwner::COMMANDS` (its root message names `bin/seed.php`); N-900, the
-  differing-credentials notice waits for a connection. Open.
+  differing-credentials notice waits for a connection. Merged at 1b2e107.
+- [#161](https://github.com/thordin9/apotheke/pull/161): step 18, the cutover: the CI4 tree at the repository root,
+  the legacy tests and CI legs removed, `src/` removed. Merged at f1b4535.
+- Branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
+  N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Open.
 
 ## Lanes
 
@@ -294,7 +301,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Ci4ControlPanelParityTest`, `ParityGateTest`, the scenario in `tests/parity/gate.php`, `tests/visual/fixtures.ts`,
   the CI4 spec list in `ci.yml`, `.gitleaks.toml`, the AGENTS.md module graph, `CHANGELOG.md` and this file.
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
-  append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
+  append your own block in a small hunk; do not reorder or reformat other blocks. Merge `main` in (no rebase; `feature/ci4` until the switch)
   before pushing when it has moved.
 - Coder2, QA notes batch 4 part B ([#149](https://github.com/thordin9/apotheke/pull/149), merged at b38732e): `Backup/Restorer.php`,
   `Backup/Commands/DataDirOwner.php`, `Backup/Commands/BackupCli.php`, `Backup/Controllers/BackupController.php`,
@@ -320,7 +327,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   fixtures (`tests/visual/ci4-fixtures.php`) and `MediaTest`. Overlap with #157: different hunks of `bin/settings.php`
   and `SettingsService.php`; stays out of `DataDirOwner`, the Backup module, `bin/backup.php`, `bin/restore.php` and
   `.gitleaks.toml`. #157 (merged) makes `apotheke:seed` started as root switch to the data folder's owner.
-- Coder2, seed owner message and N-900 ([#160](https://github.com/thordin9/apotheke/pull/160), open): `Backup/Commands/DataDirOwner.php`,
+- Coder2, seed owner message and N-900 ([#160](https://github.com/thordin9/apotheke/pull/160), merged): `Backup/Commands/DataDirOwner.php`,
   `PdoMigrationRunner::connect()`, `Config\Services::apothekeDb()`, `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`,
   `DbConnectErrorTest`. Stays out of `bin/settings.php`, `bin/seed.php` and the Settings, Auth and Catalog commands
   (Coder's CLI port, #159).
@@ -362,11 +369,15 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    bar (#150).
 10. Control Panel settings pages: Coder2's #151 (merged at 77d9170) no longer blocks step 18 (cutover); its
     `RoutesCompiled.php` is regenerated with these routes.
-11. Step 18 (cutover) is in review: the tree is at the root and the legacy tests and CI legs are gone. The final parity
-    gate on the pre-cutover head (the CI run of the last `feature/ci4` push before the cutover):
-    FINAL_PARITY_RUN_ID=40907023935, FINAL_PARITY_RESULT=success (both databases, 0 differences). `src/` is removed;
-    coverage runs on the CI4 suites and uploads `coverage-ci4-sqlite`, which `release.yml` reads. Left for the
-    branch-switch PR: the workflow branch filters, the `main` / `feature/ci4` wording and N-801, N-860, N-861.
+11. Step 18 (cutover) is merged (#161, f1b4535): the tree is at the root and the legacy tests and CI legs are gone.
+    The final parity gate on the true pre-cutover head 1b2e107 (#160 merged):
+    FINAL_PARITY_RUN_ID=40927086508, FINAL_PARITY_RESULT=success on attempt 2 (SQLite and PostgreSQL jobs green).
+    Attempt 1 was a timing trip with 0 differences in every area: PostgreSQL autofill p95 +26 % against the +20 %
+    limit; attempt 2 was the one allowed rerun. The earlier head 65d7e21 (run 40907023935) was green on both
+    databases. `src/` is removed; coverage runs on the CI4 suites and uploads `coverage-ci4-sqlite`, which
+    `release.yml` reads. The branch-switch PR does the workflow branch filters, the `main` / `feature/ci4` wording and
+    N-801, N-860, N-861. After it merges: fast-forward `main` to `feature/ci4`, keep the former `main` as `old`, set
+    the default branch and the required checks, and let the release workflow cut 3.0.0 from `main`.
 12. After step 18: the `release/2.5` patch-only flow in `docs/releasing.md` and its `release.yml` guard (owner: Apotheke Coder).
 
 ## Tracked
