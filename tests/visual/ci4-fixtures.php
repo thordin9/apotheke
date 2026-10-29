@@ -35,7 +35,7 @@ if ($op === 'seed') {
     putenv('APOTHEKE_CONFIG=/nonexistent');
 }
 
-$ci4 = dirname(__DIR__, 2) . '/ci4';
+$ci4 = dirname(__DIR__, 2);
 define('FCPATH', $ci4 . '/public/');
 chdir(FCPATH);
 require $ci4 . '/app/Config/Paths.php';
