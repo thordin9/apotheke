@@ -14,7 +14,7 @@ require $root . '/vendor/autoload.php';
 [$_, $in, $out] = $argv + [null, null, null];
 if (!$in || !$out) { fwrite(STDERR, "usage: merge.php <raw-dir> <out.cov>\n"); exit(2); }
 $filter = new Filter();
-foreach (['src', 'migrations', 'public'] as $d) {
+foreach (['app', 'modules', 'migrations', 'public'] as $d) {
     foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator("$root/$d", FilesystemIterator::SKIP_DOTS)) as $f) {
         if ($f->getExtension() === 'php') $filter->includeFile($f->getPathname());
     }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 /*
  * Writes the coverage table into README.md between <!-- coverage:start --> and <!-- coverage:end -->.
  * Usage: php scripts/coverage-readme.php [coverage-dir] [--readme=README.md] [--check]
- *   coverage-dir (default coverage/) holds unit.xml, http.xml, combined.xml (Clover, from scripts/coverage.sh or the
+ *   coverage-dir (default coverage/) holds modules.xml, root.xml, combined.xml (Clover, from scripts/coverage.sh or the
  *   CI artifact) and playwright-list.json (`npx playwright test --list --reporter=json`).
  *   --print: write the table to stdout instead (CI job summary); the README is not read or changed.
  *   --check: exit 1 when the README section differs from what would be written (nothing is changed).
@@ -13,20 +13,18 @@ declare(strict_types=1);
 const COV_START = '<!-- coverage:start -->';
 const COV_END = '<!-- coverage:end -->';
 const COV_AREAS = [
-    'Front controller & routes' => ['public/'],
-    'Items, search, bulk, lending' => ['src/items.php'],
-    'Favourites, merge, undo' => ['src/favourites.php', 'src/merge.php', 'src/undo.php'],
-    'Stocktake' => ['src/stocktake.php', 'src/stocktake_views.php'],
-    'Users & roles' => ['src/users.php', 'src/roles.php'],
-    'Full-text search' => ['src/search.php'],
-    'CSV import' => ['src/import.php', 'src/import_views.php'],
-    'Photos' => ['src/photo_edit.php', 'src/photo_views.php'],
-    'Notes & attachments' => ['src/markdown.php', 'src/attachments.php'],
-    'Views (HTML)' => ['src/views.php', 'src/settings_views.php'],
-    'Control Panel settings' => ['src/settings.php'],
-    'Backup & restore' => ['src/backup.php'],
-    'Database, migrations, legacy' => ['src/db.php', 'src/legacy.php', 'migrations/'],
-    'Bootstrap, config, QR, seed' => ['src/bootstrap.php', 'src/config.php', 'src/qr.php', 'src/qr-encode.php', 'src/seed.php'],
+    'Front controller, config & routes' => ['public/', 'app/'],
+    'Items, search, bulk, lending' => ['modules/Catalog/', 'modules/Search/', 'modules/BulkMerge/', 'modules/Lending/', 'modules/Taxonomy/'],
+    'Favourites, undo, history' => ['modules/Favourites/', 'modules/Undo/', 'modules/Activity/'],
+    'Stocktake & labels' => ['modules/Stocktake/', 'modules/Labels/'],
+    'Users, roles & sign-in' => ['modules/Auth/'],
+    'CSV import & export' => ['modules/ImportExport/'],
+    'Photos & autofill' => ['modules/Media/', 'modules/Autofill/'],
+    'Notes & layout' => ['modules/Notes/', 'modules/Layout/'],
+    'Settings & Control Panel' => ['modules/Settings/', 'modules/ControlPanel/'],
+    'Backup & restore' => ['modules/Backup/'],
+    'Database & migrations' => ['modules/Migrations/', 'migrations/'],
+    'Core & dev server' => ['modules/Core/', 'modules/DevServer/'],
 ];
 
 /** @return array<string,array{0:int,1:int}> relative file => [executable lines, covered lines] */
@@ -83,7 +81,7 @@ function cov_playwright_counts(array $json): array
 function cov_table(array $unit, array $http, array $all, array $pw, array $phpunit = []): string
 {
     $L = [];
-    $L[] = '| Area | PHPUnit (unit) | HTTP integration | Combined |';
+    $L[] = '| Area | Module suite | Root suite (with HTTP) | Combined |';
     $L[] = '|---|---:|---:|---:|';
     foreach (COV_AREAS as $area => $pref) {
         $L[] = "| $area | " . cov_pct(cov_sum($unit, $pref)) . ' | ' . cov_pct(cov_sum($http, $pref)) . ' | ' . cov_pct(cov_sum($all, $pref)) . ' |';
@@ -97,8 +95,8 @@ function cov_table(array $unit, array $http, array $all, array $pw, array $phpun
     foreach ($pw as $p => [$f, $v]) { $L[] = "| `$p` | $f | $v |"; $sf += $f; $sv += $v; }
     $L[] = "| **Total** | **$sf** | **$sv** |";
     $L[] = '';
-    $L[] = '<sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, '
-        . 'collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; '
+    $L[] = '<sub>Line coverage from pcov: the module suite (`tests/Modules`), the root suite (`tests/Unit`, with every `php -S` request '
+        . 'its servers answer, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; '
         . 'the release workflow refreshes it from the CI artifact in every release commit.</sub>';
     return implode("\n", $L);
 }
@@ -131,11 +129,11 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     // Clover paths are absolute on the machine that produced them (CI runner): strip up to the repo dir name
     $strip = function (array $files): array {
         $o = [];
-        foreach ($files as $k => $v) $o[preg_replace('#^.*?/((?:src|migrations|public)/)#', '$1', $k)] = $v;
+        foreach ($files as $k => $v) $o[preg_replace('#^.*?/((?:app|modules|migrations|public)/)#', '$1', $k)] = $v;
         return $o;
     };
-    $unit = $strip(cov_clover_files($read('unit.xml'), $root));
-    $http = $strip(cov_clover_files($read('http.xml'), $root));
+    $unit = $strip(cov_clover_files($read('modules.xml'), $root));
+    $http = $strip(cov_clover_files($read('root.xml'), $root));
     $all = $strip(cov_clover_files($read('combined.xml'), $root));
     $pw = cov_playwright_counts(json_decode($read('playwright-list.json'), true) ?: []);
     if ($print) { echo "### Coverage\n\n" . cov_table($unit, $http, $all, $pw) . "\n"; exit(0); }
@@ -147,5 +145,5 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
         exit(0);
     }
     file_put_contents($readmePath, $new);
-    echo 'README coverage: ' . cov_pct(cov_sum($all)) . ' combined (' . cov_pct(cov_sum($unit)) . ' unit, ' . cov_pct(cov_sum($http)) . " HTTP)\n";
+    echo 'README coverage: ' . cov_pct(cov_sum($all)) . ' combined (' . cov_pct(cov_sum($unit)) . ' module suite, ' . cov_pct(cov_sum($http)) . " root suite)\n";
 }

@@ -10,12 +10,12 @@ final class CoverageReadmeTest extends TestCase
 {
     public function testCloverAndAreas(): void
     {
-        $xml = '<?xml version="1.0"?><coverage><project><file name="/r/src/items.php"><metrics statements="10" coveredstatements="9"/></file>'
+        $xml = '<?xml version="1.0"?><coverage><project><file name="/r/modules/Catalog/ItemList.php"><metrics statements="10" coveredstatements="9"/></file>'
             . '<file name="/r/migrations/0001_x.php"><metrics statements="4" coveredstatements="1"/></file></project></coverage>';
         $f = cov_clover_files($xml, '/r');
-        $this->assertSame(['src/items.php' => [10, 9], 'migrations/0001_x.php' => [4, 1]], $f);
-        $this->assertSame([4, 1], cov_sum($f, ['src/db.php', 'migrations/']));
-        $this->assertSame('90.0 %', cov_pct(cov_sum($f, ['src/items.php'])));
+        $this->assertSame(['modules/Catalog/ItemList.php' => [10, 9], 'migrations/0001_x.php' => [4, 1]], $f);
+        $this->assertSame([4, 1], cov_sum($f, ['modules/Migrations/', 'migrations/']));
+        $this->assertSame('90.0 %', cov_pct(cov_sum($f, ['modules/Catalog/'])));
         $this->assertSame('–', cov_pct([0, 0]));
     }
 
@@ -33,7 +33,7 @@ final class CoverageReadmeTest extends TestCase
     {
         $r = "# X\n\n<!-- coverage:start -->\nold\n<!-- coverage:end -->\n\nrest\n";
         $this->assertSame("# X\n\n<!-- coverage:start -->\nNEW\n<!-- coverage:end -->\n\nrest\n", cov_replace($r, 'NEW'));
-        $table = cov_table(['src/items.php' => [10, 5]], ['src/items.php' => [10, 8]], ['src/items.php' => [10, 9]], ['p' => [3, 2]]);
+        $table = cov_table(['modules/Catalog/ItemList.php' => [10, 5]], ['modules/Catalog/ItemList.php' => [10, 8]], ['modules/Catalog/ItemList.php' => [10, 9]], ['p' => [3, 2]]);
         $this->assertStringContainsString('| Items, search, bulk, lending | 50.0 % | 80.0 % | 90.0 % |', $table);
         $this->assertStringContainsString('| **Total** | **3** | **2** |', $table);
         $this->expectException(RuntimeException::class);

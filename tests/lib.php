@@ -97,13 +97,17 @@ final class Server
         fclose($sock);
         $this->base = "http://127.0.0.1:$port";
         $this->log = $dataDir . '.server.log';
-        $cov = ($this->app !== 'ci4' && getenv('APOTHEKE_COVERAGE_DIR')) ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        $cov = getenv('APOTHEKE_COVERAGE_DIR') ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
         if ($this->app === 'ci4') {
             $front = $router ?? ROOT . '/tests/ci4-router.php';
-            $docroot = ROOT . '/public';
         } else {
-            $front = $router ?? ($cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php');
-            $docroot = ROOT . '/public';
+            $front = $router ?? ROOT . '/public/index.php';
+        }
+        $docroot = ROOT . '/public';
+        // Coverage: tests/coverage/router.php loads the collector, then this router.
+        $coverage = $cov ? ['APOTHEKE_COVERAGE_FRONT' => $front] : [];
+        if ($cov) {
+            $front = ROOT . '/tests/coverage/router.php';
         }
         $extra = [];
         foreach ($ini as $key => $value) array_push($extra, '-d', "$key=$value");
@@ -116,7 +120,7 @@ final class Server
             if ($value === null) $drop[] = $key;
             else $overrides[$key] = $value;
         }
-        $fullEnv = array_merge(getenv(), test_server_env($dataDir), $harness, $overrides);
+        $fullEnv = array_merge(getenv(), test_server_env($dataDir), $harness, $coverage, $overrides);
         foreach ($drop as $key) unset($fullEnv[$key]);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');

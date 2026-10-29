@@ -21,7 +21,7 @@ jobs:
   release:
     name: Version, changelog, tag and GitHub Release
     # contents: write — push the version commit and tag, and create the GitHub Release.
-    # actions: read — download the coverage-sqlite artifact from the CI workflow.
+    # actions: read — download the coverage-ci4-sqlite artifact from the CI workflow.
     permissions:
       contents: write
       actions: read
@@ -60,10 +60,10 @@ jobs:
       - name: Refresh README coverage table from the CI artifact
         if: steps.plan.outputs.release == 'true' && env.RUN_ID != ''
         run: |
-          if gh run download "$RUN_ID" -n coverage-sqlite -D "$RUNNER_TEMP/coverage"; then
+          if gh run download "$RUN_ID" -n coverage-ci4-sqlite -D "$RUNNER_TEMP/coverage"; then
             php scripts/coverage-readme.php "$RUNNER_TEMP/coverage"
           else
-            echo "::warning::coverage-sqlite artifact not found; README coverage table left as is"
+            echo "::warning::coverage-ci4-sqlite artifact not found; README coverage table left as is"
           fi
       - name: Update VERSION and CHANGELOG.md, commit, tag and push
         if: steps.plan.outputs.release == 'true'
