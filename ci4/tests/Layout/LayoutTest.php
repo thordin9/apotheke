@@ -94,6 +94,41 @@ final class LayoutTest extends CIUnitTestCase
         $this->assertSame('role-guest no-edit is-guest', $guest->bodyClass());
     }
 
+    /** N-640: the menu checks each permission for the user it read once, per role. */
+    public function testTheMenuShowsTheLinksTheRoleMayUseAndReadsTheUserOnce(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $settings = $this->settings();
+        $grants = ['admin' => ['labels', 'export', 'import', 'stocktake', 'backup', 'settings', 'users'], 'manager' => ['export', 'users']];
+        $ids = ['labels', 'export', 'import', 'stocktake', 'backup', 'settings'];
+        foreach ($grants as $role => $allowed) {
+            $reads = 0;
+            $seen = [];
+            $viewer = new Viewer(
+                static function () use (&$reads, $role): array {
+                    $reads++;
+
+                    return ['username' => 'u', 'role' => $role, 'guest' => false, 'anon' => false];
+                },
+                static function (?array $u, string $p) use (&$seen, $grants): bool {
+                    $seen[] = $u['role'] ?? null;
+
+                    return $u !== null && in_array($p, $grants[$u['role']], true);
+                },
+                static fn (string $r): string => $r,
+                ['view'],
+            );
+            $menu = $this->pageFor($settings, $viewer)->menu();
+            $this->assertSame(1, $reads, "$role: the user is read once");
+            $this->assertSame([$role], array_values(array_unique($seen)), "$role: every check gets the user");
+            foreach ($ids as $id) {
+                $shown = in_array($id, $allowed, true) || ($id === 'settings' && in_array('users', $allowed, true));
+                $this->assertSame($shown, str_contains($menu, 'id="menu-' . $id . '"'), "$role: menu-$id");
+            }
+        }
+        $this->assertStringContainsString('href="/settings/security" role="menuitem" id="menu-settings"', $menu, 'Users without Settings links to sign-in settings');
+    }
+
     public function testThemeCookie(): void
     {
         $this->assertSame('theme=dark; expires=' . gmdate('D, d M Y H:i:s', 1000 + Theme::COOKIE_SECONDS) . ' GMT; Max-Age=34560000; path=/; SameSite=Lax', Theme::cookie('dark', 1000));
@@ -122,6 +157,12 @@ final class LayoutTest extends CIUnitTestCase
     {
         $viewer = new Viewer(static fn (): ?array => $user, static fn (): bool => false, static fn (string $role): string => 'Role <x>', ['view', 'edit']);
 
+        return $this->pageFor($settings, $viewer, $created, $themeCookie, $uri);
+    }
+
+    /** @param list<bool> $created */
+    private function pageFor(SettingsService $settings, Viewer $viewer, array &$created = [], mixed $themeCookie = null, string $uri = '/'): Page
+    {
         return new Page(
             $settings,
             new Branding($settings, new LocalBrandStore($this->database?->dataDir() . '/brand'), $this->assets()),

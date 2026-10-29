@@ -131,6 +131,8 @@ the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes 
   [Host names](#host-names).
 * **2.6.7 (Docker defaults):** the container needs sign-in and compose publishes `127.0.0.1` only; see
   [Docker defaults](#docker-defaults-localhost-and-sign-in).
+* **3.0 (CodeIgniter 4):** a switch of the app on the same data, with one sign-in for everyone and two rollbacks;
+  see [Upgrading to 3.0](upgrade-3.0.md).
 * **CI4 and `;` in the database credentials.** On the CI4 app, a `DB_USER` or `DB_PASSWORD` that contains `;` cannot
   be combined with `user=` / `password=` text inside another `DB_DSN` setting (`options`, `application_name`, the
   `sslpassword` keyword); boot stops with a message saying so. Remove that text from `DB_DSN`, or change the

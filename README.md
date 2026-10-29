@@ -20,7 +20,7 @@ your LAN.
 
 `main` stays this legacy app until the **3.0.0** cutover. The port adopts **CodeIgniter 4** (pinned dependencies,
 PHP 8.4), built side by side in `ci4/` on the `feature/ci4` branch: no schema change, Docker-only after the cutover,
-and one re-login at upgrade. See [ADR-001](docs/adr/001-codeigniter4.md) and the
+and one re-login at upgrade ([upgrading to 3.0](docs/upgrade-3.0.md)). See [ADR-001](docs/adr/001-codeigniter4.md) and the
 [Feature 12 plan](docs/plans/feature12-ci4/PLAN.md). After 3.0.0, 2.5.x gets security fixes on `release/2.5` for
 90 days.
 
@@ -63,6 +63,7 @@ The manual lives in [`docs/`](docs/index.md):
 [getting started](docs/getting-started.md) · [configuration](docs/configuration.md) ·
 [Control Panel](docs/control-panel.md) · [user guide](docs/user-guide.md) · [AI autofill](docs/autofill.md) ·
 [deployment and operations](docs/deployment-and-operations.md) (backups, upgrades, reverse proxies, security) ·
+[upgrading to 3.0](docs/upgrade-3.0.md) ·
 [architecture](docs/architecture.md) · [database](docs/database.md) · [testing](docs/testing.md) · [CI](docs/ci.md) ·
 [releasing](docs/releasing.md) · [contributing](docs/contributing.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 Agents: see [`AGENTS.md`](AGENTS.md).
