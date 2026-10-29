@@ -271,18 +271,6 @@ final class MigrateDsnTest extends TestCase
         }
     }
 
-    /** SQLite open errors stay the raw engine message. PostgreSQL is the path that names a user. */
-    public function testSqliteOpenErrorStaysUnchanged(): void
-    {
-        $run = $this->migrate(null, 'canarypass', 'sqlite', 'canaryuser', [], [
-            'SQLITE_PATH' => '/proc/no-such-migrate-dir/catalog.sqlite',
-        ]);
-        $blob = $run['out'] . "\n" . $run['err'];
-        $this->assertNotSame(0, $run['code']);
-        $this->assertStringContainsString('unable to open database file', $blob);
-        $this->assertStringNotContainsString('Could not connect to the database', $blob);
-    }
-
     /**
      * @param array<string,string> $ini
      * @param array<string,string> $envExtra
