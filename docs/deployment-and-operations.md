@@ -57,8 +57,11 @@ Run `bin/restore.php` as the user that owns the data folder (the user the web se
 before it reads the database or writes a file, so every restored file belongs to that user; this is what happens with
 `docker compose exec apotheke php /var/www/app/bin/restore.php …`, where `/data` belongs to `www-data`. When the data
 folder is owned by root, or the switch is not possible, it stops with exit 1 and changes nothing.
-With `APOTHEKE_APP=ci4`, `bin/restore.php` and `php ci4/spark apotheke:restore` (with or without `--dry-run`) do the
-same: started as root they switch to the data folder's owner and group before CodeIgniter starts, or stop with exit 1.
+With `APOTHEKE_APP=ci4`, `bin/restore.php`, `bin/backup.php`, `bin/migrate.php`, the `bin/settings.php` forms that run
+on CI4, and every `php ci4/spark` command (`apotheke:restore` with or without `--dry-run`, and the framework's own
+commands too) do the same: started as root they switch to the data folder's owner and group before CodeIgniter starts,
+or stop with exit 1. A user that cannot be told counts as root, and a PHP build without the posix group functions stops
+with exit 1 too.
 
 A nightly cron example on the host:
 

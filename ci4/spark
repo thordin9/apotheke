@@ -67,35 +67,17 @@ chdir(FCPATH);
 
 /*
  *---------------------------------------------------------------
- * APOTHEKE: DATA COMMANDS AS THE DATA-DIR OWNER
+ * APOTHEKE: EVERY COMMAND AS THE DATA-DIR OWNER
  *---------------------------------------------------------------
- * The commands that use DATA_DIR (DataDirOwner::COMMANDS: restore,
- * backup, migrate, settings, accounts) started as root run as DATA_DIR's
- * owner before CodeIgniter boots (boot prepares the data folders), or stop
- * with exit 1 (M-620, L-622). Other commands are not affected.
+ * Every spark command started as root (the framework's own too: boot
+ * prepares the data folders and may write a log) runs as DATA_DIR's owner
+ * before CodeIgniter boots, or stops with exit 1 (M-620, L-622, L-700). The
+ * data commands' message names their bin/ tool (DataDirOwner::COMMANDS).
  * RestoreCommand checks again.
  */
-if (!function_exists('posix_geteuid') || posix_geteuid() === 0) {
-    require_once __DIR__ . '/modules/Backup/Commands/DataDirOwner.php';
-    $apothekeArgs = array_map('strtolower', array_slice($_SERVER['argv'] ?? [], 1));
-    foreach (Apotheke\Backup\Commands\DataDirOwner::COMMANDS as $apothekeCommand => $apothekeExample) {
-        if (!in_array($apothekeCommand, $apothekeArgs, true)) {
-            continue;
-        }
-        require_once __DIR__ . '/modules/Core/Config/ApothekeConfig.php';
-        try {
-            $apothekeDataDir = Apotheke\Core\Config\ApothekeConfig::fromEnvironment()->dataDir();
-        } catch (Throwable $e) {
-            fwrite(STDERR, $e->getMessage() . "\n");
-            exit(1);
-        }
-        if (!Apotheke\Backup\Commands\DataDirOwner::become($apothekeDataDir, STDERR, $apothekeExample)) {
-            exit(1);
-        }
-        unset($apothekeDataDir);
-        break;
-    }
-    unset($apothekeArgs, $apothekeCommand, $apothekeExample);
+require_once __DIR__ . '/modules/Backup/Commands/DataDirOwner.php';
+if (!Apotheke\Backup\Commands\DataDirOwner::forCommandLine(STDERR, Apotheke\Backup\Commands\DataDirOwner::example(array_slice($_SERVER['argv'] ?? [], 1)))) {
+    exit(1);
 }
 
 /*
