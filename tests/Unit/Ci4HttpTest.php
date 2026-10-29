@@ -136,6 +136,40 @@ final class Ci4HttpTest extends TestCase
         }
     }
 
+    /**
+     * N-965: public/router.php refuses /originals before it serves static
+     * files, so a camera original that ended up under public/originals is not
+     * sent by the dev server (index.php alone would never see that request).
+     */
+    public function testTheDevRouterRefusesAnOriginalUnderTheWebRoot(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $web = dirname(__DIR__, 2) . '/public/originals';
+        $this->assertDirectoryDoesNotExist($web, 'public/originals must not exist in the checkout');
+        $name = bin2hex(random_bytes(8)) . '.jpg';
+        mkdir($web, 0775);
+        file_put_contents($web . '/' . $name, 'camera original');
+        $dir = tmpdir('ci4-router-originals');
+        $server = new Server($dir, [], 'ci4', dirname(__DIR__, 2) . '/public/router.php');
+        try {
+            foreach (['/originals/' . $name, '/Originals/' . $name] as $path) {
+                $r = $server->client()->get($path);
+                $this->assertSame([404, 'Not found'], [$r['status'], $r['body']], $path);
+                $this->assertSame('text/plain; charset=UTF-8', $r['headers']['content-type'] ?? '', $path);
+            }
+            // the same server sends other files under public/ as they are
+            $this->assertSame(200, $server->client()->get('/assets/app.css')['status']);
+        } finally {
+            $server->stop();
+            @unlink($web . '/' . $name);
+            @rmdir($web);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
+    }
+
     public function testSymlinkIntoTheWebRootRefusesWithAGenericPage(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
