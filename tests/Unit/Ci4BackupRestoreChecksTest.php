@@ -826,6 +826,52 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
     }
 
     /**
+     * N-965: bin/restore.php checks the data folder's owner itself, before it
+     * starts spark (which checks again before boot). A copy of the wrapper
+     * runs next to a stub `spark` that records who started it: as root, into
+     * a root-owned DATA_DIR the wrapper refuses and never starts spark; into
+     * DATA_DIR owned by this user, spark starts as this user, not as root.
+     */
+    public function testTheRestoreWrapperChecksTheDataDirOwnerBeforeSpark(): void
+    {
+        $this->needsSudo();
+        $tree = tmpdir('restore-wrapper');
+        $dir = $tree . '/data';
+        mkdir($dir, 0750);
+        mkdir($tree . '/bin', 0755);
+        copy(ROOT . '/bin/restore.php', $tree . '/bin/restore.php');
+        symlink(ROOT . '/modules', $tree . '/modules');
+        $out = $tree . '/spark-ran';
+        file_put_contents($tree . '/spark', '<?php file_put_contents(' . var_export($out, true) . ', posix_geteuid() . "\n");' . "\n");
+        $env = $this->cliEnv($dir);
+        $run = function () use ($tree, $dir, $env): array {
+            $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+                PHP_BINARY, $tree . '/bin/restore.php', 'full.zip', '--yes'];
+            $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $tree);
+            $this->assertIsResource($proc);
+            fclose($pipes[0]);
+
+            return $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+        };
+        try {
+            $this->sudo(['chown', '0:0', $dir]);
+            $r = $run();
+            $this->sudo(['chown', posix_geteuid() . ':' . posix_getegid(), $dir]);
+            $this->assertSame(1, $r['exit'], $r['stdout'] . $r['stderr']);
+            $this->assertSame("Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> php bin/restore.php backup.zip. Nothing was changed.\n", $r['stderr']);
+            $this->assertFileDoesNotExist($out, 'spark is never started');
+
+            $r = $run();
+            $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+            $this->assertSame(posix_geteuid() . "\n", (string)@file_get_contents($out), 'spark runs as the data-dir owner, not as root');
+        } finally {
+            $this->giveBack($tree);
+            unlink($tree . '/modules');   // the link first, so rrmdir() never walks into the real modules/
+            rrmdir($tree);
+        }
+    }
+
+    /**
      * M-620: `spark apotheke:restore` started as root (a dry run and a real
      * one) switches to DATA_DIR's owner before CodeIgniter boots, so the
      * folders boot makes in a fresh DATA_DIR (images/, thumbs/, originals/,
