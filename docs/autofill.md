@@ -325,9 +325,9 @@ token are picked by a path prefix of the address, e.g. `http://127.0.0.1:PORT/m/
 is `<file>.jsonl`, otherwise `af-stub-<port>.jsonl` in the temp dir. A full v1.2 address for manual QA:
 `http://127.0.0.1:8090/m/switch/r/3/l/4000/n/qwen2.5vl-jetson%3A3b*=4000,qwen3-vl-2b=2500/z/448,672*,1024`.
 
-The tests are `tests/Unit/AutofillTest.php` (settings, `/v1/info` and suggestion parsing, image preparation, every
-failure code, the migrations), `tests/integration_autofill.php` (part of `tests/integration.php`: settings security,
-the token never in pages, exports, backups or logs, Test connection, suggest end to end, stored photos) and
+The tests are `tests/Modules/Autofill/AutofillTest.php` (settings, `/v1/info` and suggestion parsing, image
+preparation, every failure code, the token kept out of answers and logs, Test connection, suggest against the stub,
+stored photos) and
 `tests/visual/autofill-*.spec.ts` (the Control Panel section, the on-demand form, model and size, resizing).
 
 ## Security notes
@@ -338,9 +338,9 @@ the token never in pages, exports, backups or logs, Test connection, suggest end
   followed). Grant the *Settings* permission only to people you trust with that.
 - Problems are logged as one short line (`apotheke autofill: …`), never with the token or the service's answer.
 
-## CI4
+## Implementation
 
-With `APOTHEKE_APP=ci4` the client is `ci4/modules/Autofill`, built per request by `Config\Services::autofill()`.
+The client is `modules/Autofill`, built per request by `Config\Services::autofill()`.
 Settings and the token are read only through `SettingsService`. The database is the existing DSN-driven connection.
 There is no static and no per-request memory for the warn-once pair: it lives in the storage file, so a new request
 sees it. Docs and examples keep the placeholder `https://autofill.example`. Do not commit a real token.
@@ -381,8 +381,8 @@ routes need the session CSRF token, pass the host and same-origin checks
 *Settings*. The warn-once note and the temporary JPEG are files under the data directory, not under CodeIgniter's
 `writable/` folder. Category
 and tag names, and which file to analyze (kept original, otherwise the served JPEG), are SQL until Taxonomy and Media
-exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. CI4 cases live in
-`ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`. Photo size limits are legacy-only for
+exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. The cases live in
+`tests/Modules/Autofill/AutofillTest.php` and `tests/Modules/Core/LocalStorageTest.php`. Photo size limits are legacy-only for
 now: the legacy header pre-check and decode limits ([#72](https://github.com/thordin9/apotheke/pull/72)) and the PNG
 cap ([#79](https://github.com/thordin9/apotheke/pull/79)) are on `feature/ci4` since
 [#83](https://github.com/thordin9/apotheke/pull/83), but the CI4 Autofill module does not apply them yet, so CI4

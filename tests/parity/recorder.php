@@ -209,7 +209,7 @@ function parity_files(string $dir): array
  */
 function parity_core_pair(): array
 {
-    if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+    if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
         throw new RuntimeException('skip');
     }
     require_once dirname(__DIR__) . '/lib.php';

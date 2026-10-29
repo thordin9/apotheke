@@ -16,8 +16,6 @@ if (getenv('DB_DRIVER') === 'pgsql') {
     if (getenv('DB_PASSWORD') === false) putenv('DB_PASSWORD=apotheke');
 }
 require dirname(__DIR__) . '/vendor/autoload.php';
-// The legacy app (src/) is not loaded here: the legacy tests and the legacy-comparison tests load it
-// themselves through tests/legacy-bootstrap.php.
 register_shutdown_function(static function () use ($tmp): void {
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($tmp, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
     foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);

@@ -45,30 +45,27 @@ final class Ci4BackupParityTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
 
-    public function testBackupAndRestoreMatchLegacy(): void
+    public function testBackupAndRestore(): void
     {
         $answers = [];
         $details = [];
         $kept = [];
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $this->details = [];
             $this->kept = [];
             $answers[$app] = $this->run_($app, fn (Server $s, string $dir): array => $this->visit($s, $dir, $app));
             $details[$app] = array_keys(array_filter($this->details));
             $kept[$app] = $this->kept;
         }
-        $this->assertSame(['confirm failing write', 'confirm broken rows'], $details['legacy']);
         $this->assertSame([], $details['ci4'], 'CI4 shows no database error text');
-        // L-440: since v2.6.23 (#135) both apps put a failed restore's files back as they were.
-        $this->assertSame(['confirm failing write' => true, 'confirm broken rows' => true], $kept['legacy'], 'legacy restores the files of a failed restore since v2.6.23 (#135)');
+        // L-440: a failed restore's files are put back as they were.
         $this->assertSame(['confirm failing write' => true, 'confirm broken rows' => true], $kept['ci4']);
-        $this->compare($answers);
-        $l = $answers['legacy'];
+        $l = $answers['ci4'];
         // The cases are what they claim to be.
         $this->assertSame(['nosniff', 'text/html; charset=UTF-8'], [$l['page']['nosniff'], $l['page']['type']]);
         $this->assertStringContainsString("default-src 'self'", (string)$l['page']['csp']);
@@ -106,14 +103,10 @@ final class Ci4BackupParityTest extends TestCase
         }
         $this->assertStringContainsString('Photo ' . self::PHOTO . ' is missing from the archive.', (string)$l['upload old backup']['body']);
 
-        // Cross restore: each app restores the other's download and the old backup.
-        $cross = [];
-        foreach (['legacy' => 'ci4', 'ci4' => 'legacy'] as $app => $from) {
-            $cross[$app] = $this->run_($app, fn (Server $s, string $dir): array => $this->crossRestore($s, $dir, $this->zips[$from]));
-        }
-        $this->compare($cross);
-        $this->assertSame([303, '/backup?restored=1'], [$cross['legacy']['restore']['status'], $cross['legacy']['restore']['location']]);
-        $this->assertSame(self::catalog($l['before restore']['tables']), self::catalog($cross['legacy']['restore']['tables']), 'legacy restores the CI4 download whole');
+        // A fresh install restores the download whole.
+        $fresh = $this->run_('ci4', fn (Server $s, string $dir): array => $this->crossRestore($s, $dir, $this->zips['ci4']));
+        $this->assertSame([303, '/backup?restored=1'], [$fresh['restore']['status'], $fresh['restore']['location']]);
+        $this->assertSame(self::catalog($l['before restore']['tables']), self::catalog($fresh['restore']['tables']), 'a fresh install restores the download whole');
     }
 
     /**
@@ -133,17 +126,6 @@ final class Ci4BackupParityTest extends TestCase
             testdb_drop($dir);
             rrmdir($dir);
             @unlink($dir . '.server.log');
-        }
-    }
-
-    /** @param array<string,array<string,array<string,mixed>>> $answers */
-    private function compare(array $answers): void
-    {
-        $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
-        foreach ($answers['legacy'] as $case => $legacy) {
-            foreach ($legacy as $key => $value) {
-                $this->assertSame($value, $answers['ci4'][$case][$key] ?? null, $case . ' › ' . $key);
-            }
         }
     }
 

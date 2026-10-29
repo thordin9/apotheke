@@ -72,7 +72,7 @@ function apotheke_app(): string
 function apotheke_front_controller(?string $app = null): string
 {
     $app ??= apotheke_app();
-    if ($app === 'ci4') return ROOT . '/ci4/public/router.php';
+    if ($app === 'ci4') return ROOT . '/public/router.php';
     return ROOT . '/public/index.php';
 }
 
@@ -86,7 +86,7 @@ final class Server
 
     /**
      * @param array<string, string|null> $env null removes that variable from the child
-     * @param ?string $router CI4 entry. Null starts tests/ci4-router.php. Pass ci4/public/router.php for a shipped boot.
+     * @param ?string $router CI4 entry. Null starts tests/ci4-router.php. Pass public/router.php for a shipped boot.
      * @param array<string, string> $ini php.ini settings for the server, after the defaults (memory_limit=256M)
      */
     public function __construct(public string $dataDir, array $env = [], ?string $app = null, ?string $router = null, array $ini = [])
@@ -97,13 +97,17 @@ final class Server
         fclose($sock);
         $this->base = "http://127.0.0.1:$port";
         $this->log = $dataDir . '.server.log';
-        $cov = ($this->app !== 'ci4' && getenv('APOTHEKE_COVERAGE_DIR')) ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
+        $cov = getenv('APOTHEKE_COVERAGE_DIR') ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
         if ($this->app === 'ci4') {
             $front = $router ?? ROOT . '/tests/ci4-router.php';
-            $docroot = ROOT . '/ci4/public';
         } else {
-            $front = $router ?? ($cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php');
-            $docroot = ROOT . '/public';
+            $front = $router ?? ROOT . '/public/index.php';
+        }
+        $docroot = ROOT . '/public';
+        // Coverage: tests/coverage/router.php loads the collector, then this router.
+        $coverage = $cov ? ['APOTHEKE_COVERAGE_FRONT' => $front] : [];
+        if ($cov) {
+            $front = ROOT . '/tests/coverage/router.php';
         }
         $extra = [];
         foreach ($ini as $key => $value) array_push($extra, '-d', "$key=$value");
@@ -116,7 +120,7 @@ final class Server
             if ($value === null) $drop[] = $key;
             else $overrides[$key] = $value;
         }
-        $fullEnv = array_merge(getenv(), test_server_env($dataDir), $harness, $overrides);
+        $fullEnv = array_merge(getenv(), test_server_env($dataDir), $harness, $coverage, $overrides);
         foreach ($drop as $key) unset($fullEnv[$key]);
         $this->proc = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['file', $this->log, 'a'], 2 => ['file', $this->log, 'a']], $pipes, ROOT, $fullEnv);
         if (!is_resource($this->proc)) throw new RuntimeException('could not start php -S');

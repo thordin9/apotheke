@@ -134,9 +134,9 @@ erDiagram
 Notes:
 
 * **Locations form a tree** through `locations.parent_id` (migration 0008, indexed). The tree is small, so it is
-  read in one query and assembled in PHP (`tax_list()` / `location_tree_order()` in `src/items.php` add `depth`,
-  `path` and `total`); there are no recursive SQL queries. `location_set_parent()` refuses cycles and more than
-  `LOCATION_MAX_DEPTH` (6) levels below a top-level location. `tax_delete()` moves a deleted location's children to
+  read in one query and assembled in PHP (`TaxonomyRepository::all()` / `LocationTree::order()` in `modules/Taxonomy`
+  add `depth`, `path` and `total`); there are no recursive SQL queries. `TaxonomyRepository::setParent()` refuses
+  cycles and more than `LocationTree::MAX_DEPTH` (6) levels below a top-level location. `TaxonomyRepository::delete()` moves a deleted location's children to
   its parent before deleting it, so the `ON DELETE SET NULL` only matters for rows changed outside the app. On
   PostgreSQL the foreign key is `DEFERRABLE INITIALLY DEFERRED` so a restore can insert children before their parents
   (SQLite restores use `PRAGMA defer_foreign_keys`). Categories are flat.
@@ -161,7 +161,7 @@ Notes:
   the change (NULL with sign-in off or from the CLI). Users are not part of backups.
 * `search_docs` (migration 0019): one row per item with the folded (lower case, no accents) `name_f`, `tags_f`, `other_f`
   (notes, serial, barcode, borrower, category, location path) used for matching and the original `other` for snippets.
-  It is derived data: `src/search.php` rebuilds it when a fingerprint of items, locations, categories and tags (kept in
+  It is derived data: `Search\SearchIndex` rebuilds it when a fingerprint of items, locations, categories and tags (kept in
   `search_meta`) changes, so no write path needs a hook. SQLite mirrors it into the FTS5 table `search_fts`
   (`unicode61 remove_diacritics 2`) and reads typo candidates from `search_fts_v` (fts5vocab); PostgreSQL has a generated
   weighted `tsv` (A name, B tags, C rest) with a GIN index and, if `CREATE EXTENSION pg_trgm` is allowed, a trigram
@@ -239,7 +239,7 @@ missing, so the role needs no CREATE on the database. CI4 uses the same check on
 
 ```mermaid
 flowchart TD
-  a["first db() call of a request<br/>(or bin/migrate.php)"] --> b{"pending migrations?"}
+  a["first connection of a process (BootMigration)<br/>or bin/migrate.php"] --> b{"pending migrations?"}
   b -- no --> done["continue"]
   b -- yes --> c{"SQLite without schema_migrations<br/>and PRAGMA user_version ≥ 1?"}
   c -- yes --> snap["VACUUM INTO catalog-vN-backup-DATE.sqlite"]
@@ -247,7 +247,7 @@ flowchart TD
   snap --> lock["BEGIN IMMEDIATE (SQLite)<br/>or pg_advisory_xact_lock (PostgreSQL)"]
   lock --> re["re-read schema_migrations under the lock"]
   re --> legacy{"legacy v1–v3?"}
-  legacy -- yes --> conv["src/legacy.php: convert to v3, record 0001 as adopted"]
+  legacy -- yes --> conv["legacy_migrate_to_v2/v3 (Migrations\LegacyFunctions):<br/>convert to v3, record 0001 as adopted"]
   legacy -- no --> apply
   conv --> apply["apply every pending file in order,<br/>record each in schema_migrations"]
   apply --> seed{"brand-new database<br/>and SEED_DEFAULTS?"}
@@ -260,14 +260,14 @@ All pending steps run in **one transaction**, so a failed upgrade leaves the dat
 concurrent first requests wait instead of migrating twice. `php bin/migrate.php --status` lists applied and pending
 versions.
 
-**CI4 (`ci4/`):** the same runner (`PdoMigrationRunner`) runs before the first CI4 database connection of a process
+**CI4:** the same runner (`PdoMigrationRunner`) runs before the first CI4 database connection of a process
 (`Apotheke\Migrations\BootMigration`, called from `Config\Services::apothekeDb`), and `apotheke:migrate` runs it on
 demand. The check is remembered per process and database, and only after it succeeds. Under php-fpm and spark a
 process is one request or command, so this matches legacy. A long-lived worker (FrankenPHP worker mode) checks once,
 at its first request, instead of on every request; deploys that add a migration restart the workers.
 
 The migration files are shared and stay byte-identical. The globals they call (`natkey`, `settings_seed`, `app_time`,
-`now_utc`, …) come from `ci4/modules/Migrations/LegacyFunctions.php` on CI4, a shim with the same behaviour that stays
+`now_utc`, …) come from `modules/Migrations/LegacyFunctions.php` on CI4, a shim with the same behaviour that stays
 after the cutover. For 90 days after 3.0.0, a new migration lands only if it is also backported to 2.5.x, so a
 rollback from 3.0.x to 2.5.x never meets an unknown schema (PLAN §3.4, PM L-2).
 
@@ -296,15 +296,16 @@ rollback from 3.0.x to 2.5.x never meets an unknown schema (PLAN §3.4, PM L-2).
    ```
 
 3. **Never edit a migration that has been released**; add a new one instead.
-4. Keep SQL portable: compare against the folded columns with `LIKE … ESCAPE '!'` (`like_escape()`), sort by
-   `sort_key`, use `CASE` instead of boolean sums, `db_insert()` for new ids and `db_local_bucket()` for date
-   bucketing. Avoid backslashes in SQL literals (PDO's placeholder parser on PHP < 8.4 trips over them).
-5. If the new column holds item data, update what reads and writes it: `ITEM_COLS` / `item_get()` / `item_save()` in
-   `src/items.php`, the CSV export in `public/index.php`, and, when it should be copied, `item_input()` (bulk actions,
-   duplicating). **Backups need no change**: `backup_dump()` exports every column of the tables in `backup_tables()`,
+4. Keep SQL portable: compare against the folded columns with `LIKE … ESCAPE '!'`, sort by `sort_key`, use `CASE`
+   instead of boolean sums, and follow the repositories for new ids and date bucketing (each dialect has its own
+   statement there). Avoid backslashes in SQL literals (PDO's placeholder parser on PHP < 8.4 trips over them).
+5. If the new column holds item data, update what reads and writes it: `COLS` / `get()` / `save()` in
+   `modules/Catalog/Items/ItemRepository.php`, the CSV export in `modules/ImportExport/CsvExport.php`, and, when it
+   should be copied, bulk actions and duplicating (`modules/BulkMerge`). **Backups need no change**: the backup
+   exports every column of the tables in `Backup\Backups::tables()`,
    and restoring an older backup simply leaves new columns at their defaults.
-6. Add tests: `tests/Unit/MigrationRunnerTest.php` for the runner itself, unit tests for the new behaviour, and the
-   HTTP suite in `tests/integration.php` (it runs on SQLite and PostgreSQL).
+6. Add tests: `tests/Modules/Core/BootMigrationTest.php` and `tests/Unit/Ci4MigrateTest.php` for the runner, and
+   module tests for the new behaviour (they run on SQLite and PostgreSQL).
 
 ## Working with the data directly
 

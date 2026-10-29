@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 /*
  * Coverage collector for the HTTP tests: loaded with `-d auto_prepend_file=` into every `php -S` request of the
- * integration suite (tests/lib.php adds it when APOTHEKE_COVERAGE_DIR is set). Each request only dumps pcov's raw
+ * root suite's servers (tests/lib.php adds it when APOTHEKE_COVERAGE_DIR is set). Each request only dumps pcov's raw
  * line data (cheap); tests/coverage/merge.php turns all dumps into one php-code-coverage .cov file that
  * `vendor/bin/phpcov merge` combines with the PHPUnit run.
  */
@@ -20,7 +20,7 @@ define('APOTHEKE_COVERAGE_STARTED', true);
         $trace('shutdown');
         \pcov\stop();
         $root = dirname(__DIR__, 2) . '/';
-        $mine = array_values(array_filter(\pcov\waiting(), fn($f) => str_starts_with($f, $root . 'src/') || str_starts_with($f, $root . 'migrations/') || str_starts_with($f, $root . 'public/')));
+        $mine = array_values(array_filter(\pcov\waiting(), fn($f) => (bool)array_filter(['app/', 'modules/', 'migrations/', 'public/'], fn($d) => str_starts_with($f, $root . $d))));
         $trace(count($mine) . ' files waiting');
         $data = \pcov\collect(\pcov\inclusive, $mine);
         $trace('collected ' . count($data));

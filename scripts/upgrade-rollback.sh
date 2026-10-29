@@ -11,7 +11,10 @@
 # Env: DB_DRIVER=sqlite|pgsql (pgsql: TEST_PG_HOST, TEST_PG_PORT, TEST_PG_DB, TEST_PG_USER, TEST_PG_PASSWORD),
 #      PHP83 and PHP84 (default php8.3, php8.4), UPGRADE_WORK (a path that must not exist yet; default: a new
 #      mktemp -d), UPGRADE_KEEP=1 keeps it. The script removes only the work dir and the upg_<run>_* schemas it made.
-# Uses bin/seed.php, bin/migrate.php, bin/backup.php and bin/restore.php unchanged.
+#      UPGRADE_LEGACY_REF (default v2.6.26): the legacy release checked out into a temporary worktree inside the
+#      work dir (the tag is fetched when missing); UPGRADE_LEGACY_ROOT uses an existing checkout instead.
+# Legacy runs its own bin/ tools from that checkout; CI4 runs this tree's bin/ tools. tests/upgrade/ loads the
+# legacy code from UPGRADE_LEGACY_ROOT.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,6 +24,8 @@ DRIVER=${DB_DRIVER:-sqlite}
 WORK=
 SCHEMAS=()
 SERVER_PID=
+LEGACY=
+LEGACY_WT=
 fail=0
 
 "$PHP83" -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 3 ? 0 : 1);' || { echo "PHP83 is not PHP 8.3" >&2; exit 2; }
@@ -31,6 +36,7 @@ pg() { PGOPTIONS=--client-min-messages=warning PGPASSWORD="$TEST_PG_PASSWORD" ps
 cleanup() {
   if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; wait "$SERVER_PID" 2>/dev/null || true; fi
   if [ "$DRIVER" = pgsql ]; then for s in "${SCHEMAS[@]}"; do pg "DROP SCHEMA IF EXISTS $s CASCADE" || true; done; fi
+  if [ -n "$LEGACY_WT" ]; then git -C "$ROOT" worktree remove --force "$LEGACY_WT" 2>/dev/null || true; git -C "$ROOT" worktree prune; fi
   if [ -z "$WORK" ]; then return; fi
   if [ "${UPGRADE_KEEP:-}" = 1 ]; then echo "kept $WORK"; else rm -rf "$WORK"; fi
 }
@@ -45,6 +51,20 @@ else
 fi
 RUN=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
 SCHEMAS=("upg_${RUN}_main" "upg_${RUN}_restore_legacy" "upg_${RUN}_restore_ci4")
+
+# The legacy side: a released 2.x checkout, outside this tree.
+if [ -n "${UPGRADE_LEGACY_ROOT:-}" ]; then
+  LEGACY=$(cd "$UPGRADE_LEGACY_ROOT" && pwd)
+else
+  ref=${UPGRADE_LEGACY_REF:-v2.6.26}
+  git -C "$ROOT" rev-parse -q --verify "refs/tags/$ref^{commit}" > /dev/null \
+    || git -C "$ROOT" fetch -q --depth=1 origin "refs/tags/$ref:refs/tags/$ref"
+  LEGACY="$WORK/legacy-$ref"
+  git -C "$ROOT" worktree add -q --detach "$LEGACY" "$ref"
+  LEGACY_WT=$LEGACY
+fi
+if [ ! -f "$LEGACY/src/bootstrap.php" ] || [ ! -f "$LEGACY/bin/seed.php" ]; then echo "$LEGACY is not a legacy 2.x checkout" >&2; exit 2; fi
+export UPGRADE_LEGACY_ROOT=$LEGACY
 
 # Environment for one install: its data directory and (pgsql) its own schema.
 install_env() {
@@ -93,8 +113,8 @@ serve_check() {
   # shellcheck disable=SC2016 # PHP code, not shell
   port=$("$php" -r '$s = stream_socket_server("tcp://127.0.0.1:0"); echo substr(strrchr(stream_socket_get_name($s, false), ":"), 1);')
   base="http://127.0.0.1:$port"
-  if [ "$app" = ci4 ]; then docroot="$ROOT/ci4/public" front="$ROOT/ci4/public/router.php"; else docroot="$ROOT/public" front="$ROOT/public/index.php"; fi
-  APOTHEKE_APP=$app "$php" -S "127.0.0.1:$port" -t "$docroot" "$front" > "$WORK/server-$app-$port.log" 2>&1 &
+  if [ "$app" = ci4 ]; then docroot="$ROOT/public" front="$ROOT/public/router.php"; else docroot="$LEGACY/public" front="$LEGACY/public/index.php"; fi
+  "$php" -S "127.0.0.1:$port" -t "$docroot" "$front" > "$WORK/server-$app-$port.log" 2>&1 &
   SERVER_PID=$!
   for _ in $(seq 100); do curl -fs -o /dev/null "$base/healthz" && break; sleep 0.1; done
   local ok=1
@@ -115,8 +135,9 @@ serve_check() {
 
 # bin/migrate.php --status must list every migration as applied (no unknown or pending one after a switch).
 status_check() {
-  local app=$1 php=$2 out
-  out=$(APOTHEKE_APP=$app "$php" "$ROOT/bin/migrate.php" --status)
+  local app=$1 php=$2 out root=$ROOT
+  [ "$app" = ci4 ] || root=$LEGACY
+  out=$("$php" "$root/bin/migrate.php" --status)
   if [ "$(grep -cE '^ +[0-9]{4} ' <<<"$out")" -lt 28 ] || grep -E '^ +[0-9]{4} ' <<<"$out" | grep -vq ' applied '; then
     echo "$out"; echo "FAIL $app: bin/migrate.php --status shows a migration that is not applied"; fail=1
   else
@@ -128,12 +149,12 @@ echo "upgrade/rollback: $DRIVER, $("$PHP83" -r 'echo PHP_VERSION;') and $("$PHP8
 
 # 1. legacy@8.3 seeds.
 install_env data "${SCHEMAS[0]}"
-"$PHP83" "$ROOT/bin/seed.php" --demo
+"$PHP83" "$LEGACY/bin/seed.php" --demo
 "$PHP83" "$ROOT/tests/upgrade/seed-extra.php"
 snap all seeded
 snap backup seeded-backup
 "$PHP84" "$ROOT/tests/upgrade/compare.php" --guard 'seed' "$WORK/seeded.json" || { echo "upgrade/rollback: the seed is too thin"; exit 1; }
-"$PHP83" "$ROOT/bin/backup.php" "$WORK/legacy.zip"
+"$PHP83" "$LEGACY/bin/backup.php" "$WORK/legacy.zip"
 serve_check legacy "$PHP83"
 snap all legacy-served
 check 'legacy@8.3 served' seeded legacy-served
@@ -143,7 +164,7 @@ status_check ci4 "$PHP84"
 snap all upgraded
 check 'upgrade to CI4@8.4' seeded upgraded
 serve_check ci4 "$PHP84"
-APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/backup.php" "$WORK/ci4.zip"
+"$PHP84" "$ROOT/bin/backup.php" "$WORK/ci4.zip"
 snap all ci4-served
 check 'CI4@8.4 served and backed up' seeded ci4-served
 
@@ -154,21 +175,21 @@ snap all rolled-back
 check 'rollback to legacy@8.3' seeded rolled-back
 
 # 4. Rollback B (§3.6 step 4) and its reverse: each app restores the other's zip over the same install.
-"$PHP83" "$ROOT/bin/restore.php" "$WORK/ci4.zip" --yes
+"$PHP83" "$LEGACY/bin/restore.php" "$WORK/ci4.zip" --yes
 snap backup restored-in-place-legacy
 check 'CI4 backup restored over the install by legacy@8.3' seeded-backup restored-in-place-legacy
-APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
+"$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
 snap backup restored-in-place-ci4
 check 'legacy backup restored over the install by CI4@8.4' seeded-backup restored-in-place-ci4
 
 # 5. Cross-restore into fresh installs.
 install_env restore-legacy "${SCHEMAS[1]}"
-"$PHP83" "$ROOT/bin/restore.php" "$WORK/ci4.zip" --yes
+"$PHP83" "$LEGACY/bin/restore.php" "$WORK/ci4.zip" --yes
 snap backup restored-legacy
 check 'CI4 backup restored on legacy@8.3' seeded-backup restored-legacy
 
 install_env restore-ci4 "${SCHEMAS[2]}"
-APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
+"$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
 snap backup restored-ci4
 check 'legacy backup restored on CI4@8.4' seeded-backup restored-ci4
 
@@ -201,7 +222,7 @@ mutate 'DELETE FROM item_tags'
 snap backup m5
 must_fail 'emptied carried table (item_tags)' item_tags m0 m5
 must_fail 'seed guard on an emptied carried table' item_tags --guard m5
-APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes > /dev/null
+"$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes > /dev/null
 snap backup m6
 check 'every mutation undone' m0 m6
 mutate 'DROP TABLE saved_filters'

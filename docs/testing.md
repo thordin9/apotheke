@@ -2,28 +2,23 @@
 
 | Layer | Where | Runs on | Needs |
 |---|---|---|---|
-| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/` and `src/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, and every Markdown file under `docs/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
-| HTTP integration suite | `tests/integration.php` (+ `tests/lib.php`) | `php -S` on throwaway data dirs, SQLite or PostgreSQL | PHP only |
-| PHPUnit | `tests/Unit/`, `tests/Integration/HttpSuiteTest.php` | SQLite or PostgreSQL | `composer install` |
+| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, and every Markdown file under `docs/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
+| PHPUnit | `tests/Unit/`, `tests/Modules/` (CIUnitTestCase, run from `Ci4ModuleSuiteTest`) | SQLite or PostgreSQL | `composer install` |
 | Headless mobile checks | `tests/e2e/mobile.mjs` | Chrome via puppeteer-core at 375×667 and 390×844 | Node, Chrome |
 | End-to-end + visual | `tests/visual/*.spec.ts` | Playwright: WebKit, Chromium, light and dark, SQLite and PostgreSQL | Node, PHP, Playwright browsers |
 
 ## `tests/run.sh`
 
 ```bash
-tests/run.sh                      # lint + integration suite on SQLite; no Composer, no Docker
-DB_DRIVER=pgsql tests/run.sh      # the integration suite against PostgreSQL (TEST_PG_* below)
-php tests/integration.php         # integration suite only
-KEEP_TEST_DATA=1 php tests/integration.php   # keep the temp data dirs for inspection
+tests/run.sh                      # lint + the module suite on SQLite (after composer install)
+DB_DRIVER=pgsql tests/run.sh      # the module suite against PostgreSQL (TEST_PG_* below)
 ```
 
-CI runs that suite on legacy@8.3 (the upgrade/rollback reference) and on legacy@8.4, on SQLite and PostgreSQL.
-The ci4 cells run PHPUnit too. `APOTHEKE_APP=ci4` selects the CI4 app. The harness starts `tests/ci4-router.php`
-(the shipped dev server remains `ci4/public/router.php`), and `APOTHEKE_TEST_DB` tells
-`tests/lib.php` which database to pass to those servers. The catalog HTTP suite is
-skipped there until those routes exist. Lint, the headless mobile checks and Playwright also
-run on both PHP 8.3 and PHP 8.4; Docker build + smoke runs on the shipped PHP 8.4 image. deptrac and the DI rule check Core and DevServer. See [CI](ci.md#php-84-legs). The
-legacy comparison is [php84-legacy-diff.md](plans/feature12-ci4/php84-legacy-diff.md).
+CI runs PHPUnit on PHP 8.4, on SQLite and PostgreSQL, with `APOTHEKE_APP=ci4`. The harness starts
+`tests/ci4-router.php` (the shipped dev server remains `public/router.php`), and `APOTHEKE_TEST_DB` tells
+`tests/lib.php` which database to pass to those servers. The legacy suites (the HTTP integration suite and the
+legacy unit tests) left at the cutover; they stay in the 2.6 releases. Lint, the headless mobile checks, Playwright
+and Docker build + smoke run on PHP 8.4. deptrac and the DI rule check every module. See [CI](ci.md#php-84-legs).
 
 The integration suite starts PHP's built-in server on temporary data directories and exercises the app over HTTP with
 a small client (`tests/lib.php`: cookies, CSRF, multipart uploads, JSON). It covers uploads (images generated with
@@ -51,46 +46,10 @@ vendor/bin/phpunit --filter ParityRecorderTest
 
 ### Parity gate (PLAN step 16)
 
-[`tests/parity/gate.php`](../tests/parity/gate.php) walks every ported area (all but backup and restore) on a legacy
-and a CI4 server, both on the running PHP (8.4) and database (`APOTHEKE_TEST_DB`), with the same seeded catalog and a
-frozen clock: health and static files, layout, sign-in and account, users and roles, locations and categories, the
-list and search, items, photos (PNG, HEIC, broken files, cover, order, rotate), autofill against the stub (each
-failure mode, the token), quantity, duplicate, attachments, merge, bulk actions and undo, labels, barcodes, lending,
-stocktake, CSV export and import, and the settings CLI. About 196 steps. After every step it compares the answer
-(status, type, Location, body or JSON; Cache-Control, Pragma and Expires; every Set-Cookie in full, with Path,
-Domain, SameSite, Secure, HttpOnly and Max-Age; X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
-Content-Security-Policy, Permissions-Policy, Strict-Transport-Security and the Cross-Origin policies, absent or not),
-the stub's last upload, and after every write every table and the data directory (path, mode, sha256). The users the
-app created then sign in with the passwords it stored, and each stored hash is shown with the scenario password it
-verifies. Normalised alike on both sides: CSRF tokens, asset cache busters, random hex names (numbered in order of
-appearance), the salt and hash of a password hash (algorithm and cost are compared), session epochs, the session ID
-by length and alphabet, cookie expiry as a bucket relative to the answer's Date, and wall-clock times. Cache-Control
-is compared exactly except for one documented pair: on a non-JSON answer other than 200, legacy's `no-store,
-no-cache, must-revalidate` (PHP's session cache limiter) equals CI4's `no-store, max-age=0, no-cache` (CodeIgniter's
-`noCache()`); both forbid storing. The autofill cache is compared under legacy's names (`autofill-info.json`,
-`tmp/`), because CI4 keeps it behind `Storage` as `autofill/info.json` and `autofill/tmp/` by design (#69). Any
-difference fails. Steps marked `pending` list the parts of an answer that come from a page CI4 has not ported (the
-Control Panel), apart from the differences; the rest of the step must match.
-
-It also times each area's read pages, alternating legacy and CI4 (which goes first alternates per round), at least 200
-requests per area and app, and prints the p95 per area with CI4's lead in ms at p95 and at the median.
-`PARITY_P95_MAX_PCT=20` fails the run when a CI4 p95 is more than 20 % above legacy's;
-`PARITY_P95_MAX_ABS_MS=N` fails it when one is more than N ms above. CI enforces the step 16 bar (decision by Stathis,
-2026-10-27, via the PM): on PostgreSQL p95 within +20 % (and the median within + 20 ms), on SQLite the median within
-+ 3 ms, because there CI4's database work alone costs about as much as legacy's whole request. `PARITY_BUDGET_STAT=median` makes the absolute budget compare the
-medians instead of the p95 (the PM's fallback once runner noise failed the p95 gap; CI uses it, and the +N % bound
-always compares p95). An empty variable checks nothing (the statistic defaults to p95); any other value that is not a
-number >= 0, or not `p95` or `median`, exits 2. The gate starts its CI4 server with `APOTHEKE_TEST_PGSQL_PROBE=0`, so the harness's PostgreSQL probe (a `CREATE` and an `INSERT` on every request of the pgsql leg) is not timed.
-
-```bash
-php scripts/parity-gate.php                     # SQLite: differences per area, then the p95 table
-APOTHEKE_TEST_DB=pgsql DB_DRIVER=pgsql TEST_PG_PASSWORD=secret php scripts/parity-gate.php --markdown
-php scripts/parity-gate.php --rounds=0          # differences only, no timing
-PARITY_GATE=1 vendor/bin/phpunit --filter ParityGateTest
-PARITY_DEBUG='autofill: suggest' php scripts/parity-gate.php --rounds=0   # raw headers of one step
-```
-
-Turn pcov off for timing (`php -d pcov.enabled=0 …`); the gate's own servers already run with it off and opcache on.
+The parity gate compared every ported area on a legacy and a CI4 server, step by step. It was retired at the cutover
+(PLAN step 18): the last run on the pre-cutover head is recorded in [HANDOFF](HANDOFF.md), and the scenario, its
+script and the CI job remain in the history before the cutover. The recorder above and the allowlist remain as CI4
+regression fixtures.
 
 ### Upgrade and rollback (PLAN step 16, part 2)
 
@@ -114,7 +73,7 @@ the script removes only that directory and its own `upg_<run>_*` schemas. CI run
 (`upgrade-rollback`).
 
 ```bash
-DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh            # needs php8.3, php8.4 and ci4/vendor
+DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh            # needs php8.3, php8.4, vendor and the v2.6.26 tag
 DB_DRIVER=pgsql TEST_PG_HOST=127.0.0.1 TEST_PG_PORT=5432 TEST_PG_DB=apotheke TEST_PG_USER=apotheke \
   TEST_PG_PASSWORD=secret bash scripts/upgrade-rollback.sh     # schemas upg_<run>_*, dropped at the end
 UPGRADE_KEEP=1 DB_DRIVER=sqlite bash scripts/upgrade-rollback.sh   # keep the work dir and snapshots
@@ -127,16 +86,16 @@ composer install
 vendor/bin/phpunit                                            # SQLite
 DB_DRIVER=pgsql TEST_PG_PASSWORD=secret vendor/bin/phpunit    # PostgreSQL
 vendor/bin/phpunit --filter LendingTest                       # one class
-vendor/bin/phpunit --coverage-html coverage/html              # needs pcov or xdebug
-vendor/bin/phpunit -c ci4/phpunit.xml.dist                    # CI4 module tests only (needs ci4/vendor, PHP 8.4)
+bash scripts/coverage.sh --no-readme                          # coverage of both suites (needs pcov)
+vendor/bin/phpunit -c tests/Modules/phpunit.xml.dist          # module tests only
 ```
 
 * `tests/Unit/` holds the unit tests. Database tests extend `DatabaseTestCase`, which gives every test a fresh SQLite
   file or, on PostgreSQL, its own throwaway schema (`migrateFresh()` runs all migrations).
-* `tests/phpunit-bootstrap.php` does not load the legacy app. A test that calls it in-process (the legacy tests and
-  the ones that compare CI4 with it) requires `tests/legacy-bootstrap.php`; those files go with `src/` at the cutover.
-* `tests/Integration/HttpSuiteTest.php` runs `tests/integration.php` inside PHPUnit, so the HTTP suite is part of the
-  PHPUnit run on both databases.
+* `tests/phpunit-bootstrap.php` loads Composer's autoloader only; there is no legacy app to load. The tests that
+  compared CI4 with legacy became plain CI4 tests at the cutover (PLAN step 18).
+* `tests/Unit/Ci4ModuleSuiteTest.php` runs the module suite inside PHPUnit, so it is part of the PHPUnit run on both
+  databases.
 
 PostgreSQL settings (`TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER`, `TEST_PG_PASSWORD`) default to
 `127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. The credential tests (`Ci4DsnCredentialsTest`,
@@ -186,9 +145,8 @@ npm run test:e2e:report                             # open the HTML report
 
 * One server per worker: `php -S` on a free port (or the Docker image), with `TZ=Europe/Athens` and the clock frozen
   via `APOTHEKE_CLOCK` (`2026-06-15 09:00:00` UTC), so dates and charts are deterministic.
-* Before **every** test the data is reset and re-seeded by `tests/visual/seed.php` (`demo`: 8 items with generated
-  photos, or `empty`), so tests never depend on each other. With `E2E_APP=ci4`, `tests/visual/ci4-fixtures.php` does
-  the same through the CI4 code (same rows and image bytes), and no fixture loads `src/`.
+* Before **every** test the data is reset and re-seeded by `tests/visual/ci4-fixtures.php` (`demo`: 8 items with
+  generated photos, or `empty`) through the app's own code, so tests never depend on each other.
 * `app.sql()` runs SQL against the test database (to assert or to prepare state), `app.exec()`, `app.migrate()`,
   `app.defaultCategory()` and `app.settings()` prepare state through the app, `app.go()` navigates and waits.
 * Every test fails on console errors or uncaught page errors (`errors` fixture). Helpers check layout:

@@ -47,7 +47,7 @@ A green CI run on `feature/ci4` does not start it: `workflow_run.branches` is `[
 1. check out `main` with full history; stop if `main` is no longer the commit CI tested (that newer commit's CI run
    releases it);
 2. `php scripts/release.php plan --github-output` (exit early when there is nothing to release);
-3. download the `coverage-sqlite` artifact of that CI run and regenerate the README coverage table from it;
+3. download the `coverage-ci4-sqlite` artifact of that CI run and regenerate the README coverage table from it;
 4. `php scripts/release.php apply --notes=…` updates `VERSION` and `CHANGELOG.md` and writes the release notes;
 5. commit `chore(release): vX.Y.Z [skip ci]`, create the tag and push both with `git push --atomic`;
 6. `gh release create vX.Y.Z --notes-file …`.

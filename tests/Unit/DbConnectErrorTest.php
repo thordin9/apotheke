@@ -53,20 +53,17 @@ final class DbConnectErrorTest extends TestCase
     }
 
     /**
-     * APOTHEKE_APP=ci4 (spark apotheke:backup and apotheke:restore): a
-     * refused connect prints legacy's line with legacy's exit code, not
-     * the exception class and "Server error".
+     * spark apotheke:backup and apotheke:restore: a refused connect prints
+     * the sanitized line and exits 1, not the exception class and "Server error".
      *
      * @param list<string> $args
      */
     #[DataProvider('backupTools')]
-    public function testCi4ConnectFailureMatchesLegacy(string $script, array $args): void
+    public function testBackupConnectFailureIsTheCleanLine(string $script, array $args): void
     {
         $this->requireCi4();
-        $legacy = $this->spawn($script, $args, $this->refusedEnv());
-        $ci4 = $this->spawn($script, $args, ['APOTHEKE_APP' => 'ci4'] + $this->refusedEnv());
+        $ci4 = $this->spawn($script, $args, $this->refusedEnv());
         $blob = $ci4['out'] . "\n" . $ci4['err'] . "\n" . $ci4['log'];
-        $this->assertSame([$legacy['out'], $legacy['err'], $legacy['code']], [$ci4['out'], $ci4['err'], $ci4['code']], $blob);
         $this->assertSame(['', $this->connectMessage(), 1], [$ci4['out'], $ci4['err'], $ci4['code']]);
         $this->assertStringNotContainsString(self::USER, $blob);
         $this->assertStringNotContainsString(self::PASSWORD, $blob);
@@ -82,25 +79,23 @@ final class DbConnectErrorTest extends TestCase
 
     /**
      * N-900: DB_DSN with a user and password that differ from DB_USER and
-     * DB_PASSWORD. A refused connect still prints legacy's line alone (the
-     * differing-credentials warning waits for a connection), with legacy's
-     * exit code, and names neither login nor the DSN.
+     * DB_PASSWORD. A refused connect prints the one sanitized line alone (the
+     * differing-credentials warning waits for a connection), exits 1 as 2.x
+     * did, and names neither login nor the DSN.
      *
      * @param list<string> $args
      */
     #[DataProvider('differingDsnTools')]
-    public function testCi4ConnectFailureWithDifferingDsnCredentialsMatchesLegacy(string $script, array $args): void
+    public function testConnectFailureWithDifferingDsnCredentialsIsTheCleanLine(string $script, array $args): void
     {
         $this->requireCi4();
         $user = 'dsn_' . bin2hex(random_bytes(4));
         $password = bin2hex(random_bytes(8));
         $dsn = 'pgsql:host=127.0.0.1;port=1;dbname=keepdb;user=' . $user . ';password=' . $password;
-        $env = ['DB_DSN' => $dsn] + $this->refusedEnv();
-        $legacy = $this->spawn($script, $args, $env);
-        $ci4 = $this->spawn($script, $args, ['APOTHEKE_APP' => 'ci4'] + $env);
-        $blob = $legacy['err'] . "\n" . $ci4['out'] . "\n" . $ci4['err'] . "\n" . $ci4['log'];
-        $this->assertSame([$legacy['out'], $legacy['err'], $legacy['code']], [$ci4['out'], $ci4['err'], $ci4['code']], $blob);
-        $this->assertSame([$this->connectMessage(), 1], [$ci4['err'], $ci4['code']]);
+        $ci4 = $this->spawn($script, $args, ['DB_DSN' => $dsn] + $this->refusedEnv());
+        $blob = $ci4['out'] . "\n" . $ci4['err'] . "\n" . $ci4['log'];
+        // stdout: nothing, or bin/migrate.php's "Database: …" banner (driver, host, port and name only)
+        $this->assertSame([$this->connectMessage(), 1], [$ci4['err'], $ci4['code']], $blob);
         $this->assertStringNotContainsString('DB_DSN', $blob);
         foreach ([$user, $password, $dsn, self::USER, self::PASSWORD] as $secret) {
             $this->assertStringNotContainsString($secret, $blob);
@@ -108,8 +103,8 @@ final class DbConnectErrorTest extends TestCase
     }
 
     /**
-     * A SQLite file that cannot be opened: CI4 prints the sanitized line and
-     * exits 1 (legacy stops on the uncaught engine error instead).
+     * A SQLite file that cannot be opened: the sanitized line and exit 1
+     * (2.x stopped on the uncaught engine error instead).
      *
      * @param list<string> $args
      */
@@ -118,14 +113,14 @@ final class DbConnectErrorTest extends TestCase
     {
         $this->requireCi4();
         $path = '/proc/no-such-backup-dir/catalog.sqlite';
-        $run = $this->spawn($script, $args, ['APOTHEKE_APP' => 'ci4', 'DB_DRIVER' => 'sqlite', 'SQLITE_PATH' => $path]);
+        $run = $this->spawn($script, $args, ['DB_DRIVER' => 'sqlite', 'SQLITE_PATH' => $path]);
         $blob = $run['out'] . "\n" . $run['err'] . "\n" . $run['log'];
         $this->assertSame(['', 'Could not connect to the database (sqlite – ' . $path . ").\n", 1], [$run['out'], $run['err'], $run['code']], $blob);
     }
 
     private function requireCi4(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -259,10 +254,11 @@ final class DbConnectErrorTest extends TestCase
             $this->assertStringNotContainsString('SQLSTATE', $blob);
             $this->assertStringNotContainsString('Stack trace', $blob);
             $this->assertStringNotContainsString('PDOException', $blob);
-            $line = preg_quote($message, '/');
+            // The sanitized line, then the error page naming the exception class only.
+            $class = preg_quote('Apotheke\\Migrations\\MigrateConnectException', '/');
             $this->assertMatchesRegularExpression(
-                '/^\[[^\]]+\] \[apotheke\] ' . $line . "\n"
-                . '\[[^\]]+\] \[apotheke\] error page: ' . $line . "\n$/",
+                '/^\[[^\]]+\] ' . $class . ': ' . preg_quote($message, '/') . "\n"
+                . '\[[^\]]+\] \[apotheke\] error page: ' . $class . "\n$/",
                 $logged,
                 $blob
             );
@@ -286,17 +282,16 @@ final class DbConnectErrorTest extends TestCase
         $this->assertSame('Data directory ' . $dir . ' is not writable.' . "\n", $run['err']);
     }
 
-    /** SQLite open errors stay the engine message. They do not name a login. */
-    public function testSqliteOpenErrorStaysUnchanged(): void
+    /** A SQLite open error is the sanitized line with the path (2.x showed the engine message; docs/upgrade-3.0.md). */
+    public function testSqliteOpenErrorIsTheCleanLine(): void
     {
         $run = $this->spawn('bin/seed.php', [], [
             'DB_DRIVER' => 'sqlite',
             'SQLITE_PATH' => '/proc/no-such-seed-dir/catalog.sqlite',
         ]);
         $blob = $run['out'] . "\n" . $run['err'] . "\n" . $run['log'];
-        $this->assertNotSame(0, $run['code'], $blob);
-        $this->assertStringContainsString('unable to open database file', $blob);
-        $this->assertStringNotContainsString('Could not connect to the database', $blob);
+        $this->assertSame(1, $run['code'], $blob);
+        $this->assertSame("Could not connect to the database (sqlite – /proc/no-such-seed-dir/catalog.sqlite).\n", $run['err'], $blob);
         $this->assertStringNotContainsString(self::USER, $blob);
     }
 

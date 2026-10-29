@@ -14,12 +14,10 @@
 A small, fast, self-hosted web app for cataloguing your belongings: snap a photo on your phone, name the item, pick
 where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then find anything again with instant search.
 
-Plain PHP 8.2+ with PDO (SQLite or PostgreSQL) and GD, plus Imagick in the Docker image for HEIC photos. The legacy
-app has no framework, no runtime Composer packages, no JavaScript build step and no CDNs: it works fully offline on
-your LAN.
+PHP 8.4 and **CodeIgniter 4** (pinned Composer dependencies) with PDO (SQLite or PostgreSQL) and GD, plus Imagick in
+the Docker image for HEIC photos. No JavaScript build step and no CDNs: it works fully offline on your LAN.
 
-`main` stays this legacy app until the **3.0.0** cutover. The port adopts **CodeIgniter 4** (pinned dependencies,
-PHP 8.4), built side by side in `ci4/` on the `feature/ci4` branch: no schema change, Docker-only after the cutover,
+**3.0.0** is the CodeIgniter 4 app (the `feature/ci4` branch until it is released): no schema change, Docker-only,
 and one re-login at upgrade ([upgrading to 3.0](docs/upgrade-3.0.md)). See [ADR-001](docs/adr/001-codeigniter4.md) and the
 [Feature 12 plan](docs/plans/feature12-ci4/PLAN.md). After 3.0.0, 2.5.x gets security fixes on `release/2.5` for
 90 days.

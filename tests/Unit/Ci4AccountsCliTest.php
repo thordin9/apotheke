@@ -8,8 +8,8 @@ require_once dirname(__DIR__) . '/lib.php';
 
 /**
  * CLI goldens (PLAN step 7, PR B): the account and sign-in forms of
- * `php bin/settings.php` (users, user …, roles, auth, password) on legacy and
- * with APOTHEKE_APP=ci4 (spark apotheke:accounts), on twin databases of the
+ * `php bin/settings.php` (users, user …, roles, auth, password) and the
+ * spark apotheke:accounts command it starts, on twin databases of the
  * configured driver. Every step compares stdout, stderr and the exit code,
  * then the users, roles and settings tables (a password by which of the
  * test's passwords it verifies, a session epoch by whether it changed). Also:
@@ -27,7 +27,7 @@ final class Ci4AccountsCliTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -43,7 +43,7 @@ final class Ci4AccountsCliTest extends TestCase
         }
     }
 
-    public function testAccountFormsMatchLegacy(): void
+    public function testAccountForms(): void
     {
         [$left, $right] = $this->twins('acli');
         $sql = static function (string $statement) use ($left, $right): void {
@@ -207,7 +207,7 @@ final class Ci4AccountsCliTest extends TestCase
             $before = [$this->state($left), $this->state($right)];
             $l = $this->cli($left, $args, false);
             $r = $this->cli($right, $args, true);
-            $this->assertSame(255, $l['exit'], $label . ': ' . $l['stdout'] . $l['stderr']);
+            $this->assertSame(1, $l['exit'], $label . ': ' . $l['stdout'] . $l['stderr']);
             $this->assertSame(1, $r['exit'], $label);
             $this->assertSame('', $r['stdout'], $label);
             $this->assertSame(($message ?? 'Could not save the settings.') . "\n", $r['stderr'], $label);
@@ -215,7 +215,7 @@ final class Ci4AccountsCliTest extends TestCase
             if ($message !== null) {
                 $this->assertSame($before[1], $this->state($right), $label . ': nothing changed on CI4');
             }
-            $this->assertSame($this->state($left), $this->state($right), $label . ': the same tables as legacy');
+            $this->assertSame($this->state($left), $this->state($right), $label . ': the same tables through spark');
             foreach ([$left, $right] as $dir) {
                 testdb($dir)->exec($pg ? "DROP TRIGGER apotheke_test_fail ON $table" : 'DROP TRIGGER apotheke_test_fail');
             }
@@ -226,7 +226,7 @@ final class Ci4AccountsCliTest extends TestCase
             $l = $this->cli($left, $args, false, $stdin);
             $r = $this->cli($right, $args, true, $stdin);
             $this->assertSame([1, 'New password: Repeat: ', "Passwords cannot contain a null character.\n"], [$r['exit'], $r['stdout'], $r['stderr']], implode(' ', $args));
-            $this->assertSame([$l['exit'], $l['stdout'], $l['stderr']], [$r['exit'], $r['stdout'], $r['stderr']], implode(' ', $args) . ': as legacy');
+            $this->assertSame([$l['exit'], $l['stdout'], $l['stderr']], [$r['exit'], $r['stdout'], $r['stderr']], implode(' ', $args) . ': as through spark');
             $this->assertSame($before, [$this->state($left), $this->state($right)]);
         }
     }
@@ -238,7 +238,7 @@ final class Ci4AccountsCliTest extends TestCase
      * (a missing SQLite file stays missing), and a database that misses a
      * migration still misses it afterwards.
      */
-    public function testAuthStatusMatchesLegacyWithoutMigrating(): void
+    public function testAuthStatusNeverMigrates(): void
     {
         $status = [['auth', 'status']];
         foreach (['', 'shortpw', '        ', 'long-enough'] as $password) {
@@ -292,12 +292,12 @@ final class Ci4AccountsCliTest extends TestCase
     public function testSparkEntryPoint(): void
     {
         [, $right] = $this->twins('acli-spark');
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'frob'], $this->env($right, true), null);
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'frob'], $this->env($right, true), null);
         $this->assertSame([2, "Unknown command. See the comment at the top of bin/settings.php.\n"], [$r['exit'], $r['stderr']]);
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'auth', 'status'], $this->env($right, true), null);
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'auth', 'status'], $this->env($right, true), null);
         $this->assertSame([3, "off\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'auth status answers in apotheke:accounts');
         // A value that starts with "-" reaches the command unchanged.
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'user', 'add', 'neo', 'editor', '-long-enough-'], $this->env($right, true), null);
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'user', 'add', 'neo', 'editor', '-long-enough-'], $this->env($right, true), null);
         $this->assertSame([0, "Added neo.\n"], [$r['exit'], $r['stdout']]);
     }
 
@@ -337,14 +337,14 @@ final class Ci4AccountsCliTest extends TestCase
             $this->assertFalse((bool)getenv('CI'), 'CI runs the Ctrl-C case');
             $this->markTestSkipped('pcntl is required for the Ctrl-C case');
         }
-        $r = $this->pty($python, [PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'password'], $env, [
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'password'], $env, [
             ['wait', 'New password: '], ['send', $typed], ['sigint'],
         ]);
         $this->assertSame(130, $r['exit'], $r['shown']);
         $this->assertTerminalClean($r, [$typed]);
 
         // SIGTERM (kill) during the prompt restores the terminal too and exits 128 + 15 (N-133).
-        $r = $this->pty($python, [PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'user', 'password', 'bob'], $env, [
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'user', 'password', 'bob'], $env, [
             ['wait', 'New password: '], ['send', $other], ['sigterm'],
         ]);
         $this->assertSame(143, $r['exit'], $r['shown']);
@@ -470,7 +470,20 @@ final class Ci4AccountsCliTest extends TestCase
      */
     private function cli(string $dir, array $args, bool $ci4, ?string $stdin = null, array $extraEnv = []): array
     {
-        return $this->proc([PHP_BINARY, ROOT . '/bin/settings.php', ...$args], array_merge($this->env($dir, $ci4), $extraEnv), $stdin);
+        // $ci4: through bin/settings.php; otherwise the spark command it starts.
+        $cmd = $ci4 ? [PHP_BINARY, ROOT . '/bin/settings.php', ...$args] : [PHP_BINARY, ROOT . '/spark', self::form($args), '--no-header', ...$args];
+
+        return $this->proc($cmd, array_merge($this->env($dir, $ci4), $extraEnv), $stdin);
+    }
+
+    /**
+     * The spark command bin/settings.php starts for $args.
+     *
+     * @param list<string> $args
+     */
+    private static function form(array $args): string
+    {
+        return in_array($args[0] ?? '', ['users', 'user', 'roles', 'auth', 'password'], true) ? 'apotheke:accounts' : 'apotheke:settings';
     }
 
     /**
@@ -502,9 +515,6 @@ final class Ci4AccountsCliTest extends TestCase
             'PHP_INI_SCAN_DIR' => '',
         ]);
         unset($env['APOTHEKE_APP'], $env['APP_PASSWORD']);
-        if ($ci4) {
-            $env['APOTHEKE_APP'] = 'ci4';
-        }
 
         return array_map('strval', $env);
     }
@@ -541,8 +551,8 @@ final class Ci4AccountsCliTest extends TestCase
     /** @return array{0:string,1:string} */
     private function twins(string $prefix): array
     {
-        $left = tmpdir($prefix . '-legacy');
-        $right = tmpdir($prefix . '-ci4');
+        $left = tmpdir($prefix . '-spark');
+        $right = tmpdir($prefix . '-bin');
         array_push($this->dirs, $left, $right);
 
         return [$left, $right];

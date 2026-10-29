@@ -17,7 +17,7 @@ final class Ci4BackupRaceTest extends TestCase
 {
     public function testARestoreWaitsForAnOpenWriteAndReplacesIt(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $dir = tmpdir('backup-race');
@@ -47,7 +47,7 @@ final class Ci4BackupRaceTest extends TestCase
             $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
 
             // The other client: a new item, in a transaction that stays open for a while.
-            $proc = proc_open([PHP_BINARY, ROOT . '/ci4/tests/_support/hold-transaction.php',
+            $proc = proc_open([PHP_BINARY, ROOT . '/tests/Modules/_support/hold-transaction.php',
                 (string)json_encode([["INSERT INTO items (id, name, quantity, notes, search, sort_key, created_at, updated_at) VALUES (50, 'Late', 1, '', 'late', 'late', '2026-01-01', '2026-01-01')", []]]), '1500'],
                 [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, array_merge(getenv(), test_server_env($dir)));
             $this->assertIsResource($proc);

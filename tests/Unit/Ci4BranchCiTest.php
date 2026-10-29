@@ -5,7 +5,7 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2) . '/scripts/ci4-arch.php';
 
-/** Feature 12 PR 2: CI branch wiring, PHP 8.4 legs, empty deptrac and DI configs. */
+/** Feature 12: CI branch wiring, the PHP 8.4 legs of the one app, deptrac and DI configs. */
 final class Ci4BranchCiTest extends TestCase
 {
     private function root(): string
@@ -26,28 +26,31 @@ final class Ci4BranchCiTest extends TestCase
         );
     }
 
-    public function testMatrixIsLegacyAndCi4OnPhp84WithLegacy83Reference(): void
+    public function testMatrixIsTheOneAppOnPhp84(): void
     {
         $yml = $this->ci();
-        $this->assertStringContainsString("app: [legacy, ci4]", $yml);
+        $this->assertStringNotContainsString('matrix.app', $yml);
+        $this->assertStringNotContainsString('legacy, ci4', $yml);
         $this->assertStringContainsString("php: ['8.4']", $yml);
-        $this->assertStringContainsString("php: '8.3'", $yml);
         $this->assertStringContainsString('db: [sqlite, pgsql]', $yml);
-        $this->assertStringContainsString('APOTHEKE_APP: ${{ matrix.app }}', $yml);
+        $this->assertStringContainsString('APOTHEKE_APP: ci4', $yml);
         $this->assertStringContainsString('APOTHEKE_TEST_DB: ${{ matrix.db }}', $yml);
         $this->assertStringContainsString('php scripts/ci4-pgsql-proof.php', $yml);
-        $this->assertStringContainsString("matrix.app == 'ci4' && matrix.db == 'pgsql'", $yml);
+        $this->assertStringContainsString("if: matrix.db == 'pgsql'", $yml);
+        $this->assertStringContainsString('bash scripts/coverage.sh --no-readme', $yml);
+        $this->assertStringContainsString('name: coverage-ci4-sqlite', $yml);
         $proof = (string)file_get_contents($this->root() . '/scripts/ci4-pgsql-proof.php');
         $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $proof);
         $this->assertStringContainsString('apotheke_ci4_pgsql_probe rows=', $proof);
         $this->assertStringContainsString("=== '42P01'", $proof);
         $this->assertStringNotContainsString('getMessage()', $proof);
-        $wiring = (string)file_get_contents($this->root() . '/ci4/modules/Core/Boot/FrameworkWiring.php');
+        $wiring = (string)file_get_contents($this->root() . '/modules/Core/Boot/FrameworkWiring.php');
         $this->assertStringNotContainsString('apotheke_ci4_pgsql_probe', $wiring);
         $harness = (string)file_get_contents($this->root() . '/tests/ci4-router.php');
         $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $harness);
         $this->assertStringContainsString("ROOT . '/tests/ci4-router.php'", (string)file_get_contents($this->root() . '/tests/lib.php'));
-        $this->assertStringContainsString("matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'", $yml);
+        $this->assertStringNotContainsString('parity-gate', $yml);
+        $this->assertFileDoesNotExist($this->root() . '/scripts/ci4-leg.sh');
     }
 
     public function testPgsqlProofSeparatesMissingTableFromOtherFailures(): void
@@ -169,14 +172,14 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('run: bash scripts/upgrade-rollback.sh', $job);
     }
 
-    public function testLintMobilePlaywrightAndDockerRunOnPhp83AndPhp84(): void
+    public function testLintMobilePlaywrightAndDockerRunOnPhp84(): void
     {
         $yml = $this->ci();
         foreach (['lint:', 'mobile-checks:', 'e2e:'] as $job) {
             $this->assertMatchesRegularExpression(
-                '/' . preg_quote($job, '/') . "\\n(?:    .*\\n)*?    strategy:\\n      fail-fast: false\\n      matrix:\\n        php: \\['8\\.3', '8\\.4'\\]/",
+                '/' . preg_quote($job, '/') . "\\n(?:    .*\\n)*?    strategy:\\n      fail-fast: false\\n      matrix:\\n        php: \\['8\\.4'\\]\\n/",
                 $yml,
-                $job . ' keeps PHP 8.3 and adds PHP 8.4'
+                $job . ' runs on PHP 8.4'
             );
         }
         $this->assertStringContainsString('name: Lint (PHP ${{ matrix.php }})', $yml);
@@ -212,20 +215,6 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('is not supported', implode("\n", $out));
     }
 
-    public function testN4WordingNamesLegacyPhp84PhpunitAndDockerSmoke(): void
-    {
-        foreach (['AGENTS.md', 'docs/adr/001-codeigniter4.md'] as $rel) {
-            $text = (string)file_get_contents($this->root() . '/' . $rel);
-            $this->assertStringContainsString('legacy@8.3 and legacy@8.4 PHPUnit also run', $text, $rel);
-        }
-        $plan = (string)file_get_contents($this->root() . '/docs/plans/feature12-ci4/PLAN.md');
-        $this->assertStringContainsString('Docker build + smoke on a `php:8.4` test image', $plan);
-        $this->assertStringContainsString(
-            'PR 2 runs only the CI4 leg plus legacy@8.3, and the legacy@8.4 runs move to PR 3',
-            $plan
-        );
-    }
-
     public function testReleaseWorkflowStaysOnMain(): void
     {
         $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');
@@ -235,64 +224,6 @@ final class Ci4BranchCiTest extends TestCase
             $yml
         );
         $this->assertMatchesRegularExpression('/ref: main\\n/', $yml);
-    }
-
-    public function testCi4LegFailsWhenTheFrontControllerIsMissing(): void
-    {
-        $dir = $this->fixture();
-        $out = [];
-        $code = 0;
-        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
-        $this->assertSame(1, $code);
-        $this->assertNotContains('run=false', $out);
-        $err = (string)file_get_contents($this->stderrFile());
-        $this->assertStringContainsString('ci4/public/index.php is missing.', $err);
-    }
-
-    public function testCi4LegRejectsAnUnknownApp(): void
-    {
-        $out = [];
-        $code = 0;
-        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' other ' . escapeshellarg($this->root()) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
-        $this->assertSame(2, $code);
-        $this->assertStringContainsString('must be legacy or ci4', (string)file_get_contents($this->stderrFile()));
-    }
-
-    public function testLegacyLegRuns(): void
-    {
-        $out = [];
-        $code = 0;
-        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' legacy ' . escapeshellarg($this->root()), $out, $code);
-        $this->assertSame(0, $code);
-        $this->assertSame(['run=true'], $out);
-    }
-
-    public function testCi4LegRefusesATreeTheHarnessCannotTarget(): void
-    {
-        $dir = $this->fixture();
-        mkdir($dir . '/ci4/public', 0775, true);
-        mkdir($dir . '/tests', 0775, true);
-        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
-        file_put_contents($dir . '/tests/lib.php', "<?php\n");
-        $out = [];
-        $code = 0;
-        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
-        $this->assertSame(1, $code);
-        $this->assertStringContainsString('does not switch servers on APOTHEKE_APP', (string)file_get_contents($this->stderrFile()));
-    }
-
-    public function testCi4LegRunsWhenTheHarnessSwitchesApps(): void
-    {
-        $dir = $this->fixture();
-        mkdir($dir . '/ci4/public', 0775, true);
-        mkdir($dir . '/tests', 0775, true);
-        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
-        file_put_contents($dir . '/tests/lib.php', "<?php\n// APOTHEKE_APP picks the server\n");
-        $out = [];
-        $code = 0;
-        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir) . ' 2> ' . escapeshellarg($this->stderrFile()), $out, $code);
-        $this->assertSame(1, $code);
-        $this->assertStringContainsString('does not switch servers on APOTHEKE_APP', (string)file_get_contents($this->stderrFile()));
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void
@@ -341,34 +272,12 @@ final class Ci4BranchCiTest extends TestCase
         }
     }
 
-    public function testCi4LegRunsWhenTheHarnessSelectsCi4(): void
-    {
-        $dir = $this->fixture();
-        mkdir($dir . '/ci4/public', 0775, true);
-        mkdir($dir . '/tests', 0775, true);
-        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
-        file_put_contents($dir . '/tests/lib.php', <<<'PHP'
-<?php
-const ROOT = __DIR__ . '/..';
-function apotheke_app(): string { return getenv('APOTHEKE_APP') === 'ci4' ? 'ci4' : 'legacy'; }
-function apotheke_front_controller(?string $app = null): string {
-    $app ??= apotheke_app();
-    return $app === 'ci4' ? ROOT . '/ci4/public/router.php' : ROOT . '/public/index.php';
-}
-PHP);
-        $out = [];
-        $code = 0;
-        exec('bash ' . escapeshellarg($this->root() . '/scripts/ci4-leg.sh') . ' ci4 ' . escapeshellarg($dir), $out, $code);
-        $this->assertSame(0, $code);
-        $this->assertSame(['run=true'], $out);
-    }
-
     public function testCommittedArchitectureConfigsRunTheTools(): void
     {
         $root = $this->root();
         $this->assertFalse(ci4_deptrac_is_empty((string)file_get_contents($root . '/deptrac.yaml')));
         $this->assertFalse(ci4_di_is_empty((string)file_get_contents($root . '/phpstan-di.neon')));
-        if (PHP_VERSION_ID < 80400 || !is_file($root . '/ci4/vendor/autoload.php') || !is_file($root . '/vendor/bin/deptrac') || !is_file($root . '/vendor/bin/phpstan')) {
+        if (PHP_VERSION_ID < 80400 || !is_file($root . '/vendor/autoload.php') || !is_file($root . '/vendor/bin/deptrac') || !is_file($root . '/vendor/bin/phpstan')) {
             $this->markTestSkipped('deptrac, phpstan and the CI4 vendor tree are installed on PHP 8.4');
         }
         [$depCode, $depMsg] = ci4_arch_check('deptrac', $root . '/deptrac.yaml');
@@ -409,31 +318,5 @@ PHP);
         $neon = "# note\nparameters:\n    level: 6\n    paths: []\n";
         $this->assertTrue(ci4_di_is_empty($neon));
         $this->assertFalse(ci4_di_is_empty("parameters:\n    level: 6\n    paths:\n        - ci4\n"));
-    }
-
-    private string $stderr = '';
-    private string $scratch = '';
-
-    private function stderrFile(): string
-    {
-        if ($this->stderr === '') $this->stderr = tempnam(sys_get_temp_dir(), 'ci4leg');
-        return $this->stderr;
-    }
-
-    private function fixture(): string
-    {
-        $this->scratch = sys_get_temp_dir() . '/ci4-leg-' . bin2hex(random_bytes(4));
-        mkdir($this->scratch, 0775, true);
-        return $this->scratch;
-    }
-
-    protected function tearDown(): void
-    {
-        if ($this->stderr !== '') @unlink($this->stderr);
-        if ($this->scratch !== '' && is_dir($this->scratch)) {
-            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->scratch, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
-            foreach ($it as $f) $f->isDir() ? @rmdir((string)$f) : @unlink((string)$f);
-            @rmdir($this->scratch);
-        }
     }
 }

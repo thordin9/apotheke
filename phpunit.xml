@@ -10,13 +10,11 @@
         <testsuite name="unit">
             <directory>tests/Unit</directory>
         </testsuite>
-        <testsuite name="integration">
-            <directory>tests/Integration</directory>
-        </testsuite>
     </testsuites>
     <source>
         <include>
-            <directory>src</directory>
+            <directory>app</directory>
+            <directory>modules</directory>
             <directory>migrations</directory>
         </include>
     </source>

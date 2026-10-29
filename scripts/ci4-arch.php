@@ -8,7 +8,7 @@ declare(strict_types=1);
  * pass: deptrac has no layers, and the PHPStan DI config has no paths (PHPStan
  * itself rejects an empty path list, so this script does not invoke it yet).
  * Once a config gains real content, the matching tool must be installed.
- * vendor/bin (this repo, then ci4/) is checked before PATH.
+ * vendor/bin of this repo is checked before PATH.
  */
 
 function ci4_arch_strip(string $text): string
@@ -46,7 +46,7 @@ function ci4_bin_exists(string $bin): bool
 function ci4_tool_path(string $bin): ?string
 {
     $root = dirname(__DIR__);
-    foreach ([$root . '/vendor/bin/' . $bin, $root . '/ci4/vendor/bin/' . $bin] as $file) {
+    foreach ([$root . '/vendor/bin/' . $bin] as $file) {
         if (is_file($file) && is_executable($file)) return $file;
     }
     return ci4_bin_exists($bin) ? $bin : null;
@@ -64,7 +64,7 @@ function ci4_arch_plan(string $which, string $text, bool $toolInstalled, string 
     if ($empty) {
         $message = $which === 'deptrac'
             ? 'deptrac: empty config (no paths, no layers, empty ruleset). Pass. The graph is checked once layers are listed.'
-            : 'DI rule: empty PHPStan config (level 6, no paths). Pass. service() and Services:: are checked once paths point at ci4/.';
+            : 'DI rule: empty PHPStan config (level 6, no paths). Pass. service() and Services:: are checked once paths point at the modules.';
         return ['action' => 'pass', 'exit' => 0, 'message' => $message, 'command' => []];
     }
     $tool = $which === 'deptrac' ? 'deptrac' : 'phpstan';

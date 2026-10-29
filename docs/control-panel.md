@@ -4,7 +4,7 @@ The Control Panel (**☰ → Settings**, `/settings`) is where everything that i
 configured: name, colours, logo, formats, list behaviour, defaults for new items, limits, photo sizes, users and sign-in.
 Values are stored in the database (`settings` table), take effect on the next request and travel with backups.
 
-The CodeIgniter 4 app (`APOTHEKE_APP=ci4`) serves every Control Panel page as the legacy app does. Both apps read the
+The CodeIgniter 4 app serves every Control Panel page as the legacy app did. Both apps read the
 same settings ([Upgrading to 3.0](upgrade-3.0.md#before-300-the-control-panel-on-the-ci4-app)).
 
 ![Control Panel](screenshots/settings-light.png)
@@ -71,7 +71,7 @@ without `unsafe-inline`. The default indigo needs no extra stylesheet.
 Accounts live in the `users` table (migration 0018); passwords are `password_hash()` hashes. The setting
 `auth_enabled` is the switch: off means no sign-in and every visitor is an admin; on means everybody signs in with a
 user name and password and the **role** decides what they may do. Roles live in `roles` (migration 0022): a key, a
-name and a JSON list of permissions from `PERMISSIONS` in `src/roles.php` (view, create, edit, delete, move, bulk, lend,
+name and a JSON list of permissions from `Auth\Permissions` (view, create, edit, delete, move, bulk, lend,
 import, export, stocktake, labels, settings, users, backup). Built-in: admin (always everything; cannot be changed or
 deleted), editor, viewer and guest (anonymous visitors while guest browsing is on; never settings/users/backup).
 `route_perm()` names the permission every route needs, handlers check finer cases (`require_perm('move')` when the
@@ -88,7 +88,7 @@ location changes, `bulk_perm()` per bulk action); a forbidden page answers 403, 
 | `session_days` | 30 | longest a sign-in lasts, counted from sign-in. Later visits do not extend it. The server ends it when this time has passed. 1–365. A session from before the upgrade is stamped on its next request |
 | `session_idle_hours` | 168 | end a sign-in after this many hours with no request. 1–8760 (365 days). Lowering it applies on the next request. The clock moves at most once a minute. The favicon, the manifest, the theme and label styles, and the health checks do not count. The stay-signed-in limit still applies |
 
-**CI4 build (`APOTHEKE_APP=ci4`):** CI4 enforces both limits on the server, as the legacy app does. A sign-in ends
+**CI4 build:** CI4 enforces both limits on the server, as the legacy app does. A sign-in ends
 `session_days` after sign-in, even while it is in use, and after `session_idle_hours` with no request.
 
 Lockout prevention: the last active admin can't be demoted or deleted, a role can't lose *Users* if nobody else could
@@ -129,8 +129,8 @@ php bin/settings.php password                       # shortcut: password of "adm
 
 (In Docker: `docker compose exec apotheke php bin/settings.php users`.)
 
-With `APOTHEKE_APP=ci4`, `bin/settings.php` passes `list`, `get`, `set`, `reset`, `export` and `import` to
-`php ci4/spark apotheke:settings` (same output and exit codes: 1 with the message on stderr for a refused value, 2 for
+`bin/settings.php` passes `list`, `get`, `set`, `reset`, `export` and `import` to
+`php spark apotheke:settings` (same output and exit codes: 1 with the message on stderr for a refused value, 2 for
 an unknown command). The account and sign-in commands above still run on the legacy code until the CI4 Auth module lands.
 Intentional differences from legacy, otherwise output and exit codes are byte-identical:
 
@@ -180,11 +180,11 @@ comes from `APP_KEY_NEW` or stdin, never from the command arguments. See [Stored
 
 ## For developers
 
-* Schema: `settings_schema()` in `src/settings.php` — key ⇒ section, label, type (`string`, `int`, `bool`, `enum`,
+* Schema: `modules/Settings/SettingsSchema.php` — key ⇒ section, label, type (`string`, `int`, `bool`, `enum`,
   `color`, `url`, `timezone`, `tags`, …), default (a literal or `cfg:<path>` = the config value), help text and options.
-  Adding a setting = one line there plus using `setting('key')` where it matters; the form, validation, export/import,
+  Adding a setting = one line there plus reading it through `SettingsService::get('key')` where it matters; the form, validation, export/import,
   reset and seeding follow automatically. Add it to the integration test's `$secKeys`.
-* `setting()` reads all rows once per request (cached); writes clear the cache. Without the table (before the migration)
+* `SettingsService` reads all rows once per request (cached in the instance); writes clear the cache. Without the table (before the migration)
   the defaults are used.
-* Views: `src/settings_views.php`; routes: `/settings…`, `/theme.css`, `/manifest.webmanifest`, `/favicon.ico`,
-  `/brand/{file}` in `public/index.php` (the last four are public, the sign-in page needs them).
+* Views: `modules/ControlPanel/Views/`; routes: `/settings…`, `/theme.css`, `/manifest.webmanifest`, `/favicon.ico`,
+  `/brand/{file}` in `app/Config/Routes.php` (the last four are public, the sign-in page needs them).

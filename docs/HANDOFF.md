@@ -362,7 +362,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    bar (#150).
 10. Control Panel settings pages: Coder2's #151 (merged at 77d9170) no longer blocks step 18 (cutover); its
     `RoutesCompiled.php` is regenerated with these routes.
-11. After step 18: the `release/2.5` patch-only flow in `docs/releasing.md` and its `release.yml` guard (owner: Apotheke Coder).
+11. Step 18 (cutover) is in review: the tree is at the root and the legacy tests and CI legs are gone. The final parity
+    gate on the pre-cutover head (the CI run of the last `feature/ci4` push before the cutover):
+    FINAL_PARITY_RUN_ID=40907023935, FINAL_PARITY_RESULT=success (both databases, 0 differences). `src/` is removed;
+    coverage runs on the CI4 suites and uploads `coverage-ci4-sqlite`, which `release.yml` reads. Left for the
+    branch-switch PR: the workflow branch filters, the `main` / `feature/ci4` wording and N-801, N-860, N-861.
+12. After step 18: the `release/2.5` patch-only flow in `docs/releasing.md` and its `release.yml` guard (owner: Apotheke Coder).
 
 ## Tracked
 

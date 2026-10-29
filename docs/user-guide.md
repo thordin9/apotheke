@@ -384,7 +384,7 @@ stays readable even if items were deleted since. Stocktakes are included in back
 
 ☰ → *Print QR labels* prints one label per location; from a location you can also print one label per item in it, and
 every item page has a *QR label* button. Scanning a label opens that filtered list or item. The codes are generated on
-the server in pure PHP (`src/qr.php`, SVG, no network) with a print stylesheet. If the address your phone should open
+the server in pure PHP (`Labels\QrCode`, SVG, no network) with a print stylesheet. If the address your phone should open
 differs from the one you are using, set the public URL (*Settings → General*).
 
 **Several at once:** in selection mode (*Select*), pick items and choose **Print QR labels** in the actions sheet; you

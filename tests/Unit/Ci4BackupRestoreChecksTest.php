@@ -52,7 +52,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -196,7 +196,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
             file_put_contents($dir . '/home.zip', $server->client()->get('/backup.zip')['body']);
             // The other client: holds items, then (once the restore waits for items) wants locations.
-            $other = proc_open([PHP_BINARY, ROOT . '/ci4/tests/_support/hold-transaction.php',
+            $other = proc_open([PHP_BINARY, ROOT . '/tests/Modules/_support/hold-transaction.php',
                 (string)json_encode([["UPDATE items SET name = 'Other' WHERE id = 1", []]]), '300',
                 (string)json_encode([["INSERT INTO locations (name, name_key, sort_key, created_at) VALUES ('Shed', 'shed', 'shed', '2026-01-01')", []]])],
                 [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, array_merge(getenv(), test_server_env($dir)));
@@ -530,7 +530,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         });
     }
 
-    public function testARestoreIntoAFreshDataDirMakesEachFolderWithLegacysMode(): void
+    public function testARestoreIntoAFreshDataDirMakesEachFolderWithItsMode(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
             $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
@@ -540,7 +540,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             ];
             foreach ($want as $umask => $modes) {
                 $seen = [];
-                foreach (['legacy', 'ci4'] as $app) {
+                foreach (['ci4'] as $app) {
                     foreach (['images', 'thumbs', 'files', 'originals', 'tmp', 'sessions'] as $sub) {
                         rrmdir($dir . '/' . $sub);
                     }
@@ -551,9 +551,6 @@ final class Ci4BackupRestoreChecksTest extends TestCase
                 }
                 $label = sprintf('umask %04o', $umask);
                 $this->assertSame(array_map(static fn (int $m): string => sprintf('%04o', $m), $modes), $seen['ci4'], $label);
-                // tmp/ comes from the restore lock, which legacy here gets with the v2.6.23 sync (0770, as checked above).
-                $this->assertSame($seen['legacy'], array_intersect_key($seen['ci4'], $seen['legacy']), "$label: as legacy");
-                $this->assertSame([], array_values(array_diff(array_keys($seen['legacy']), array_keys($seen['ci4']))), $label);
             }
         });
     }
@@ -833,7 +830,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
      * one) switches to DATA_DIR's owner before CodeIgniter boots, so the
      * folders boot makes in a fresh DATA_DIR (images/, thumbs/, originals/,
      * originals/map/, sessions/, originals/.htaccess) and the files the
-     * restore writes are not root's, nor is anything new under ci4/writable.
+     * restore writes are not root's, nor is anything new under writable.
      */
     public function testASparkRestoreAsRootRunsAsTheDataDirOwnerBeforeBoot(): void
     {
@@ -886,7 +883,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
                 clearstatcache();
                 $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
                 $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
-                $this->assertSame('', $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
+                $this->assertSame('', $this->sudo(['find', ROOT . '/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
             } finally {
                 $this->giveBack($fresh);
                 rrmdir($fresh);
@@ -969,16 +966,16 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
 
     /** L-700: framework commands (and spark alone), with what their message suggests. */
     private const FRAMEWORK_COMMANDS = [
-        'list' => [[], 'php ci4/spark list'],
-        'routes' => [[], 'php ci4/spark routes'],
-        'cache:clear' => [[], 'php ci4/spark cache:clear'],
-        '' => [[], 'php ci4/spark'],
+        'list' => [[], 'php spark list'],
+        'routes' => [[], 'php spark routes'],
+        'cache:clear' => [[], 'php spark cache:clear'],
+        '' => [[], 'php spark'],
     ];
 
     /**
      * L-700: every spark command started as root, the framework's own too,
      * runs as DATA_DIR's owner before boot: nothing boot prepares in a fresh
-     * DATA_DIR, and nothing new under ci4/writable, is root's.
+     * DATA_DIR, and nothing new under writable, is root's.
      */
     public function testFrameworkSparkCommandsAsRootRunAsTheDataDirOwner(): void
     {
@@ -1020,7 +1017,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
                 }
                 clearstatcache();
                 $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
-                $this->assertSame('', $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
+                $this->assertSame('', $this->sudo(['find', ROOT . '/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
             } finally {
                 $this->giveBack($fresh);
                 rrmdir($fresh);
@@ -1108,7 +1105,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
     }
 
     /**
-     * `php ci4/spark <command> <args>` as root (apotheke:restore takes <dir>/full.zip first; '' runs spark alone), with DATA_DIR $fresh and the catalog's database.
+     * `php spark <command> <args>` as root (apotheke:restore takes <dir>/full.zip first; '' runs spark alone), with DATA_DIR $fresh and the catalog's database.
      *
      * @param list<string> $args
      * @param list<string> $php options for php itself
@@ -1122,7 +1119,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         }
         unset($env['APOTHEKE_CLI_ARGS'], $env['APOTHEKE_CLI_CWD']);
         $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
-            PHP_BINARY, ...$php, ROOT . '/ci4/spark', ...($command === '' ? [] : [$command]), ...($command === 'apotheke:restore' ? [$dir . '/full.zip'] : []), ...$args];
+            PHP_BINARY, ...$php, ROOT . '/spark', ...($command === '' ? [] : [$command]), ...($command === 'apotheke:restore' ? [$dir . '/full.zip'] : []), ...$args];
         $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
         $this->assertIsResource($proc);
         fclose($pipes[0]);
@@ -1173,11 +1170,11 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         return $marker;
     }
 
-    /** Files under $dir, or under ci4/writable and changed since $since, that root owns (or whose group is root's). */
+    /** Files under $dir, or under writable and changed since $since, that root owns (or whose group is root's). */
     private function rootOwned(string $dir, string $since): string
     {
         $found = $this->sudo(['find', $dir, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']);
-        $found .= $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']);
+        $found .= $this->sudo(['find', ROOT . '/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']);
 
         return $found;
     }
@@ -1208,11 +1205,11 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         return $r['stdout'];
     }
 
-    /** The files a root run made under $dir and ci4/writable go back to this user, so they can be removed. */
+    /** The files a root run made under $dir and writable go back to this user, so they can be removed. */
     private function giveBack(string $dir): void
     {
         $me = posix_geteuid() . ':' . posix_getegid();
-        foreach ([$dir, ROOT . '/ci4/writable'] as $root) {
+        foreach ([$dir, ROOT . '/writable'] as $root) {
             $this->sudo(['find', $root, '(', '-uid', '0', '-o', '-gid', '0', ')', '-exec', 'chown', '-h', $me, '{}', '+']);
         }
     }

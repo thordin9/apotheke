@@ -1,6 +1,7 @@
 # Configuration
 
-Apotheke reads its settings once per request (`cfg()` in `src/config.php`) from three layers; later layers win:
+Apotheke reads its settings once per request (`Core\Config\ApothekeConfig`, with the loader in
+`modules/Core/Config/config-functions.php`) from three layers; later layers win:
 
 1. built-in defaults (`config_defaults()`),
 2. a PHP config file: `config.php` in the project root, or the file named by `APOTHEKE_CONFIG`,
@@ -63,7 +64,7 @@ return [
 | `allowed_hosts` | `ALLOWED_HOSTS` | *(empty)* | bootstrap | Extra host names the app answers to, comma-separated (`apotheke.lan,nas.lan`; ports ignored; `*` = any). IP addresses, `localhost`, the machine's host name and `PUBLIC_URL`'s host are always accepted; other names get 421, including on the health checks `/healthz` and `/health`, so probes must use an allowed host. See [Host names](deployment-and-operations.md#host-names). |
 | `seed_defaults` | `SEED_DEFAULTS` | `true` | bootstrap | On a brand-new database, create starter locations (Box 1 ★, Living room, Kitchen, Garage, Basement, Attic) and categories (General ★, Tools, Electronics, Kitchen, Documents, Hobby, Clothing, Shoes, Books, Lighting). Only ever on a new database: upgrades never add categories. |
 | `trusted_proxies` | `TRUSTED_PROXIES` | *(none)* | bootstrap | Addresses or CIDR blocks of your own reverse proxies, comma-separated in the environment (`127.0.0.1, 192.0.2.0/24`). `X-Forwarded-For` is read only when `trust_proxy` is on and the connecting peer is listed in `trusted_proxies` / `TRUSTED_PROXIES`. The client is the rightmost hop that isn't itself a listed proxy. With `trust_proxy` on and an empty list, the connecting address is used. The per-address sign-in cap (30 / 15 min) counts that address, so a proxy left out of this list makes every client share one cap. |
-| `sign_in_fail_ms` | `SIGN_IN_FAIL_MS` | `1000` | bootstrap | Milliseconds from the start of a request to the answer of a failed password check (sign-in, current password, turning sign-in back on), whatever the account and its stored hash. Clamped to 400–10000. A success does not wait. Both apps read it: `SIGN_IN_FAIL_MS` in the environment wins over `sign_in_fail_ms` in `config.php`, which wins over the default. CI4's former own names, `signin.failDeadlineMs` in `ci4/.env` and `signin_failDeadlineMs` in the process environment, are no longer read (setting them has no effect; use `SIGN_IN_FAIL_MS`). CI4's deadline starts when its controller runs, not at the request start. |
+| `sign_in_fail_ms` | `SIGN_IN_FAIL_MS` | `1000` | bootstrap | Milliseconds from the start of a request to the answer of a failed password check (sign-in, current password, turning sign-in back on), whatever the account and its stored hash. Clamped to 400–10000. A success does not wait. Both apps read it: `SIGN_IN_FAIL_MS` in the environment wins over `sign_in_fail_ms` in `config.php`, which wins over the default. CI4's former own names, `signin.failDeadlineMs` in `.env` and `signin_failDeadlineMs` in the process environment, are no longer read (setting them has no effect; use `SIGN_IN_FAIL_MS`). CI4's deadline starts when its controller runs, not at the request start. |
 
 The Control Panel adds more DB settings with built-in defaults only (accent, logo, theme, number/date/time formats,
 list sort/view, new-item defaults, loan period, saved-filter and photo limits, JPEG quality, and the sign-in limits
@@ -94,13 +95,12 @@ Values are normalised after loading: `data_dir` and `public_url` lose a trailing
 | `APP_KEY_FILE` | app, CLI | Optional file with the same key text, outside the data directory and outside backup paths, readable by the app user. Ignored when `APP_KEY` is set. |
 | `APP_KEY_NEW` | `bin/settings.php key rotate` | Replacement key for one rotation. Never put it in the command arguments. |
 | `PORT` | Docker image | Port nginx listens on inside the container (default `9091`). Must be a number. |
-| `APOTHEKE_APP` | Docker image, CLI | `legacy` (the default) or `ci4`. With `ci4` the container serves the CodeIgniter 4 app from `ci4/public` (PHP 8.4 builds only; an older one exits with code 64), with the same start-up sign-in check. Its first start signs everyone out once. Any other value exits with code 64. CI4 takes its settings only from this page: CodeIgniter's own dotted environment overrides (`app.*`, `database.*`, `cookie.*` and the like, also from `ci4/.env`) and config registrars are not read. |
+| `APOTHEKE_APP` | Docker image | Empty (the default) or `ci4`: the container serves the CodeIgniter 4 app with the start-up sign-in check, and its first start after an upgrade signs everyone out once. `legacy` exits with code 64 (use a 2.6 image to stay on the legacy app); any other value exits with code 64. The app takes its settings only from this page: CodeIgniter's own dotted environment overrides (`app.*`, `database.*`, `cookie.*` and the like, also from `.env`) and config registrars are not read. |
 | `CI_ENVIRONMENT` | CI4 app | CodeIgniter's environment. The image sets `production`, which is also the default when it is unset. `development` logs more; `testing` is for the test suites only. |
 | `ALLOW_NO_LOGIN` | Docker image | `1`, `true` or `yes` lets the container start with sign-in off (no `APP_PASSWORD`, no sign-in in the database). Use it only on a trusted network. Empty, `0`, `false` or `no` (the default) keeps the start-up check, which exits with code 78 when sign-in is off ([Docker defaults](deployment-and-operations.md#docker-defaults-localhost-and-sign-in)). Any other value exits with code 64. |
 | `APOTHEKE_CLOCK` | app (tests) | Freezes the app's clock (`YYYY-MM-DD HH:MM:SS`, UTC). Used by the Playwright suite for deterministic screenshots; don't set it in production. |
 | `TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER`, `TEST_PG_PASSWORD` | tests | PostgreSQL used by PHPUnit, `tests/run.sh` and the Playwright `pgsql-smoke` project. Defaults `127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. |
 | `DB_DRIVER` | tests | `pgsql` runs PHPUnit / `tests/run.sh` against PostgreSQL. |
-| `KEEP_TEST_DATA` | `tests/integration.php` | Keep the temporary data directories after the run. |
 | `E2E_DOCKER_IMAGE` | Playwright | Adds the `docker-smoke` project, which runs the `@smoke` tests against that image instead of `php -S`. |
 | `CI` | Playwright | CI mode: retries, the GitHub reporter, `forbidOnly`. |
 
@@ -180,9 +180,9 @@ is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
 through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
 in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
-`docker/php.ini` enables opcache and leaves JIT off. Function JIT can miscompile the QR encoder on PHP 8.2 to 8.4,
+`docker/php.ini` enables opcache and leaves JIT off. Function JIT can miscompile the QR encoder on PHP 8.4,
 so when a function-JIT mode is active (`1235`, `function`, or any four-digit CRTO value whose trigger digit is not 5)
-`src/qr.php` sets `opcache.jit=disable` for the whole worker on the first request. Tracing JIT stays on, and
+`Labels\QrJit` sets `opcache.jit=disable` for the whole worker before its first QR code. Tracing JIT stays on, and
 `opcache_jit_blacklist()` does not help.
 
 ## Examples

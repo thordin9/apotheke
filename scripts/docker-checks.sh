@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Web-server behaviour of the Docker image (nginx + php-fpm), on top of scripts/smoke.sh.
 # Usage: scripts/docker-checks.sh [base-url]   (default http://127.0.0.1:9091)
-# APOTHEKE_APP=ci4: the container runs CI4; the same checks apply (its backup pages, PLAN step 14, N-431).
 set -euo pipefail
 base=${1:-http://127.0.0.1:9091}
 fail=0
@@ -17,17 +16,16 @@ check "healthz"                       200 "$(code "$base/healthz")"
 check "unknown route -> app 404"      404 "$(code "$base/no/such/page")"
 # /index.php is handled by the app's router (which has no such route), exactly as under Apache
 check "/index.php reaches the app"    1 "$(curl -s "$base/index.php" | grep -c 'Back to catalog')"
-r=$(code "$base/assets/../../src/bootstrap.php" --path-as-is)
+r=$(code "$base/assets/../../app/Config/App.php" --path-as-is)
 check "path traversal never executes" 1 "$([[ $r == 400 || $r == 404 ]] && echo 1 || echo "$r")"
-check "src/ blocked"                  404 "$(code "$base/src/bootstrap.php")"
 check "originals/ blocked"            404 "$(code "$base/originals/guess.jpg")"
 check "Originals/ blocked"            404 "$(code "$base/Originals/guess.jpg")"
 check "ORIGINALS/ blocked"            404 "$(code "$base/ORIGINALS/guess.jpg")"
 check "migrations/ blocked"           404 "$(code "$base/migrations/0001_initial_schema.php")"
 check "config.php blocked"            404 "$(code "$base/config.php")"
 check "dotfiles blocked"              404 "$(code "$base/.git/config")"
-# CI4's code, packages, writable dir, .env and spark sit outside its public dir (PLAN step 15)
-for p in vendor/autoload.php ci4/vendor/autoload.php writable/logs/ ci4/writable/logs/ .env ci4/.env spark ci4/spark app/Config/App.php ci4/app/Config/App.php; do
+# The code, packages, writable dir, .env and spark sit outside public/ (PLAN step 15)
+for p in vendor/autoload.php writable/logs/ .env spark app/Config/App.php modules/Core/Boot/startup.php; do
   check "/$p not served"  404 "$(code "$base/$p")"
 done
 check "random .php is 404"            404 "$(code "$base/foo.php")"

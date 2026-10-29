@@ -8,8 +8,8 @@ require_once dirname(__DIR__) . '/lib.php';
 
 /**
  * CLI goldens (PLAN step 14, second part): `php bin/backup.php` and `php
- * bin/restore.php` on legacy and with APOTHEKE_APP=ci4 (spark
- * apotheke:backup and apotheke:restore), on twin databases of the
+ * bin/restore.php`, and the spark commands they start (apotheke:backup and
+ * apotheke:restore), on twin databases of the
  * configured driver. Every step compares stdout, stderr and the exit code,
  * then the catalog tables and the photo files; every zip written is
  * compared entry by entry. A file name is relative to where the command
@@ -26,7 +26,7 @@ final class Ci4BackupCliTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -42,10 +42,10 @@ final class Ci4BackupCliTest extends TestCase
         }
     }
 
-    public function testBackupAndRestoreFormsMatchLegacy(): void
+    public function testBackupAndRestoreForms(): void
     {
-        $left = tmpdir('bcli-legacy');
-        $right = tmpdir('bcli-ci4');
+        $left = tmpdir('bcli-spark');
+        $right = tmpdir('bcli-bin');
         array_push($this->dirs, $left, $right);
         foreach ([$left, $right] as $dir) {
             $m = $this->proc([PHP_BINARY, ROOT . '/bin/migrate.php'], $this->env($dir, false), null, ROOT);
@@ -90,22 +90,29 @@ final class Ci4BackupCliTest extends TestCase
                 $this->broken($right);
             }
             $out = $detail = [];
-            foreach (['legacy' => $left, 'ci4' => $right] as $app => $dir) {
+            foreach (['spark' => $left, 'bin' => $right] as $app => $dir) {
                 $argv = array_map(static fn (string $a): string => str_replace('{dir}', $dir, $a), $args);
-                $r = $this->proc([PHP_BINARY, ROOT . '/bin/' . $form . '.php', ...$argv], $this->env($dir, $app === 'ci4'), $step[2] ?? null, $dir . '/work');
-                // Legacy adds the database's own error text; CI4 does not show it (HANDOFF Tracked).
+                // The wrapper hands spark the arguments as typed and the directory it was started in.
+                $env = $this->env($dir, true);
+                $cmd = [PHP_BINARY, ROOT . '/bin/' . $form . '.php', ...$argv];
+                if ($app === 'spark') {
+                    $env += ['APOTHEKE_CLI_CWD' => $dir . '/work', 'APOTHEKE_CLI_ARGS' => (string)json_encode($argv)];
+                    $cmd = [PHP_BINARY, ROOT . '/spark', 'apotheke:' . $form, '--no-header'];
+                }
+                $r = $this->proc($cmd, $env, $step[2] ?? null, $dir . '/work');
+                // The database's own error text is never shown (2.x added it; HANDOFF Tracked).
                 $err = str_replace($dir, '{dir}', $r['stderr']);
                 $detail[$app] = preg_match('/^The backup could not be restored \(.+\)\. Nothing was changed\.$/m', $err) === 1;
                 $err = (string)preg_replace('/^The backup could not be restored \(.+\)\. Nothing was changed\.$/m', 'The backup could not be restored. Nothing was changed.', $err);
                 $out[$app] = [str_replace($dir, '{dir}', $r['stdout']), $err, $r['exit'], $this->state($dir), $this->zips($dir)];
             }
             $label = "step $i: $form.php " . implode(' ', $args);
-            $this->assertSame([$args === ['broken.zip', '--yes'], false], [$detail['legacy'], $detail['ci4']], "$label (database text)");
+            $this->assertSame([false, false], [$detail['spark'], $detail['bin']], "$label (database text)");
             foreach (['stdout', 'stderr', 'exit', 'tables', 'zips'] as $k => $what) {
-                $this->assertSame($out['legacy'][$k], $out['ci4'][$k], "$label ($what)");
+                $this->assertSame($out['spark'][$k], $out['bin'][$k], "$label ($what)");
             }
             if ($i === 2) {
-                $this->assertMatchesRegularExpression('#^Backup written: home\.zip \(0\.0 MB\)\n  3 items, 1 locations, 0 categories, 0 tags, 1 history entries, 1 photos\n$#', $out['legacy'][0]);
+                $this->assertMatchesRegularExpression('#^Backup written: home\.zip \(0\.0 MB\)\n  3 items, 1 locations, 0 categories, 0 tags, 1 history entries, 1 photos\n$#', $out['bin'][0]);
             }
         }
         $this->assertSame([], array_diff_key($this->zips($left), ['home.zip' => 1, 'abs.zip' => 1, 'missing-photo.zip' => 1, 'not-a-zip.zip' => 1, 'broken.zip' => 1]));
@@ -210,9 +217,6 @@ final class Ci4BackupCliTest extends TestCase
             'PHP_INI_SCAN_DIR' => '',
         ]);
         unset($env['APOTHEKE_APP'], $env['APP_PASSWORD']);
-        if ($ci4) {
-            $env['APOTHEKE_APP'] = 'ci4';
-        }
 
         return array_map('strval', $env);
     }

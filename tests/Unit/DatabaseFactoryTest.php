@@ -7,9 +7,9 @@ use Apotheke\Core\Config\DatabaseFactory;
 use Apotheke\Core\Config\DsnTranslator;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/ApothekeConfig.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/DsnTranslator.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/DatabaseFactory.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/ApothekeConfig.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/DsnTranslator.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/DatabaseFactory.php';
 
 final class DatabaseFactoryTest extends TestCase
 {

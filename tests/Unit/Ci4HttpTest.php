@@ -6,7 +6,7 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
 
-/** The CI4 dev server against the legacy health contract. */
+/** The dev server: the health contract, originals, cookies and the router. */
 final class Ci4HttpTest extends TestCase
 {
     /**
@@ -15,13 +15,14 @@ final class Ci4HttpTest extends TestCase
      * and its Set-Cookie line, as legacy's GET / does (SEC-L2).
      */
     private const ON_DEMAND = ['APOTHEKE_TEST_SESSION_ON_DEMAND' => '1'];
+    private const CSP = "default-src 'self'; connect-src 'self' blob:; img-src 'self' blob: data:; style-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
 
     public function testShippedBootDoesNotWriteThePgsqlProbe(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $shipped = dirname(__DIR__, 2) . '/ci4/public/router.php';
+        $shipped = dirname(__DIR__, 2) . '/public/router.php';
         $sqliteDir = tmpdir('ci4-shipped-sqlite');
         $sqlite = new Server($sqliteDir, [
             'CI_ENVIRONMENT' => 'production',
@@ -102,18 +103,15 @@ final class Ci4HttpTest extends TestCase
 
     public function testHealthOriginalsCookiesAndRouter(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $legacyDir = tmpdir('ci4-leg');
         $ci4Dir = tmpdir('ci4-app');
-        $legacy = new Server($legacyDir, [], 'legacy');
         $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
-        $asset = dirname(__DIR__, 2) . '/ci4/public/assets/ping.txt';
+        $asset = dirname(__DIR__, 2) . '/public/assets/ping.txt';
         try {
-            $this->compareHealth($legacy, $ci4);
+            $this->health($ci4);
             $this->assertTrue($ci4->logHas('apotheke-harness app=ci4'));
-            $this->assertFalse($legacy->logHas('apotheke-harness app=ci4'));
             if (test_driver() === 'pgsql') {
                 $this->assertGreaterThan(0, $this->probeRows(), 'CI4 pgsql leg did not write apotheke_ci4_pgsql_probe');
                 $this->cookies($ci4, null);
@@ -122,7 +120,7 @@ final class Ci4HttpTest extends TestCase
                 $this->assertSame('wal', $pdo->query('PRAGMA journal_mode')->fetchColumn());
                 $this->cookies($ci4, $pdo);
             }
-            $this->originals($legacy->client(), $ci4->client());
+            $this->originals($ci4->client());
             $this->assertSame(0750, fileperms($ci4Dir . '/originals') & 0777);
             $this->assertSame(0640, fileperms($ci4Dir . '/originals/.htaccess') & 0777);
             $this->router($ci4, $asset);
@@ -130,24 +128,54 @@ final class Ci4HttpTest extends TestCase
             $this->healthVerbs($ci4);
             $this->sessionToken($ci4);
         } finally {
-            $legacy->stop();
             $ci4->stop();
             @unlink($asset);
-            testdb_drop($legacyDir);
             testdb_drop($ci4Dir);
-            rrmdir($legacyDir);
             rrmdir($ci4Dir);
-            @unlink($legacyDir . '.server.log');
             @unlink($ci4Dir . '.server.log');
+        }
+    }
+
+    /**
+     * N-965: public/router.php refuses /originals before it serves static
+     * files, so a camera original that ended up under public/originals is not
+     * sent by the dev server (index.php alone would never see that request).
+     */
+    public function testTheDevRouterRefusesAnOriginalUnderTheWebRoot(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        $web = dirname(__DIR__, 2) . '/public/originals';
+        $this->assertDirectoryDoesNotExist($web, 'public/originals must not exist in the checkout');
+        $name = bin2hex(random_bytes(8)) . '.jpg';
+        mkdir($web, 0775);
+        file_put_contents($web . '/' . $name, 'camera original');
+        $dir = tmpdir('ci4-router-originals');
+        $server = new Server($dir, [], 'ci4', dirname(__DIR__, 2) . '/public/router.php');
+        try {
+            foreach (['/originals/' . $name, '/Originals/' . $name] as $path) {
+                $r = $server->client()->get($path);
+                $this->assertSame([404, 'Not found'], [$r['status'], $r['body']], $path);
+                $this->assertSame('text/plain; charset=UTF-8', $r['headers']['content-type'] ?? '', $path);
+            }
+            // the same server sends other files under public/ as they are
+            $this->assertSame(200, $server->client()->get('/assets/app.css')['status']);
+        } finally {
+            $server->stop();
+            @unlink($web . '/' . $name);
+            @rmdir($web);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
         }
     }
 
     public function testSymlinkIntoTheWebRootRefusesWithAGenericPage(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $web = dirname(__DIR__, 2) . '/ci4/public/hidden-originals';
+        $web = dirname(__DIR__, 2) . '/public/hidden-originals';
         $link = sys_get_temp_dir() . '/apo-orig-link-' . bin2hex(random_bytes(3));
         mkdir($web, 0775, true);
         symlink($web, $link);
@@ -176,84 +204,63 @@ final class Ci4HttpTest extends TestCase
 
     public function testTrustProxyFollowsTheSchemaOnPostgres(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         if (test_driver() !== 'pgsql') {
             $this->markTestSkipped('PostgreSQL leg only');
         }
-        $legacyDir = tmpdir('ci4-trust-leg');
         $ci4Dir = tmpdir('ci4-trust');
-        $legacy = new Server($legacyDir, [], 'legacy');
         $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
         try {
             $this->assertNotSame('', test_db_env($ci4Dir)['DB_SCHEMA']);
             $this->assertNotSame('public', test_db_env($ci4Dir)['DB_SCHEMA']);
-            $legacy->client()->get('/');
             $migrated = $ci4->client()->get('/healthz');
             $this->assertSame(200, $migrated['status'], (string)@file_get_contents($ci4->log));
-            $this->seedTrust($legacyDir);
             $this->seedTrust($ci4Dir);
             $header = ['X-Forwarded-Proto: https'];
-            $left = (new Client($legacy->base))->get('/', $header);
             $right = (new Client($ci4->base))->get('/', $header);
-            $this->assertStringContainsString('secure', strtolower($this->cookieLine($left)));
             $this->assertStringContainsString('secure', strtolower($this->cookieLine($right)));
             $health = $ci4->client()->get('/healthz');
             $this->assertSame(200, $health['status'], (string)@file_get_contents($ci4->log));
         } finally {
-            $legacy->stop();
             $ci4->stop();
-            testdb_drop($legacyDir);
             testdb_drop($ci4Dir);
-            rrmdir($legacyDir);
             rrmdir($ci4Dir);
-            @unlink($legacyDir . '.server.log');
             @unlink($ci4Dir . '.server.log');
         }
     }
 
-    /** SEC-N9: the CI4 session cookie lasts session_days, like legacy. */
+    /** SEC-N9: the session cookie lasts session_days. */
     public function testSessionCookieFollowsSessionDays(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $legacyDir = tmpdir('ci4-days-leg');
         $ci4Dir = tmpdir('ci4-days');
-        $legacy = new Server($legacyDir, [], 'legacy');
         $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
         try {
-            $this->assertSame(200, $legacy->client()->get('/healthz')['status']);
             $this->assertSame(200, $ci4->client()->get('/healthz')['status'], (string)@file_get_contents($ci4->log));
             $this->assertStringContainsString('max-age=2592000', strtolower($this->cookieLine($ci4->client()->get('/'))));
             foreach (['7' => 604800, '400' => 2592000] as $days => $maxAge) {
-                // 400 is outside 1–365: the stored value is invalid, so both fall back to 30 days.
-                foreach ([$legacyDir, $ci4Dir] as $dir) {
-                    $pdo = testdb($dir);
-                    $pdo->exec("DELETE FROM settings WHERE name = 'session_days'");
-                    $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('session_days', '" . $days . "', '2026-01-01')");
-                }
-                $left = strtolower($this->cookieLine($legacy->client()->get('/')));
+                // 400 is outside 1–365: the stored value is invalid, so it falls back to 30 days.
+                $pdo = testdb($ci4Dir);
+                $pdo->exec("DELETE FROM settings WHERE name = 'session_days'");
+                $pdo->exec("INSERT INTO settings (name, value, updated_at) VALUES ('session_days', '" . $days . "', '2026-01-01')");
                 $right = strtolower($this->cookieLine($ci4->client()->get('/')));
-                $this->assertStringContainsString('max-age=' . $maxAge, $left, 'legacy ' . $days);
                 $this->assertStringContainsString('max-age=' . $maxAge, $right, 'ci4 ' . $days);
             }
         } finally {
-            $legacy->stop();
             $ci4->stop();
-            testdb_drop($legacyDir);
             testdb_drop($ci4Dir);
-            rrmdir($legacyDir);
             rrmdir($ci4Dir);
-            @unlink($legacyDir . '.server.log');
             @unlink($ci4Dir . '.server.log');
         }
     }
 
     public function testHealthzAcceptsABackslashPasswordOnPostgres(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         if (test_driver() !== 'pgsql') {
@@ -282,7 +289,7 @@ final class Ci4HttpTest extends TestCase
 
     public function testBadDsnFailsAtBootAndRedactsThePassword(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $dir = tmpdir('ci4-dsn');
@@ -306,55 +313,42 @@ final class Ci4HttpTest extends TestCase
         }
     }
 
-    private function compareHealth(Server $legacy, Server $ci4): void
+    /** The health contract (docs/api.md): /healthz is a plain ok, /health the status and version as JSON. */
+    private function health(Server $ci4): void
     {
-        $left = $legacy->client()->get('/healthz');
         $right = $ci4->client()->get('/healthz');
         $this->assertSame(200, $right['status']);
-        $this->assertSame($left['body'], $right['body']);
         $this->assertSame('ok', $right['body']);
-        $this->assertSame($left['headers']['content-type'], $right['headers']['content-type']);
-        $this->assertSame($left['headers']['x-apotheke-version'], $right['headers']['x-apotheke-version']);
-        foreach (['x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'] as $name) {
-            $this->assertSame($left['headers'][$name], $right['headers'][$name], $name);
-        }
+        $this->assertSame('text/plain;charset=UTF-8', $right['headers']['content-type']);
+        $version = $right['headers']['x-apotheke-version'];
+        $this->assertMatchesRegularExpression('/^\d+\.\d+\.\d+/', $version);
+        $this->assertSame(['nosniff', 'SAMEORIGIN', 'same-origin'], [$right['headers']['x-content-type-options'], $right['headers']['x-frame-options'], $right['headers']['referrer-policy']]);
+        $this->assertSame(self::CSP, $right['headers']['content-security-policy']);
         $this->assertArrayNotHasKey('set-cookie', $right['headers']);
-        $healthLeft = $legacy->client()->get('/health');
         $healthRight = $ci4->client()->get('/health');
-        $this->assertSame($healthLeft['body'], $healthRight['body']);
-        $this->assertSame($healthLeft['headers']['content-type'], $healthRight['headers']['content-type']);
+        $this->assertSame('{"status":"ok","version":"' . $version . '"}', $healthRight['body']);
+        $this->assertSame('application/json', $healthRight['headers']['content-type']);
         $this->assertSame('no-store', $healthRight['headers']['cache-control']);
-        $this->assertSame($healthLeft['json'], $healthRight['json']);
+        $this->assertSame(['status' => 'ok', 'version' => $version], $healthRight['json']);
     }
 
-    private function originals(Client $legacy, Client $ci4): void
+    private function originals(Client $ci4): void
     {
         foreach (['/originals/guess.jpg', '/Originals/guess.jpg', '/ORIGINALS/guess.jpg'] as $path) {
-            $left = $legacy->get($path);
             $right = $ci4->get($path);
             $this->assertSame(404, $right['status'], $path);
-            $this->assertSame($left['body'], $right['body'], $path);
             $this->assertSame('Not found', $right['body']);
-            $this->assertSame($left['headers']['content-type'], $right['headers']['content-type'], $path);
+            $this->assertSame('text/plain; charset=UTF-8', $right['headers']['content-type'], $path);
             $this->assertArrayNotHasKey('content-security-policy', $right['headers'], $path);
             $this->assertArrayNotHasKey('set-cookie', $right['headers'], $path);
         }
         $plain = $ci4->get('/no-such-page');
         $this->assertSame(404, $plain['status']);
         $this->assertArrayHasKey('set-cookie', $plain['headers']);
-        // SEC-N8: the error page carries the same security headers as legacy view_error(),
-        // and it is legacy's page (Layout), apart from the cache busters and the token.
-        $legacyPage = $legacy->get('/no-such-page');
-        $this->assertSame(404, $legacyPage['status']);
-        // This client holds a session from the cookie checks; legacy's does not.
-        $busters = static fn (string $html): string => (string)preg_replace(['#\?v=[0-9a-f]{8}#', '#<meta name="csrf" content="[0-9a-f]*">#'], ['?v=V', '<meta name="csrf" content="T">'], $html);
+        // SEC-N8: the error page is the Layout page and carries the security headers.
         $this->assertStringContainsString('<p>Page not found.</p>', $plain['body']);
-        $this->assertSame($busters($legacyPage['body']), $busters($plain['body']));
-        $this->assertSame('nosniff', $plain['headers']['x-content-type-options'] ?? '');
-        foreach (['x-content-type-options', 'x-frame-options', 'referrer-policy', 'content-security-policy'] as $name) {
-            $this->assertNotSame('', $legacyPage['headers'][$name] ?? '', $name);
-            $this->assertSame($legacyPage['headers'][$name], $plain['headers'][$name] ?? '', $name);
-        }
+        $this->assertStringContainsString('<link rel="stylesheet" href="/assets/app.css?v=', $plain['body']);
+        $this->assertSame(['nosniff', 'SAMEORIGIN', 'same-origin', self::CSP], [$plain['headers']['x-content-type-options'] ?? '', $plain['headers']['x-frame-options'] ?? '', $plain['headers']['referrer-policy'] ?? '', $plain['headers']['content-security-policy'] ?? '']);
     }
 
     private function seedTrust(string $dir): void

@@ -1,5 +1,23 @@
-# Camera originals live outside this directory. If a path containing /originals is requested
-# anyway (a mis-set ORIGINALS_DIR under the document root), refuse it.
-<IfModule mod_alias.c>
-    RedirectMatch 404 (?i)/originals
+# Disable directory browsing
+Options -Indexes
+
+# Camera originals are never a URL, in any spelling.
+RedirectMatch 404 (?i)(?:^|/)originals(?:/|$)
+
+<IfModule mod_rewrite.c>
+	Options +FollowSymlinks
+	RewriteEngine On
+
+	RewriteCond %{REQUEST_FILENAME} !-f
+	RewriteCond %{REQUEST_FILENAME} !-d
+	RewriteRule ^([\s\S]*)$ index.php/$1 [L,NC,QSA]
+
+	RewriteCond %{HTTP:Authorization} .
+	RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 </IfModule>
+
+<IfModule !mod_rewrite.c>
+	ErrorDocument 404 index.php
+</IfModule>
+
+ServerSignature Off

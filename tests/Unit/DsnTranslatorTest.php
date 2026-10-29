@@ -6,7 +6,7 @@ use Apotheke\Core\Config\DsnException;
 use Apotheke\Core\Config\DsnTranslator;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/DsnTranslator.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/DsnTranslator.php';
 
 final class DsnTranslatorTest extends TestCase
 {

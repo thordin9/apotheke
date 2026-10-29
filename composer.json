@@ -1,21 +1,14 @@
 {
     "name": "thordin9/apotheke",
-    "description": "Apotheke (ἀποθήκη): a fast, mobile-first PHP catalog for your stuff (SQLite or PostgreSQL)",
-    "type": "project",
+    "description": "Apotheke (ἀποθήκη): a fast, mobile-first catalog for your stuff on CodeIgniter 4 (SQLite or PostgreSQL)",
     "license": "MIT",
+    "type": "project",
     "require": {
-        "php": ">=8.2",
-        "ext-gd": "*",
+        "php": "^8.4",
+        "ext-intl": "*",
         "ext-mbstring": "*",
-        "ext-pdo": "*",
-        "ext-sodium": "*"
-    },
-    "suggest": {
-        "ext-pdo_sqlite": "SQLite storage (default)",
-        "ext-pdo_pgsql": "PostgreSQL storage",
-        "ext-exif": "Honour photo orientation",
-        "ext-dom": "SVG logo uploads in the Control Panel (sanitizer)",
-        "ext-imagick": "HEIC/HEIF photos, and JPEG photos above 40 megapixels (decoded already reduced). Transparent areas are flattened onto white and CMYK is converted to sRGB, matching GD. For a grayscale photo, Imagick writes a 1-channel JPEG, so that match is approximate. The Docker image includes Imagick with libheif; without it a HEIC upload is kept and shown as a placeholder"
+        "ext-sqlite3": "*",
+        "codeigniter4/framework": "4.7.5"
     },
     "require-dev": {
         "deptrac/deptrac": "^2.0",
@@ -23,19 +16,34 @@
         "phpunit/phpcov": "^10.0",
         "phpunit/phpunit": "^11.5"
     },
-    "autoload-dev": {
-        "classmap": ["tests/Unit/", "tests/Integration/"],
+    "autoload": {
         "psr-4": {
-            "Apotheke\\Tools\\PhpStan\\": "ci4/tools/PhpStan/"
+            "App\\": "app/",
+            "Config\\": "app/Config/",
+            "Apotheke\\": "modules/"
+        },
+        "exclude-from-classmap": [
+            "**/Database/Migrations/**"
+        ]
+    },
+    "autoload-dev": {
+        "classmap": [
+            "tests/Unit/"
+        ],
+        "psr-4": {
+            "Apotheke\\Tools\\PhpStan\\": "tools/PhpStan/"
         }
     },
     "scripts": {
         "test": "phpunit",
-        "test:unit": "phpunit --testsuite unit",
-        "test:integration": "phpunit --testsuite integration"
+        "test:unit": "phpunit --testsuite unit"
     },
     "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
         "sort-packages": true,
-        "platform": { "php": "8.2.0" }
+        "platform": {
+            "php": "8.4.26"
+        }
     }
 }

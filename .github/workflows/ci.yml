@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        php: ['8.4']
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -63,38 +63,24 @@ jobs:
           coverage: none
           extensions: intl, mbstring, sqlite3
           tools: composer:v2
-      - name: Install dev dependencies
+      - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
-      - name: Install CI4 dependencies
-        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
-      - name: Audit CI4 dependencies
-        run: composer audit --no-interaction --working-dir=ci4
+      - name: Audit dependencies
+        run: composer audit --no-interaction
       - name: Constructor injection
         run: php scripts/ci4-arch.php di
 
   test:
-    name: Tests (${{ matrix.app }} @ PHP ${{ matrix.php }}, ${{ matrix.db }})
+    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.db }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        # PHP 8.4 × both apps. scripts/ci4-leg.sh accepts only legacy and ci4.
-        # legacy@8.4 runs the same PHPUnit suite as legacy@8.3.
-        # Lint, mobile and Playwright also run on 8.3 and 8.4; Docker builds the shipped 8.4 image.
-        # ci4 requires PHP ^8.4 (ci4/composer.json), so the 8.3 legs test legacy only.
-        # For ci4, the migration runner goldens run on 8.3 and the /healthz goldens on 8.4.
-        app: [legacy, ci4]
+        # 3.0 requires PHP ^8.4 (composer.json). The legacy app is tested on its own branch;
+        # the upgrade-rollback job below runs the v2.6.26 reference.
         php: ['8.4']
         db: [sqlite, pgsql]
-        include:
-          # legacy@8.3 is the shipped 2.5.x image: the upgrade/rollback reference.
-          - app: legacy
-            php: '8.3'
-            db: sqlite
-          - app: legacy
-            php: '8.3'
-            db: pgsql
     services:
       postgres:
         image: postgres:17
@@ -113,7 +99,7 @@ jobs:
       TEST_PG_DB: apotheke
       TEST_PG_USER: apotheke
       TEST_PG_PASSWORD: 'apotheke\test'
-      APOTHEKE_APP: ${{ matrix.app }}
+      APOTHEKE_APP: ci4
       APOTHEKE_TEST_DB: ${{ matrix.db }}
     steps:
       - uses: actions/checkout@v4
@@ -123,29 +109,22 @@ jobs:
           extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, dom, zip, imagick, sodium
           coverage: pcov
           tools: composer:v2
-      - name: Decide whether this leg runs the suite
-        id: suite
-        run: bash scripts/ci4-leg.sh "${{ matrix.app }}" . >> "$GITHUB_OUTPUT"
       - name: Composer cache dir
         id: composer-cache
-        if: steps.suite.outputs.run == 'true'
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
-        if: steps.suite.outputs.run == 'true'
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'ci4/composer.lock') }}
+          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
-      - name: Install zbar (QR round-trip tests) and, on ci4, the HEIC decoder
-        if: steps.suite.outputs.run == 'true'
+      - name: Install zbar (QR round-trip tests) and the HEIC decoder
         # A hung mirror once kept this step running for hours. Each apt call gets its own timeout,
         # the whole install is retried 3 times, and the step itself stops after 15 minutes.
         timeout-minutes: 15
         run: |
           apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-          pkgs=(zbar-tools)
-          # CI4 MediaTest converts a real HEIC (CI=true fails instead of skipping without a decoder).
-          if [ "${{ matrix.app }}" = ci4 ]; then pkgs+=(libheif-plugin-libde265); fi
+          # MediaTest converts a real HEIC (CI=true fails instead of skipping without a decoder).
+          pkgs=(zbar-tools libheif-plugin-libde265)
           for i in 1 2 3; do
             if timeout 120 sudo apt-get "${apt_opts[@]}" update -qq \
               && timeout 180 sudo apt-get "${apt_opts[@]}" install -y -qq "${pkgs[@]}"; then
@@ -155,14 +134,9 @@ jobs:
             [ "$i" -lt 3 ] && sleep $((i * 15))
           done
           exit 1
-      - name: Install dev dependencies
-        if: steps.suite.outputs.run == 'true'
+      - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
-      - name: Install CI4 dependencies
-        if: steps.suite.outputs.run == 'true' && matrix.php == '8.4'
-        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
-        if: steps.suite.outputs.run == 'true'
         run: |
           export DATA_DIR="$RUNNER_TEMP/cli-data" DB_HOST=127.0.0.1 DB_SCHEMA=ci_cli
           export DB_PASSWORD="$TEST_PG_PASSWORD"
@@ -171,36 +145,34 @@ jobs:
           php bin/seed.php --demo
           php bin/seed.php --demo | grep -q 'Demo items created: 0'
           php bin/migrate.php --status
-      - name: PHPUnit (unit + HTTP integration)
-        if: steps.suite.outputs.run == 'true'
+      - name: PHPUnit (root suite; it also runs the module suite)
+        if: matrix.db == 'pgsql'
         run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
-      - name: Prove the real-HEIC Media test runs (CI4)
-        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
+      - name: Prove the real-HEIC Media test runs
         run: |
           php -r 'echo "Imagick HEIC/HEIF: ", json_encode(Imagick::queryFormats("HEI*")), PHP_EOL;'
-          vendor/bin/phpunit -c ci4/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
-      - name: CI4 Autofill and Media suites with allow_url_fopen off (L-270, N-281)
-        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
-        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c ci4/phpunit.xml.dist --fail-on-skipped --fail-on-empty-test-suite --testdox ci4/tests/Autofill ci4/tests/Media
-      - name: Prove CI4 used PostgreSQL
-        if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
+          vendor/bin/phpunit -c tests/Modules/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
+      - name: Autofill and Media suites with allow_url_fopen off (L-270, N-281)
+        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c tests/Modules/phpunit.xml.dist --fail-on-skipped --fail-on-empty-test-suite --testdox tests/Modules/Autofill tests/Modules/Media
+      - name: Prove the suite used PostgreSQL
+        if: matrix.db == 'pgsql'
         run: php scripts/ci4-pgsql-proof.php
       - uses: actions/setup-node@v4
-        if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
+        if: matrix.db == 'sqlite'
         with:
           node-version: '20'
           cache: npm
-      - name: Coverage (unit + HTTP suites merged, Playwright test counts)
-        if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
+      - name: PHPUnit with coverage (module and root suites and their php -S requests, Playwright test counts)
+        if: matrix.db == 'sqlite'
         run: |
           npm ci --no-audit --no-fund
-          bash scripts/coverage.sh --no-readme
+          PHPUNIT_ARGS="--log-junit $RUNNER_TEMP/junit.xml" bash scripts/coverage.sh --no-readme
           php scripts/coverage-readme.php coverage --print >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report (clover XML + HTML; used by the release workflow)
-        if: steps.suite.outputs.run == 'true' && matrix.app == 'legacy' && matrix.php == '8.3' && matrix.db == 'sqlite'
+        if: matrix.db == 'sqlite'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-sqlite
+          name: coverage-ci4-sqlite
           path: |
             coverage/*.xml
             coverage/*.txt
@@ -215,15 +187,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        php: ['8.4']
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, exif, mbstring, zip, sodium
+          extensions: gd, pdo_sqlite, exif, mbstring, zip, sodium, intl
           coverage: none
-          tools: none
+          tools: composer:v2
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist --no-dev
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -234,7 +208,7 @@ jobs:
       - name: Start app and seed demo data
         run: |
           mkdir -p /tmp/e2e-data
-          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:9091 -t public public/index.php > /tmp/e2e-server.log 2>&1 &
+          DATA_DIR=/tmp/e2e-data php -S 127.0.0.1:9091 -t public public/router.php > /tmp/e2e-server.log 2>&1 &
           sleep 1
           php tests/e2e/seed.php http://127.0.0.1:9091
       - name: Run mobile checks (375×667, 390×844)
@@ -254,7 +228,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.3', '8.4']
+        php: ['8.4']
         shard: [1, 2, 3]
     services:
       postgres:
@@ -276,21 +250,16 @@ jobs:
         run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
         run: npm ci --no-audit --no-fund
-      - name: Run Playwright
-        run: npx playwright test --shard=${{ matrix.shard }}/3
-      # CI4 (PHP 8.4 only): the specs of ported pages; tests that need an unported page skip
-      # (CI4_UNPORTED in tests/visual/fixtures.ts, listed in docs/HANDOFF.md).
-      - name: Install the CI4 runtime (intl, Composer, ci4/vendor)
-        if: matrix.php == '8.4'
+      # Specs that need an unported page skip (CI4_UNPORTED in tests/visual/fixtures.ts, listed in docs/HANDOFF.md).
+      - name: Install the runtime (intl, Composer, vendor)
         run: |
           apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends php8.4-intl >/dev/null
           # shellcheck disable=SC2016 # PHP code, expanded by php
           php -r '$f = "/usr/local/bin/composer"; copy("https://getcomposer.org/download/2.10.3/composer.phar", $f);
             if (hash_file("sha256", $f) !== "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6") { unlink($f); fwrite(STDERR, "composer.phar checksum mismatch\n"); exit(1); }
             chmod($f, 0755);'
-          composer install --no-interaction --no-progress --prefer-dist --no-dev --working-dir=ci4
-      - name: Run Playwright on CI4 (ported pages)
-        if: matrix.php == '8.4'
+          composer install --no-interaction --no-progress --prefer-dist --no-dev
+      - name: Run Playwright (ported pages)
         env:
           E2E_APP: ci4
         run: >-
@@ -325,8 +294,7 @@ jobs:
       fail-fast: false
       matrix:
         # The exact PHP patch, passed as the PHP_VERSION build-arg. It is the shipped
-        # default (Dockerfile ARG PHP_VERSION) and must match it. The one image serves
-        # legacy (the default) and ci4 (APOTHEKE_APP=ci4).
+        # default (Dockerfile ARG PHP_VERSION) and must match it.
         include:
           - php: '8.4'
             php_patch: '8.4.27'
@@ -425,10 +393,6 @@ jobs:
             apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8081
-      - name: Legacy DSN credential precedence (golden cases a-e3)
-        run: |
-          docker run --rm --network host --entrypoint php -e APP_ROOT=/var/www/app -e TEST_PG_PASSWORD=apotheke \
-            -v "$PWD/scripts/legacy-dsn-precedence.php:/tmp/legacy-dsn-precedence.php:ro" apotheke:ci /tmp/legacy-dsn-precedence.php
       - name: Graceful stop (SIGTERM reaches nginx and php-fpm, exit code 0)
         run: |
           start=$(date +%s)
@@ -436,46 +400,16 @@ jobs:
           code=$(docker inspect -f '{{.State.ExitCode}}' apotheke)
           echo "stopped in $(( $(date +%s) - start ))s with exit code $code"
           test "$code" = 0
-      - name: CI4 image, sign-in required at start (#75 port; APOTHEKE_APP=ci4)
-        if: matrix.php == '8.4'
-        run: APOTHEKE_APP=ci4 bash scripts/docker-signin-checks.sh apotheke:ci
-      - name: CI4 image on SQLite (smoke, web server checks)
-        if: matrix.php == '8.4'
-        run: |
-          set -euo pipefail
-          docker run -d --name apotheke-ci4 -p 9093:9093 -e PORT=9093 -e APOTHEKE_APP=ci4 -e ALLOW_NO_LOGIN=1 apotheke:ci
-          bash scripts/smoke.sh http://127.0.0.1:9093
-          APOTHEKE_APP=ci4 bash scripts/docker-checks.sh http://127.0.0.1:9093
-      - name: CI4 image with sign-in on (sessions on demand, SIGN_IN_FAIL_MS)
-        if: matrix.php == '8.4'
+      - name: Sign-in on with SIGN_IN_FAIL_MS (sessions on demand, failed sign-in pacing)
         run: |
           set -euo pipefail
           APP_PW=$(openssl rand -hex 16)
           export APP_PW
-          docker run -d --name apotheke-ci4-auth -p 9094:9094 -e PORT=9094 -e APOTHEKE_APP=ci4 -e SIGN_IN_FAIL_MS=1500 \
+          docker run -d --name apotheke-auth-ms -p 9094:9094 -e PORT=9094 -e SIGN_IN_FAIL_MS=1500 \
             -e APP_PASSWORD="$APP_PW" apotheke:ci
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9094/healthz && break; sleep 0.2; done
-          APOTHEKE_APP=ci4 FAIL_MS=1500 bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
-          docker rm -f apotheke-ci4-auth >/dev/null
-      - name: CI4 image on PostgreSQL (smoke, web server checks)
-        if: matrix.php == '8.4'
-        run: |
-          set -euo pipefail
-          docker run -d --name apotheke-ci4-pg --network host -e PORT=8082 -e APOTHEKE_APP=ci4 -e ALLOW_NO_LOGIN=1 \
-            -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_NAME=apotheke -e DB_USER=apotheke -e DB_PASSWORD=apotheke \
-            -e DB_SCHEMA=ci4 apotheke:ci
-          bash scripts/smoke.sh http://127.0.0.1:8082
-          APOTHEKE_APP=ci4 bash scripts/docker-checks.sh http://127.0.0.1:8082
-      - name: CI4 graceful stop (both databases, exit code 0)
-        if: matrix.php == '8.4'
-        run: |
-          set -euo pipefail
-          for c in apotheke-ci4 apotheke-ci4-pg; do
-            docker stop -t 20 "$c"
-            code=$(docker inspect -f '{{.State.ExitCode}}' "$c")
-            echo "$c stopped with exit code $code"
-            test "$code" = 0
-          done
+          FAIL_MS=1500 bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
+          docker rm -f apotheke-auth-ms >/dev/null
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -502,8 +436,6 @@ jobs:
         run: |
           docker logs apotheke || true
           docker logs apotheke-pg || true
-          docker logs apotheke-ci4 || true
-          docker logs apotheke-ci4-pg || true
 
   commits:
     name: Conventional Commits
@@ -547,89 +479,14 @@ jobs:
       - name: Scan full git history
         run: gitleaks git --log-opts="--all" --redact --no-banner --exit-code 1
 
-  # PLAN step 16 (part 1): the parity gate. One scenario over every ported area on a legacy and a CI4 server,
-  # both on PHP 8.4, compared step by step (answer, tables, data dir, autofill uploads). Any difference fails the
-  # job; the allowlist holds only the four approved quirks and hides nothing here. The p95 table per area goes to
-  # the job summary. Step 16 bar (docs/testing.md, "Parity gate"): PostgreSQL p95 within +20 % (PARITY_P95_MAX_PCT)
-  # and median + 20 ms; SQLite median + 3 ms (PARITY_P95_MAX_ABS_MS with PARITY_BUDGET_STAT=median).
-  parity-gate:
-    name: Parity gate (CI4 vs legacy @ PHP ${{ matrix.php }}, ${{ matrix.db }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        php: ['8.4']
-        db: [sqlite, pgsql]
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_DB: apotheke
-          POSTGRES_USER: apotheke
-          POSTGRES_PASSWORD: 'apotheke\test'
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      DB_DRIVER: ${{ matrix.db }}
-      APOTHEKE_TEST_DB: ${{ matrix.db }}
-      TEST_PG_HOST: 127.0.0.1
-      TEST_PG_PORT: '5432'
-      TEST_PG_DB: apotheke
-      TEST_PG_USER: apotheke
-      TEST_PG_PASSWORD: 'apotheke\test'
-      PARITY_P95_MAX_ABS_MS: ${{ matrix.db == 'pgsql' && '20' || '3' }}
-      PARITY_BUDGET_STAT: median
-      # Step 16 done criterion (decision by Stathis, 2026-10-27, via the PM): PG p95 within +20 %; SQLite median + 3 ms.
-      PARITY_P95_MAX_PCT: ${{ matrix.db == 'pgsql' && '20' || '' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php }}
-          extensions: gd, pdo_sqlite, pdo_pgsql, pgsql, sqlite3, intl, exif, mbstring, dom, zip, imagick, sodium, opcache
-          coverage: none
-          tools: composer:v2
-      - name: Install the HEIC decoder (both apps convert the HEIC step)
-        timeout-minutes: 10
-        run: |
-          for i in 1 2 3; do
-            if timeout 120 sudo apt-get -o Acquire::Retries=3 update -qq \
-              && timeout 180 sudo apt-get -o Acquire::Retries=3 install -y -qq libheif-plugin-libde265; then
-              exit 0
-            fi
-            [ "$i" -lt 3 ] && sleep $((i * 15))
-          done
-          exit 1
-      - name: Install dependencies (root and ci4)
-        run: |
-          composer install --no-interaction --no-progress --prefer-dist
-          composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
-      - name: Parity gate
-        run: |
-          set -o pipefail
-          php scripts/parity-gate.php --rounds=15 --markdown --json "$RUNNER_TEMP/parity-gate.json" | tee "$RUNNER_TEMP/parity-gate.txt"
-      - name: Job summary (differences and p95 per area)
-        if: always()
-        run: |
-          { echo "### Parity gate (${{ matrix.db }})"; echo '```'; sed -n '1,/^$/p' "$RUNNER_TEMP/parity-gate.txt"; grep '^OVER BUDGET' "$RUNNER_TEMP/parity-gate.txt";
-            echo '```';
-            sed -n '/^| Area/,$p' "$RUNNER_TEMP/parity-gate.txt"; } >> "$GITHUB_STEP_SUMMARY" || true
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: parity-gate-${{ matrix.db }}
-          path: ${{ runner.temp }}/parity-gate.*
-          if-no-files-found: ignore
-
-  # PLAN step 16 (part 2, §3.6): upgrade and rollback. legacy@8.3 (the 2.5.x reference) seeds demo data with JPEG,
-  # PNG and HEIC originals, CI4@8.4 runs on the same data directory and database, then legacy@8.3 again; each app
+  # PLAN step 16 (part 2, §3.6): upgrade and rollback. legacy@8.3 (v2.6.26, checked out into a temporary worktree)
+  # seeds demo data with JPEG, PNG and HEIC originals, CI4@8.4 runs on the same data directory and database, then
+  # legacy@8.3 again; each app
   # restores the other's backup zip, over the install and into a fresh one. The normalised DB dump and the sha256 of
   # images/, thumbs/, originals/, map/ and files/ must stay equal after every step, originals 0750/0640; mutation
   # checks prove the comparison catches a lost table or attachment (scripts/upgrade-rollback.sh).
   upgrade-rollback:
-    name: Upgrade and rollback (legacy@8.3 → CI4@8.4 → legacy@8.3, ${{ matrix.db }})
+    name: Upgrade and rollback (2.6.26 → CI4@8.4 → 2.6.26, ${{ matrix.db }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -679,7 +536,7 @@ jobs:
             [ "$i" -lt 3 ] && sleep $((i * 15))
           done
           exit 1
-      - name: Install CI4 dependencies (legacy needs none)
-        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+      - name: Install dependencies (the v2.6.26 worktree needs none)
+        run: composer install --no-interaction --no-progress --prefer-dist
       - name: Upgrade and rollback
         run: bash scripts/upgrade-rollback.sh

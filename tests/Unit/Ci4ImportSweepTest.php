@@ -9,14 +9,14 @@ require_once dirname(__DIR__) . '/lib.php';
 /**
  * N-374 on CI4: an upload left waiting for more than a day loses its file
  * on the next listing or upload; a newer one keeps it. Legacy keeps every
- * waiting file, so this is CI4 only (ci4/tests/ImportExport/ImportsTest.php
+ * waiting file, so this is CI4 only (tests/Modules/ImportExport/ImportsTest.php
  * has the rules).
  */
 final class Ci4ImportSweepTest extends TestCase
 {
     public function testTheListingAndAnUploadSweepStaleUploads(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $dir = tmpdir('import-sweep');

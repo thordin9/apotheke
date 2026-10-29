@@ -5,7 +5,7 @@ declare(strict_types=1);
 use Apotheke\Core\Http\RequestScheme;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Http/RequestScheme.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Http/RequestScheme.php';
 
 final class RequestSchemeTest extends TestCase
 {

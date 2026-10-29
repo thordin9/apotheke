@@ -946,7 +946,7 @@
   }
   const accentIn = $('#s-accent'), preview = $('#accent-preview');
   if (accentIn && preview) {
-    // same maths as accent_variants() in src/settings.php
+    // same maths as Accent::variants() (modules/Settings/Branding/Accent.php)
     const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
     const hex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
     const lum = h => { const l = rgb(h).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]; };

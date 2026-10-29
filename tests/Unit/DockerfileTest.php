@@ -69,22 +69,22 @@ final class DockerfileTest extends TestCase
     }
 
     /**
-     * PLAN step 15: APOTHEKE_APP=ci4 serves ci4/public only, needs PHP 8.4, and goes through the same sign-in check
-     * as legacy (#75 port). The CI4 packages, writable dir and .env from a checkout never reach the image.
+     * The image serves public/ only on PHP 8.4, after the sign-in check (#75 port); APOTHEKE_APP=legacy is refused.
+     * The packages, writable dir and .env from a checkout never reach the image.
      */
-    public function testCi4ServesItsPublicDirAfterTheSameSignInCheck(): void
+    public function testServesPublicAfterTheSignInCheck(): void
     {
         $root = dirname(__DIR__, 2);
         $sh = (string)file_get_contents($root . '/docker/entrypoint.sh');
         $this->assertStringContainsString('        root __ROOT__;', (string)file_get_contents($root . '/docker/nginx.conf'));
         $this->assertStringContainsString('-e "s#__ROOT__#$ROOT#g"', $sh);
-        $this->assertSame(1, preg_match('/^  ci4\)\n    ROOT=\/var\/www\/app\/ci4\/public\n    php -r \'exit\(PHP_VERSION_ID >= 80400 \? 0 : 1\);\' \|\| \{[^\n]*exit 64; \}$/m', $sh), $sh);
-        $this->assertLessThan(strpos($sh, 'bin/settings.php auth status'), strpos($sh, 'ROOT=/var/www/app/ci4/public'), 'the app is chosen before the sign-in check, which runs for both');
+        $this->assertSame(1, preg_match('/^  legacy\) echo "APOTHEKE_APP=legacy: [^\n]*exit 64 ;;$/m', $sh), $sh);
+        $this->assertLessThan(strpos($sh, 'bin/settings.php auth status'), strpos($sh, 'ROOT=/var/www/app/public'), 'the root is set before the sign-in check');
         $ignore = (string)file_get_contents($root . '/.dockerignore');
-        foreach (['ci4/vendor/', 'ci4/writable/', 'ci4/.env'] as $line) {
+        foreach (['vendor/', 'writable/', '.env'] as $line) {
             $this->assertStringContainsString("\n{$line}\n", "\n{$ignore}", $line);
         }
-        $this->assertStringContainsString("ARG APOTHEKE_APP=legacy\n", $this->dockerfile());
+        $this->assertStringNotContainsString('APOTHEKE_APP', $this->dockerfile());
         $this->assertTrue(version_compare((string)$this->pin($this->dockerfile()), '8.4.0', '>='), 'the shipped image runs CI4');
     }
 
@@ -98,8 +98,8 @@ final class DockerfileTest extends TestCase
         $this->assertLessThan($mkdir, strpos($sh, 'if [ -L "$DATA_DIR/$d" ]; then'), 'links are refused before mkdir');
         $this->assertStringContainsString('for d in images thumbs originals originals/map sessions; do', $sh);
         $this->assertStringContainsString('-exec chown -h www-data:www-data {} +', $sh);
-        $this->assertStringContainsString("  mark='cd \"\$1\" && if [ -L .ci4 ] || [ ! -e .ci4 ]; then\n", $sh);
-        $this->assertStringContainsString('  if [ "$(id -u)" = 0 ]; then su -s /bin/sh www-data -c "$mark" sh "$DATA_DIR/sessions"; else', $sh);
+        $this->assertStringContainsString("mark='cd \"\$1\" && if [ -L .ci4 ] || [ ! -e .ci4 ]; then\n", $sh);
+        $this->assertStringContainsString("\nif [ \"\$(id -u)\" = 0 ]; then su -s /bin/sh www-data -c \"\$mark\" sh \"\$DATA_DIR/sessions\"; else", $sh);
         $this->assertDoesNotMatchRegularExpression('/(touch|chown|chmod|mkdir)[^\n]*\.ci4/', $sh);
         $nginx = (string)file_get_contents($root . '/docker/nginx.conf');
         $this->assertStringNotContainsString('/tmp/', $nginx . $sh);
@@ -110,7 +110,7 @@ final class DockerfileTest extends TestCase
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);
-        $this->assertSame(1, preg_match('/echo "(Unknown host name\.[^"]*)\\\\n";/', (string)file_get_contents($root . '/src/hosts.php'), $app));
+        $this->assertSame(1, preg_match('/REFUSAL = "(Unknown host name\.[^"]*)\\\\n";/', (string)file_get_contents($root . '/modules/Core/Http/HostAllowList.php'), $app));
         $this->assertStringContainsString('return 421 "' . $app[1] . '\n";', (string)file_get_contents($root . '/docker/nginx.conf'), '#73 QA N-2');
     }
 

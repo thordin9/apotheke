@@ -1,12 +1,12 @@
 # Upgrading to 3.0 (CodeIgniter 4)
 
-Apotheke 3.0 is the CodeIgniter 4 app (`ci4/`, PHP 8.4). It uses the same database schema, the same data directory and
+Apotheke 3.0 is the CodeIgniter 4 app (PHP 8.4). It uses the same database schema, the same data directory and
 the same settings as 2.x, so an upgrade is a switch of the app, not a data migration. This page is the upgrade and
 rollback runbook (PLAN [§3.6](plans/feature12-ci4/PLAN.md#36-backup-and-rollback-runbook-docker-tested-in-ci)); CI
 runs the same steps on every pull request into `feature/ci4` (see [What CI proves](#what-ci-proves)).
 
-Until the 3.0.0 release, the CI4 app ships inside the 2.x image and is switched on with `APOTHEKE_APP=ci4`. From
-3.0.0 it is the only app and the variable is no longer needed.
+The 2.6 images ship the CI4 app next to the 2.x app and switch to it with `APOTHEKE_APP=ci4`. From 3.0 it is the
+only app: the variable may stay empty or `ci4`, and `APOTHEKE_APP=legacy` exits with code 64.
 
 ## What changes
 
@@ -23,7 +23,7 @@ Until the 3.0.0 release, the CI4 app ships inside the 2.x image and is switched 
   sessions.
 * **Settings.** CI4 reads the same environment variables and `config.php` as 2.x
   ([Configuration](configuration.md)). CodeIgniter's own dotted overrides (`app.*`, `database.*`, also from
-  `ci4/.env`) are not read. `CI_ENVIRONMENT` is `production` in the image; leave it so.
+  `.env`) are not read. `CI_ENVIRONMENT` is `production` in the image; leave it so.
 * **Unchanged:** the database (no CI4-only migration: both apps run the same `migrations/`), the files under
   `images/`, `thumbs/`, `files/` and `ORIGINALS_DIR` (camera originals, `map/` included), backup zips (a zip from
   either app restores on the other), the port (9091), the health checks (`/healthz`, `/health`) and the start-up
@@ -64,7 +64,7 @@ Then:
 
 ```bash
 docker compose up -d
-docker compose logs apotheke | tail -n 5          # "nginx on :9091 (/var/www/app/ci4/public)"
+docker compose logs apotheke | tail -n 5          # "nginx on :9091 (/var/www/app/public)"
 curl -fsS http://127.0.0.1:9091/healthz           # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9091/originals/x   # 404: camera originals are never served
 docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --status   # nothing pending
@@ -72,10 +72,11 @@ docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --stat
 
 From 3.0.0 on, pull or build the 3.0 image instead; there is no variable to set.
 
-Everyone signs in again. The command-line tools follow the container's `APOTHEKE_APP`: `bin/migrate.php`,
-`bin/seed.php`, `bin/backup.php`, `bin/restore.php` and the `bin/settings.php` forms run the CI4 commands (`php ci4/spark
-apotheke:migrate|seed|backup|restore|settings|accounts`) with the same output and exit codes. Only
-`bin/settings.php key generate` stays with the 2.x code; it prints a key and touches no database.
+Everyone signs in again. `bin/migrate.php`, `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and the
+`bin/settings.php` forms run the CI4 commands (`php spark apotheke:migrate|seed|backup|restore|settings|accounts`)
+with the same output and exit codes as 2.x, apart from the [known differences](#known-differences-from-2x). On a 2.6
+image they follow the container's `APOTHEKE_APP`. `bin/settings.php key generate` needs no app; it prints a key and
+touches no database.
 
 ## 3. Roll back (A): the 2.x app on the same data
 
@@ -102,6 +103,25 @@ docker compose exec -u www-data apotheke php /var/www/app/bin/restore.php /data/
 or put back the copy of `./data` (or `pg_restore` the dump) with the container stopped. A restore started as root
 switches to the owner of the data directory first ([Backup and restore](deployment-and-operations.md#backup-and-restore)).
 
+## Known differences from 2.x
+
+Besides the settings CLI deviations in the [changelog](../CHANGELOG.md) and the quirks in `tests/parity/allowlist.yml`:
+
+* **SQLite open error.** When the SQLite file cannot be opened (for example its folder does not exist), the pages, the
+  health checks and the command-line tools print or log `Could not connect to the database (sqlite – PATH).` and the
+  tools exit 1, the same line as for PostgreSQL. 2.x ended in an uncaught `PDOException` with the engine's message
+  (`SQLSTATE[HY000] [14] unable to open database file`) and exit code 255.
+* **`bin/seed.php` with a short `APP_PASSWORD`.** It prints the `APP_PASSWORD is too short` message and exits 1;
+  2.x ended in a fatal error with exit code 255. A valid or empty `APP_PASSWORD` behaves as on 2.x.
+
+Unchanged from 2.x, noted because it can surprise:
+
+* `bin/seed.php --demo` on an existing install adds the eight demo items, with their photos, without asking; items
+  with the same name are skipped.
+* `bin/settings.php auth status` on a new data folder creates the empty `images/`, `thumbs/`, `originals/` (with its
+  `.htaccess`) and `sessions/` folders. It creates no database file. The Docker entrypoint creates these folders
+  anyway.
+
 ## What CI proves
 
 * **`upgrade-rollback`** (SQLite and PostgreSQL, `scripts/upgrade-rollback.sh`): the 2.x app on PHP 8.3 seeds demo
@@ -111,8 +131,9 @@ switches to the owner of the data directory first ([Backup and restore](deployme
   `images/`, `thumbs/`, `originals/` (`map/` included) and `files/` must equal the seeded state, originals must be
   0750/0640 and `files/` 0750. Mutation checks prove the comparison catches a lost table, a changed or missing
   attachment and a wrong mode.
-* **`parity-gate`** (SQLite and PostgreSQL): one scenario over every ported area on both apps, compared step by step;
-  CI4 must stay within +20 % of 2.x at p95 on PostgreSQL and within + 3 ms at the median on SQLite, per area.
+* **Parity gate** (until the cutover, SQLite and PostgreSQL): one scenario over every ported area on both apps,
+  compared step by step; CI4 had to stay within +20 % of 2.x at p95 on PostgreSQL and within + 3 ms at the median on
+  SQLite, per area. Its last run on the pre-cutover head passed with 0 differences ([HANDOFF](HANDOFF.md)).
 
 Details: [Testing → Upgrade and rollback](testing.md#upgrade-and-rollback-plan-step-16-part-2).
 

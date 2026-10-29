@@ -164,7 +164,7 @@ final class MigrateDsnTest extends TestCase
 
     public function testCi4MigratePrintsOnlyAllowlistedFields(): void
     {
-        if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         foreach (self::passwordLines() as $name => $row) {
@@ -194,7 +194,7 @@ final class MigrateDsnTest extends TestCase
             ['zend.exception_ignore_args' => '0']
         );
         $this->assertConnectFailureIsAllowlisted($legacy, $user, $password);
-        if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file(dirname(__DIR__, 2) . '/vendor/autoload.php')) {
             return;
         }
         $ci4 = $this->migrate(
@@ -269,18 +269,6 @@ final class MigrateDsnTest extends TestCase
         } finally {
             @unlink((string)$log);
         }
-    }
-
-    /** SQLite open errors stay the raw engine message. PostgreSQL is the path that names a user. */
-    public function testSqliteOpenErrorStaysUnchanged(): void
-    {
-        $run = $this->migrate(null, 'canarypass', 'sqlite', 'canaryuser', [], [
-            'SQLITE_PATH' => '/proc/no-such-migrate-dir/catalog.sqlite',
-        ]);
-        $blob = $run['out'] . "\n" . $run['err'];
-        $this->assertNotSame(0, $run['code']);
-        $this->assertStringContainsString('unable to open database file', $blob);
-        $this->assertStringNotContainsString('Could not connect to the database', $blob);
     }
 
     /**

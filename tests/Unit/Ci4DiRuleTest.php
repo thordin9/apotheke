@@ -9,13 +9,13 @@ final class Ci4DiRuleTest extends TestCase
     public function testServiceCallOutsideAControllerIsReported(): void
     {
         $root = dirname(__DIR__, 2);
-        if (PHP_VERSION_ID < 80400 || !is_file($root . '/vendor/bin/phpstan') || !is_file($root . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file($root . '/vendor/bin/phpstan') || !is_file($root . '/vendor/autoload.php')) {
             $this->markTestSkipped('phpstan, the CI4 vendor tree and PHP 8.4 are required');
         }
         $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/vendor/bin/phpstan')
             . ' analyse -c ' . escapeshellarg($root . '/phpstan-di.neon')
             . ' --no-progress --memory-limit=1G --error-format=raw '
-            . escapeshellarg($root . '/ci4/tools/PhpStan/fixtures/BadCall.php')
+            . escapeshellarg($root . '/tools/PhpStan/fixtures/BadCall.php')
             . ' 2>&1';
         $out = [];
         $code = 0;
@@ -28,7 +28,7 @@ final class Ci4DiRuleTest extends TestCase
 
     public function testModuleFiltersMayUseServicesInBeforeAndAfter(): void
     {
-        [$code, $out] = $this->analyse('ci4/modules/Fixture/Filters/GoodFilter.php');
+        [$code, $out] = $this->analyse('modules/Fixture/Filters/GoodFilter.php');
         $this->assertSame(0, $code, $out);
     }
 
@@ -36,9 +36,9 @@ final class Ci4DiRuleTest extends TestCase
     {
         $cases = [
             // constructor, helper method and a closure inside before()
-            'ci4/modules/Fixture/Filters/BadFilterState.php' => 3,
-            'ci4/modules/Fixture/Filters/Nested/DeepFilter.php' => 1,
-            'ci4/modules/Fixture/Libraries/NotAFilter.php' => 1,
+            'modules/Fixture/Filters/BadFilterState.php' => 3,
+            'modules/Fixture/Filters/Nested/DeepFilter.php' => 1,
+            'modules/Fixture/Libraries/NotAFilter.php' => 1,
             'Filters/LooseFilter.php' => 1,
         ];
         foreach ($cases as $fixture => $errors) {
@@ -48,17 +48,17 @@ final class Ci4DiRuleTest extends TestCase
         }
     }
 
-    /** @return array{0:int,1:string} exit code and raw output for one fixture under ci4/tools/PhpStan/fixtures */
+    /** @return array{0:int,1:string} exit code and raw output for one fixture under tools/PhpStan/fixtures */
     private function analyse(string $fixture): array
     {
         $root = dirname(__DIR__, 2);
-        if (PHP_VERSION_ID < 80400 || !is_file($root . '/vendor/bin/phpstan') || !is_file($root . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file($root . '/vendor/bin/phpstan') || !is_file($root . '/vendor/autoload.php')) {
             $this->markTestSkipped('phpstan, the CI4 vendor tree and PHP 8.4 are required');
         }
         $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/vendor/bin/phpstan')
             . ' analyse -c ' . escapeshellarg($root . '/phpstan-di.neon')
             . ' --no-progress --memory-limit=1G --error-format=raw '
-            . escapeshellarg($root . '/ci4/tools/PhpStan/fixtures/' . $fixture)
+            . escapeshellarg($root . '/tools/PhpStan/fixtures/' . $fixture)
             . ' 2>&1';
         $out = [];
         $code = 0;

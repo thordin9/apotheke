@@ -2,7 +2,6 @@
 # Web-server behaviour of the Docker image with sign-in on (SEC-L2, SEC-M3): no session for anonymous requests,
 # large restore bodies only after sign-in. The container must run with APP_PASSWORD; pass the same value in APP_PW.
 # Usage: APP_PW=… scripts/docker-auth-checks.sh [base-url]   (default http://127.0.0.1:9092)
-# APOTHEKE_APP=ci4: the container runs CI4; the same checks apply (its backup pages, PLAN step 14, N-431).
 set -euo pipefail
 base=${1:-http://127.0.0.1:9092}
 : "${APP_PW:?set APP_PW to the APP_PASSWORD of the container}"

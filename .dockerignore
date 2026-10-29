@@ -7,12 +7,8 @@ docker-compose.yml
 .env
 .DS_Store
 vendor/
-ci4/vendor/
-ci4/writable/
-ci4/tests/
-ci4/tools/
-ci4/.env
-ci4/phpunit.xml.dist
+writable/
+tools/
 tests/
 config.php
 coverage/
