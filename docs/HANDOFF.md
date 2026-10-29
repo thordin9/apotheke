@@ -236,6 +236,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Stathis, 2026-10-27, via the PM), timing at least 200 requests per area; N-546. Merged at 24830e7; step 16 is done.
 - [#153](https://github.com/thordin9/apotheke/pull/153): CI allowlist for a historic Control Panel test placeholder
   (with [#152](https://github.com/thordin9/apotheke/pull/152) on `main`). Merged at 767126a.
+- [#154](https://github.com/thordin9/apotheke/pull/154): step 17, the docs rewrite and the 3.0 upgrade guide
+  (`docs/upgrade-3.0.md`), with N-640 to N-643. Merged at 7ee637b.
 
 ## Lanes
 
