@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Labels;
 
 /**
- * Legacy src/qr.php. Function JIT miscompiles the encoder's finder loops,
+ * Legacy qr.php. Function JIT miscompiles the encoder's finder loops,
  * which count up from a negative index: opcache.jit=1235 can emit a wrong
  * matrix on PHP 8.2 and 8.3 and can hang the labels page on PHP 8.4, and any
  * other function-JIT mode can emit a different matrix. Tracing JIT matches

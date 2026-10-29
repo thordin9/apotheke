@@ -10,7 +10,7 @@ use Apotheke\Core\Security\SecretKey;
 use CodeIgniter\Test\CIUnitTestCase;
 
 /**
- * S-L5 key resolution and the enc:v1: envelope (legacy src/secretbox.php).
+ * S-L5 key resolution and the enc:v1: envelope (legacy secretbox.php).
  * Placeholder keys only.
  */
 final class SecretBoxTest extends CIUnitTestCase

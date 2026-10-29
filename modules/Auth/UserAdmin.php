@@ -8,7 +8,7 @@ use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 
 /**
- * Managing accounts on Users & sign-in (legacy src/users.php: user_create(),
+ * Managing accounts on Users & sign-in (legacy users.php: user_create(),
  * user_approve(), user_set_role(), user_set_password(), user_rename(),
  * user_delete()). Every change to an admin account, and granting the admin
  * role, needs an admin (AdminGuard, SEC-M1); the install always keeps one

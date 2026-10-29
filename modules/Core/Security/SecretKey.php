@@ -6,7 +6,7 @@ namespace Apotheke\Core\Security;
 
 /**
  * The at-rest key for recoverable secrets (S-L5), resolved like legacy
- * secret_key_state() in src/secretbox.php: a non-empty APP_KEY wins over
+ * secret_key_state() in 2.x secretbox.php: a non-empty APP_KEY wins over
  * APP_KEY_FILE, even when it does not decode. A configured key that cannot be
  * used has a problem and no key; no key configured has neither.
  *

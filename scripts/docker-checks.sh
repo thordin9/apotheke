@@ -16,9 +16,8 @@ check "healthz"                       200 "$(code "$base/healthz")"
 check "unknown route -> app 404"      404 "$(code "$base/no/such/page")"
 # /index.php is handled by the app's router (which has no such route), exactly as under Apache
 check "/index.php reaches the app"    1 "$(curl -s "$base/index.php" | grep -c 'Back to catalog')"
-r=$(code "$base/assets/../../src/bootstrap.php" --path-as-is)
+r=$(code "$base/assets/../../app/Config/App.php" --path-as-is)
 check "path traversal never executes" 1 "$([[ $r == 400 || $r == 404 ]] && echo 1 || echo "$r")"
-check "src/ blocked"                  404 "$(code "$base/src/bootstrap.php")"
 check "originals/ blocked"            404 "$(code "$base/originals/guess.jpg")"
 check "Originals/ blocked"            404 "$(code "$base/Originals/guess.jpg")"
 check "ORIGINALS/ blocked"            404 "$(code "$base/ORIGINALS/guess.jpg")"

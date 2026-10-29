@@ -13,7 +13,7 @@ use CodeIgniter\Cookie\Cookie;
 use CodeIgniter\Database\BaseConnection;
 
 /**
- * Favourites and the "Recently viewed" list (legacy src/favourites.php).
+ * Favourites and the "Recently viewed" list (legacy favourites.php).
  * The list's scope is the whole install, or this device's `apo_dev` cookie;
  * reading and clearing never set the cookie; recording a view (the item
  * page) creates it.

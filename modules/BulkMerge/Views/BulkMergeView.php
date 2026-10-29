@@ -10,7 +10,7 @@ use Apotheke\Layout\Page;
 use Apotheke\Media\ImageStore;
 
 /**
- * The bulk delete confirmation and the two merge pages (legacy src/views.php:
+ * The bulk delete confirmation and the two merge pages (legacy views.php:
  * view_bulk_delete(), view_merge_pick(), view_merge_confirm()),
  * byte-identical to legacy. Every value is escaped here.
  */

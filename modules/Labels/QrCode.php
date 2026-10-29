@@ -8,7 +8,7 @@ use InvalidArgumentException;
 
 /*
  * Minimal QR Code encoder (byte mode, versions 1-40, ECC L/M/Q/H), pure PHP,
- * no dependencies: legacy src/qr-encode.php, unchanged, so the matrix and the
+ * no dependencies: legacy qr-encode.php, unchanged, so the matrix and the
  * SVG are byte-identical (tests/Unit/Ci4LabelsQrParityTest.php). The
  * algorithm follows ISO/IEC 18004 as laid out in Project Nayuki's
  * MIT-licensed reference implementation

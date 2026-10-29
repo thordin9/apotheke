@@ -15,7 +15,7 @@ use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\Database\BaseConnection;
 
 /**
- * Stocktakes (legacy src/stocktake.php): walk through a location and
+ * Stocktakes (legacy stocktake.php): walk through a location and
  * everything inside it, tick or scan what you find, then finish with a
  * report of what was found, what is missing and what turned up although it
  * belongs elsewhere (misplaced). Misplaced items can be moved to the checked

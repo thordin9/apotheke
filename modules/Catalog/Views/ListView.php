@@ -15,7 +15,7 @@ use Apotheke\Taxonomy\LocationTree;
 
 /**
  * The list page, its cards and chips, the overview and the saved filters page
- * (legacy src/views.php: view_list(), card_html(), active_chips_html(),
+ * (legacy views.php: view_list(), card_html(), active_chips_html(),
  * stats_body_html(), view_saved_filters() and their helpers), byte-identical
  * to legacy. Every value is escaped here.
  */

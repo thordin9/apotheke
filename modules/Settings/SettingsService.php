@@ -17,7 +17,7 @@ use Throwable;
 
 /**
  * Control Panel settings: read, save, reset, export and import, with the
- * rules of legacy src/settings.php. Shared by the web side and the CLI.
+ * rules of legacy settings.php. Shared by the web side and the CLI.
  *
  * Values are validated on write and on read; a missing or invalid row falls
  * back to the default. They are cached in this instance, which
@@ -28,7 +28,7 @@ use Throwable;
  * autofillToken() is the one getter, for the autofill client.
  *
  * Recoverable secrets (secret-type keys except password_hash) are sealed at
- * rest through SecretBox when APP_KEY is set (S-L5, legacy src/secretbox.php):
+ * rest through SecretBox when APP_KEY is set (S-L5, legacy secretbox.php):
  * a legacy plaintext row is sealed on read, and a configured key that cannot
  * be used refuses the save with a 422.
  */

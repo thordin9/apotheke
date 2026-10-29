@@ -15,7 +15,7 @@ use Throwable;
  * Control Panel → Users & sign-in (/settings/security): legacy
  * view_settings_section('security', …) with settings_security_html(),
  * settings_roles_html(), role_summary() and setting_field_html() for the
- * section's own settings (src/settings_views.php), kept line for line so the
+ * section's own settings (2.x settings_views.php), kept line for line so the
  * output is byte-identical; every value is escaped with Page::e().
  */
 final class SecurityView

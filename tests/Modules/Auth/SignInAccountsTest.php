@@ -20,7 +20,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
- * The sign-in pages' accounts and throttling (legacy src/users.php): password
+ * The sign-in pages' accounts and throttling (legacy users.php): password
  * checks, registration rules, a new own password, the first admin, the rate
  * limits (window, per-key isolation, clearing, pruning) and every write
  * failing loudly.

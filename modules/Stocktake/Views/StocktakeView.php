@@ -15,7 +15,7 @@ use Apotheke\Stocktake\Stocktakes;
 use Apotheke\Taxonomy\LocationTree;
 
 /**
- * The stocktake pages (legacy src/stocktake_views.php): start and history,
+ * The stocktake pages (legacy stocktake_views.php): start and history,
  * the checking screen and the report, byte-identical to legacy. Every value
  * is escaped here.
  *

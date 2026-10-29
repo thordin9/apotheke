@@ -11,7 +11,7 @@ use Apotheke\Settings\SettingsService;
 use Closure;
 
 /**
- * The shared page shell (legacy src/views.php): page_start(), page_end(), the
+ * The shared page shell (legacy views.php): page_start(), page_end(), the
  * menu, the simple header, the brand logo and the toast and error boxes.
  * Output is byte-identical to legacy; every value is escaped here. The page
  * has no inline script or style, so the CSP stays legacy's. Built per request

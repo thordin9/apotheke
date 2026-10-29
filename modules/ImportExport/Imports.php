@@ -20,7 +20,7 @@ use CodeIgniter\Database\BaseConnection;
 use Throwable;
 
 /**
- * CSV import (legacy src/import.php): upload → map columns → preview (a dry
+ * CSV import (legacy import.php): upload → map columns → preview (a dry
  * run inside a transaction that is rolled back, so it shows exactly what the
  * real run would do, every validation error included) → import (the same run,
  * committed in one transaction). The files of the CSV export import as they

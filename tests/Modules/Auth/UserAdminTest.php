@@ -26,7 +26,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
- * Users & sign-in (legacy src/users.php, src/roles.php, auth_turn_on/off()):
+ * Users & sign-in (legacy users.php, 2.x roles.php, auth_turn_on/off()):
  * who may change which account, the last active admin, users nobody could
  * manage any more, the checks in legacy's order, and every write failing
  * loudly with nothing changed. The page itself is golden-tested against

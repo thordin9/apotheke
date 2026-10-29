@@ -15,7 +15,7 @@ use Apotheke\Taxonomy\TagRepository;
 use CodeIgniter\Database\BaseConnection;
 
 /**
- * Merging duplicates (legacy src/merge.php): everything of the source moves
+ * Merging duplicates (legacy merge.php): everything of the source moves
  * into the target in one transaction, then the source is gone. Its files now
  * belong to the target, so none are removed.
  */

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Auth;
 
 /**
- * Legacy src/roles.php's permission list and built-in role defaults. A golden
+ * Legacy roles.php's permission list and built-in role defaults. A golden
  * test keeps both equal to legacy PERMISSIONS and ROLE_DEFAULTS.
  */
 final class Permissions

@@ -104,7 +104,7 @@ final class PdoMigrationRunner
     {
         self::loadConfig();
 
-        // Same line as legacy db_connect_failure_message() in src/db.php.
+        // Same line as legacy db_connect_failure_message() in 2.x db.php.
         return 'Could not connect to the database (' . $db['driver'] . ' – ' . config_migrate_where($db) . ').';
     }
 

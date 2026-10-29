@@ -6,7 +6,7 @@ namespace Apotheke\Notes;
 
 /**
  * The safe Markdown subset for item notes, rendered on the server: a port of
- * legacy src/markdown.php (md_render, md_plain) with byte-identical output.
+ * legacy markdown.php (md_render, md_plain) with byte-identical output.
  *
  * Everything is HTML-escaped first; only these constructs produce markup:
  * # / ## / ### headings (h3 to h5: the item name is the page's h2),

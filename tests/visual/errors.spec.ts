@@ -1,10 +1,10 @@
-import { test, expect, APP } from './fixtures';
+import { test, expect } from './fixtures';
 
 test.describe('friendly error pages', () => {
   test('404 for unknown pages and items', async ({ app, page }) => {
     // each page's own message, so an unported page (CI4's "Page not found.") does not pass for a ported one
-    const cases: [string, string][] = [['/nope', 'Page not found.'], ['/item/999', 'Item not found.'], ['/item/999/edit', 'Item not found.'], ['/activity?item=999', 'Item not found.']];
-    if (APP !== 'ci4') cases.push(['/labels?loc=999', 'Location not found.']);   // /labels: not on CI4 yet (docs/HANDOFF.md)
+    const cases: [string, string][] = [['/nope', 'Page not found.'], ['/item/999', 'Item not found.'], ['/item/999/edit', 'Item not found.'], ['/activity?item=999', 'Item not found.'],
+      ['/labels?loc=999', 'Location not found.']];
     for (const [u, message] of cases) {
       const r = await page.goto(u);
       expect(r!.status(), u).toBe(404);

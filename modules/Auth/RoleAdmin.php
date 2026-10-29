@@ -10,7 +10,7 @@ use Apotheke\Core\Libraries\Text;
 use Apotheke\Settings\SettingsService;
 
 /**
- * The roles editor (legacy src/roles.php: role_create(), role_update(),
+ * The roles editor (legacy roles.php: role_create(), role_update(),
  * role_delete(), user_managers_count()). Admin always has every permission
  * and cannot change; built-in roles cannot be deleted; the guest role never
  * gets users, settings or backup; and no change may leave the install

@@ -7,7 +7,7 @@ namespace Apotheke\Core\Http;
 use Closure;
 
 /**
- * The Host allow-list (SEC-M3), a port of legacy src/hosts.php. IP literals,
+ * The Host allow-list (SEC-M3), a port of legacy hosts.php. IP literals,
  * localhost, *.localhost and this machine's own name are always accepted; other
  * names must be PUBLIC_URL's host or listed in ALLOWED_HOSTS ("*" accepts any
  * valid name). Pure: the caller passes the configured names.

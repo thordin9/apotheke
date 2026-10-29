@@ -12,7 +12,7 @@ use CodeIgniter\Database\BaseResult;
 
 /**
  * Sign-in and registration throttling (legacy rate_limit(), rate_limit_clear()
- * and RATE_LIMITS in src/users.php), in the shared auth_attempts table, so
+ * and RATE_LIMITS in 2.x users.php), in the shared auth_attempts table, so
  * legacy and CI4 count the same attempts. Sign-in counts per client address
  * and account (one client cannot use up every account's limit) and, with a
  * higher cap, per client address for every name (login_address); registration

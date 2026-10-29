@@ -23,25 +23,20 @@ Human docs: [README](README.md) and [`docs/`](docs/index.md). Feature workflow: 
 ## Layout
 
 ```
-public/index.php          front controller / router (treats HEAD like GET for reads)
+public/index.php          front controller (CodeIgniter 4); public/router.php for `php -S`
 public/assets/            app.css, app.js, theme.js, icons
-src/bootstrap.php         sessions, auth, CSRF, helpers (incl. item_noun / stats_brief / no_store)
-src/hosts.php             Host allow-list, same-origin rule for no-login mode
-src/config.php            config loader (defaults < config.php < env)
-src/db.php                PDO, dialects, migrations
-src/items.php             domain: items, locations, categories, search, images
-src/views.php             HTML pages and fragments
-src/backup.php            portable zip backup/restore
-src/cli-owner.php         root CLI tools run as the data folder's owner
-src/qr.php                pure-PHP QR (SVG). On every PHP version, turns function JIT off, then loads qr-encode.php
+app/                      CodeIgniter config (Config/Services.php wires the modules), routes, filters
+modules/                  the app, one folder per module (Core, Auth, Catalog, Media, Backup, …)
+modules/Core/Config/      config loader (defaults < config.php < env; config-functions.php)
+spark, writable/          CodeIgniter's CLI and its cache, logs and sessions
 migrations/NNNN_*.php     versioned schema steps
 bin/                      migrate, seed, backup, restore CLIs
-tests/                    integration.php, Unit/, visual/ (Playwright), e2e/, parity/
+tests/                    Unit/ (root suite), Modules/ (module suite), visual/ (Playwright), e2e/, parity/, upgrade/
 docker/                   nginx, php-fpm, entrypoint
 docs/                     full manual
 ```
 
-Data lives in `DATA_DIR` (Compose: `./data` → `/data`): SQLite file, `images/`, `thumbs/`, `sessions/`. Never serve `src/` or `data/` over HTTP (nginx blocks them).
+Data lives in `DATA_DIR` (Compose: `./data` → `/data`): SQLite file, `images/`, `thumbs/`, `sessions/`. Only `public/` is served; never serve `data/` over HTTP (nginx blocks it).
 
 ## CI4 module rules
 
@@ -105,8 +100,8 @@ Prefer TDD for behaviour changes: extend `tests/integration.php` and/or `tests/U
 The steps below are for the legacy app. CI4 features go in `ci4/` under the module rules and target `feature/ci4`.
 
 1. Migration if schema changes.  
-2. Domain logic in `src/items.php` (or a focused new `src/*.php`).  
-3. Routes in `public/index.php` (`UserError` for 4xx).  
+2. Domain logic in its module under `modules/` (deptrac checks the module graph).  
+3. Routes in `app/Config/Routes.php` (`UserError` for 4xx).  
 4. Views + CSS/JS.  
 5. Tests (unit + integration + Playwright when UI).  
 6. Docs (README feature bullet + user guide as needed).

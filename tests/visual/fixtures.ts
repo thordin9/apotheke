@@ -21,13 +21,11 @@ type Server = {
   at: (p: string) => string;
 };
 export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
-/** E2E_APP=ci4 runs the host server on the CodeIgniter 4 port (public and its router) instead of legacy. */
-export const APP: 'legacy' | 'ci4' = process.env.E2E_APP === 'ci4' ? 'ci4' : 'legacy';
 type WorkerOpts = { appPassword: string; dbDriver: 'sqlite' | 'pgsql'; publicUrl: string; server: Server };
 type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App; ci4Unported: void };
 
 /**
- * Tests that need a page CI4 has not ported yet, skipped under E2E_APP=ci4 (docs/HANDOFF.md keeps this list).
+ * Tests that need a page CI4 has not ported yet, skipped (docs/HANDOFF.md keeps this list).
  * Key: "<spec file>: <describe> › <test title>" (the title path); value: the missing page. A key that names no
  * test fails tests/Unit/Ci4E2eSkipListTest.php, so a stale entry cannot linger.
  */
@@ -48,22 +46,9 @@ async function waitUp(base: string) {
   throw new Error('app server did not start at ' + base);
 }
 
-/**
- * Fixture work through the app under test: tests/visual/ci4-fixtures.php (CI4's own code) under E2E_APP=ci4, the legacy
- * app (tests/visual/seed.php and src/) otherwise. The legacy branch goes with src/ at the cutover.
- */
+/** Fixture work through the app's own code: tests/visual/ci4-fixtures.php. */
 function fixture(server: Server, op: 'seed' | 'sql' | 'exec' | 'migrate' | 'default-category' | 'settings', ...args: string[]): Buffer {
-  if (APP === 'ci4') return server.php([server.at(path.join(ROOT, 'tests/visual/ci4-fixtures.php')), op, ...args]);
-  if (op === 'seed') return server.php([server.at(path.join(ROOT, 'tests/visual/seed.php')), ...args]);
-  const boot = `require '${server.at(ROOT)}/src/bootstrap.php'; require '${server.at(ROOT)}/src/items.php';`;
-  const code = {
-    sql: 'echo json_encode(db()->query($argv[1])->fetchAll());',
-    exec: 'db()->exec($argv[1]);',
-    migrate: 'db();',
-    'default-category': "tax_set_default('category', tax_create('category', $argv[1])['id'], true);",
-    settings: 'settings_store(json_decode($argv[1], true, 4, JSON_THROW_ON_ERROR));',
-  }[op];
-  return server.php(['-r', boot + ' ' + code, ...args]);
+  return server.php([server.at(path.join(ROOT, 'tests/visual/ci4-fixtures.php')), op, ...args]);
 }
 
 export class App {
@@ -160,8 +145,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     } else {
       const env: NodeJS.ProcessEnv = { ...process.env, ...appEnv, DATA_DIR: dataDir };
       const proc = spawn('php', ['-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
-        '-S', `127.0.0.1:${port}`, ...(APP === 'ci4' ? ['-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/router.php')]
-          : ['-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/index.php')])], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+        '-S', `127.0.0.1:${port}`, '-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/router.php')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
       proc.stderr!.on('data', collect);
       server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at: p => p, php: args => execFileSync('php', args, { env }) };
       stop = () => { proc.kill(); };
@@ -199,7 +183,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   }, { auto: true }],
   app: async ({ page, server }, use, info) => { await use(new App(page, server, info)); },
   ci4Unported: [async ({}, use, info) => {
-    const why = APP === 'ci4' ? CI4_UNPORTED[`${path.basename(info.file)}: ${info.titlePath.slice(1).join(' › ')}`] : undefined;
+    const why = CI4_UNPORTED[`${path.basename(info.file)}: ${info.titlePath.slice(1).join(' › ')}`];
     info.skip(why !== undefined, `not ported to CI4 yet: ${why}`);
     await use();
   }, { auto: true }],

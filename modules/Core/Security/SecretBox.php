@@ -10,7 +10,7 @@ use Throwable;
 
 /**
  * At-rest encryption for recoverable secrets (S-L5), the same envelope and
- * log lines as legacy src/secretbox.php, so both apps read one database:
+ * log lines as legacy secretbox.php, so both apps read one database:
  * "enc:v1:" + base64(nonce . sodium_crypto_secretbox(plain, nonce, key)).
  * A value without the prefix is legacy plaintext.
  *

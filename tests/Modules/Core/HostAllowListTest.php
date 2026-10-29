@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * SEC-M3: the Host allow-list. The cases are main's tests/Unit/HostAllowListTest.php
- * (legacy src/hosts.php), so CI4 accepts and refuses exactly the same names.
+ * (legacy hosts.php), so CI4 accepts and refuses exactly the same names.
  */
 final class HostAllowListTest extends TestCase
 {

@@ -13,7 +13,8 @@
     </testsuites>
     <source>
         <include>
-            <directory>src</directory>
+            <directory>app</directory>
+            <directory>modules</directory>
             <directory>migrations</directory>
         </include>
     </source>

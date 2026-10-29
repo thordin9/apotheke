@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * Visual E2E fixtures for E2E_APP=ci4, through the CI4 app itself (no src/). tests/visual/seed.php is the legacy twin.
+ * Visual E2E fixtures, through the app itself.
  *   php tests/visual/ci4-fixtures.php seed DATA_DIR demo|empty   wipe the data dir (and PostgreSQL schema), load a fixed catalog
  *   php tests/visual/ci4-fixtures.php sql QUERY                  rows as JSON
  *   php tests/visual/ci4-fixtures.php exec SQL                   run one statement

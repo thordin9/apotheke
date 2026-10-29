@@ -9,7 +9,7 @@ use ImagickException;
 use Throwable;
 
 /**
- * Decode limits for uploaded photos, ported from main's src/image-color.php
+ * Decode limits for uploaded photos, ported from main's 2.x image-color.php
  * (#72, #79). Checked on the header, before any full decode.
  *
  * Any frame: at most 250 megapixels and 30,000 px a side. A JPEG may use

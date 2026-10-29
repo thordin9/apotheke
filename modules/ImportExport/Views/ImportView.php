@@ -11,7 +11,7 @@ use Apotheke\Layout\Icons;
 use Apotheke\Layout\Page;
 
 /**
- * The CSV import screens (legacy src/import_views.php): upload and history
+ * The CSV import screens (legacy import_views.php): upload and history
  * (/import), mapping and preview (/import/{id}), byte-identical to legacy.
  * Every value is escaped here.
  *

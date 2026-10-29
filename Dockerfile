@@ -93,9 +93,6 @@ COPY --chown=root:root modules /var/www/app/modules
 COPY --chown=root:root migrations /var/www/app/migrations
 COPY --chown=root:root bin /var/www/app/bin
 COPY --chown=root:root spark config.example.php VERSION /var/www/app/
-# The legacy code behind the CLI forms CI4 has no command for yet (bin/settings.php auth status and key rotate,
-# bin/seed.php). It goes with src/ once they are ported.
-COPY --chown=root:root src /var/www/app/src
 COPY --from=vendor --chown=root:root /app/vendor /var/www/app/vendor
 RUN set -eux; \
     mkdir -p /var/www/app/writable/cache /var/www/app/writable/logs /var/www/app/writable/session \

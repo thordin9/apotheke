@@ -11,7 +11,7 @@ use Closure;
 use Throwable;
 
 /**
- * Undo tokens (legacy src/undo.php): a snapshot of the affected items before
+ * Undo tokens (legacy undo.php): a snapshot of the affected items before
  * an edit, move or delete, kept for the `undo_seconds` setting. A deleted
  * item's photo and attachment files stay on disk until its token expires;
  * pruning releases them unless something references them again. Putting the

@@ -14,7 +14,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * File attachments (legacy src/attachments.php): PDF and images, stored as
+ * File attachments (legacy attachments.php): PDF and images, stored as
  * `files/<32 hex>.<ext>` and only ever sent as a download. The real type
  * comes from the content, never from the browser or the file name. Adding
  * is all or nothing: a failed write removes the files it stored.

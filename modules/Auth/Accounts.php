@@ -9,7 +9,7 @@ use Apotheke\Core\Libraries\Clock;
 use RuntimeException;
 
 /**
- * Accounts for the sign-in pages (legacy src/users.php): checking a password,
+ * Accounts for the sign-in pages (legacy users.php): checking a password,
  * self-registration, a new password for your own account and the first admin
  * from APP_PASSWORD. Messages and status codes are legacy's. Every write goes
  * through UserRepository (Core\Database\Writes). Holds no state.

@@ -17,7 +17,7 @@ use RuntimeException;
 use ZipArchive;
 
 /**
- * The portable backup zip (legacy src/backup.php, backup_create()):
+ * The portable backup zip (legacy backup.php, backup_create()):
  *
  *   backup.json            {"format":"apotheke-backup","version":1,"created_at":…,"app":…,"driver":…,
  *                           "schema":[…],"tables":{"<table>":{"columns":[…],"rows":[[…],…]},…},"settings":{…}}

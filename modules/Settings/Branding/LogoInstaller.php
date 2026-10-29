@@ -20,7 +20,7 @@ use RuntimeException;
 /**
  * Control Panel → Appearance → Upload a logo (legacy brand_store(),
  * svg_sanitize(), icon_square(), gd_png() and ico_from_pngs() in
- * src/settings.php). An SVG is cleaned and kept as is; a PNG, JPEG or WebP
+ * 2.x settings.php). An SVG is cleaned and kept as is; a PNG, JPEG or WebP
  * becomes a square 512 px PNG plus the favicon, the home-screen icon and the
  * app icons on the icon background colour. The files go to the BrandStore,
  * so the same bytes as legacy end up in DATA_DIR/brand.

@@ -13,7 +13,7 @@ use DateTimeZone;
  * Every database-backed setting: the single source of truth for the keys,
  * their sections, labels, types, defaults and validation rules. Ported from
  * the legacy settings_schema(), setting_default() and setting_validate();
- * golden tests compare every key with legacy src/settings.php.
+ * golden tests compare every key with legacy settings.php.
  *
  * Immutable and stateless, so one instance is safe across requests.
  *

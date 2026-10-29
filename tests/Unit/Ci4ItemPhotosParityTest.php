@@ -5,7 +5,6 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
-require_once dirname(__DIR__, 2) . '/src/items.php';
 
 /**
  * Golden (PLAN step 11a, part 2): an item's photos on CI4 against legacy.

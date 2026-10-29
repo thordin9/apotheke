@@ -119,7 +119,7 @@ final class MediaTest extends CIUnitTestCase
      * for 6, which the size check alone cannot tell from anticlockwise),
      * scaled to the configured sizes. Compared pixel by pixel on a grid with
      * a GD reference, within JPEG's error. (Was a byte comparison with legacy
-     * image_store(), which leaves with src/.)
+     * image_store(), which left with the legacy app.)
      */
     public function testServedCopiesShowTheSourcePicture(): void
     {

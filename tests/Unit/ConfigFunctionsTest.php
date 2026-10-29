@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
-/** cfg() in the Core module resolves paths from the install root, as it did from src/ before the cutover. */
+/** cfg() in the Core module resolves paths from the install root, as it did before the cutover. */
 final class ConfigFunctionsTest extends TestCase
 {
     public function testCfgDefaultsToTheInstallRoot(): void
@@ -27,7 +27,6 @@ final class ConfigFunctionsTest extends TestCase
         foreach (['modules/Core/Config/DsnTranslator.php', 'modules/Migrations/PdoMigrationRunner.php', 'modules/ControlPanel/SystemInfo.php'] as $rel) {
             $php = (string)file_get_contents($root . '/' . $rel);
             $this->assertStringContainsString('config-functions.php', $php, $rel);
-            $this->assertStringNotContainsString("'/src/", $php, $rel);
         }
     }
 }

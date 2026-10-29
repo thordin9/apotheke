@@ -10,7 +10,7 @@ use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\Database\BaseConnection;
 
 /**
- * Full-text search (legacy src/search.php): search_docs (migration 0019)
+ * Full-text search (legacy search.php): search_docs (migration 0019)
  * holds one folded document per item, rebuilt when a cheap fingerprint of the
  * catalog changes. Engines: SQLite FTS5, PostgreSQL tsvector (+ pg_trgm for
  * typos), else substring matching. Same statements and ranking as legacy, so

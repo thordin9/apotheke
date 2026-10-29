@@ -9,7 +9,7 @@ use Apotheke\Layout\Icons;
 use Apotheke\Layout\Page;
 
 /**
- * Control Panel → AI autofill parts (legacy src/settings_views.php):
+ * Control Panel → AI autofill parts (legacy settings_views.php):
  * autofill_choice_field_html() (Model and Image size from the service's
  * /v1/info), autofill_test_html(), autofill_test_result_html() and
  * settings_autofill_token_html(). The token is write-only: the page only

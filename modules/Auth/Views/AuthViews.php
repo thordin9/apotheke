@@ -9,7 +9,7 @@ use Apotheke\Layout\Page;
 
 /**
  * The sign-in, registration and account pages: legacy view_login(),
- * view_register() and view_account() (src/views.php), kept line for line so
+ * view_register() and view_account() (2.x views.php), kept line for line so
  * the output is byte-identical; every value is escaped with Page::e().
  */
 final class AuthViews

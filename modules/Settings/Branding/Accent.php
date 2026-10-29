@@ -7,7 +7,7 @@ namespace Apotheke\Settings\Branding;
 use Apotheke\Settings\SettingsSchema;
 
 /**
- * Accent colour maths, ported from legacy src/settings.php: WCAG contrast,
+ * Accent colour maths, ported from legacy settings.php: WCAG contrast,
  * light and dark variants that pass AA (4.5:1), and the /theme.css text.
  * Pure: no state.
  */

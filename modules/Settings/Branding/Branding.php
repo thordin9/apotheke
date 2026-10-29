@@ -11,7 +11,7 @@ use Apotheke\Settings\SettingsService;
 
 /**
  * Public branding output: /theme.css, /labels.css, the web app manifest,
- * the favicon and the logo/icon URLs. Bytes match legacy src/settings.php.
+ * the favicon and the logo/icon URLs. Bytes match legacy settings.php.
  * Built per request by Config\Services; holds no state of its own.
  */
 final class Branding

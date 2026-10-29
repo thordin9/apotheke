@@ -11,7 +11,7 @@ use RuntimeException;
 require_once dirname(__DIR__) . '/Http/ProxyList.php';
 
 /**
- * defaults < config.php < environment, the same map and normalisation as src/config.php.
+ * defaults < config.php < environment, the same map and normalisation as 2.x config.php.
  */
 final class ApothekeConfig
 {

@@ -17,7 +17,7 @@ use Apotheke\Taxonomy\LocationTree;
 use DateTimeImmutable;
 
 /**
- * The item page and the add/edit form (legacy src/views.php: view_item(),
+ * The item page and the add/edit form (legacy views.php: view_item(),
  * view_form(), picker_html(), autofill_analyze_html(), scan_dialog_html()
  * and the partials they use), byte-identical to legacy. Every value is
  * escaped here.

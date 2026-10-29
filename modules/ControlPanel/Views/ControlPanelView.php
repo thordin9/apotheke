@@ -11,7 +11,7 @@ use Apotheke\Settings\SettingsSchema;
 use DateTimeZone;
 
 /**
- * Control Panel pages (legacy src/settings_views.php): the index
+ * Control Panel pages (legacy settings_views.php): the index
  * (view_settings_home()) and a section page (view_settings_section() with
  * setting_field_html(), accent_preview_html(), settings_appearance_extra()
  * and settings_system_html()). Kept line for line so the output is
