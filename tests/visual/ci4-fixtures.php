@@ -48,7 +48,21 @@ switch ($op) {
     case 'sql':
         $result = Services::apothekeDb()->query($argv[2]);
         if ($result === false) { fwrite(STDERR, "query failed\n"); exit(1); }
-        echo json_encode($result === true ? [] : $result->getResultArray());   // a write answers [] as PDO's fetchAll() did
+        if ($result === true) { echo '[]'; exit(0); }   // a write answers [] as PDO's fetchAll() did
+        // PostgreSQL rows come back as text: give integer, float and boolean columns PDO's native types, as legacy did
+        $types = [];
+        foreach ($result->getFieldData() as $field) $types[$field->name] = (string)($field->type_name ?? '');
+        $rows = array_map(static function (array $row) use ($types): array {
+            foreach ($row as $k => $v) {
+                if (!is_string($v)) continue;
+                $t = $types[$k] ?? '';
+                if (in_array($t, ['int2', 'int4', 'int8'], true)) $row[$k] = (int)$v;
+                elseif (in_array($t, ['float4', 'float8'], true)) $row[$k] = (float)$v;
+                elseif ($t === 'bool') $row[$k] = $v === 't';
+            }
+            return $row;
+        }, $result->getResultArray());
+        echo json_encode($rows);
         exit(0);
     case 'exec':
         Services::apothekeDb()->query($argv[2]);
