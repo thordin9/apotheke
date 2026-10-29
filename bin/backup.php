@@ -25,6 +25,10 @@ if (getenv('APOTHEKE_APP') === 'ci4') {
     passthru($command, $code);
     exit($code);
 }
+require dirname(__DIR__) . '/src/config.php';
+require dirname(__DIR__) . '/src/cli-owner.php';
+// started as root: continue as the data folder's owner before anything is read or written, or stop (L-622)
+cli_data_owner_or_exit('php bin/backup.php');
 require dirname(__DIR__) . '/src/bootstrap.php';
 require dirname(__DIR__) . '/src/items.php';
 require dirname(__DIR__) . '/src/backup.php';

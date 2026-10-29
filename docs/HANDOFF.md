@@ -268,6 +268,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Step 17, the docs rewrite ([#154](https://github.com/thordin9/apotheke/pull/154), open): `docs/upgrade-3.0.md` (new), the CI4
   sections of the architecture, getting-started, configuration, database, deployment, control-panel and CI pages,
   README and the docs index. Docs only; stays out of code.
+  Sync v2.6.26 ([#155](https://github.com/thordin9/apotheke/pull/155)): legacy gets #148; #149 closes the CI4 gaps
+  L-622, N-621, N-563, N-593 and N-567; #157 closes N-625 and N-681 and drops their CI4 skips. Merged at 455aef8.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
   forms (#105, merged); step 11b (#108, merged); #106 port for accounts (#110, merged); step 13 labels, barcode,
   lending (#114, merged) and stocktake (#115, merged); their QA follow-ups (#123, merged); N-63 (#125, merged);
@@ -288,9 +290,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Backup/Commands/DataDirOwner.php`, the CI4 branches of `bin/backup.php`, `bin/migrate.php`, `bin/restore.php` and
   `bin/settings.php`, `SettingsService::readImportFile()` and the import action in `ControlPanelController`,
   `BackupHelpersTest`, `RestorerFatalCleanupTest`, `SettingsServiceTest`, `Ci4BackupRestoreChecksTest`,
-  `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. Overlap: Coder's v2.6.26 sync
-  (#155) touches the same `bin/` files, `BackupFailureTest` and the deployment doc; whichever merges second drops
-  #155's CI4 skips for L-622, N-621, N-625 and N-681 and its "do not switch users yet" doc line.
+  `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. #155 (v2.6.26 sync, merged at 455aef8) is merged in;
+  `BackupFailureTest` runs every #148 test on CI4 (the N-625 and N-681 skips are gone).
 
 ## Next steps
 
