@@ -5,28 +5,45 @@ declare(strict_types=1);
 namespace Apotheke\Backup\Commands;
 
 /**
- * The restore command line runs as the user that owns DATA_DIR. Started as
- * root, it switches to that user (and DATA_DIR's group) before it does any
- * restore work, so every file it writes belongs to the data-dir owner. A
+ * The command-line tools that use DATA_DIR run as the user that owns it.
+ * Started as root, they switch to that user (and DATA_DIR's group, or the
+ * owner's own group when DATA_DIR's group is root's: N-621) before they do
+ * any work, so every file they write belongs to the data-dir owner. A
  * root-owned DATA_DIR, a missing posix extension or a switch that fails stops
- * it with exit 1. Has no dependencies: bin/restore.php loads it before
- * CodeIgniter starts.
+ * them with exit 1. Has no dependencies: bin/restore.php and spark load it
+ * before CodeIgniter starts.
  */
 final class DataDirOwner
 {
+    /** The command legacy bin/restore.php's message suggests. */
+    public const RESTORE = 'php bin/restore.php backup.zip';
+
+    /**
+     * The spark commands that use DATA_DIR (L-622), with the command legacy's
+     * message suggests for each.
+     */
+    public const COMMANDS = [
+        'apotheke:restore' => self::RESTORE,
+        'apotheke:backup' => 'php bin/backup.php',
+        'apotheke:migrate' => 'php bin/migrate.php',
+        'apotheke:settings' => 'php bin/settings.php list',
+        'apotheke:accounts' => 'php bin/settings.php list',
+    ];
+
     /**
      * Not root: true, nothing changes. Root: true once the process runs as
-     * DATA_DIR's owner and group, else false after a message on $err.
+     * DATA_DIR's owner and group, else false after a message on $err that
+     * suggests $example (legacy's message for that tool).
      *
      * @param resource $err
      */
-    public static function become(string $dataDir, mixed $err): bool
+    public static function become(string $dataDir, mixed $err, string $example = self::RESTORE): bool
     {
         if (!function_exists('posix_geteuid')) {
             if (!self::looksLikeRoot()) {
                 return true;
             }
-            return self::refuse($err, null);
+            return self::refuse($err, null, $example);
         }
         $euid = posix_geteuid();
         if ($euid !== 0) {
@@ -35,18 +52,23 @@ final class DataDirOwner
         clearstatcache(true, $dataDir);
         $st = $dataDir === '' ? false : @stat($dataDir);
         if ($st === false || !is_dir($dataDir)) {
-            return self::refuse($err, null);
+            return self::refuse($err, null, $example);
         }
         $uid = (int)$st['uid'];
-        $gid = (int)$st['gid'];
         $pw = $uid === 0 ? false : posix_getpwuid($uid);
         if ($uid === 0 || $pw === false) {
-            return self::refuse($err, null);
+            return self::refuse($err, null, $example);
         }
         $name = (string)$pw['name'];
+        // N-621: never root's group; the owner's own group when DATA_DIR's group is root's.
+        $gid = (int)$st['gid'] !== 0 ? (int)$st['gid'] : (int)$pw['gid'];
+        if ($gid === 0) {
+            return self::refuse($err, $name, $example);
+        }
         $switched = @posix_setgid($gid) && @posix_initgroups($name, $gid) && @posix_setuid($uid);
-        if (!$switched || [posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid()] !== [$uid, $uid, $gid, $gid]) {
-            return self::refuse($err, $name);
+        if (!$switched || [posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid()] !== [$uid, $uid, $gid, $gid]
+            || in_array(0, posix_getgroups() ?: [], true)) {
+            return self::refuse($err, $name, $example);
         }
         putenv('HOME=' . (string)$pw['dir']);
         putenv('USER=' . $name);
@@ -60,9 +82,9 @@ final class DataDirOwner
      *
      * @param resource $err
      */
-    private static function refuse(mixed $err, ?string $owner): bool
+    private static function refuse(mixed $err, ?string $owner, string $example): bool
     {
-        fwrite($err, 'Run this as the user that owns the data folder, not as root, for example: sudo -u ' . ($owner ?? '<owner>') . " php bin/restore.php backup.zip. Nothing was changed.\n");
+        fwrite($err, 'Run this as the user that owns the data folder, not as root, for example: sudo -u ' . ($owner ?? '<owner>') . " $example. Nothing was changed.\n");
 
         return false;
     }

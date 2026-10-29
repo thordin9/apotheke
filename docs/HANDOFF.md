@@ -278,6 +278,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
+- Coder2, QA notes batch 4 part B ([#149](https://github.com/thordin9/apotheke/pull/149), open): `Backup/Restorer.php`,
+  `Backup/Commands/DataDirOwner.php`, `Backup/Commands/BackupCli.php`, `Backup/Controllers/BackupController.php`,
+  `ci4/spark`, the legacy copies `bin/restore.php` and `public/index.php` (same change as #148 on `main`),
+  `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`, `BackupFailureTest`. Overlap: `ci4/spark` and the legacy copies
+  with Coder's syncs; part A is #147, the `main` notes are #148.
 
 ## Next steps
 

@@ -11,6 +11,7 @@ use Apotheke\Backup\JsonReader;
 use Apotheke\Backup\Restorer;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\RequestCleanup;
 use CodeIgniter\Test\CIUnitTestCase;
 use ReflectionClass;
 use ZipArchive;
@@ -35,6 +36,103 @@ final class BackupHelpersTest extends CIUnitTestCase
         rewind($err);
         $this->assertSame('', stream_get_contents($err));
         $this->assertSame($ids, [posix_getuid(), posix_geteuid(), posix_getgid(), posix_getegid()], 'the ids are unchanged');
+    }
+
+    /** L-622: each data command's message suggests that tool's own command, as legacy does. */
+    public function testEachDataCommandNamesItsOwnToolInTheMessage(): void
+    {
+        $this->assertSame(['apotheke:restore', 'apotheke:backup', 'apotheke:migrate', 'apotheke:settings', 'apotheke:accounts'], array_keys(DataDirOwner::COMMANDS));
+        $this->assertSame('php bin/restore.php backup.zip', DataDirOwner::COMMANDS['apotheke:restore']);
+        $this->assertSame('php bin/backup.php', DataDirOwner::COMMANDS['apotheke:backup']);
+    }
+
+    /**
+     * N-520: where the file system has no hard links (link() always fails
+     * here), the lock is made with 'x' in place: a plain file, locked, with
+     * no temp name left.
+     */
+    public function testWithoutHardLinksTheLockIsMadeInPlace(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-nolink-' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        $lock = $dir . '/' . Restorer::LOCK_FILE;
+        try {
+            $calls = 0;
+            $fh = Restorer::openLock($lock, null, static function () use (&$calls): bool {
+                $calls++;
+
+                return false;
+            });
+            $this->assertSame(1, $calls, 'link() was tried');
+            $this->assertTrue(Restorer::plainFile(lstat($lock)));
+            $this->assertSame([Restorer::LOCK_FILE], array_values(array_diff(scandir($dir) ?: [], ['.', '..'])), 'no temp name is left');
+            $other = fopen($lock, 'r');
+            $this->assertFalse(flock($other, LOCK_EX | LOCK_NB), 'it is held');
+            fclose($other);
+            fclose($fh);
+        } finally {
+            array_map('unlink', glob($dir . '/{,.}[!.]*', GLOB_BRACE) ?: []);
+            @rmdir($dir);
+        }
+    }
+
+    /**
+     * N-521: when the lock's name is gone again between making and opening
+     * it, the restore says why (LOCK_REFUSED), not the general message.
+     */
+    public function testALockNameGoneBeforeTheOpenSaysWhy(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-gone-' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        $lock = $dir . '/' . Restorer::LOCK_FILE;
+        try {
+            $fh = Restorer::openLock($lock, null, static fn (string $target, string $link): bool => link($target, $link) && unlink($link));
+            fclose($fh);
+            $this->fail('a lock was taken with nothing at its name');
+        } catch (UserError $e) {
+            $this->assertSame(Restorer::LOCK_REFUSED, $e->getMessage());
+        } finally {
+            array_map('unlink', glob($dir . '/{,.}[!.]*', GLOB_BRACE) ?: []);
+            @rmdir($dir);
+        }
+    }
+
+    /**
+     * N-562, N-581: the name is looked up afresh before the open. A link
+     * that pointed nowhere when one restore opened the name (refused) is
+     * not remembered, nor where a link it resolved led, so a plain file
+     * another process puts there next is the one locked.
+     */
+    public function testALinkSeenAtTheOpenIsNotRememberedForTheNextLock(): void
+    {
+        $dir = sys_get_temp_dir() . '/apotheke-restore-fresh-' . bin2hex(random_bytes(4));
+        mkdir($dir, 0700);
+        $lock = $dir . '/' . Restorer::LOCK_FILE;
+        $target = $dir . '/elsewhere';
+        try {
+            try {
+                fclose(Restorer::openLock($lock, static function () use ($lock, $target): void {
+                    symlink($target, $lock);
+                }));
+                $this->fail('a link at the open was not refused');
+            } catch (UserError $e) {
+                $this->assertSame(Restorer::LOCK_REFUSED, $e->getMessage());
+            }
+            $this->assertFileDoesNotExist($target);
+            // Another process swaps the name (PHP's own unlink(), touch() and symlink() would clear its
+            // caches): first a link to a file, which this process resolves, then the plain file.
+            $sh = static fn (string $cmd): string => (string)shell_exec($cmd . ' 2>&1');
+            $this->assertSame('', $sh('rm -f ' . escapeshellarg($lock) . ' && touch ' . escapeshellarg($target) . ' && ln -s ' . escapeshellarg($target) . ' ' . escapeshellarg($lock)));
+            $this->assertSame(realpath($target), realpath($lock));
+            $this->assertSame('', $sh('rm -f ' . escapeshellarg($lock) . ' && touch ' . escapeshellarg($lock)));
+            $fh = Restorer::openLock($lock);
+            clearstatcache();
+            $this->assertSame(fstat($fh)['ino'], lstat($lock)['ino'], 'the plain file now at the name is the one locked');
+            fclose($fh);
+        } finally {
+            array_map('unlink', glob($dir . '/{,.}[!.]*', GLOB_BRACE) ?: []);
+            @rmdir($dir);
+        }
     }
 
     public function testOnlyTheNamesABackupWritesAreAccepted(): void
@@ -205,7 +303,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
         (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-        (function (Backups $b): void { $this->backups = $b; })->call($restorer, $backups);
+        (function (Backups $b): void { $this->backups = $b; $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
         try {
             foreach ([1, 2] as $round) {
                 try {
@@ -234,7 +332,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
         (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-        (function (Backups $b): void { $this->backups = $b; })->call($restorer, $backups);
+        (function (Backups $b): void { $this->backups = $b; $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
         $lockPath = $dir . '/tmp/' . Restorer::LOCK_FILE;
         try {
             touch($lockPath);
@@ -356,7 +454,7 @@ final class BackupHelpersTest extends CIUnitTestCase
             $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
             (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
             $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-            (function (Backups $b): void { $this->backups = $b; })->call($restorer, $backups);
+            (function (Backups $b): void { $this->backups = $b; $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
             try {
                 $restorer->restore($dir . '/missing.zip', true);
                 $this->fail('a restore ran with a folder as its lock');

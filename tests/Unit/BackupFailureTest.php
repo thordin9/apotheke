@@ -584,7 +584,8 @@ final class BackupFailureTest extends TestCase
         $r = $c->post('/backup/restore/confirm', ['csrf' => $csrf, 'token' => $token, 'confirm' => '1']);
         $this->assertSame(422, $r['status'], $message . ' ' . substr((string)$r['body'], 0, 500));
         $this->assertStringContainsString(htmlspecialchars($message), (string)$r['body']);
-        @unlink($dir . '/tmp/restore-' . $token . '.zip');   // kept for the hourly sweep
+        clearstatcache();
+        $this->assertFileDoesNotExist($dir . '/tmp/restore-' . $token . '.zip', 'a failed restore removes its upload at once (N-567)');
     }
 
     /** @return array<string,array{name:string,type:string,data:string}> */

@@ -136,6 +136,10 @@ final class BackupCli
             return 1;
         }
         fwrite($this->out, 'Restored: ' . Backups::summaryText($r['tables'], $r['photos']) . "\n");
+        // the warnings the restore itself added (camera links not written, settings not restored; N-593), as legacy
+        foreach (array_diff($r['warnings'], $b['warnings']) as $w) {
+            fwrite($this->out, "  warning: $w\n");
+        }
 
         return 0;
     }
