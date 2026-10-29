@@ -236,13 +236,16 @@ final class ReleaseTest extends TestCase
         $run('git checkout -q -b topic && git commit -q --allow-empty -m "fix(ui): one" && git commit -q --allow-empty -m "docs: two"');
         $run('git checkout -q main && git merge -q --no-ff topic -m "Merge pull request #7 from o/topic"');
         $run('git commit -q --allow-empty -m "perf: direct (#9)"');
+        $run('git checkout -q -b titled && git commit -q --allow-empty -m "docs: titled merge"');
+        $run('git checkout -q main && git merge -q --no-ff titled -m "docs: a merge titled like a squash (#29)"');
         $cwd = getcwd();
         chdir($d);
         try {
             $this->assertSame('v1.0.0', rel_last_tag());
             $c = rel_commits('v1.0.0');
         } finally { chdir($cwd); exec('rm -rf ' . escapeshellarg($d)); }
-        $this->assertSame([['fix(ui): one', 7], ['docs: two', 7], ['perf: direct', 9]], array_map(fn($x) => [$x['subject'], $x['pr']], $c));
+        // Order among same-second commits is up to git, so compare as a set.
+        $this->assertEqualsCanonicalizing([['fix(ui): one', 7], ['docs: two', 7], ['perf: direct', 9], ['docs: titled merge', 29]], array_map(fn($x) => [$x['subject'], $x['pr']], $c));
         $this->assertSame('patch', rel_bump($c));
     }
 }
