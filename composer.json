@@ -1,6 +1,6 @@
 {
-    "name": "thordin9/apotheke-ci4",
-    "description": "Apotheke on CodeIgniter 4",
+    "name": "thordin9/apotheke",
+    "description": "Apotheke (ἀποθήκη): a fast, mobile-first catalog for your stuff on CodeIgniter 4 (SQLite or PostgreSQL)",
     "license": "MIT",
     "type": "project",
     "require": {
@@ -9,6 +9,12 @@
         "ext-mbstring": "*",
         "ext-sqlite3": "*",
         "codeigniter4/framework": "4.7.5"
+    },
+    "require-dev": {
+        "deptrac/deptrac": "^2.0",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpcov": "^10.0",
+        "phpunit/phpunit": "^11.5"
     },
     "autoload": {
         "psr-4": {
@@ -19,6 +25,20 @@
         "exclude-from-classmap": [
             "**/Database/Migrations/**"
         ]
+    },
+    "autoload-dev": {
+        "classmap": [
+            "tests/Unit/",
+            "tests/Integration/"
+        ],
+        "psr-4": {
+            "Apotheke\\Tools\\PhpStan\\": "tools/PhpStan/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "test:unit": "phpunit --testsuite unit",
+        "test:integration": "phpunit --testsuite integration"
     },
     "config": {
         "optimize-autoloader": true,
