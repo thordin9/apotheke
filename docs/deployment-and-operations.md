@@ -145,7 +145,7 @@ Rules for any web server in front of PHP-FPM:
 
 * the document root is `public/`;
 * every request that is not an existing file in `public/` goes to `public/index.php`;
-* no other PHP file is ever executed, and `src/`, `data/`, `migrations/`, `bin/`, `config.php` and any URL path
+* no other PHP file is ever executed, and `app/`, `modules/`, `vendor/`, `writable/`, `data/`, `migrations/`, `bin/`, `config.php` and any URL path
   containing `/originals` are not reachable, in any spelling (Docker nginx: `location ~* ^/originals(/|$) { return 404; }`; Apache:
   `public/.htaccess` `RedirectMatch` with `(?i)`, plus `Require all denied` and `Deny from all` inside the originals directory);
 * allow a request body of ~22 MB normally and more on `/backup/restore` if you restore through the browser (the

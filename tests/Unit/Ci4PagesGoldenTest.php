@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 
 /**
- * L-961: the item list, the item page and the main JSON answers, pinned to
+ * L-961: the item list, the item page, its edit form and the main JSON answers, pinned to
  * what CI4 gave at the cutover (recorded twice, identical), in the style of
  * Ci4BrandingHttpTest: status, a few headers, and the body's sha1 (HTML) or
  * the decoded JSON (its "html" part as a sha1). The CSRF token and asset
@@ -20,7 +20,7 @@ final class Ci4PagesGoldenTest extends TestCase
 {
     private const HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'x-frame-options'];
 
-    /** Recorded at the cutover head 029188d, twice, identical. */
+    /** Recorded at the cutover head 029188d, twice, identical; the edit form at f1b4535 (twice on SQLite, once on PostgreSQL, identical). */
     private const GOLDEN = [
         'GET /' => [
             'status' => 200,
@@ -33,6 +33,14 @@ final class Ci4PagesGoldenTest extends TestCase
         'GET /item/1' => [
             'status' => 200,
             'sha1' => 'bb90af88f6a33fade380768d7e8f2bf7aa688219',
+            'content-type' => 'text/html; charset=UTF-8',
+            'cache-control' => 'no-store',
+            'x-content-type-options' => 'nosniff',
+            'x-frame-options' => 'SAMEORIGIN',
+        ],
+        'GET /item/1/edit' => [
+            'status' => 200,
+            'sha1' => '1d6d390668fa6d26570481c8525fc8bebc7cb56e',
             'content-type' => 'text/html; charset=UTF-8',
             'cache-control' => 'no-store',
             'x-content-type-options' => 'nosniff',
@@ -165,6 +173,7 @@ final class Ci4PagesGoldenTest extends TestCase
             $seen = [
                 'GET /' => $this->page($client->get('/')),
                 'GET /item/1' => $this->page($client->get('/item/1')),
+                'GET /item/1/edit' => $this->page($client->get('/item/1/edit')),
                 'GET /item/999' => $this->page($client->get('/item/999')),
                 'JSON /' => $this->json($client->json('/')),
                 'JSON /?q=drill' => $this->json($client->json('/?q=drill')),

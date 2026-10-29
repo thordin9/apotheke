@@ -3,7 +3,7 @@
 Apotheke 3.0 is the CodeIgniter 4 app (PHP 8.4). It uses the same database schema, the same data directory and
 the same settings as 2.x, so an upgrade is a switch of the app, not a data migration. This page is the upgrade and
 rollback runbook (PLAN [§3.6](plans/feature12-ci4/PLAN.md#36-backup-and-rollback-runbook-docker-tested-in-ci)); CI
-runs the same steps on every pull request into `feature/ci4` (see [What CI proves](#what-ci-proves)).
+runs the same steps on every pull request and every push to `main` (see [What CI proves](#what-ci-proves)).
 
 The 2.6 images ship the CI4 app next to the 2.x app and switch to it with `APOTHEKE_APP=ci4`. From 3.0 it is the
 only app: the variable may stay empty or `ci4`, and `APOTHEKE_APP=legacy` exits with code 64.
@@ -29,11 +29,11 @@ only app: the variable may stay empty or `ci4`, and `APOTHEKE_APP=legacy` exits 
   either app restores on the other), the port (9091), the health checks (`/healthz`, `/health`) and the start-up
   sign-in check.
 
-## Before 3.0.0: the Control Panel on the CI4 app
+## The Control Panel on the CI4 app
 
 The Control Panel is served by the CI4 app too: `/settings` and every section (save and reset), the logo, the
 settings file (export and import), Users & sign-in, and the AI autofill page with its token and Test buttons, with the
-same `settings` permission as 2.x. Both apps read one database, so a setting changed with either app or with
+same permissions as 2.x (`settings` for the panel; `users` for Users & sign-in). Both apps read one database, so a setting changed with either app or with
 `bin/settings.php` ([Control Panel → Command line](control-panel.md#command-line)) applies to both.
 
 ## 1. Back up
@@ -133,7 +133,7 @@ Unchanged from 2.x, noted because it can surprise:
   attachment and a wrong mode.
 * **Parity gate** (until the cutover, SQLite and PostgreSQL): one scenario over every ported area on both apps,
   compared step by step; CI4 had to stay within +20 % of 2.x at p95 on PostgreSQL and within + 3 ms at the median on
-  SQLite, per area. Its last run on the pre-cutover head passed with 0 differences ([HANDOFF](HANDOFF.md)).
+  SQLite, per area. Its last run on the pre-cutover head passed on both databases with 0 differences ([HANDOFF](HANDOFF.md)).
 
 Details: [Testing → Upgrade and rollback](testing.md#upgrade-and-rollback-plan-step-16-part-2).
 
