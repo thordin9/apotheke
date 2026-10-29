@@ -379,7 +379,6 @@ final class BackupFailureTest extends TestCase
      */
     public function testAMapThatCannotBeWrittenIsAWarningOnly(): void
     {
-        if (getenv('APOTHEKE_APP') === 'ci4') $this->markTestSkipped('CI4 gap N-563, N-593, listed in #155');
         $this->needChattr();
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
             $map = $dir . '/originals/map';
@@ -515,7 +514,6 @@ final class BackupFailureTest extends TestCase
      */
     public function testRootCliToolsRunAsTheDataFolderOwner(): void
     {
-        if (getenv('APOTHEKE_APP') === 'ci4') $this->markTestSkipped('CI4 gap L-622, N-621, listed in #155');
         $this->needSudo();
         $pw = posix_getpwuid(posix_geteuid());
         if (!is_array($pw) || (int)$pw['gid'] !== posix_getegid() || posix_getegid() === 0) $this->markTestSkipped('this user\'s group is not its own primary group');
@@ -545,7 +543,6 @@ final class BackupFailureTest extends TestCase
     /** A data folder owned by root: every bin/ tool that uses it, started as root, stops with exit 1 and changes nothing. */
     public function testRootCliToolsRefuseARootOwnedDataFolder(): void
     {
-        if (getenv('APOTHEKE_APP') === 'ci4') $this->markTestSkipped('CI4 gap L-622, listed in #155');
         $this->needSudo();
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo, string $good): void {
             file_put_contents($dir . '/cli.zip', $good);
