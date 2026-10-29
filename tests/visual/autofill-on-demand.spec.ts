@@ -106,8 +106,10 @@ test.describe('AI autofill on demand', () => {
     app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php';
       db()->exec("DELETE FROM settings WHERE name IN ('autofill_auto', 'autofill_model', 'autofill_image_size')");
       db()->exec("DELETE FROM schema_migrations WHERE version = '0025'");`]);
-    // the upgrade: the next db() call (here bin/migrate.php; in the app the first request) applies 0025
-    expect(app.server.php([app.server.at(path.join(ROOT, 'bin/migrate.php'))]).toString()).toContain('0025');
+    // the upgrade: the next db() call (in the app the first request) applies 0025. Called directly, not through
+    // bin/migrate.php: the CLI tools run as the data folder's owner, and this job's data folder is root's.
+    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; db();`]);
+    expect(app.sql<{ version: string }>("SELECT version FROM schema_migrations WHERE version = '0025'").length, '0025 is applied').toBe(1);
     expect(app.sql<{ value: string }>("SELECT value FROM settings WHERE name = 'autofill_auto'")[0].value).toBe('false');
     expect(app.sql<{ value: string }>("SELECT value FROM settings WHERE name = 'autofill_enabled'")[0].value, 'autofill itself stays on').toBe('true');
     await page.goto('/settings/autofill');

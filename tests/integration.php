@@ -744,7 +744,7 @@ $r = $confirmRestore($zipOf($withNew));
 T::ok($r['status'] === 422 && is_link("$dir/images/$newPhoto") && !file_exists("$dir/nowhere"), 'a link where a new photo goes stops the restore and stays');
 unlink("$dir/images/$newPhoto");
 T::eq([$filesBefore, $itemsNow], [$dataFiles(), $items()], 'refused restores leave the files and the catalog as they were');
-$waiting = glob("$dir/tmp/restore-*") ?: [];   // failed confirms keep theirs, for the hourly sweep
+$waiting = glob("$dir/tmp/restore-*") ?: [];   // a 409 keeps its upload; other failed confirms remove theirs (N-567)
 $r = $c->post('/backup/restore', ['csrf' => $tok], $zipUp($zipOf($base, ['images/' . str_repeat('8', 32) . '.jpg' => 300 * 1024 * 1024])));
 T::ok($r['status'] === 422 && str_contains($r['body'], 'A file in the backup is too large to restore'), 'a file in the backup over the size cap is refused', substr($r['body'], 0, 300));
 T::eq($waiting, glob("$dir/tmp/restore-*") ?: [], 'the refused upload is removed');
