@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Exceptions/UserError.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Libraries/Text.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Settings/SettingsSchema.php';

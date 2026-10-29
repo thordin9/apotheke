@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Control Panel settings: validation, precedence/seeding, contrast maths, SVG sanitizing, import/export, password. */
 final class SettingsTest extends DatabaseTestCase
 {

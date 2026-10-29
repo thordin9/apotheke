@@ -5,6 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 
 /**
  * Golden: the Control Panel on CI4 against legacy. The same requests go to a

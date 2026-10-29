@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Roles and permissions: route → permission map, resolution per role and mode, the roles editor, registration, lockout. */
 final class PermissionsTest extends DatabaseTestCase
 {

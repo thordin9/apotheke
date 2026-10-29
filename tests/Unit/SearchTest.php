@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Full-text search: documents, ranking, typo tolerance, fallbacks and escaped highlighting. */
 final class SearchTest extends DatabaseTestCase
 {

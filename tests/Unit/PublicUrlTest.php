@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** public_url() never builds a label link from a Host that fails the allow-list (SEC-M3). */
 final class PublicUrlTest extends DatabaseTestCase
 {

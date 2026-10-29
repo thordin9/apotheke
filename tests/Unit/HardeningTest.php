@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Password input checks, the sign-in limit's bookkeeping, and copying a photo's original. */
 final class HardeningTest extends DatabaseTestCase
 {

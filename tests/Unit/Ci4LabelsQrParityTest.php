@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Labels/QrJit.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Labels/QrCode.php';
 

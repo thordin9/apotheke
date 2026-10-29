@@ -5,6 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 require_once dirname(__DIR__, 2) . '/src/views.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Layout/Icons.php';
 require_once dirname(__DIR__, 2) . '/ci4/modules/Layout/Theme.php';

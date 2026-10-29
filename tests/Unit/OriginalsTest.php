@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Camera uploads stay byte-identical and off the web path; delete removes every copy. */
 final class OriginalsTest extends DatabaseTestCase
 {

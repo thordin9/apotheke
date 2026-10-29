@@ -380,10 +380,10 @@ function test_schema(string $dataDir): string
 /** Connection parameters for the test PostgreSQL (admin role). */
 function test_pg_params(): array
 {
-    if (function_exists('db_driver') && db_driver() === 'pgsql') {
-        $c = cfg()['db'];
-        return ['host' => (string)$c['host'], 'port' => (string)$c['port'], 'name' => (string)$c['name'],
-                'user' => (string)$c['user'], 'password' => (string)$c['password']];
+    if (getenv('DB_DRIVER') === 'pgsql' && getenv('DB_HOST') !== false) {
+        // what the app under test connects with (tests/phpunit-bootstrap.php sets DB_* from TEST_PG_*)
+        return ['host' => (string)getenv('DB_HOST'), 'port' => (string)(getenv('DB_PORT') ?: '5432'), 'name' => (string)(getenv('DB_NAME') ?: 'apotheke'),
+                'user' => (string)(getenv('DB_USER') ?: 'apotheke'), 'password' => (string)getenv('DB_PASSWORD')];
     }
     if (test_driver() === 'pgsql') {
         $e = test_db_env('pg-admin');

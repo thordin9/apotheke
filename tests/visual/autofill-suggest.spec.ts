@@ -4,7 +4,6 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AutofillStub } from './autofill-stub';
-import { ROOT } from './fixtures';
 
 /* AI autofill: suggestions after picking a photo on the item form, against the PHP echo stub (QA's checklist).
    These run with "Analyze photos automatically" on (the 2.3 behaviour, still an admin option), so picking a photo
@@ -269,7 +268,7 @@ test.describe('AI autofill suggestions', () => {
 
   test('a preselected default category is replaced; one the user picked (even back to the default) is kept', async ({ app, page }) => {
     await configure(page, { on: true, url: stub.base + '/s/Tools' });
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; tax_set_default('category', tax_create('category', 'General')['id'], true);`]);
+    app.defaultCategory('General');
     const cat = page.locator('#catsel');
     const label = () => cat.evaluate((s: HTMLSelectElement) => s.selectedOptions[0].textContent!.trim());
     await app.go('/new');
@@ -305,7 +304,7 @@ test.describe('AI autofill suggestions', () => {
     await configure(page, { on: true, url: stub.base + '/s/Gadgets' });
     const cat = page.locator('#catsel');
     const label = () => cat.evaluate((s: HTMLSelectElement) => s.selectedOptions[0].textContent!.trim());
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; db()->exec('UPDATE categories SET is_default = 0');`]);
+    app.exec('UPDATE categories SET is_default = 0');
     await app.go('/new');
     await expect(page.locator('#itemform'), 'no default category').not.toHaveAttribute('data-af-defaults', /category/);
     expect(await cat.inputValue()).toBe('');
@@ -314,7 +313,7 @@ test.describe('AI autofill suggestions', () => {
     expect(await cat.inputValue()).toBe('__new');
     await expect(page.locator('#newcat')).toBeVisible();
     await expect(page.locator('#newcatname')).toHaveValue('Gadgets');
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; tax_set_default('category', tax_create('category', 'General')['id'], true);`]);
+    app.defaultCategory('General');
     await app.go('/new');
     await expect(page.locator('#itemform')).toHaveAttribute('data-af-defaults', /category/);
     expect(await label()).toBe('General ★');

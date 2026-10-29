@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /**
  * Header limits and reduced decode for large photos.
  * A 48 MP phone frame is 8064×6048. A 200 MP sensor is 16384×12288.

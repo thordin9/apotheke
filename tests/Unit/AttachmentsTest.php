@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Attachments: type sniffing, names, limits, deletion (driver-independent). */
 final class AttachmentsTest extends DatabaseTestCase
 {

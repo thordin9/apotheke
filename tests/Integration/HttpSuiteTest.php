@@ -12,6 +12,7 @@ final class HttpSuiteTest extends TestCase
     public function testHttpSuitePasses(): void
     {
         require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
         if (apotheke_app() === 'ci4') {
             $this->markTestSkipped('The catalog HTTP suite stays on the legacy server until those routes exist in CI4.');
         }

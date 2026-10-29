@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** The generated QR label print stylesheet follows the Control Panel settings. */
 final class LabelsCssTest extends DatabaseTestCase
 {
