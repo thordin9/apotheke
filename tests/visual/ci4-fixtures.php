@@ -35,7 +35,9 @@ if ($op === 'seed') {
     putenv('APOTHEKE_CONFIG=/nonexistent');
 }
 
-$ci4 = dirname(__DIR__, 2);
+// The app to boot: this checkout, or the image's own install when the checkout is only mounted into a container
+// (the docker-smoke project sets APOTHEKE_FIXTURE_APP=/var/www/app; the mount has no vendor/).
+$ci4 = getenv('APOTHEKE_FIXTURE_APP') ?: dirname(__DIR__, 2);
 define('FCPATH', $ci4 . '/public/');
 chdir(FCPATH);
 require $ci4 . '/app/Config/Paths.php';

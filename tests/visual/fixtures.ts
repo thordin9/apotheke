@@ -136,7 +136,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       const at = (p: string) => p.startsWith(dataDir + '-files') ? '/files' + p.slice(filesDir.length)
         : p.startsWith(dataDir) ? '/data' + p.slice(dataDir.length) : p.startsWith(ROOT) ? '/repo' + p.slice(ROOT.length) : p;
       server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at,
-        php: args => execFileSync('docker', ['exec', '-u', 'www-data', ...e, name, 'php', ...args]) };
+        php: args => execFileSync('docker', ['exec', '-u', 'www-data', ...e, '-e', 'APOTHEKE_FIXTURE_APP=/var/www/app', name, 'php', ...args]) };
       stop = () => {
         try { execFileSync('docker', ['exec', name, 'sh', '-c', 'rm -rf /data/* /files/*']); } catch { /* already gone */ }
         execFileSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
