@@ -182,6 +182,24 @@ final class SecretBoxTest extends CIUnitTestCase
         return [$key->key, $key->problem];
     }
 
+    /** N-921: the key and the plain value never reach a stack trace through the arguments. */
+    public function testTheKeyAndThePlainValueAreSensitiveParameters(): void
+    {
+        $sensitive = static function (string $method): array {
+            $names = [];
+            foreach ((new \ReflectionMethod(SecretBox::class, $method))->getParameters() as $param) {
+                if ($param->getAttributes(\SensitiveParameter::class) !== []) {
+                    $names[] = $param->getName();
+                }
+            }
+
+            return $names;
+        };
+        $this->assertSame(['plain'], $sensitive('seal'));
+        $this->assertSame(['plain', 'key'], $sensitive('sealWith'));
+        $this->assertSame(['key'], $sensitive('openWith'));
+    }
+
     /** @param array<string,string> $env */
     private function box(array $env): SecretBox
     {

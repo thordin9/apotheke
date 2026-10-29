@@ -86,7 +86,7 @@ final class SecretBox
      * key the value stays plaintext, as on legacy. A configured key that
      * cannot be used refuses the write with a 422 that names the cause.
      */
-    public function seal(string $plain): string
+    public function seal(#[\SensitiveParameter] string $plain): string
     {
         if ($plain === '') {
             return '';
@@ -135,7 +135,7 @@ final class SecretBox
         return str_starts_with($stored, self::ENVELOPE);
     }
 
-    public static function sealWith(string $plain, string $key): string
+    public static function sealWith(#[\SensitiveParameter] string $plain, #[\SensitiveParameter] string $key): string
     {
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
 
@@ -143,7 +143,7 @@ final class SecretBox
     }
 
     /** Plaintext, or null when an enc:v1: value does not open with $key. */
-    public function openWith(string $name, string $stored, ?string $key, bool $log): ?string
+    public function openWith(string $name, string $stored, #[\SensitiveParameter] ?string $key, bool $log): ?string
     {
         if ($stored === '') {
             return '';
