@@ -35,6 +35,8 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
 {
     private const FILE = '0123456789abcdef0123456789abcdef.pdf';
 
+    private const PHOTO = 'abcdef0123456789abcdef0123456789.jpg';
+
     private ?TestDatabase $database = null;
 
     private string $zip = '';
@@ -104,6 +106,33 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
     }
 
     /**
+     * N-881: a thumbnail drawn again (the backup has none) is written from
+     * memory; it is noted before that write, so a fatal error right after
+     * it still removes the file.
+     */
+    #[DataProvider('drivers')]
+    public function testAFatalErrorRightAfterADrawnThumbnailIsWrittenRemovesIt(string $driver): void
+    {
+        $seen = null;
+        $cleanup = new RequestCleanup();
+        $restorer = $this->restorer($driver, $cleanup, null, function (string $path) use ($cleanup, &$seen): void {
+            $written = is_file($path);
+            $cleanup->run();
+            clearstatcache();
+            $seen = [$written, is_file($path)];
+
+            throw new RuntimeException('stopped after the write');
+        }, 'thumbs/');
+        try {
+            $restorer->restore($this->zip, false);
+            $this->fail('the restore was not stopped');
+        } catch (Throwable) {
+            // the restore's own answer to the hook's exception; the point is what the cleanup left
+        }
+        $this->assertSame([true, false], $seen, 'the thumbnail was written, and the cleanup removed it');
+    }
+
+    /**
      * A database with one item and its attachment, a backup of it in
      * $this->zip, and the attachment removed again (so the restore writes
      * it). $onRead runs while the backup is read, $onWrite right after the
@@ -111,8 +140,10 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
      *
      * @param ?Closure(string):void $onRead gets DATA_DIR/tmp
      * @param ?Closure(string):void $onWrite gets the file's path
+     * @param string $written the folder whose writes run $onWrite; for thumbs/, the item also has a photo
+     *                        whose thumbnail is not in the backup, so the restore draws it again
      */
-    private function restorer(string $driver, RequestCleanup $cleanup, ?Closure $onRead, ?Closure $onWrite): Restorer
+    private function restorer(string $driver, RequestCleanup $cleanup, ?Closure $onRead, ?Closure $onWrite, string $written = 'files/'): Restorer
     {
         $this->database = TestDatabase::create($driver);
         $db = $this->database->db;
@@ -126,9 +157,17 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
         $db->table('item_attachments')->insert(['item_id' => $item, 'file' => self::FILE, 'name' => 'manual.pdf', 'mime' => 'application/pdf', 'size' => strlen($pdf), 'created_at' => '2026-01-02 08:00:00']);
         @mkdir($dir . '/files', 0770, true);
         file_put_contents($dir . '/files/' . self::FILE, $pdf);
+        if ($written === 'thumbs/') {
+            $db->table('items')->where('id', $item)->update(['image' => self::PHOTO]);
+            $db->table('item_photos')->insert(['item_id' => $item, 'file' => self::PHOTO, 'position' => 0, 'created_at' => '2026-01-02 08:00:00']);
+            @mkdir($dir . '/images', 0770, true);
+            $im = imagecreatetruecolor(64, 48);
+            imagejpeg($im, $dir . '/images/' . self::PHOTO);
+        }
         $this->zip = sys_get_temp_dir() . '/apotheke-ci4-fatal-' . bin2hex(random_bytes(4)) . '.zip';
         $backups->create($this->zip);
         unlink($dir . '/files/' . self::FILE);
+        @unlink($dir . '/images/' . self::PHOTO);
         $undo = new UndoTokens($db, $clock, 600, static function (string $f): void {
         }, static function (string $f): void {
         });
@@ -139,8 +178,8 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
 
             return array_keys((new PdoMigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations'))->available());
         };
-        $data = new class (new LocalStorage($dir), $dir, $onWrite) implements Storage {
-            public function __construct(private readonly Storage $inner, private readonly string $dir, private readonly ?Closure $onWrite)
+        $data = new class (new LocalStorage($dir), $dir, $onWrite, $written) implements Storage {
+            public function __construct(private readonly Storage $inner, private readonly string $dir, private readonly ?Closure $onWrite, private readonly string $written)
             {
             }
 
@@ -152,12 +191,18 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
             public function write(string $key, string $bytes): void
             {
                 $this->inner->write($key, $bytes);
+                $this->hook($key);
             }
 
             public function writeStream(string $key, mixed $stream): void
             {
                 $this->inner->writeStream($key, $stream);
-                if ($this->onWrite !== null && str_starts_with($key, 'files/')) {
+                $this->hook($key);
+            }
+
+            private function hook(string $key): void
+            {
+                if ($this->onWrite !== null && str_starts_with($key, $this->written)) {
                     ($this->onWrite)($this->dir . '/' . $key);
                 }
             }
