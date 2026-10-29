@@ -249,7 +249,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   N-781), N-701 tests, the bounded settings import (L-740), the run-time parity placeholder and N-720. Merged at 35cb0e6.
 - [#158](https://github.com/thordin9/apotheke/pull/158): the CI4 `bin/backup.php` and `bin/restore.php` print legacy's
   one-line message and exit code when the database cannot be reached; tests for N-880 and N-881, the N-883 docs
-  sentence. Open.
+  sentence. Merged at 57d926d.
+- [#160](https://github.com/thordin9/apotheke/pull/160): `apotheke:seed` in `DataDirOwner::COMMANDS` (its root message names `bin/seed.php`); N-900, the
+  differing-credentials notice waits for a connection. Open.
 
 ## Lanes
 
@@ -305,11 +307,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `BackupHelpersTest`, `RestorerFatalCleanupTest`, `SettingsServiceTest`, `Ci4BackupRestoreChecksTest`,
   `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. #155 (v2.6.26 sync, merged at 455aef8) is merged in;
   `BackupFailureTest` runs every #148 test on CI4 (the N-625 and N-681 skips are gone).
-- Coder2, backup and restore CLI messages ([#158](https://github.com/thordin9/apotheke/pull/158), open):
+- Coder2, backup and restore CLI messages ([#158](https://github.com/thordin9/apotheke/pull/158), merged at 57d926d):
   `Backup/Commands/BackupCommand.php`, `Backup/Commands/RestoreCommand.php`, `DbConnectErrorTest`,
   `RestorerFatalCleanupTest`, `DataDirOwnerGroupsTest` (new) and one sentence in `docs/architecture.md`. Stays out
   of `bin/settings.php` and the Settings and Auth commands (Coder's CLI port).
-- Coder, CLI port ([#159](https://github.com/thordin9/apotheke/pull/159), open): `spark apotheke:seed` (`Catalog/Commands`,
+- Coder, CLI port ([#159](https://github.com/thordin9/apotheke/pull/159), merged at 65d7e21): `spark apotheke:seed` (`Catalog/Commands`,
   `Catalog/DemoItems.php`, the Catalog entry in `Config/Autoload.php`), `auth status` (`Auth/Commands/AuthStatus.php`,
   never migrates) and `key rotate` (`SettingsCli`, `SettingsService::rotateSecrets()`, `SettingsRepository::rewrite()`,
   `SecretBox::decodeKey()`), their `Config\Services` wiring, the `bin/seed.php` CI4 branch and only the `$ci4Form` arms
@@ -318,6 +320,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   fixtures (`tests/visual/ci4-fixtures.php`) and `MediaTest`. Overlap with #157: different hunks of `bin/settings.php`
   and `SettingsService.php`; stays out of `DataDirOwner`, the Backup module, `bin/backup.php`, `bin/restore.php` and
   `.gitleaks.toml`. #157 (merged) makes `apotheke:seed` started as root switch to the data folder's owner.
+- Coder2, seed owner message and N-900 ([#160](https://github.com/thordin9/apotheke/pull/160), open): `Backup/Commands/DataDirOwner.php`,
+  `PdoMigrationRunner::connect()`, `Config\Services::apothekeDb()`, `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`,
+  `DbConnectErrorTest`. Stays out of `bin/settings.php`, `bin/seed.php` and the Settings, Auth and Catalog commands
+  (Coder's CLI port, #159).
 
 ## Next steps
 

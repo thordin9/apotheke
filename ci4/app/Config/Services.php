@@ -87,9 +87,6 @@ class Services extends BaseService
         }
         $dbConfig = $config->database();
         $translator = new \Apotheke\Core\Config\DsnTranslator();
-        if ($translator->credentialsDiffer($dbConfig)) {
-            \Apotheke\Migrations\PdoMigrationRunner::warnCredentialsDiffer();
-        }
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, $translator);
         try {
             $db = \Config\Database::connect();
@@ -104,6 +101,10 @@ class Services extends BaseService
             // The runner's file declares the exception too: load it before naming the class.
             $line = \Apotheke\Migrations\PdoMigrationRunner::connectFailure($dbConfig);
             throw new \Apotheke\Migrations\MigrateConnectException($line);
+        }
+        // N-900: warn only once connected, so a refused connect prints legacy's line alone.
+        if ($translator->credentialsDiffer($dbConfig)) {
+            \Apotheke\Migrations\PdoMigrationRunner::warnCredentialsDiffer();
         }
         \Apotheke\Migrations\BootMigration::ensure($config, $db);
 
