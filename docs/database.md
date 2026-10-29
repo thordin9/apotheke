@@ -266,6 +266,11 @@ demand. The check is remembered per process and database, and only after it succ
 process is one request or command, so this matches legacy. A long-lived worker (FrankenPHP worker mode) checks once,
 at its first request, instead of on every request; deploys that add a migration restart the workers.
 
+The migration files are shared and stay byte-identical. The globals they call (`natkey`, `settings_seed`, `app_time`,
+`now_utc`, …) come from `ci4/modules/Migrations/LegacyFunctions.php` on CI4, a shim with the same behaviour that stays
+after the cutover. For 90 days after 3.0.0, a new migration lands only if it is also backported to 2.5.x, so a
+rollback from 3.0.x to 2.5.x never meets an unknown schema (PLAN §3.4, PM L-2).
+
 ## Writing a migration
 
 1. Add `migrations/NNNN_short_name.php` with the next free number (the runner sorts by the four digits).

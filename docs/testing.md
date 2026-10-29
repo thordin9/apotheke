@@ -104,11 +104,12 @@ other's `bin/backup.php` zip with `bin/restore.php`, over the same install and i
 [`tests/upgrade/snapshot.php`](../tests/upgrade/snapshot.php) takes every table (columns and rows, sorted) and the
 sha256 of every file under `images/`, `thumbs/`, `originals/` (`map/` included) and `files/`, and
 [`compare.php`](../tests/upgrade/compare.php) fails on any difference from the seeded state, and on an originals
-directory that is not 0750 or a file there that is not 0640, and on a `files/` that is not 0750 (legacy's 0770 under
-the umask 022); other mode differences are printed as `WARN`. After a
+directory that is not 0750 or a file there that is not 0640, and on a `files/` that is not the apps' mode (legacy's 0770 under
+the script's umask, passed as `UPGRADE_FILES_MODE`; 0750 under 022); other mode differences are printed as `WARN`. After a
 restore only the carried tables (`backup_tables()`, which must equal CI4's `Backups::tables()`) and the settings are
 compared, without `settings.updated_at`. Last, mutation checks on a throwaway install show that an emptied or
-dropped table, a changed or missing attachment, a 0644 original and a 0700 `files/` each fail. `UPGRADE_WORK` must be a new path;
+dropped table, a changed or missing attachment, a 0644 original and a 0700 `files/` each fail
+against a clean snapshot, each undone before the next (the dropped table runs last). `UPGRADE_WORK` must be a new path;
 the script removes only that directory and its own `upg_<run>_*` schemas. CI runs it on SQLite and PostgreSQL
 (`upgrade-rollback`).
 

@@ -85,7 +85,8 @@ docker compose up -d --build
 
 After a PHP security release, fetch the new base image too: `docker compose build --pull`, then
 `docker compose up -d`. Pending database migrations run automatically on the first request. See
-[Upgrades](deployment-and-operations.md#upgrades).
+[Upgrades](deployment-and-operations.md#upgrades); for the CodeIgniter 4 app (3.0) see
+[Upgrading to 3.0](upgrade-3.0.md).
 
 ## PostgreSQL with the `postgres` profile
 
@@ -146,7 +147,7 @@ which is fine for a home LAN. For Apache or nginx see
 
 ```bash
 php -S 127.0.0.1:9091 -t public public/index.php       # legacy app on http://127.0.0.1:9091, data in ./data
-php -S 127.0.0.1:9091 -t ci4/public ci4/public/router.php # CI4 skeleton (health endpoints; needs PHP 8.4 and ci4/vendor)
+php -S 127.0.0.1:9091 -t ci4/public ci4/public/router.php # the CI4 app (PHP 8.4; composer install --working-dir=ci4 first)
 php bin/seed.php --demo                                 # optional demo items with generated photos
 tests/run.sh                                            # lint + HTTP integration suite (no Composer needed)
 ```
@@ -172,6 +173,11 @@ php bin/settings.php list                # Control Panel settings: get KEY · se
 php bin/settings.php users               # accounts; user add|password|role|approve|rename|delete|signout NAME …; roles [reset]; auth on|off
 php bin/settings.php key generate        # print a new APP_KEY; stores nothing
 ```
+
+With `APOTHEKE_APP=ci4` set (in Docker: in the container's environment), `bin/migrate.php`, `bin/backup.php`,
+`bin/restore.php` and `bin/settings.php` (except `auth status` and `key`) run the CI4 commands
+(`php ci4/spark apotheke:migrate|backup|restore|settings|accounts`) with the same output and exit codes; `bin/seed.php`
+stays the legacy one. See [Upgrading to 3.0](upgrade-3.0.md).
 
 Settings, accounts and keys: [Control Panel → Command line](control-panel.md#command-line). Backups and cron:
 [Backup and restore](deployment-and-operations.md#backup-and-restore).

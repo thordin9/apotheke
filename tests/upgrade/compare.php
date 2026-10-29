@@ -10,7 +10,8 @@ declare(strict_types=1);
  *     exit 1 when the seed is too thin to prove anything: no items, no kept original, no thumbnail, no attachment
  *     file, or an empty carried table.
  * Originals modes (PLAN §3.5, legacy originals_chmod_dir()/originals_chmod_file()): every directory 0750, every
- * file 0640, in every snapshot. files/ itself has legacy's mode, 0770 under the umask (0750 under 022; #142).
+ * file 0640, in every snapshot. files/ itself has the mode the apps create it with: legacy's 0770 under the apps'
+ * umask, given as UPGRADE_FILES_MODE (scripts/upgrade-rollback.sh sets it; default 0770 under this process's umask).
  */
 
 if (PHP_SAPI !== 'cli') exit(2);
@@ -61,7 +62,7 @@ foreach ($y['modes'] as $k => $m) {
             $diffs++;
             echo "DIFF $label mode $k: $m, want " . rtrim($want[0], '/') . "\n";
         }
-    } elseif ($k === 'files' && $m !== ($want = sprintf('%04o', 0o770 & ~umask()))) {
+    } elseif ($k === 'files' && $m !== ($want = getenv('UPGRADE_FILES_MODE') ?: sprintf('%04o', 0o770 & ~umask()))) {
         $diffs++;
         echo "DIFF $label mode $k: $m, want $want\n";
     } elseif (isset($x['modes'][$k]) && $x['modes'][$k] !== $m) {

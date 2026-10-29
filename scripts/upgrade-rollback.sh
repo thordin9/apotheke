@@ -59,6 +59,10 @@ install_env() {
   mkdir -p "$DATA_DIR"
 }
 
+# files/ mode the apps create (legacy mkdir 0770, CI4 the same) under the umask they run with here (N-643).
+UPGRADE_FILES_MODE=$(printf '%04o' $((0770 & ~0$(umask))))
+export UPGRADE_FILES_MODE
+
 snap() { "$PHP84" "$ROOT/tests/upgrade/snapshot.php" --scope="$1" > "$WORK/$2.json"; }
 check() { "$PHP84" "$ROOT/tests/upgrade/compare.php" "$1" "$WORK/$2.json" "$WORK/$3.json" || fail=1; }
 # A mutation must make the check fail with a DIFF or FAIL line that names what it mutated (the table, or the file
@@ -168,29 +172,39 @@ APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
 snap backup restored-ci4
 check 'legacy backup restored on CI4@8.4' seeded-backup restored-ci4
 
-# 6. Mutation checks on that disposable install: each step must fail against the step before it.
+# 6. Mutation checks on that disposable install: each must fail against the clean m0 and is undone before the next
+# one (N-642). The emptied table is undone by restoring the legacy backup again; the dropped table comes last.
 mutate() { "$PHP84" "$ROOT/tests/upgrade/mutate.php" "$1"; }
-mutate 'DELETE FROM item_tags'
-snap backup m1
-must_fail 'emptied carried table (item_tags)' item_tags seeded-backup m1
-must_fail 'seed guard on an emptied carried table' item_tags --guard m1
-mutate 'DROP TABLE saved_filters'
-snap backup m2
-must_fail 'dropped carried table (saved_filters)' saved_filters m1 m2
+snap backup m0
 attachment=$(find "$DATA_DIR/files" -maxdepth 1 -type f -name '*.pdf' | sort | head -n 1)
+cp -p "$attachment" "$WORK/attachment.bak"
 printf 'x' >> "$attachment"
-snap backup m3
-must_fail 'changed files/ attachment' "files/${attachment##*/}" m2 m3
+snap backup m1
+must_fail 'changed files/ attachment' "files/${attachment##*/}" m0 m1
+cp -p "$WORK/attachment.bak" "$attachment"
 rm "$attachment"
-snap backup m4
-must_fail 'missing files/ attachment' "files/${attachment##*/}" m2 m4
+snap backup m2
+must_fail 'missing files/ attachment' "files/${attachment##*/}" m0 m2
+cp -p "$WORK/attachment.bak" "$attachment"
 original=$(find "$DATA_DIR/originals" -maxdepth 1 -type f -name '*.png' | head -n 1)
 chmod 0644 "$original"
-snap backup m5
-must_fail 'original readable by others (0644)' "originals/${original##*/}" m4 m5
+snap backup m3
+must_fail 'original readable by others (0644)' "originals/${original##*/}" m0 m3
+chmod 0640 "$original"
 chmod 0700 "$DATA_DIR/files"
+snap backup m4
+must_fail 'files/ not legacy mode (0700)' 'mode files' m0 m4
+chmod "$UPGRADE_FILES_MODE" "$DATA_DIR/files"
+mutate 'DELETE FROM item_tags'
+snap backup m5
+must_fail 'emptied carried table (item_tags)' item_tags m0 m5
+must_fail 'seed guard on an emptied carried table' item_tags --guard m5
+APOTHEKE_APP=ci4 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes > /dev/null
 snap backup m6
-must_fail 'files/ not legacy mode (0700)' files m5 m6
+check 'every mutation undone' m0 m6
+mutate 'DROP TABLE saved_filters'
+snap backup m7
+must_fail 'dropped carried table (saved_filters)' saved_filters m0 m7
 
 if [ "$fail" = 0 ]; then echo "upgrade/rollback: all steps equal"; else echo "upgrade/rollback: differences found"; fi
 exit "$fail"
