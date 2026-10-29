@@ -82,7 +82,7 @@ final class Ci4PageHttpTest extends TestCase
 
     /**
      * S-L5 (#78 M-1): with a configured key that cannot be used, the token
-     * save is refused with a 422 that names the cause, the old row stays, and
+     * save is refused with a 422 page that names the cause, the old row stays, and
      * neither the answer nor the log holds the token or the key. With a
      * usable key the token is stored sealed. Placeholder keys only.
      */
@@ -96,7 +96,10 @@ final class Ci4PageHttpTest extends TestCase
             $this->setting($dir, 'autofill_token', json_encode('enc:v1:preserved'));
             $r = $client->post('/settings/autofill/token', ['csrf' => $csrf, 'token' => 'form-token-placeholder']);
             $this->assertSame(422, $r['status'], $r['body']);
-            $this->assertSame(['ok' => false, 'error' => 'APP_KEY is not a 32-byte key. The secret was not saved.'], json_decode($r['body'], true));
+            // A form post gets the Autofill page again with the cause on the token field, as legacy does.
+            $this->assertStringContainsString('text/html', $r['headers']['content-type'] ?? '');
+            $this->assertStringContainsString('APP_KEY is not a 32-byte key. The secret was not saved.', $r['body']);
+            $this->assertStringContainsString('id="af-token-form"', $r['body']);
             $this->assertSame(json_encode('enc:v1:preserved'), testdb($dir)->query("SELECT value FROM settings WHERE name = 'autofill_token'")->fetchColumn());
             $this->assertTrue($server->logHas('apotheke: APP_KEY is not a 32-byte key; stored secrets will not be saved.'));
             $this->assertFalse($server->logHas('set APP_KEY to encrypt stored secrets'));

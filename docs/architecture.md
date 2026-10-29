@@ -31,7 +31,7 @@ src/
   merge.php               merging duplicates: preview (confirm screen), item_merge() in one transaction, candidates
   undo.php                undo tokens: item snapshots, soft delete (files kept until expiry), apply, prune, the bar
   backup.php              portable backup zip (dump + photos + attachments) and restore
-  cli-owner.php           bin/restore.php started as root continues as the data folder's owner, or stops
+  cli-owner.php           bin/ tools started as root continue as the data folder's owner, or stop
   qr.php                  loads qr-encode.php (pure-PHP QR, SVG) after the function-JIT guard
   seed.php                starter locations/categories and demo data
   views.php               all HTML: page shell, partials (cards, chips, sheets), one view_* function per screen

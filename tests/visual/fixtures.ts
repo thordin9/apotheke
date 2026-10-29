@@ -32,8 +32,6 @@ type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: Ap
  * test fails tests/Unit/Ci4E2eSkipListTest.php, so a stale entry cannot linger.
  */
 export const CI4_UNPORTED: Record<string, string> = {
-  'labels.spec.ts: bulk QR labels › print labels for a selection; sizes from the Control Panel @smoke': '/settings/labels',
-  'search.spec.ts: full-text search › shows the engine in System': '/settings/system',
 };
 
 const freePort = () => new Promise<number>((res, rej) => {

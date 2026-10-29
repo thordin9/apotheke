@@ -118,8 +118,12 @@ final class BackupController extends CatalogController
             // N-443, stricter than legacy: the backup's settings only for a user who may change settings.
             $restored = $restorer->restore($file, $this->may('settings'));
         } catch (UserError $e) {
-            // As legacy (its exit skips the finally): the upload waits for the hourly sweep,
-            // so a restore refused while another runs (409, L-450) can be confirmed again.
+            // As legacy: a restore refused while another runs (409, L-450) keeps its upload, so it
+            // can be confirmed again; any other failure removes it now, not at the hourly sweep (N-567).
+            if ($e->getCode() !== 409) {
+                @unlink($file);
+            }
+
             return $this->sessionPage($this->pages()->page($backups->counts(), $e->getMessage()), $e->getCode() === 409 ? 409 : 422);
         } catch (\Throwable $e) {
             @unlink($file);
