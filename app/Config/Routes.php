@@ -181,3 +181,9 @@ $routes->match(['GET', 'HEAD'], 'backup.zip', $backup . '::download', ['permissi
 $routes->match(['GET', 'HEAD'], 'backup/restore/check', $backup . '::check', ['permission' => 'none']);
 $routes->post('backup/restore', $backup . '::upload', ['permission' => 'backup']);
 $routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 'backup']);
+
+// API v1 (API plan §3). Every endpoint keeps the permission of the UI route it
+// replaces. Anything else under /api answers 404 problem+json; it is last so the
+// endpoints above match first.
+$web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', ['permission' => 'public']);
+$web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', ['permission' => 'public']);

@@ -52,6 +52,8 @@ class Filters extends BaseFilters
         'permission' => \Apotheke\Auth\Filters\PermissionFilter::class,
         // Runs Core\Http\RequestCleanup at the end of every request (an unfinished upload's files).
         'requestcleanup' => \Apotheke\Core\Filters\RequestCleanupFilter::class,
+        // /api: answers a CORS preflight, then sets the API headers and CORS on every API answer (API plan §2.2, §2.5).
+        'api' => \Apotheke\Core\Filters\ApiFilter::class,
     ];
 
     /**
@@ -74,6 +76,7 @@ class Filters extends BaseFilters
             'originalsguard',
             'hostcheck',
             'publicbase',
+            'api',
             'posttoolarge',
             'session',
             'sameorigin',
@@ -81,6 +84,7 @@ class Filters extends BaseFilters
         ],
         'after' => [
             'requestcleanup',
+            'api',
         ],
     ];
 
