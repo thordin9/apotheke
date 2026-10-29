@@ -16,6 +16,9 @@ if (getenv('APOTHEKE_APP') === 'ci4') {
         fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
         exit(1);
     }
+    // started as root: run as DATA_DIR's owner before anything else, or stop (L-622, N-625; DataDirOwner)
+    require_once dirname(__DIR__) . '/ci4/modules/Backup/Commands/DataDirOwner.php';
+    if (!\Apotheke\Backup\Commands\DataDirOwner::forCommandLine(STDERR, 'php bin/seed.php')) exit(1);
     $args = [PHP_BINARY, $spark, 'apotheke:seed', '--no-header'];
     if (in_array('--demo', $argv, true)) $args[] = '--demo';
     passthru(implode(' ', array_map('escapeshellarg', $args)), $code);
