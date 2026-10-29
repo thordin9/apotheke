@@ -5,7 +5,7 @@ configured: name, colours, logo, formats, list behaviour, defaults for new items
 Values are stored in the database (`settings` table), take effect on the next request and travel with backups.
 
 The CodeIgniter 4 app serves every Control Panel page as the legacy app did. Both apps read the
-same settings ([Upgrading to 3.0](upgrade-3.0.md#before-300-the-control-panel-on-the-ci4-app)).
+same settings ([Upgrading to 3.0](upgrade-3.0.md#the-control-panel-on-the-ci4-app)).
 
 ![Control Panel](screenshots/settings-light.png)
 
@@ -129,19 +129,15 @@ php bin/settings.php password                       # shortcut: password of "adm
 
 (In Docker: `docker compose exec apotheke php bin/settings.php users`.)
 
-`bin/settings.php` passes `list`, `get`, `set`, `reset`, `export` and `import` to
-`php spark apotheke:settings` (same output and exit codes: 1 with the message on stderr for a refused value, 2 for
-an unknown command). The account and sign-in commands above still run on the legacy code until the CI4 Auth module lands.
-Intentional differences from legacy, otherwise output and exit codes are byte-identical:
+`bin/settings.php` passes `list`, `get`, `set`, `reset`, `export`, `import` and `key rotate` to
+`php spark apotheke:settings` (same output and exit codes as 2.x: 1 with the message on stderr for a refused value, 2
+for an unknown command), and the account and sign-in commands above (`users`, `user`, `roles`, `auth`, `password`) to
+`php spark apotheke:accounts`. As in 2.x, `list` with sign-in on, no accounts and `APP_PASSWORD` set first creates the
+account `admin`. Intentional differences from 2.x, otherwise output and exit codes are byte-identical:
 
-1. **Secrets are write-only.** `get autofill_token` and `get password_hash` print `“KEY” is write-only.` on stderr and exit 1; legacy printed the stored value.
-2. **`get` of an unknown key** prints `Unknown setting “KEY”.` and exits 1; legacy stopped with an uncaught exception (PHP fatal, exit 255).
-3. **`import` of a missing file** prints the same message and exits 1 like legacy, without PHP's `file_get_contents(…)` warning line.
-4. **`list` is read-only.** It does not create the account `admin` from `APP_PASSWORD` (sign-in on, no accounts yet), so its `users` line can show 0 where legacy shows 1 until the Auth PR ports that bootstrap. The `sign-in` line is the same.
-
-   For example, with sign-in on, no accounts and `APP_PASSWORD` set, legacy `list` ends with `users 1` (it has just
-   created `admin`), CI4 ends with `users 0`. The first web request on legacy creates that account, and the Auth PR
-   brings the same bootstrap to CI4.
+1. **Secrets are write-only.** `get autofill_token` and `get password_hash` print `“KEY” is write-only.` on stderr and exit 1; 2.x printed the stored value.
+2. **`get` of an unknown key** prints `Unknown setting “KEY”.` and exits 1; 2.x stopped with an uncaught exception (PHP fatal, exit 255).
+3. **`import` of a missing file** prints the same message and exits 1 like 2.x, without PHP's `file_get_contents(…)` warning line.
 
 To rotate the AI autofill token, set the new token on the service and enter it under **AI autofill → Access token**
 (**Save token**, or **Clear token**). The CI4 CLI never reads or writes the token.

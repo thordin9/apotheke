@@ -30,14 +30,15 @@ HEAD-on-read-routes (the router treats `HEAD` like `GET`), singular stats/`item_
 
 ## Parity recorder
 
-`tests/parity/` compares two fresh legacy installs on the PHP that is running the job. The first steps are a fresh
-install (home page, migration list, settings rows, file modes), `/healthz` and `/health`, and saving General settings.
-On PHP 8.4 it also compares a legacy server with the CI4 server for those health bytes, the three `/originals` URLs
-and the originals directory modes. The database dump is not part of that comparison.
+`tests/parity/` compares two fresh installs of the app. The first steps are a fresh install (home page, migration
+list, settings rows, file modes), `/healthz` and `/health`, and saving General settings. It also compares a server
+started on `public/index.php` with one on the test router (`tests/ci4-router.php`) for those health bytes, the three
+`/originals` URLs and the originals directory modes. Since the cutover both run the CodeIgniter 4 app; `tests/lib.php`
+still calls the `public/index.php` mode `legacy`. The database dump is not part of that comparison.
 CSRF tokens, the `Host` header, `Date`, `Set-Cookie` and `Content-Length` are not part of the comparison. A difference
-fails the test. On the legacy@8.4 CI cell this is legacy@8.4 versus legacy@8.4.
+fails the test.
 
-[`tests/parity/allowlist.yml`](../tests/parity/allowlist.yml) lists the four quirks that must stay identical to legacy
+[`tests/parity/allowlist.yml`](../tests/parity/allowlist.yml) lists the four quirks that must stay identical to 2.x
 (N-2, QA L-2, N-4, I-3). An entry does not excuse a diff.
 
 ```bash
@@ -48,7 +49,7 @@ vendor/bin/phpunit --filter ParityRecorderTest
 
 The parity gate compared every ported area on a legacy and a CI4 server, step by step. It was retired at the cutover
 (PLAN step 18): the last run on the pre-cutover head is recorded in [HANDOFF](HANDOFF.md), and the scenario, its
-script and the CI job remain in the history before the cutover. The recorder above and the allowlist remain as CI4
+script (with its `pending` step mechanism, unused since #151) and the CI job remain in the history before the cutover. The recorder above and the allowlist remain as CI4
 regression fixtures.
 
 ### Upgrade and rollback (PLAN step 16, part 2)
