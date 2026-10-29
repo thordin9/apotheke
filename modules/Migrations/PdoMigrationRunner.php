@@ -42,7 +42,8 @@ final class PdoMigrationRunner
     /**
      * The differing-credentials warning, once per process. CI4's own connect
      * (Config\Services::apothekeDb) and this runner share it, so a request that
-     * also migrates still logs it once.
+     * also migrates still logs it once. Both log it only once connected
+     * (N-900): a refused connect prints legacy's line alone.
      */
     public static function warnCredentialsDiffer(): void
     {
@@ -61,14 +62,12 @@ final class PdoMigrationRunner
         $dsn = config_dsn($db);
         $user = null;
         $password = null;
+        $differs = false;
         if ($driver === 'pgsql') {
             try {
                 [$dsn, $user, $password, $differs] = DsnTranslator::forPdo($dsn, $db);
             } catch (DsnException $e) {
                 throw new MigrateConnectException($e->getMessage());
-            }
-            if ($differs) {
-                self::warnCredentialsDiffer();
             }
         }
         unset($db['password']);
@@ -85,6 +84,10 @@ final class PdoMigrationRunner
             $pdo = new PDO($dsn, $user, $password, $options);
         } catch (PDOException) {
             throw new MigrateConnectException(self::connectFailure($db));
+        }
+        // N-900: only once connected, so a refused connect prints legacy's line alone.
+        if ($differs) {
+            self::warnCredentialsDiffer();
         }
         if ($driver === 'sqlite') {
             $pdo->exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');

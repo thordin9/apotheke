@@ -122,6 +122,8 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** with `APOTHEKE_APP=ci4`, `bin/backup.php` and `bin/restore.php` print the same one-line message as legacy and exit 1 when the database cannot be reached, instead of the exception class and "Server error". ([#158](https://github.com/thordin9/apotheke/pull/158))
 - **ci4 (hardening):** CI4 `migrate`, `settings` and the account forms refuse a short `APP_PASSWORD` exactly as legacy: same minimum length, message and exit code, and nothing is stored. Before, CI4 `migrate` could create the account `admin` with it. One check, `Accounts::appPasswordProblem()`, serves the first account, the migrations and the settings forms, and never puts the value in a message or log. ([#159](https://github.com/thordin9/apotheke/pull/159))
 - **ci4:** `bin/settings.php list` creates the account `admin` from `APP_PASSWORD` when sign-in is on and there is no account yet, as legacy does (it was settings CLI deviation 4). ([#159](https://github.com/thordin9/apotheke/pull/159))
+- **ci4:** with `APOTHEKE_APP=ci4`, a refused connection with a user or password in `DB_DSN` that differs from `DB_USER` / `DB_PASSWORD` prints only legacy's one-line message from `bin/backup.php`, `bin/restore.php` and `bin/migrate.php`; the differing-credentials notice is logged once connected (QA N-900). ([#160](https://github.com/thordin9/apotheke/pull/160))
+- **ci4:** `spark apotheke:seed` started as root names `php bin/seed.php` in its message, like the other data commands. ([#160](https://github.com/thordin9/apotheke/pull/160))
 
 ### Maintenance
 

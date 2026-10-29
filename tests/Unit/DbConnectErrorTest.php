@@ -71,6 +71,39 @@ final class DbConnectErrorTest extends TestCase
         $this->assertStringNotContainsString('Server error', $blob);
     }
 
+    /** @return array<string, array{0:string,1:list<string>}> */
+    public static function differingDsnTools(): array
+    {
+        return self::backupTools() + ['migrate' => ['bin/migrate.php', []]];
+    }
+
+    /**
+     * N-900: DB_DSN with a user and password that differ from DB_USER and
+     * DB_PASSWORD. A refused connect still prints legacy's line alone (the
+     * differing-credentials warning waits for a connection), with legacy's
+     * exit code, and names neither login nor the DSN.
+     *
+     * @param list<string> $args
+     */
+    #[DataProvider('differingDsnTools')]
+    public function testCi4ConnectFailureWithDifferingDsnCredentialsMatchesLegacy(string $script, array $args): void
+    {
+        $this->requireCi4();
+        $user = 'dsn_' . bin2hex(random_bytes(4));
+        $password = bin2hex(random_bytes(8));
+        $dsn = 'pgsql:host=127.0.0.1;port=1;dbname=keepdb;user=' . $user . ';password=' . $password;
+        $env = ['DB_DSN' => $dsn] + $this->refusedEnv();
+        $legacy = $this->spawn($script, $args, $env);
+        $ci4 = $this->spawn($script, $args, ['APOTHEKE_APP' => 'ci4'] + $env);
+        $blob = $legacy['err'] . "\n" . $ci4['out'] . "\n" . $ci4['err'] . "\n" . $ci4['log'];
+        $this->assertSame([$legacy['out'], $legacy['err'], $legacy['code']], [$ci4['out'], $ci4['err'], $ci4['code']], $blob);
+        $this->assertSame([$this->connectMessage(), 1], [$ci4['err'], $ci4['code']]);
+        $this->assertStringNotContainsString('DB_DSN', $blob);
+        foreach ([$user, $password, $dsn, self::USER, self::PASSWORD] as $secret) {
+            $this->assertStringNotContainsString($secret, $blob);
+        }
+    }
+
     /**
      * A SQLite file that cannot be opened: the sanitized line and exit 1
      * (2.x stopped on the uncaught engine error instead).

@@ -29,6 +29,8 @@ final class DataDirOwner
         'apotheke:migrate' => 'php bin/migrate.php',
         'apotheke:settings' => 'php bin/settings.php list',
         'apotheke:accounts' => 'php bin/settings.php list',
+        // Matched by name only, before boot: harmless while the command is not there yet.
+        'apotheke:seed' => 'php bin/seed.php',
     ];
 
     /** What the message suggests for any other spark command (L-700), run from the install folder. */
