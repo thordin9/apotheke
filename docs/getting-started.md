@@ -64,8 +64,8 @@ see [Stored secrets](configuration.md#stored-secrets).
 via `libheif`), `exif`, `opcache`, `pdo_pgsql`, `sodium` and `zip` extensions. Imagick is built from its GitHub
 release tag, with pecl.php.net as a second source, each pinned by its own sha256 (`IMAGICK_SHA256` and
 `IMAGICK_PECL_SHA256` next to `IMAGICK_VERSION` in the `Dockerfile`; change all three to upgrade). Opcache is on and
-JIT is off. The default `ARG PHP_VERSION=8.4.27` is the shipped image. It serves the legacy app, or the CI4 port
-with `APOTHEKE_APP=ci4`. `tini` is PID 1 and `docker/entrypoint.sh`:
+JIT is off. The default `ARG PHP_VERSION=8.4.27` is the shipped image. It serves the CodeIgniter 4 app;
+`APOTHEKE_APP=legacy` exits with code 64. `tini` is PID 1 and `docker/entrypoint.sh`:
 
 1. creates `images/`, `thumbs/`, `originals/` and `sessions/` in `DATA_DIR` and makes them writable for `www-data`
    (it refuses to start, exit code 78, when one of them is a symbolic link),
@@ -146,13 +146,13 @@ which is fine for a home LAN. For Apache or nginx see
 ## Local development
 
 ```bash
-php -S 127.0.0.1:9091 -t public public/index.php       # legacy app on http://127.0.0.1:9091, data in ./data
-php -S 127.0.0.1:9091 -t ci4/public ci4/public/router.php # the CI4 app (PHP 8.4; composer install --working-dir=ci4 first)
+composer install                                        # PHP 8.4
+php -S 127.0.0.1:9091 -t public public/router.php       # http://127.0.0.1:9091, data in ./data
 php bin/seed.php --demo                                 # optional demo items with generated photos
-tests/run.sh                                            # lint + HTTP integration suite (no Composer needed)
+tests/run.sh                                            # lint + the module suite
 ```
 
-There is nothing to build: edit `src/*.php`, `public/assets/app.css` or `app.js` and reload. `asset()` adds a
+There is nothing to build: edit `modules/`, `public/assets/app.css` or `app.js` and reload. `asset()` adds a
 `?v=` hash of each file's modification time and size, so browsers always fetch the new version. Tests:
 [Testing](testing.md).
 
@@ -174,9 +174,9 @@ php bin/settings.php users               # accounts; user add|password|role|appr
 php bin/settings.php key generate        # print a new APP_KEY; stores nothing
 ```
 
-With `APOTHEKE_APP=ci4` set (in Docker: in the container's environment), `bin/migrate.php`, `bin/seed.php`,
-`bin/backup.php`, `bin/restore.php` and `bin/settings.php` (except `key generate`, which needs no app) run the CI4
-commands (`php ci4/spark apotheke:migrate|seed|backup|restore|settings|accounts`) with the same output and exit codes. See [Upgrading to 3.0](upgrade-3.0.md).
+`bin/migrate.php`, `bin/seed.php`, `bin/backup.php`, `bin/restore.php` and `bin/settings.php` (except `key generate`,
+which needs no app) run the CodeIgniter commands (`php spark apotheke:migrate|seed|backup|restore|settings|accounts`)
+with the same output and exit codes. See [Upgrading to 3.0](upgrade-3.0.md).
 
 Settings, accounts and keys: [Control Panel → Command line](control-panel.md#command-line). Backups and cron:
 [Backup and restore](deployment-and-operations.md#backup-and-restore).

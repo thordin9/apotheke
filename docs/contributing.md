@@ -66,7 +66,8 @@ Using a new item field as the example:
    `public/assets/app.js`.
 6. **Tests**:
    * unit tests in `tests/Unit/` (extend `DatabaseTestCase` for database code);
-   * HTTP tests in `tests/integration.php` (they run on SQLite and PostgreSQL, standalone and inside PHPUnit);
+   * module tests in `tests/Modules/<Module>/` (CIUnitTestCase; they run on SQLite and PostgreSQL) and HTTP tests in
+     `tests/Unit/` through `tests/lib.php`;
    * a Playwright spec in `tests/visual/` that also calls `app.noOverflow()` and `app.tapTargets()`, and a screenshot
      in `visual.spec.ts` for new screens.
 7. **Docs**: the relevant pages here (usually the [user guide](user-guide.md)), and a screenshot in

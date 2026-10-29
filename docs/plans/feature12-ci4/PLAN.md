@@ -350,6 +350,13 @@ at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 | 17 | `docs(ci4): docs rewrite` | §6 | link check; QA reads the upgrade guide end to end |
 | 18 | **cutover** `feat!: Apotheke 3.0 on CodeIgniter 4` (→ **main**) | move `ci4/` to the root, delete legacy `src/` (LegacyFunctions stays in the Migrations module), drop the legacy legs, keep golden files | PM re-scan, QA full pass, DevOps deploy test, Stathis sign-off; **image size before/after recorded in the PR**; **live check 2 (≤25 Neurons)** per §4.4 with usage posted; release workflow cuts **3.0.0** |
 
+Step 18 status (cutover PR, open): `ci4/` is at the root (`app/`, `modules/`, `spark`, `writable/`, `tools/`,
+`tests/Modules/`; `public/` and `composer.json` are CI4's), the bin tools call spark, the image serves CI4 only, the
+legacy tests, `src/` and the legacy CI legs are gone, coverage measures the module suite and the root suite (with
+every HTTP request), and the upgrade gate's legacy side is v2.6.26 in a temporary worktree. The final parity gate ran
+on the pre-cutover head (run id in the PR and in HANDOFF) and was then retired. The 3.0.0 release and the branch
+switch are a later PR.
+
 Step 11a status (#102): the item page, `/new`, `/item/{id}/edit`, save (one photo upload, `MAX_FILE_SIZE`), delete, undo
 and `/activity` are ported with a golden test (`tests/Unit/Ci4ItemParityTest.php`). The photo routes (add, order,
 cover, left/right, delete, edit) and their `photos` spec follow as 11a part 2 (#103: ported, with the golden test

@@ -260,14 +260,14 @@ All pending steps run in **one transaction**, so a failed upgrade leaves the dat
 concurrent first requests wait instead of migrating twice. `php bin/migrate.php --status` lists applied and pending
 versions.
 
-**CI4 (`ci4/`):** the same runner (`PdoMigrationRunner`) runs before the first CI4 database connection of a process
+**CI4:** the same runner (`PdoMigrationRunner`) runs before the first CI4 database connection of a process
 (`Apotheke\Migrations\BootMigration`, called from `Config\Services::apothekeDb`), and `apotheke:migrate` runs it on
 demand. The check is remembered per process and database, and only after it succeeds. Under php-fpm and spark a
 process is one request or command, so this matches legacy. A long-lived worker (FrankenPHP worker mode) checks once,
 at its first request, instead of on every request; deploys that add a migration restart the workers.
 
 The migration files are shared and stay byte-identical. The globals they call (`natkey`, `settings_seed`, `app_time`,
-`now_utc`, …) come from `ci4/modules/Migrations/LegacyFunctions.php` on CI4, a shim with the same behaviour that stays
+`now_utc`, …) come from `modules/Migrations/LegacyFunctions.php` on CI4, a shim with the same behaviour that stays
 after the cutover. For 90 days after 3.0.0, a new migration lands only if it is also backported to 2.5.x, so a
 rollback from 3.0.x to 2.5.x never meets an unknown schema (PLAN §3.4, PM L-2).
 
@@ -303,8 +303,8 @@ rollback from 3.0.x to 2.5.x never meets an unknown schema (PLAN §3.4, PM L-2).
    `src/items.php`, the CSV export in `public/index.php`, and, when it should be copied, `item_input()` (bulk actions,
    duplicating). **Backups need no change**: `backup_dump()` exports every column of the tables in `backup_tables()`,
    and restoring an older backup simply leaves new columns at their defaults.
-6. Add tests: `tests/Unit/MigrationRunnerTest.php` for the runner itself, unit tests for the new behaviour, and the
-   HTTP suite in `tests/integration.php` (it runs on SQLite and PostgreSQL).
+6. Add tests: `tests/Modules/Core/BootMigrationTest.php` and `tests/Unit/MigrateDsnTest.php` for the runner, and
+   module tests for the new behaviour (they run on SQLite and PostgreSQL).
 
 ## Working with the data directly
 

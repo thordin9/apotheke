@@ -325,9 +325,9 @@ token are picked by a path prefix of the address, e.g. `http://127.0.0.1:PORT/m/
 is `<file>.jsonl`, otherwise `af-stub-<port>.jsonl` in the temp dir. A full v1.2 address for manual QA:
 `http://127.0.0.1:8090/m/switch/r/3/l/4000/n/qwen2.5vl-jetson%3A3b*=4000,qwen3-vl-2b=2500/z/448,672*,1024`.
 
-The tests are `tests/Unit/AutofillTest.php` (settings, `/v1/info` and suggestion parsing, image preparation, every
-failure code, the migrations), `tests/integration_autofill.php` (part of `tests/integration.php`: settings security,
-the token never in pages, exports, backups or logs, Test connection, suggest end to end, stored photos) and
+The tests are `tests/Modules/Autofill/AutofillTest.php` (settings, `/v1/info` and suggestion parsing, image
+preparation, every failure code, the token kept out of answers and logs, Test connection, suggest against the stub,
+stored photos) and
 `tests/visual/autofill-*.spec.ts` (the Control Panel section, the on-demand form, model and size, resizing).
 
 ## Security notes

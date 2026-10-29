@@ -2,10 +2,10 @@
 
 The legacy app is deliberately small: one front controller, a handful of PHP files with plain functions, server-rendered
 HTML, one stylesheet and one script. There is no framework, no autoloader, no template engine and no build step.
-Apotheke 3.0 is the CodeIgniter 4 app in `ci4/` ([ADR-001](adr/001-codeigniter4.md)): it ports every page except
-the Control Panel ones, answers as this app does, and reads the same database and data directory. Its layout is in
-[The CI4 app](#the-ci4-app) below; the sections before it describe the legacy app, which stays the default until
-3.0.0 ([Upgrading to 3.0](upgrade-3.0.md)).
+Apotheke 3.0 is the CodeIgniter 4 app at the repository root ([ADR-001](adr/001-codeigniter4.md)): it serves every
+page, answers as the legacy app did, and reads the same database and data directory. Its layout is in
+[The CI4 app](#the-ci4-app) below; the sections before it describe the legacy app, which 2.6.x releases still ship
+([Upgrading to 3.0](upgrade-3.0.md)).
 
 ## Directory layout
 
@@ -182,14 +182,15 @@ path except `/index.php`, the front controller itself. `scripts/docker-checks.sh
 ## The CI4 app
 
 ```
-ci4/
-  public/index.php        front controller: refuses camera-original URLs before the framework boots, then CodeIgniter
-  public/router.php       router script for `php -S` (static assets, then index.php)
-  public/assets/          byte copy of public/assets/ (Ci4LayoutParityTest compares them)
-  app/Config/             CodeIgniter config: Services (the only wiring), Filters, Routes and RoutesCompiled
-  modules/<Module>/       one namespace per area (Apotheke\<Module>): Controllers, Views, services, Commands
-  spark                   CodeIgniter CLI: apotheke:migrate, settings, accounts, backup, restore, routes
-  tests/                  module tests (phpunit -c ci4/phpunit.xml.dist)
+public/index.php          front controller: refuses camera-original URLs before the framework boots, then CodeIgniter
+public/router.php         router script for `php -S` (static assets, then index.php)
+public/assets/            stylesheet, scripts and icons
+app/Config/               CodeIgniter config: Services (the only wiring), Filters, Routes and RoutesCompiled
+modules/<Module>/         one namespace per area (Apotheke\<Module>): Controllers, Views, services, Commands
+spark                     CodeIgniter CLI: apotheke:migrate, settings, accounts, backup, restore, routes
+writable/                 CodeIgniter's cache, logs and session scratch (not the data directory)
+tools/PhpStan/            the DI rule (phpstan-di.neon)
+tests/Modules/            module tests (phpunit -c tests/Modules/phpunit.xml.dist)
 ```
 
 **Modules.** Core (boot, config and the DSN translator, database, filters, HTTP helpers, storage, logging) depends on
@@ -200,8 +201,8 @@ on Core and on the modules [AGENTS.md](../AGENTS.md#ci4-module-rules) lists for 
 `Config\Services` builds them per request, and only controllers, filters and the Services file may call it
 (`phpstan-di.neon`).
 
-**Request flow.** `ci4/public/index.php` refuses `/originals` paths, then boots CodeIgniter. The routes come from
-`app/Config/RoutesCompiled.php` (written by `php ci4/spark apotheke:routes`; `Routes.php` is used when it has changed
+**Request flow.** `public/index.php` refuses `/originals` paths, then boots CodeIgniter. The routes come from
+`app/Config/RoutesCompiled.php` (written by `php spark apotheke:routes`; `Routes.php` is used when it has changed
 since). Started as root, spark runs as the data folder's owner, so `apotheke:routes` cannot write that file in a
 root-owned checkout; run it as the checkout's owner. Before the controller, the filters in `app/Config/Filters.php` run in a fixed order: HEAD as GET, the
 originals guard, the Host allow-list (421), the per-request base URL (`public_url`, `trust_proxy`), the upload size
@@ -217,9 +218,9 @@ live where legacy keeps them: `images/`, `thumbs/`, `files/` and `sessions/` und
 `ORIGINALS_DIR`, with legacy's modes.
 
 **Command line.** `bin/migrate.php`, `bin/seed.php`, `bin/settings.php` (except `key generate`), `bin/backup.php` and
-`bin/restore.php` run the matching `spark apotheke:*` command when `APOTHEKE_APP=ci4` is set; a restore started as root
-switches to the data directory's owner first.
+`bin/restore.php` run the matching `spark apotheke:*` command; a restore started as root switches to the data
+directory's owner first.
 
-**Docker.** The same image serves either app: `APOTHEKE_APP=ci4` points nginx at `ci4/public` (see
-[Docker image](#docker-image)) and needs PHP 8.4.
+**Docker.** The image serves this app only, from `public/` on PHP 8.4 (see [Docker image](#docker-image)).
+`APOTHEKE_APP=legacy` exits with code 64; use a 2.6 image to stay on the legacy app.
 
