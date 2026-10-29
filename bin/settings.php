@@ -33,12 +33,12 @@ if (($argv[1] ?? '') === 'key' && ($argv[2] ?? '') === 'generate') {
     echo base64_encode(random_bytes(32)), "\n";
     exit(0);
 }
-// APOTHEKE_APP=ci4: the settings forms run as `spark apotheke:settings`, the account forms as `spark apotheke:accounts`
-// (same output and exit codes). `auth status` stays here: it must not migrate, and booting the CI4 database does.
-// key generate|rotate stay here too.
+// APOTHEKE_APP=ci4: the settings forms and `key rotate` run as `spark apotheke:settings`, the account forms and
+// `auth status` as `spark apotheke:accounts` (same output and exit codes; `auth status` does not migrate there either).
 $ci4Form = match (true) {
     in_array($argv[1] ?? 'list', ['list', 'get', 'set', 'reset', 'export', 'import'], true) => 'apotheke:settings',
-    in_array($argv[1] ?? '', ['users', 'user', 'roles', 'auth', 'password'], true) && !(($argv[1] ?? '') === 'auth' && ($argv[2] ?? '') === 'status') => 'apotheke:accounts',
+    ($argv[1] ?? '') === 'key' && ($argv[2] ?? '') === 'rotate' => 'apotheke:settings',
+    in_array($argv[1] ?? '', ['users', 'user', 'roles', 'auth', 'password'], true) => 'apotheke:accounts',
     default => null,
 };
 if (getenv('APOTHEKE_APP') === 'ci4' && $ci4Form !== null) {

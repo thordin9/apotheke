@@ -11,7 +11,7 @@ use Closure;
 use Psr\Log\LoggerInterface;
 
 /**
- * apotheke:settings list|get|set|reset|export|import. Output and exit codes
+ * apotheke:settings list|get|set|reset|export|import|key rotate. Output and exit codes
  * match legacy bin/settings.php. Config\Services::commands() builds it with
  * the settings factory (constructor injection).
  */
@@ -21,12 +21,15 @@ final class SettingsCommand extends BaseCommand
 
     protected $name = 'apotheke:settings';
 
-    protected $description = 'List, get, set, reset, export or import Control Panel settings.';
+    protected $description = 'List, get, set, reset, export or import Control Panel settings, or re-encrypt stored secrets.';
 
-    protected $usage = 'apotheke:settings [list | get KEY | set KEY VALUE | reset SECTION | export | import [FILE]]';
+    protected $usage = 'apotheke:settings [list | get KEY | set KEY VALUE | reset SECTION | export | import [FILE] | key rotate]';
 
-    /** @param (Closure():SettingsService)|null $settings */
-    public function __construct(LoggerInterface $logger, Commands $commands, private readonly ?Closure $settings = null)
+    /**
+     * @param (Closure():SettingsService)|null $settings
+     * @param (Closure(SettingsService):void)|null $firstAdmin see SettingsCli
+     */
+    public function __construct(LoggerInterface $logger, Commands $commands, private readonly ?Closure $settings = null, private readonly ?Closure $firstAdmin = null)
     {
         parent::__construct($logger, $commands);
     }
@@ -43,7 +46,7 @@ final class SettingsCommand extends BaseCommand
             return 1;
         }
 
-        return (new SettingsCli($this->settings, STDOUT, STDERR))->run(self::rawArgs($_SERVER['argv'] ?? [], $this->name));
+        return (new SettingsCli($this->settings, STDOUT, STDERR, $this->firstAdmin))->run(self::rawArgs($_SERVER['argv'] ?? [], $this->name));
     }
 
     /**

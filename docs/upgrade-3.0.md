@@ -73,9 +73,9 @@ docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --stat
 From 3.0.0 on, pull or build the 3.0 image instead; there is no variable to set.
 
 Everyone signs in again. The command-line tools follow the container's `APOTHEKE_APP`: `bin/migrate.php`,
-`bin/backup.php`, `bin/restore.php` and most `bin/settings.php` forms run the CI4 commands (`php ci4/spark
-apotheke:migrate|backup|restore|settings|accounts`) with the same output and exit codes. `bin/settings.php auth status`
-and `key generate|rotate`, and `bin/seed.php`, stay with the 2.x code; they work on the same database.
+`bin/seed.php`, `bin/backup.php`, `bin/restore.php` and the `bin/settings.php` forms run the CI4 commands (`php ci4/spark
+apotheke:migrate|seed|backup|restore|settings|accounts`) with the same output and exit codes. Only
+`bin/settings.php key generate` stays with the 2.x code; it prints a key and touches no database.
 
 ## 3. Roll back (A): the 2.x app on the same data
 

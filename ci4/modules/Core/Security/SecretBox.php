@@ -122,6 +122,14 @@ final class SecretBox
         return $this->openWith($name, $stored, $this->key(), true) ?? '';
     }
 
+    /** A new key from its base64 form (legacy secret_key_decode()): null when malformed or ext-sodium is missing. */
+    public function decodeKey(#[\SensitiveParameter] string $raw): ?string
+    {
+        $key = SecretKey::bytes($raw);
+
+        return $key !== null && $this->sodium ? $key : null;
+    }
+
     public static function isSealed(string $stored): bool
     {
         return str_starts_with($stored, self::ENVELOPE);

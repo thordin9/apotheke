@@ -194,6 +194,46 @@ final class SettingsService
         return $key === null ? 'Set APP_KEY to encrypt stored secrets.' : null;
     }
 
+    /**
+     * Re-encrypt every recoverable secret with $newRaw, base64 of 32 bytes
+     * (legacy secret_rotate()). A plaintext one is encrypted; an enc:v1: value
+     * that does not open with the current key changes nothing.
+     *
+     * @return array{rotated:int,encrypted:int}
+     */
+    public function rotateSecrets(#[\SensitiveParameter] string $newRaw): array
+    {
+        $new = $this->secrets->decodeKey($newRaw) ?? throw new UserError('The new key must be base64 of 32 bytes.');
+        $old = $this->secrets->key();
+        $counts = ['rotated' => 0, 'encrypted' => 0];
+        $this->repository->rewrite(function (array $rows) use ($old, $new, &$counts): array {
+            $plan = [];
+            $counts = ['rotated' => 0, 'encrypted' => 0];
+            foreach ($this->schema->keys() as $name) {
+                if (!$this->isAtRest($name) || !isset($rows[$name])) {
+                    continue;
+                }
+                $decoded = json_decode($rows[$name], true);
+                if (!is_string($decoded) || $decoded === '') {
+                    continue;
+                }
+                if (SecretBox::isSealed($decoded)) {
+                    $plain = $this->secrets->openWith($name, $decoded, $old, false) ?? throw new UserError($name . ' could not be decrypted. Nothing was changed.');
+                    $counts['rotated']++;
+                } else {
+                    $plain = $decoded;
+                    $counts['encrypted']++;
+                }
+                $plan[$name] = (string)json_encode(SecretBox::sealWith($plain, $new), self::JSON);
+            }
+
+            return $plan;
+        }, $this->clock->now());
+        $this->values = null;
+
+        return $counts;
+    }
+
     /** Whether the last save, reset or store cleared the autofill token (legacy settings_token_cleared()). */
     public function tokenCleared(): bool
     {

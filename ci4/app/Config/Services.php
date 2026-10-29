@@ -252,9 +252,14 @@ class Services extends BaseService
 
         return new \Apotheke\Core\Cli\WiredCommands(null, [
             \Apotheke\Settings\Commands\SettingsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
-                => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings(false, new \Apotheke\Core\Security\CommandLine())),
+                => new \Apotheke\Settings\Commands\SettingsCommand($logger, $commands, static fn (): \Apotheke\Settings\SettingsService => static::settings(false, new \Apotheke\Core\Security\CommandLine()), static function (\Apotheke\Settings\SettingsService $settings): void {
+                    static::cliFirstAdmin($settings);
+                }),
             \Apotheke\Auth\Commands\AccountsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
-                => new \Apotheke\Auth\Commands\AccountsCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli => static::accountsCli($in, $out, $err)),
+                => new \Apotheke\Auth\Commands\AccountsCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Auth\Commands\AccountsCli => static::accountsCli($in, $out, $err), static fn (mixed $out, mixed $err): \Apotheke\Auth\Commands\AuthStatus => static::authStatus($out, $err)),
+            \Apotheke\Catalog\Commands\SeedCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Catalog\Commands\SeedCommand($logger, $commands, static fn (): int => static::starterData(), static fn (): \Apotheke\Catalog\DemoItems => new \Apotheke\Catalog\DemoItems(
+                    static::apothekeDb(), static::itemRepository(), static::taxonomy(), static::imageStore())),
             \Apotheke\Backup\Commands\BackupCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Backup\Commands\BackupCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
             \Apotheke\Backup\Commands\RestoreCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
@@ -802,6 +807,66 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Auth\SignInSwitch(static::settings(), new \Apotheke\Auth\UserRepository($db), new \Apotheke\Auth\AdminGuard(static::currentUser()));
+    }
+
+    /**
+     * The starter locations and categories (legacy seed_defaults($pdo, true),
+     * the migrations' own copy) on the migrated database, for apotheke:seed.
+     * Returns the rows created.
+     */
+    public static function starterData(): int
+    {
+        static::apothekeDb();   // migrates first, as legacy db()
+        $config = static::apothekeConfig();
+        $runner = new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations');
+        apotheke_migration_cfg($config->values());
+        $pdo = $runner->connect($config->database());
+        try {
+            return seed_defaults($pdo, true);
+        } finally {
+            $runner->close($pdo);
+        }
+    }
+
+    /**
+     * `auth status` for the Docker entrypoint: its own connection with a 5 s
+     * connect timeout (each try of the entrypoint's wait), and never
+     * apothekeDb(), which migrates. A missing SQLite file is not created.
+     *
+     * @param resource $out
+     * @param resource $err
+     */
+    public static function authStatus(mixed $out, mixed $err): \Apotheke\Auth\Commands\AuthStatus
+    {
+        $config = static::apothekeConfig();
+        $db = $config->database();
+        $db['connect_timeout'] = 5;
+        $password = $config->values()['app_password'] ?? '';
+
+        return new \Apotheke\Auth\Commands\AuthStatus(static function () use ($db): ?\PDO {
+            if (($db['driver'] ?? '') === 'sqlite' && !is_file((string)($db['sqlite_path'] ?? ''))) {
+                return null;
+            }
+            try {
+                return (new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->connect($db);
+            } catch (\PDOException) {
+                throw new \Apotheke\Migrations\MigrateConnectException(\Apotheke\Migrations\PdoMigrationRunner::connectFailure($db));
+            }
+        }, is_string($password) ? $password : '', $out, $err);
+    }
+
+    /**
+     * Legacy auth_enabled()'s write, for `apotheke:settings list`: with sign-in
+     * on and no account, APP_PASSWORD becomes the account "admin"; a short one
+     * stops with legacy's message (Accounts::appPasswordProblem()).
+     */
+    public static function cliFirstAdmin(\Apotheke\Settings\SettingsService $settings): void
+    {
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+        $accounts = new \Apotheke\Auth\Accounts(new \Apotheke\Auth\UserRepository($db), new \Apotheke\Auth\RoleRepository($db), new \Apotheke\Core\Libraries\Clock());
+        $password = static::apothekeConfig()->values()['app_password'] ?? '';
+        $accounts->ensureFirstAdmin((bool)$settings->get('auth_enabled'), is_string($password) ? $password : '');
     }
 
     /**

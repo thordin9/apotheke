@@ -47,7 +47,8 @@ final class SettingsCliTest extends CIUnitTestCase
         foreach (SettingsCli::AUTH_FORMS as $form) {
             $this->assertSame([2, '', "The {$form} command is in apotheke:accounts. Use php bin/settings.php {$form}.\n"], $this->cli([$form]));
         }
-        $this->assertSame([2, '', "The key command is not in apotheke:settings. Use php bin/settings.php key.\n"], $this->cli(['key']));
+        $this->assertSame([1, '', "Use: key generate | key rotate\n"], $this->cli(['key']));
+        $this->assertSame([1, '', "The new key is not read from the command line. Set APP_KEY_NEW or pass it on stdin.\n"], $this->cli(['key', 'rotate', 'placeholder']));
     }
 
     public function testListIsTheDefault(): void

@@ -11,7 +11,7 @@ use RuntimeException;
 
 /**
  * The settings forms of legacy bin/settings.php: list (the default), get,
- * set, reset, export and import. Output and exit codes match: 0 on success,
+ * set, reset, export, import and key rotate. Output and exit codes match: 0 on success,
  * 1 with the message on stderr for a UserError, 2 for an unknown command.
  *
  * The users, user, roles, auth and password forms are the Auth module's
@@ -31,11 +31,15 @@ final class SettingsCli
      *        that cannot be opened is reported like a UserError
      * @param resource $stdout
      * @param resource $stderr
+     * @param (Closure(SettingsService):void)|null $firstAdmin legacy auth_enabled()'s write for `list`: with sign-in
+     *        on and no account, APP_PASSWORD becomes the account "admin", or a short one stops
+     *        (Auth's Accounts::ensureFirstAdmin(), wired in Config\Services)
      */
     public function __construct(
         private readonly Closure $resolve,
         private readonly mixed $stdout,
         private readonly mixed $stderr,
+        private readonly ?Closure $firstAdmin = null,
     ) {
     }
 
@@ -65,10 +69,12 @@ final class SettingsCli
                 case 'import':
                     $this->import($args[1] ?? 'php://stdin');
                     break;
+                case 'key':
+                    $this->key($args);
+                    break;
                 default:
                     $this->err(match (true) {
                         in_array($cmd, self::AUTH_FORMS, true) => "The {$cmd} command is in apotheke:accounts. Use php bin/settings.php {$cmd}.\n",
-                        $cmd === 'key' => "The key command is not in apotheke:settings. Use php bin/settings.php key.\n",
                         default => "Unknown command. See the comment at the top of bin/settings.php.\n",
                     });
 
@@ -88,6 +94,17 @@ final class SettingsCli
         $settings = $this->settings();
         foreach ($settings->export()['settings'] as $key => $value) {
             $this->out(sprintf("%-24s %s\n", $key, json_encode($value, self::JSON)));
+        }
+        if ($this->firstAdmin !== null) {
+            try {
+                ($this->firstAdmin)($settings);
+            } catch (RuntimeException $e) {
+                // A short APP_PASSWORD exits 1 with its message, as legacy (never the value).
+                if (!str_starts_with($e->getMessage(), 'APP_PASSWORD ')) {
+                    throw $e;
+                }
+                throw new UserError($e->getMessage());
+            }
         }
         $this->out(sprintf("%-24s %s\n", 'sign-in', $settings->signInEnabled() ? 'on' : 'off'));
         $this->out(sprintf("%-24s %d\n", 'users', $settings->accountCount()));
@@ -130,6 +147,31 @@ final class SettingsCli
         }
     }
 
+    /**
+     * key rotate (key generate is answered by bin/settings.php before anything
+     * else). The new key comes from APP_KEY_NEW or stdin, never argv.
+     *
+     * @param list<string> $args
+     */
+    private function key(array $args): void
+    {
+        if (($args[1] ?? '') !== 'rotate') {
+            throw new UserError('Use: key generate | key rotate');
+        }
+        if (isset($args[2])) {
+            throw new UserError('The new key is not read from the command line. Set APP_KEY_NEW or pass it on stdin.');
+        }
+        $new = getenv('APP_KEY_NEW');
+        if (!is_string($new) || $new === '') {
+            $new = @file_get_contents('php://stdin');
+            if (!is_string($new)) {
+                $new = '';
+            }
+        }
+        $c = $this->settings()->rotateSecrets($new);
+        $this->out('rotated ' . $c['rotated'] . ', encrypted ' . $c['encrypted'] . "\n");
+    }
+
     private function tokenNotice(): void
     {
         if ($this->settings()->tokenCleared()) {
@@ -145,8 +187,10 @@ final class SettingsCli
             } catch (UserError $e) {
                 throw $e;
             } catch (RuntimeException $e) {
-                // The runner's connect failure is already the sanitized line.
-                throw new UserError(str_starts_with($e->getMessage(), 'Could not connect to the database') ? $e->getMessage() : 'Could not open the database.');
+                // The runner's connect failure is already the sanitized line; a short APP_PASSWORD
+                // refused by the first migration says so, as legacy (it never contains the value).
+                $message = $e->getMessage();
+                throw new UserError(str_starts_with($message, 'Could not connect to the database') || str_starts_with($message, 'APP_PASSWORD ') ? $message : 'Could not open the database.');
             }
         }
 

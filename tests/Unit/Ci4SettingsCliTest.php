@@ -178,8 +178,9 @@ final class Ci4SettingsCliTest extends TestCase
     }
 
     /**
-     * The four intentional deviations (signed off by the PM), each pinned on
-     * both sides so the difference is exactly the documented one.
+     * The intentional deviations (signed off by the PM), each pinned on both
+     * sides so the difference is exactly the documented one. A read-only
+     * `list` is no longer one: see testListCreatesTheFirstAdminOrRefusesAShortAppPassword().
      */
     public function testIntentionalDeviationsFromLegacy(): void
     {
@@ -214,22 +215,95 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertSame([$this->withoutPhpWarnings($l['stdout']), $this->withoutPhpWarnings($l['stderr']), $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']]);
         $this->assertSame(['', "That is not an Apotheke settings file.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
 
-        // 4. list is read-only: with sign-in on, no accounts and APP_PASSWORD set, legacy
-        //    creates the account "admin" (auth_enabled()); CI4 does not until the Auth PR.
-        [$left, $right] = $this->twins('cli-dev-admin');
-        $extra = ['APP_PASSWORD' => 'placeholder-password'];
-        foreach ([$left, $right] as $dir) {
-            $this->cli($dir, ['list'], $dir === $right);
-            testdb($dir)->exec('DELETE FROM users');
-            testdb($dir)->exec("UPDATE settings SET value = 'true' WHERE name = 'auth_enabled'");
+    }
+
+    /**
+     * `list` with sign-in on and no account (legacy auth_enabled()): APP_PASSWORD
+     * becomes the account "admin" on both; a too short one stops after the
+     * settings lines with the same message and exit 1, and nothing is created
+     * (hardening, 4a). An empty APP_PASSWORD leaves sign-in off.
+     */
+    public function testListCreatesTheFirstAdminOrRefusesAShortAppPassword(): void
+    {
+        foreach (['placeholder-password' => 1, 'shortpw' => 0, '        ' => 0, '' => 0] as $password => $users) {
+            [$left, $right] = $this->twins('cli-admin');
+            foreach ([$left, $right] as $dir) {
+                $this->cli($dir, ['list'], $dir === $right);
+                testdb($dir)->exec('DELETE FROM users');
+                testdb($dir)->exec("UPDATE settings SET value = 'true' WHERE name = 'auth_enabled'");
+            }
+            $l = $this->cli($left, ['list'], false, null, ['APP_PASSWORD' => $password]);
+            $r = $this->cli($right, ['list'], true, null, ['APP_PASSWORD' => $password]);
+            $label = 'APP_PASSWORD of ' . strlen($password) . ' characters';
+            $this->assertSame($l, $r, $label);
+            $this->assertSame($this->settingsRows($left), $this->settingsRows($right), $label);
+            foreach ([$left, $right] as $dir) {
+                $this->assertSame($users, (int)testdb($dir)->query('SELECT COUNT(*) FROM users')->fetchColumn(), $label);
+            }
+            if ($password === 'shortpw') {
+                $this->assertSame([1, "APP_PASSWORD is too short: use at least 8 characters (not only spaces), or leave it empty.\n"], [$r['exit'], $r['stderr']]);
+            }
         }
-        $l = $this->cli($left, ['list'], false, null, $extra);
-        $r = $this->cli($right, ['list'], true, null, $extra);
-        $this->assertStringEndsWith("sign-in                  on\nusers                    1\n", $l['stdout']);
-        $this->assertStringEndsWith("sign-in                  on\nusers                    0\n", $r['stdout']);
-        $this->assertSame(str_replace("users                    1\n", "users                    0\n", $l['stdout']), $r['stdout'], 'only the users count differs');
-        $this->assertSame(1, (int)testdb($left)->query('SELECT COUNT(*) FROM users')->fetchColumn());
-        $this->assertSame(0, (int)testdb($right)->query('SELECT COUNT(*) FROM users')->fetchColumn());
+    }
+
+    /**
+     * `key rotate` re-encrypts the stored secrets as legacy: the same output,
+     * exit codes and refusals (the new key never from argv, a malformed key,
+     * a row the current key cannot open changes nothing), and afterwards the
+     * rows open with the new key. Placeholder keys only.
+     */
+    public function testKeyRotateMatchesLegacy(): void
+    {
+        $old = base64_encode(str_repeat('k', 32));
+        $new = base64_encode(str_repeat('n', 32));
+        $other = base64_encode(str_repeat('o', 32));
+        $sealed = SecretBox::sealWith('placeholder-token', (string)base64_decode($old, true));
+        $cases = [
+            'sealed row, key from APP_KEY_NEW' => [$sealed, ['APP_KEY' => $old, 'APP_KEY_NEW' => $new], null, true],
+            'sealed row, key on stdin' => [$sealed, ['APP_KEY' => $old], $new . "\n", true],
+            'plain row, no current key' => ['placeholder-token', ['APP_KEY_NEW' => $new], null, true],
+            'empty row' => ['', ['APP_KEY_NEW' => $new], null, true],
+            'sealed row, wrong current key' => [$sealed, ['APP_KEY' => $other, 'APP_KEY_NEW' => $new], null, false],
+            'sealed row, no current key' => [$sealed, ['APP_KEY_NEW' => $new], null, false],
+            'malformed new key' => [$sealed, ['APP_KEY' => $old, 'APP_KEY_NEW' => 'malformed-placeholder'], null, false],
+            'no new key' => [$sealed, ['APP_KEY' => $old], '', false],
+        ];
+        foreach ($cases as $label => [$stored, $env, $stdin, $changes]) {
+            [$left, $right] = $this->twins('cli-rotate');
+            foreach ([$left, $right] as $dir) {
+                $this->cli($dir, ['list'], $dir === $right);
+                $this->storeToken($dir, $stored);
+            }
+            $before = $this->settingsRows($right);
+            $l = $this->cli($left, ['key', 'rotate'], false, $stdin, $env);
+            $r = $this->cli($right, ['key', 'rotate'], true, $stdin, $env);
+            $this->assertSame([$l['stdout'], $l['stderr'], $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']], $label);
+            $this->assertStringNotContainsString('placeholder-token', $r['stdout'] . $r['stderr'], $label);
+            $this->assertSame($changes ? 0 : 1, $r['exit'], $label);
+            $rows = [$this->settingsRows($left), $this->settingsRows($right)];
+            if (!$changes || $stored === '') {
+                $this->assertSame($before, $rows[1], "$label: nothing changed");
+                $this->assertSame($rows[0], $rows[1], $label);
+                continue;
+            }
+            $box = SecretBox::fromEnvironment(['APP_KEY' => $new], [], static function (string $message): void {
+            });
+            foreach ($rows as $i => $set) {
+                $this->assertSame('placeholder-token', $box->open('autofill_token', (string)json_decode($set['autofill_token'][0], true)), "$label ($i)");
+            }
+            unset($rows[0]['autofill_token'][0], $rows[1]['autofill_token'][0]);
+            $this->assertSame($rows[0], $rows[1], $label);
+        }
+        [$left, $right] = $this->twins('cli-rotate-argv');
+        foreach ([['key', 'rotate', $new], ['key'], ['key', 'frob']] as $args) {
+            $l = $this->cli($left, $args, false);
+            $r = $this->cli($right, $args, true);
+            $this->assertSame([$l['stdout'], $l['stderr'], $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']], implode(' ', $args));
+            $this->assertSame(1, $r['exit']);
+        }
+        $this->assertStringNotContainsString($new, $this->cli($right, ['key', 'rotate', $new], true)['stderr']);
+        $r = $this->spark($right, ['key']);
+        $this->assertSame([1, "Use: key generate | key rotate\n"], [$r['exit'], $r['stderr']]);
     }
 
     /**
@@ -317,7 +391,7 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertSame('9', $this->settingsRows($right)['session_days'][0] ?? null);
     }
 
-    /** Spark-only behaviour of apotheke:settings (bin/settings.php keeps these forms on legacy). */
+    /** Spark-only behaviour of apotheke:settings (bin/settings.php sends these forms to apotheke:accounts). */
     public function testSparkEntryPoint(): void
     {
         [, $right] = $this->twins('cli-spark');
@@ -326,8 +400,6 @@ final class Ci4SettingsCliTest extends TestCase
             $this->assertSame(2, $r['exit']);
             $this->assertSame("The {$form} command is in apotheke:accounts. Use php bin/settings.php {$form}.\n", $r['stderr']);
         }
-        $r = $this->spark($right, ['key']);
-        $this->assertSame([2, "The key command is not in apotheke:settings. Use php bin/settings.php key.\n"], [$r['exit'], $r['stderr']]);
         // A value that starts with "-" reaches the command unchanged (CI4's parser would drop it).
         $r = $this->spark($right, ['set', 'default_quantity', '-5']);
         $this->assertSame("Quantity: between 0 and 1000000.\n", $r['stderr']);

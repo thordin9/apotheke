@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Settings;
 
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
@@ -53,16 +54,29 @@ final class SettingsRepository
      */
     public function replace(array $encoded, string $now): void
     {
-        if ($encoded === []) {
-            return;
+        if ($encoded !== []) {
+            $this->rewrite(static fn (): array => $encoded, $now);
         }
+    }
+
+    /**
+     * Read the rows and replace the ones $plan returns, in one transaction
+     * (legacy secret_rotate()). A UserError from $plan rolls back and is
+     * thrown as it is; any other failure is WriteFailed, as replace().
+     *
+     * @param \Closure(array<string,string>):array<string,string> $plan raw rows => rows to write
+     */
+    public function rewrite(\Closure $plan, string $now): void
+    {
         try {
-            Writes::transaction($this->db, function () use ($encoded, $now): void {
-                foreach ($encoded as $name => $value) {
+            Writes::transaction($this->db, function () use ($plan, $now): void {
+                foreach ($plan($this->rows()) as $name => $value) {
                     Writes::check($this->db->table('settings')->where('name', $name)->delete(), 'settings delete');
                     Writes::check($this->db->table('settings')->insert(['name' => $name, 'value' => $value, 'updated_at' => $now]), 'settings insert');
                 }
             });
+        } catch (UserError $e) {
+            throw $e;
         } catch (Throwable $e) {
             throw new WriteFailed('Could not save the settings.', 0, $e);
         }
