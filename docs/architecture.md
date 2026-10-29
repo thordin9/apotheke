@@ -202,7 +202,8 @@ on Core and on the modules [AGENTS.md](../AGENTS.md#ci4-module-rules) lists for 
 
 **Request flow.** `ci4/public/index.php` refuses `/originals` paths, then boots CodeIgniter. The routes come from
 `app/Config/RoutesCompiled.php` (written by `php ci4/spark apotheke:routes`; `Routes.php` is used when it has changed
-since). Before the controller, the filters in `app/Config/Filters.php` run in a fixed order: HEAD as GET, the
+since). Started as root, spark runs as the data folder's owner, so `apotheke:routes` cannot write that file in a
+root-owned checkout; run it as the checkout's owner. Before the controller, the filters in `app/Config/Filters.php` run in a fixed order: HEAD as GET, the
 originals guard, the Host allow-list (421), the per-request base URL (`public_url`, `trust_proxy`), the upload size
 check, the session parameters (sessions start on demand only), same-origin writes when sign-in is off, then the
 Permission filter (legacy `user_can()` per route) and the session CSRF check. After it: the security headers and
