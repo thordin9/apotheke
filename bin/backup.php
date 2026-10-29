@@ -9,33 +9,13 @@ declare(strict_types=1);
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
-// APOTHEKE_APP=ci4: the same command runs as `spark apotheke:backup` (same output and exit codes).
-if (getenv('APOTHEKE_APP') === 'ci4') {
-    $spark = dirname(__DIR__) . '/spark';
-    if (!file_exists($spark)) {
-        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but spark is not in this install.\n");
-        exit(1);
-    }
-    // started as root: run as DATA_DIR's owner before anything else, or stop (L-622, N-625; DataDirOwner)
-    require_once dirname(__DIR__) . '/modules/Backup/Commands/DataDirOwner.php';
-    if (!\Apotheke\Backup\Commands\DataDirOwner::forCommandLine(STDERR, 'php bin/backup.php')) exit(1);
-    putenv('APOTHEKE_CLI_CWD=' . getcwd());   // spark changes to public; file names are relative to here
-    putenv('APOTHEKE_CLI_ARGS=' . json_encode(array_slice($argv, 1)));   // as typed: spark would take --help itself
-    $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, 'apotheke:backup', '--no-header']));
-    passthru($command, $code);
-    exit($code);
-}
-require dirname(__DIR__) . '/src/config.php';
-require dirname(__DIR__) . '/src/cli-owner.php';
-// started as root: continue as the data folder's owner before anything is read or written, or stop (L-622)
-cli_data_owner_or_exit('php bin/backup.php');
-require dirname(__DIR__) . '/src/bootstrap.php';
-require dirname(__DIR__) . '/src/items.php';
-require dirname(__DIR__) . '/src/backup.php';
-
-$out = $argv[1] ?? ('apotheke-backup-' . date('Y-m-d-His') . '.zip');
-if (in_array($out, ['-h', '--help'], true)) { fwrite(STDOUT, "Usage: php bin/backup.php [file.zip]\n"); exit(0); }
-$r = backup_create(db(), db_driver(), DATA_DIR, $out);
-echo 'Backup written: ' . $out . ' (' . number_format($r['bytes'] / 1048576, 1) . " MB)\n";
-echo '  ' . backup_summary_text($r['tables'], $r['photos']) . "\n";
-foreach ($r['missing'] as $f) fwrite(STDERR, "  warning: photo file $f is missing on disk\n");
+// Runs as `spark apotheke:backup`.
+$spark = dirname(__DIR__) . '/spark';
+// started as root: run as DATA_DIR's owner before anything else, or stop (L-622, N-625; DataDirOwner)
+require_once dirname(__DIR__) . '/modules/Backup/Commands/DataDirOwner.php';
+if (!\Apotheke\Backup\Commands\DataDirOwner::forCommandLine(STDERR, 'php bin/backup.php')) exit(1);
+putenv('APOTHEKE_CLI_CWD=' . getcwd());   // spark changes to public; file names are relative to here
+putenv('APOTHEKE_CLI_ARGS=' . json_encode(array_slice($argv, 1)));   // as typed: spark would take --help itself
+$command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, 'apotheke:backup', '--no-header']));
+passthru($command, $code);
+exit($code);
