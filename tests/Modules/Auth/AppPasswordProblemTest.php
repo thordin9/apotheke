@@ -28,4 +28,12 @@ final class AppPasswordProblemTest extends CIUnitTestCase
         $this->assertSame('APP_PASSWORD cannot contain a null character.', Accounts::appPasswordProblem("long-enough\0"));
         $this->assertSame(8, Accounts::PASSWORD_MIN);
     }
+
+    /** N-920: the value never reaches a stack trace or a log line through the argument. */
+    public function testThePasswordIsASensitiveParameter(): void
+    {
+        $param = (new \ReflectionMethod(Accounts::class, 'appPasswordProblem'))->getParameters()[0];
+        $this->assertSame('password', $param->getName());
+        $this->assertCount(1, $param->getAttributes(\SensitiveParameter::class));
+    }
 }
