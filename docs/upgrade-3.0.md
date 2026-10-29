@@ -29,13 +29,12 @@ Until the 3.0.0 release, the CI4 app ships inside the 2.x image and is switched 
   either app restores on the other), the port (9091), the health checks (`/healthz`, `/health`) and the start-up
   sign-in check.
 
-## Before 3.0.0: not yet on the CI4 app
+## Before 3.0.0: the Control Panel on the CI4 app
 
-The Control Panel pages are not ported yet: `/settings` and its sections (General, Labels, System, Branding and the
-AI autofill page). Users & sign-in (`/settings/security`) and the AI autofill token and test buttons are. Both apps
-read one database, so you can change those settings with the 2.x app (unset `APOTHEKE_APP`) or with
-`bin/settings.php` ([Control Panel → Command line](control-panel.md#command-line)) and switch back. They are ported
-before 3.0.0.
+The Control Panel is served by the CI4 app too: `/settings` and every section (save and reset), the logo, the
+settings file (export and import), Users & sign-in, and the AI autofill page with its token and Test buttons, with the
+same `settings` permission as 2.x. Both apps read one database, so a setting changed with either app or with
+`bin/settings.php` ([Control Panel → Command line](control-panel.md#command-line)) applies to both.
 
 ## 1. Back up
 
@@ -45,7 +44,11 @@ docker compose exec -u www-data apotheke php /var/www/app/bin/backup.php /data/p
 
 The zip holds the catalog, the photos and the camera originals. Also keep a copy of the whole `./data` directory
 (stop the container first), or on PostgreSQL a `pg_dump -Fc` of the database. If `ORIGINALS_DIR` is outside `/data`,
-back it up separately. More on backups: [Backup and restore](deployment-and-operations.md#backup-and-restore).
+back it up separately.
+
+Keep `APP_KEY` / `APP_KEY_FILE` unchanged across the switch and both rollbacks, and store a copy apart from the
+backup: neither the zip nor `./data` holds it, and without it a stored secret such as the autofill token counts as
+unset after a restore. More on backups: [Backup and restore](deployment-and-operations.md#backup-and-restore).
 
 ## 2. Switch to the CI4 app
 
@@ -63,6 +66,7 @@ Then:
 docker compose up -d
 docker compose logs apotheke | tail -n 5          # "nginx on :9091 (/var/www/app/ci4/public)"
 curl -fsS http://127.0.0.1:9091/healthz           # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9091/originals/x   # 404: camera originals are never served
 docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --status   # nothing pending
 ```
 
@@ -75,8 +79,8 @@ and `key generate|rotate`, and `bin/seed.php`, stay with the 2.x code; they work
 
 ## 3. Roll back (A): the 2.x app on the same data
 
-Remove `APOTHEKE_APP` again (or set it to `legacy`), or start the previous 2.x image, on the same `./data` and
-database:
+Remove `APOTHEKE_APP` again (or set it to `legacy`), or start the 2.x image you ran before the switch (or a newer
+2.x), on the same `./data` and database:
 
 ```bash
 docker compose up -d
