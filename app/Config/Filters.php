@@ -54,6 +54,8 @@ class Filters extends BaseFilters
         'requestcleanup' => \Apotheke\Core\Filters\RequestCleanupFilter::class,
         // /api: answers a CORS preflight, then sets the API headers and CORS on every API answer (API plan §2.2, §2.5).
         'api' => \Apotheke\Core\Filters\ApiFilter::class,
+        // /api's CSRF: Sec-Fetch-Site, Origin, Content-Type and the X-CSRF-Token header (API plan §2.1).
+        'apicsrf' => \Apotheke\Core\Filters\ApiCsrfFilter::class,
     ];
 
     /**
@@ -100,7 +102,8 @@ class Filters extends BaseFilters
     public array $globals = [
         'before' => [
             // /login, /register and /logout check the token themselves, after their own redirects (Auth).
-            'sessioncsrf' => ['except' => ['login', 'register', 'logout']],
+            // /api has its own, stricter check ('apicsrf' below).
+            'sessioncsrf' => ['except' => ['login', 'register', 'logout', 'api', 'api/*']],
         ],
         'after' => [
             'securityheaders',
@@ -131,5 +134,7 @@ class Filters extends BaseFilters
      *
      * @var array<string, array<string, list<string>>>
      */
-    public array $filters = [];
+    public array $filters = [
+        'apicsrf' => ['before' => ['api', 'api/*']],
+    ];
 }

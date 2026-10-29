@@ -94,6 +94,31 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertNotSame('no-referrer', $page['headers']['referrer-policy'] ?? '', 'the HTML headers stay');
     }
 
+    public function testNonSafeRequestsNeedOriginTypeAndToken(): void
+    {
+        $c = $this->client();
+        $own = $c->rest('POST', '/api/v1/nothing-here', ['a' => 1]);
+        $this->assertSame([403, 'csrf.invalid'], [$own['status'], $own['json']['code'] ?? null], 'own origin, but no token');
+        $this->assertSame('application/problem+json', $own['headers']['content-type']);
+        $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $own['headers']['content-security-policy']);
+        foreach ([
+            'no Origin' => [[], 'csrf.invalid', 403],
+            'another site' => [['Origin: https://evil.example.test', 'Sec-Fetch-Site: cross-site'], 'csrf.invalid', 403],
+        ] as $case => [$headers, $code, $status]) {
+            $r = $c->req('POST', '/api/v1/nothing-here', [], [], array_merge($headers, ['Content-Type: application/json']), '{}');
+            $this->assertSame([$status, $code], [$r['status'], $r['json']['code'] ?? null], $case);
+        }
+        $form = $c->req('POST', '/api/v1/nothing-here', [], [], ['Origin: ' . $c->base, 'Sec-Fetch-Site: same-origin'], 'a=1');
+        $this->assertSame([415, 'unsupported_media_type'], [$form['status'], $form['json']['code'] ?? null], 'a form body');
+        $delete = $c->rest('DELETE', '/api/v1/nothing-here');
+        $this->assertSame([403, 'csrf.invalid'], [$delete['status'], $delete['json']['code'] ?? null], 'DELETE too');
+        $listed = $c->rest('POST', '/api/v1/nothing-here', [], ['Origin: ' . self::APP, 'Sec-Fetch-Site: same-site']);
+        $this->assertSame([403, 'csrf.invalid'], [$listed['status'], $listed['json']['code'] ?? null], 'a listed origin still needs the token');
+        $this->assertSame(self::APP, $listed['headers']['access-control-allow-origin'] ?? null, 'so the app can read the refusal');
+        $big = $c->req('POST', '/api/v1/nothing-here', [], [], ['Origin: ' . $c->base, 'Content-Type: application/json'], str_repeat(' ', 23 * 1024 * 1024));
+        $this->assertSame([413, 'upload.too_large'], [$big['status'], $big['json']['code'] ?? null], 'over post_max_size');
+    }
+
     public function testHstsWhenPublicUrlIsHttps(): void
     {
         $dir = tmpdir('api-hsts');
