@@ -112,11 +112,11 @@ final class SignInController extends AuthPages
 
     private function sessionCookieLive(SessionGate $gate): bool
     {
-        $id = $this->request->getCookie(SessionGate::COOKIE);
+        $id = SessionGate::requestId(fn (string $n): mixed => $this->request->getCookie($n), session_name() === SessionGate::SECURE_COOKIE);
         /** @var ApothekeConfig $config */
         $config = service('apothekeConfig');
 
-        return is_string($id) && $gate->isLive($id, $config->dataDir() . '/sessions');
+        return $id !== null && $gate->isLive($id, $config->dataDir() . '/sessions');
     }
 
     /** Legacy auth_enabled() creates the account "admin" from APP_PASSWORD on an install without accounts. */
