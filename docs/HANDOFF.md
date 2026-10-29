@@ -245,7 +245,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#155](https://github.com/thordin9/apotheke/pull/155): sync `main` v2.6.26 (#148). Merged at 455aef8.
 - [#157](https://github.com/thordin9/apotheke/pull/157): CLI owner follow-up: every root spark command switches or stops
   before boot (L-700), the CI4 `bin/` tools check first (N-625), missing posix functions stop with exit 1 (N-681, N-702,
-  N-781), N-701 tests, the bounded settings import (L-740), the run-time parity placeholder and N-720. Open.
+  N-781), N-701 tests, the bounded settings import (L-740), the run-time parity placeholder and N-720. Merged at 35cb0e6.
+- [#158](https://github.com/thordin9/apotheke/pull/158): the CI4 `bin/backup.php` and `bin/restore.php` print legacy's
+  one-line message and exit code when the database cannot be reached; tests for N-880 and N-881, the N-883 docs
+  sentence. Open.
 
 ## Lanes
 
@@ -269,7 +272,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   routes (`CompiledRouteCollection`, `app/Config/RoutesCompiled.php`, `spark apotheke:routes`), the cache handler, the
   parity-gate budget lines in `ci.yml`, and N-546 in `scripts/upgrade-rollback.sh`.
   Step 17, the docs rewrite ([#154](https://github.com/thordin9/apotheke/pull/154), merged at 7ee637b; QA follow-up
-  [#156](https://github.com/thordin9/apotheke/pull/156), open): `docs/upgrade-3.0.md` (new), the CI4
+  [#156](https://github.com/thordin9/apotheke/pull/156), merged at 9f69400): `docs/upgrade-3.0.md` (new), the CI4
   sections of the architecture, getting-started, configuration, database, deployment, control-panel and CI pages,
   README and the docs index. Docs only; stays out of code.
   Sync v2.6.26 ([#155](https://github.com/thordin9/apotheke/pull/155)): legacy gets #148; #149 closes the CI4 gaps
@@ -295,12 +298,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `ci4/spark`, the legacy copies `bin/restore.php` and `public/index.php` (same change as #148 on `main`),
   `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`, `BackupFailureTest`. Overlap: `ci4/spark` and the legacy copies
   with Coder's syncs; part A is #147, the `main` notes are #148.
-- Coder2, CLI owner follow-up ([#157](https://github.com/thordin9/apotheke/pull/157), open): `ci4/spark`,
+- Coder2, CLI owner follow-up ([#157](https://github.com/thordin9/apotheke/pull/157), merged at 35cb0e6): `ci4/spark`,
   `Backup/Commands/DataDirOwner.php`, the CI4 branches of `bin/backup.php`, `bin/migrate.php`, `bin/restore.php` and
   `bin/settings.php`, `SettingsService::readImportFile()` and the import action in `ControlPanelController`,
   `BackupHelpersTest`, `RestorerFatalCleanupTest`, `SettingsServiceTest`, `Ci4BackupRestoreChecksTest`,
   `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. #155 (v2.6.26 sync, merged at 455aef8) is merged in;
   `BackupFailureTest` runs every #148 test on CI4 (the N-625 and N-681 skips are gone).
+- Coder2, backup and restore CLI messages ([#158](https://github.com/thordin9/apotheke/pull/158), open):
+  `Backup/Commands/BackupCommand.php`, `Backup/Commands/RestoreCommand.php`, `DbConnectErrorTest`,
+  `RestorerFatalCleanupTest`, `DataDirOwnerGroupsTest` (new) and one sentence in `docs/architecture.md`. Stays out
+  of `bin/settings.php` and the Settings and Auth commands (Coder's CLI port).
 
 ## Next steps
 
