@@ -268,8 +268,8 @@ at its first request, instead of on every request; deploys that add a migration 
 
 The migration files are shared and stay byte-identical. The globals they call (`natkey`, `settings_seed`, `app_time`,
 `now_utc`, …) come from `modules/Migrations/LegacyFunctions.php` on CI4, a shim with the same behaviour that stays
-after the cutover. For 90 days after 3.0.0, a new migration lands only if it is also backported to 2.5.x, so a
-rollback from 3.0.x to 2.5.x never meets an unknown schema (PLAN §3.4, PM L-2).
+after the cutover. For 90 days after 3.0.0, a new migration lands only if it is also backported to 2.6.x (branch `old`), so a
+rollback from 3.0.x to 2.6.x never meets an unknown schema (PLAN §3.4, PM L-2).
 
 ## Writing a migration
 

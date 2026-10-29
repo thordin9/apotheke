@@ -13,11 +13,11 @@ Human docs: [README](README.md) and [`docs/`](docs/index.md). Feature workflow: 
 * **CSP-safe UI:** no inline `<script>`, no `style="…"`, no `on…=` handlers — put CSS in `public/assets/app.css` and behaviour in `public/assets/app.js` / `theme.js`.
 * Prefer real forms and links first; JS enhances. Mobile-first (tap targets ≥ 44 px, light and dark).
 * Escape output with `h()`, use prepared statements (or the query builder's bindings), keep the CSRF check on every state change (the global filter, or the controller check on the `none` routes below), and write item history through `Core\Libraries\ItemHistory` in the same transaction as the change.
-* **No schema change.** The 28 migrations (`0001`–`0028`) stay byte-identical with the 2.x releases. They run through a PDO runner plus a `LegacyFunctions` shim (kept after cutover). Do not add a `0026+` migration on 3.0.x unless the same file is backported to 2.5.x during the 90-day window.
+* **No schema change.** The 28 migrations (`0001`–`0028`) stay byte-identical with the 2.x releases. They run through a PDO runner plus a `LegacyFunctions` shim (kept after cutover). Do not add a migration on 3.0.x unless the same file is backported to 2.6.x (branch `old`) during the 90-day window.
 * **Docker-only.** The 3.0.0 install is the Docker image (no non-Docker install and no vendored zip). The `php -S` run below is for development only.
 * **One re-login.** Sessions are not migrated. Users sign in again once at upgrade.
 * **PHP 8.4** for the image and for CI (PHPUnit on SQLite and PostgreSQL, lint, Playwright, Docker). The upgrade-rollback job still runs the v2.6.26 reference on PHP 8.3.
-* **2.5.x security fixes** land on `release/2.5` and continue for 90 days after 3.0.0.
+* **2.x security fixes** ship as 2.6.x releases from the branch `old` (the former `main`, last release v2.6.26), for 90 days after 3.0.0.
 * No CDN and no JavaScript build step. The app works fully offline on a LAN. The only runtime Composer packages are CodeIgniter 4 and its pinned dependencies.
 
 ## Layout
@@ -94,7 +94,7 @@ Prefer TDD for behaviour changes: extend `tests/Modules/` and/or `tests/Unit/`, 
 
 * Conventional Commits (`feat`, `fix`, `chore`, `docs`, `refactor`, `test`); subject ≤ 72 characters (`scripts/check-commits.sh`).
 * Small, focused PRs. UI screenshot changes need the `update-snapshots` label and baseline update (see [docs/testing.md](docs/testing.md)).
-* Pull requests target `main`. 2.5.x security fixes target `release/2.5`; the branch `old` (the 2.x app) takes no new work.
+* Pull requests target `main`. 2.x security fixes target the branch `old` and ship as 2.6.x; `old` takes no other work.
 * Do not force-push shared branches; do not commit secrets (`.env`, real `config.php`, `data/`).
 
 ## Adding a feature (short)

@@ -9,8 +9,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ## [Unreleased]
 
 **3.0.0 is the CodeIgniter 4 app** (PHP 8.4, Docker only, no schema change, one re-login). Back up first and read
-[Upgrading to 3.0](https://github.com/thordin9/apotheke/blob/main/docs/upgrade-3.0.md) for the switch and both rollbacks. 2.5.x gets security fixes on `release/2.5`
-for 90 days; the 2.x code is kept on the branch `old`. Notes below that name `APOTHEKE_APP=ci4`, `legacy` or a sync of
+[Upgrading to 3.0](https://github.com/thordin9/apotheke/blob/main/docs/upgrade-3.0.md) for the switch and both rollbacks. For 90 days the 2.x line gets security
+fixes only, as 2.6.x releases from the branch `old` (the former `main`, last release v2.6.26). Notes below that name `APOTHEKE_APP=ci4`, `legacy` or a sync of
 `main` into `feature/ci4` describe the port before the cutover, on 2.6 images or the former branches.
 
 ### Upgrade notes

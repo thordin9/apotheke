@@ -545,7 +545,9 @@ None. Every PM question from rev. 2 is decided, approved by Stathis at 10:09, an
 * **Step 18, branch switch (2026-10-29):** the cutover merged into `feature/ci4` (#161, f1b4535) instead of a PR into
   `main`. Because `main` is an ancestor of `feature/ci4`, `main` is fast-forwarded to it after the branch-switch PR; the
   former `main` is kept as the branch `old`. `ci.yml` pushes run on `main` only, `release.yml` is unchanged (it already
-  runs after CI on `main`) and cuts 3.0.0. `release/2.5` (§4.5) is unchanged. Final parity gate: run 40927086508 at
+  runs after CI on `main`) and cuts 3.0.0. Support line (§4.5): `release/2.5` is still at v2.5.0, and v2.5.1 to v2.5.8 and every 2.6.x were released from
+  `main`, so the 90-day 2.x security fixes ship as 2.6.x from `old`; where this plan says 2.5.x or `release/2.5` for
+  the support line, read 2.6.x and `old`. Final parity gate: run 40927086508 at
   1b2e107, attempt 2 green (attempt 1 a PostgreSQL p95 timing trip with 0 differences), see [HANDOFF](../../HANDOFF.md).
 * **PR 17, docs rewrite (2026-10-28):** the upgrade and rollback guide is [upgrade-3.0.md](../../upgrade-3.0.md) (§3.6 as a runbook, the re-login, the Control Panel pages not yet on CI4); architecture, getting started, configuration (`CI_ENVIRONMENT`), database (the shared migrations and the PM L-2 rule), deployment, Control Panel and CI describe the CI4 app. The `release/2.5` flow in `docs/releasing.md` (§4.5) follows with its workflow.
 * **PR 7b review fixes (2026-10-25):** the filter derives the permission from the routed path. CI4's router matches the request first (a fresh router on the same route collection), and the matched route's `permission` option decides; a route without one is refused to everyone, the admin included. A path no route matches gets `route_perm()` for the path the router tried: relative to the base URL, decoded and trimmed of slashes and spaces as `Router::handle()` does. The method is the effective one after HEAD → GET and `_method`. Tests cover trailing, doubled and encoded slashes and spaces, a `PUBLIC_URL` with a path, an unmapped route, HEAD, decoding and the escaped role name.

@@ -19,8 +19,9 @@ ground rules and walks through adding a feature end to end. AI agents should als
   entries (`Activity\ActivityLog`) in the same transaction as the change.
 * **No schema change on the port.** The 28 migrations stay byte-identical with 2.x and run through a PDO runner plus a
   `LegacyFunctions` shim. Docker is the only install from 3.0.0. Users sign in again once at upgrade.
-* **Lines of development.** `main` is the CodeIgniter 4 app and every pull request targets it. After 3.0.0, 2.5.x gets
-  security fixes only, on `release/2.5`, for 90 days. The 2.x app is kept on the branch `old` and takes no new work.
+* **Lines of development.** `main` is the CodeIgniter 4 app and every pull request targets it. For 90 days after 3.0.0,
+  the 2.x line gets security fixes only, as 2.6.x releases from the branch `old` (the former `main`, last release
+  v2.6.26); `old` takes no other work.
 * **Module rules** (code under `modules/`): deptrac enforces the module dependency graph (every module may depend on
   Core, Core depends on nothing, no cycles). Use constructor injection. `service()` and `Services::` are allowed only
   in controllers, in filter `before()`/`after()`, and in `Config/Services.php` factories. The allowed edges are in

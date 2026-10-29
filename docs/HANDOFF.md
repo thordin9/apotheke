@@ -378,7 +378,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
     `release.yml` reads. The branch-switch PR does the workflow branch filters, the `main` / `feature/ci4` wording and
     N-801, N-860, N-861. After it merges: fast-forward `main` to `feature/ci4`, keep the former `main` as `old`, set
     the default branch and the required checks, and let the release workflow cut 3.0.0 from `main`.
-12. After step 18: the `release/2.5` patch-only flow in `docs/releasing.md` and its `release.yml` guard (owner: Apotheke Coder).
+12. After step 18: the 2.6.x patch-only flow from the branch `old` (2.x security fixes for 90 days after 3.0.0) in
+    `docs/releasing.md`, with its `release.yml` guard (today `release.yml` runs only for `main`; owner: Apotheke Coder).
+    `release/2.5` is still at v2.5.0 with no later commit, and the tags v2.5.1 to v2.5.8 already exist (cut from the
+    former `main`), so that branch cannot carry the fixes.
 
 ## Tracked
 
