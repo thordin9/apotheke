@@ -45,7 +45,11 @@ docker compose exec -u www-data apotheke php /var/www/app/bin/backup.php /data/p
 
 The zip holds the catalog, the photos and the camera originals. Also keep a copy of the whole `./data` directory
 (stop the container first), or on PostgreSQL a `pg_dump -Fc` of the database. If `ORIGINALS_DIR` is outside `/data`,
-back it up separately. More on backups: [Backup and restore](deployment-and-operations.md#backup-and-restore).
+back it up separately.
+
+Keep `APP_KEY` / `APP_KEY_FILE` unchanged across the switch and both rollbacks, and store a copy apart from the
+backup: neither the zip nor `./data` holds it, and without it a stored secret such as the autofill token counts as
+unset after a restore. More on backups: [Backup and restore](deployment-and-operations.md#backup-and-restore).
 
 ## 2. Switch to the CI4 app
 
@@ -63,6 +67,7 @@ Then:
 docker compose up -d
 docker compose logs apotheke | tail -n 5          # "nginx on :9091 (/var/www/app/ci4/public)"
 curl -fsS http://127.0.0.1:9091/healthz           # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9091/originals/x   # 404: camera originals are never served
 docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --status   # nothing pending
 ```
 
@@ -75,7 +80,7 @@ and `key generate|rotate`, and `bin/seed.php`, stay with the 2.x code; they work
 
 ## 3. Roll back (A): the 2.x app on the same data
 
-Remove `APOTHEKE_APP` again (or set it to `legacy`), or start the previous 2.x image, on the same `./data` and
+Remove `APOTHEKE_APP` again (or set it to `legacy`), or start the 2.x image you ran before the switch (or a newer 2.x), on the same `./data` and
 database:
 
 ```bash
