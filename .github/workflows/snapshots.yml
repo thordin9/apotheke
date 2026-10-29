@@ -1,8 +1,8 @@
 name: Update visual snapshots
 
 # Renders the Playwright baselines in the same container as the CI "e2e" job and uploads them as the
-# "snapshots" artifact. Trigger it by adding the label "update-snapshots" to a PR (or manually once this
-# file is on main), then fetch the files with:  scripts/update-snapshots.sh --from-ci <run id>
+# "snapshots" artifact. Trigger it by adding the label "update-snapshots" to a PR (or manually from main),
+# then fetch the files with:  scripts/update-snapshots.sh --from-ci <run id>
 on:
   workflow_dispatch:
   pull_request:

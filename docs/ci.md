@@ -2,16 +2,16 @@
 
 Three GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
 
-## `ci.yml`: on every pull request and on pushes to `main` and `feature/ci4`
+## `ci.yml`: on every pull request and on pushes to `main`
 
-`pull_request` has no branch filter, so a pull request into `feature/ci4` runs this workflow.
-`push` is limited to `main` and `feature/ci4` (a push to `feature/ci4` uses the workflow file on that branch).
+`pull_request` has no branch filter, so every pull request runs this workflow. `push` is limited to `main`, the
+CodeIgniter 4 app since the branch switch.
 Runs with `permissions: contents: read`; a newer push to the same ref cancels the running one
 (`concurrency: ci-<ref>`).
 
 ```mermaid
 flowchart LR
-  push["PR / push to main or feature/ci4"] --> lint["Lint<br/>PHP 8.4"]
+  push["PR / push to main"] --> lint["Lint<br/>PHP 8.4"]
   push --> deptrac["deptrac"]
   push --> di["DI rule"]
   push --> secrets["Secret scan"]
@@ -63,7 +63,7 @@ An empty config is still a pass. A filled config fails when the tool is not inst
 ## `release.yml`: versions, changelog and GitHub Releases
 
 Runs when CI finishes successfully for a push to `main` (`workflow_run` with `branches: [main]`), or by hand (`workflow_dispatch`).
-Pushes and pull requests on `feature/ci4` do not release. The release workflow is not modified for the CI4 branch: its trigger lists only `main`, and both the workflow-run job and a manual run check out `main`. `workflow_run` workflows are read from the default branch, so a copy of this file on `feature/ci4` cannot widen what `main` releases.
+Pull requests and other branches do not release: the trigger lists only `main`, and both the workflow-run job and a manual run check out `main`. `workflow_run` workflows are read from the default branch, so a copy of this file on another branch cannot widen what `main` releases. 3.0.0 is the first release cut from the switched `main`.
 The workflow token is `contents: read`. The release job raises that to `contents: write` (push the release commit and
 tag, create the GitHub Release) and `actions: read` (download the CI coverage artifact). `concurrency: release`, never
 cancelled. It skips when `main` has moved past the commit CI tested.

@@ -18,12 +18,16 @@ final class Ci4BranchCiTest extends TestCase
         return (string)file_get_contents($this->root() . '/.github/workflows/ci.yml');
     }
 
-    public function testPullRequestsAreUnfilteredAndPushesIncludeFeatureCi4(): void
+    /** After the branch switch, main is the CI4 branch: pull requests are unfiltered and pushes run on main only. */
+    public function testPullRequestsAreUnfilteredAndPushesRunOnMain(): void
     {
         $this->assertMatchesRegularExpression(
-            "/^on:\\n  pull_request:\\n  push:\\n    branches: \\[main, feature\\/ci4\\]\\n/m",
+            "/^on:\\n  pull_request:\\n  push:\\n    branches: \\[main\\]\\n/m",
             $this->ci()
         );
+        foreach (['ci.yml', 'release.yml', 'snapshots.yml'] as $file) {
+            $this->assertStringNotContainsString('feature/ci4', (string)file_get_contents($this->root() . '/.github/workflows/' . $file), $file);
+        }
     }
 
     public function testMatrixIsTheOneAppOnPhp84(): void
@@ -215,6 +219,7 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('is not supported', implode("\n", $out));
     }
 
+    /** 3.0.0 and later versions are cut from main: the release runs after CI on main and checks out main. */
     public function testReleaseWorkflowStaysOnMain(): void
     {
         $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');

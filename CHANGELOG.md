@@ -8,6 +8,11 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**3.0.0 is the CodeIgniter 4 app** (PHP 8.4, Docker only, no schema change, one re-login). Back up first and read
+[Upgrading to 3.0](https://github.com/thordin9/apotheke/blob/main/docs/upgrade-3.0.md) for the switch and both rollbacks. For 90 days the 2.x line gets security
+fixes only, as 2.6.x releases from the branch `old` (the former `main`, last release v2.6.26). Notes below that name `APOTHEKE_APP=ci4`, `legacy` or a sync of
+`main` into `feature/ci4` describe the port before the cutover, on 2.6 images or the former branches.
+
 ### Upgrade notes
 
 - **ci4 (security):** with `APOTHEKE_APP=ci4`, `php bin/settings.php get autofill_token` and `get password_hash` no longer print the stored secret; they exit 1 with `“KEY” is write-only.` Scripts that read the token must stop doing so. To rotate the AI autofill token, set the new `AUTOFILL_TOKEN` on the autofill service, then enter it under **Control Panel → AI autofill → Access token → Replace the token** and press **Save token** (**Clear token** removes it). `bin/settings.php set autofill_token` is refused on legacy and CI4 alike, so the Control Panel is the supported path. Passwords are per account: `php bin/settings.php user password NAME` or **Settings → Users & sign-in**. ([#64](https://github.com/thordin9/apotheke/pull/64))

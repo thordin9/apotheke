@@ -42,7 +42,8 @@ The GitHub Release body is that whole section, handwritten notes included, plus 
 ## The release workflow
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) runs after a successful CI run for a push to `main`.
-A green CI run on `feature/ci4` does not start it: `workflow_run.branches` is `[main]` only, and a manual run checks out `main`.
+A green CI run on any other branch or on a pull request does not start it: `workflow_run.branches` is `[main]` only, and a
+manual run checks out `main`.
 
 1. check out `main` with full history; stop if `main` is no longer the commit CI tested (that newer commit's CI run
    releases it);
@@ -53,6 +54,15 @@ A green CI run on `feature/ci4` does not start it: `workflow_run.branches` is `[
 6. `gh release create vX.Y.Z --notes-file …`.
 
 `check-commits.sh` skips release commits, and the release commit starts no new CI run.
+
+### 3.0.0: the first release from the switched `main`
+
+3.0.0 is cut the same way. After the branch-switch pull request, `main` is fast-forwarded to the CodeIgniter 4 branch
+(the former `main` stays as the branch `old`). That push runs CI; when it is green, the release workflow finds the
+breaking commits since `v2.6.26` (`feat!: serve the CI4 app from the repository root`, `docs!: allow CodeIgniter 4`),
+so `plan` answers `bump=major`, `next=3.0.0`. `apply` folds the handwritten `## [Unreleased]` notes (upgrade notes,
+intentional deviations and every bullet) into `## [3.0.0] - <date>`. Do not add a `## [3.0.0]` heading by hand and do
+not bump `VERSION` in a pull request: `apply` inserts the section itself.
 
 ## By hand
 

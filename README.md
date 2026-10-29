@@ -17,10 +17,10 @@ where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then
 PHP 8.4 and **CodeIgniter 4** (pinned Composer dependencies) with PDO (SQLite or PostgreSQL) and GD, plus Imagick in
 the Docker image for HEIC photos. No JavaScript build step and no CDNs: it works fully offline on your LAN.
 
-**3.0.0** is the CodeIgniter 4 app (the `feature/ci4` branch until it is released): no schema change, Docker-only,
-and one re-login at upgrade ([upgrading to 3.0](docs/upgrade-3.0.md)). See [ADR-001](docs/adr/001-codeigniter4.md) and the
-[Feature 12 plan](docs/plans/feature12-ci4/PLAN.md). After 3.0.0, 2.5.x gets security fixes on `release/2.5` for
-90 days.
+**3.0.0** is the CodeIgniter 4 app on `main`: no schema change, Docker-only, and one re-login at upgrade
+([upgrading to 3.0](docs/upgrade-3.0.md)). See [ADR-001](docs/adr/001-codeigniter4.md) and the
+[Feature 12 plan](docs/plans/feature12-ci4/PLAN.md). For 90 days after 3.0.0, the 2.x line gets security fixes
+only, as 2.6.x releases from the branch `old` (the former `main`, last release v2.6.26).
 
 ## Features
 

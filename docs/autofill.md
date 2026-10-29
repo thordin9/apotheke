@@ -374,16 +374,13 @@ temporary file in the same directory followed by `rename`, so a read-only file c
 filename `autofill-info.json` is not read. Media should implement this same interface later (for example for R2)
 rather than add a second one.
 
-**Not in this module yet.** The Control Panel HTML and the item-form Analyze button stay on legacy. The four POST
-routes need the session CSRF token, pass the host and same-origin checks
-([#76](https://github.com/thordin9/apotheke/pull/76)) and the route's permission, as legacy
+**Routes and checks.** The Control Panel's AI autofill page and the item form's Analyze buttons are part of the
+CodeIgniter 4 app. The four POST routes need the session CSRF token, pass the host and same-origin checks
+([#76](https://github.com/thordin9/apotheke/pull/76)) and the route's permission, as in 2.x
 ([#91](https://github.com/thordin9/apotheke/pull/91)): `/autofill/suggest` needs *Add items*, the settings routes
 *Settings*. The warn-once note and the temporary JPEG are files under the data directory, not under CodeIgniter's
-`writable/` folder. Category
-and tag names, and which file to analyze (kept original, otherwise the served JPEG), are SQL until Taxonomy and Media
-exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. The cases live in
-`tests/Modules/Autofill/AutofillTest.php` and `tests/Modules/Core/LocalStorageTest.php`. Photo size limits are legacy-only for
-now: the legacy header pre-check and decode limits ([#72](https://github.com/thordin9/apotheke/pull/72)) and the PNG
-cap ([#79](https://github.com/thordin9/apotheke/pull/79)) are on `feature/ci4` since
-[#83](https://github.com/thordin9/apotheke/pull/83), but the CI4 Autofill module does not apply them yet, so CI4
-suggest has no pixel or decode limit. Porting them is a pending CI4 follow-up (Coder's L-2 port).
+`writable/` folder. Which file to analyze comes from Media (`ImageStore::analysisBytes()`: the kept original,
+otherwise the served JPEG); category and tag names are still SQL. The GD path decodes only images of at most
+60 megapixels, and the analysis copy must fit the image limit (`ImageLimit`). Tests use
+`tests/stubs/autofill-stub.php` on `127.0.0.1`; CI has no live Worker check. The cases live in
+`tests/Modules/Autofill/AutofillTest.php` and `tests/Modules/Core/LocalStorageTest.php`.

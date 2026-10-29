@@ -1,14 +1,14 @@
 # Contributing to Apotheke
 
-Thanks for helping out! The legacy app is deliberately small: plain PHP 8.2+, SQLite or PostgreSQL via PDO, and GD,
-with no JavaScript build step. It stays that way on `main` until the 3.0.0 cutover. The port adopts CodeIgniter 4
-(pinned dependencies, PHP 8.4, side by side in `ci4/`). See [docs/contributing.md](docs/contributing.md) and
-[ADR-001](docs/adr/001-codeigniter4.md). After 3.0.0, 2.5.x gets security fixes on `release/2.5` for 90 days.
+Thanks for helping out! Apotheke is a CodeIgniter 4 app at the repository root (pinned dependencies, PHP 8.4,
+SQLite or PostgreSQL via PDO, and GD), with no JavaScript build step. Pull requests target `main`. See
+[docs/contributing.md](docs/contributing.md) and [ADR-001](docs/adr/001-codeigniter4.md). For 90 days after 3.0.0, the
+2.x line gets security fixes only, as 2.6.x releases from the branch `old` (the former `main`, last release v2.6.26).
 
 ```bash
-tests/run.sh                         # lint (php -l, node --check, Markdown links, shellcheck) + HTTP integration suite
-composer install && vendor/bin/phpunit                        # unit + HTTP suites on SQLite
-DB_DRIVER=pgsql TEST_PG_PASSWORD=secret vendor/bin/phpunit    # … on PostgreSQL
+composer install && tests/run.sh    # lint (php -l, node --check, Markdown links, shellcheck) + module suite
+vendor/bin/phpunit                                            # root suite (unit + HTTP) on SQLite
+DB_DRIVER=pgsql APOTHEKE_TEST_DB=pgsql TEST_PG_PASSWORD=secret vendor/bin/phpunit    # … on PostgreSQL
 scripts/check-commits.sh origin/main                          # commit subjects
 docker compose up -d --build && scripts/smoke.sh http://127.0.0.1:9091   # smoke-test the container
 ```
