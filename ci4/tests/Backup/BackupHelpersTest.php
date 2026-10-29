@@ -41,9 +41,11 @@ final class BackupHelpersTest extends CIUnitTestCase
     /** L-622: each data command's message suggests that tool's own command, as legacy does. */
     public function testEachDataCommandNamesItsOwnToolInTheMessage(): void
     {
-        $this->assertSame(['apotheke:restore', 'apotheke:backup', 'apotheke:migrate', 'apotheke:settings', 'apotheke:accounts'], array_keys(DataDirOwner::COMMANDS));
+        $this->assertSame(['apotheke:restore', 'apotheke:backup', 'apotheke:migrate', 'apotheke:settings', 'apotheke:accounts', 'apotheke:seed'], array_keys(DataDirOwner::COMMANDS));
         $this->assertSame('php bin/restore.php backup.zip', DataDirOwner::COMMANDS['apotheke:restore']);
         $this->assertSame('php bin/backup.php', DataDirOwner::COMMANDS['apotheke:backup']);
+        $this->assertSame('php bin/seed.php', DataDirOwner::COMMANDS['apotheke:seed']);
+        $this->assertSame('php bin/seed.php', DataDirOwner::example(['apotheke:seed', '--no-header', '--demo']));
     }
 
     /** L-700: every other spark command's message suggests spark and its name; a name that is not a plain command name is left out. */

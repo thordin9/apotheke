@@ -937,7 +937,12 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         });
     }
 
-    /** L-622: each of them as root into a root-owned DATA_DIR stops with exit 1 before boot, naming its own tool. */
+    /**
+     * L-622: each of them as root into a root-owned DATA_DIR stops with exit 1
+     * before boot, naming its own tool. apotheke:seed too: the refusal comes
+     * before boot, so it names bin/seed.php whether or not the command is
+     * there yet.
+     */
     public function testSparkDataCommandsAsRootRefuseARootOwnedDataDir(): void
     {
         $this->needsSudo();
@@ -947,7 +952,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
             $since = $this->sudoMarker($dir);
             try {
                 $this->sudo(['chown', '0:0', $fresh]);
-                foreach (self::DATA_COMMANDS as $command => [$args, $example]) {
+                foreach (self::DATA_COMMANDS + ['apotheke:seed' => [['--demo'], 'php bin/seed.php']] as $command => [$args, $example]) {
                     $r = $this->rootSpark($dir, $fresh, str_replace('{fresh}', $fresh, $args), $command);
                     $this->assertSame([1, '', 'Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> ' . $example . ". Nothing was changed.\n"],
                         [$r['exit'], $r['stdout'], $r['stderr']], $command);
