@@ -138,6 +138,28 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** sync `main` dd019fb (2.6.21, 2.6.22) into `feature/ci4`. The legacy app gets #126 (lend, return and stocktake locks, `SIGN_IN_FAIL_MS`, the shared migrate connection) and #130 (the CSV import lock); the test server sets `SIGN_IN_FAIL_MS` for both apps, CI4's `ApothekeConfig` loads `sign_in_fail_ms` as legacy does (CI4 paces with it since [#132](https://github.com/thordin9/apotheke/pull/132); its deadline starts at the controller, not at the request start), and the migrate connection test runs legacy `bin/migrate.php` on the CI4 legs too. CI4 already has the lend, return and stocktake close locks and its own sign-in deadline. ([#129](https://github.com/thordin9/apotheke/pull/129))
 - **ci4:** sync `main` 458a3c5 (2.6.23) into `feature/ci4`. The legacy app gets #135 (one restore at a time, and a failed restore's files are undone); the CI4 restore is unchanged. ([#139](https://github.com/thordin9/apotheke/pull/139))
 - **ci4:** sync `main` 18dc959 (2.6.24, 2.6.25) into `feature/ci4`. The legacy app gets #141 (the restore entry cap, no writes through links, short-write checks and the camera link map written through a temp file) and #145 (`bin/restore.php` started as root runs as the data folder's owner); CI4 has these from #142 and #146. ([#143](https://github.com/thordin9/apotheke/pull/143))
+- **ci4:** sync `main` 5f63656 (2.6.26) into `feature/ci4`. The legacy app gets #148: the `bin/` data tools started as root run as the data folder's owner (L-622), `bin/settings.php key generate` runs before any configuration is read (L-680), the owner switch stops when PHP has neither `posix_initgroups` nor `posix_getgroups` (N-681), a camera file a restore creates is 0640 from the start (N-682) and the 2.6.26 notes lead with the upgrade note (N-683). With `APOTHEKE_APP=ci4`, `key generate` stays on legacy and so gets L-680; the CI4 owner switch and CI4 restore are unchanged (gaps listed in the PR). ([#155](https://github.com/thordin9/apotheke/pull/155))
+
+## [2.6.26] - 2026-10-28
+
+**Upgrade note:** the data tools in `bin/` (`backup.php`, `migrate.php`, `seed.php`, `settings.php` and `restore.php`) started as root now run as the data folder's owner. When the data folder is owned by root they stop with exit 1 and change nothing: run them as the data folder's owner, for example `sudo -u www-data php bin/migrate.php`. `bin/backup.php` writes its zip as that owner, so the backup target has to be a folder the data folder's owner can write. `php bin/settings.php key generate` uses no data folder and runs as any user (L-622, L-680).
+
+### Fixed
+
+- **backup:** hardening: `bin/backup.php`, `bin/migrate.php`, `bin/seed.php` and `bin/settings.php` started as root run as the data folder's owner, like `bin/restore.php`, so a backup zip or a new database no longer belongs to root; when the data folder is owned by root they stop with exit 1 and change nothing (L-622). The switch never keeps root's group: a data folder whose group is root's uses the owner's own group (N-621). A user that cannot be told counts as root, as on CI4 (N-625). The docs say the config file must not be writable by the web server's user (N-623). ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **backup:** hardening: a link at a new photo, thumbnail or attachment name stops the restore and is left as it is, as at a camera file's name (N-565). A new camera file is 0640 from the start; only a kept older file with another mode is changed after the restore (N-582). ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **backup:** `bin/restore.php` prints the warnings from the restore itself (camera links that could not be written, settings not restored) after `Restored:` (N-593). A failed restore in the browser removes its upload at once instead of at the hourly sweep, and so does an upload that could not be stored whole (N-567). The docs say which full-disk cases fail the restore and which skip camera files (N-580). Tests cover the lock's fresh name lookup (N-581) and a map that cannot be written (N-563). ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **backup:** hardening: `php bin/settings.php key generate` prints its key before it reads the configuration or switches users, so it uses no data folder (L-680). The switch to the data folder's owner stops with exit 1 when PHP has neither `posix_initgroups` nor `posix_getgroups` (N-681). A camera file a restore creates keeps the 0640 it was created with, whatever the umask, and a test covers it (N-682). ([#148](https://github.com/thordin9/apotheke/pull/148))
+
+### Maintenance
+
+- **restore:** test: cover the CLI owner switch, links and map failures ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **restore:** docs: CLI owner, config file and full-disk cases ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **changelog:** docs: note the QA notes batch 4 fixes ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **e2e:** test: apply migration 0025 without the CLI tool ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **changelog:** docs: lead 2.6.26 with the CLI owner upgrade note ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **ci:** chore: allow the Control Panel test placeholder in gitleaks ([#148](https://github.com/thordin9/apotheke/pull/148))
+- **qa:** docs: add the PR 148 batch 4 restore CLI QA review ([#148](https://github.com/thordin9/apotheke/pull/148))
 
 ## [2.6.25] - 2026-10-28
 
@@ -615,7 +637,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.25...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.26...HEAD
+[2.6.26]: https://github.com/thordin9/apotheke/compare/v2.6.25...v2.6.26
 [2.6.25]: https://github.com/thordin9/apotheke/compare/v2.6.24...v2.6.25
 [2.6.24]: https://github.com/thordin9/apotheke/compare/v2.6.23...v2.6.24
 [2.6.23]: https://github.com/thordin9/apotheke/compare/v2.6.22...v2.6.23
