@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /**
  * Imagick fallback: four tests. Fixtures: tests/fixtures/transparent.png (32×32, red corner,
  * the rest fully transparent) and tests/fixtures/cmyk.jpg (16×16 CMYK). Skips when Imagick is absent.

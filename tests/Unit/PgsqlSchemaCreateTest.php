@@ -5,6 +5,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 
 /**
  * PostgreSQL checks CREATE on the database before it notices that a schema

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 use PHPUnit\Framework\TestCase;
 
 /** APP_PASSWORD meets PASSWORD_MIN like any other password (hardening, #75 QA L-2). The value is never printed. */

@@ -38,7 +38,8 @@ if [ "$#" -gt 0 ] && [ "$1" != "apotheke" ]; then exec "$@"; fi
 
 # Sign-in must be on unless ALLOW_NO_LOGIN says otherwise. `auth status` asks the app itself (as www-data, so a new
 # SQLite file belongs to it): 0 = on, 3 = off, 4 = APP_PASSWORD too short (it says so on stderr), anything else = no
-# answer (PostgreSQL may still be starting).
+# answer (PostgreSQL may still be starting). With APOTHEKE_APP=ci4 (kept by su -p) bin/settings.php runs the CI4 form,
+# `spark apotheke:accounts auth status`: same answers and exit codes, and it does not migrate either.
 case "${ALLOW_NO_LOGIN:-}" in
   1|true|yes) echo "apotheke: ALLOW_NO_LOGIN is set, sign-in is not required" ;;
   ''|0|false|no)

@@ -2,7 +2,6 @@ import { test, expect } from './fixtures';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ROOT } from './fixtures';
 
 /** A JPEG whose bytes include an APP1 segment and the marker GPSLatitude. */
 function markedJpeg(app: { server: { filesDir: string; at: (p: string) => string; php: (args: string[]) => void } }, name: string): string {
@@ -38,7 +37,7 @@ test.describe('camera originals', () => {
   });
 
   test('a photo over the upload limit says the original is not kept', async ({ app, page }) => {
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; require '${app.server.at(ROOT)}/src/items.php'; settings_store(['max_upload_mb' => 1]);`]);
+    app.settings({ max_upload_mb: 1 });
     const small = markedJpeg(app, 'orig-small.jpg');
     const big = path.join(app.server.filesDir, 'orig-over.jpg');
     fs.writeFileSync(big, Buffer.concat([fs.readFileSync(small), Buffer.alloc(1024 * 1024, 0x20)]));

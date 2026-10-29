@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** A real HEIC upload stays byte-identical. Imagick makes stripped JPEGs; GD keeps the placeholder. */
 final class HeicTest extends DatabaseTestCase
 {

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** auth_on_at_start(): the Docker entrypoint's read-only sign-in check (hardening, SEC-M3). */
 final class AuthAtStartTest extends DatabaseTestCase
 {

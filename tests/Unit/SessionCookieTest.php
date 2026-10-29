@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** HTTPS detection for the Secure cookie flag and the configurable session lifetime. */
 final class SessionCookieTest extends DatabaseTestCase
 {

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 use Apotheke\Core\Config\ApothekeConfig;
 use PHPUnit\Framework\TestCase;
 

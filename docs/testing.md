@@ -133,6 +133,8 @@ vendor/bin/phpunit -c ci4/phpunit.xml.dist                    # CI4 module tests
 
 * `tests/Unit/` holds the unit tests. Database tests extend `DatabaseTestCase`, which gives every test a fresh SQLite
   file or, on PostgreSQL, its own throwaway schema (`migrateFresh()` runs all migrations).
+* `tests/phpunit-bootstrap.php` does not load the legacy app. A test that calls it in-process (the legacy tests and
+  the ones that compare CI4 with it) requires `tests/legacy-bootstrap.php`; those files go with `src/` at the cutover.
 * `tests/Integration/HttpSuiteTest.php` runs `tests/integration.php` inside PHPUnit, so the HTTP suite is part of the
   PHPUnit run on both databases.
 
@@ -185,8 +187,10 @@ npm run test:e2e:report                             # open the HTML report
 * One server per worker: `php -S` on a free port (or the Docker image), with `TZ=Europe/Athens` and the clock frozen
   via `APOTHEKE_CLOCK` (`2026-06-15 09:00:00` UTC), so dates and charts are deterministic.
 * Before **every** test the data is reset and re-seeded by `tests/visual/seed.php` (`demo`: 8 items with generated
-  photos, or `empty`), so tests never depend on each other.
-* `app.sql()` runs SQL against the test database (to assert or to prepare state), `app.go()` navigates and waits.
+  photos, or `empty`), so tests never depend on each other. With `E2E_APP=ci4`, `tests/visual/ci4-fixtures.php` does
+  the same through the CI4 code (same rows and image bytes), and no fixture loads `src/`.
+* `app.sql()` runs SQL against the test database (to assert or to prepare state), `app.exec()`, `app.migrate()`,
+  `app.defaultCategory()` and `app.settings()` prepare state through the app, `app.go()` navigates and waits.
 * Every test fails on console errors or uncaught page errors (`errors` fixture). Helpers check layout:
   `app.noOverflow()` (no horizontal scrolling) and `app.tapTargets()` (every visible control ≥ 44 px).
 

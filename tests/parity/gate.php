@@ -23,7 +23,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/recorder.php';
 require_once dirname(__DIR__) . '/lib.php';
-require_once dirname(__DIR__, 2) . '/src/items.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';   // the legacy app (natkey(), its items) for the comparison
 
 const PARITY_GATE_PW = 'long-enough';
 

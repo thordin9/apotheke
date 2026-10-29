@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** User accounts, roles, the route → role map and the migration of the old single password. */
 final class UsersTest extends DatabaseTestCase
 {

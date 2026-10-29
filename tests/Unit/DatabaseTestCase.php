@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 use PHPUnit\Framework\TestCase;
 
 /** Gives every test a brand-new, empty database of the configured driver (SQLite file or PostgreSQL schema). */

@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 use PHPUnit\Framework\TestCase;
 
 /** Notes Markdown subset: formatting works, nothing from the input becomes live HTML. */

@@ -19,8 +19,9 @@ use RuntimeException;
  * add|password|role|approve|rename|delete|signout, roles [reset], auth on|off
  * and password [PASSWORD|--off]. Output, prompts and exit codes match: 0 on
  * success, 1 with the message on stderr for a refusal, 2 for an unknown
- * command. `auth status` stays in bin/settings.php: it must run without
- * migrating, which booting the CI4 database does.
+ * command. `auth status` is AuthStatus (AccountsCommand runs it before this
+ * class is built): it must run without migrating, which booting the CI4
+ * database does.
  *
  * A password is read from argv (as legacy) or from stdin after a prompt; on a
  * terminal the typed characters are not shown. A password never reaches the
