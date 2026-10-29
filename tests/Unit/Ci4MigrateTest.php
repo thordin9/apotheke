@@ -162,6 +162,38 @@ final class Ci4MigrateTest extends TestCase
         }
     }
 
+    /**
+     * Hardening (4a): a too short or blank APP_PASSWORD stops the first
+     * migration that would seed it (0013), as legacy: the same output, exit 1,
+     * the same migrations applied and no password stored. A long one migrates.
+     */
+    public function testShortAppPasswordStopsMigrateAsLegacy(): void
+    {
+        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+        foreach (['shortpw' => 1, '        ' => 1, 'long-enough' => 0] as $password => $code) {
+            $label = 'APP_PASSWORD of ' . strlen($password) . ' characters';
+            $left = tmpdir('mig-pw-a');
+            $right = tmpdir('mig-pw-b');
+            try {
+                $legacy = $this->migrateStatus($left, false, [], ['APP_PASSWORD' => $password]);
+                $ci4 = $this->migrateStatus($right, true, [], ['APP_PASSWORD' => $password]);
+                $this->assertSame($code, $legacy['code'], $label . ': ' . $legacy['err']);
+                $this->assertSame([$legacy['out'], $legacy['err'], $legacy['code']], [str_replace($right, $left, $ci4['out']), $ci4['err'], $ci4['code']], $label);
+                $this->assertStringNotContainsString($password === 'long-enough' ? $password : 'shortpw', $ci4['out'] . $ci4['err'], $label);
+                if ($code === 1) {
+                    $this->assertSame("APP_PASSWORD is too short: use at least 8 characters (not only spaces), or leave it empty.\n", $ci4['err'], $label);
+                    $this->assertSame($this->dumpSqlite($left), $this->dumpSqlite($right), $label);
+                    $this->assertNotContains('0013', array_column($this->dumpSqlite($right)['data']['schema_migrations'] ?? [], 'version'), $label);
+                }
+            } finally {
+                rrmdir($left);
+                rrmdir($right);
+            }
+        }
+    }
+
     private function upgradeDriver(string $driver): void
     {
         $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
@@ -422,15 +454,21 @@ final class Ci4MigrateTest extends TestCase
         return $decoded;
     }
 
-    /** @return array{out:string,err:string,code:int} */
-    private function migrateStatus(string $dir, bool $ci4): array
+    /**
+     * bin/migrate.php --status (or with $args, e.g. [] to migrate) on SQLite.
+     *
+     * @param list<string> $args
+     * @param array<string,string> $extraEnv
+     * @return array{out:string,err:string,code:int}
+     */
+    private function migrateStatus(string $dir, bool $ci4, array $args = ['--status'], array $extraEnv = []): array
     {
-        $env = $this->sqliteEnv($dir, false);
+        $env = array_merge($this->sqliteEnv($dir, false), $extraEnv);
         if ($ci4) {
             $env['APOTHEKE_APP'] = 'ci4';
         }
         $proc = proc_open(
-            [PHP_BINARY, ROOT . '/bin/migrate.php', '--status'],
+            [PHP_BINARY, ROOT . '/bin/migrate.php', ...$args],
             [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes,
             ROOT,

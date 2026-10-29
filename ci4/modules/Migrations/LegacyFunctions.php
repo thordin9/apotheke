@@ -14,6 +14,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/Core/Exceptions/UserError.php';
 require_once dirname(__DIR__) . '/Core/Libraries/Text.php';
 require_once dirname(__DIR__) . '/Settings/SettingsSchema.php';
+require_once dirname(__DIR__) . '/Auth/Accounts.php';
 
 if (!class_exists('UserError', false)) {
     class UserError extends RuntimeException
@@ -206,6 +207,13 @@ if (!function_exists('settings_seed')) {
     function settings_seed(PDO $pdo): void
     {
         $have = $pdo->query('SELECT name FROM settings')->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('password_hash', $have, true)) {
+            // the hash is seeded from APP_PASSWORD: refuse a short one, as legacy app_password_require() (hardening, 4a)
+            $problem = Apotheke\Auth\Accounts::appPasswordProblem((string)(cfg()['app_password'] ?? ''));
+            if ($problem !== null) {
+                throw new RuntimeException($problem);
+            }
+        }
         $ins = $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?,?,?)');
         foreach (settings_schema() as $k => $_) {
             if (in_array($k, $have, true)) {
