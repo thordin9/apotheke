@@ -22,6 +22,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 | [AGENTS.md](../AGENTS.md) | Instructions for AI agents: stack constraints, layout, tests, commits |
 | [Getting started](getting-started.md) | Docker Compose (including the `postgres` profile), `docker run`, running without Docker, local development, command-line tools |
 | [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules, stored-secret encryption |
+| [JSON API](api.md) | `/api/v1`: the session endpoints, CSRF and Origin rules, problem+json errors, CORS, the OpenAPI document |
 | [Control Panel](control-panel.md) | Settings at `/settings`: what lives in the database vs. `config.php`, accent contrast, logo upload, users & roles, import/export, `bin/settings.php` |
 | [AI autofill](autofill.md) | Optional suggestions from a photo by the separate autofill service: setup, model and image size, the byte cap, the test buttons, the write-only token, what is sent, failures, upgrading from 2.3, the test stub |
 | [User guide](user-guide.md) | Every feature: items, photos, search and filters, locations and categories, low-stock alerts, bulk actions, lending, duplicating and merging, stocktake, QR labels, undo, history, backup, CSV import, users, home screen, iPhone tips |
