@@ -4,6 +4,10 @@ The Control Panel (**☰ → Settings**, `/settings`) is where everything that i
 configured: name, colours, logo, formats, list behaviour, defaults for new items, limits, photo sizes, users and sign-in.
 Values are stored in the database (`settings` table), take effect on the next request and travel with backups.
 
+On the CodeIgniter 4 app (`APOTHEKE_APP=ci4`) only **Users & sign-in** and the AI autofill token and test buttons are
+served so far; the other Control Panel pages come before 3.0.0. Both apps read the same settings, so change the others
+with the legacy app or `bin/settings.php` ([Upgrading to 3.0](upgrade-3.0.md#before-300-not-yet-on-the-ci4-app)).
+
 ![Control Panel](screenshots/settings-light.png)
 
 ## Where a setting comes from
