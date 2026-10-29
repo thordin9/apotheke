@@ -191,5 +191,6 @@ $routes->get('api/v1/session', $apiSession . '::show', $public);
 $routes->post('api/v1/session', $apiSession . '::create', $public);
 $routes->delete('api/v1/session', $apiSession . '::delete', $public);
 $routes->get('api/v1/me', $apiSession . '::account', ['permission' => 'self']);
+$routes->get('api/v1/openapi.json', '\\Apotheke\\Core\\Controllers\\ApiController::openapi', $public);
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

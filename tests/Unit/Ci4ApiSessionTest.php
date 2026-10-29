@@ -5,6 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/ApiContract.php';
 
 /**
  * API P1: GET/POST/DELETE /api/v1/session and GET /api/v1/me (API plan §2.1,
@@ -46,6 +47,7 @@ final class Ci4ApiSessionTest extends TestCase
         $c = $this->client();
         $s = $c->rest('GET', '/api/v1/session');
         $this->assertSame(200, $s['status']);
+        ApiContract::assertMatches('GET', '/api/v1/session', $s);
         $this->assertSame('application/json; charset=utf-8', $s['headers']['content-type']);
         $this->assertFalse($s['json']['signed_in']);
         $this->assertTrue($s['json']['sign_in_enabled']);
@@ -55,6 +57,7 @@ final class Ci4ApiSessionTest extends TestCase
         $this->assertArrayHasKey('apothekesid', $c->cookies, 'the token lives in a session');
         $me = $c->rest('GET', '/api/v1/me');
         $this->assertSame(401, $me['status']);
+        ApiContract::assertMatches('GET', '/api/v1/me', $me);
         $this->assertSame('application/problem+json', $me['headers']['content-type']);
         $this->assertSame('auth.required', $me['json']['code']);
         $this->assertArrayNotHasKey('location', $me['headers'], 'no redirect to /login');
@@ -67,6 +70,7 @@ final class Ci4ApiSessionTest extends TestCase
         $before = $c->cookies['apothekesid'];
         $in = $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD], ['X-CSRF-Token: ' . $token]);
         $this->assertSame(200, $in['status'], $in['body']);
+        ApiContract::assertMatches('POST', '/api/v1/session', $in);
         $this->assertTrue($in['json']['signed_in']);
         $this->assertSame('admin', $in['json']['user']['username']);
         $this->assertSame('admin', $in['json']['user']['role']);
@@ -75,13 +79,16 @@ final class Ci4ApiSessionTest extends TestCase
         $this->assertNotSame($token, $in['json']['csrf_token'], 'and a new token');
         $me = $c->rest('GET', '/api/v1/me');
         $this->assertSame(200, $me['status']);
+        ApiContract::assertMatches('GET', '/api/v1/me', $me);
         $this->assertSame('admin', $me['json']['username']);
         $this->assertIsInt($me['json']['id']);
         $this->assertContains('view', $me['json']['permissions']);
         $stale = $c->rest('DELETE', '/api/v1/session', null, ['X-CSRF-Token: ' . $token]);
         $this->assertSame([403, 'csrf.invalid'], [$stale['status'], $stale['json']['code']], 'the old token is gone');
+        ApiContract::assertMatches('DELETE', '/api/v1/session', $stale);
         $out = $c->rest('DELETE', '/api/v1/session', null, ['X-CSRF-Token: ' . $in['json']['csrf_token']]);
         $this->assertSame(204, $out['status']);
+        ApiContract::assertMatches('DELETE', '/api/v1/session', $out);
         $this->assertSame('', $out['body']);
         $this->assertSame(401, $c->rest('GET', '/api/v1/me')['status']);
     }
@@ -97,8 +104,11 @@ final class Ci4ApiSessionTest extends TestCase
         $missing = $c->rest('POST', '/api/v1/session', ['username' => 'admin'], $token);
         $this->assertSame([422, 'validation.failed'], [$missing['status'], $missing['json']['code']]);
         $this->assertArrayHasKey('password', $missing['json']['errors']);
+        ApiContract::assertMatches('POST', '/api/v1/session', $wrong);
+        ApiContract::assertMatches('POST', '/api/v1/session', $missing);
         $broken = $c->req('POST', '/api/v1/session', [], [], array_merge($token, ['Origin: ' . $c->base, 'Content-Type: application/json']), '{"username":');
         $this->assertSame([400, 'bad_request'], [$broken['status'], $broken['json']['code'] ?? null]);
+        ApiContract::assertMatches('POST', '/api/v1/session', $broken);
         $noToken = $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD]);
         $this->assertSame([403, 'csrf.invalid'], [$noToken['status'], $noToken['json']['code']], 'sign-in needs the token too');
     }
@@ -113,6 +123,7 @@ final class Ci4ApiSessionTest extends TestCase
         }
         $this->assertSame([429, 'rate_limited'], [$last['status'], $last['json']['code']]);
         $this->assertSame('900', $last['headers']['retry-after'] ?? null);
+        ApiContract::assertMatches('POST', '/api/v1/session', $last);
     }
 
     public function testTheLoginPageStillWorks(): void

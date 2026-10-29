@@ -5,6 +5,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/ApiContract.php';
 
 /**
  * API P1 over HTTP: /api/v1 routing, problem+json errors, the API security
@@ -132,8 +133,19 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $me['headers']['content-security-policy']);
         $in = $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => 'x'], ['X-CSRF-Token: ' . $s['json']['csrf_token']]);
         $this->assertSame([409, 'auth.sign_in_off'], [$in['status'], $in['json']['code']]);
+        ApiContract::assertMatches('GET', '/api/v1/session', $s);
+        ApiContract::assertMatches('GET', '/api/v1/me', $me);
+        ApiContract::assertMatches('POST', '/api/v1/session', $in);
         $ok = $c->rest('POST', '/api/v1/nothing-here', [], ['X-CSRF-Token: ' . $s['json']['csrf_token']]);
         $this->assertSame([404, 'not_found'], [$ok['status'], $ok['json']['code']], 'with the token the request gets through');
+    }
+
+    public function testTheOpenApiDocumentIsServed(): void
+    {
+        $r = $this->client()->get('/api/v1/openapi.json');
+        $this->assertSame(200, $r['status']);
+        ApiContract::assertMatches('GET', '/api/v1/openapi.json', $r);
+        $this->assertSame(json_decode((string)file_get_contents(ApiContract::SPEC), true), $r['json']);
     }
 
     public function testHstsWhenPublicUrlIsHttps(): void

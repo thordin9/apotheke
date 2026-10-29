@@ -308,6 +308,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertSame([
             'DELETE /api/v1/session' => Permissions::PUBLIC,
             'GET /api/v1/me' => Permissions::SELF,
+            'GET /api/v1/openapi.json' => Permissions::PUBLIC,
             'GET /api/v1/session' => Permissions::PUBLIC,
             'POST /api/v1/session' => Permissions::PUBLIC,
         ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
