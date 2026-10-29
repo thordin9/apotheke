@@ -19,6 +19,8 @@ parameters:
     excludePaths:
         # The shim is the untyped legacy function bodies. Golden tests cover it.
         - modules/Migrations/LegacyFunctions.php
+        # The config loader, moved unchanged from the legacy app at the cutover. ConfigTest and ConfigFunctionsTest cover it.
+        - modules/Core/Config/config-functions.php
     ignoreErrors:
         # The PHP version guard is for an older PHP than composer.json allows, which PHPStan assumes.
         -

@@ -309,7 +309,7 @@ function cfg(): array
 {
     static $cfg = null;
     if ($cfg === null) {
-        $root = dirname(__DIR__);
+        $root = dirname(__DIR__, 3);   // the install root (modules/Core/Config/ → ./)
         $file = getenv('APOTHEKE_CONFIG') ?: $root . '/config.php';
         $cfg = config_load($root, $file, getenv());
     }

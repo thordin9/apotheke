@@ -71,7 +71,7 @@ final class SystemInfo
         if ($str($db['dsn'] ?? '') === '') {
             return $str($db['host'] ?? '') . ':' . $str($db['port'] ?? '') . ' / ' . $str($db['name'] ?? '');
         }
-        require_once dirname(__DIR__, 2) . '/src/config.php';
+        require_once dirname(__DIR__) . '/Core/Config/config-functions.php';
         $fields = config_dsn_public_fields($str($db['dsn']));
         if ($fields === null) {
             return '<unparsed dsn>';

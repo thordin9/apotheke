@@ -251,7 +251,7 @@ final class PdoMigrationRunner
 
     private static function loadConfig(): void
     {
-        require_once self::repoRoot() . '/src/config.php';
+        require_once dirname(__DIR__) . '/Core/Config/config-functions.php';
     }
 }
 
