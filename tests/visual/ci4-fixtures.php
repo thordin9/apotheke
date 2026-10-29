@@ -46,7 +46,9 @@ Boot::bootConsole($paths);
 
 switch ($op) {
     case 'sql':
-        echo json_encode(Services::apothekeDb()->query($argv[2])->getResultArray());
+        $result = Services::apothekeDb()->query($argv[2]);
+        if ($result === false) { fwrite(STDERR, "query failed\n"); exit(1); }
+        echo json_encode($result === true ? [] : $result->getResultArray());   // a write answers [] as PDO's fetchAll() did
         exit(0);
     case 'exec':
         Services::apothekeDb()->query($argv[2]);
