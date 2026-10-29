@@ -258,7 +258,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Sync v2.6.23 (#139, merged). Step 16 part 2 (#140, merged). Step 16 part 3 (#150, merged; step 16 done): compiled
   routes (`CompiledRouteCollection`, `app/Config/RoutesCompiled.php`, `spark apotheke:routes`), the cache handler, the
   parity-gate budget lines in `ci.yml`, and N-546 in `scripts/upgrade-rollback.sh`.
-  Step 17, the docs rewrite ([#154](https://github.com/thordin9/apotheke/pull/154), open): `docs/upgrade-3.0.md` (new), the CI4
+  Step 17, the docs rewrite ([#154](https://github.com/thordin9/apotheke/pull/154), merged at 7ee637b; QA follow-up
+  [#156](https://github.com/thordin9/apotheke/pull/156), open): `docs/upgrade-3.0.md` (new), the CI4
   sections of the architecture, getting-started, configuration, database, deployment, control-panel and CI pages,
   README and the docs index. Docs only; stays out of code.
 - Coder2: step 7, sign-in and account pages (#100, merged), users and roles pages (#104, merged), CLI account
