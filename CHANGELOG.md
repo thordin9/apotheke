@@ -8,28 +8,22 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-29
+
 **3.0.0 is the CodeIgniter 4 app** (PHP 8.4, Docker only, no schema change, one re-login). Back up first and read
 [Upgrading to 3.0](https://github.com/thordin9/apotheke/blob/main/docs/upgrade-3.0.md) for the switch and both rollbacks. For 90 days the 2.x line gets security
 fixes only, as 2.6.x releases from the branch `old` (the former `main`, last release v2.6.26). Notes below that name `APOTHEKE_APP=ci4`, `legacy` or a sync of
 `main` into `feature/ci4` describe the port before the cutover, on 2.6 images or the former branches.
 
-### Upgrade notes
+### Breaking changes
 
-- **ci4 (security):** with `APOTHEKE_APP=ci4`, `php bin/settings.php get autofill_token` and `get password_hash` no longer print the stored secret; they exit 1 with `“KEY” is write-only.` Scripts that read the token must stop doing so. To rotate the AI autofill token, set the new `AUTOFILL_TOKEN` on the autofill service, then enter it under **Control Panel → AI autofill → Access token → Replace the token** and press **Save token** (**Clear token** removes it). `bin/settings.php set autofill_token` is refused on legacy and CI4 alike, so the Control Panel is the supported path. Passwords are per account: `php bin/settings.php user password NAME` or **Settings → Users & sign-in**. ([#64](https://github.com/thordin9/apotheke/pull/64))
-
-- **docker:** the default image runs PHP 8.4 (8.4.27, was 8.3.36), and PHP 8.4's PDO changes how the legacy app combines `DB_DSN` with `DB_USER` and `DB_PASSWORD` on PostgreSQL. With credentials in both, legacy now connects as the DSN's role, not as `DB_USER`. With `user=` or `password=` text elsewhere in `DB_DSN` (for example in `options` or `application_name`) and no DSN credentials, it no longer connects. 6 of the 7 precedence cases differ from PHP 8.3. Keep the credentials in one place: `DB_USER` and `DB_PASSWORD`, with no `user=` or `password=` in `DB_DSN`. See `db.password` in [Every setting](docs/configuration.md#every-setting). ([#132](https://github.com/thordin9/apotheke/pull/132))
-- **docker:** the container refuses to start (exit code 78) when `images`, `thumbs`, `originals`, `originals/map` or `sessions` in the data directory is a symbolic link (L-430). Put camera originals elsewhere with `ORIGINALS_DIR`, or mount the real directory at that path instead of linking it. ([#132](https://github.com/thordin9/apotheke/pull/132))
-
-### Intentional deviations (settings CLI, `APOTHEKE_APP=ci4`, [#64](https://github.com/thordin9/apotheke/pull/64))
-
-1. **Secrets are write-only.** `get autofill_token` and `get password_hash` print `“KEY” is write-only.` on stderr and exit 1; legacy printed the stored value.
-2. **`get` of an unknown key** prints `Unknown setting “KEY”.` and exits 1; legacy stopped with an uncaught exception (PHP fatal, exit 255).
-3. **`import` of a missing file** prints the same message and exits 1 like legacy, without PHP's `file_get_contents(…)` warning line.
-
-Every other form, output and exit code is byte-identical to legacy (`tests/Unit/Ci4SettingsCliTest.php`).
+- allow CodeIgniter 4 (AGENTS.md, README)
+- serve the CI4 app from the repository root ([#161](https://github.com/thordin9/apotheke/pull/161))
 
 ### Added
 
+- **autofill:** add a local storage interface ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **autofill:** port the suggest client ([#69](https://github.com/thordin9/apotheke/pull/69))
 - **feat!:** Apotheke 3.0 runs on CodeIgniter 4 from the repository root: `app/`, `modules/`, `spark`, one `composer.json` and one `public/`. The legacy app is removed, the bin tools call spark without `APOTHEKE_APP`, the Docker image serves this app only (`APOTHEKE_APP=legacy` exits 64), the legacy tests and CI legs are gone and coverage measures the CI4 suites (artifact `coverage-ci4-sqlite`). Known differences from 2.x are listed in [Upgrading to 3.0](docs/upgrade-3.0.md#known-differences-from-2x). BREAKING CHANGE: the legacy app is removed; PHP 8.4 and the Docker image are the supported install, and everyone signs in again once after the upgrade. ([#161](https://github.com/thordin9/apotheke/pull/161))
 - **ci4:** CodeIgniter 4.7.5 skeleton and Core. `/healthz` and `/health` match the legacy responses, and camera originals stay unserved. Photo storage inside the web root stops boot with the same message as the legacy app. A bad DSN stops boot. The page says the database settings could not be used, with no DSN parts. The log line lists only the driver, host, port and database name. The dev server router is `ci4/public/router.php`. ([#38](https://github.com/thordin9/apotheke/pull/38))
 - **ci4:** Migrations module. `apotheke:migrate` and `bin/migrate.php` (when `APOTHEKE_APP=ci4`) apply the 27 migrations through a PDO runner. CI4 checks `pg_namespace` before `CREATE SCHEMA`. A missing schema does not return `/healthz` 200. ([#53](https://github.com/thordin9/apotheke/pull/53))
@@ -60,6 +54,13 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 
 ### Fixed
 
+- check links in AGENTS.md, ADRs and plans ([#31](https://github.com/thordin9/apotheke/pull/31))
+- **php84:** keep QR labels working under JIT 1235 ([#34](https://github.com/thordin9/apotheke/pull/34))
+- **php84:** detect function JIT from the CRTO trigger ([#34](https://github.com/thordin9/apotheke/pull/34))
+- **autofill:** redirect token forms and redact typed tokens ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **storage:** refuse symlinks and write files atomically ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **core:** mark the SecretBox key and plain value as sensitive ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **ci:** keep the gitleaks allowlist on its historical path ([#161](https://github.com/thordin9/apotheke/pull/161))
 - **ci4:** a restore that fails leaves the files as they were: photos, thumbnails, attachments and camera originals it wrote are removed again, and photos are linked to the backup's camera originals only after the catalog rows are saved. A damaged entry in the zip, a file that cannot be written and a database error all answer "The backup could not be restored. Nothing was changed." (QA L-440). ([#133](https://github.com/thordin9/apotheke/pull/133))
 - **ci4:** a backup whose `backup.json` would not fit in PHP's memory limit is refused before it is read or decoded, on the web (422) and in `bin/restore.php` (exit 1), with "This backup is too large to restore within the memory limit. Nothing was changed." instead of a server error (QA L-441). ([#133](https://github.com/thordin9/apotheke/pull/133))
 - **ci4:** one restore runs at a time, on the web and in `bin/restore.php`: a restore started while another is running is refused at once with "Another restore is running. Try again when it has finished." (409 on the page, where the upload can be confirmed again; exit 1 on the command line), so two restores no longer work on the same files (QA L-450). The lock file works whichever user made it (a root `bin/restore.php` no longer blocks later web restores, L-455), and a lock file that is a symbolic link is refused (N-456). ([#133](https://github.com/thordin9/apotheke/pull/133))
@@ -130,8 +131,250 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **ci4:** with `APOTHEKE_APP=ci4`, a refused connection with a user or password in `DB_DSN` that differs from `DB_USER` / `DB_PASSWORD` prints only legacy's one-line message from `bin/backup.php`, `bin/restore.php` and `bin/migrate.php`; the differing-credentials notice is logged once connected (QA N-900). ([#160](https://github.com/thordin9/apotheke/pull/160))
 - **ci4:** `spark apotheke:seed` started as root names `php bin/seed.php` in its message, like the other data commands. ([#160](https://github.com/thordin9/apotheke/pull/160))
 
+### Performance
+
+- **ci4:** check the schema on the request's own connection ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **ci4:** read the boot schema checks from the pg catalog ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **ci4:** skip user-agent tables and module discovery at boot ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **ci4:** stop CI4 configs reading dotted env overrides ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **ci4:** load the routes from a compiled file ([#150](https://github.com/thordin9/apotheke/pull/150))
+- **ci4:** dummy cache handler and one synchronous pragma ([#150](https://github.com/thordin9/apotheke/pull/150))
+- **ci4:** read the user once for the layout menu's permission checks ([#150](https://github.com/thordin9/apotheke/pull/150))
+
+### Changed
+
+- **ci4:** allow shared services in filters ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **ci4:** allow filter services only in before() and after() ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **ci4:** pin main's admin rule for the anonymous guest ([#82](https://github.com/thordin9/apotheke/pull/82))
+- **ci4:** APP_KEY_FILE roots reuse the config's originals path ([#93](https://github.com/thordin9/apotheke/pull/93))
+- **ci4:** undo unfinished uploads through a request cleanup list ([#95](https://github.com/thordin9/apotheke/pull/95))
+- **ci4:** log a failing request cleanup step (N-30, N-31) ([#97](https://github.com/thordin9/apotheke/pull/97))
+- **ci4:** settings saves through Core Writes (M-25) ([#97](https://github.com/thordin9/apotheke/pull/97))
+- **ci4:** keep driver row detail out of the logs (N-33, N-36) ([#99](https://github.com/thordin9/apotheke/pull/99))
+- **ci4:** skip the seal in a transaction, log failures (N-34, N-35) ([#99](https://github.com/thordin9/apotheke/pull/99))
+- **ci4:** probe the search engine before the rebuild (M-50) ([#99](https://github.com/thordin9/apotheke/pull/99))
+- **ci4:** store a saved photo before the save's transaction (M-91) ([#103](https://github.com/thordin9/apotheke/pull/103))
+- **ci4:** pace every refused turn-on check (L-330) ([#124](https://github.com/thordin9/apotheke/pull/124))
+- **ci4:** drop the export prime and the 410 re-read (L-370) ([#131](https://github.com/thordin9/apotheke/pull/131))
+- **ci4:** open the SQLite file without CI4's stack-trace log ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **ci4:** tidy parity docblock and HANDOFF next step ([#139](https://github.com/thordin9/apotheke/pull/139))
+- **ci4:** route every-method pages without Services (N-380) ([#147](https://github.com/thordin9/apotheke/pull/147))
+- move the CI4 tree to the repository root ([#161](https://github.com/thordin9/apotheke/pull/161))
+- point paths at the root layout ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **bin:** run the data tools through spark ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **core:** move the config loader into the Core module ([#161](https://github.com/thordin9/apotheke/pull/161))
+- remove src/ and the files that still used it ([#161](https://github.com/thordin9/apotheke/pull/161))
+
 ### Maintenance
 
+- docs: add Feature 12 CI4 plan verbatim
+- docs: apply reviewer fixes to the CI4 plan
+- **qa:** docs: add CI4 PR 1 QA report
+- docs: qualify legacy docs and CI4 constraints
+- docs: fix CI4 plan status and doc paths
+- **qa:** docs: add CI4 PR 1 recheck report
+- docs: use CI4-leg wording and one offline rule ([#31](https://github.com/thordin9/apotheke/pull/31))
+- **plan:** docs: note early legacy 8.4 runs in PR 2 ([#31](https://github.com/thordin9/apotheke/pull/31))
+- **qa:** docs: add CI4 PR 2 QA report ([#31](https://github.com/thordin9/apotheke/pull/31))
+- ci: check links under all of docs ([#34](https://github.com/thordin9/apotheke/pull/34))
+- **parity:** test: record install, healthz and settings ([#34](https://github.com/thordin9/apotheke/pull/34))
+- docs: describe PHP 8.4 suites, parity and N-4 ([#34](https://github.com/thordin9/apotheke/pull/34))
+- **changelog:** docs: drop shipped entries from Unreleased ([#35](https://github.com/thordin9/apotheke/pull/35))
+- **qa:** docs: add PR 35 sync QA report ([#35](https://github.com/thordin9/apotheke/pull/35))
+- docs: say the PHP 8.4 JIT guard covers the worker ([#34](https://github.com/thordin9/apotheke/pull/34))
+- **qa:** docs: add CI4 PR 3 QA report ([#34](https://github.com/thordin9/apotheke/pull/34))
+- docs: describe the CI4 skeleton and CI legs ([#38](https://github.com/thordin9/apotheke/pull/38))
+- ci: cache both lockfiles and document the audit gate ([#38](https://github.com/thordin9/apotheke/pull/38))
+- ci: run the ci4 pgsql cells on PostgreSQL ([#38](https://github.com/thordin9/apotheke/pull/38))
+- docs: correct the CI table and the DSN note ([#38](https://github.com/thordin9/apotheke/pull/38))
+- test: separate the originals guard from a plain 404 ([#38](https://github.com/thordin9/apotheke/pull/38))
+- ci: report SQLSTATE from the pgsql proof script ([#38](https://github.com/thordin9/apotheke/pull/38))
+- test: production boot does not create the probe table ([#38](https://github.com/thordin9/apotheke/pull/38))
+- test: use the postgres service for the probe check ([#38](https://github.com/thordin9/apotheke/pull/38))
+- **qa:** docs: add QA report for CI4 PR 4 ([#38](https://github.com/thordin9/apotheke/pull/38))
+- **qa:** docs: add QA report for the main sync ([#43](https://github.com/thordin9/apotheke/pull/43))
+- **e2e:** ci: retry apt and PPA steps in e2e-container-setup ([#52](https://github.com/thordin9/apotheke/pull/52))
+- **qa:** docs: add the PR #51 ci4 sync QA report ([#51](https://github.com/thordin9/apotheke/pull/51))
+- **qa:** docs: add the PR #53 ci4 migrations QA report ([#53](https://github.com/thordin9/apotheke/pull/53))
+- **docker:** build: keep one zend.exception_ignore_args line ([#61](https://github.com/thordin9/apotheke/pull/61))
+- **docker:** test: read the PHP pin from the ARG default ([#61](https://github.com/thordin9/apotheke/pull/61))
+- **qa:** docs: add the #61 ci4 sync and v2.6.1 QA report ([#61](https://github.com/thordin9/apotheke/pull/61))
+- **docker:** build: drop the trailing blank line in php.ini ([#65](https://github.com/thordin9/apotheke/pull/65))
+- **changelog:** docs: link the #61 and #65 Unreleased bullets ([#65](https://github.com/thordin9/apotheke/pull/65))
+- ci: check legacy DSN credential precedence in the Docker job ([#66](https://github.com/thordin9/apotheke/pull/66))
+- **changelog:** docs: note the Docker legacy DSN precedence check ([#66](https://github.com/thordin9/apotheke/pull/66))
+- ci: check DSN-mention cases e and e2 in the legacy precedence step ([#66](https://github.com/thordin9/apotheke/pull/66))
+- **qa:** docs: add the #65 ci4 sync nits QA report ([#65](https://github.com/thordin9/apotheke/pull/65))
+- **changelog:** docs: link the #66 entries ([#66](https://github.com/thordin9/apotheke/pull/66))
+- **changelog:** docs: link the #64 entries ([#64](https://github.com/thordin9/apotheke/pull/64))
+- **qa:** docs: add the #66 ci4 migrations follow-ups QA report ([#66](https://github.com/thordin9/apotheke/pull/66))
+- **qa:** docs: add the #64 ci4 settings core QA report ([#64](https://github.com/thordin9/apotheke/pull/64))
+- **changelog:** docs: link the older ci4 Unreleased bullets ([#67](https://github.com/thordin9/apotheke/pull/67))
+- ci: add case e3 to the legacy DSN precedence check ([#68](https://github.com/thordin9/apotheke/pull/68))
+- test: share skipOutsideCi as a trait and pin its CI branch ([#68](https://github.com/thordin9/apotheke/pull/68))
+- **changelog:** docs: link the settings CLI deviations to #64 ([#68](https://github.com/thordin9/apotheke/pull/68))
+- **changelog:** docs: note the #68 test follow-ups ([#68](https://github.com/thordin9/apotheke/pull/68))
+- **qa:** docs: add QA review for PR #67 changelog links ([#67](https://github.com/thordin9/apotheke/pull/67))
+- **qa:** docs: add QA2 review for #68 review follow-ups ([#68](https://github.com/thordin9/apotheke/pull/68))
+- **autofill:** test: pin caps, 413 retry, and originals ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **changelog:** docs: note the ci4 auth hardening ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **qa:** docs: add QA2 review for #74 ci4 auth hardening ([#74](https://github.com/thordin9/apotheke/pull/74))
+- **changelog:** docs: link #68 on the e3 credentials bullet ([#76](https://github.com/thordin9/apotheke/pull/76))
+- **autofill:** test: send the session CSRF token ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **autofill:** docs: describe the CI4 client contract ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **changelog:** docs: note the ci4 request and auth hardening ([#76](https://github.com/thordin9/apotheke/pull/76))
+- **autofill:** docs: name the form fields and the single 413 retry ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **qa:** docs: add the #69 CI4 autofill module QA report ([#69](https://github.com/thordin9/apotheke/pull/69))
+- **qa:** docs: add QA2 review for #76 ci4 request and auth hardening ([#76](https://github.com/thordin9/apotheke/pull/76))
+- **changelog:** docs: link the #82 CI4 session and base URL fixes ([#82](https://github.com/thordin9/apotheke/pull/82))
+- **lint:** ci: skip elided (…#anchor) placeholders in the link check ([#83](https://github.com/thordin9/apotheke/pull/83))
+- **changelog:** docs: record the main v2.6.8 sync ([#83](https://github.com/thordin9/apotheke/pull/83))
+- **changelog:** docs: cover main v2.6.9 in the ci4 sync note ([#83](https://github.com/thordin9/apotheke/pull/83))
+- **qa:** docs: add PR #83 ci4 sync v2.6.9 QA ([#83](https://github.com/thordin9/apotheke/pull/83))
+- **qa:** docs: add the #82 CI4 session and base URL QA report ([#82](https://github.com/thordin9/apotheke/pull/82))
+- test: use APP_PASSWORD fixtures of at least 8 characters ([#85](https://github.com/thordin9/apotheke/pull/85))
+- **lint:** ci: skip only (…) and (…#anchor) placeholders in link check ([#85](https://github.com/thordin9/apotheke/pull/85))
+- **autofill:** docs: say CI4 suggest has no photo size limits yet ([#85](https://github.com/thordin9/apotheke/pull/85))
+- **changelog:** docs: record the main v2.6.10 sync ([#85](https://github.com/thordin9/apotheke/pull/85))
+- **qa:** docs: add QA review for #89 CI4 secret encryption ([#89](https://github.com/thordin9/apotheke/pull/89))
+- **qa:** docs: add QA review for #90 CI4 session limits ([#90](https://github.com/thordin9/apotheke/pull/90))
+- **qa:** docs: add QA review for #91 CI4 permission filter ([#91](https://github.com/thordin9/apotheke/pull/91))
+- test: link check test without the removed superpowers docs ([#92](https://github.com/thordin9/apotheke/pull/92))
+- **qa:** docs: add QA review for #93 CI4 review follow-ups ([#93](https://github.com/thordin9/apotheke/pull/93))
+- **qa:** docs: add QA review for #94 Layout module ([#94](https://github.com/thordin9/apotheke/pull/94))
+- docs: hand-off lanes, taxonomy changelog and module graph ([#96](https://github.com/thordin9/apotheke/pull/96))
+- ci: install the HEIC decoder on ci4 legs and prove the test runs ([#95](https://github.com/thordin9/apotheke/pull/95))
+- docs: slash variants served by CI4 routes and checked writes (N-26) ([#96](https://github.com/thordin9/apotheke/pull/96))
+- **qa:** docs: PR 95 CI4 media storage QA report ([#95](https://github.com/thordin9/apotheke/pull/95))
+- **qa:** docs: add QA review for #96 taxonomy ([#96](https://github.com/thordin9/apotheke/pull/96))
+- **qa:** docs: PR 97 CI4 media and settings follow-ups QA report ([#97](https://github.com/thordin9/apotheke/pull/97))
+- **qa:** docs: add QA review for #98 Notes ([#98](https://github.com/thordin9/apotheke/pull/98))
+- **qa:** docs: PR 99 CI4 catalog QA report ([#99](https://github.com/thordin9/apotheke/pull/99))
+- **e2e:** test: run the Playwright specs against CI4 with E2E_APP=ci4 ([#101](https://github.com/thordin9/apotheke/pull/101))
+- ci: run the ported Playwright specs on CI4 in the PHP 8.4 e2e cells ([#101](https://github.com/thordin9/apotheke/pull/101))
+- test: accept a CI4 module run whose only issue is skips (N-39) ([#101](https://github.com/thordin9/apotheke/pull/101))
+- docs: changelog for #101 ([#101](https://github.com/thordin9/apotheke/pull/101))
+- **qa:** docs: PR 101 CI4 e2e target and router QA report ([#101](https://github.com/thordin9/apotheke/pull/101))
+- **qa:** docs: PR 102 CI4 item pages QA report ([#102](https://github.com/thordin9/apotheke/pull/102))
+- **qa:** docs: PR 100 CI4 auth pages QA report ([#100](https://github.com/thordin9/apotheke/pull/100))
+- **qa:** docs: PR 103 CI4 item photos QA report ([#103](https://github.com/thordin9/apotheke/pull/103))
+- **qa:** docs: PR 104 CI4 users and roles QA report ([#104](https://github.com/thordin9/apotheke/pull/104))
+- docs: changelog bullet for the main sync ([#107](https://github.com/thordin9/apotheke/pull/107))
+- **qa:** docs: PR 105 CI4 CLI account forms QA report ([#105](https://github.com/thordin9/apotheke/pull/105))
+- test: skip CI4 hardening probes until the CI4 port ([#107](https://github.com/thordin9/apotheke/pull/107))
+- docs: drop the stale NUL-password CLI deviation ([#107](https://github.com/thordin9/apotheke/pull/107))
+- docs: HANDOFF lane for the CI4 sign-in limit port ([#109](https://github.com/thordin9/apotheke/pull/109))
+- **qa:** docs: PR 108 CI4 bulk and merge QA report ([#108](https://github.com/thordin9/apotheke/pull/108))
+- **qa:** docs: PR 109 CI4 rate limit QA report ([#109](https://github.com/thordin9/apotheke/pull/109))
+- docs: HANDOFF lane for the #111/#112 CI4 port ([#113](https://github.com/thordin9/apotheke/pull/113))
+- **e2e:** test: run the labels, barcode and lending specs on CI4 ([#114](https://github.com/thordin9/apotheke/pull/114))
+- **e2e:** test: run the stocktake spec on CI4 ([#115](https://github.com/thordin9/apotheke/pull/115))
+- docs: note the role edit lock in CHANGELOG and HANDOFF ([#110](https://github.com/thordin9/apotheke/pull/110))
+- **qa:** docs: PR 113 CI4 main sync and ports QA report ([#113](https://github.com/thordin9/apotheke/pull/113))
+- test: drop the #113 null-name probe, superseded by #116's ([#117](https://github.com/thordin9/apotheke/pull/117))
+- docs: HANDOFF entry for the CI4 sign-in name port ([#117](https://github.com/thordin9/apotheke/pull/117))
+- **qa:** docs: add QA review for #114 labels and lending ([#114](https://github.com/thordin9/apotheke/pull/114))
+- **qa:** docs: add QA review for #115 stocktakes ([#115](https://github.com/thordin9/apotheke/pull/115))
+- **qa:** docs: add QA review for #110 accounts hardening ([#110](https://github.com/thordin9/apotheke/pull/110))
+- docs: HANDOFF lane and CHANGELOG for CI4 autofill via Media ([#118](https://github.com/thordin9/apotheke/pull/118))
+- **qa:** docs: PR 117 CI4 sign-in name QA report ([#117](https://github.com/thordin9/apotheke/pull/117))
+- **qa:** docs: PR 118 CI4 autofill via Media QA report ([#118](https://github.com/thordin9/apotheke/pull/118))
+- **qa:** docs: PR 119 CI4 EXIF rotation QA report ([#119](https://github.com/thordin9/apotheke/pull/119))
+- **qa:** docs: move PR 119 QA report after the feature/ci4 sync ([#119](https://github.com/thordin9/apotheke/pull/119))
+- docs: note #119 merged and #120 in the handoff ([#120](https://github.com/thordin9/apotheke/pull/120))
+- **qa:** docs: PR 120 CI4 null names and EXIF tests QA report ([#120](https://github.com/thordin9/apotheke/pull/120))
+- **qa:** docs: move PR 120 QA report after the feature/ci4 sync ([#120](https://github.com/thordin9/apotheke/pull/120))
+- test: one admin change goes through, sign-out only if deleted (N-211) ([#123](https://github.com/thordin9/apotheke/pull/123))
+- test: no-CSRF parity cases send no valid token (N-232, N-243) ([#123](https://github.com/thordin9/apotheke/pull/123))
+- ci: fail on skipped tests in the allow_url_fopen off step ([#124](https://github.com/thordin9/apotheke/pull/124))
+- docs: changelog and hand-off for the step-13 follow-ups ([#123](https://github.com/thordin9/apotheke/pull/123))
+- docs: changelog and hand-off for N-63 ([#125](https://github.com/thordin9/apotheke/pull/125))
+- **qa:** docs: add the QA review of the step-13 follow-ups ([#123](https://github.com/thordin9/apotheke/pull/123))
+- **qa:** docs: add the QA review of the N-63 auth methods ([#125](https://github.com/thordin9/apotheke/pull/125))
+- docs: changelog, hand-off and plan for step 14, part 1 ([#127](https://github.com/thordin9/apotheke/pull/127))
+- **qa:** docs: add PR 124 QA report ([#124](https://github.com/thordin9/apotheke/pull/124))
+- test: settle cookie Max-Age in parity comparisons ([#128](https://github.com/thordin9/apotheke/pull/128))
+- docs: changelog and hand-off for PR 128 ([#128](https://github.com/thordin9/apotheke/pull/128))
+- **qa:** docs: add the QA review of the CSV import and export ([#127](https://github.com/thordin9/apotheke/pull/127))
+- test: export 24 MB under a 24 MB memory limit (L-370) ([#131](https://github.com/thordin9/apotheke/pull/131))
+- docs: record the CSRF-first answers on the import pages (N-371) ([#131](https://github.com/thordin9/apotheke/pull/131))
+- docs: update HANDOFF for the #127 QA follow-ups ([#131](https://github.com/thordin9/apotheke/pull/131))
+- docs: link #131 and mark #127 merged in HANDOFF ([#131](https://github.com/thordin9/apotheke/pull/131))
+- **qa:** docs: add the QA review of QA notes batch 3 ([#128](https://github.com/thordin9/apotheke/pull/128))
+- **qa:** docs: add PR 129 QA report ([#129](https://github.com/thordin9/apotheke/pull/129))
+- **qa:** docs: add the QA review of the step 14 follow-ups ([#131](https://github.com/thordin9/apotheke/pull/131))
+- **qa:** docs: move PR 129 QA report after the #131 merge ([#129](https://github.com/thordin9/apotheke/pull/129))
+- ci: run the data spec on CI4 ([#133](https://github.com/thordin9/apotheke/pull/133))
+- **qa:** docs: add the QA review of step 14 backup and restore ([#133](https://github.com/thordin9/apotheke/pull/133))
+- **qa:** docs: drop the #133 QA doc until the L-440/L-441 re-check ([#133](https://github.com/thordin9/apotheke/pull/133))
+- **qa:** docs: add PR 132 QA report ([#132](https://github.com/thordin9/apotheke/pull/132))
+- **docker:** ci: run the restore checks on the CI4 image too (N-431) ([#133](https://github.com/thordin9/apotheke/pull/133))
+- ci: run the parity gate on SQLite and PostgreSQL ([#134](https://github.com/thordin9/apotheke/pull/134))
+- ci: parity-gate p95 budget, legacy + 5 ms SQLite, + 12 ms PG ([#134](https://github.com/thordin9/apotheke/pull/134))
+- ci: parity-gate budget to legacy + 8 ms SQLite, + 20 ms PG ([#134](https://github.com/thordin9/apotheke/pull/134))
+- ci: parity-gate budget compares the median gap ([#134](https://github.com/thordin9/apotheke/pull/134))
+- ci: run auth, qa-fixes and qa-v2 Playwright specs on CI4 ([#134](https://github.com/thordin9/apotheke/pull/134))
+- docs: record streaming restore in CHANGELOG and HANDOFF ([#136](https://github.com/thordin9/apotheke/pull/136))
+- **qa:** docs: add PR 134 QA report ([#134](https://github.com/thordin9/apotheke/pull/134))
+- docs: update HANDOFF for #135, #134 and the next steps ([#136](https://github.com/thordin9/apotheke/pull/136))
+- **qa:** docs: add the PR 136 streaming restore QA review ([#136](https://github.com/thordin9/apotheke/pull/136))
+- **qa:** docs: add PR 137 QA report ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **qa:** docs: drop PR 137 QA report before merge ([#137](https://github.com/thordin9/apotheke/pull/137))
+- **qa:** docs: add the PR 142 restore dir modes QA review ([#142](https://github.com/thordin9/apotheke/pull/142))
+- **qa:** docs: shorten the L-610 note in the PR 142 review ([#146](https://github.com/thordin9/apotheke/pull/146))
+- **qa:** docs: mark L-610 fixed and list plain verdicts in the PR 142 review ([#146](https://github.com/thordin9/apotheke/pull/146))
+- **qa:** docs: add the PR 146 restore privilege drop QA review ([#146](https://github.com/thordin9/apotheke/pull/146))
+- test: move the titles() docblock onto its function (N-381) ([#147](https://github.com/thordin9/apotheke/pull/147))
+- test: run the import race on legacy too, after #130 (N-424) ([#147](https://github.com/thordin9/apotheke/pull/147))
+- docs: record QA notes batch 4 part A in HANDOFF and CHANGELOG ([#147](https://github.com/thordin9/apotheke/pull/147))
+- docs: record QA notes batch 4 part B in HANDOFF and CHANGELOG ([#149](https://github.com/thordin9/apotheke/pull/149))
+- **changelog:** docs: note restored files removed after a fatal error ([#149](https://github.com/thordin9/apotheke/pull/149))
+- **qa:** docs: add the PR 147 batch 4 routes and export QA review ([#147](https://github.com/thordin9/apotheke/pull/147))
+- **qa:** docs: add the PR 149 batch 4 restore CLI QA review ([#149](https://github.com/thordin9/apotheke/pull/149))
+- ci: allowlist a historic Control Panel test placeholder ([#153](https://github.com/thordin9/apotheke/pull/153))
+- ci: match the Control Panel allowlist entry in #151 ([#153](https://github.com/thordin9/apotheke/pull/153))
+- **upgrade:** test: undo each mutation, pass the files/ mode (N-641-N-643) ([#154](https://github.com/thordin9/apotheke/pull/154))
+- **qa:** docs: add the PR 150 step 16 part 3 QA review ([#150](https://github.com/thordin9/apotheke/pull/150))
+- **qa:** docs: add the PR 154 step 17 docs QA review ([#154](https://github.com/thordin9/apotheke/pull/154))
+- **qa:** docs: add the PR 151 CI4 Control Panel settings QA review ([#151](https://github.com/thordin9/apotheke/pull/151))
+- **upgrade:** test: check file mutations undone before the DB ones ([#156](https://github.com/thordin9/apotheke/pull/156))
+- docs: note the CI4 gaps #149 closes in the v2.6.26 sync ([#155](https://github.com/thordin9/apotheke/pull/155))
+- test: build the parity placeholder token at run time ([#157](https://github.com/thordin9/apotheke/pull/157))
+- docs: say the Control Panel is on CI4 in the upgrade guide (N-800) ([#156](https://github.com/thordin9/apotheke/pull/156))
+- docs: CI4 data tools switch to the data folder's owner (N-840) ([#156](https://github.com/thordin9/apotheke/pull/156))
+- **qa:** docs: add the PR 156 step 17 follow-up QA review ([#156](https://github.com/thordin9/apotheke/pull/156))
+- **qa:** docs: add the PR 157 CI4 L-700 follow-up QA review ([#157](https://github.com/thordin9/apotheke/pull/157))
+- test: load the legacy app only in tests that run it ([#159](https://github.com/thordin9/apotheke/pull/159))
+- **qa:** docs: add the PR 158 CI4 DB-connect error handling QA review ([#158](https://github.com/thordin9/apotheke/pull/158))
+- docs: changelog and handoff for the seed message and N-900 ([#160](https://github.com/thordin9/apotheke/pull/160))
+- **qa:** docs: add the PR 159 CI4 spark seed, auth and key commands QA review ([#159](https://github.com/thordin9/apotheke/pull/159))
+- build: one Composer manifest for the app and its dev tools ([#161](https://github.com/thordin9/apotheke/pull/161))
+- test: run the upgrade gate against a v2.6.26 worktree ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **docker:** build: ship the CI4 app only ([#161](https://github.com/thordin9/apotheke/pull/161))
+- test: drop the legacy and legacy-comparison tests ([#161](https://github.com/thordin9/apotheke/pull/161))
+- test: turn the CI4-versus-CI4 comparisons into plain CI4 tests ([#161](https://github.com/thordin9/apotheke/pull/161))
+- ci: test the one app and port coverage to the CI4 suites ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **auth:** test: pin the sensitive parameter of appPasswordProblem ([#161](https://github.com/thordin9/apotheke/pull/161))
+- docs: describe the root layout and the 3.0 cutover ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **changelog:** docs: link the cutover bullet to #161 ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **qa:** docs: add the PR 160 CI4 seed owner check and N-900 QA review ([#160](https://github.com/thordin9/apotheke/pull/160))
+- test: check the N-900 connect line on the one app ([#161](https://github.com/thordin9/apotheke/pull/161))
+- test: cover PdoMigrationRunner after the cutover (M-960) ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **media:** test: pin the served copy's flatten and CMYK step (L-962) ([#161](https://github.com/thordin9/apotheke/pull/161))
+- test: pin goldens for the item pages and list JSON (L-961) ([#161](https://github.com/thordin9/apotheke/pull/161))
+- ci: name the upgrade job 2.6.26 → CI4@8.4 → 2.6.26 ([#161](https://github.com/thordin9/apotheke/pull/161))
+- docs: describe the one CI4 app instead of src/ and ci4/ (L-963) ([#161](https://github.com/thordin9/apotheke/pull/161))
+- docs: fix stale command and phpstan-di comments (N-964) ([#161](https://github.com/thordin9/apotheke/pull/161))
+- test: pin the dev router's originals guard (N-965) ([#161](https://github.com/thordin9/apotheke/pull/161))
+- **qa:** docs: add the PR 161 CI4 step 18 cutover QA review ([#161](https://github.com/thordin9/apotheke/pull/161))
+- ci: run pushes on main only after the branch switch ([#162](https://github.com/thordin9/apotheke/pull/162))
+- docs: describe main as the CI4 branch after the switch ([#162](https://github.com/thordin9/apotheke/pull/162))
+- docs: fix stale CLI, autofill and parity notes ([#162](https://github.com/thordin9/apotheke/pull/162))
+- test: pin the restore wrapper's data-dir owner check ([#162](https://github.com/thordin9/apotheke/pull/162))
+- test: add the item edit form to the page goldens ([#162](https://github.com/thordin9/apotheke/pull/162))
+- docs: link the branch-switch PR in HANDOFF ([#162](https://github.com/thordin9/apotheke/pull/162))
+- docs: name 2.6.x on old as the 2.x security-fix line ([#162](https://github.com/thordin9/apotheke/pull/162))
+- **qa:** docs: add the PR 162 branch-switch QA review ([#162](https://github.com/thordin9/apotheke/pull/162))
 - **test:** the parity tests compare cookie lifetimes rounded to 10 s (`cookie_times_settled()`), so two requests that straddle a second compare equal; `/register` with PUT, PATCH and DELETE is also checked with registration open. ([#128](https://github.com/thordin9/apotheke/pull/128))
 - **test:** CI4 key tests cover keys of 16–33 bytes, a key file without sodium and the password hash, which is never sealed; the settings service tests no longer depend on `APP_KEY` or `APP_KEY_FILE` in the runner's environment; the `APP_KEY_FILE` backup roots reuse the config's originals path (#89 N-1, N-3, N-11). ([#93](https://github.com/thordin9/apotheke/pull/93))
 - **ci:** `scripts/ci4-pgsql-proof.php` reports SQLSTATE 42P01 as a missing probe table. Any other SQLSTATE is a connection or query failure. The script does not print the DSN or the password. ([#38](https://github.com/thordin9/apotheke/pull/38))
@@ -160,6 +403,21 @@ Every other form, output and exit code is byte-identical to legacy (`tests/Unit/
 - **test:** the two N-611 cleanup steps a fatal error relies on have tests that fail without them (QA N-701); the Control Panel parity test builds its made-up token at run time, and the `.gitleaks.toml` comment for it uses the wording proposed in [#152](https://github.com/thordin9/apotheke/pull/152) (N-720). ([#157](https://github.com/thordin9/apotheke/pull/157))
 - **test:** a restore's drawn thumbnail is removed by the fatal-error cleanup (QA N-881); the owner switch is refused while group 0 remains (QA N-880); the architecture doc says `apotheke:routes` started as root cannot write in a root-owned checkout (QA N-883). ([#158](https://github.com/thordin9/apotheke/pull/158))
 - **test:** the PHPUnit bootstrap no longer loads the legacy app: the legacy and legacy-comparison tests require `tests/legacy-bootstrap.php`. `tests/lib.php` takes the PostgreSQL settings from the environment, the Playwright fixtures run through the CI4 code with `E2E_APP=ci4` (`tests/visual/ci4-fixtures.php`), and the Media test checks served copies against the source picture instead of the legacy app's bytes. ([#159](https://github.com/thordin9/apotheke/pull/159))
+
+### Upgrade notes
+
+- **ci4 (security):** with `APOTHEKE_APP=ci4`, `php bin/settings.php get autofill_token` and `get password_hash` no longer print the stored secret; they exit 1 with `“KEY” is write-only.` Scripts that read the token must stop doing so. To rotate the AI autofill token, set the new `AUTOFILL_TOKEN` on the autofill service, then enter it under **Control Panel → AI autofill → Access token → Replace the token** and press **Save token** (**Clear token** removes it). `bin/settings.php set autofill_token` is refused on legacy and CI4 alike, so the Control Panel is the supported path. Passwords are per account: `php bin/settings.php user password NAME` or **Settings → Users & sign-in**. ([#64](https://github.com/thordin9/apotheke/pull/64))
+
+- **docker:** the default image runs PHP 8.4 (8.4.27, was 8.3.36), and PHP 8.4's PDO changes how the legacy app combines `DB_DSN` with `DB_USER` and `DB_PASSWORD` on PostgreSQL. With credentials in both, legacy now connects as the DSN's role, not as `DB_USER`. With `user=` or `password=` text elsewhere in `DB_DSN` (for example in `options` or `application_name`) and no DSN credentials, it no longer connects. 6 of the 7 precedence cases differ from PHP 8.3. Keep the credentials in one place: `DB_USER` and `DB_PASSWORD`, with no `user=` or `password=` in `DB_DSN`. See `db.password` in [Every setting](docs/configuration.md#every-setting). ([#132](https://github.com/thordin9/apotheke/pull/132))
+- **docker:** the container refuses to start (exit code 78) when `images`, `thumbs`, `originals`, `originals/map` or `sessions` in the data directory is a symbolic link (L-430). Put camera originals elsewhere with `ORIGINALS_DIR`, or mount the real directory at that path instead of linking it. ([#132](https://github.com/thordin9/apotheke/pull/132))
+
+### Intentional deviations (settings CLI, `APOTHEKE_APP=ci4`, [#64](https://github.com/thordin9/apotheke/pull/64))
+
+1. **Secrets are write-only.** `get autofill_token` and `get password_hash` print `“KEY” is write-only.` on stderr and exit 1; legacy printed the stored value.
+2. **`get` of an unknown key** prints `Unknown setting “KEY”.` and exits 1; legacy stopped with an uncaught exception (PHP fatal, exit 255).
+3. **`import` of a missing file** prints the same message and exits 1 like legacy, without PHP's `file_get_contents(…)` warning line.
+
+Every other form, output and exit code is byte-identical to legacy (`tests/Unit/Ci4SettingsCliTest.php`).
 
 ## [2.6.26] - 2026-10-28
 
@@ -658,7 +916,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v2.6.26...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/thordin9/apotheke/compare/v2.6.26...v3.0.0
 [2.6.26]: https://github.com/thordin9/apotheke/compare/v2.6.25...v2.6.26
 [2.6.25]: https://github.com/thordin9/apotheke/compare/v2.6.24...v2.6.25
 [2.6.24]: https://github.com/thordin9/apotheke/compare/v2.6.23...v2.6.24

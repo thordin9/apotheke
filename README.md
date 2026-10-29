@@ -69,38 +69,36 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 ## Coverage
 
 <!-- coverage:start -->
-| Area | PHPUnit (unit) | HTTP integration | Combined |
+| Area | Module suite | Root suite (with HTTP) | Combined |
 |---|---:|---:|---:|
-| Front controller & routes | – | 97.2 % | 97.2 % |
-| Items, search, bulk, lending | 88.9 % | 90.3 % | 95.4 % |
-| Favourites, merge, undo | 80.9 % | 99.5 % | 99.5 % |
-| Stocktake | 46.2 % | 98.2 % | 99.5 % |
-| Users & roles | 95.3 % | 89.5 % | 97.3 % |
-| Full-text search | 89.0 % | 87.7 % | 90.8 % |
-| CSV import | 62.5 % | 96.5 % | 99.3 % |
-| Photos | 59.6 % | 87.2 % | 87.2 % |
-| Notes & attachments | 88.2 % | 90.7 % | 96.3 % |
-| Views (HTML) | 12.7 % | 99.4 % | 99.3 % |
-| Control Panel settings | 73.2 % | 88.2 % | 92.9 % |
-| Backup & restore | 94.1 % | 91.9 % | 98.4 % |
-| Database, migrations, legacy | 81.7 % | 81.5 % | 91.9 % |
-| Bootstrap, config, QR, seed | 73.6 % | 75.6 % | 91.0 % |
-| **All PHP** (7736 lines) | **67.5 %** | **89.0 %** | **95.4 %** |
+| Front controller, config & routes | 78.3 % | 86.4 % | 86.9 % |
+| Items, search, bulk, lending | 29.2 % | 76.2 % | 82.1 % |
+| Favourites, undo, history | 10.6 % | 61.6 % | 64.8 % |
+| Stocktake & labels | 46.7 % | 95.6 % | 95.8 % |
+| Users, roles & sign-in | 62.7 % | 77.3 % | 80.9 % |
+| CSV import & export | 54.7 % | 94.3 % | 96.3 % |
+| Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
+| Notes & layout | 90.1 % | 68.5 % | 90.5 % |
+| Settings & Control Panel | 55.2 % | 46.7 % | 68.0 % |
+| Backup & restore | 53.8 % | 73.5 % | 79.4 % |
+| Database & migrations | 71.0 % | 71.5 % | 73.0 % |
+| Core & dev server | 75.7 % | 83.0 % | 94.1 % |
+| **All PHP** (14568 lines) | **59.7 %** | **72.3 %** | **82.5 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 139 | 22 |
+| `chromium-pixel` | 141 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 139 | 22 |
+| `desktop-chromium` | 141 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
 | `pgsql-smoke` | 33 | 0 |
-| `webkit-iphone-se` | 139 | 22 |
+| `webkit-iphone-se` | 141 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 139 | 22 |
+| `webkit-iphone13` | 141 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **597** | **176** |
+| **Total** | **605** | **176** |
 
-<sub>Line coverage from pcov: PHPUnit unit suite, the HTTP integration suite (every `php -S` request of `tests/integration.php`, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
+<sub>Line coverage from pcov: the module suite (`tests/Modules`), the root suite (`tests/Unit`, with every `php -S` request its servers answer, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->
 
 ## Contributing
