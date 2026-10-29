@@ -10,6 +10,7 @@ use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\ActorGate;
 use Apotheke\Core\Security\Nobody;
 use Apotheke\Core\Security\SecretBox;
+use Apotheke\Core\Security\SecretKey;
 use Closure;
 use LogicException;
 use Throwable;
@@ -175,6 +176,22 @@ final class SettingsService
     public function clearAutofillToken(): void
     {
         $this->store(['autofill_token' => '']);
+    }
+
+    /**
+     * The Control Panel's at-rest warning (legacy secret_storage_warning_html()'s
+     * text): why stored secrets cannot be saved, or that APP_KEY is not set;
+     * null when a usable key is configured. Logs the cause once, as legacy.
+     */
+    public function secretStorageWarning(): ?string
+    {
+        $problem = $this->secrets->problem();
+        $key = $this->secrets->key();   // logs the problem, or the APP_KEY notice
+        if ($problem !== null) {
+            return SecretKey::label($problem) . '. Stored secrets cannot be saved.';
+        }
+
+        return $key === null ? 'Set APP_KEY to encrypt stored secrets.' : null;
     }
 
     /** Whether the last save, reset or store cleared the autofill token (legacy settings_token_cleared()). */

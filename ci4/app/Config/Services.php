@@ -914,6 +914,43 @@ class Services extends BaseService
         return new \Apotheke\BulkMerge\Views\BulkMergeView(static::layout(), (int)$s->get('undo_seconds'), (string)$s->get('currency'));
     }
 
+    /** Control Panel pages (ControlPanel), with legacy public_url('')'s base for this request. */
+    public static function controlPanelView(bool $getShared = true): \Apotheke\ControlPanel\Views\ControlPanelView
+    {
+        if ($getShared) {
+            return static::getSharedInstance('controlPanelView');
+        }
+        $s = static::settings();
+        $server = static::request()->getServer();
+        $check = static::hostCheck(false);
+        $base = (new \Apotheke\Core\Http\RequestScheme((bool)$s->get('trust_proxy')))
+            ->publicBase(is_array($server) ? $server : [], static fn (string $host): bool => $check->passes($host), (string)$s->get('public_url'));
+
+        return new \Apotheke\ControlPanel\Views\ControlPanelView(static::layout(), $base);
+    }
+
+    /** Control Panel → System: the read-only start-up values (ControlPanel). */
+    public static function systemInfo(bool $getShared = true): \Apotheke\ControlPanel\SystemInfo
+    {
+        if ($getShared) {
+            return static::getSharedInstance('systemInfo');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\ControlPanel\SystemInfo(static::apothekeConfig()->values(), getenv(), \Apotheke\Core\Config\ApothekeConfig::repoRoot(), $db, static::searchIndex());
+    }
+
+    /** Control Panel → Appearance: logo upload and reset (Settings). */
+    public static function logoInstaller(bool $getShared = true): \Apotheke\Settings\Branding\LogoInstaller
+    {
+        if ($getShared) {
+            return static::getSharedInstance('logoInstaller');
+        }
+
+        return new \Apotheke\Settings\Branding\LogoInstaller(static::brandStore(), static::settings());
+    }
+
     /** The QR labels page (Labels, PLAN 13), with legacy public_url()'s base for this request. */
     public static function labelsView(bool $getShared = true): \Apotheke\Labels\Views\LabelsView
     {
