@@ -4,15 +4,17 @@ declare(strict_types=1);
 /*
  * PLAN step 16 part 2: after `bin/seed.php --demo` (JPEG photos), fills every table a backup carries: an item
  * with a PNG and a HEIC photo (with their originals), two tags, a PDF attachment under files/, a saved filter and
- * an open stocktake with one line checked. Run with the legacy app (PHP 8.3). Idempotent.
+ * an open stocktake with one line checked. Run with the legacy app (PHP 8.3, UPGRADE_LEGACY_ROOT). Idempotent.
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
+require __DIR__ . '/lib.php';
+$legacy = upg_legacy_root();
+require $legacy . '/src/bootstrap.php';
+require $legacy . '/src/items.php';
+require_once $legacy . '/src/attachments.php';
+require_once $legacy . '/src/stocktake.php';
 $root = dirname(__DIR__, 2);
-require $root . '/src/bootstrap.php';
-require $root . '/src/items.php';
-require_once $root . '/src/attachments.php';
-require_once $root . '/src/stocktake.php';
 
 $tmpCopy = static function (string $bytes): string {
     $tmp = (string)tempnam(sys_get_temp_dir(), 'upg');
