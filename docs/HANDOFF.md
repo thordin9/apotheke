@@ -121,10 +121,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
   `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`); `auth status` stays in
   `bin/settings.php` (no migration).
-- Control Panel ([#151](https://github.com/thordin9/apotheke/pull/151), open): `/settings`, every section (save and
+- Control Panel ([#151](https://github.com/thordin9/apotheke/pull/151), merged at 77d9170): `/settings`, every section (save and
   reset), the logo, the AI autofill token and Test buttons, and the settings file, byte-identical to legacy
   (`tests/Unit/Ci4ControlPanelParityTest.php`). Same `settings` permission and CSRF order as legacy; legacy has no
-  rate limit on these pages, and neither does CI4.
+  rate limit on these pages, and neither does CI4. An uploaded settings file is read only up to the import cap
+  (L-740, [#157](https://github.com/thordin9/apotheke/pull/157)).
 
 ## Pull requests
 
@@ -237,6 +238,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Stathis, 2026-10-27, via the PM), timing at least 200 requests per area; N-546. Merged at 24830e7; step 16 is done.
 - [#153](https://github.com/thordin9/apotheke/pull/153): CI allowlist for a historic Control Panel test placeholder
   (with [#152](https://github.com/thordin9/apotheke/pull/152) on `main`). Merged at 767126a.
+- [#149](https://github.com/thordin9/apotheke/pull/149): QA notes batch 4 part B, restore and CLI (L-622, N-621, N-611,
+  N-520, N-521, N-581, N-582, N-593, N-567). Merged at b38732e.
+- [#157](https://github.com/thordin9/apotheke/pull/157): CLI owner follow-up: every root spark command switches or stops
+  before boot (L-700), the CI4 `bin/` tools check first (N-625), missing posix functions stop with exit 1 (N-681, N-702,
+  N-781), N-701 tests, the bounded settings import (L-740), the run-time parity placeholder and N-720. Open.
 
 ## Lanes
 
@@ -278,11 +284,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
-- Coder2, QA notes batch 4 part B ([#149](https://github.com/thordin9/apotheke/pull/149), open): `Backup/Restorer.php`,
-  `Backup/Commands/DataDirOwner.php`, `Backup/Commands/BackupCli.php`, `Backup/Controllers/BackupController.php`,
-  `ci4/spark`, the legacy copies `bin/restore.php` and `public/index.php` (same change as #148 on `main`),
-  `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`, `BackupFailureTest`. Overlap: `ci4/spark` and the legacy copies
-  with Coder's syncs; part A is #147, the `main` notes are #148.
+- Coder2, CLI owner follow-up ([#157](https://github.com/thordin9/apotheke/pull/157), open): `ci4/spark`,
+  `Backup/Commands/DataDirOwner.php`, the CI4 branches of `bin/backup.php`, `bin/migrate.php`, `bin/restore.php` and
+  `bin/settings.php`, `SettingsService::readImportFile()` and the import action in `ControlPanelController`,
+  `BackupHelpersTest`, `RestorerFatalCleanupTest`, `SettingsServiceTest`, `Ci4BackupRestoreChecksTest`,
+  `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. Overlap: Coder's v2.6.26 sync
+  (#155) touches the same `bin/` files, `BackupFailureTest` and the deployment doc; whichever merges second drops
+  #155's CI4 skips for L-622, N-621, N-625 and N-681 and its "do not switch users yet" doc line.
 
 ## Next steps
 
