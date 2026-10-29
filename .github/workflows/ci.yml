@@ -486,7 +486,7 @@ jobs:
   # images/, thumbs/, originals/, map/ and files/ must stay equal after every step, originals 0750/0640; mutation
   # checks prove the comparison catches a lost table or attachment (scripts/upgrade-rollback.sh).
   upgrade-rollback:
-    name: Upgrade and rollback (legacy@8.3 → CI4@8.4 → legacy@8.3, ${{ matrix.db }})
+    name: Upgrade and rollback (2.6.26 → CI4@8.4 → 2.6.26, ${{ matrix.db }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
