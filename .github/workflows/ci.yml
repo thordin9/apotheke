@@ -1,11 +1,11 @@
 name: CI
 
-# pull_request has no branch filter, so pull requests into feature/ci4 run this
-# workflow. Pushes run it for main and, once this file is on the branch, feature/ci4.
+# pull_request has no branch filter, so every pull request runs this workflow.
+# Pushes run it for main, the one line of development; a green push to main starts the release workflow.
 on:
   pull_request:
   push:
-    branches: [main, feature/ci4]
+    branches: [main]
 
 permissions:
   contents: read
