@@ -46,6 +46,9 @@ final class ApothekeConfig
         'ORIGINALS_DIR' => 'originals_dir',
         'TRUSTED_PROXIES' => 'trusted_proxies',
         'SIGN_IN_FAIL_MS' => 'sign_in_fail_ms',
+        'CORS_ALLOWED_ORIGINS' => 'cors_allowed_origins',
+        'REAL_IP_HEADER' => 'real_ip_header',
+        'PROXY_SHARED_SECRET' => 'proxy_shared_secret',
     ];
 
     public static function repoRoot(): string
@@ -153,6 +156,32 @@ final class ApothekeConfig
         return is_array($list) ? array_values(array_filter($list, 'is_string')) : [];
     }
 
+    /**
+     * CORS_ALLOWED_ORIGINS: the exact origins that may call /api with
+     * credentials (API plan §2.2). Empty means no CORS headers at all.
+     *
+     * @return list<string>
+     */
+    public function corsAllowedOrigins(): array
+    {
+        $raw = $this->values['cors_allowed_origins'] ?? '';
+        $list = is_array($raw) ? $raw : explode(',', (string)$raw);
+
+        return array_values(array_filter(array_map(static fn (mixed $o): string => is_string($o) ? trim($o) : '', $list), static fn (string $o): bool => $o !== ''));
+    }
+
+    /** REAL_IP_HEADER: the header a trusted proxy puts the client address in (API plan §2.4), e.g. CF-Connecting-IP. */
+    public function realIpHeader(): string
+    {
+        return trim((string)($this->values['real_ip_header'] ?? ''));
+    }
+
+    /** PROXY_SHARED_SECRET: what the edge proxy sends in X-Apotheke-Proxy so X-Apotheke-Client-IP counts (API plan §2.4). */
+    public function proxySharedSecret(): string
+    {
+        return (string)($this->values['proxy_shared_secret'] ?? '');
+    }
+
     /** @return array<string,mixed> */
     public function database(): array
     {
@@ -204,6 +233,9 @@ final class ApothekeConfig
             'originals_dir' => '',
             'trusted_proxies' => [],
             'sign_in_fail_ms' => 1000,
+            'cors_allowed_origins' => '',
+            'real_ip_header' => '',
+            'proxy_shared_secret' => '',
         ];
     }
 
