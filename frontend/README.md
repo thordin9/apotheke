@@ -86,8 +86,19 @@ are only fetched when Greek text is on the page.
 Use a pose as decoration next to text that says the same thing:
 
 ```html
-<img class="mascot" src="/assets/mascot/pose-asleep.svg" alt="" width="120" height="120">
+<img class="brand-art mascot" src="/assets/mascot/pose-asleep.svg" alt="" width="120" height="120">
 ```
 
 Always set `width` and `height` (no layout shift) and `alt=""` in the app. Classes: `.mascot`
 (120 px), `.mascot-s` (48 px), `.mascot-l` (200 px).
+
+### Halo in dark mode
+
+The poses and marks are drawn in outline ink `#04303d`, which is close to dark paper (1.23:1).
+Put `.brand-art` on every pose, mark and `logo-dark.svg` image. In dark mode it draws a 1 px
+rim of `--brand-halo` round the artwork (`filter: var(--mascot-halo)`, four 0-blur
+`drop-shadow()`s); in light mode `--mascot-halo` is `none`. Inside an `.on-dark` container
+(the fixed `--logo-dark-ground`) the rim is always drawn, from `--logo-dark-halo`.
+No SVG is duplicated and nothing is inline, so it works under `style-src 'self'`.
+A brand swap that changes `--brand-halo` must keep it at 3:1 on all three papers;
+`contrast.mjs` checks it.

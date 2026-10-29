@@ -12,7 +12,7 @@ const args = process.argv.slice(2);
 const json = args.includes('--json');
 const file = args.find((a) => !a.startsWith('--')) ?? resolve(dirname(fileURLToPath(import.meta.url)), '../src/styles/tokens.css');
 
-// [foreground, background, minimum ratio, what it is]
+// [foreground, background, minimum ratio, what it is]; names are --color-*, brand:* (--brand-*) or a raw --token
 export const PAIRS = [
   ['ink', 'paper', 4.5, 'body text'], ['ink', 'paper-2', 4.5, 'text on panels'], ['ink', 'paper-3', 4.5, 'text on wells'],
   ['ink-2', 'paper', 4.5, 'secondary text'], ['ink-2', 'paper-2', 4.5, 'secondary text on panels'],
@@ -35,6 +35,9 @@ export const PAIRS = [
   ['brand:tertiary', 'paper', 4.5, 'brand tertiary (red) as text'],
   ['brand:tertiary-ink', 'brand:tertiary', 4.5, 'text on brand tertiary'],
   ['brand:outline', 'paper', 3, 'outline ink on paper (non-text)'], ['ink', 'highlight', 4.5, 'body text on a highlighted row'], ['wordmark', 'paper', 4.5, 'wordmark text'],
+  // 1.4.11 non-text: the halo is the rim that keeps the outline ink of poses and marks visible on dark paper (light mode draws none)
+  ['brand:halo', 'paper', 3, 'mascot and mark halo on paper'], ['brand:halo', 'paper-2', 3, 'mascot and mark halo on panels'], ['brand:halo', 'paper-3', 3, 'mascot and mark halo on wells'],
+  ['--logo-dark-halo', '--logo-dark-ground', 3, 'halo on the fixed dark logo ground'],
 ];
 
 const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -69,7 +72,7 @@ function parse(c) {
 }
 const Y = ({ lin: [r, g, b] }) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 const ratio = (f, b) => { const [hi, lo] = [Y(f), Y(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
-const name = (t) => (t.startsWith('brand:') ? '--brand-' + t.slice(6) : '--color-' + t);
+const name = (t) => (t.startsWith('--') ? t : t.startsWith('brand:') ? '--brand-' + t.slice(6) : '--color-' + t);
 
 const results = []; let fails = 0;
 for (const [mode, env] of [['light', light], ['dark', { ...light, ...darkA }]]) {

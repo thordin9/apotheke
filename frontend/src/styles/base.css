@@ -25,3 +25,6 @@ button, input, select, textarea { font: inherit; }
 @media (prefers-reduced-motion: reduce) { *:not(.keep-motion), *:not(.keep-motion)::before, *:not(.keep-motion)::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; } }
 /* photographs: muted */
 [data-slot] > img { filter: saturate(0.65) contrast(0.97); }
+/* mascot poses and brand marks: outline ink is faint on dark paper, so dark mode draws a light rim (tokens --mascot-halo, --halo-on-dark) */
+.brand-art { filter: var(--mascot-halo); }
+.on-dark .brand-art { filter: var(--halo-on-dark); }

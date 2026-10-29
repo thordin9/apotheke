@@ -38,6 +38,7 @@
   --brand-tertiary-ink: #ffffff;
   --brand-tertiary-soft: #fae6e7;
   --brand-outline: #04303d;          /* outline ink: mascot outline, mark, strong rules */
+  --brand-halo: #04303d;             /* rim drawn round the artwork's outline ink; only drawn in dark mode, where the ink alone is faint */
   --brand-tan: #cfa267;              /* tape: illustration only */
   --brand-grey: #43434d;             /* shoe: illustration only */
   --brand-wordmark: #4b3081;         /* the wordmark text colour */
@@ -66,6 +67,10 @@
   /* shape */
   /* fixed colours that never follow the mode: the label sheet is printed on white paper; the dark logo sits on outline ink */
   --label-paper: #fefdfb; --label-ink: #04303d; --label-rule: #8a9aa0; --logo-dark-ground: #0a1d23;
+  --logo-dark-halo: #8fb3bd;
+  --halo-on-dark: drop-shadow(1px 0 0 var(--logo-dark-halo)) drop-shadow(-1px 0 0 var(--logo-dark-halo)) drop-shadow(0 1px 0 var(--logo-dark-halo)) drop-shadow(0 -1px 0 var(--logo-dark-halo));
+  /* halo on mascot poses and marks: none in light; in dark a 1px rim of --brand-halo (four 0-blur drop-shadows) */
+  --mascot-halo: none;
   --radius-card: 12px; --radius-control: 10px; --radius-pill: 999px; --rule-hair: 1px;
 
   /* 2. SEMANTIC colour. Neutrals are Ink; brand-derived roles follow layer 1 in both modes. */
@@ -92,6 +97,7 @@
   --brand-secondary: #e88b3d; --brand-secondary-shade: #cd7128; --brand-secondary-ink: #04303d; --brand-secondary-text: #f2a865; --brand-secondary-soft: #3e2a17; --brand-secondary-soft-ink: #f8d2ad;
   --brand-tertiary: #f2949a; --brand-tertiary-ink: #2b0609; --brand-tertiary-soft: #3c1a1d;
   --brand-outline: #8fb3bd; --brand-tan: #cfa267; --brand-grey: #43434d; --brand-wordmark: #f4efe8;
+  --brand-halo: #8fb3bd; --mascot-halo: drop-shadow(1px 0 0 var(--brand-halo)) drop-shadow(-1px 0 0 var(--brand-halo)) drop-shadow(0 1px 0 var(--brand-halo)) drop-shadow(0 -1px 0 var(--brand-halo));
   --color-paper: #0a1d23; --color-paper-2: #0f252c; --color-paper-3: #152e36;
   --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
   --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
@@ -105,6 +111,7 @@
     --brand-secondary: #e88b3d; --brand-secondary-shade: #cd7128; --brand-secondary-ink: #04303d; --brand-secondary-text: #f2a865; --brand-secondary-soft: #3e2a17; --brand-secondary-soft-ink: #f8d2ad;
     --brand-tertiary: #f2949a; --brand-tertiary-ink: #2b0609; --brand-tertiary-soft: #3c1a1d;
     --brand-outline: #8fb3bd; --brand-tan: #cfa267; --brand-grey: #43434d; --brand-wordmark: #f4efe8;
+  --brand-halo: #8fb3bd; --mascot-halo: drop-shadow(1px 0 0 var(--brand-halo)) drop-shadow(-1px 0 0 var(--brand-halo)) drop-shadow(0 1px 0 var(--brand-halo)) drop-shadow(0 -1px 0 var(--brand-halo));
     --color-paper: #0a1d23; --color-paper-2: #0f252c; --color-paper-3: #152e36;
     --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
     --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
