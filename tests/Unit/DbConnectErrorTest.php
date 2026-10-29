@@ -44,6 +44,59 @@ final class DbConnectErrorTest extends TestCase
         $this->assertSame($this->connectMessage(), $run['err']);
     }
 
+    /** @return array<string, array{0:string,1:list<string>}> */
+    public static function backupTools(): array
+    {
+        $tools = self::cliTools();
+
+        return ['backup' => $tools['backup'], 'restore' => $tools['restore']];
+    }
+
+    /**
+     * APOTHEKE_APP=ci4 (spark apotheke:backup and apotheke:restore): a
+     * refused connect prints legacy's line with legacy's exit code, not
+     * the exception class and "Server error".
+     *
+     * @param list<string> $args
+     */
+    #[DataProvider('backupTools')]
+    public function testCi4ConnectFailureMatchesLegacy(string $script, array $args): void
+    {
+        $this->requireCi4();
+        $legacy = $this->spawn($script, $args, $this->refusedEnv());
+        $ci4 = $this->spawn($script, $args, ['APOTHEKE_APP' => 'ci4'] + $this->refusedEnv());
+        $blob = $ci4['out'] . "\n" . $ci4['err'] . "\n" . $ci4['log'];
+        $this->assertSame([$legacy['out'], $legacy['err'], $legacy['code']], [$ci4['out'], $ci4['err'], $ci4['code']], $blob);
+        $this->assertSame(['', $this->connectMessage(), 1], [$ci4['out'], $ci4['err'], $ci4['code']]);
+        $this->assertStringNotContainsString(self::USER, $blob);
+        $this->assertStringNotContainsString(self::PASSWORD, $blob);
+        $this->assertStringNotContainsString('Exception', $blob);
+        $this->assertStringNotContainsString('Server error', $blob);
+    }
+
+    /**
+     * A SQLite file that cannot be opened: CI4 prints the sanitized line and
+     * exits 1 (legacy stops on the uncaught engine error instead).
+     *
+     * @param list<string> $args
+     */
+    #[DataProvider('backupTools')]
+    public function testCi4SqliteOpenFailureIsTheCleanLine(string $script, array $args): void
+    {
+        $this->requireCi4();
+        $path = '/proc/no-such-backup-dir/catalog.sqlite';
+        $run = $this->spawn($script, $args, ['APOTHEKE_APP' => 'ci4', 'DB_DRIVER' => 'sqlite', 'SQLITE_PATH' => $path]);
+        $blob = $run['out'] . "\n" . $run['err'] . "\n" . $run['log'];
+        $this->assertSame(['', 'Could not connect to the database (sqlite – ' . $path . ").\n", 1], [$run['out'], $run['err'], $run['code']], $blob);
+    }
+
+    private function requireCi4(): void
+    {
+        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
+        }
+    }
+
     public function testHealthzConnectFailureLogsOnlyTheSanitizedLine(): void
     {
         $root = dirname(__DIR__, 2);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup\Commands;
 
+use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use Apotheke\Settings\Commands\SettingsCommand;
 use CodeIgniter\CLI\BaseCommand;
 use CodeIgniter\CLI\Commands;
@@ -43,6 +44,14 @@ final class BackupCommand extends BaseCommand
             return 1;
         }
 
-        return ($this->cli)(STDIN, STDOUT, STDERR)->backup(BackupCli::args(getenv('APOTHEKE_CLI_ARGS'), SettingsCommand::rawArgs($_SERVER['argv'] ?? [], $this->name)));
+        try {
+            $cli = ($this->cli)(STDIN, STDOUT, STDERR);   // builds the services: connects to the database
+        } catch (DatabaseUnavailable $e) {
+            fwrite(STDERR, $e->getMessage() . "\n");   // the allowlisted line and exit 1, as legacy db()
+
+            return 1;
+        }
+
+        return $cli->backup(BackupCli::args(getenv('APOTHEKE_CLI_ARGS'), SettingsCommand::rawArgs($_SERVER['argv'] ?? [], $this->name)));
     }
 }
