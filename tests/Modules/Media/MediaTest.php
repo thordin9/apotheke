@@ -244,6 +244,77 @@ final class MediaTest extends CIUnitTestCase
     }
 
     /**
+     * L-962: the served copy of a HEIC with transparency is flattened onto
+     * white by ImagickDecoder::matchGd, as GD's fit does for a PNG. Without
+     * the flatten, the JPEG export shows the transparent pixels' colour
+     * (black) instead.
+     */
+    public function testATransparentHeicIsServedOnWhite(): void
+    {
+        $decoder = new ImagickDecoder();
+        if (!$decoder->heicSupported()) {
+            if (getenv('CI') === 'true') {
+                $this->fail('CI has no HEIC decoder: the transparent-HEIC test must run there');
+            }
+            $this->markTestSkipped('Imagick without HEIC');
+        }
+        $name = $this->upload((string)file_get_contents(ApothekeConfig::repoRoot() . '/tests/fixtures/transparent.heic'));
+        $full = (string)$this->served->read('full', $name);
+        $this->assertSame([32, 32], array_slice((array)getimagesizefromstring($full), 0, 2), 'converted, not the placeholder');
+        $gd = imagecreatefromstring($full);
+        $this->assertInstanceOf(\GdImage::class, $gd);
+        $this->assertGreaterThanOrEqual(245, min($this->pixel($gd, 26, 16)), 'the transparent half is white');
+        $this->assertNear([200, 30, 40], $this->pixel($gd, 5, 16), 'the opaque half keeps its colour');
+    }
+
+    /**
+     * L-962: matchGd, the step both served-copy decodes run, turns CMYK into
+     * sRGB and drops transparency onto white. Run on Imagick images directly,
+     * so it holds without a HEIC decoder too.
+     */
+    public function testTheServedCopyStepFlattensToWhiteAndConvertsCmyk(): void
+    {
+        if (!class_exists(\Imagick::class)) {
+            $this->markTestSkipped('Imagick is not loaded');
+        }
+        $step = new \ReflectionMethod(ImagickDecoder::class, 'matchGd');
+        $decoder = new ImagickDecoder();
+
+        $cmyk = new \Imagick();
+        $cmyk->newImage(8, 8, new \ImagickPixel('rgb(200,30,40)'));
+        $cmyk->transformImageColorspace(\Imagick::COLORSPACE_CMYK);
+        $this->assertSame(\Imagick::COLORSPACE_CMYK, $cmyk->getImageColorspace());
+        $step->invoke($decoder, $cmyk);
+        $this->assertSame(\Imagick::COLORSPACE_SRGB, $cmyk->getImageColorspace(), 'CMYK becomes sRGB');
+        $rgb = $cmyk->getImagePixelColor(4, 4)->getColor();
+        $this->assertNear([200, 30, 40], [$rgb['r'], $rgb['g'], $rgb['b']], 'CMYK keeps its colour');
+
+        $clear = new \Imagick();
+        $clear->newImage(8, 8, new \ImagickPixel('rgba(0,0,0,0)'));
+        $clear->setImageFormat('png');
+        $step->invoke($decoder, $clear);
+        $this->assertFalse((bool)$clear->getImageAlphaChannel(), 'no alpha left');
+        $rgb = $clear->getImagePixelColor(4, 4)->getColor();
+        $this->assertSame([255, 255, 255], [$rgb['r'], $rgb['g'], $rgb['b']], 'transparent becomes white');
+    }
+
+    /** @return array{0:int,1:int,2:int} */
+    private function pixel(\GdImage $gd, int $x, int $y): array
+    {
+        $c = imagecolorat($gd, $x, $y);
+
+        return [($c >> 16) & 255, ($c >> 8) & 255, $c & 255];
+    }
+
+    /** @param list<int|float> $expected @param list<int|float> $actual */
+    private function assertNear(array $expected, array $actual, string $message): void
+    {
+        foreach ($expected as $i => $value) {
+            $this->assertLessThanOrEqual(12, abs($value - $actual[$i]), $message . ': ' . json_encode($actual));
+        }
+    }
+
+    /**
      * M-20: CodeIgniter's shutdown handler exits on a fatal error, so the
      * request's RequestCleanup (run by the exception handler) has to remove
      * what an unfinished upload wrote. Real CI4 bootstrap, in its own process.
