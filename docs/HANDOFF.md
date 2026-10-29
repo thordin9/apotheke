@@ -302,7 +302,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `BackupHelpersTest`, `RestorerFatalCleanupTest`, `SettingsServiceTest`, `Ci4BackupRestoreChecksTest`,
   `Ci4ControlPanelParityTest`, `.gitleaks.toml` (comment only) and the deployment doc. #155 (v2.6.26 sync, merged at 455aef8) is merged in;
   `BackupFailureTest` runs every #148 test on CI4 (the N-625 and N-681 skips are gone).
-- Coder, CLI port ([#158](https://github.com/thordin9/apotheke/pull/158), open): `spark apotheke:seed` (`Catalog/Commands`,
+- Coder, CLI port ([#159](https://github.com/thordin9/apotheke/pull/159), open): `spark apotheke:seed` (`Catalog/Commands`,
   `Catalog/DemoItems.php`, the Catalog entry in `Config/Autoload.php`), `auth status` (`Auth/Commands/AuthStatus.php`,
   never migrates) and `key rotate` (`SettingsCli`, `SettingsService::rotateSecrets()`, `SettingsRepository::rewrite()`,
   `SecretBox::decodeKey()`), their `Config\Services` wiring, the `bin/seed.php` CI4 branch and only the `$ci4Form` arms
