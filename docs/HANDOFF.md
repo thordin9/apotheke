@@ -257,7 +257,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   differing-credentials notice waits for a connection. Merged at 1b2e107.
 - [#161](https://github.com/thordin9/apotheke/pull/161): step 18, the cutover: the CI4 tree at the repository root,
   the legacy tests and CI legs removed, `src/` removed. Merged at f1b4535.
-- Branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
+- [#162](https://github.com/thordin9/apotheke/pull/162): branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
   N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Open.
 
 ## Lanes
