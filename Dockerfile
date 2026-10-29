@@ -1,11 +1,11 @@
 # Default is the shipped image. Bump this patch pin on each PHP security release.
 # CI's Docker job passes the same exact PHP_VERSION build-arg (see .github/workflows/ci.yml).
-# The CI4 app (APOTHEKE_APP=ci4) needs PHP 8.4; the entrypoint refuses it on an older image.
+# Apotheke 3.0 runs on CodeIgniter 4, which needs PHP 8.4.
 ARG PHP_VERSION=8.4.27
 
-# CI4's Composer packages without dev dependencies, and its optimised autoloader. intl is checked in the image below.
-FROM composer:2.10.3 AS ci4-vendor
-WORKDIR /ci4
+# Composer packages without dev dependencies, and the optimised autoloader. intl is checked in the image below.
+FROM composer:2.10.3 AS vendor
+WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --no-autoloader --ignore-platform-req=ext-intl
 COPY app ./app
@@ -86,26 +86,24 @@ COPY docker/fastcgi.conf /etc/nginx/apotheke-fastcgi.conf
 COPY docker/entrypoint.sh /usr/local/bin/apotheke-entrypoint
 RUN chmod +x /usr/local/bin/apotheke-entrypoint
 
+# nginx serves public/; app, modules, vendor, writable and spark stay outside it.
 COPY --chown=root:root public /var/www/app/public
-COPY --chown=root:root src /var/www/app/src
+COPY --chown=root:root app /var/www/app/app
+COPY --chown=root:root modules /var/www/app/modules
 COPY --chown=root:root migrations /var/www/app/migrations
 COPY --chown=root:root bin /var/www/app/bin
-COPY --chown=root:root config.example.php VERSION /var/www/app/
-# CI4 (APOTHEKE_APP=ci4): nginx serves public; app, modules, vendor, writable and spark stay outside it.
-COPY --chown=root:root ci4 /var/www/app/ci4
-COPY --from=ci4-vendor --chown=root:root /vendor /var/www/app/vendor
-# The autoloader check runs on 8.4 or later only: CI4's Composer platform check refuses PHP < 8.4, so an image built
-# with an older PHP_VERSION ships CI4 but cannot run it (the entrypoint says so).
+COPY --chown=root:root spark config.example.php VERSION /var/www/app/
+# The legacy code behind the CLI forms CI4 has no command for yet (bin/settings.php auth status and key rotate,
+# bin/seed.php). It goes with src/ once they are ported.
+COPY --chown=root:root src /var/www/app/src
+COPY --from=vendor --chown=root:root /app/vendor /var/www/app/vendor
 RUN set -eux; \
     mkdir -p /var/www/app/writable/cache /var/www/app/writable/logs /var/www/app/writable/session \
         /var/www/app/writable/uploads /var/www/app/writable/debugbar; \
     chown -R www-data:www-data /var/www/app/writable; \
-    php -r 'if (PHP_VERSION_ID < 80400) exit(0); require "/var/www/app/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'
+    php -r 'require "/var/www/app/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'
 
-# legacy (default) or ci4: which app the container runs. Override at run time with -e APOTHEKE_APP=ci4.
-ARG APOTHEKE_APP=legacy
-ENV APOTHEKE_APP=${APOTHEKE_APP} \
-    CI_ENVIRONMENT=production \
+ENV CI_ENVIRONMENT=production \
     DATA_DIR=/data \
     APP_PASSWORD="" \
     TZ=UTC \

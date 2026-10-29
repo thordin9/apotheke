@@ -7,12 +7,8 @@ docker-compose.yml
 .env
 .DS_Store
 vendor/
-vendor/
 writable/
-tests/Modules/
 tools/
-.env
-tests/Modules/phpunit.xml.dist
 tests/
 config.php
 coverage/

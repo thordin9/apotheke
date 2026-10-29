@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Web-server behaviour of the Docker image (nginx + php-fpm), on top of scripts/smoke.sh.
 # Usage: scripts/docker-checks.sh [base-url]   (default http://127.0.0.1:9091)
-# APOTHEKE_APP=ci4: the container runs CI4; the same checks apply (its backup pages, PLAN step 14, N-431).
 set -euo pipefail
 base=${1:-http://127.0.0.1:9091}
 fail=0
@@ -26,8 +25,8 @@ check "ORIGINALS/ blocked"            404 "$(code "$base/ORIGINALS/guess.jpg")"
 check "migrations/ blocked"           404 "$(code "$base/migrations/0001_initial_schema.php")"
 check "config.php blocked"            404 "$(code "$base/config.php")"
 check "dotfiles blocked"              404 "$(code "$base/.git/config")"
-# CI4's code, packages, writable dir, .env and spark sit outside its public dir (PLAN step 15)
-for p in vendor/autoload.php vendor/autoload.php writable/logs/ writable/logs/ .env .env spark spark app/Config/App.php app/Config/App.php; do
+# The code, packages, writable dir, .env and spark sit outside public/ (PLAN step 15)
+for p in vendor/autoload.php writable/logs/ .env spark app/Config/App.php modules/Core/Boot/startup.php; do
   check "/$p not served"  404 "$(code "$base/$p")"
 done
 check "random .php is 404"            404 "$(code "$base/foo.php")"
