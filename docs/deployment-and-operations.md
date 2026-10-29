@@ -63,8 +63,9 @@ the tool stops with exit 1 and changes nothing. `bin/settings.php key generate` 
 backup written as the data folder's owner needs a target folder that user can write to.
 With `APOTHEKE_APP=ci4`, `bin/restore.php` and `php ci4/spark apotheke:restore` (with or without `--dry-run`) do the
 same: started as root they switch to the data folder's owner and group before CodeIgniter starts, or stop with exit 1.
-With `APOTHEKE_APP=ci4`, `bin/backup.php`, `bin/migrate.php` and the `bin/settings.php` forms that run on CI4 do not
-switch users yet: run them as the data folder's owner.
+With `APOTHEKE_APP=ci4`, `bin/backup.php`, `bin/migrate.php` and the `bin/settings.php` forms that run on CI4 do the
+same through `ci4/spark`: started as root they switch to the data folder's owner before CodeIgniter starts, or stop
+with exit 1.
 
 The tools read `config.php` (or the file `APOTHEKE_CONFIG` names) before they switch, as root when started as root.
 Keep that file owned by root or the data folder's owner and not writable by the web server's user.
