@@ -282,7 +282,7 @@ final class Ci4AccountsCliTest extends TestCase
 
         // No database to reach: the sanitized line and exit 1, as legacy.
         if (test_driver() === 'pgsql') {
-            $refused = ['DB_HOST' => '127.0.0.1', 'DB_PORT' => '1'];
+            $refused = ['DB_HOST' => '127.0.0.1', 'DB_PORT' => '1', 'DB_SCHEMA' => 'refused'];   // one schema name in both lines
             $this->runBoth($left, $right, [[$status[0]]], $refused);
             $this->assertSame(1, $this->cli($right, $status[0], true, null, $refused)['exit']);
         }
