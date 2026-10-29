@@ -15,7 +15,7 @@ use RuntimeException;
  * apotheke:accounts users|user|roles|auth|password: the account and sign-in
  * forms of legacy bin/settings.php, with the same output and exit codes.
  * `auth status` runs AuthStatus, which never boots the CI4 database.
- * bin/settings.php runs it when APOTHEKE_APP=ci4. Config\Services::commands()
+ * bin/settings.php runs it. Config\Services::commands()
  * builds it with the factory of its collaborators (constructor injection).
  */
 final class AccountsCommand extends BaseCommand

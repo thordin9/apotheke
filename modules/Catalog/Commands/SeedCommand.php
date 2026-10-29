@@ -15,7 +15,7 @@ use RuntimeException;
  * apotheke:seed [--demo]: legacy bin/seed.php, with the same output. Starter
  * locations and categories (one default each, existing names skipped), and
  * with --demo a handful of demo items with generated photos. Idempotent.
- * bin/seed.php runs it when APOTHEKE_APP=ci4. Config\Services::commands()
+ * bin/seed.php runs it. Config\Services::commands()
  * builds it with its factories (constructor injection).
  */
 final class SeedCommand extends BaseCommand

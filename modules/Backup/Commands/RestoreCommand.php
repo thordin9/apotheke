@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface;
 
 /**
  * apotheke:restore: legacy bin/restore.php, with the same output and exit codes.
- * bin/restore.php runs it when APOTHEKE_APP=ci4. Config\Services::commands()
+ * bin/restore.php runs it. Config\Services::commands()
  * builds it with the factory of its runner (constructor injection).
  */
 final class RestoreCommand extends BaseCommand

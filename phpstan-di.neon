@@ -17,7 +17,7 @@ parameters:
         - app/Config/App.php
         - public
     excludePaths:
-        # The shim is the untyped legacy function bodies. Golden tests cover it.
+        # The shim is the untyped legacy function bodies. tests/Unit/Ci4MigrateTest.php runs them through PdoMigrationRunner.
         - modules/Migrations/LegacyFunctions.php
         # The config loader, moved unchanged from the legacy app at the cutover. ConfigTest and ConfigFunctionsTest cover it.
         - modules/Core/Config/config-functions.php

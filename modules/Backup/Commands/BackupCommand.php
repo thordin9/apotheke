@@ -13,7 +13,7 @@ use Psr\Log\LoggerInterface;
 
 /**
  * apotheke:backup: legacy bin/backup.php, with the same output and exit codes.
- * bin/backup.php runs it when APOTHEKE_APP=ci4. Config\Services::commands()
+ * bin/backup.php runs it. Config\Services::commands()
  * builds it with the factory of its runner (constructor injection).
  */
 final class BackupCommand extends BaseCommand
