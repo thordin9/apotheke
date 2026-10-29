@@ -459,6 +459,77 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         });
     }
 
+    /**
+     * N-565: a link to a real file at a new photo, thumbnail or attachment
+     * name (or at an attachment that is there) stops the restore; the link
+     * stays, its target keeps its bytes, and nothing else changes.
+     */
+    public function testALinkToAFileWhereANewFileGoesStopsTheRestore(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $dump = $this->dump($server, $dir);
+            $photo = str_repeat('6', 32) . '.jpg';
+            $photos = &$dump['tables']['item_photos'];
+            $photos['rows'][] = array_map(static fn (string $c, mixed $v): mixed => ['id' => 9, 'file' => $photo, 'position' => 1][$c] ?? $v, $photos['columns'], $photos['rows'][0]);
+            unset($photos);
+            $entries = $this->fullBackup($dump);
+            $entries += ['images/' . $photo => img_jpeg(40, 30), 'thumbs/' . $photo => img_jpeg(20, 15)];
+            $this->zip($dir . '/link.zip', $entries);
+            $pdo->exec("UPDATE items SET name = 'Changed' WHERE id = 1");
+            $target = $dir . '/elsewhere';
+            foreach (['images/' . $photo, 'thumbs/' . $photo, 'files/' . self::FILE] as $name) {
+                file_put_contents($target, 'keep');
+                @unlink($dir . '/' . $name);
+                symlink($target, $dir . '/' . $name);
+                $r = $this->cli($dir, 'restore', ['link.zip', '--yes']);
+                $this->assertSame([1, "The backup could not be restored. Nothing was changed.\n"], [$r['exit'], $r['stderr']], $name . ': ' . $r['stdout']);
+                clearstatcache();
+                $this->assertSame($target, readlink($dir . '/' . $name), "$name: the link stays");
+                $this->assertSame('keep', file_get_contents($target), "$name: nothing is written through it");
+                $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), $name);
+                unlink($dir . '/' . $name);
+            }
+        });
+    }
+
+    /**
+     * N-592, N-593, N-563: a camera map that cannot be written (its folder
+     * is immutable here) is a warning only. The restore succeeds, the
+     * command line prints the warning once, after the restore, and no map
+     * entry changes. The first failed write ends the map loop, so the
+     * warning is not repeated for the next entry.
+     */
+    public function testAMapThatCannotBeWrittenIsAWarningOnly(): void
+    {
+        $this->needsChattr();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $dump = $this->dump($server, $dir);
+            $second = str_repeat('7', 32) . '.jpg';
+            $secondOriginal = str_repeat('cc', 32) . '.png';
+            $photos = &$dump['tables']['item_photos'];
+            $photos['rows'][] = array_map(static fn (string $c, mixed $v): mixed => ['id' => 9, 'file' => $second, 'position' => 1][$c] ?? $v, $photos['columns'], $photos['rows'][0]);
+            unset($photos);
+            $entries = $this->fullBackup($dump);
+            $entries['originals/index.json'] = [self::PHOTO => self::ORIGINAL, $second => $secondOriginal];
+            $entries += ['images/' . $second => img_jpeg(40, 30), 'thumbs/' . $second => img_jpeg(20, 15), 'originals/' . $secondOriginal => img_png(4, 4)];
+            $this->zip($dir . '/full.zip', $entries);
+            $map = $dir . '/originals/map';
+            $before = self::listing($map);
+            $this->sudo(['chattr', '+i', $map]);
+            try {
+                $r = $this->cliAs($dir, 'ci4', 0022, ['full.zip', '--yes']);
+            } finally {
+                $this->sudo(['chattr', '-i', $map]);
+            }
+            $this->assertSame([0, ''], [$r['exit'], $r['stderr']], $r['stdout']);
+            $warnings = array_values(array_filter(explode("\n", $r['stdout']), static fn (string $l): bool => str_starts_with($l, '  warning:')));
+            $this->assertSame(['  warning: Camera files could not be restored (originals directory is not writable).'], $warnings, $r['stdout']);
+            $this->assertMatchesRegularExpression('/^Restored: .*\n  warning: Camera files/m', $r['stdout'], 'printed after the restore');
+            $this->assertSame($before, self::listing($map), 'no map entry changed and no temp file is left');
+            $this->assertFileExists($dir . '/originals/' . $secondOriginal, 'the camera files themselves are restored');
+        });
+    }
+
     public function testARestoreIntoAFreshDataDirMakesEachFolderWithLegacysMode(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
@@ -689,6 +760,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
             $this->assertFileDoesNotExist($dir . '/originals/' . self::ORIGINAL);
             $this->assertFileDoesNotExist($dir . '/originals/map/' . substr(self::PHOTO, 0, 32));
             $this->assertSame('Changed', $pdo->query('SELECT name FROM items WHERE id = 1')->fetchColumn(), 'nothing changed');
+            $this->assertSame([], glob($dir . '/tmp/restore-*.part') ?: [], 'N-611: no temp copy is left in tmp/');
         });
     }
 
@@ -823,13 +895,93 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         });
     }
 
+    /** L-622: the other spark commands that use DATA_DIR, with arguments (the backup goes into the data dir) and the tool legacy's message names. */
+    private const DATA_COMMANDS = [
+        'apotheke:backup' => [['{fresh}/out.zip'], 'php bin/backup.php'],
+        'apotheke:migrate' => [[], 'php bin/migrate.php'],
+        'apotheke:settings' => [['list'], 'php bin/settings.php list'],
+        'apotheke:accounts' => [['users'], 'php bin/settings.php list'],
+    ];
+
     /**
-     * `php ci4/spark apotheke:restore <dir>/full.zip <args>` as root, with DATA_DIR $fresh and the catalog's database.
+     * L-622, N-621: the other spark commands that use DATA_DIR, started as
+     * root, also run as its owner before boot: nothing they make (the
+     * backup zip, the folders boot prepares) is root's, also when DATA_DIR's
+     * group is root's (the owner's own group is used).
+     */
+    public function testSparkDataCommandsAsRootRunAsTheDataDirOwner(): void
+    {
+        $this->needsSudo();
+        $pw = posix_getpwuid(posix_geteuid());
+        if ($pw === false || (int)$pw['gid'] !== posix_getegid() || posix_getegid() === 0) {
+            $this->markTestSkipped('this user\'s group is not its own primary group');
+        }
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $fresh = $dir . '-fresh';
+            mkdir($fresh, 0775);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chgrp', '0', $fresh]);
+                foreach (self::DATA_COMMANDS as $command => [$args]) {
+                    $r = $this->rootSpark($dir, $fresh, str_replace('{fresh}', $fresh, $args), $command);
+                    $this->assertSame(0, $r['exit'], $command . ': ' . $r['stdout'] . $r['stderr']);
+                }
+                $this->sudo(['chgrp', (string)posix_getegid(), $fresh]);
+                $this->assertFileExists($fresh . '/out.zip');
+                $this->assertSame('', $this->rootOwned($fresh, $since), 'no file is root\'s');
+            } finally {
+                $this->giveBack($fresh);
+                rrmdir($fresh);
+                @unlink($since);
+            }
+        });
+    }
+
+    /** L-622: each of them as root into a root-owned DATA_DIR stops with exit 1 before boot, naming its own tool. */
+    public function testSparkDataCommandsAsRootRefuseARootOwnedDataDir(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $fresh = $dir . '-fresh';
+            mkdir($fresh, 0775);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chown', '0:0', $fresh]);
+                foreach (self::DATA_COMMANDS as $command => [$args, $example]) {
+                    $r = $this->rootSpark($dir, $fresh, str_replace('{fresh}', $fresh, $args), $command);
+                    $this->assertSame([1, '', 'Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> ' . $example . ". Nothing was changed.\n"],
+                        [$r['exit'], $r['stdout'], $r['stderr']], $command);
+                }
+                clearstatcache();
+                $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
+            } finally {
+                $this->giveBack($fresh);
+                rrmdir($fresh);
+                @unlink($since);
+            }
+        });
+    }
+
+    /** chattr through sudo; skips without it, fails on GitHub Actions. */
+    private function needsChattr(): void
+    {
+        $this->needsSudo();
+        $probe = tmpdir('chattr-probe');
+        exec('command -v chattr >/dev/null && sudo -n chattr +i ' . escapeshellarg($probe) . ' 2>/dev/null', $_, $code);
+        exec('sudo -n chattr -i ' . escapeshellarg($probe) . ' 2>/dev/null');
+        rrmdir($probe);
+        if ($code !== 0) {
+            getenv('GITHUB_ACTIONS') === 'true' ? $this->fail('needs chattr +i') : $this->markTestSkipped('needs chattr +i');
+        }
+    }
+
+    /**
+     * `php ci4/spark <command> <args>` as root (apotheke:restore takes <dir>/full.zip first), with DATA_DIR $fresh and the catalog's database.
      *
      * @param list<string> $args
      * @return array{stdout:string,stderr:string,exit:int}
      */
-    private function rootSpark(string $dir, string $fresh, array $args): array
+    private function rootSpark(string $dir, string $fresh, array $args, string $command = 'apotheke:restore'): array
     {
         $env = array_merge($this->cliEnv($dir), ['DATA_DIR' => $fresh]);
         if (($env['DB_DRIVER'] ?? '') === 'sqlite') {
@@ -837,7 +989,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         }
         unset($env['APOTHEKE_CLI_ARGS'], $env['APOTHEKE_CLI_CWD']);
         $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
-            PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:restore', $dir . '/full.zip', ...$args];
+            PHP_BINARY, ROOT . '/ci4/spark', $command, ...($command === 'apotheke:restore' ? [$dir . '/full.zip'] : []), ...$args];
         $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
         $this->assertIsResource($proc);
         fclose($pipes[0]);

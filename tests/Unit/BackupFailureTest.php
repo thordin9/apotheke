@@ -851,9 +851,7 @@ final class BackupFailureTest extends TestCase
         $this->assertSame(422, $r['status'], $message . ' ' . substr((string)$r['body'], 0, 500));
         $this->assertStringContainsString(htmlspecialchars($message), (string)$r['body']);
         clearstatcache();
-        if (getenv('APOTHEKE_APP') !== 'ci4') {   // CI4 keeps it until the sweep: gap N-567 (#155)
-            $this->assertFileDoesNotExist($dir . '/tmp/restore-' . $token . '.zip', 'a failed restore removes its upload at once (N-567)');
-        }
+        $this->assertFileDoesNotExist($dir . '/tmp/restore-' . $token . '.zip', 'a failed restore removes its upload at once (N-567)');
     }
 
     /** @return array<string,array{name:string,type:string,data:string}> */

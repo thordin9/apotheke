@@ -237,8 +237,8 @@ final class ParityGateTest extends TestCase
             if ($e->getMessage() === 'skip') $this->markTestSkipped('needs PHP 8.4 and ci4/vendor');
             throw $e;
         }
-        $this->assertGreaterThanOrEqual(196, $gate['steps']);
+        $this->assertGreaterThanOrEqual(223, $gate['steps']);
         $this->assertSame([], $gate['diffs'], json_encode($gate['diffs'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '');
-        $this->assertSame(['autofill: settings test', 'autofill: settings test photo'], array_keys($gate['pending']));
+        $this->assertSame([], $gate['pending'], 'no step waits for an unported page');
     }
 }

@@ -323,6 +323,29 @@ function parity_gate_run(Server $server, string $dir, StubServer $stub): array
     $as('users', 'delete role', 'POST', '/settings/roles/counter-x/delete');
     $as('users', 'save session settings', 'POST', '/settings/security', ['auth_guest_disabled' => '1', 'auth_register_disabled' => '1', 'auth_register_role' => 'viewer', 'session_days' => '20', 'session_idle_hours' => '12']);
     $as('users', 'security page after', 'GET', '/settings/security?done=saved');
+    // Control Panel: the index and the sections (System shows the data directory, which differs per server:
+    // tests/Unit/Ci4ControlPanelParityTest.php compares it). A logo is uploaded and reset before the next page,
+    // since its cache buster is the file's time.
+    $as('settings', 'index', 'GET', '/settings', [], ['time' => true]);
+    foreach (['general', 'appearance', 'locale', 'list', 'limits', 'labels', 'uploads'] as $section) {
+        $as('settings', 'GET /settings/' . $section, 'GET', '/settings/' . $section, [], ['time' => in_array($section, ['general', 'appearance', 'labels'], true)]);
+    }
+    $as('settings', 'viewer general', 'GET', '/settings/general', [], ['who' => 'vera']);
+    $as('settings', 'viewer saves general', 'POST', '/settings/general', ['app_name' => 'Nope'], ['who' => 'vera']);
+    $as('settings', 'save general', 'POST', '/settings/general', ['app_name' => ' Shed <b> ', 'app_tagline' => 'tools', 'public_url' => 'http://catalog.example/']);
+    $as('settings', 'general after', 'GET', '/settings/general?done=saved');
+    $as('settings', 'general invalid', 'POST', '/settings/general', ['app_name' => '', 'public_url' => 'ftp://x']);
+    $as('settings', 'general fetch', 'POST', '/settings/general', ['app_name' => 'Shed', 'app_tagline' => '', 'public_url' => 'http://catalog.example/'], ['headers' => $fetch]);
+    $as('settings', 'save accent', 'POST', '/settings/appearance', ['accent' => '#C8502D', 'theme_default' => 'auto', 'icon_background' => '#FBF1E3']);
+    $as('settings', 'appearance after', 'GET', '/settings/appearance?done=saved');
+    $as('settings', 'logo png', 'POST', '/settings/logo', [], ['files' => ['logo' => ['name' => 'logo.png', 'type' => 'image/png', 'data' => img_png(96, 64)]]]);
+    $as('settings', 'logo reset', 'POST', '/settings/logo/reset');
+    $as('settings', 'logo too small', 'POST', '/settings/logo', [], ['files' => ['logo' => ['name' => 's.png', 'type' => 'image/png', 'data' => img_png(8, 8)]]]);
+    $as('settings', 'save labels', 'POST', '/settings/labels', ['label_width_mm' => '50', 'label_height_mm' => '40', 'label_columns' => '4', 'label_gap_mm' => '0', 'label_show_sub' => '0', 'label_show_url' => '1', 'label_border' => '1']);
+    $as('settings', 'labels invalid', 'POST', '/settings/labels', ['label_width_mm' => '5', 'label_columns' => 'x']);
+    $as('settings', 'appearance reset', 'POST', '/settings/appearance/reset');
+    $as('settings', 'save system (nothing to save)', 'POST', '/settings/system');
+    $as('settings', 'unknown section', 'GET', '/settings/nope');
     // Taxonomy.
     foreach (['/locations', '/categories', '/locations/2', '/locations/2/delete', '/categories/1/delete'] as $p) {
         $as('taxonomy', 'GET ' . $p, 'GET', $p, [], ['time' => in_array($p, ['/locations', '/categories'], true)]);
@@ -397,9 +420,11 @@ function parity_gate_run(Server $server, string $dir, StubServer $stub): array
     // Autofill against the stub (I-3: the unedited original is analysed).
     $as('autofill', 'suggest', 'POST', '/autofill/suggest', ['photo_id' => (string)($photos[0] ?? 0)], ['headers' => $fetch, 'stub' => true]);
     $as('autofill', 'suggest an upload', 'POST', '/autofill/suggest', [], ['files' => ['image' => $jpg], 'headers' => $fetch, 'stub' => true]);
-    $cp = ['why' => 'the Control Panel page (the html fragment of the result) is not ported yet', 'paths' => ['json.html']];
-    $as('autofill', 'settings test', 'POST', '/settings/autofill/test', [], ['headers' => $fetch, 'pending' => $cp]);
-    $as('autofill', 'settings test photo', 'POST', '/settings/autofill/test-photo', [], ['files' => ['photo' => $png], 'headers' => $fetch, 'stub' => true, 'pending' => $cp]);
+    $as('autofill', 'settings test', 'POST', '/settings/autofill/test', [], ['headers' => $fetch]);
+    $as('autofill', 'settings test photo', 'POST', '/settings/autofill/test-photo', [], ['files' => ['photo' => $png], 'headers' => $fetch, 'stub' => true]);
+    $as('autofill', 'settings test, plain form', 'POST', '/settings/autofill/test', ['autofill_timeout' => '5']);
+    $as('autofill', 'settings page', 'GET', '/settings/autofill', [], ['time' => true]);
+    $as('autofill', 'token with a space', 'POST', '/settings/autofill/token', ['token' => 'a b']);
     foreach (['error', 'malformed', 'busy', 'toolarge', 'unsupported'] as $mode) {
         parity_gate_setting($pdo, 'autofill_url', $stub->base . '/m/' . $mode);
         $stub->clear();

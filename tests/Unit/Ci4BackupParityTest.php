@@ -274,7 +274,7 @@ final class Ci4BackupParityTest extends TestCase
         $as('confirm failing write', 'POST', '/backup/restore/confirm', ['token' => $token, 'confirm' => '1']);
         $this->filesKept('confirm failing write', $dir, $files);
         $pdo->exec($pg ? 'DROP TRIGGER apotheke_test_fail ON activity' : 'DROP TRIGGER apotheke_test_fail');
-        $this->out['confirm failing write']['unchanged'] = self::withoutFiles($unchanged) === self::withoutFiles($this->out['confirm failing write']['tables']);
+        $this->out['confirm failing write']['unchanged'] = self::failedRestore($unchanged, $this->out['confirm failing write']['tables']);
         // Rows that break a foreign key: nothing is changed either.
         $bad = $dump;
         $bad['tables']['items']['rows'][0][array_search('location_id', $bad['tables']['items']['columns'], true)] = 999;
@@ -283,7 +283,7 @@ final class Ci4BackupParityTest extends TestCase
         $files = self::fileTree($dir);
         $as('confirm broken rows', 'POST', '/backup/restore/confirm', ['token' => self::token($r['body']), 'confirm' => '1']);
         $this->filesKept('confirm broken rows', $dir, $files);
-        $this->out['confirm broken rows']['unchanged'] = self::withoutFiles($unchanged) === self::withoutFiles($this->out['confirm broken rows']['tables']);
+        $this->out['confirm broken rows']['unchanged'] = self::failedRestore($unchanged, $this->out['confirm broken rows']['tables']);
 
         $r = $as('upload again', 'POST', '/backup/restore', [], $file($zip));
         $as('confirm', 'POST', '/backup/restore/confirm', ['token' => self::token($r['body']), 'confirm' => '1']);
@@ -562,6 +562,21 @@ final class Ci4BackupParityTest extends TestCase
         unset($state['settings'], $state['undo_tokens'], $state['waiting uploads'], $state['sequences']);
 
         return $state;
+    }
+
+    /**
+     * A failed restore changes no table and removes its own upload at once,
+     * not at the hourly sweep (N-567).
+     *
+     * @param array<string, mixed> $before
+     * @param array<string, mixed> $after
+     */
+    private static function failedRestore(array $before, array $after): bool
+    {
+        $uploads = [$before['waiting uploads'] - 1, $after['waiting uploads']];
+        unset($before['waiting uploads'], $after['waiting uploads']);
+
+        return self::withoutFiles($before) === self::withoutFiles($after) && $uploads[0] === $uploads[1];
     }
 
     /** @param array<string,mixed> $state */

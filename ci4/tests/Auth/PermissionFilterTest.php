@@ -41,6 +41,31 @@ final class PermissionFilterTest extends CIUnitTestCase
         'settings/autofill/token' => 'settings',
         'settings/autofill/test' => 'settings',
         'settings/autofill/test-photo' => 'settings',
+        'settings/import' => 'settings',
+        'settings/logo' => 'settings',
+        'settings/logo/reset' => 'settings',
+        'settings/general' => 'settings',
+        'settings/general/reset' => 'settings',
+        'settings/appearance' => 'settings',
+        'settings/appearance/reset' => 'settings',
+        'settings/locale' => 'settings',
+        'settings/locale/reset' => 'settings',
+        'settings/list' => 'settings',
+        'settings/list/reset' => 'settings',
+        'settings/items' => 'settings',
+        'settings/items/reset' => 'settings',
+        'settings/limits' => 'settings',
+        'settings/limits/reset' => 'settings',
+        'settings/labels' => 'settings',
+        'settings/labels/reset' => 'settings',
+        'settings/uploads' => 'settings',
+        'settings/uploads/reset' => 'settings',
+        'settings/autofill' => 'settings',
+        'settings/autofill/reset' => 'settings',
+        'settings/data' => 'settings',
+        'settings/data/reset' => 'settings',
+        'settings/system' => 'settings',
+        'settings/system/reset' => 'settings',
         'locations' => 'edit',
         'locations/1/rename' => 'edit',
         'locations/1/default' => 'edit',
@@ -255,8 +280,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(80, $n, "45 GET and 35 HEAD routes");
-        $this->assertSame(94, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(106, $n, "58 GET and 48 HEAD routes");
+        $this->assertSame(120, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /**
@@ -455,6 +480,11 @@ final class PermissionFilterTest extends CIUnitTestCase
         foreach ($variants as $variant) {
             $uri = '/' . $variant;
             $legacy = $rules->need('POST', LegacyPathRouter::legacyPath($uri));
+            // "//settings/labels" is legacy's path "/labels" (the first segment reads as a host): the viewer may print labels.
+            if ((new PermissionCheck(new RoleRepository($this->db())))->refusal(Services::currentUser()->resolve(), $legacy) === null) {
+                $this->assertNull($this->filterOrNull($variant, ['REQUEST_URI' => $uri]), $variant);
+                continue;
+            }
             $denied = $this->filter($variant, ['HTTP_ACCEPT' => 'application/json', 'REQUEST_URI' => $uri]);
             $this->assertSame(403, $denied->getStatusCode(), $variant);
             $message = 'Your role (Viewer) does not allow this – it needs the “' . Permissions::ALL[$legacy][0] . '” permission. Ask an admin.';

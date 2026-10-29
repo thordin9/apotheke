@@ -109,6 +109,9 @@ final class Restorer
     /** Legacy's quality for a thumbnail drawn again. */
     private const THUMB_QUALITY = 76;
 
+    /** @var list<string> N-611: the temp copies in DATA_DIR/tmp this restore made (backup.json, an entry being unpacked) */
+    private array $parts = [];
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param Closure():list<string> $known the migration versions this install has
@@ -202,12 +205,14 @@ final class Restorer
     /**
      * Open and lock the lock file $path (see lock()). $afterCheck runs
      * between the check of the name and the open, where another process
-     * could swap the file (a test seam for N-458).
+     * could swap the file (a test seam for N-458). $hardLink stands in for
+     * link() (a test seam for a file system without hard links, N-520).
      *
      * @param ?Closure():void $afterCheck
+     * @param ?Closure(string, string):bool $hardLink
      * @return resource
      */
-    public static function openLock(string $path, ?Closure $afterCheck = null)
+    public static function openLock(string $path, ?Closure $afterCheck = null, ?Closure $hardLink = null)
     {
         // N-456, N-459: never through a link or anything but a plain file, and say why.
         $named = @lstat($path);
@@ -218,14 +223,18 @@ final class Restorer
             $afterCheck();
         }
         if ($named === false) {
-            self::createLock($path);
+            self::createLock($path, $hardLink ?? static fn (string $target, string $link): bool => @link($target, $link));
         }
         // A file that is there is opened read-only, which creates nothing (L-455: flock() works on a read
         // handle, whoever made the file). N-562: no cached stat of the name is used for the open.
         clearstatcache(true, $path);
         $fh = @fopen($path, 'r');
         if ($fh === false) {
-            throw new UserError(self::FAILED);
+            // N-521: nothing, a link or anything but a plain file at the name by now says why, as the check does.
+            clearstatcache(true, $path);
+            $now = @lstat($path);
+
+            throw new UserError($now === false || !self::plainFile($now) ? self::LOCK_REFUSED : self::FAILED);
         }
         // N-458: what was opened must be the plain file at $path, not a link swapped in meanwhile.
         clearstatcache(true, $path);
@@ -247,8 +256,10 @@ final class Restorer
      * under a random name and hard-linked into place: link() never follows
      * a link and fails when the name exists. Only where the file system has
      * no hard links is 'x' used.
+     *
+     * @param Closure(string, string):bool $hardLink link()
      */
-    private static function createLock(string $path): void
+    private static function createLock(string $path, Closure $hardLink): void
     {
         $tmp = dirname($path) . '/.' . basename($path) . '-' . bin2hex(random_bytes(8));
         $fh = @fopen($tmp, 'x');
@@ -257,7 +268,7 @@ final class Restorer
         }
         fclose($fh);
         try {
-            if (!@link($tmp, $path) && @lstat($path) === false && ($fh = @fopen($path, 'x')) !== false) {
+            if (!$hardLink($tmp, $path) && @lstat($path) === false && ($fh = @fopen($path, 'x')) !== false) {
                 fclose($fh);
             }
         } finally {
@@ -288,10 +299,20 @@ final class Restorer
      */
     private function restoreLocked(string $zipPath, bool $settings): array
     {
-        $b = $this->inspect($zipPath);
+        // N-611: a fatal error while the backup is read leaves no temp copy in tmp/.
+        $this->parts = [];
+        $this->cleanup->add(self::CLEANUP, function (): void {
+            $this->dropParts();
+        });
+        try {
+            $b = $this->inspect($zipPath);
+        } catch (Throwable $e) {
+            $this->cleanup->drop(self::CLEANUP);
+
+            throw $e;
+        }
         $zip = $b['zip'];
         $warnings = $b['warnings'];
-        $tmp = $this->backups->tmpDir();
         // Files this restore creates, removed again if it fails; the original links it would write.
         $created = [];
         $links = [];
@@ -299,11 +320,14 @@ final class Restorer
         // A fatal error (the time limit, running out of memory) skips the
         // catch below: the exception handler then removes the files and
         // folders through RequestCleanup, unless the rows are in by then
-        // (legacy backup_restore_locked() does it on shutdown).
+        // (legacy backup_restore_locked() does it on shutdown), and the temp
+        // copies in tmp/ (N-611).
         $this->cleanup->add(self::CLEANUP, function () use (&$created, $folders): void {
             $this->discard($created);
             self::removeEmpty($folders);
+            $this->dropParts();
         });
+        $tmp = $this->backups->tmpDir();
         try {
             try {
                 $written = $this->restorePhotos($zip, $b['photoFiles'], $tmp, $warnings, $created);
@@ -442,8 +466,11 @@ final class Restorer
             throw new UserError($damaged);
         }
         $path = $tmp . '/restore-' . bin2hex(random_bytes(8)) . '.part';
+        // N-611: noted before it is made, so a fatal error right after the open still finds it
+        $this->parts[] = $path;
         $out = @fopen($path, 'xb');
         if ($out === false) {
+            array_pop($this->parts);
             fclose($in);
             throw new UserError(self::FAILED);
         }
@@ -695,19 +722,32 @@ final class Restorer
         if ($fh === false) {
             throw new UserError(self::FAILED);
         }
+        // Noted before it is written (the name is new; removing a missing key is fine), so a
+        // fatal error right after the write still removes it.
+        $created[] = [$store, $key];
         try {
             $store->writeStream($key, $fh);
         } finally {
             fclose($fh);
         }
-        $created[] = [$store, $key];
     }
 
     /** @param list<array{Storage,string}> $created */
     private static function create(Storage $store, string $key, string $bytes, array &$created): void
     {
+        $created[] = [$store, $key];   // before the write, as in createFrom()
         $store->write($key, $bytes);
-        $created[] = [$store, $key];
+    }
+
+    /** N-611: remove the temp copies a restore stopped by a fatal error still has in tmp/. */
+    private function dropParts(): void
+    {
+        foreach ($this->parts as $path) {
+            if (is_file($path) && !is_link($path)) {
+                @unlink($path);
+            }
+        }
+        $this->parts = [];
     }
 
     /** @param list<array{Storage,string}> $created */
@@ -748,8 +788,8 @@ final class Restorer
 
     /**
      * The camera-original links, once the rows are in, and each linked
-     * original made 0640 like a new one (legacy originals_chmod_file(), also
-     * for an original that was already there), only while it is a plain
+     * original 0640 like a new one (legacy originals_chmod_file(); an
+     * original kept from an older install is changed), only while it is a plain
      * file at its name (L-560: never through a link). Each map entry goes
      * through a temp file in the map folder and is renamed into place, so it
      * is never written through a link. A map name that is a link, or anything
@@ -769,8 +809,11 @@ final class Restorer
             $file = $dir . '/' . $base;
             clearstatcache(true, $file);
             $stat = @lstat($file);
-            if ($stat !== false && self::plainFile($stat)) {
-                @chmod($file, 0640);   // ignored where the filesystem cannot chmod, as in legacy
+            // A camera file this restore wrote is 0640 from the start (the originals storage's mode).
+            // Only one kept from an older install with another mode is changed, by name, while it is a
+            // plain file; the restore runs as DATA_DIR's owner (N-582). Ignored where the filesystem cannot chmod.
+            if ($stat !== false && self::plainFile($stat) && ($stat['mode'] & 0777) !== 0640) {
+                @chmod($file, 0640);
             }
             clearstatcache(true, $dir . '/' . $key);
             $named = @lstat($dir . '/' . $key);
