@@ -238,8 +238,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Stathis, 2026-10-27, via the PM), timing at least 200 requests per area; N-546. Merged at 24830e7; step 16 is done.
 - [#153](https://github.com/thordin9/apotheke/pull/153): CI allowlist for a historic Control Panel test placeholder
   (with [#152](https://github.com/thordin9/apotheke/pull/152) on `main`). Merged at 767126a.
-- [#149](https://github.com/thordin9/apotheke/pull/149): QA notes batch 4 part B, restore and CLI (L-622, N-621, N-611,
-  N-520, N-521, N-581, N-582, N-593, N-567). Merged at b38732e.
+- [#154](https://github.com/thordin9/apotheke/pull/154): step 17, the docs rewrite and the 3.0 upgrade guide
+  (`docs/upgrade-3.0.md`), with N-640 to N-643. Merged at 7ee637b.
+- [#151](https://github.com/thordin9/apotheke/pull/151): the Control Panel settings pages on CI4. Merged at 77d9170.
+- [#149](https://github.com/thordin9/apotheke/pull/149): QA notes batch 4, part B (restore and CLI). Merged at b38732e.
+- [#155](https://github.com/thordin9/apotheke/pull/155): sync `main` v2.6.26 (#148). Merged at 455aef8.
 - [#157](https://github.com/thordin9/apotheke/pull/157): CLI owner follow-up: every root spark command switches or stops
   before boot (L-700), the CI4 `bin/` tools check first (N-625), missing posix functions stop with exit 1 (N-681, N-702,
   N-781), N-701 tests, the bounded settings import (L-740), the run-time parity placeholder and N-720. Open.
@@ -265,7 +268,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Sync v2.6.23 (#139, merged). Step 16 part 2 (#140, merged). Step 16 part 3 (#150, merged; step 16 done): compiled
   routes (`CompiledRouteCollection`, `app/Config/RoutesCompiled.php`, `spark apotheke:routes`), the cache handler, the
   parity-gate budget lines in `ci.yml`, and N-546 in `scripts/upgrade-rollback.sh`.
-  Step 17, the docs rewrite ([#154](https://github.com/thordin9/apotheke/pull/154), open): `docs/upgrade-3.0.md` (new), the CI4
+  Step 17, the docs rewrite ([#154](https://github.com/thordin9/apotheke/pull/154), merged at 7ee637b; QA follow-up
+  [#156](https://github.com/thordin9/apotheke/pull/156), open): `docs/upgrade-3.0.md` (new), the CI4
   sections of the architecture, getting-started, configuration, database, deployment, control-panel and CI pages,
   README and the docs index. Docs only; stays out of code.
   Sync v2.6.26 ([#155](https://github.com/thordin9/apotheke/pull/155)): legacy gets #148; #149 closes the CI4 gaps
@@ -278,7 +282,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   CLI restore as the data-dir owner (#145 on `main`, v2.6.25; #146, merged at b12fbbb). QA notes batch 4, part A
   ([#147](https://github.com/thordin9/apotheke/pull/147), merged at 7924841): `Config/Routes.php` (the auth and import blocks),
   `Core/Http/WebRoutes.php`, `CsvExport.php`, `CsvExportTest`, `PermissionFilterTest`, `Ci4ImportExportParityTest`,
-  `Ci4ImportRaceTest`, `tests/lib.php`. Part B (restore and CLI) and a `main` PR follow. Control Panel (#151, open): `ci4/modules/ControlPanel`,
+  `Ci4ImportRaceTest`, `tests/lib.php`. Part B (restore and CLI) and a `main` PR follow. Control Panel (#151, merged at 77d9170): `ci4/modules/ControlPanel`,
   `Settings/Branding/LogoInstaller.php`, `SettingsService::secretStorageWarning()`, the Control Panel block in
   `Config/Routes.php` and `Config\Services`, `deptrac.yaml`, `PermissionFilterTest`, `ci4/tests/ControlPanel`,
   `Ci4ControlPanelParityTest`, `ParityGateTest`, the scenario in `tests/parity/gate.php`, `tests/visual/fixtures.ts`,
@@ -286,6 +290,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
   append your own block in a small hunk; do not reorder or reformat other blocks. Merge `feature/ci4` in (no rebase)
   before pushing when it has moved.
+- Coder2, QA notes batch 4 part B ([#149](https://github.com/thordin9/apotheke/pull/149), merged at b38732e): `Backup/Restorer.php`,
+  `Backup/Commands/DataDirOwner.php`, `Backup/Commands/BackupCli.php`, `Backup/Controllers/BackupController.php`,
+  `ci4/spark`, the legacy copies `bin/restore.php` and `public/index.php` (same change as #148 on `main`),
+  `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`, `BackupFailureTest`. Overlap: `ci4/spark` and the legacy copies
+  with Coder's syncs; part A is #147, the `main` notes are #148.
 - Coder2, CLI owner follow-up ([#157](https://github.com/thordin9/apotheke/pull/157), open): `ci4/spark`,
   `Backup/Commands/DataDirOwner.php`, the CI4 branches of `bin/backup.php`, `bin/migrate.php`, `bin/restore.php` and
   `bin/settings.php`, `SettingsService::readImportFile()` and the import action in `ControlPanelController`,
@@ -328,7 +337,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
    area; SQLite still +64 to +144 % in 8 areas (about 1 to 2 ms of framework boot at the median: route table,
    request and response, filters, configs), a further step. #137 is merged; the temporary budget is replaced by the item 8
    bar (#150).
-10. Control Panel settings pages: Coder2's #151 (open), in parallel with step 17, blocks step 18 (cutover); its
+10. Control Panel settings pages: Coder2's #151 (merged at 77d9170) no longer blocks step 18 (cutover); its
     `RoutesCompiled.php` is regenerated with these routes.
 11. After step 18: the `release/2.5` patch-only flow in `docs/releasing.md` and its `release.yml` guard (owner: Apotheke Coder).
 

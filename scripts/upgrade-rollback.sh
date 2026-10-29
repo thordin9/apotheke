@@ -195,6 +195,8 @@ chmod 0700 "$DATA_DIR/files"
 snap backup m4
 must_fail 'files/ not legacy mode (0700)' 'mode files' m0 m4
 chmod "$UPGRADE_FILES_MODE" "$DATA_DIR/files"
+snap backup m4u
+check 'file mutations undone' m0 m4u
 mutate 'DELETE FROM item_tags'
 snap backup m5
 must_fail 'emptied carried table (item_tags)' item_tags m0 m5
