@@ -17,13 +17,13 @@ require_once dirname(__DIR__) . '/lib.php';
  */
 final class Ci4BulkMergeParityTest extends TestCase
 {
-    public function testBulkMergeDuplicateQuantityAndAttachmentsMatchLegacy(): void
+    public function testBulkMergeDuplicateQuantityAndAttachments(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $dir = tmpdir('bulk-' . $app);
             $server = new Server($dir, ['APOTHEKE_CLOCK' => '2026-06-15 21:30:00'], $app);
             try {
@@ -36,11 +36,7 @@ final class Ci4BulkMergeParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
-        $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
-        foreach ($answers['legacy'] as $case => $legacy) {
-            $this->assertSame($legacy, $answers['ci4'][$case], $case);
-        }
-        $l = $answers['legacy'];
+        $l = $answers['ci4'];
         // The cases are what they claim to be.
         $this->assertSame(['ok' => true, 'quantity' => 0, 'low' => true], $l['qty fetch -5']['json']);
         $this->assertSame([303, '/item/1'], [$l['qty +1']['status'], $l['qty +1']['location']]);

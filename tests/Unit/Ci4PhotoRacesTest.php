@@ -39,8 +39,8 @@ final class Ci4PhotoRacesTest extends TestCase
     public function testASaveWithAPhotoSurvivesAWriteDuringTheDecode(): void
     {
         $big = ['name' => 'big.jpg', 'type' => 'image/jpeg', 'data' => $this->image(4000, 3000, 'jpeg')];
-        foreach (['legacy', 'ci4'] as $app) {
-            if ($app === 'ci4' && !$this->ci4()) {
+        foreach (['ci4'] as $app) {
+            if (!$this->ci4()) {
                 continue;
             }
             $this->start($app);

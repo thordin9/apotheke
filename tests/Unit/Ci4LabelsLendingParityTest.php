@@ -16,13 +16,13 @@ require_once dirname(__DIR__) . '/lib.php';
  */
 final class Ci4LabelsLendingParityTest extends TestCase
 {
-    public function testLabelsBarcodeAndLendingMatchLegacy(): void
+    public function testLabelsBarcodeAndLending(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $dir = tmpdir('labels-' . $app);
             $server = new Server($dir, ['APOTHEKE_CLOCK' => '2026-06-15 21:30:00'], $app);
             try {
@@ -35,11 +35,7 @@ final class Ci4LabelsLendingParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
-        $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
-        foreach ($answers['legacy'] as $case => $legacy) {
-            $this->assertSame($legacy, $answers['ci4'][$case], $case);
-        }
-        $l = $answers['legacy'];
+        $l = $answers['ci4'];
         // The cases are what they claim to be.
         $this->assertSame(3, substr_count((string)$l['labels all locations']['body'], '<figure class="label"'));
         $this->assertStringContainsString('<svg class="qr"', (string)$l['labels all locations']['body']);

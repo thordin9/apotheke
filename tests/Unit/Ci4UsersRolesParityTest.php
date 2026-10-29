@@ -22,13 +22,13 @@ final class Ci4UsersRolesParityTest extends TestCase
 {
     private const PW = 'long-enough';
 
-    public function testTheUsersAndRolesPagesMatchLegacy(): void
+    public function testTheUsersAndRolesPages(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $dir = tmpdir('users-' . $app);
             $server = new Server($dir, [], $app);
             try {
@@ -41,16 +41,12 @@ final class Ci4UsersRolesParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
-        $this->assertGreaterThan(150, count($answers['legacy']));
-        $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
-        foreach ($answers['legacy'] as $case => $legacy) {
-            $this->assertSame($legacy, $answers['ci4'][$case], $case);
-        }
+        $this->assertGreaterThan(150, count($answers['ci4']));
         // A password with a NUL byte: both refuse it with a 422 and the form (#106 on legacy).
-        $this->assertStringContainsString('Passwords cannot contain a null character.', (string)$answers['legacy']['add NUL in password']['body']);
-        $this->assertSame([422, 422], [$answers['legacy']['add NUL in password']['status'], $answers['legacy']['vera password NUL']['status']]);
+        $this->assertStringContainsString('Passwords cannot contain a null character.', (string)$answers['ci4']['add NUL in password']['body']);
+        $this->assertSame([422, 422], [$answers['ci4']['add NUL in password']['status'], $answers['ci4']['vera password NUL']['status']]);
         // The cases are what they claim to be.
-        $l = $answers['legacy'];
+        $l = $answers['ci4'];
         $this->assertSame(200, $l['ada GET /settings/security']['status']);
         $this->assertStringContainsString('id="users"', (string)$l['ada GET /settings/security']['body']);
         $this->assertSame(200, $l['dee GET /settings/security']['status']);

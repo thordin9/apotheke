@@ -45,7 +45,7 @@ final class Ci4SettingsCliTest extends TestCase
         }
     }
 
-    public function testSettingsFormsMatchLegacy(): void
+    public function testSettingsForms(): void
     {
         [$left, $right] = $this->twins('cli');
         $import = $left . '-import.json';
@@ -79,7 +79,7 @@ final class Ci4SettingsCliTest extends TestCase
      * `import` from stdin and files (empty, malformed, partial, over the web
      * form's 256 KiB), unknown and mis-cased commands, and a final export.
      */
-    public function testEveryOtherFormAndCaseMatchesLegacy(): void
+    public function testEveryOtherFormAndCase(): void
     {
         [$left, $right] = $this->twins('cli-all');
         $schema = new SettingsSchema();
@@ -178,41 +178,29 @@ final class Ci4SettingsCliTest extends TestCase
     }
 
     /**
-     * The intentional deviations (signed off by the PM), each pinned on both
-     * sides so the difference is exactly the documented one. A read-only
+     * The deviations from 2.x that docs/upgrade-3.0.md lists. A read-only
      * `list` is no longer one: see testListCreatesTheFirstAdminOrRefusesAShortAppPassword().
      */
-    public function testIntentionalDeviationsFromLegacy(): void
+    public function testDocumentedDeviations(): void
     {
-        [$left, $right] = $this->twins('cli-dev');
-        foreach ([$left, $right] as $dir) {
-            $this->cli($dir, ['list'], $dir === $right);   // create both databases
-            $this->storeToken($dir, 'placeholder-token');
-        }
-        // 1. Secrets are write-only. Legacy prints them (with the S-L5 notice, as no APP_KEY is set).
-        $l = $this->cli($left, ['get', 'autofill_token'], false);
-        $this->assertSame(["\"placeholder-token\"\n", "apotheke: set APP_KEY to encrypt stored secrets\n", 0], [$l['stdout'], $l['stderr'], $l['exit']]);
+        [, $right] = $this->twins('cli-dev');
+        $this->cli($right, ['list'], true);   // create the database
+        $this->storeToken($right, 'placeholder-token');
+        // 1. Secrets are write-only (2.x printed them).
         $r = $this->cli($right, ['get', 'autofill_token'], true);
         $this->assertSame(['', "“autofill_token” is write-only.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
-        $l = $this->cli($left, ['get', 'password_hash'], false);
-        $this->assertSame(0, $l['exit']);
         $r = $this->cli($right, ['get', 'password_hash'], true);
         $this->assertSame(['', "“password_hash” is write-only.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
 
-        // 2. get of an unknown key: legacy dies with an uncaught exception (exit 255).
+        // 2. get of an unknown key: a message and exit 1 (2.x died with an uncaught exception, exit 255).
         foreach ([['get', 'nope'], ['get']] as $args) {
-            $l = $this->cli($left, $args, false);
-            $this->assertSame(255, $l['exit'], implode(' ', $args));
             $key = $args[1] ?? '';
             $r = $this->cli($right, $args, true);
             $this->assertSame(['', "Unknown setting “{$key}”.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
         }
 
-        // 3. import of a missing file: the same message and exit code, minus PHP's warning line.
-        $l = $this->cli($left, ['import', '/nonexistent/settings.json'], false);
+        // 3. import of a missing file: the message and exit code without PHP's warning line.
         $r = $this->cli($right, ['import', '/nonexistent/settings.json'], true);
-        $this->assertStringContainsString('file_get_contents(/nonexistent/settings.json)', $l['stdout'] . $l['stderr']);
-        $this->assertSame([$this->withoutPhpWarnings($l['stdout']), $this->withoutPhpWarnings($l['stderr']), $l['exit']], [$r['stdout'], $r['stderr'], $r['exit']]);
         $this->assertSame(['', "That is not an Apotheke settings file.\n", 1], [$r['stdout'], $r['stderr'], $r['exit']]);
 
     }
@@ -252,7 +240,7 @@ final class Ci4SettingsCliTest extends TestCase
      * a row the current key cannot open changes nothing), and afterwards the
      * rows open with the new key. Placeholder keys only.
      */
-    public function testKeyRotateMatchesLegacy(): void
+    public function testKeyRotate(): void
     {
         $old = base64_encode(str_repeat('k', 32));
         $new = base64_encode(str_repeat('n', 32));
@@ -311,7 +299,7 @@ final class Ci4SettingsCliTest extends TestCase
      * enc:v1: rows and print the same log lines; a legacy plaintext token is
      * sealed on read by both. Placeholder keys only.
      */
-    public function testStoredSecretKeyHandlingMatchesLegacy(): void
+    public function testStoredSecretKeyHandling(): void
     {
         $key = base64_encode(str_repeat('k', 32));
         $other = base64_encode(str_repeat('o', 32));
@@ -434,7 +422,20 @@ final class Ci4SettingsCliTest extends TestCase
      */
     private function cli(string $dir, array $args, bool $ci4, ?string $stdin = null, array $extraEnv = []): array
     {
-        return $this->proc([PHP_BINARY, ROOT . '/bin/settings.php', ...$args], array_merge($this->env($dir, $ci4), $extraEnv), $stdin);
+        // $ci4: through bin/settings.php; otherwise the spark command it starts.
+        $cmd = $ci4 ? [PHP_BINARY, ROOT . '/bin/settings.php', ...$args] : [PHP_BINARY, ROOT . '/spark', self::form($args), '--no-header', ...$args];
+
+        return $this->proc($cmd, array_merge($this->env($dir, $ci4), $extraEnv), $stdin);
+    }
+
+    /**
+     * The spark command bin/settings.php starts for $args.
+     *
+     * @param list<string> $args
+     */
+    private static function form(array $args): string
+    {
+        return in_array($args[0] ?? '', ['users', 'user', 'roles', 'auth', 'password'], true) ? 'apotheke:accounts' : 'apotheke:settings';
     }
 
     /**
@@ -476,9 +477,6 @@ final class Ci4SettingsCliTest extends TestCase
             'PHP_INI_SCAN_DIR' => '',
         ]);
         unset($env['APOTHEKE_APP']);
-        if ($ci4) {
-            $env['APOTHEKE_APP'] = 'ci4';
-        }
 
         return array_map('strval', $env);
     }
@@ -486,8 +484,8 @@ final class Ci4SettingsCliTest extends TestCase
     /** @return array{0:string,1:string} */
     private function twins(string $prefix): array
     {
-        $left = tmpdir($prefix . '-legacy');
-        $right = tmpdir($prefix . '-ci4');
+        $left = tmpdir($prefix . '-spark');
+        $right = tmpdir($prefix . '-bin');
         array_push($this->dirs, $left, $right);
 
         return [$left, $right];

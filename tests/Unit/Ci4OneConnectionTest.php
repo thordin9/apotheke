@@ -41,20 +41,15 @@ final class Ci4OneConnectionTest extends TestCase
         }
     }
 
-    public function testEachRequestLogsInOnceOnLegacyAndCi4(): void
+    public function testEachRequestLogsInOnce(): void
     {
-        $counts = ['legacy' => $this->connectsPerRequest('legacy')];
-        if (PHP_VERSION_ID >= 80400 && is_file(ROOT . '/vendor/autoload.php')) {
-            $counts['ci4'] = $this->connectsPerRequest('ci4');
+        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/vendor/autoload.php')) {
+            $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        foreach ($counts as $app => [$first, $after]) {
-            // The first request migrates the empty database: CI4's runner opens its own connection then.
-            $this->assertSame($app === 'ci4' ? 2 : 1, $first, $app . ': first request (migrates)');
-            $this->assertSame(count(self::REQUESTS), $after, $app . ': ' . count(self::REQUESTS) . ' requests on a current schema');
-        }
-        if (!isset($counts['ci4'])) {
-            $this->markTestIncomplete('CI4 vendor and PHP 8.4 are required for the CI4 half');
-        }
+        [$first, $after] = $this->connectsPerRequest('ci4');
+        // The first request migrates the empty database: the runner opens its own connection then.
+        $this->assertSame(2, $first, 'first request (migrates)');
+        $this->assertSame(count(self::REQUESTS), $after, count(self::REQUESTS) . ' requests on a current schema');
     }
 
     /** @return array{0:int,1:int} logins for the first request, then for self::REQUESTS together */
@@ -74,7 +69,7 @@ final class Ci4OneConnectionTest extends TestCase
             'DB_USER' => $pg['user'],
             'DB_PASSWORD' => $pg['password'],
             'DB_SCHEMA' => $schema,
-        ], $app, $app === 'ci4' ? ROOT . '/public/router.php' : null);
+        ], $app, ROOT . '/public/router.php');
         try {
             $start = $this->sessions(0);
             $got = $server->client()->get('/healthz');

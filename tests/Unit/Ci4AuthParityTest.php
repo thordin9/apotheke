@@ -24,13 +24,13 @@ final class Ci4AuthParityTest extends TestCase
 {
     private const PW = 'long-enough';
 
-    public function testTheAuthPagesMatchLegacy(): void
+    public function testTheAuthPages(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $dir = tmpdir('auth-' . $app);
             $server = new Server($dir, ['TRUSTED_PROXIES' => '127.0.0.1'], $app);
             try {
@@ -60,24 +60,16 @@ final class Ci4AuthParityTest extends TestCase
                 }
             }
         }
-        $this->assertSame(['legacy' => ['PUT' => 200, 'PATCH' => 200, 'DELETE' => 200, 'CONNECT' => 200], 'ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419, 'CONNECT' => 419]], $untokened);
+        $this->assertSame(['ci4' => ['PUT' => 419, 'PATCH' => 419, 'DELETE' => 419, 'CONNECT' => 419]], $untokened);
         $this->assertCount(15, $webdav['ci4']);
         foreach ($webdav['ci4'] as $case => $answer) {
             // Signed out, /account still goes to /login first on both (the permission check).
             $out = str_ends_with($case, 'PROPFIND /account') && (str_starts_with($case, 'guest ') || str_starts_with($case, 'signed-out '));
             $this->assertSame($out ? [303, '/login'] : [404, null], $answer, $case);
-            $this->assertTrue(!$out || $webdav['legacy'][$case] === $answer, $case);
         }
-        $this->assertSame([200, null], $webdav['legacy']['signed-out PROPFIND /login']);
-        $this->assertSame([200, null], $webdav['legacy']['eda PROPFIND /account']);
-        $this->assertSame([303, '/'], $webdav['legacy']['ada PROPFIND /login']);
-        $this->assertGreaterThan(80, count($answers['legacy']));
-        $this->assertSame(array_keys($answers['legacy']), array_keys($answers['ci4']));
-        foreach ($answers['legacy'] as $case => $legacy) {
-            $this->assertSame($legacy, $answers['ci4'][$case], $case);
-        }
+        $this->assertGreaterThan(80, count($answers['ci4']));
         // The cases are what they claim to be.
-        $l = $answers['legacy'];
+        $l = $answers['ci4'];
         $this->assertSame(200, $l['signed-out GET /login']['status']);
         foreach (['OPTIONS', 'TRACE'] as $verb) {
             $this->assertSame($l['eda GET /account']['body'], $l['eda ' . $verb . ' /account without csrf']['body'], $verb . ' /account (N-353)');
@@ -151,13 +143,13 @@ final class Ci4AuthParityTest extends TestCase
      * end is refused by both apps (422, the invalid-name message), and no
      * account is created.
      */
-    public function testANullCharacterInARegisteredNameIsRefusedOnBoth(): void
+    public function testANullCharacterInARegisteredNameIsRefused(): void
     {
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $seen = [];
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $dir = tmpdir('auth-nul-' . $app);
             $server = new Server($dir, [], $app);
             try {
@@ -185,7 +177,6 @@ final class Ci4AuthParityTest extends TestCase
                 @unlink($dir . '.server.log');
             }
         }
-        $this->assertSame($seen['legacy'], $seen['ci4']);
         $this->assertSame([[422, true, ['ada']], [422, true, ['ada']]], $seen['ci4'], 'the name is refused as sent');
     }
 

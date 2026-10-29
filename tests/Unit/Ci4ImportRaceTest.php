@@ -25,7 +25,7 @@ final class Ci4ImportRaceTest extends TestCase
         if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        foreach (['legacy', 'ci4'] as $app) {
+        foreach (['ci4'] as $app) {
             $this->race($app);
         }
     }
@@ -106,7 +106,7 @@ final class Ci4ImportRaceTest extends TestCase
             fclose($pipes[2]);
             proc_close($proc);
             $this->assertSame("committed\n", $other);
-            $this->assertSame($app === 'ci4' ? [303, $server->base . '/import?done=2'] : [410, ''], [$status, $location], $app . ': ' . substr($body, 0, 2000));
+            $this->assertSame([303, $server->base . '/import?done=2'], [$status, $location], $app . ': ' . substr($body, 0, 2000));
         } finally {
             $server->stop();
             testdb_drop($dir);

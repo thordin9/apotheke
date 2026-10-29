@@ -530,7 +530,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
         });
     }
 
-    public function testARestoreIntoAFreshDataDirMakesEachFolderWithLegacysMode(): void
+    public function testARestoreIntoAFreshDataDirMakesEachFolderWithItsMode(): void
     {
         $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
             $this->zip($dir . '/full.zip', $this->fullBackup($this->dump($server, $dir)));
@@ -540,7 +540,7 @@ final class Ci4BackupRestoreChecksTest extends TestCase
             ];
             foreach ($want as $umask => $modes) {
                 $seen = [];
-                foreach (['legacy', 'ci4'] as $app) {
+                foreach (['ci4'] as $app) {
                     foreach (['images', 'thumbs', 'files', 'originals', 'tmp', 'sessions'] as $sub) {
                         rrmdir($dir . '/' . $sub);
                     }
@@ -551,9 +551,6 @@ final class Ci4BackupRestoreChecksTest extends TestCase
                 }
                 $label = sprintf('umask %04o', $umask);
                 $this->assertSame(array_map(static fn (int $m): string => sprintf('%04o', $m), $modes), $seen['ci4'], $label);
-                // tmp/ comes from the restore lock, which legacy here gets with the v2.6.23 sync (0770, as checked above).
-                $this->assertSame($seen['legacy'], array_intersect_key($seen['ci4'], $seen['legacy']), "$label: as legacy");
-                $this->assertSame([], array_values(array_diff(array_keys($seen['legacy']), array_keys($seen['ci4']))), $label);
             }
         });
     }

@@ -29,9 +29,10 @@ final class BackupMemoryTest extends TestCase
             $this->markTestSkipped('CI4 needs PHP 8.4 and vendor');
         }
         $json = [];
-        foreach (['legacy' => [], 'ci4' => ['memory_limit' => '24M']] as $app => $ini) {
+        // The same backup at the default limit, then at 24 MB.
+        foreach (['default' => [], 'low' => ['memory_limit' => '24M']] as $app => $ini) {
             $dir = tmpdir('backup-memory-' . $app);
-            $server = new Server($dir, ['APOTHEKE_CLOCK' => self::CLOCK], $app, null, $ini);
+            $server = new Server($dir, ['APOTHEKE_CLOCK' => self::CLOCK], 'ci4', null, $ini);
             try {
                 $this->assertSame(200, $server->client()->get('/healthz')['status'], (string)@file_get_contents($server->log));
                 $this->seed(testdb($dir));
@@ -39,9 +40,9 @@ final class BackupMemoryTest extends TestCase
                 $this->assertSame(200, $r['status'], $app . ': ' . substr((string)$r['body'], 0, 300));
                 $this->assertSame('application/zip', $r['headers']['content-type'] ?? null, $app);
                 $json[$app] = $this->backupJson((string)$r['body'], $dir . '/web.zip');
-                if ($app === 'ci4') {
-                    $this->assertSame(hash('sha256', $json['legacy']), hash('sha256', $json['ci4']), 'web');
-                    $this->assertCliBackup($dir, $json['legacy']);
+                if ($app === 'low') {
+                    $this->assertSame(hash('sha256', $json['default']), hash('sha256', $json['low']), 'web');
+                    $this->assertCliBackup($dir, $json['default']);
                     $this->assertRestoreStreams($server, $dir, (string)$r['body']);
                 }
             } finally {

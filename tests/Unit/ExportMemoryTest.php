@@ -18,12 +18,10 @@ final class ExportMemoryTest extends TestCase
 
     public function testTheExportStreamsUnderALowMemoryLimit(): void
     {
-        $apps = ['legacy'];
-        if (is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') && PHP_VERSION_ID >= 80400) {
-            $apps[] = 'ci4';
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 needs PHP 8.4 and vendor');
         }
-        $hashes = [];
-        foreach ($apps as $app) {
+        foreach (['ci4'] as $app) {
             $dir = tmpdir('export-memory-' . $app);
             $server = new Server($dir, ['APOTHEKE_CLOCK' => '2026-06-15 21:30:00'], $app, null, ['memory_limit' => '24M']);
             try {
@@ -37,22 +35,16 @@ final class ExportMemoryTest extends TestCase
                 // The last item, whole (no assertStringEndsWith: a failure would print 24 MB).
                 $last = substr($body, (int)strrpos($body, "\n", -2) + 1);
                 $this->assertSame('8000,"Item 08000",,,1,' . str_repeat('n', 3000) . ',,2026-01-01,2026-01-01,"A, B",,,,,,,,,,' . "\n", $last, $app);
-                $hashes[$app] = hash('sha256', $body);
-                if ($app === 'ci4') {
-                    // CI4 runs the items query before it sends anything: a failing read is a 500 page.
-                    testdb($dir)->exec('ALTER TABLE items RENAME TO items_gone');
-                    $failed = $server->client()->get('/export.csv');
-                    $this->assertSame([500, 'text/html; charset=UTF-8'], [$failed['status'], $failed['headers']['content-type'] ?? null]);
-                }
+                // The items query runs before anything is sent: a failing read is a 500 page.
+                testdb($dir)->exec('ALTER TABLE items RENAME TO items_gone');
+                $failed = $server->client()->get('/export.csv');
+                $this->assertSame([500, 'text/html; charset=UTF-8'], [$failed['status'], $failed['headers']['content-type'] ?? null]);
             } finally {
                 $server->stop();
                 testdb_drop($dir);
                 rrmdir($dir);
                 @unlink($dir . '.server.log');
             }
-        }
-        if (isset($hashes['ci4'])) {
-            $this->assertSame($hashes['legacy'], $hashes['ci4']);
         }
     }
 

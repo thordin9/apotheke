@@ -7,8 +7,8 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 
 /**
- * CLI goldens: `php bin/seed.php [--demo]` on legacy and with
- * APOTHEKE_APP=ci4 (spark apotheke:seed), on twin databases of the configured
+ * CLI goldens: `php bin/seed.php [--demo]` and the spark apotheke:seed
+ * command it starts, on twin databases of the configured
  * driver: the same output and exit code, then the same rows (photo names
  * aside, which are random) and the same served photo bytes. Run again, it
  * adds nothing.
@@ -38,7 +38,7 @@ final class Ci4SeedCliTest extends TestCase
         }
     }
 
-    public function testSeedAndDemoMatchLegacy(): void
+    public function testSeedAndDemo(): void
     {
         foreach (['0', '1'] as $seedDefaults) {
             [$left, $right] = $this->twins('seed');
@@ -98,7 +98,11 @@ final class Ci4SeedCliTest extends TestCase
      */
     private function seed(string $dir, array $args, bool $ci4, string $seedDefaults): array
     {
-        return $this->proc([PHP_BINARY, ROOT . '/bin/seed.php', ...$args], $this->env($dir, $ci4, $seedDefaults));
+        // $ci4: through bin/seed.php, which passes on --demo only; otherwise the spark command it starts.
+        $cmd = $ci4 ? [PHP_BINARY, ROOT . '/bin/seed.php', ...$args]
+            : [PHP_BINARY, ROOT . '/spark', 'apotheke:seed', '--no-header', ...array_values(array_intersect($args, ['--demo']))];
+
+        return $this->proc($cmd, $this->env($dir, $ci4, $seedDefaults));
     }
 
     /**
@@ -130,9 +134,6 @@ final class Ci4SeedCliTest extends TestCase
             'SEED_DEFAULTS' => $seedDefaults,
         ]);
         unset($env['APOTHEKE_APP']);
-        if ($ci4) {
-            $env['APOTHEKE_APP'] = 'ci4';
-        }
 
         return array_map('strval', $env);
     }
@@ -140,8 +141,8 @@ final class Ci4SeedCliTest extends TestCase
     /** @return array{0:string,1:string} */
     private function twins(string $prefix): array
     {
-        $left = tmpdir($prefix . '-legacy');
-        $right = tmpdir($prefix . '-ci4');
+        $left = tmpdir($prefix . '-spark');
+        $right = tmpdir($prefix . '-bin');
         array_push($this->dirs, $left, $right);
 
         return [$left, $right];
