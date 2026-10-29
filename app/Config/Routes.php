@@ -185,5 +185,11 @@ $routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 
 // API v1 (API plan §3). Every endpoint keeps the permission of the UI route it
 // replaces. Anything else under /api answers 404 problem+json; it is last so the
 // endpoints above match first.
-$web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', ['permission' => 'public']);
-$web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', ['permission' => 'public']);
+$apiSession = '\\Apotheke\\Auth\\Controllers\\Api\\SessionController';
+$public = ['permission' => 'public'];   // the session is how you sign in; ApiCsrf still guards its writes
+$routes->get('api/v1/session', $apiSession . '::show', $public);
+$routes->post('api/v1/session', $apiSession . '::create', $public);
+$routes->delete('api/v1/session', $apiSession . '::delete', $public);
+$routes->get('api/v1/me', $apiSession . '::account', ['permission' => 'self']);
+$web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
+$web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

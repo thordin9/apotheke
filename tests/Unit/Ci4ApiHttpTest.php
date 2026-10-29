@@ -119,6 +119,23 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertSame([413, 'upload.too_large'], [$big['status'], $big['json']['code'] ?? null], 'over post_max_size');
     }
 
+    /** Sign-in off: the visitor is the anonymous admin, not an account, so `self` refuses (PM decision c). */
+    public function testWithSignInOffMeIsForbiddenAndSignInIsOff(): void
+    {
+        $c = $this->client();
+        $s = $c->rest('GET', '/api/v1/session');
+        $this->assertFalse($s['json']['signed_in']);
+        $this->assertFalse($s['json']['sign_in_enabled']);
+        $this->assertContains('users', $s['json']['permissions']);
+        $me = $c->rest('GET', '/api/v1/me');
+        $this->assertSame([403, 'permission.denied'], [$me['status'], $me['json']['code']]);
+        $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $me['headers']['content-security-policy']);
+        $in = $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => 'x'], ['X-CSRF-Token: ' . $s['json']['csrf_token']]);
+        $this->assertSame([409, 'auth.sign_in_off'], [$in['status'], $in['json']['code']]);
+        $ok = $c->rest('POST', '/api/v1/nothing-here', [], ['X-CSRF-Token: ' . $s['json']['csrf_token']]);
+        $this->assertSame([404, 'not_found'], [$ok['status'], $ok['json']['code']], 'with the token the request gets through');
+    }
+
     public function testHstsWhenPublicUrlIsHttps(): void
     {
         $dir = tmpdir('api-hsts');

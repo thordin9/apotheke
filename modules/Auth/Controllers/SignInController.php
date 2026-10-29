@@ -38,16 +38,7 @@ final class SignInController extends AuthPages
         $raw = $this->post('username');
         $who = \Apotheke\Core\Libraries\Text::cleanLine($raw, Accounts::USERNAME_MAX * 2);
         try {
-            $mine = $this->limiter()->hit('login_address');   // all names from this address
-            $this->limiter()->hit('login', $who);
-            // A name with a null character anywhere (checked before trimming) never matches an account (N-221).
-            $user = $this->accounts()->signIn($started, str_contains($raw, "\0") ? $raw : $who, $this->post('password'));
-            if ($user !== null) {
-                $this->accounts()->admit($user);
-                (new SessionGate(time()))->signIn($user['id'], (new SessionEpoch())->of($user));
-                $this->limiter()->clear('login', $who);
-                $this->limiter()->forget($mine);   // a success takes back only its own address row
-
+            if ($this->attemptSignIn($started, $raw, $who, $this->post('password')) !== null) {
                 return $this->redirectTo('/');
             }
             return $this->page($this->loginPage('Wrong user name or password.', $who), 401);
@@ -117,15 +108,6 @@ final class SignInController extends AuthPages
         $config = service('apothekeConfig');
 
         return $id !== null && $gate->isLive($id, $config->dataDir() . '/sessions');
-    }
-
-    /** Legacy auth_enabled() creates the account "admin" from APP_PASSWORD on an install without accounts. */
-    private function firstAdmin(): void
-    {
-        /** @var ApothekeConfig $config */
-        $config = service('apothekeConfig');
-        $password = $config->values()['app_password'] ?? '';
-        $this->accounts()->ensureFirstAdmin((bool)$this->settings()->get('auth_enabled'), is_string($password) ? $password : '');
     }
 
     private function loginPage(?string $error, string $username, ?string $note = null): string
