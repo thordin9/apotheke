@@ -962,6 +962,133 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         });
     }
 
+    /** L-700: framework commands (and spark alone), with what their message suggests. */
+    private const FRAMEWORK_COMMANDS = [
+        'list' => [[], 'php ci4/spark list'],
+        'routes' => [[], 'php ci4/spark routes'],
+        'cache:clear' => [[], 'php ci4/spark cache:clear'],
+        '' => [[], 'php ci4/spark'],
+    ];
+
+    /**
+     * L-700: every spark command started as root, the framework's own too,
+     * runs as DATA_DIR's owner before boot: nothing boot prepares in a fresh
+     * DATA_DIR, and nothing new under ci4/writable, is root's.
+     */
+    public function testFrameworkSparkCommandsAsRootRunAsTheDataDirOwner(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            foreach (self::FRAMEWORK_COMMANDS as $command => [$args]) {
+                $fresh = $dir . '-fresh';
+                mkdir($fresh, 0775);
+                $since = $this->sudoMarker($dir);
+                try {
+                    $r = $this->rootSpark($dir, $fresh, $args, $command);
+                    $this->assertSame(0, $r['exit'], $command . ': ' . $r['stdout'] . $r['stderr']);
+                    clearstatcache();
+                    $this->assertFileExists($fresh . '/sessions', $command . ': boot ran');
+                    $this->assertSame('', $this->rootOwned($fresh, $since), $command . ': no file is root\'s');
+                } finally {
+                    $this->giveBack($fresh);
+                    rrmdir($fresh);
+                    @unlink($since);
+                }
+            }
+        });
+    }
+
+    /** L-700: each of them as root into a root-owned DATA_DIR stops with exit 1 before boot and makes nothing. */
+    public function testFrameworkSparkCommandsAsRootRefuseARootOwnedDataDir(): void
+    {
+        $this->needsSudo();
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $fresh = $dir . '-fresh';
+            mkdir($fresh, 0775);
+            $since = $this->sudoMarker($dir);
+            try {
+                $this->sudo(['chown', '0:0', $fresh]);
+                foreach (self::FRAMEWORK_COMMANDS as $command => [$args, $example]) {
+                    $r = $this->rootSpark($dir, $fresh, $args, $command);
+                    $this->assertSame([1, '', 'Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> ' . $example . ". Nothing was changed.\n"],
+                        [$r['exit'], $r['stdout'], $r['stderr']], $command);
+                }
+                clearstatcache();
+                $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
+                $this->assertSame('', $this->sudo(['find', ROOT . '/ci4/writable', '-newer', $since, '(', '-uid', '0', '-o', '-gid', '0', ')', '-print']), 'no file is root\'s');
+            } finally {
+                $this->giveBack($fresh);
+                rrmdir($fresh);
+                @unlink($since);
+            }
+        });
+    }
+
+    /**
+     * N-702, N-781: started as root with a group function (or any other
+     * posix function the switch uses) disabled, spark refuses with the
+     * message naming the owner and exit 1, not a fatal error (255), and
+     * makes nothing.
+     */
+    public function testSparkAsRootWithoutAPosixFunctionRefusesWithExit1(): void
+    {
+        $this->needsSudo();
+        $name = (string)(posix_getpwuid(posix_geteuid())['name'] ?? '');
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo) use ($name): void {
+            $fresh = $dir . '-fresh';
+            mkdir($fresh, 0775);
+            $since = $this->sudoMarker($dir);
+            try {
+                foreach (['posix_initgroups', 'posix_getgroups', 'posix_initgroups,posix_getgroups', 'posix_setgid', 'posix_getpwuid'] as $disabled) {
+                    $r = $this->rootSpark($dir, $fresh, [], 'apotheke:migrate', ['-d', 'disable_functions=' . $disabled]);
+                    $owner = $disabled === 'posix_getpwuid' ? '<owner>' : $name;
+                    $this->assertSame([1, '', 'Run this as the user that owns the data folder, not as root, for example: sudo -u ' . $owner . " php bin/migrate.php. Nothing was changed.\n"],
+                        [$r['exit'], $r['stdout'], $r['stderr']], $disabled);
+                }
+                clearstatcache();
+                $this->assertSame([], array_values(array_diff(scandir($fresh) ?: [], ['.', '..'])), 'boot made nothing');
+                $this->assertSame('', $this->rootOwned($fresh, $since), 'no file is root\'s');
+            } finally {
+                $this->giveBack($fresh);
+                rrmdir($fresh);
+                @unlink($since);
+            }
+        });
+    }
+
+    /**
+     * N-625, N-681: bin/backup.php, migrate.php and settings.php with
+     * APOTHEKE_APP=ci4 switch (or refuse) themselves before they start spark.
+     * Without posix and /proc the user counts as root and they stop; as root
+     * without the group functions they stop with the owner's name.
+     */
+    public function testCi4BinToolsCheckTheUserBeforeSpark(): void
+    {
+        $this->withCatalog(function (Server $server, string $dir, PDO $pdo): void {
+            $noPosix = ['-d', 'disable_functions=posix_geteuid,posix_getpwuid,posix_setuid,posix_setgid,posix_initgroups', '-d', 'open_basedir=' . ROOT . ':' . $dir . ':' . sys_get_temp_dir()];
+            foreach (['backup' => [[$dir . '/n625.zip'], 'php bin/backup.php'], 'migrate' => [[], 'php bin/migrate.php'], 'settings' => [['list'], 'php bin/settings.php list']] as $form => [$args, $example]) {
+                $proc = proc_open([PHP_BINARY, ...$noPosix, ROOT . '/bin/' . $form . '.php', ...$args], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir, $this->cliEnv($dir));
+                $this->assertIsResource($proc);
+                fclose($pipes[0]);
+                $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+                $this->assertSame([1, ''], [$r['exit'], $r['stdout']], $form . ' (N-625): ' . $r['stderr']);
+                // open_basedir may add a warning about the config file first
+                $this->assertStringEndsWith('Run this as the user that owns the data folder, not as root, for example: sudo -u <owner> ' . $example . ". Nothing was changed.\n", $r['stderr'], $form . ' (N-625)');
+            }
+            $this->assertFileDoesNotExist($dir . '/n625.zip');
+            $this->needsSudo();
+            $name = (string)(posix_getpwuid(posix_geteuid())['name'] ?? '');
+            $env = $this->cliEnv($dir);
+            $proc = proc_open(['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
+                PHP_BINARY, '-d', 'disable_functions=posix_initgroups,posix_getgroups', ROOT . '/bin/settings.php', 'list'], [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
+            $this->assertIsResource($proc);
+            fclose($pipes[0]);
+            $r = $this->cliFinish([$proc, $pipes[1], $pipes[2]]);
+            $this->assertSame([1, '', 'Run this as the user that owns the data folder, not as root, for example: sudo -u ' . $name . " php bin/settings.php list. Nothing was changed.\n"],
+                [$r['exit'], $r['stdout'], $r['stderr']], 'N-681');
+        });
+    }
+
     /** chattr through sudo; skips without it, fails on GitHub Actions. */
     private function needsChattr(): void
     {
@@ -976,12 +1103,13 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
     }
 
     /**
-     * `php ci4/spark <command> <args>` as root (apotheke:restore takes <dir>/full.zip first), with DATA_DIR $fresh and the catalog's database.
+     * `php ci4/spark <command> <args>` as root (apotheke:restore takes <dir>/full.zip first; '' runs spark alone), with DATA_DIR $fresh and the catalog's database.
      *
      * @param list<string> $args
+     * @param list<string> $php options for php itself
      * @return array{stdout:string,stderr:string,exit:int}
      */
-    private function rootSpark(string $dir, string $fresh, array $args, string $command = 'apotheke:restore'): array
+    private function rootSpark(string $dir, string $fresh, array $args, string $command = 'apotheke:restore', array $php = []): array
     {
         $env = array_merge($this->cliEnv($dir), ['DATA_DIR' => $fresh]);
         if (($env['DB_DRIVER'] ?? '') === 'sqlite') {
@@ -989,7 +1117,7 @@ if (str_ends_with((string)($_SERVER["argv"][0] ?? ""), "spark")) {
         }
         unset($env['APOTHEKE_CLI_ARGS'], $env['APOTHEKE_CLI_CWD']);
         $cmd = ['sudo', '-n', '/usr/bin/env', '-i', ...array_map(static fn (string $k, string $v): string => $k . '=' . $v, array_keys($env), $env),
-            PHP_BINARY, ROOT . '/ci4/spark', $command, ...($command === 'apotheke:restore' ? [$dir . '/full.zip'] : []), ...$args];
+            PHP_BINARY, ...$php, ROOT . '/ci4/spark', ...($command === '' ? [] : [$command]), ...($command === 'apotheke:restore' ? [$dir . '/full.zip'] : []), ...$args];
         $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $dir);
         $this->assertIsResource($proc);
         fclose($pipes[0]);

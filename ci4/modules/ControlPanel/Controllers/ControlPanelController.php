@@ -9,6 +9,7 @@ use Apotheke\Catalog\Calendar;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Media\ImageStore;
 use Apotheke\Settings\Branding\LogoInstaller;
+use Apotheke\Settings\SettingsService;
 use Apotheke\Taxonomy\Kind;
 use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -107,7 +108,7 @@ final class ControlPanelController extends ControlPanelPages
     {
         $file = $this->request->getFile('file');
         $tmp = $file !== null && $file->getError() === UPLOAD_ERR_OK ? $file->getTempName() : '';
-        $json = $tmp !== '' ? (string)file_get_contents($tmp) : $this->post('json');
+        $json = $tmp !== '' ? SettingsService::readImportFile($tmp) : $this->post('json');   // bounded read (L-740)
         try {
             $r = $this->settings()->import($json);
         } catch (UserError $e) {

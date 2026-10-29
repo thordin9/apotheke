@@ -46,6 +46,19 @@ final class BackupHelpersTest extends CIUnitTestCase
         $this->assertSame('php bin/backup.php', DataDirOwner::COMMANDS['apotheke:backup']);
     }
 
+    /** L-700: every other spark command's message suggests spark and its name; a name that is not a plain command name is left out. */
+    public function testEverySparkCommandNamesWhatToRunInTheMessage(): void
+    {
+        $this->assertSame('php bin/backup.php', DataDirOwner::example(['--no-header', 'apotheke:backup']));
+        $this->assertSame('php bin/settings.php list', DataDirOwner::example(['APOTHEKE:ACCOUNTS', 'users']));
+        $this->assertSame('php ci4/spark routes', DataDirOwner::example(['routes']));
+        $this->assertSame('php ci4/spark cache:clear', DataDirOwner::example(['--no-header', 'cache:clear', 'x']));
+        $this->assertSame('php ci4/spark', DataDirOwner::example([]));
+        $this->assertSame('php ci4/spark', DataDirOwner::example(["bad\nname"]));
+        $this->assertContains('posix_initgroups', DataDirOwner::FUNCTIONS);
+        $this->assertContains('posix_getgroups', DataDirOwner::FUNCTIONS);
+    }
+
     /**
      * N-520: where the file system has no hard links (link() always fails
      * here), the lock is made with 'x' in place: a plain file, locked, with
