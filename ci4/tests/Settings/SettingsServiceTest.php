@@ -316,6 +316,23 @@ final class SettingsServiceTest extends CIUnitTestCase
         $this->assertSame(0, $service->import($big, null)['applied'], 'no limit when the caller says so (CLI)');
     }
 
+    /** L-740: an uploaded settings file is read up to the cap plus one byte, never whole, and is then refused as too large. */
+    public function testAnUploadedSettingsFileIsReadOnlyUpToTheCap(): void
+    {
+        $path = sys_get_temp_dir() . '/apotheke-settings-import-' . bin2hex(random_bytes(4)) . '.json';
+        try {
+            $small = '{"format":"apotheke-settings","settings":{}}';
+            file_put_contents($path, $small);
+            $this->assertSame($small, SettingsService::readImportFile($path));
+            file_put_contents($path, str_repeat(' ', 4 * SettingsService::IMPORT_MAX_BYTES));
+            $this->assertSame(SettingsService::IMPORT_MAX_BYTES + 1, strlen(SettingsService::readImportFile($path)));
+            $this->assertSame(11, strlen(SettingsService::readImportFile($path, 10)));
+            $this->assertSame('', SettingsService::readImportFile($path . '.missing'));
+        } finally {
+            @unlink($path);
+        }
+    }
+
     #[DataProvider('drivers')]
     public function testRegistrationRoleFollowsTheRolesTable(string $driver): void
     {
