@@ -101,7 +101,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Sessions: native `apothekesid` files, started on demand. CI4 applies `session_idle_hours` and `session_days` from
   sign-in, and each account has a session epoch (migration 0028), as `main` does.
 - Stored secrets (S-L5): with `APP_KEY` or `APP_KEY_FILE` set, CI4 seals the AI autofill token in the same `enc:v1:`
-  format as `main`, so both apps read one database. `key generate` and `key rotate` stay in `bin/settings.php`.
+  format as `main`, so both apps read one database. `key rotate` runs as `spark apotheke:settings key rotate`;
+  `key generate` stays in `bin/settings.php` (it needs no app, L-680).
 - Media: `ImageStore::store()` keeps the upload byte-identical under `ORIGINALS_DIR` (`<64hex>.<ext>`, `map/<32hex>`,
   0640) and writes `images/` and `thumbs/` with the same bytes as legacy. It applies `main`'s decode limits from #72 and #79
   (`ImageLimits`) and removes everything again when a decode fails. If the request dies first (a fatal error), the
@@ -119,8 +120,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Users & sign-in (step 7, part B, first half): `/settings/security` with its settings, `/settings/password`,
   `/settings/users…` and `/settings/roles…` byte-identical to legacy (`tests/Unit/Ci4UsersRolesParityTest.php`).
 - CLI account forms (step 7, part B, second half): `bin/settings.php users|user|roles|auth|password` run as
-  `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`); `auth status` stays in
-  `bin/settings.php` (no migration).
+  `spark apotheke:accounts` with `APOTHEKE_APP=ci4` (`tests/Unit/Ci4AccountsCliTest.php`), `auth status` included: it
+  opens its own connection and never migrates, as legacy.
 - Control Panel ([#151](https://github.com/thordin9/apotheke/pull/151), merged at 77d9170): `/settings`, every section (save and
   reset), the logo, the AI autofill token and Test buttons, and the settings file, byte-identical to legacy
   (`tests/Unit/Ci4ControlPanelParityTest.php`). Same `settings` permission and CSRF order as legacy; legacy has no
@@ -310,6 +311,15 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Backup/Commands/BackupCommand.php`, `Backup/Commands/RestoreCommand.php`, `DbConnectErrorTest`,
   `RestorerFatalCleanupTest`, `DataDirOwnerGroupsTest` (new) and one sentence in `docs/architecture.md`. Stays out
   of `bin/settings.php` and the Settings and Auth commands (Coder's CLI port).
+- Coder, CLI port ([#159](https://github.com/thordin9/apotheke/pull/159), merged at 65d7e21): `spark apotheke:seed` (`Catalog/Commands`,
+  `Catalog/DemoItems.php`, the Catalog entry in `Config/Autoload.php`), `auth status` (`Auth/Commands/AuthStatus.php`,
+  never migrates) and `key rotate` (`SettingsCli`, `SettingsService::rotateSecrets()`, `SettingsRepository::rewrite()`,
+  `SecretBox::decodeKey()`), their `Config\Services` wiring, the `bin/seed.php` CI4 branch and only the `$ci4Form` arms
+  of `bin/settings.php`; `Accounts::appPasswordProblem()` for the short `APP_PASSWORD` hardening fix (migrate, settings,
+  first account); the PHPUnit bootstrap split (`tests/legacy-bootstrap.php`), `tests/lib.php`, the Playwright
+  fixtures (`tests/visual/ci4-fixtures.php`) and `MediaTest`. Overlap with #157: different hunks of `bin/settings.php`
+  and `SettingsService.php`; stays out of `DataDirOwner`, the Backup module, `bin/backup.php`, `bin/restore.php` and
+  `.gitleaks.toml`. #157 (merged) makes `apotheke:seed` started as root switch to the data folder's owner.
 - Coder2, seed owner message and N-900 ([#160](https://github.com/thordin9/apotheke/pull/160), open): `Backup/Commands/DataDirOwner.php`,
   `PdoMigrationRunner::connect()`, `Config\Services::apothekeDb()`, `BackupHelpersTest`, `Ci4BackupRestoreChecksTest`,
   `DbConnectErrorTest`. Stays out of `bin/settings.php`, `bin/seed.php` and the Settings, Auth and Catalog commands

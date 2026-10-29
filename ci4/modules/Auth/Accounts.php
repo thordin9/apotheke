@@ -228,21 +228,36 @@ final class Accounts
     }
 
     /**
+     * Why a non-empty APP_PASSWORD cannot become a password (the same
+     * PASSWORD_MIN as any other), or null when it can: legacy
+     * app_password_problem(). The message never contains the value.
+     */
+    public static function appPasswordProblem(#[\SensitiveParameter] string $password): ?string
+    {
+        if (str_contains($password, "\0")) {
+            return 'APP_PASSWORD cannot contain a null character.';
+        }
+        if ($password === '' || (trim($password) !== '' && mb_strlen($password) >= self::PASSWORD_MIN)) {
+            return null;
+        }
+
+        return 'APP_PASSWORD is too short: use at least ' . self::PASSWORD_MIN . ' characters (not only spaces), or leave it empty.';
+    }
+
+    /**
      * Legacy auth_enabled() on an install without accounts: with sign-in on,
      * APP_PASSWORD becomes the password of the account "admin". A blank or
-     * too short APP_PASSWORD, or one with a null character, stops (legacy
-     * app_password_problem(); the message never contains the value).
+     * too short APP_PASSWORD, or one with a null character, stops
+     * (appPasswordProblem()).
      */
     public function ensureFirstAdmin(bool $signInSetting, #[\SensitiveParameter] string $appPassword): void
     {
         if (!$signInSetting || $appPassword === '' || $this->users->count() > 0) {
             return;
         }
-        if (str_contains($appPassword, "\0")) {
-            throw new RuntimeException('APP_PASSWORD cannot contain a null character.');
-        }
-        if (trim($appPassword) === '' || mb_strlen($appPassword) < self::PASSWORD_MIN) {
-            throw new RuntimeException('APP_PASSWORD is too short: use at least ' . self::PASSWORD_MIN . ' characters (not only spaces), or leave it empty.');
+        $problem = self::appPasswordProblem($appPassword);
+        if ($problem !== null) {
+            throw new RuntimeException($problem);
         }
         $this->users->create('admin', password_hash($appPassword, PASSWORD_DEFAULT), 'admin', 'active', $this->clock->now());
     }

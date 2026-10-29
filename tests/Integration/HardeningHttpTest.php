@@ -4,6 +4,7 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 
 /**
  * Sign-in limits, the last admin, role edits and photo writes, over HTTP against `php -S` with workers, on the configured

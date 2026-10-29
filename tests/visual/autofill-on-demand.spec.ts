@@ -3,7 +3,6 @@ import type { Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AutofillStub } from './autofill-stub';
-import { ROOT } from './fixtures';
 
 /* AI autofill 2.4: analysis on demand (an Analyze button per photo, one analysis at a time), auto-analyze off on new
    and upgraded installs, Model / Image size from the service's /v1/info, and the resize in the browser – against the
@@ -103,12 +102,11 @@ test.describe('AI autofill on demand', () => {
   test('upgraded install: migration 0025 turns auto-analyze off, nothing is analyzed on upload', async ({ app, page }) => {
     await configure(page, { auto: true });
     // back to a 2.3 database: autofill on, no 2.4 settings rows, 0025 not applied; then upgrade
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php';
-      db()->exec("DELETE FROM settings WHERE name IN ('autofill_auto', 'autofill_model', 'autofill_image_size')");
-      db()->exec("DELETE FROM schema_migrations WHERE version = '0025'");`]);
+    app.exec("DELETE FROM settings WHERE name IN ('autofill_auto', 'autofill_model', 'autofill_image_size')");
+    app.exec("DELETE FROM schema_migrations WHERE version = '0025'");
     // the upgrade: the next db() call (in the app the first request) applies 0025. Called directly, not through
     // bin/migrate.php: the CLI tools run as the data folder's owner, and this job's data folder is root's.
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; db();`]);
+    app.migrate();
     expect(app.sql<{ version: string }>("SELECT version FROM schema_migrations WHERE version = '0025'").length, '0025 is applied').toBe(1);
     expect(app.sql<{ value: string }>("SELECT value FROM settings WHERE name = 'autofill_auto'")[0].value).toBe('false');
     expect(app.sql<{ value: string }>("SELECT value FROM settings WHERE name = 'autofill_enabled'")[0].value, 'autofill itself stays on').toBe('true');
@@ -344,7 +342,7 @@ test.describe('AI autofill on demand', () => {
   test('a stored photo on the edit form only fills empty fields', async ({ app, page }) => {
     await configure(page);
     const [id, pids] = await itemWithPhotos(app, page);
-    app.server.php(['-r', `require '${app.server.at(ROOT)}/src/bootstrap.php'; db()->exec("UPDATE items SET notes = '' WHERE id = ${id}");`]);
+    app.exec(`UPDATE items SET notes = '' WHERE id = ${id}`);
     const name = app.sql<{ name: string }>(`SELECT name FROM items WHERE id = ${id}`)[0].name;
     await app.go(`/item/${id}/edit`);
     await page.locator(`#af-analyze-${pids[0]}`).click();

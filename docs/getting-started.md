@@ -174,10 +174,9 @@ php bin/settings.php users               # accounts; user add|password|role|appr
 php bin/settings.php key generate        # print a new APP_KEY; stores nothing
 ```
 
-With `APOTHEKE_APP=ci4` set (in Docker: in the container's environment), `bin/migrate.php`, `bin/backup.php`,
-`bin/restore.php` and `bin/settings.php` (except `auth status` and `key`) run the CI4 commands
-(`php ci4/spark apotheke:migrate|backup|restore|settings|accounts`) with the same output and exit codes; `bin/seed.php`
-stays the legacy one. See [Upgrading to 3.0](upgrade-3.0.md).
+With `APOTHEKE_APP=ci4` set (in Docker: in the container's environment), `bin/migrate.php`, `bin/seed.php`,
+`bin/backup.php`, `bin/restore.php` and `bin/settings.php` (except `key generate`, which needs no app) run the CI4
+commands (`php ci4/spark apotheke:migrate|seed|backup|restore|settings|accounts`) with the same output and exit codes. See [Upgrading to 3.0](upgrade-3.0.md).
 
 Settings, accounts and keys: [Control Panel → Command line](control-panel.md#command-line). Backups and cron:
 [Backup and restore](deployment-and-operations.md#backup-and-restore).

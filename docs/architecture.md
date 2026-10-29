@@ -216,7 +216,7 @@ schema up to date with the shared runner ([Database → How migrations run](data
 live where legacy keeps them: `images/`, `thumbs/`, `files/` and `sessions/` under `DATA_DIR`, camera originals under
 `ORIGINALS_DIR`, with legacy's modes.
 
-**Command line.** `bin/migrate.php`, `bin/settings.php` (except `auth status` and `key`), `bin/backup.php` and
+**Command line.** `bin/migrate.php`, `bin/seed.php`, `bin/settings.php` (except `key generate`), `bin/backup.php` and
 `bin/restore.php` run the matching `spark apotheke:*` command when `APOTHEKE_APP=ci4` is set; a restore started as root
 switches to the data directory's owner first.
 

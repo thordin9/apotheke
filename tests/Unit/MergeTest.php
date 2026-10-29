@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Merging duplicates: combination rules and all-or-nothing behaviour. */
 final class MergeTest extends DatabaseTestCase
 {

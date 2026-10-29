@@ -113,16 +113,69 @@ final class MediaTest extends CIUnitTestCase
         $this->assertStringNotContainsString('Exif', $thumb);
     }
 
-    public function testServedBytesMatchMain(): void
+    /**
+     * The served full copy and thumbnail show the source picture: a PNG's
+     * transparency on white, a JPEG turned by its EXIF orientation (clockwise
+     * for 6, which the size check alone cannot tell from anticlockwise),
+     * scaled to the configured sizes. Compared pixel by pixel on a grid with
+     * a GD reference, within JPEG's error. (Was a byte comparison with legacy
+     * image_store(), which leaves with src/.)
+     */
+    public function testServedCopiesShowTheSourcePicture(): void
     {
         $png = $this->png(900, 500, true);
-        $jpeg = $this->withOrientation6($this->jpeg(1700, 900));
-        foreach (['png' => $png, 'jpeg' => $jpeg] as $label => $bytes) {
-            $name = $this->upload($bytes);
-            $legacy = $this->legacyStore($bytes);
-            $this->assertSame($legacy['full'], $this->served->read('full', $name), $label . ' full');
-            $this->assertSame($legacy['thumb'], $this->served->read('thumb', $name), $label . ' thumb');
+        $jpeg = $this->jpeg(1700, 900);
+        foreach (['png' => [$png, $png, false], 'jpeg' => [$this->withOrientation6($jpeg), $jpeg, true]] as $label => [$upload, $plain, $turn]) {
+            $name = $this->upload($upload);
+            $source = $this->flattened((string)$plain, $turn);
+            foreach (['full', 'thumb'] as $kind) {
+                $served = imagecreatefromstring((string)$this->served->read($kind, $name));
+                $this->assertNotFalse($served, "$label $kind");
+                $this->assertLessThan(15.0, $this->meanDifference($source, $served), "$label $kind: the same picture");
+                if ($turn) {
+                    $this->assertGreaterThan(30.0, $this->meanDifference(imagerotate($source, 180, 0), $served), "$label $kind: turned clockwise, not anticlockwise");
+                }
+            }
         }
+    }
+
+    /** $bytes decoded on white (transparency flattened), turned 90° clockwise when $turn. */
+    private function flattened(string $bytes, bool $turn): \GdImage
+    {
+        $im = imagecreatefromstring($bytes);
+        $this->assertNotFalse($im);
+        $w = imagesx($im);
+        $h = imagesy($im);
+        $out = imagecreatetruecolor($w, $h);
+        imagefill($out, 0, 0, (int)imagecolorallocate($out, 255, 255, 255));
+        imagecopy($out, $im, 0, 0, 0, 0, $w, $h);
+
+        return $turn ? imagerotate($out, -90, 0) : $out;
+    }
+
+    /** Mean per-channel difference (0–255) of $a and $b on a 24×24 grid, $a scaled to $b's size. */
+    private function meanDifference(\GdImage $a, \GdImage $b): float
+    {
+        $w = imagesx($b);
+        $h = imagesy($b);
+        $scaled = imagecreatetruecolor($w, $h);
+        imagecopyresampled($scaled, $a, 0, 0, 0, 0, $w, $h, imagesx($a), imagesy($a));
+        $sum = 0;
+        $n = 0;
+        for ($gy = 0; $gy < 24; $gy++) {
+            for ($gx = 0; $gx < 24; $gx++) {
+                $x = (int)(($gx + 0.5) * $w / 24);
+                $y = (int)(($gy + 0.5) * $h / 24);
+                $p = imagecolorat($scaled, $x, $y);
+                $q = imagecolorat($b, $x, $y);
+                foreach ([16, 8, 0] as $shift) {
+                    $sum += abs((($p >> $shift) & 0xFF) - (($q >> $shift) & 0xFF));
+                    $n++;
+                }
+            }
+        }
+
+        return $sum / $n;
     }
 
     public function testHeaderLimitsRefuseBeforeAnythingIsStored(): void
@@ -459,28 +512,6 @@ final class MediaTest extends CIUnitTestCase
             }
         }
         sort($out);
-
-        return $out;
-    }
-
-    /** @return array{full:string,thumb:string} main's image_store() on the same bytes, in its own process */
-    private function legacyStore(string $bytes): array
-    {
-        $root = ApothekeConfig::repoRoot();
-        $data = sys_get_temp_dir() . '/apotheke-legacy-media-' . bin2hex(random_bytes(4));
-        mkdir($data, 0775, true);
-        $src = $this->tempFile($bytes);
-        $code = 'require ' . var_export($root . '/src/bootstrap.php', true) . '; require ' . var_export($root . '/src/items.php', true) . ';'
-            . ' echo image_store(["error" => 0, "tmp_name" => $argv[1], "size" => filesize($argv[1])]);';
-        $env = ['DATA_DIR' => $data, 'APOTHEKE_CONFIG' => '/nonexistent', 'SEED_DEFAULTS' => '0', 'DB_DRIVER' => 'sqlite', 'PATH' => (string)getenv('PATH')];
-        $proc = proc_open([PHP_BINARY, '-r', $code, $src], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $root, $env);
-        $this->assertIsResource($proc);
-        $name = (string)stream_get_contents($pipes[1]);
-        $err = (string)stream_get_contents($pipes[2]);
-        $this->assertSame(0, proc_close($proc), $err);
-        $this->assertTrue(ImageStore::validName($name), $name . $err);
-        $out = ['full' => (string)file_get_contents($data . '/images/' . $name), 'thumb' => (string)file_get_contents($data . '/thumbs/' . $name)];
-        exec('rm -rf ' . escapeshellarg($data));
 
         return $out;
     }

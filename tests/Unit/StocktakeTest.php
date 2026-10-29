@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Stocktakes: expected snapshot, ticking, misplaced items, report and applying moves. */
 final class StocktakeTest extends DatabaseTestCase
 {

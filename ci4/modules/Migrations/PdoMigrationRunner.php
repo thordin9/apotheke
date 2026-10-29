@@ -72,11 +72,16 @@ final class PdoMigrationRunner
         }
         unset($db['password']);
         try {
-            $pdo = new PDO($dsn, $user, $password, [
+            $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_STRINGIFY_FETCHES => false,
-            ]);
+            ];
+            // seconds to wait for a PostgreSQL connection (pdo_pgsql's own default is 30), as legacy db_connect()
+            if (!empty($db['connect_timeout'])) {
+                $options[PDO::ATTR_TIMEOUT] = (int)$db['connect_timeout'];
+            }
+            $pdo = new PDO($dsn, $user, $password, $options);
         } catch (PDOException) {
             throw new MigrateConnectException(self::connectFailure($db));
         }

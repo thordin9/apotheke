@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Photo editing (rotate/crop → new version) and reordering. */
 final class PhotoEditTest extends DatabaseTestCase
 {

@@ -48,6 +48,24 @@ async function waitUp(base: string) {
   throw new Error('app server did not start at ' + base);
 }
 
+/**
+ * Fixture work through the app under test: tests/visual/ci4-fixtures.php (CI4's own code) under E2E_APP=ci4, the legacy
+ * app (tests/visual/seed.php and src/) otherwise. The legacy branch goes with src/ at the cutover.
+ */
+function fixture(server: Server, op: 'seed' | 'sql' | 'exec' | 'migrate' | 'default-category' | 'settings', ...args: string[]): Buffer {
+  if (APP === 'ci4') return server.php([server.at(path.join(ROOT, 'tests/visual/ci4-fixtures.php')), op, ...args]);
+  if (op === 'seed') return server.php([server.at(path.join(ROOT, 'tests/visual/seed.php')), ...args]);
+  const boot = `require '${server.at(ROOT)}/src/bootstrap.php'; require '${server.at(ROOT)}/src/items.php';`;
+  const code = {
+    sql: 'echo json_encode(db()->query($argv[1])->fetchAll());',
+    exec: 'db()->exec($argv[1]);',
+    migrate: 'db();',
+    'default-category': "tax_set_default('category', tax_create('category', $argv[1])['id'], true);",
+    settings: 'settings_store(json_decode($argv[1], true, 4, JSON_THROW_ON_ERROR));',
+  }[op];
+  return server.php(['-r', boot + ' ' + code, ...args]);
+}
+
 export class App {
   constructor(public page: Page, public server: Server, private info: TestInfo) {}
   get base() { return this.server.base; }
@@ -71,9 +89,16 @@ export class App {
   }
   /** Read the SQLite/PostgreSQL catalog through the app's own PHP (driver-independent). */
   sql<T = Record<string, unknown>>(query: string): T[] {
-    const code = `require '${this.server.at(ROOT)}/src/bootstrap.php'; echo json_encode(db()->query($argv[1])->fetchAll());`;
-    return JSON.parse(this.server.php(['-r', code, query]).toString());
+    return JSON.parse(fixture(this.server, 'sql', query).toString());
   }
+  /** Run one SQL statement through the app's own PHP. */
+  exec(statement: string) { fixture(this.server, 'exec', statement); }
+  /** Apply pending migrations, as the app's first request would. */
+  migrate() { fixture(this.server, 'migrate'); }
+  /** Create a category and make it the default. */
+  defaultCategory(name: string) { fixture(this.server, 'default-category', name); }
+  /** Store settings (name => value) through the app. */
+  settings(values: Record<string, unknown>) { fixture(this.server, 'settings', JSON.stringify(values)); }
   async noOverflow() {
     const w = await this.page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
     expect(w[0], 'no horizontal overflow').toBeLessThanOrEqual(w[1]);
@@ -142,7 +167,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
       stop = () => { proc.kill(); };
     }
     await waitUp(server.base);   // first: in Docker the entrypoint must have prepared /data
-    server.php([server.at(path.join(ROOT, 'tests/visual/seed.php')), server.at(dataDir), 'empty']);
+    fixture(server, 'seed', server.at(dataDir), 'empty');
     await use(server);
     stop();
     if (/\[apotheke\]|PHP (Fatal|Warning|Notice|Deprecated)/.test(log)) console.error('server log:\n' + log.split('\n').filter(l => /apotheke|PHP /.test(l)).join('\n'));
@@ -154,7 +179,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
   seed: ['demo', { option: true }],
   /** Fresh, deterministic catalog for every test. */
   reset: [async ({ server, seed }, use) => {
-    server.php([server.at(path.join(ROOT, 'tests/visual/seed.php')), server.at(server.dataDir), seed]);
+    fixture(server, 'seed', server.at(server.dataDir), seed);
     await use();
   }, { auto: true }],
   /** Console errors and uncaught page errors fail the test. */

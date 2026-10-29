@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 final class ActivityTest extends DatabaseTestCase
 {
     protected function setUp(): void

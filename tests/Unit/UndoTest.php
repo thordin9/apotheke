@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 /** Undo tokens: snapshots, soft delete with the original id, expiry and file release. */
 final class UndoTest extends DatabaseTestCase
 {

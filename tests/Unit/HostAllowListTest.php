@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 use PHPUnit\Framework\TestCase;
 
 /** SEC-M3: the Host allow-list and the same-origin rule for state-changing requests with sign-in off. */

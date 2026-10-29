@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once dirname(__DIR__) . '/legacy-bootstrap.php';
+
 use PHPUnit\Framework\TestCase;
 
 /** The restore lock (DATA_DIR/tmp/restore.lock): let go after every restore, any owner's file, only ever a plain file. */

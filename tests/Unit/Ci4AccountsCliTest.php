@@ -231,6 +231,63 @@ final class Ci4AccountsCliTest extends TestCase
         }
     }
 
+    /**
+     * `auth status` (the Docker entrypoint's check): the same answer and exit
+     * code as legacy (0 on, 3 off, 4 APP_PASSWORD too short, 1 no database),
+     * and like legacy it never migrates: a new install stays without tables
+     * (a missing SQLite file stays missing), and a database that misses a
+     * migration still misses it afterwards.
+     */
+    public function testAuthStatusMatchesLegacyWithoutMigrating(): void
+    {
+        $status = [['auth', 'status']];
+        foreach (['', 'shortpw', '        ', 'long-enough'] as $password) {
+            [$left, $right] = $this->twins('acli-status-new');
+            $l = $this->cli($left, $status[0], false, null, ['APP_PASSWORD' => $password]);
+            $r = $this->cli($right, $status[0], true, null, ['APP_PASSWORD' => $password]);
+            $this->assertSame($l, $r, 'new install, APP_PASSWORD of ' . strlen($password) . ' characters');
+            foreach ([$left, $right] as $dir) {
+                $this->assertSame([], $this->tables($dir), 'new install, APP_PASSWORD of ' . strlen($password) . ' characters: nothing migrated');
+                if (test_driver() === 'sqlite') {
+                    $this->assertFileDoesNotExist($dir . '/catalog.sqlite');
+                }
+            }
+        }
+        $r = $this->cli($right, $status[0], true, null, ['APP_PASSWORD' => 'shortpw']);
+        $this->assertSame([4, '', "APP_PASSWORD is too short: use at least 8 characters (not only spaces), or leave it empty.\n"], [$r['exit'], $r['stdout'], $r['stderr']]);
+
+        [$left, $right] = $this->twins('acli-status');
+        $long = ['APP_PASSWORD' => 'long-enough'];
+        foreach ([$left, $right] as $dir) {
+            $this->cli($dir, ['users'], $dir === $right, null, $long);   // migrated; "admin" from APP_PASSWORD
+            testdb($dir)->exec("DELETE FROM schema_migrations WHERE version = '" . max(migration_versions()) . "'");
+        }
+        $before = [$this->tables($left)['schema_migrations'], $this->tables($right)['schema_migrations']];
+        $this->assertNotContains(max(migration_versions()), $before[1]);
+        $this->runBoth($left, $right, [[$status[0]]], $long);
+        $this->runBoth($left, $right, [[$status[0]]]);
+        $this->runBoth($left, $right, [[$status[0]]], ['APP_PASSWORD' => 'shortpw']);   // an account exists: the value is not used
+        $sql = static function (string $statement) use ($left, $right): void {
+            foreach ([$left, $right] as $dir) {
+                testdb($dir)->exec($statement);
+            }
+        };
+        $sql('DELETE FROM users');   // sign-in on, no account: APP_PASSWORD decides
+        foreach (['', 'shortpw', 'long-enough'] as $password) {
+            $this->runBoth($left, $right, [[$status[0]]], ['APP_PASSWORD' => $password]);
+        }
+        $sql("UPDATE settings SET value = 'false' WHERE name = 'auth_enabled'");
+        $this->runBoth($left, $right, [[$status[0]]], ['APP_PASSWORD' => 'shortpw']);
+        $this->assertSame($before, [$this->tables($left)['schema_migrations'], $this->tables($right)['schema_migrations']], 'the missing migration is still missing');
+
+        // No database to reach: the sanitized line and exit 1, as legacy.
+        if (test_driver() === 'pgsql') {
+            $refused = ['DB_HOST' => '127.0.0.1', 'DB_PORT' => '1', 'DB_SCHEMA' => 'refused'];   // one schema name in both lines
+            $this->runBoth($left, $right, [[$status[0]]], $refused);
+            $this->assertSame(1, $this->cli($right, $status[0], true, null, $refused)['exit']);
+        }
+    }
+
     /** A spark-only check: apotheke:accounts answers unknown forms and auth status like bin/settings.php's dispatcher would not reach it. */
     public function testSparkEntryPoint(): void
     {
@@ -238,7 +295,7 @@ final class Ci4AccountsCliTest extends TestCase
         $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'frob'], $this->env($right, true), null);
         $this->assertSame([2, "Unknown command. See the comment at the top of bin/settings.php.\n"], [$r['exit'], $r['stderr']]);
         $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'auth', 'status'], $this->env($right, true), null);
-        $this->assertSame([1, "Use: auth on|off|status\n"], [$r['exit'], $r['stderr']], 'auth status runs in bin/settings.php, without migrating');
+        $this->assertSame([3, "off\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'auth status answers in apotheke:accounts');
         // A value that starts with "-" reaches the command unchanged.
         $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'user', 'add', 'neo', 'editor', '-long-enough-'], $this->env($right, true), null);
         $this->assertSame([0, "Added neo.\n"], [$r['exit'], $r['stdout']]);
@@ -450,6 +507,35 @@ final class Ci4AccountsCliTest extends TestCase
         }
 
         return array_map('strval', $env);
+    }
+
+    /**
+     * The tables of the test database for $dir with their row counts, and the
+     * applied migrations ([] when nothing was created).
+     *
+     * @return array<string,mixed>
+     */
+    private function tables(string $dir): array
+    {
+        if (test_driver() === 'sqlite') {
+            if (!is_file($dir . '/catalog.sqlite')) {
+                return [];
+            }
+            $names = sqlite($dir . '/catalog.sqlite')->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN);
+        } else {
+            $names = test_pg_admin()->query("SELECT table_name FROM information_schema.tables WHERE table_schema = '" . test_schema($dir) . "' ORDER BY table_name")->fetchAll(PDO::FETCH_COLUMN);
+        }
+        if ($names === []) {
+            return [];
+        }
+        $db = testdb($dir);
+        $out = [];
+        foreach ($names as $name) {
+            $out[(string)$name] = (int)$db->query('SELECT COUNT(*) FROM "' . $name . '"')->fetchColumn();
+        }
+        $out['schema_migrations'] = in_array('schema_migrations', $names, true) ? $db->query('SELECT version FROM schema_migrations ORDER BY version')->fetchAll(PDO::FETCH_COLUMN) : [];
+
+        return $out;
     }
 
     /** @return array{0:string,1:string} */
