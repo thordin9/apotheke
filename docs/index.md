@@ -30,6 +30,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 | [Testing](testing.md) | `tests/run.sh`, PHPUnit on SQLite and PostgreSQL, the parity recorder, the headless mobile checks, Playwright and the screenshot baseline workflow |
 | [CI](ci.md) | Every GitHub Actions job, the snapshot workflow, commit rules |
 | [Releasing](releasing.md) | SemVer from Conventional Commits, `VERSION`, `CHANGELOG.md`, tags and GitHub Releases |
+| [Upgrading to 3.0](upgrade-3.0.md) | The CodeIgniter 4 app: what changes, backup, the switch, both rollbacks, what CI proves |
 | [Deployment and operations](deployment-and-operations.md) | Backup and restore, upgrades, Docker defaults, host names, reverse proxies and HTTPS, PostgreSQL role, security, monitoring |
 | [Contributing](contributing.md) | Ground rules, workflow, commit messages, adding a feature end to end |
 
