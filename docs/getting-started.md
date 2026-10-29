@@ -125,7 +125,8 @@ is set. With `--network host`, set `-e PORT=8081` (or any free port) so nginx li
 
 ## Without Docker
 
-Requirements: PHP 8.2+ (the Docker image uses 8.4; CI also tests 8.3) with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP),
+The supported install is the Docker image ([Upgrading to 3.0](upgrade-3.0.md)); running without Docker suits
+development and testing. Requirements: PHP 8.4 (as the Docker image) and Composer, with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP),
 `mbstring`, `sodium` (stored secrets) and `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG
 logo uploads, `opcache` for speed. Optional `imagick` reads HEIC and files GD cannot; without it a HEIC upload is kept
 and shown as a placeholder. SQLite is built in; PostgreSQL is tested with 17. If you turn on function JIT, see
@@ -133,14 +134,15 @@ and shown as a placeholder. SQLite is built in; PostgreSQL is tested with 17. If
 
 ```bash
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
+composer install --no-dev              # CodeIgniter 4 and its pinned dependencies
 cp config.example.php config.php        # optional; or use environment variables
 php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'   # or: php bin/settings.php key generate
 export APP_KEY='(paste that line)'      # empty keeps stored secrets unencrypted; do not commit the key
-php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:9091 -t public public/index.php
+php -d upload_max_filesize=20M -d post_max_size=22M -S 0.0.0.0:9091 -t public public/router.php
 ```
 
-Data goes to `./data` (or `DATA_DIR`). `public/index.php` doubles as the router script for PHP's built-in server,
-which is fine for a home LAN. For Apache or nginx see
+Data goes to `./data` (or `DATA_DIR`). `public/router.php` is the router script for PHP's built-in server (static
+assets, then `public/index.php`), which is fine for a home LAN. For Apache or nginx see
 [Behind a web server or reverse proxy](deployment-and-operations.md#behind-a-web-server-or-reverse-proxy).
 
 ## Local development

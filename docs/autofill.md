@@ -338,9 +338,9 @@ stored photos) and
   followed). Grant the *Settings* permission only to people you trust with that.
 - Problems are logged as one short line (`apotheke autofill: …`), never with the token or the service's answer.
 
-## CI4
+## Implementation
 
-With `APOTHEKE_APP=ci4` the client is `ci4/modules/Autofill`, built per request by `Config\Services::autofill()`.
+The client is `modules/Autofill`, built per request by `Config\Services::autofill()`.
 Settings and the token are read only through `SettingsService`. The database is the existing DSN-driven connection.
 There is no static and no per-request memory for the warn-once pair: it lives in the storage file, so a new request
 sees it. Docs and examples keep the placeholder `https://autofill.example`. Do not commit a real token.
@@ -381,8 +381,8 @@ routes need the session CSRF token, pass the host and same-origin checks
 *Settings*. The warn-once note and the temporary JPEG are files under the data directory, not under CodeIgniter's
 `writable/` folder. Category
 and tag names, and which file to analyze (kept original, otherwise the served JPEG), are SQL until Taxonomy and Media
-exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. CI4 cases live in
-`ci4/tests/Autofill/AutofillTest.php` and `ci4/tests/Core/LocalStorageTest.php`. Photo size limits are legacy-only for
+exist. Tests use `tests/stubs/autofill-stub.php` on `127.0.0.1`. There is no live Worker check. The cases live in
+`tests/Modules/Autofill/AutofillTest.php` and `tests/Modules/Core/LocalStorageTest.php`. Photo size limits are legacy-only for
 now: the legacy header pre-check and decode limits ([#72](https://github.com/thordin9/apotheke/pull/72)) and the PNG
 cap ([#79](https://github.com/thordin9/apotheke/pull/79)) are on `feature/ci4` since
 [#83](https://github.com/thordin9/apotheke/pull/83), but the CI4 Autofill module does not apply them yet, so CI4

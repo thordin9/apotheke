@@ -1,6 +1,7 @@
 # Configuration
 
-Apotheke reads its settings once per request (`cfg()` in `src/config.php`) from three layers; later layers win:
+Apotheke reads its settings once per request (`Core\Config\ApothekeConfig`, with the loader in
+`modules/Core/Config/config-functions.php`) from three layers; later layers win:
 
 1. built-in defaults (`config_defaults()`),
 2. a PHP config file: `config.php` in the project root, or the file named by `APOTHEKE_CONFIG`,
@@ -179,9 +180,9 @@ is still a stripped JPEG (longest side at most 1600 px). Backups uploaded
 through the web restore can be much larger: the Docker image allows up to 520 MB on `/backup/restore` only (`client_max_body_size` and a `PHP_VALUE` override
 in `docker/nginx.conf`; every other route keeps the 22 MB body limit, so a big zip gets HTTP 413). Otherwise use `bin/restore.php`.
 
-`docker/php.ini` enables opcache and leaves JIT off. Function JIT can miscompile the QR encoder on PHP 8.2 to 8.4,
+`docker/php.ini` enables opcache and leaves JIT off. Function JIT can miscompile the QR encoder on PHP 8.4,
 so when a function-JIT mode is active (`1235`, `function`, or any four-digit CRTO value whose trigger digit is not 5)
-`src/qr.php` sets `opcache.jit=disable` for the whole worker on the first request. Tracing JIT stays on, and
+`Labels\QrJit` sets `opcache.jit=disable` for the whole worker before its first QR code. Tracing JIT stays on, and
 `opcache_jit_blacklist()` does not help.
 
 ## Examples

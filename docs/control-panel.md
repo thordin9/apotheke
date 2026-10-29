@@ -71,7 +71,7 @@ without `unsafe-inline`. The default indigo needs no extra stylesheet.
 Accounts live in the `users` table (migration 0018); passwords are `password_hash()` hashes. The setting
 `auth_enabled` is the switch: off means no sign-in and every visitor is an admin; on means everybody signs in with a
 user name and password and the **role** decides what they may do. Roles live in `roles` (migration 0022): a key, a
-name and a JSON list of permissions from `PERMISSIONS` in `src/roles.php` (view, create, edit, delete, move, bulk, lend,
+name and a JSON list of permissions from `Auth\Permissions` (view, create, edit, delete, move, bulk, lend,
 import, export, stocktake, labels, settings, users, backup). Built-in: admin (always everything; cannot be changed or
 deleted), editor, viewer and guest (anonymous visitors while guest browsing is on; never settings/users/backup).
 `route_perm()` names the permission every route needs, handlers check finer cases (`require_perm('move')` when the
@@ -180,11 +180,11 @@ comes from `APP_KEY_NEW` or stdin, never from the command arguments. See [Stored
 
 ## For developers
 
-* Schema: `settings_schema()` in `src/settings.php` — key ⇒ section, label, type (`string`, `int`, `bool`, `enum`,
+* Schema: `modules/Settings/SettingsSchema.php` — key ⇒ section, label, type (`string`, `int`, `bool`, `enum`,
   `color`, `url`, `timezone`, `tags`, …), default (a literal or `cfg:<path>` = the config value), help text and options.
-  Adding a setting = one line there plus using `setting('key')` where it matters; the form, validation, export/import,
+  Adding a setting = one line there plus reading it through `SettingsService::get('key')` where it matters; the form, validation, export/import,
   reset and seeding follow automatically. Add it to the integration test's `$secKeys`.
-* `setting()` reads all rows once per request (cached); writes clear the cache. Without the table (before the migration)
+* `SettingsService` reads all rows once per request (cached in the instance); writes clear the cache. Without the table (before the migration)
   the defaults are used.
-* Views: `src/settings_views.php`; routes: `/settings…`, `/theme.css`, `/manifest.webmanifest`, `/favicon.ico`,
-  `/brand/{file}` in `public/index.php` (the last four are public, the sign-in page needs them).
+* Views: `modules/ControlPanel/Views/`; routes: `/settings…`, `/theme.css`, `/manifest.webmanifest`, `/favicon.ico`,
+  `/brand/{file}` in `app/Config/Routes.php` (the last four are public, the sign-in page needs them).

@@ -2,7 +2,7 @@
 
 | Layer | Where | Runs on | Needs |
 |---|---|---|---|
-| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/` and `src/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, and every Markdown file under `docs/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
+| Lint | `scripts/lint.sh` | `php -l` on every PHP file, `node --check` on the JS in `public/`, relative Markdown links (`scripts/check-links.mjs`: README, CONTRIBUTING, `AGENTS.md`, and every Markdown file under `docs/`), `shellcheck`, `actionlint` on `.github/workflows` | PHP, Node, shellcheck, actionlint (installed in CI) |
 | PHPUnit | `tests/Unit/`, `tests/Modules/` (CIUnitTestCase, run from `Ci4ModuleSuiteTest`) | SQLite or PostgreSQL | `composer install` |
 | Headless mobile checks | `tests/e2e/mobile.mjs` | Chrome via puppeteer-core at 375×667 and 390×844 | Node, Chrome |
 | End-to-end + visual | `tests/visual/*.spec.ts` | Playwright: WebKit, Chromium, light and dark, SQLite and PostgreSQL | Node, PHP, Playwright browsers |

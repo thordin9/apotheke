@@ -1,45 +1,28 @@
 # Architecture
 
-The legacy app is deliberately small: one front controller, a handful of PHP files with plain functions, server-rendered
-HTML, one stylesheet and one script. There is no framework, no autoloader, no template engine and no build step.
-Apotheke 3.0 is the CodeIgniter 4 app at the repository root ([ADR-001](adr/001-codeigniter4.md)): it serves every
-page, answers as the legacy app did, and reads the same database and data directory. Its layout is in
-[The CI4 app](#the-ci4-app) below; the sections before it describe the legacy app, which 2.6.x releases still ship
-([Upgrading to 3.0](upgrade-3.0.md)).
+Apotheke 3.0 is a CodeIgniter 4 app ([ADR-001](adr/001-codeigniter4.md)). It serves every page, answers as the
+2.x app did, and reads the same database and data directory. The 2.x app (one front controller and plain PHP
+functions under `src/`) is no longer in this repository; 2.6.x releases still ship it
+([Upgrading to 3.0](upgrade-3.0.md)). Older notes that name its functions (`item_get()`, `db_tx()`, …) refer to
+that app; the class that took each one over says so in its docblock ("legacy …").
 
 ## Directory layout
 
 ```
-public/                   web root (the only directory a web server should expose)
-  index.php               front controller + router (also the router script for `php -S`; HEAD is treated as GET for reads)
-  assets/                 app.css, app.js, theme.js, icons (served as static files)
-src/
-  bootstrap.php           constants, data directories, sessions, auth, CSRF, small helpers, asset()
-  hosts.php               Host allow-list and the same-origin rule for no-login mode
-  config.php              configuration loader (defaults < config.php < environment)
-  settings.php            Control Panel settings: schema, validation, typed per-request cache, accent contrast maths,
-                          logo upload/SVG sanitizer/icon generation, manifest, password
-  settings_views.php      Control Panel pages (/settings/…)
-  db.php                  PDO connection, dialect helpers, migration runner
-  legacy.php              one-time conversion of pre-migration SQLite installs (schema v1–v3)
-  items.php               domain logic: items, locations/categories, tags, search, statistics, photos (GD; Imagick for HEIC; fallback uses white and sRGB),
-                          activity log, low stock, bulk actions, lending, duplicating, the location tree
-  image-color.php         Imagick colour helpers shared by the display copy and the analysis JPEG
-  markdown.php            safe Markdown subset for notes (escape first, then a few constructs; http/https/mailto links)
-  attachments.php         item attachments: type sniffing, limits, storage in data/files/, download headers
-  favourites.php          favourite flag, recently viewed list (device cookie or shared scope)
-  merge.php               merging duplicates: preview (confirm screen), item_merge() in one transaction, candidates
-  undo.php                undo tokens: item snapshots, soft delete (files kept until expiry), apply, prune, the bar
-  backup.php              portable backup zip (dump + photos + attachments) and restore
-  cli-owner.php           bin/ tools started as root continue as the data folder's owner, or stop
-  qr.php                  loads qr-encode.php (pure-PHP QR, SVG) after the function-JIT guard
-  seed.php                starter locations/categories and demo data
-  views.php               all HTML: page shell, partials (cards, chips, sheets), one view_* function per screen
-migrations/NNNN_*.php     versioned schema steps
-bin/                      CLI: migrate.php, seed.php, backup.php, restore.php, settings.php
+public/index.php          front controller: refuses camera-original URLs before the framework boots, then CodeIgniter
+public/router.php         router script for `php -S` (static assets, then index.php)
+public/assets/            stylesheet, scripts and icons
+app/Config/               CodeIgniter config: Services (the only wiring), Filters, Routes and RoutesCompiled
+modules/<Module>/         one namespace per area (Apotheke\<Module>): Controllers, Views, services, Commands
+spark                     CodeIgniter CLI: apotheke:migrate, settings, accounts, backup, restore, routes
+writable/                 CodeIgniter's cache, logs and session scratch (not the data directory)
+tools/PhpStan/            the DI rule (phpstan-di.neon)
+tests/Modules/            module tests (phpunit -c tests/Modules/phpunit.xml.dist)
+migrations/NNNN_*.php     versioned schema steps (run by Migrations\PdoMigrationRunner)
+bin/                      CLI wrappers: migrate.php, seed.php, backup.php, restore.php, settings.php (each runs a spark command)
 docker/                   nginx.conf (template), fastcgi.conf, php-fpm.conf, php.ini, entrypoint.sh
-tests/                    run.sh, integration.php + lib.php, Unit/, Integration/, e2e/ (puppeteer), visual/ (Playwright)
-scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, docker-auth-checks.sh, docker-signin-checks.sh, imagick-policy-check.php, check-commits.sh, update-snapshots.sh, e2e-container-setup.sh
+tests/                    Unit/ (root suite), Modules/ (module suite), e2e/ (puppeteer), visual/ (Playwright), upgrade/
+scripts/                  lint.sh, check-links.mjs, smoke.sh, docker-checks.sh, check-commits.sh, update-snapshots.sh, …
 docs/                     this documentation and the README screenshots
 ```
 
@@ -50,25 +33,23 @@ sequenceDiagram
   participant B as Browser
   participant W as nginx / php -S
   participant R as public/index.php
-  participant D as src/items.php + db.php
-  participant V as src/views.php
+  participant F as app/Config/Filters.php
+  participant C as Catalog\Controllers\ItemController
+  participant S as module services + Views
   B->>W: GET /item/3
   W->>R: not a static file → front controller
-  R->>R: security headers (CSP, nosniff, frame options); HEAD → GET for routing
-  R->>R: /healthz (no session needed)
-  R->>R: init_session() → CSRF token, release session lock
-  R->>R: /login, /logout, then sign-in gate + role check (users)
-  R->>D: item_get(3), photos_for(3), activity_list(3)
-  D->>D: db() connects and runs pending migrations on first use
-  R->>V: view_item(...)
-  V-->>B: HTML (escaped with h(), external CSS/JS only)
+  R->>R: /originals → 404 before the framework boots
+  R->>F: HEAD as GET, Host allow-list, base URL, session on demand, Permission, CSRF
+  F->>C: show(3)
+  C->>S: ItemRepository, ActivityLog, ItemView (the first connection migrates)
+  S-->>B: HTML (escaped, external CSS/JS only), then security headers and RequestCleanup
 ```
 
-`public/index.php` is a linear list of `if ($path === … && $method === …)` / `preg_match` blocks inside one
-`try`. Each block validates input, calls domain functions and either renders a view, returns JSON (`json_out()`,
-when the request has `X-Requested-With: fetch`) or redirects (`redirect()`, 303 after a POST). A `UserError` thrown
-anywhere becomes an error page (or JSON) with its status code (400 by default; 404, 419 for an expired CSRF token,
-422 for validation); any other exception is logged and shown as a generic 500 page.
+Each route in `app/Config/Routes.php` names a controller method and the permission it needs. A controller validates
+input, calls its module's services and renders a view, returns JSON (when the request has `X-Requested-With: fetch`
+or `Accept: application/json`, `Core\Http\WantsJson`) or redirects (303 after a POST). A `UserError` becomes an
+error page (or JSON) with its status code (400 by default; 404, 419 for an expired CSRF token, 422 for validation);
+any other exception is logged and shown as a generic 500 page.
 
 Important routes:
 
@@ -97,39 +78,40 @@ Important routes:
 
 ### Sessions, auth and CSRF
 
-`init_session()` opens the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
-`SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; the cookie lifetime comes from `session_days`, default 30). The server also stores the sign-in time in the session and ends it, the same way as a sign-out, once that time is older than `session_days`. Later visits do not move it. A session that has no sign-in time yet is stamped on its next request and is not ended immediately. A signed-in session also ends when no request has arrived for `session_idle_hours` hours (default 168, at most 8760). That last-request time is kept in the session file and moves at most once a minute, so a busy page does not rewrite the file on every request. `/healthz`, `/health` and the branding routes (`/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) are answered before `init_session()`, so they do not refresh it. `init_session()` makes sure a CSRF token exists, and **closes the session right away** so parallel
-requests (photos, instant search) never wait for the session lock. Every state-changing route calls `check_csrf()`
+`Core\Filters\SessionCookie` sets up the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
+`SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; the cookie lifetime comes from `session_days`, default 30). The server also stores the sign-in time in the session and ends it, the same way as a sign-out, once that time is older than `session_days`. Later visits do not move it. A session that has no sign-in time yet is stamped on its next request and is not ended immediately. A signed-in session also ends when no request has arrived for `session_idle_hours` hours (default 168, at most 8760). That last-request time is kept in the session file and moves at most once a minute, so a busy page does not rewrite the file on every request. `/healthz`, `/health` and the branding routes (`/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) are answered without loading the session, so they do not refresh it. A session starts only when a request needs one (a sign-in or a CSRF token), and it is **closed right away** so parallel
+requests (photos, instant search) never wait for the session lock. Every state-changing request passes `Core\Filters\CsrfFilter`
 (form field `csrf` or header `X-CSRF-Token`). Sign-out stays a POST. A live session still needs the token; one the server has already ended redirects to the sign-in page. When sign-in is on (Settings → Users & sign-in; `APP_PASSWORD` creates the account `admin`), everything except `/login`, `/healthz`, `/health` and
 the branding routes requires a signed-in session (`uid`) whose
 stored epoch matches that user's current session epoch (`users.session_epoch`, migration 0028; a row with none still matches the password-hash fingerprint its sessions already held). A new password, or **Sign out everywhere** (`POST /account/signout`, and `php bin/settings.php user signout NAME`), stores a new epoch, so older sessions are dropped. Changing your own password, or using the button, keeps this device signed in. Unauthenticated JSON requests get a 401, media requests a bare
 401, pages a redirect to `/login`. With guest browsing on, a visitor who is not signed in is the anonymous user with the role `guest` instead.
-Then `route_perm()` (src/roles.php) names the permission the route needs (view, create, edit, delete, move, bulk, lend,
+Then `Auth\RoutePermission` names the permission the route needs (view, create, edit, delete, move, bulk, lend,
 import, export, stocktake, labels, settings, users, backup; `self` for /account, `public` for /login and /register) and
-`user_can()` checks it against the role's permissions — 403 for accounts, a redirect to `/login` (JSON 401) for guests.
+`Auth\Filters\PermissionFilter` checks it against the role's permissions (`Auth\Permissions`) — 403 for accounts, a redirect to `/login` (JSON 401) for guests.
 
 ## Database layer
 
-* `db()` returns the request's PDO connection. On first use it connects (`db_connect()`) and runs `migrate()`, so a
+* `Core\Config\DatabaseFactory` opens the request's connection from the `DB_*` settings (`DsnTranslator`, one login
+  per request). Before the first connection of a process, `Migrations\BootMigration` runs pending migrations, so a
   fresh install or an upgrade needs no manual step.
-* SQL is written once for both dialects. The portability rules (see the header of `src/db.php`):
+* SQL is written once for both dialects. The portability rules ([Database](database.md)):
   * case/accent-insensitive uniqueness and search use **PHP-folded columns** (`name_key`, `items.search`, computed
-    with `fold()`), so both databases use plain `UNIQUE` and `LIKE … ESCAPE '!'`;
-  * natural sorting uses a PHP-computed `sort_key` (`natkey()`), so "box 2" sorts before "box 10";
+    with `Core\Libraries\Text::fold()`), so both databases use plain `UNIQUE` and `LIKE … ESCAPE '!'`;
+  * natural sorting uses a PHP-computed `sort_key`, so "box 2" sorts before "box 10";
   * timestamps are UTC `Y-m-d H:i:s` text; lending dates are local `Y-m-d` text;
-  * dialect-specific bits live in small helpers: `db_insert()` (insert ids), `db_local_bucket()` (date bucketing
-    for the statistics), and the migration lock.
-* `db_tx(fn)` runs a closure in a transaction, or joins the caller's transaction if one is open. That is how bulk
-  actions and duplicating reuse `item_save()` and still commit or roll back as one unit.
-* `activity_log()` is always called inside the same transaction as the change it records.
+  * dialect-specific bits (insert ids, date bucketing for the statistics, the migration lock) live in the
+    repositories and the migration runner.
+* Every write goes through `Core\Database\Writes`: a failed statement throws, and a transaction whose statement
+  failed rolls back. Bulk actions and duplicating reuse the item save inside one transaction.
+* The activity log entry is written in the same transaction as the change it records.
 
 More in [Database](database.md).
 
 ## Views and front end
 
-`src/views.php` renders everything with plain PHP templates. `page_start()` emits the `<head>` (theme from the cookie,
-`theme-color`, manifest, CSRF meta tag, versioned CSS/JS); `page_end()` closes the document. Every dynamic value
-goes through `h()`.
+Each module renders its pages with plain PHP view classes (`modules/<Module>/Views`). `Layout\Page` is the shared
+shell: the `<head>` (theme from the cookie, `theme-color`, manifest, CSRF meta tag, versioned CSS/JS), the menu and
+the end of the document. Every dynamic value is escaped.
 
 The Content-Security-Policy forbids inline scripts and styles, so:
 
@@ -142,8 +124,8 @@ The Content-Security-Policy forbids inline scripts and styles, so:
 
 ### Settings
 
-Two layers: **bootstrap** values (`cfg()`: data dir, database, seeding) come from `config.php` / the environment;
-**everything else** comes from `setting($key)` (`src/settings.php`), which loads the `settings` table once per request
+Two layers: **bootstrap** values (`Core\Config\ApothekeConfig`: data dir, database, seeding) come from `config.php` / the environment;
+**everything else** comes from `Settings\SettingsService` (schema in `Settings\SettingsSchema`), which reads the `settings` table once per request
 and falls back to the defaults (`config.php` values or literals) before migration 0013. The custom accent is delivered
 as a generated stylesheet (`/theme.css?v=<hash>`, CSS variables for light, dark and `prefers-color-scheme`), so no inline
 styles are needed; the manifest and `favicon.ico` are generated routes, so an uploaded logo can replace the icons. See
@@ -154,14 +136,14 @@ faster (fetch + JSON) where it matters.
 
 ## Location tree
 
-Locations have an optional `parent_id`. `tax_list('location')` reads all locations with their direct item counts in
-one query and `location_tree_order()` turns them into tree order (each parent followed by its children, siblings
-in natural order), adding `depth`, `path` ("Garage › Shelf 2") and `total` (items including sub-locations). Views use
-that list everywhere: `tax_option_label()` indents dropdown options, `parent_options()` builds the parent picker
-(without the location's own branch), `location_trail_html()` renders the path on the item page. The list filter
-`loc=N` expands to `location_id IN (…)` with `location_subtree_ids()`. A search word that matches a location name expands the same way
-(`location_ids_matching()`), so items below a matching location are found too. The overview's *By location* bars
-come from `stats_location_rollup()`, which adds every item to the top-level location of its branch. `stats_value()` uses the same rollup for the purchase-price totals of the *Value* card.
+Locations have an optional `parent_id`. The taxonomy repository reads all locations with their direct item counts in
+one query and `Taxonomy\LocationTree::order()` turns them into tree order (each parent followed by its children,
+siblings in natural order), adding `depth`, `path` ("Garage › Shelf 2") and `total` (items including
+sub-locations). Views use that list everywhere: `LocationTree::optionLabel()` indents dropdown options, the parent
+picker leaves out the location's own branch, and the item page shows the path. The list filter `loc=N` expands to
+`location_id IN (…)` with the location's subtree. A search word that matches a location name expands the same way,
+so items below a matching location are found too. The overview's *By location* bars add every item to the top-level
+location of its branch, and the purchase-price totals of the *Value* card use the same rollup.
 
 ## Docker image
 
@@ -172,26 +154,14 @@ flowchart LR
   ep --> nginx["nginx :PORT"]
   nginx -->|"/assets/*, manifest"| static["static files<br/>(immutable caching, gzip)"]
   nginx -->|"everything else"| fpm
-  nginx -->|"src/, migrations/, dotfiles, other *.php"| deny["404"]
+  nginx -->|"/originals, migrations/, dotfiles, other *.php"| deny["404"]
 ```
 
 nginx serves `public/assets/` directly, sends every other request to `public/index.php` through php-fpm, and returns
-404 for `src/`, `data/`, `bin/`, `migrations/`, `docker/`, `tests/`, `vendor/`, `config.php`, dotfiles and every `.php`
+404 for `/originals`, `data/`, `bin/`, `migrations/`, `docker/`, `tests/`, `vendor/`, `config.php`, dotfiles and every `.php`
 path except `/index.php`, the front controller itself. `scripts/docker-checks.sh` verifies this behaviour in CI.
 
-## The CI4 app
-
-```
-public/index.php          front controller: refuses camera-original URLs before the framework boots, then CodeIgniter
-public/router.php         router script for `php -S` (static assets, then index.php)
-public/assets/            stylesheet, scripts and icons
-app/Config/               CodeIgniter config: Services (the only wiring), Filters, Routes and RoutesCompiled
-modules/<Module>/         one namespace per area (Apotheke\<Module>): Controllers, Views, services, Commands
-spark                     CodeIgniter CLI: apotheke:migrate, settings, accounts, backup, restore, routes
-writable/                 CodeIgniter's cache, logs and session scratch (not the data directory)
-tools/PhpStan/            the DI rule (phpstan-di.neon)
-tests/Modules/            module tests (phpunit -c tests/Modules/phpunit.xml.dist)
-```
+## Modules, filters and data
 
 **Modules.** Core (boot, config and the DSN translator, database, filters, HTTP helpers, storage, logging) depends on
 nothing. Every other module (Settings, Auth, Layout, Media, Taxonomy, Notes, Search, Catalog, Activity, Undo,
@@ -223,4 +193,3 @@ directory's owner first.
 
 **Docker.** The image serves this app only, from `public/` on PHP 8.4 (see [Docker image](#docker-image)).
 `APOTHEKE_APP=legacy` exits with code 64; use a 2.6 image to stay on the legacy app.
-

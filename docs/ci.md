@@ -11,14 +11,15 @@ Runs with `permissions: contents: read`; a newer push to the same ref cancels th
 
 ```mermaid
 flowchart LR
-  push["PR / push to main or feature/ci4"] --> lint["Lint<br/>PHP 8.3 · PHP 8.4"]
+  push["PR / push to main or feature/ci4"] --> lint["Lint<br/>PHP 8.4"]
   push --> deptrac["deptrac"]
   push --> di["DI rule"]
   push --> secrets["Secret scan"]
-  push --> test["Tests<br/>legacy@8.3 · PHP 8.4 legacy · PHP 8.4 ci4<br/>SQLite · PostgreSQL"]
-  push --> mobile["Headless mobile checks<br/>PHP 8.3 · PHP 8.4"]
-  push --> e2e["Visual E2E<br/>PHP 8.3 · PHP 8.4 · 3 shards"]
-  push --> docker["Docker build + smoke test<br/>PHP 8.4 image (legacy · ci4)"]
+  push --> test["Tests<br/>PHP 8.4<br/>SQLite · PostgreSQL"]
+  push --> mobile["Headless mobile checks<br/>PHP 8.4"]
+  push --> e2e["Visual E2E<br/>PHP 8.4 · 3 shards"]
+  push --> docker["Docker build + smoke test<br/>PHP 8.4 image"]
+  push --> upgrade["Upgrade and rollback<br/>2.6.26 → CI4@8.4 → 2.6.26<br/>SQLite · PostgreSQL"]
   push --> commits["Conventional Commits<br/>(PRs only)"]
 ```
 
@@ -44,7 +45,7 @@ The parity recorder (`tests/parity/recorder.php`, `ParityRecorderTest`) and [`te
 
 The parity gate job was retired at the cutover (PLAN step 18); its last run on the pre-cutover head is recorded in [HANDOFF](HANDOFF.md).
 
-`src/qr.php` loads on every request. Whenever opcache function JIT is on, on PHP 8.2, 8.3 and 8.4, that file sets `opcache.jit=disable` for the whole PHP worker from its first request, not only while a QR code is encoded. The cost is negligible. `opcache_jit_blacklist()` does not help.
+`Labels\QrJit` guards the QR encoder. Whenever opcache function JIT is on, it sets `opcache.jit=disable` for the whole PHP worker before the first QR code of that worker is encoded (a labels page), not only for that request. The cost is negligible. `opcache_jit_blacklist()` does not help.
 
 The job sets `APOTHEKE_TEST_DB` to `sqlite` or `pgsql`. `tests/lib.php` copies that choice, and the host, database, user, password and schema, into the environment of every server it starts. Those CI4 servers use `tests/ci4-router.php`. On the pgsql leg that router, after CI4 wires the connection, checks the driver is `Postgre` and inserts into `public.apotheke_ci4_pgsql_probe`. `public/index.php` and `public/router.php` do not. Setting `APOTHEKE_TEST_DB` on a production install does not create the table. The following step runs `scripts/ci4-pgsql-proof.php`, which prints `apotheke_ci4_pgsql_probe rows=N` and fails when the count is 0. SQLSTATE 42P01 is reported as a missing table. Any other PDO failure is reported as a connection or query failure with its SQLSTATE. The script does not print the DSN or the password.
 
@@ -52,8 +53,8 @@ The test job's PostgreSQL password is the test-only value `apotheke\test`. CI4's
 
 **deptrac** and the **DI rule** run the tools from `vendor/bin` (then `vendor/bin`, then `PATH`):
 
-* [`deptrac.yaml`](../deptrac.yaml) has one layer per module under `ci4/modules` (21). Core depends on nothing; every other module may depend on Core and on the modules [AGENTS.md](../AGENTS.md#ci4-module-rules) lists for it, with no cycles.
-* [`phpstan-di.neon`](../phpstan-di.neon) is level 6 over `ci4/modules`, the glue config and `public/`. `service()` and `Services::` are allowed only in controllers, in filter `before()`/`after()`, and in `Config/Services.php`.
+* [`deptrac.yaml`](../deptrac.yaml) has one layer per module under `modules/` (22). Core depends on nothing; every other module may depend on Core and on the modules [AGENTS.md](../AGENTS.md#ci4-module-rules) lists for it, with no cycles.
+* [`phpstan-di.neon`](../phpstan-di.neon) is level 6 over `modules/`, the glue config and `public/`. `service()` and `Services::` are allowed only in controllers, in filter `before()`/`after()`, and in `Config/Services.php`.
 
 The DI job runs `composer audit` before the rule. That audit is a deliberate gate. If it fails because a new advisory was published, update the dependency. The failure is not a regression in the pull request.
 

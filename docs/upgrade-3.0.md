@@ -64,7 +64,7 @@ Then:
 
 ```bash
 docker compose up -d
-docker compose logs apotheke | tail -n 5          # "nginx on :9091 (/var/www/app/ci4/public)"
+docker compose logs apotheke | tail -n 5          # "nginx on :9091 (/var/www/app/public)"
 curl -fsS http://127.0.0.1:9091/healthz           # 200
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9091/originals/x   # 404: camera originals are never served
 docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --status   # nothing pending
