@@ -6,8 +6,8 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
 require_once dirname(__DIR__) . '/legacy-bootstrap.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Auth/Permissions.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Auth/RoutePermission.php';
+require_once dirname(__DIR__, 2) . '/modules/Auth/Permissions.php';
+require_once dirname(__DIR__, 2) . '/modules/Auth/RoutePermission.php';
 
 use Apotheke\Auth\Permissions;
 use Apotheke\Auth\RoutePermission;
@@ -62,7 +62,7 @@ final class Ci4PermissionParityTest extends TestCase
     /** Every CI4 state-changing route, every kind of visitor, both apps. */
     public function testTheSameRequestsGetTheSameAnswers(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];

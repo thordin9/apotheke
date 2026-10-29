@@ -27,7 +27,7 @@ final class Ci4AccountsCliTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -292,12 +292,12 @@ final class Ci4AccountsCliTest extends TestCase
     public function testSparkEntryPoint(): void
     {
         [, $right] = $this->twins('acli-spark');
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'frob'], $this->env($right, true), null);
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'frob'], $this->env($right, true), null);
         $this->assertSame([2, "Unknown command. See the comment at the top of bin/settings.php.\n"], [$r['exit'], $r['stderr']]);
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'auth', 'status'], $this->env($right, true), null);
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'auth', 'status'], $this->env($right, true), null);
         $this->assertSame([3, "off\n", ''], [$r['exit'], $r['stdout'], $r['stderr']], 'auth status answers in apotheke:accounts');
         // A value that starts with "-" reaches the command unchanged.
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'user', 'add', 'neo', 'editor', '-long-enough-'], $this->env($right, true), null);
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'user', 'add', 'neo', 'editor', '-long-enough-'], $this->env($right, true), null);
         $this->assertSame([0, "Added neo.\n"], [$r['exit'], $r['stdout']]);
     }
 
@@ -337,14 +337,14 @@ final class Ci4AccountsCliTest extends TestCase
             $this->assertFalse((bool)getenv('CI'), 'CI runs the Ctrl-C case');
             $this->markTestSkipped('pcntl is required for the Ctrl-C case');
         }
-        $r = $this->pty($python, [PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'password'], $env, [
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'password'], $env, [
             ['wait', 'New password: '], ['send', $typed], ['sigint'],
         ]);
         $this->assertSame(130, $r['exit'], $r['shown']);
         $this->assertTerminalClean($r, [$typed]);
 
         // SIGTERM (kill) during the prompt restores the terminal too and exits 128 + 15 (N-133).
-        $r = $this->pty($python, [PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:accounts', '--no-header', 'user', 'password', 'bob'], $env, [
+        $r = $this->pty($python, [PHP_BINARY, ROOT . '/spark', 'apotheke:accounts', '--no-header', 'user', 'password', 'bob'], $env, [
             ['wait', 'New password: '], ['send', $other], ['sigterm'],
         ]);
         $this->assertSame(143, $r['exit'], $r['shown']);

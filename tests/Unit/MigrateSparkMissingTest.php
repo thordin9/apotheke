@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 
-/** APOTHEKE_APP=ci4 must not hand off when ci4/spark is absent. */
+/** APOTHEKE_APP=ci4 must not hand off when spark is absent. */
 final class MigrateSparkMissingTest extends TestCase
 {
     public function testMissingSparkExitsWithAClearMessage(): void
@@ -36,7 +36,7 @@ final class MigrateSparkMissingTest extends TestCase
             $proc = null;
             $text = $out . $err;
             $this->assertSame(1, $code, $text);
-            $this->assertSame("APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n", $err);
+            $this->assertSame("APOTHEKE_APP=ci4 is set but spark is not in this install.\n", $err);
             $this->assertStringNotContainsString('Could not open input file', $text);
             $this->assertStringNotContainsString('s9d44', $text);
             $this->assertStringNotContainsString($dsn, $text);

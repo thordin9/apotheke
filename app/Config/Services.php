@@ -316,7 +316,7 @@ class Services extends BaseService
 
     /**
      * Theme, labels, manifest and favicon output. Bundled icons are the
-     * Layout module's copy under ci4/public/assets.
+     * Layout module's copy under public/assets.
      */
     public static function branding(bool $getShared = true): \Apotheke\Settings\Branding\Branding
     {
@@ -331,14 +331,14 @@ class Services extends BaseService
         );
     }
 
-    /** Versioned URLs of the bundled assets under ci4/public/assets (a copy of legacy public/assets). */
+    /** Versioned URLs of the bundled assets under public/assets (a copy of legacy public/assets). */
     public static function assetUrl(bool $getShared = true): \Apotheke\Core\Libraries\AssetUrl
     {
         if ($getShared) {
             return static::getSharedInstance('assetUrl');
         }
 
-        return new \Apotheke\Core\Libraries\AssetUrl(\Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/ci4/public/assets');
+        return new \Apotheke\Core\Libraries\AssetUrl(\Apotheke\Core\Config\ApothekeConfig::repoRoot() . '/public/assets');
     }
 
     /**

@@ -7,9 +7,9 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 require_once dirname(__DIR__, 2) . '/src/items.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Libraries/Text.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Search/SearchIndex.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Catalog/ListFilters.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Libraries/Text.php';
+require_once dirname(__DIR__, 2) . '/modules/Search/SearchIndex.php';
+require_once dirname(__DIR__, 2) . '/modules/Catalog/ListFilters.php';
 
 use Apotheke\Catalog\ListFilters;
 use Apotheke\Search\SearchIndex;
@@ -51,7 +51,7 @@ final class Ci4CatalogParityTest extends TestCase
 
     public function testTheSameRequestsGetTheSameAnswers(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];

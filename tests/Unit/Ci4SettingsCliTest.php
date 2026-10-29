@@ -5,11 +5,11 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Exceptions/UserError.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Libraries/Text.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Settings/SettingsSchema.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Security/SecretKey.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Security/SecretBox.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Exceptions/UserError.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Libraries/Text.php';
+require_once dirname(__DIR__, 2) . '/modules/Settings/SettingsSchema.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Security/SecretKey.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Security/SecretBox.php';
 
 use Apotheke\Core\Security\SecretBox;
 use Apotheke\Settings\SettingsSchema;
@@ -29,7 +29,7 @@ final class Ci4SettingsCliTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -386,7 +386,7 @@ final class Ci4SettingsCliTest extends TestCase
         $this->assertSame(['Imported 3 settings.' . "\n", '', 0], [$r['stdout'], $r['stderr'], $r['exit']], 'bin/settings.php');
         $rows = $this->settingsRows($right);
         $this->assertSame(['7', 'true', 'false'], [$rows['session_days'][0] ?? null, $rows['trust_proxy'][0] ?? null, $rows['auth_register_disabled'][0] ?? null]);
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:settings', '--no-header', 'import'], $this->env($right, true), '{"format":"apotheke-settings","settings":{"session_days":9}}');
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:settings', '--no-header', 'import'], $this->env($right, true), '{"format":"apotheke-settings","settings":{"session_days":9}}');
         $this->assertSame(['Imported 1 settings.' . "\n", 0], [$r['stdout'], $r['exit']], 'spark');
         $this->assertSame('9', $this->settingsRows($right)['session_days'][0] ?? null);
     }
@@ -443,7 +443,7 @@ final class Ci4SettingsCliTest extends TestCase
      */
     private function spark(string $dir, array $args): array
     {
-        return $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:settings', '--no-header', ...$args], $this->env($dir, true), null);
+        return $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:settings', '--no-header', ...$args], $this->env($dir, true), null);
     }
 
     /**

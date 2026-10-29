@@ -7,7 +7,7 @@ require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Notes/MarkdownRenderer.php';
+require_once dirname(__DIR__, 2) . '/modules/Notes/MarkdownRenderer.php';
 
 use Apotheke\Notes\MarkdownRenderer;
 

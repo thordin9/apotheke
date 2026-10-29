@@ -50,7 +50,7 @@ final class ApothekeConfig
 
     public static function repoRoot(): string
     {
-        return dirname(__DIR__, 4);
+        return dirname(__DIR__, 3);
     }
 
     /** @param array<string,string|false|null> $env */

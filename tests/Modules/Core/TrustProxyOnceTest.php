@@ -56,7 +56,7 @@ final class TrustProxyOnceTest extends CIUnitTestCase
     public function testNothingOpensASeparateSettingsConnection(): void
     {
         $this->assertFalse((new ReflectionClass(App::class))->hasProperty('trustProxy'));
-        $root = dirname(__DIR__, 2);
+        $root = dirname(__DIR__, 3);
         $hits = [];
         foreach (['app', 'modules'] as $dir) {
             $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/' . $dir, FilesystemIterator::SKIP_DOTS));

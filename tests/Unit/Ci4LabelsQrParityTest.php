@@ -9,8 +9,8 @@ use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
 require_once dirname(__DIR__) . '/legacy-bootstrap.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Labels/QrJit.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Labels/QrCode.php';
+require_once dirname(__DIR__, 2) . '/modules/Labels/QrJit.php';
+require_once dirname(__DIR__, 2) . '/modules/Labels/QrCode.php';
 
 /**
  * Golden (PLAN step 13): CI4's QR encoder (Labels\QrCode, QrJit) gives the

@@ -6,7 +6,7 @@ use Apotheke\Migrations\PdoMigrationRunner;
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Migrations/PdoMigrationRunner.php';
+require_once dirname(__DIR__, 2) . '/modules/Migrations/PdoMigrationRunner.php';
 
 /**
  * DB_DSN on both connections /healthz opens (the migration runner's PDO and
@@ -224,7 +224,7 @@ final class Ci4DsnCredentialsTest extends TestCase
         putenv('PGPASSFILE=/nonexistent');
         try {
             $runner = new PdoMigrationRunner(dirname(__DIR__, 2) . '/migrations');
-            $vendor = is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') && PHP_VERSION_ID >= 80400;
+            $vendor = is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') && PHP_VERSION_ID >= 80400;
             foreach ($roles as $role => [$user, $password, $schema]) {
                 foreach ($extras as $extra => $tail) {
                     $label = $role . ' ' . $extra;
@@ -332,7 +332,7 @@ final class Ci4DsnCredentialsTest extends TestCase
         ]);
         $this->assertSame($env['user'], $pdo->query('SELECT current_user')->fetchColumn());
         $runner->close($pdo);
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             return;
         }
         $hit = $this->boot('dbname=' . $pg['name'] . ';user=%du;password=%dp', '%eu', '%ep');
@@ -380,7 +380,7 @@ final class Ci4DsnCredentialsTest extends TestCase
             'PGPASSWORD' => null,
             'PGUSER' => null,
             'PGPASSFILE' => '/nonexistent',
-        ], 'ci4', dirname(__DIR__, 2) . '/ci4/public/router.php');
+        ], 'ci4', dirname(__DIR__, 2) . '/public/router.php');
         try {
             $response = $server->client()->get('/healthz');
 
@@ -405,7 +405,7 @@ final class Ci4DsnCredentialsTest extends TestCase
      */
     private function boot(string $tail, ?string $user, ?string $password, int $requests = 1): array
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $pg = test_pg_params();
@@ -430,7 +430,7 @@ final class Ci4DsnCredentialsTest extends TestCase
             'PGPASSWORD' => null,
             'PGUSER' => null,
             'PGPASSFILE' => '/nonexistent',
-        ], 'ci4', dirname(__DIR__, 2) . '/ci4/public/router.php');
+        ], 'ci4', dirname(__DIR__, 2) . '/public/router.php');
         try {
             $response = $server->client()->get('/healthz');
             for ($i = 1; $i < $requests; $i++) {

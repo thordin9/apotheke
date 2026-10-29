@@ -27,7 +27,7 @@ try {
     $gate = parity_gate($rounds);
 } catch (RuntimeException $e) {
     if ($e->getMessage() === 'skip') {
-        fwrite(STDERR, "parity gate: needs PHP 8.4 and ci4/vendor\n");
+        fwrite(STDERR, "parity gate: needs PHP 8.4 and vendor\n");
         exit(2);
     }
     throw $e;

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Router for `php -S 127.0.0.1:9091 -t ci4/public ci4/public/router.php`.
+ * Router for `php -S 127.0.0.1:9091 -t public public/router.php`.
  * Returning false lets the built-in server send a real file under public/.
  */
 

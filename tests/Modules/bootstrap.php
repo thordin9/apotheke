@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /*
  * Bootstrap for the CI4 module tests: an isolated data dir and no config.php,
- * then CodeIgniter's own test bootstrap from ci4/. The database for
+ * then CodeIgniter's own test bootstrap from the repository root. The database for
  * repository and service tests comes from Tests\Support\TestDatabase:
  * SQLite always, PostgreSQL as well when DB_DRIVER=pgsql (CI) or TEST_PG_HOST is set.
  * No at-rest key variables from the runner's environment.
@@ -36,7 +36,7 @@ register_shutdown_function(static function () use ($tmp): void {
     @rmdir($tmp);
 });
 
-$home = dirname(__DIR__) . DIRECTORY_SEPARATOR;
+$home = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR;
 define('HOMEPATH', $home);
 define('CONFIGPATH', $home . 'app' . DIRECTORY_SEPARATOR . 'Config' . DIRECTORY_SEPARATOR);
 define('PUBLICPATH', $home . 'public' . DIRECTORY_SEPARATOR);

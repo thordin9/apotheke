@@ -33,7 +33,7 @@ final class PdoMigrationRunner
 
     public static function repoRoot(): string
     {
-        return dirname(__DIR__, 3);
+        return dirname(__DIR__, 2);
     }
 
     /** Warn once per PHP process (a request under php-fpm or php -S, one run under spark); config does not change within it. */

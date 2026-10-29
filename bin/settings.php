@@ -42,13 +42,13 @@ $ci4Form = match (true) {
     default => null,
 };
 if (getenv('APOTHEKE_APP') === 'ci4' && $ci4Form !== null) {
-    $spark = dirname(__DIR__) . '/ci4/spark';
+    $spark = dirname(__DIR__) . '/spark';
     if (!file_exists($spark)) {
-        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
+        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but spark is not in this install.\n");
         exit(1);
     }
     // started as root: run as DATA_DIR's owner before anything else, or stop (L-622, N-625; DataDirOwner)
-    require_once dirname(__DIR__) . '/ci4/modules/Backup/Commands/DataDirOwner.php';
+    require_once dirname(__DIR__) . '/modules/Backup/Commands/DataDirOwner.php';
     if (!\Apotheke\Backup\Commands\DataDirOwner::forCommandLine(STDERR, 'php bin/settings.php list')) exit(1);
     $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, $ci4Form, '--no-header', ...array_slice($argv, 1)]));
     passthru($command, $code);

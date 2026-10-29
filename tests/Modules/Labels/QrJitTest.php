@@ -34,7 +34,7 @@ final class QrJitTest extends CIUnitTestCase
     /** @return array{jit:string,svg:string}|null null when JIT did not turn on */
     private function encodeUnder(string $mode, string $data): ?array
     {
-        $code = 'require ' . var_export(dirname(__DIR__, 2) . '/vendor/autoload.php', true) . ';
+        $code = 'require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';
 $st = opcache_get_status(false);
 if (empty($st["jit"]["on"])) { fwrite(STDERR, "jit-off"); exit(2); }
 $svg = Apotheke\Labels\QrJit::svg(' . var_export($data, true) . ', "QR code for Drill");

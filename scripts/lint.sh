@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 echo "== PHP lint"
-find public src tests bin migrations ci4 config.example.php -name '*.php' -not -path '*/node_modules/*' -not -path 'ci4/vendor/*' -not -path 'ci4/writable/*' -print0 | xargs -0 -n1 php -l >/dev/null
+find public src tests bin migrations ci4 config.example.php -name '*.php' -not -path '*/node_modules/*' -not -path 'vendor/*' -not -path 'writable/*' -print0 | xargs -0 -n1 php -l >/dev/null
 echo "   ok"
 if command -v node >/dev/null 2>&1; then
   echo "== JS syntax"

@@ -51,10 +51,10 @@ final class BackupHelpersTest extends CIUnitTestCase
     {
         $this->assertSame('php bin/backup.php', DataDirOwner::example(['--no-header', 'apotheke:backup']));
         $this->assertSame('php bin/settings.php list', DataDirOwner::example(['APOTHEKE:ACCOUNTS', 'users']));
-        $this->assertSame('php ci4/spark routes', DataDirOwner::example(['routes']));
-        $this->assertSame('php ci4/spark cache:clear', DataDirOwner::example(['--no-header', 'cache:clear', 'x']));
-        $this->assertSame('php ci4/spark', DataDirOwner::example([]));
-        $this->assertSame('php ci4/spark', DataDirOwner::example(["bad\nname"]));
+        $this->assertSame('php spark routes', DataDirOwner::example(['routes']));
+        $this->assertSame('php spark cache:clear', DataDirOwner::example(['--no-header', 'cache:clear', 'x']));
+        $this->assertSame('php spark', DataDirOwner::example([]));
+        $this->assertSame('php spark', DataDirOwner::example(["bad\nname"]));
         $this->assertContains('posix_initgroups', DataDirOwner::FUNCTIONS);
         $this->assertContains('posix_getgroups', DataDirOwner::FUNCTIONS);
     }

@@ -93,7 +93,7 @@ serve_check() {
   # shellcheck disable=SC2016 # PHP code, not shell
   port=$("$php" -r '$s = stream_socket_server("tcp://127.0.0.1:0"); echo substr(strrchr(stream_socket_get_name($s, false), ":"), 1);')
   base="http://127.0.0.1:$port"
-  if [ "$app" = ci4 ]; then docroot="$ROOT/ci4/public" front="$ROOT/ci4/public/router.php"; else docroot="$ROOT/public" front="$ROOT/public/index.php"; fi
+  if [ "$app" = ci4 ]; then docroot="$ROOT/public" front="$ROOT/public/router.php"; else docroot="$ROOT/public" front="$ROOT/public/index.php"; fi
   APOTHEKE_APP=$app "$php" -S "127.0.0.1:$port" -t "$docroot" "$front" > "$WORK/server-$app-$port.log" 2>&1 &
   SERVER_PID=$!
   for _ in $(seq 100); do curl -fs -o /dev/null "$base/healthz" && break; sleep 0.1; done

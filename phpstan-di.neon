@@ -8,18 +8,23 @@ parameters:
         - FCPATH
         - APP_NAMESPACE
     paths:
-        - ci4/modules
-        - ci4/app/Config/Services.php
-        - ci4/app/Config/Filters.php
-        - ci4/app/Config/Routes.php
-        - ci4/app/Config/Events.php
-        - ci4/app/Config/Exceptions.php
-        - ci4/app/Config/App.php
-        - ci4/public
+        - modules
+        - app/Config/Services.php
+        - app/Config/Filters.php
+        - app/Config/Routes.php
+        - app/Config/Events.php
+        - app/Config/Exceptions.php
+        - app/Config/App.php
+        - public
     excludePaths:
         # The shim is the untyped legacy function bodies. Golden tests cover it.
-        - ci4/modules/Migrations/LegacyFunctions.php
+        - modules/Migrations/LegacyFunctions.php
+    ignoreErrors:
+        # The PHP version guard is for an older PHP than composer.json allows, which PHPStan assumes.
+        -
+            identifier: if.alwaysFalse
+            path: public/index.php
     bootstrapFiles:
-        - ci4/tools/PhpStan/bootstrap.php
+        - tools/PhpStan/bootstrap.php
 rules:
     - Apotheke\Tools\PhpStan\NoServiceRule

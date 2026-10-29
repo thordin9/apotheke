@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 use Apotheke\Core\Storage\LocalStorage;
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require dirname(__DIR__, 3) . '/vendor/autoload.php';
 
 set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
     if ((error_reporting() & $severity) === 0) {

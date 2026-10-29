@@ -42,7 +42,7 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('apotheke_ci4_pgsql_probe rows=', $proof);
         $this->assertStringContainsString("=== '42P01'", $proof);
         $this->assertStringNotContainsString('getMessage()', $proof);
-        $wiring = (string)file_get_contents($this->root() . '/ci4/modules/Core/Boot/FrameworkWiring.php');
+        $wiring = (string)file_get_contents($this->root() . '/modules/Core/Boot/FrameworkWiring.php');
         $this->assertStringNotContainsString('apotheke_ci4_pgsql_probe', $wiring);
         $harness = (string)file_get_contents($this->root() . '/tests/ci4-router.php');
         $this->assertStringContainsString('public.apotheke_ci4_pgsql_probe', $harness);
@@ -246,7 +246,7 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertSame(1, $code);
         $this->assertNotContains('run=false', $out);
         $err = (string)file_get_contents($this->stderrFile());
-        $this->assertStringContainsString('ci4/public/index.php is missing.', $err);
+        $this->assertStringContainsString('public/index.php is missing.', $err);
     }
 
     public function testCi4LegRejectsAnUnknownApp(): void
@@ -270,9 +270,9 @@ final class Ci4BranchCiTest extends TestCase
     public function testCi4LegRefusesATreeTheHarnessCannotTarget(): void
     {
         $dir = $this->fixture();
-        mkdir($dir . '/ci4/public', 0775, true);
+        mkdir($dir . '/public', 0775, true);
         mkdir($dir . '/tests', 0775, true);
-        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
+        file_put_contents($dir . '/public/index.php', "<?php\n");
         file_put_contents($dir . '/tests/lib.php', "<?php\n");
         $out = [];
         $code = 0;
@@ -284,9 +284,9 @@ final class Ci4BranchCiTest extends TestCase
     public function testCi4LegRunsWhenTheHarnessSwitchesApps(): void
     {
         $dir = $this->fixture();
-        mkdir($dir . '/ci4/public', 0775, true);
+        mkdir($dir . '/public', 0775, true);
         mkdir($dir . '/tests', 0775, true);
-        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
+        file_put_contents($dir . '/public/index.php', "<?php\n");
         file_put_contents($dir . '/tests/lib.php', "<?php\n// APOTHEKE_APP picks the server\n");
         $out = [];
         $code = 0;
@@ -344,16 +344,16 @@ final class Ci4BranchCiTest extends TestCase
     public function testCi4LegRunsWhenTheHarnessSelectsCi4(): void
     {
         $dir = $this->fixture();
-        mkdir($dir . '/ci4/public', 0775, true);
+        mkdir($dir . '/public', 0775, true);
         mkdir($dir . '/tests', 0775, true);
-        file_put_contents($dir . '/ci4/public/index.php', "<?php\n");
+        file_put_contents($dir . '/public/index.php', "<?php\n");
         file_put_contents($dir . '/tests/lib.php', <<<'PHP'
 <?php
 const ROOT = __DIR__ . '/..';
 function apotheke_app(): string { return getenv('APOTHEKE_APP') === 'ci4' ? 'ci4' : 'legacy'; }
 function apotheke_front_controller(?string $app = null): string {
     $app ??= apotheke_app();
-    return $app === 'ci4' ? ROOT . '/ci4/public/router.php' : ROOT . '/public/index.php';
+    return $app === 'ci4' ? ROOT . '/public/router.php' : ROOT . '/public/index.php';
 }
 PHP);
         $out = [];
@@ -368,7 +368,7 @@ PHP);
         $root = $this->root();
         $this->assertFalse(ci4_deptrac_is_empty((string)file_get_contents($root . '/deptrac.yaml')));
         $this->assertFalse(ci4_di_is_empty((string)file_get_contents($root . '/phpstan-di.neon')));
-        if (PHP_VERSION_ID < 80400 || !is_file($root . '/ci4/vendor/autoload.php') || !is_file($root . '/vendor/bin/deptrac') || !is_file($root . '/vendor/bin/phpstan')) {
+        if (PHP_VERSION_ID < 80400 || !is_file($root . '/vendor/autoload.php') || !is_file($root . '/vendor/bin/deptrac') || !is_file($root . '/vendor/bin/phpstan')) {
             $this->markTestSkipped('deptrac, phpstan and the CI4 vendor tree are installed on PHP 8.4');
         }
         [$depCode, $depMsg] = ci4_arch_check('deptrac', $root . '/deptrac.yaml');

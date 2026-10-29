@@ -139,7 +139,7 @@ final class DsnTranslator
         if (!str_starts_with($dsn, 'pgsql:')) {
             return false;
         }
-        require_once dirname(__DIR__, 4) . '/src/config.php';
+        require_once dirname(__DIR__, 3) . '/src/config.php';
         $keywords = config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6)));
 
         return self::credentials($keywords ?? [], $db)[2];
@@ -180,7 +180,7 @@ final class DsnTranslator
      */
     public static function forPdo(string $dsn, array $db): array
     {
-        require_once dirname(__DIR__, 4) . '/src/config.php';
+        require_once dirname(__DIR__, 3) . '/src/config.php';
         $keywords = str_starts_with($dsn, 'pgsql:') ? config_dsn_keywords(str_replace(';', ' ', substr($dsn, 6))) : null;
         [$user, $password, $differs] = self::credentials($keywords ?? [], $db);
         if ($keywords === null) {
@@ -250,7 +250,7 @@ final class DsnTranslator
      */
     private function pairs(string $body, string $dsn): array
     {
-        require_once dirname(__DIR__, 4) . '/src/config.php';
+        require_once dirname(__DIR__, 3) . '/src/config.php';
         $out = config_dsn_keywords(str_replace(';', ' ', $body));
         if ($out === null || $out === []) {
             $this->bad($dsn);
@@ -271,7 +271,7 @@ final class DsnTranslator
      */
     public static function logLine(string $driver, string $dsn): string
     {
-        require_once dirname(__DIR__, 4) . '/src/config.php';
+        require_once dirname(__DIR__, 3) . '/src/config.php';
         $parts = ['Database ' . $driver];
         if (str_starts_with($dsn, 'sqlite:')) {
             return implode(' ', $parts);

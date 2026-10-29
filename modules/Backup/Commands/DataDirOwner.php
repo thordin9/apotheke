@@ -32,7 +32,7 @@ final class DataDirOwner
     ];
 
     /** What the message suggests for any other spark command (L-700), run from the install folder. */
-    public const SPARK = 'php ci4/spark';
+    public const SPARK = 'php spark';
 
     /**
      * The posix functions the switch needs (N-702, N-781). Without any of
@@ -72,7 +72,7 @@ final class DataDirOwner
     /**
      * The command a spark command line ($args, without the script) runs, as
      * the message names it: a data command's own tool (COMMANDS), else
-     * `php ci4/spark` and the command's name (L-700).
+     * `php spark` and the command's name (L-700).
      *
      * @param list<string> $args
      */

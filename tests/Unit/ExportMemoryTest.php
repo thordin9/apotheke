@@ -19,7 +19,7 @@ final class ExportMemoryTest extends TestCase
     public function testTheExportStreamsUnderALowMemoryLimit(): void
     {
         $apps = ['legacy'];
-        if (is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') && PHP_VERSION_ID >= 80400) {
+        if (is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') && PHP_VERSION_ID >= 80400) {
             $apps[] = 'ci4';
         }
         $hashes = [];

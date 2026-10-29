@@ -72,7 +72,7 @@ function apotheke_app(): string
 function apotheke_front_controller(?string $app = null): string
 {
     $app ??= apotheke_app();
-    if ($app === 'ci4') return ROOT . '/ci4/public/router.php';
+    if ($app === 'ci4') return ROOT . '/public/router.php';
     return ROOT . '/public/index.php';
 }
 
@@ -86,7 +86,7 @@ final class Server
 
     /**
      * @param array<string, string|null> $env null removes that variable from the child
-     * @param ?string $router CI4 entry. Null starts tests/ci4-router.php. Pass ci4/public/router.php for a shipped boot.
+     * @param ?string $router CI4 entry. Null starts tests/ci4-router.php. Pass public/router.php for a shipped boot.
      * @param array<string, string> $ini php.ini settings for the server, after the defaults (memory_limit=256M)
      */
     public function __construct(public string $dataDir, array $env = [], ?string $app = null, ?string $router = null, array $ini = [])
@@ -100,7 +100,7 @@ final class Server
         $cov = ($this->app !== 'ci4' && getenv('APOTHEKE_COVERAGE_DIR')) ? ['-d', 'auto_prepend_file=' . ROOT . '/tests/coverage/prepend.php', '-d', 'pcov.enabled=1', '-d', 'pcov.directory=' . ROOT, '-d', 'pcov.exclude=~/(vendor|tests|data)/~'] : [];
         if ($this->app === 'ci4') {
             $front = $router ?? ROOT . '/tests/ci4-router.php';
-            $docroot = ROOT . '/ci4/public';
+            $docroot = ROOT . '/public';
         } else {
             $front = $router ?? ($cov ? ROOT . '/tests/coverage/router.php' : ROOT . '/public/index.php');
             $docroot = ROOT . '/public';

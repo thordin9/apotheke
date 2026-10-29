@@ -21,7 +21,7 @@ type Server = {
   at: (p: string) => string;
 };
 export const DOCKER_IMAGE = process.env.E2E_DOCKER_IMAGE || '';
-/** E2E_APP=ci4 runs the host server on the CodeIgniter 4 port (ci4/public and its router) instead of legacy. */
+/** E2E_APP=ci4 runs the host server on the CodeIgniter 4 port (public and its router) instead of legacy. */
 export const APP: 'legacy' | 'ci4' = process.env.E2E_APP === 'ci4' ? 'ci4' : 'legacy';
 type WorkerOpts = { appPassword: string; dbDriver: 'sqlite' | 'pgsql'; publicUrl: string; server: Server };
 type TestOpts = { seed: 'demo' | 'empty'; reset: void; errors: string[]; app: App; ci4Unported: void };
@@ -160,7 +160,7 @@ export const test = base.extend<TestOpts, WorkerOpts>({
     } else {
       const env: NodeJS.ProcessEnv = { ...process.env, ...appEnv, DATA_DIR: dataDir };
       const proc = spawn('php', ['-d', 'upload_max_filesize=20M', '-d', 'post_max_size=22M', '-d', 'memory_limit=256M',
-        '-S', `127.0.0.1:${port}`, ...(APP === 'ci4' ? ['-t', path.join(ROOT, 'ci4/public'), path.join(ROOT, 'ci4/public/router.php')]
+        '-S', `127.0.0.1:${port}`, ...(APP === 'ci4' ? ['-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/router.php')]
           : ['-t', path.join(ROOT, 'public'), path.join(ROOT, 'public/index.php')])], { env, stdio: ['ignore', 'ignore', 'pipe'] });
       proc.stderr!.on('data', collect);
       server = { base: `http://127.0.0.1:${port}`, dataDir, filesDir, env, at: p => p, php: args => execFileSync('php', args, { env }) };

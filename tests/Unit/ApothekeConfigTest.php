@@ -7,7 +7,7 @@ require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 use Apotheke\Core\Config\ApothekeConfig;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/ApothekeConfig.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/ApothekeConfig.php';
 
 final class ApothekeConfigTest extends TestCase
 {

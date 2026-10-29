@@ -27,7 +27,7 @@ check "migrations/ blocked"           404 "$(code "$base/migrations/0001_initial
 check "config.php blocked"            404 "$(code "$base/config.php")"
 check "dotfiles blocked"              404 "$(code "$base/.git/config")"
 # CI4's code, packages, writable dir, .env and spark sit outside its public dir (PLAN step 15)
-for p in vendor/autoload.php ci4/vendor/autoload.php writable/logs/ ci4/writable/logs/ .env ci4/.env spark ci4/spark app/Config/App.php ci4/app/Config/App.php; do
+for p in vendor/autoload.php vendor/autoload.php writable/logs/ writable/logs/ .env .env spark spark app/Config/App.php app/Config/App.php; do
   check "/$p not served"  404 "$(code "$base/$p")"
 done
 check "random .php is 404"            404 "$(code "$base/foo.php")"

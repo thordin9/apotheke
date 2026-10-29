@@ -12,7 +12,7 @@ DATA_DIR="${DATA_DIR:-/data}"
 case "${APOTHEKE_APP:-legacy}" in
   legacy|'') ROOT=/var/www/app/public ;;
   ci4)
-    ROOT=/var/www/app/ci4/public
+    ROOT=/var/www/app/public
     php -r 'exit(PHP_VERSION_ID >= 80400 ? 0 : 1);' || { echo "APOTHEKE_APP=ci4 needs the PHP 8.4 image" >&2; exit 64; }
     ;;
   *) echo "APOTHEKE_APP must be legacy, ci4 or empty" >&2; exit 64 ;;
@@ -27,7 +27,7 @@ find "$DATA_DIR" \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/
 chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 # The first CI4 start signs everyone out once: legacy sessions are not carried over (PLAN 3.5). A link in place of
 # the marker counts as no marker and is replaced by a file.
-if [ "$ROOT" = /var/www/app/ci4/public ]; then
+if [ "$ROOT" = /var/www/app/public ]; then
   # shellcheck disable=SC2016 # expanded by the shell that runs it
   mark='cd "$1" && if [ -L .ci4 ] || [ ! -e .ci4 ]; then
     find . -maxdepth 1 -type f -name "sess_*" -delete && rm -f .ci4 && : > .ci4; fi'

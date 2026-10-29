@@ -13,7 +13,7 @@ declare(strict_types=1);
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Migrations\PdoMigrationRunner;
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
+require dirname(__DIR__, 3) . '/vendor/autoload.php';
 
 $config = ApothekeConfig::load(ApothekeConfig::repoRoot(), null, getenv());
 $pdo = (new PdoMigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations'))->connect($config->database());

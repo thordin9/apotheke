@@ -181,7 +181,7 @@ final class LayoutTest extends CIUnitTestCase
 
     private function assets(): AssetUrl
     {
-        return new AssetUrl(dirname(__DIR__, 2) . '/public/assets');
+        return new AssetUrl(dirname(__DIR__, 3) . '/public/assets');
     }
 
     private function settings(): SettingsService

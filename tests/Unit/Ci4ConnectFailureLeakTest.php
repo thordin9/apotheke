@@ -100,7 +100,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
     public function testRunnerFailuresPrintNoValues(): void
     {
         $script = $this->ini . '/runner.php';
-        file_put_contents($script, "<?php\nrequire " . var_export(dirname(__DIR__, 2) . '/ci4/modules/Migrations/PdoMigrationRunner.php', true) . ";\n"
+        file_put_contents($script, "<?php\nrequire " . var_export(dirname(__DIR__, 2) . '/modules/Migrations/PdoMigrationRunner.php', true) . ";\n"
             . "(new Apotheke\\Migrations\\PdoMigrationRunner(" . var_export(dirname(__DIR__, 2) . '/migrations', true) . "))->connect(['driver' => 'pgsql', 'dsn' => getenv('LK_DSN'), 'user' => getenv('LK_USER'), 'password' => getenv('LK_PASSWORD'), 'schema' => '']);\n"
             . "echo 'connected';\n");
         foreach ($this->cases() as $label => $case) {
@@ -118,7 +118,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
         foreach ($this->cases() as $label => $case) {
             $env = $this->appEnv($case);
             $before = $this->ci4Logs();
-            [$code, $out] = $this->exec([PHP_BINARY, dirname(__DIR__, 2) . '/ci4/spark', 'apotheke:migrate'], $env);
+            [$code, $out] = $this->exec([PHP_BINARY, dirname(__DIR__, 2) . '/spark', 'apotheke:migrate'], $env);
             $this->assertNotSame(0, $code, $label . $out);
             $this->assertNoValues('cli ' . $label, $out . $this->ci4LogsSince($before), $case);
 
@@ -168,7 +168,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
 
     private function needCi4(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -231,7 +231,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
     private function healthz(array $env): array
     {
         $dir = tmpdir('lk-http');
-        $server = new Server($dir, $env, 'ci4', dirname(__DIR__, 2) . '/ci4/public/router.php');
+        $server = new Server($dir, $env, 'ci4', dirname(__DIR__, 2) . '/public/router.php');
         try {
             $response = $server->client()->get('/healthz');
 
@@ -248,7 +248,7 @@ final class Ci4ConnectFailureLeakTest extends TestCase
     {
         clearstatcache();
         $sizes = [];
-        foreach (glob(dirname(__DIR__, 2) . '/ci4/writable/logs/*.log') ?: [] as $file) {
+        foreach (glob(dirname(__DIR__, 2) . '/writable/logs/*.log') ?: [] as $file) {
             $sizes[$file] = (int)filesize($file);
         }
 

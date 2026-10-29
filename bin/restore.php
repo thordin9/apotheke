@@ -12,15 +12,15 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 // APOTHEKE_APP=ci4: the same command runs as `spark apotheke:restore` (same output and exit codes).
 if (getenv('APOTHEKE_APP') === 'ci4') {
-    $spark = dirname(__DIR__) . '/ci4/spark';
+    $spark = dirname(__DIR__) . '/spark';
     if (!file_exists($spark)) {
-        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but ci4/spark is not in this install.\n");
+        fwrite(STDERR, "APOTHEKE_APP=ci4 is set but spark is not in this install.\n");
         exit(1);
     }
     // started as root: run as DATA_DIR's owner before CodeIgniter starts, or stop (DataDirOwner)
-    require_once dirname(__DIR__) . '/ci4/modules/Backup/Commands/DataDirOwner.php';
+    require_once dirname(__DIR__) . '/modules/Backup/Commands/DataDirOwner.php';
     if (!\Apotheke\Backup\Commands\DataDirOwner::forCommandLine(STDERR, \Apotheke\Backup\Commands\DataDirOwner::RESTORE)) exit(1);
-    putenv('APOTHEKE_CLI_CWD=' . getcwd());   // spark changes to ci4/public; file names are relative to here
+    putenv('APOTHEKE_CLI_CWD=' . getcwd());   // spark changes to public; file names are relative to here
     putenv('APOTHEKE_CLI_ARGS=' . json_encode(array_slice($argv, 1)));   // as typed: spark would take --help itself
     $command = implode(' ', array_map('escapeshellarg', [PHP_BINARY, $spark, 'apotheke:restore', '--no-header']));
     passthru($command, $code);

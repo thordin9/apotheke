@@ -22,7 +22,7 @@ final class Ci4SeedCliTest extends TestCase
 
     protected function setUp(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }
@@ -59,7 +59,7 @@ final class Ci4SeedCliTest extends TestCase
     public function testSparkEntryPoint(): void
     {
         [, $right] = $this->twins('seed-spark');
-        $r = $this->proc([PHP_BINARY, ROOT . '/ci4/spark', 'apotheke:seed', '--no-header'], $this->env($right, true, '0'));
+        $r = $this->proc([PHP_BINARY, ROOT . '/spark', 'apotheke:seed', '--no-header'], $this->env($right, true, '0'));
         $this->assertSame([0, "Starter locations/categories created: 16\n", ''], [$r['exit'], $r['stdout'], $r['stderr']]);
     }
 

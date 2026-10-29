@@ -7,8 +7,8 @@ use PHPUnit\Framework\TestCase;
 require_once dirname(__DIR__) . '/lib.php';
 require_once dirname(__DIR__) . '/legacy-bootstrap.php';
 require_once dirname(__DIR__, 2) . '/src/views.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Layout/Icons.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Layout/Theme.php';
+require_once dirname(__DIR__, 2) . '/modules/Layout/Icons.php';
+require_once dirname(__DIR__, 2) . '/modules/Layout/Theme.php';
 
 use Apotheke\Layout\Icons;
 use Apotheke\Layout\Theme;
@@ -56,12 +56,12 @@ final class Ci4LayoutParityTest extends TestCase
         };
         $legacy = $list(dirname(__DIR__, 2) . '/public/assets');
         $this->assertNotEmpty($legacy);
-        $this->assertSame($legacy, $list(dirname(__DIR__, 2) . '/ci4/public/assets'));
+        $this->assertSame($legacy, $list(dirname(__DIR__, 2) . '/public/assets'));
     }
 
     public function testTheSameRequestsGetTheSamePages(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $answers = [];

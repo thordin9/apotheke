@@ -44,7 +44,7 @@ final class Ci4OneConnectionTest extends TestCase
     public function testEachRequestLogsInOnceOnLegacyAndCi4(): void
     {
         $counts = ['legacy' => $this->connectsPerRequest('legacy')];
-        if (PHP_VERSION_ID >= 80400 && is_file(ROOT . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID >= 80400 && is_file(ROOT . '/vendor/autoload.php')) {
             $counts['ci4'] = $this->connectsPerRequest('ci4');
         }
         foreach ($counts as $app => [$first, $after]) {
@@ -74,7 +74,7 @@ final class Ci4OneConnectionTest extends TestCase
             'DB_USER' => $pg['user'],
             'DB_PASSWORD' => $pg['password'],
             'DB_SCHEMA' => $schema,
-        ], $app, $app === 'ci4' ? ROOT . '/ci4/public/router.php' : null);
+        ], $app, $app === 'ci4' ? ROOT . '/public/router.php' : null);
         try {
             $start = $this->sessions(0);
             $got = $server->client()->get('/healthz');

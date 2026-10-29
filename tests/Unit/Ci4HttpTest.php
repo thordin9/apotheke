@@ -18,10 +18,10 @@ final class Ci4HttpTest extends TestCase
 
     public function testShippedBootDoesNotWriteThePgsqlProbe(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $shipped = dirname(__DIR__, 2) . '/ci4/public/router.php';
+        $shipped = dirname(__DIR__, 2) . '/public/router.php';
         $sqliteDir = tmpdir('ci4-shipped-sqlite');
         $sqlite = new Server($sqliteDir, [
             'CI_ENVIRONMENT' => 'production',
@@ -102,14 +102,14 @@ final class Ci4HttpTest extends TestCase
 
     public function testHealthOriginalsCookiesAndRouter(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $legacyDir = tmpdir('ci4-leg');
         $ci4Dir = tmpdir('ci4-app');
         $legacy = new Server($legacyDir, [], 'legacy');
         $ci4 = new Server($ci4Dir, self::ON_DEMAND, 'ci4');
-        $asset = dirname(__DIR__, 2) . '/ci4/public/assets/ping.txt';
+        $asset = dirname(__DIR__, 2) . '/public/assets/ping.txt';
         try {
             $this->compareHealth($legacy, $ci4);
             $this->assertTrue($ci4->logHas('apotheke-harness app=ci4'));
@@ -144,10 +144,10 @@ final class Ci4HttpTest extends TestCase
 
     public function testSymlinkIntoTheWebRootRefusesWithAGenericPage(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
-        $web = dirname(__DIR__, 2) . '/ci4/public/hidden-originals';
+        $web = dirname(__DIR__, 2) . '/public/hidden-originals';
         $link = sys_get_temp_dir() . '/apo-orig-link-' . bin2hex(random_bytes(3));
         mkdir($web, 0775, true);
         symlink($web, $link);
@@ -176,7 +176,7 @@ final class Ci4HttpTest extends TestCase
 
     public function testTrustProxyFollowsTheSchemaOnPostgres(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         if (test_driver() !== 'pgsql') {
@@ -216,7 +216,7 @@ final class Ci4HttpTest extends TestCase
     /** SEC-N9: the CI4 session cookie lasts session_days, like legacy. */
     public function testSessionCookieFollowsSessionDays(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $legacyDir = tmpdir('ci4-days-leg');
@@ -253,7 +253,7 @@ final class Ci4HttpTest extends TestCase
 
     public function testHealthzAcceptsABackslashPasswordOnPostgres(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         if (test_driver() !== 'pgsql') {
@@ -282,7 +282,7 @@ final class Ci4HttpTest extends TestCase
 
     public function testBadDsnFailsAtBootAndRedactsThePassword(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $dir = tmpdir('ci4-dsn');

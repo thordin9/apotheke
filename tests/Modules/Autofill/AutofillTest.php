@@ -558,7 +558,7 @@ final class AutofillTest extends CIUnitTestCase
         $this->assertSame('Bearer ' . self::TOKEN, $ups[0]['auth']);
         $this->assertSame([], glob($this->database->dataDir() . '/autofill/tmp/*') ?: []);
         $this->assertStringNotContainsString(self::TOKEN, $response->response()->getBody());
-        $writable = dirname(__DIR__, 2) . '/writable';
+        $writable = dirname(__DIR__, 3) . '/writable';
         $this->assertSame([], glob($writable . '/autofill*') ?: []);
         $this->assertSame([], glob($writable . '/*/autofill*') ?: []);
     }
@@ -820,7 +820,7 @@ final class AutofillTest extends CIUnitTestCase
 
     public function testAutofillSourcesDoNotNameWritable(): void
     {
-        $dir = dirname(__DIR__, 2) . '/modules/Autofill';
+        $dir = dirname(__DIR__, 3) . '/modules/Autofill';
         $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS));
         foreach ($it as $file) {
             if (!$file->isFile()) {

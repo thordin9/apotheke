@@ -115,7 +115,7 @@ final class Ci4MigrateTest extends TestCase
 
     public function testConcurrentRunnerAndCi4RequestApplyOnce(): void
     {
-        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $this->contend('sqlite');
@@ -142,7 +142,7 @@ final class Ci4MigrateTest extends TestCase
 
     public function testStatusOutputMatchesLegacy(): void
     {
-        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $left = tmpdir('mig-status-a');
@@ -169,7 +169,7 @@ final class Ci4MigrateTest extends TestCase
      */
     public function testShortAppPasswordStopsMigrateAsLegacy(): void
     {
-        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         foreach (['shortpw' => 1, '        ' => 1, 'long-enough' => 0] as $password => $code) {

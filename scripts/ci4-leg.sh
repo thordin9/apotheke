@@ -22,8 +22,8 @@ case "$app" in
     ;;
 esac
 
-if [ ! -f "$root/ci4/public/index.php" ]; then
-  say "ci4/public/index.php is missing."
+if [ ! -f "$root/public/index.php" ]; then
+  say "public/index.php is missing."
   say "The CI4 leg cannot pass without the front controller."
   exit 1
 fi
@@ -41,8 +41,8 @@ if (apotheke_app() !== "ci4") {
     exit(1);
 }
 $front = str_replace("\\\\", "/", apotheke_front_controller());
-if (!str_ends_with($front, "/ci4/public/router.php")) {
-    fwrite(STDERR, "front controller does not point at ci4/public/router.php.\n");
+if (!str_ends_with($front, "/public/router.php")) {
+    fwrite(STDERR, "front controller does not point at public/router.php.\n");
     exit(1);
 }
 putenv("APOTHEKE_APP=legacy");
@@ -51,8 +51,8 @@ if (apotheke_app() !== "legacy") {
     exit(1);
 }
 $legacy = str_replace("\\\\", "/", apotheke_front_controller());
-if (str_ends_with($legacy, "/ci4/public/router.php")) {
-    fwrite(STDERR, "legacy front controller still points at ci4/public/router.php.\n");
+if (str_ends_with($legacy, "/public/router.php")) {
+    fwrite(STDERR, "legacy front controller still points at public/router.php.\n");
     exit(1);
 }
 ' "$root/tests/lib.php"

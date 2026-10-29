@@ -18,7 +18,7 @@ final class Ci4BrandingHttpTest extends TestCase
 
     public function testBrandingRoutesMatchLegacy(): void
     {
-        if (!is_file(ROOT . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(ROOT . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $leftDir = tmpdir('brand-legacy');
@@ -87,7 +87,7 @@ final class Ci4BrandingHttpTest extends TestCase
             $right = $ci4->client()->get($path);
             $this->assertSame($left['status'], $right['status'], "$label $path status " . (string)@file_get_contents($ci4->log));
             // The bundled assets' cache busters come from each tree's file times (legacy asset()):
-            // CI4 serves its copy under ci4/public/assets, so only their values may differ.
+            // CI4 serves its copy under public/assets, so only their values may differ.
             $busters = static fn (string $body): string => (string)preg_replace('#(/assets/[a-z0-9.-]+)\?v=[0-9a-f]{8}#', '$1?v=V', $body);
             $this->assertSame($busters($left['body']), $busters($right['body']), "$label $path body");
             foreach (self::HEADERS as $name) {

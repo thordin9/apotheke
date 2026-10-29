@@ -25,8 +25,8 @@ final class BackupMemoryTest extends TestCase
 
     public function testTheBackupStreamsUnderALowMemoryLimit(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
-            $this->markTestSkipped('CI4 needs PHP 8.4 and ci4/vendor');
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+            $this->markTestSkipped('CI4 needs PHP 8.4 and vendor');
         }
         $json = [];
         foreach (['legacy' => [], 'ci4' => ['memory_limit' => '24M']] as $app => $ini) {

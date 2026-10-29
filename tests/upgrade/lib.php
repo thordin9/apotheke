@@ -33,7 +33,7 @@ function upg_carried_tables(): array
 {
     $root = dirname(__DIR__, 2);
     require_once $root . '/src/backup.php';
-    require_once $root . '/ci4/modules/Backup/Backups.php';
+    require_once $root . '/modules/Backup/Backups.php';
     $legacy = backup_tables();
     $ci4 = \Apotheke\Backup\Backups::tables();
     if ($legacy !== $ci4) { fwrite(STDERR, "upgrade: legacy backup_tables() and CI4 Backups::tables() differ\n"); exit(2); }

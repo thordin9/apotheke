@@ -12,10 +12,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__) . '/lib.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/ApothekeConfig.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/DsnTranslator.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/PgsqlSchema.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Config/DatabaseFactory.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/ApothekeConfig.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/DsnTranslator.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/PgsqlSchema.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Config/DatabaseFactory.php';
 
 /**
  * CI4 create-schema rules (#44): exact pg_namespace match, a race is not a
@@ -242,7 +242,7 @@ final class Ci4SchemaTest extends TestCase
 
     public function testHealthzRejectsAMissingSchemaAndAcceptsAnExistingOne(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $schema = 'h_' . bin2hex(random_bytes(4));

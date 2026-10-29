@@ -234,7 +234,7 @@ final class ParityGateTest extends TestCase
         try {
             $gate = parity_gate(0);
         } catch (RuntimeException $e) {
-            if ($e->getMessage() === 'skip') $this->markTestSkipped('needs PHP 8.4 and ci4/vendor');
+            if ($e->getMessage() === 'skip') $this->markTestSkipped('needs PHP 8.4 and vendor');
             throw $e;
         }
         $this->assertGreaterThanOrEqual(223, $gate['steps']);

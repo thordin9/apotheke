@@ -447,7 +447,7 @@ final class MediaTest extends CIUnitTestCase
     private function ci4Log(): string
     {
         $out = '';
-        foreach (glob(ApothekeConfig::repoRoot() . '/ci4/writable/logs/*.log') ?: [] as $log) {
+        foreach (glob(ApothekeConfig::repoRoot() . '/writable/logs/*.log') ?: [] as $log) {
             $out .= (string)file_get_contents($log);
         }
 

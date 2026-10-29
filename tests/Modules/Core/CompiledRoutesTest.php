@@ -23,7 +23,7 @@ final class CompiledRoutesTest extends CIUnitTestCase
         $this->assertSame(
             $this->collection()->compile(),
             (string)file_get_contents(CompiledRouteCollection::compiledFile()),
-            'app/Config/RoutesCompiled.php is out of date: run php ci4/spark apotheke:routes'
+            'app/Config/RoutesCompiled.php is out of date: run php spark apotheke:routes'
         );
     }
 

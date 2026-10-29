@@ -69,7 +69,7 @@ final class DockerfileTest extends TestCase
     }
 
     /**
-     * PLAN step 15: APOTHEKE_APP=ci4 serves ci4/public only, needs PHP 8.4, and goes through the same sign-in check
+     * PLAN step 15: APOTHEKE_APP=ci4 serves public only, needs PHP 8.4, and goes through the same sign-in check
      * as legacy (#75 port). The CI4 packages, writable dir and .env from a checkout never reach the image.
      */
     public function testCi4ServesItsPublicDirAfterTheSameSignInCheck(): void
@@ -79,9 +79,9 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('        root __ROOT__;', (string)file_get_contents($root . '/docker/nginx.conf'));
         $this->assertStringContainsString('-e "s#__ROOT__#$ROOT#g"', $sh);
         $this->assertSame(1, preg_match('/^  ci4\)\n    ROOT=\/var\/www\/app\/ci4\/public\n    php -r \'exit\(PHP_VERSION_ID >= 80400 \? 0 : 1\);\' \|\| \{[^\n]*exit 64; \}$/m', $sh), $sh);
-        $this->assertLessThan(strpos($sh, 'bin/settings.php auth status'), strpos($sh, 'ROOT=/var/www/app/ci4/public'), 'the app is chosen before the sign-in check, which runs for both');
+        $this->assertLessThan(strpos($sh, 'bin/settings.php auth status'), strpos($sh, 'ROOT=/var/www/app/public'), 'the app is chosen before the sign-in check, which runs for both');
         $ignore = (string)file_get_contents($root . '/.dockerignore');
-        foreach (['ci4/vendor/', 'ci4/writable/', 'ci4/.env'] as $line) {
+        foreach (['vendor/', 'writable/', '.env'] as $line) {
             $this->assertStringContainsString("\n{$line}\n", "\n{$ignore}", $line);
         }
         $this->assertStringContainsString("ARG APOTHEKE_APP=legacy\n", $this->dockerfile());

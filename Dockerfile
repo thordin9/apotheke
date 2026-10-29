@@ -6,10 +6,10 @@ ARG PHP_VERSION=8.4.27
 # CI4's Composer packages without dev dependencies, and its optimised autoloader. intl is checked in the image below.
 FROM composer:2.10.3 AS ci4-vendor
 WORKDIR /ci4
-COPY ci4/composer.json ci4/composer.lock ./
+COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --no-autoloader --ignore-platform-req=ext-intl
-COPY ci4/app ./app
-COPY ci4/modules ./modules
+COPY app ./app
+COPY modules ./modules
 RUN composer dump-autoload --no-dev --optimize --ignore-platform-req=ext-intl
 
 FROM php:${PHP_VERSION}-fpm-alpine
@@ -91,16 +91,16 @@ COPY --chown=root:root src /var/www/app/src
 COPY --chown=root:root migrations /var/www/app/migrations
 COPY --chown=root:root bin /var/www/app/bin
 COPY --chown=root:root config.example.php VERSION /var/www/app/
-# CI4 (APOTHEKE_APP=ci4): nginx serves ci4/public; app, modules, vendor, writable and spark stay outside it.
+# CI4 (APOTHEKE_APP=ci4): nginx serves public; app, modules, vendor, writable and spark stay outside it.
 COPY --chown=root:root ci4 /var/www/app/ci4
-COPY --from=ci4-vendor --chown=root:root /ci4/vendor /var/www/app/ci4/vendor
+COPY --from=ci4-vendor --chown=root:root /vendor /var/www/app/vendor
 # The autoloader check runs on 8.4 or later only: CI4's Composer platform check refuses PHP < 8.4, so an image built
 # with an older PHP_VERSION ships CI4 but cannot run it (the entrypoint says so).
 RUN set -eux; \
-    mkdir -p /var/www/app/ci4/writable/cache /var/www/app/ci4/writable/logs /var/www/app/ci4/writable/session \
-        /var/www/app/ci4/writable/uploads /var/www/app/ci4/writable/debugbar; \
-    chown -R www-data:www-data /var/www/app/ci4/writable; \
-    php -r 'if (PHP_VERSION_ID < 80400) exit(0); require "/var/www/app/ci4/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'
+    mkdir -p /var/www/app/writable/cache /var/www/app/writable/logs /var/www/app/writable/session \
+        /var/www/app/writable/uploads /var/www/app/writable/debugbar; \
+    chown -R www-data:www-data /var/www/app/writable; \
+    php -r 'if (PHP_VERSION_ID < 80400) exit(0); require "/var/www/app/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'
 
 # legacy (default) or ci4: which app the container runs. Override at run time with -e APOTHEKE_APP=ci4.
 ARG APOTHEKE_APP=legacy

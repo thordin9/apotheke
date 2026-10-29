@@ -8,7 +8,7 @@ use Apotheke\Core\Boot\StoragePreflight;
 use Apotheke\Core\Boot\StorageRefused;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Boot/StoragePreflight.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Boot/StoragePreflight.php';
 
 final class StoragePreflightTest extends TestCase
 {

@@ -60,7 +60,7 @@ final class DataDirOwnerGroupsTest extends CIUnitTestCase
         $this->assertIsString($child);
         try {
             file_put_contents($child, self::CHILD);
-            $source = dirname(__DIR__, 2) . '/modules/Backup/Commands/DataDirOwner.php';
+            $source = dirname(__DIR__, 3) . '/modules/Backup/Commands/DataDirOwner.php';
             $out = (string)shell_exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, $child, $source, json_encode($groups)])) . ' 2>&1');
         } finally {
             @unlink($child);

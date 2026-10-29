@@ -34,7 +34,7 @@ final class Ci4BackupFailureTest extends TestCase
 
     public function testAFailedRestoreLeavesTheFilesAndRowsAsTheyWere(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $dir = tmpdir('backup-failure');
@@ -202,7 +202,7 @@ final class Ci4BackupFailureTest extends TestCase
     /** @param callable(Server, string, PDO, string): void $fn with the seeded catalog and the bigger backup */
     private function withCatalog(callable $fn): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         $dir = tmpdir('backup-failure');

@@ -18,7 +18,7 @@ use PHPStan\Rules\RuleErrorBuilder;
  * CI4 builds filters with `new $class()`, so like controllers they have no constructor
  * injection and take collaborators from the shared (per-request) services.
  *
- * Filters are matched exactly: a file directly in ci4/modules/<Module>/Filters/, and
+ * Filters are matched exactly: a file directly in modules/<Module>/Filters/, and
  * only inside its before() or after() method, so a filter never holds a service in a
  * static, a property or its constructor.
  */
@@ -60,10 +60,10 @@ final class NoServiceRule implements Rule
         ];
     }
 
-    /** A call inside before() or after() of a class file directly in ci4/modules/<Module>/Filters/. */
+    /** A call inside before() or after() of a class file directly in modules/<Module>/Filters/. */
     private function inFilterHook(string $file, Scope $scope): bool
     {
-        if (preg_match('#/ci4/modules/[A-Za-z0-9]+/Filters/[A-Za-z0-9]+\.php$#D', $file) !== 1) {
+        if (preg_match('#/modules/[A-Za-z0-9]+/Filters/[A-Za-z0-9]+\.php$#D', $file) !== 1) {
             return false;
         }
         if (!$scope->isInClass() || $scope->isInAnonymousFunction()) {

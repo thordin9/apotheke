@@ -32,7 +32,7 @@ const PARITY_GATE_PW = 'long-enough';
  */
 function parity_gate(int $rounds = 15): array
 {
-    if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+    if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
         throw new RuntimeException('skip');
     }
     $stub = new StubServer();

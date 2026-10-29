@@ -92,7 +92,7 @@ final class DsnBootErrorTest extends TestCase
         $log = $dir . '/error.log';
         $err = $dir . '/server.err';
         $router = $dir . '/router.php';
-        $startup = dirname(__DIR__, 2) . '/ci4/modules/Core/Boot/startup.php';
+        $startup = dirname(__DIR__, 2) . '/modules/Core/Boot/startup.php';
         file_put_contents($router, "<?php\nrequire " . var_export($startup, true) . ";\n");
         $sock = stream_socket_server('tcp://127.0.0.1:0');
         $this->assertIsResource($sock);

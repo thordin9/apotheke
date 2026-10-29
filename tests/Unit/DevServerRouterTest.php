@@ -5,9 +5,9 @@ declare(strict_types=1);
 use Apotheke\DevServer\FrontRouter;
 use PHPUnit\Framework\TestCase;
 
-require_once dirname(__DIR__, 2) . '/ci4/modules/Core/Http/OriginalsGuard.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/DevServer/StaticFile.php';
-require_once dirname(__DIR__, 2) . '/ci4/modules/DevServer/FrontRouter.php';
+require_once dirname(__DIR__, 2) . '/modules/Core/Http/OriginalsGuard.php';
+require_once dirname(__DIR__, 2) . '/modules/DevServer/StaticFile.php';
+require_once dirname(__DIR__, 2) . '/modules/DevServer/FrontRouter.php';
 
 final class DevServerRouterTest extends TestCase
 {

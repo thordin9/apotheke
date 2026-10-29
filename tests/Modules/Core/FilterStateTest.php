@@ -20,7 +20,7 @@ final class FilterStateTest extends CIUnitTestCase
 {
     public function testModuleFiltersDeclareNoProperties(): void
     {
-        $files = glob(dirname(__DIR__, 2) . '/modules/*/Filters/*.php') ?: [];
+        $files = glob(dirname(__DIR__, 3) . '/modules/*/Filters/*.php') ?: [];
         $this->assertNotEmpty($files);
         $checked = 0;
         foreach ($files as $file) {

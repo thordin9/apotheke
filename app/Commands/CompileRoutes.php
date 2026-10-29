@@ -40,7 +40,7 @@ final class CompileRoutes extends BaseCommand
 
                 return 0;
             }
-            fwrite(STDERR, "app/Config/RoutesCompiled.php is out of date: run php ci4/spark apotheke:routes\n");
+            fwrite(STDERR, "app/Config/RoutesCompiled.php is out of date: run php spark apotheke:routes\n");
 
             return 1;
         }

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 /**
  * Router for the PHP built-in server that tests/lib.php starts.
- * Static files and camera originals behave like ci4/public/router.php.
+ * Static files and camera originals behave like public/router.php.
  * On the pgsql leg, after CI4 wires the connection, this checks the driver
  * is Postgre and inserts public.apotheke_ci4_pgsql_probe (on every request, unless
  * APOTHEKE_TEST_PGSQL_PROBE=0). Shipped boot does neither.
@@ -19,7 +19,7 @@ if (!function_exists('ci4_test_arm_pgsql_probe')) {
             return;
         }
         $armed = true;
-        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        require_once dirname(__DIR__) . '/vendor/codeigniter4/framework/system/Events/Events.php';
         \CodeIgniter\Events\Events::on(
             'pre_system',
             static function (): void {
@@ -75,7 +75,7 @@ if (!function_exists('ci4_test_arm_wrong_ci4_password')) {
         if (!is_string($wrong) || $wrong === '') {
             return;
         }
-        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        require_once dirname(__DIR__) . '/vendor/codeigniter4/framework/system/Events/Events.php';
         \CodeIgniter\Events\Events::on(
             'pre_system',
             static function () use ($wrong): void {
@@ -99,7 +99,7 @@ if (!function_exists('ci4_test_arm_session_on_demand')) {
         if (getenv('APOTHEKE_TEST_SESSION_ON_DEMAND') !== '1') {
             return;
         }
-        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        require_once dirname(__DIR__) . '/vendor/codeigniter4/framework/system/Events/Events.php';
         \CodeIgniter\Events\Events::on(
             'pre_system',
             static function (): void {
@@ -126,7 +126,7 @@ if (!function_exists('ci4_test_arm_html_page')) {
         if (getenv('APOTHEKE_TEST_HTML_PAGE') !== '1') {
             return;
         }
-        require_once dirname(__DIR__) . '/ci4/vendor/codeigniter4/framework/system/Events/Events.php';
+        require_once dirname(__DIR__) . '/vendor/codeigniter4/framework/system/Events/Events.php';
         \CodeIgniter\Events\Events::on(
             'pre_system',
             static function (): void {
@@ -149,4 +149,4 @@ ci4_test_arm_wrong_ci4_password();
 ci4_test_arm_session_on_demand();
 ci4_test_arm_html_page();
 
-return require dirname(__DIR__) . '/ci4/public/router.php';
+return require dirname(__DIR__) . '/public/router.php';

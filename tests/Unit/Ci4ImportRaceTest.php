@@ -12,7 +12,7 @@ require_once dirname(__DIR__) . '/lib.php';
  * it, finds the import done and answers as a later submit (303 to
  * /import?done=…), importing nothing. Legacy waits the same way since #130
  * (N-424). The interleavings of the run itself are in
- * ci4/tests/ImportExport/ImportsTest.php.
+ * tests/Modules/ImportExport/ImportsTest.php.
  *
  * A preview that waits for a submit the same way shows the done page on CI4
  * (N-373); legacy answers 410, because the submit has taken the file, until
@@ -22,7 +22,7 @@ final class Ci4ImportRaceTest extends TestCase
 {
     public function testASecondSubmitWaitsAndImportsNothing(): void
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
         foreach (['legacy', 'ci4'] as $app) {
@@ -55,7 +55,7 @@ final class Ci4ImportRaceTest extends TestCase
 
             // The first submit: done in a transaction that stays open for a while.
             $summary = '{"created":2,"updated":0,"unchanged":0,"skipped":0,"made":{"location":[],"category":[],"tag":[]}}';
-            $proc = proc_open([PHP_BINARY, ROOT . '/ci4/tests/_support/hold-transaction.php', (string)json_encode([["UPDATE imports SET status = 'done', result = ? WHERE id = 1", [$summary]]]), '1500'],
+            $proc = proc_open([PHP_BINARY, ROOT . '/tests/Modules/_support/hold-transaction.php', (string)json_encode([["UPDATE imports SET status = 'done', result = ? WHERE id = 1", [$summary]]]), '1500'],
                 [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, array_merge(getenv(), test_server_env($dir)));
             $this->assertIsResource($proc);
             $held = (string)fgets($pipes[1]);   // the other client's error output comes with its end, below
@@ -76,7 +76,7 @@ final class Ci4ImportRaceTest extends TestCase
             // N-373: a preview that waits for a submit, which takes the file once it is done.
             $up = $client->post('/import', ['csrf' => $token], ['csv' => ['name' => 'more.csv', 'type' => 'text/csv', 'data' => "name\nHook\n"]]);
             $this->assertSame([303, '/import/2'], [$up['status'], $up['headers']['location'] ?? null], $up['body']);
-            $proc = proc_open([PHP_BINARY, ROOT . '/ci4/tests/_support/hold-transaction.php', (string)json_encode([["UPDATE imports SET status = 'done', result = ? WHERE id = 2", [$summary]]]), '1500'],
+            $proc = proc_open([PHP_BINARY, ROOT . '/tests/Modules/_support/hold-transaction.php', (string)json_encode([["UPDATE imports SET status = 'done', result = ? WHERE id = 2", [$summary]]]), '1500'],
                 [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, ROOT, array_merge(getenv(), test_server_env($dir)));
             $this->assertIsResource($proc);
             $this->assertSame("held\n", (string)fgets($pipes[1]));

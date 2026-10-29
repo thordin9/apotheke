@@ -45,7 +45,7 @@ try {
 try {
     $timezone = (string)($config->values()['timezone'] ?? 'UTC');
     date_default_timezone_set($timezone !== '' ? $timezone : 'UTC');
-    $web = defined('FCPATH') ? rtrim(FCPATH, '/\\') : ApothekeConfig::repoRoot() . '/ci4/public';
+    $web = defined('FCPATH') ? rtrim(FCPATH, '/\\') : ApothekeConfig::repoRoot() . '/public';
     (new StoragePreflight())->prepare($config->dataDir(), $config->originalsDir(), $web);
 } catch (StorageRefused $e) {
     BootError::send($e->getMessage(), $e->logMessage);

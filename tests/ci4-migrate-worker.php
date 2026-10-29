@@ -30,7 +30,7 @@ if ($mode === 'golden') {
         require $root . '/src/items.php';
     } else {
         require $root . '/src/config.php';
-        require $root . '/ci4/modules/Migrations/LegacyFunctions.php';
+        require $root . '/modules/Migrations/LegacyFunctions.php';
     }
     echo json_encode(golden_payload(), JSON_THROW_ON_ERROR);
     exit(0);
@@ -49,7 +49,7 @@ if ($which === 'legacy') {
     $done = migrate($pdo, (string)$cfg['db']['driver'], worker_opt($cfg));
     $pdo = null;
 } else {
-    require $root . '/ci4/modules/Migrations/PdoMigrationRunner.php';
+    require $root . '/modules/Migrations/PdoMigrationRunner.php';
     $dir = getenv('MIGRATE_DIR');
     $migrations = is_string($dir) && $dir !== '' ? $dir : $root . '/migrations';
     $runner = new Apotheke\Migrations\PdoMigrationRunner($migrations);

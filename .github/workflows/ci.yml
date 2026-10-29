@@ -66,9 +66,9 @@ jobs:
       - name: Install dev dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Install CI4 dependencies
-        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+        run: composer install --no-interaction --no-progress --prefer-dist
       - name: Audit CI4 dependencies
-        run: composer audit --no-interaction --working-dir=ci4
+        run: composer audit --no-interaction
       - name: Constructor injection
         run: php scripts/ci4-arch.php di
 
@@ -82,7 +82,7 @@ jobs:
         # PHP 8.4 × both apps. scripts/ci4-leg.sh accepts only legacy and ci4.
         # legacy@8.4 runs the same PHPUnit suite as legacy@8.3.
         # Lint, mobile and Playwright also run on 8.3 and 8.4; Docker builds the shipped 8.4 image.
-        # ci4 requires PHP ^8.4 (ci4/composer.json), so the 8.3 legs test legacy only.
+        # ci4 requires PHP ^8.4 (composer.json), so the 8.3 legs test legacy only.
         # For ci4, the migration runner goldens run on 8.3 and the /healthz goldens on 8.4.
         app: [legacy, ci4]
         php: ['8.4']
@@ -134,7 +134,7 @@ jobs:
         if: steps.suite.outputs.run == 'true'
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
-          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'ci4/composer.lock') }}
+          key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests) and, on ci4, the HEIC decoder
         if: steps.suite.outputs.run == 'true'
@@ -160,7 +160,7 @@ jobs:
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Install CI4 dependencies
         if: steps.suite.outputs.run == 'true' && matrix.php == '8.4'
-        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+        run: composer install --no-interaction --no-progress --prefer-dist
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
         if: steps.suite.outputs.run == 'true'
         run: |
@@ -178,10 +178,10 @@ jobs:
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
         run: |
           php -r 'echo "Imagick HEIC/HEIF: ", json_encode(Imagick::queryFormats("HEI*")), PHP_EOL;'
-          vendor/bin/phpunit -c ci4/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
+          vendor/bin/phpunit -c tests/Modules/phpunit.xml.dist --filter 'MediaTest::testARealHeic' --fail-on-skipped --fail-on-empty-test-suite --testdox
       - name: CI4 Autofill and Media suites with allow_url_fopen off (L-270, N-281)
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4'
-        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c ci4/phpunit.xml.dist --fail-on-skipped --fail-on-empty-test-suite --testdox ci4/tests/Autofill ci4/tests/Media
+        run: php -d allow_url_fopen=0 vendor/bin/phpunit -c tests/Modules/phpunit.xml.dist --fail-on-skipped --fail-on-empty-test-suite --testdox tests/Modules/Autofill tests/Modules/Media
       - name: Prove CI4 used PostgreSQL
         if: steps.suite.outputs.run == 'true' && matrix.app == 'ci4' && matrix.db == 'pgsql'
         run: php scripts/ci4-pgsql-proof.php
@@ -280,7 +280,7 @@ jobs:
         run: npx playwright test --shard=${{ matrix.shard }}/3
       # CI4 (PHP 8.4 only): the specs of ported pages; tests that need an unported page skip
       # (CI4_UNPORTED in tests/visual/fixtures.ts, listed in docs/HANDOFF.md).
-      - name: Install the CI4 runtime (intl, Composer, ci4/vendor)
+      - name: Install the CI4 runtime (intl, Composer, vendor)
         if: matrix.php == '8.4'
         run: |
           apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends php8.4-intl >/dev/null
@@ -288,7 +288,7 @@ jobs:
           php -r '$f = "/usr/local/bin/composer"; copy("https://getcomposer.org/download/2.10.3/composer.phar", $f);
             if (hash_file("sha256", $f) !== "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6") { unlink($f); fwrite(STDERR, "composer.phar checksum mismatch\n"); exit(1); }
             chmod($f, 0755);'
-          composer install --no-interaction --no-progress --prefer-dist --no-dev --working-dir=ci4
+          composer install --no-interaction --no-progress --prefer-dist --no-dev
       - name: Run Playwright on CI4 (ported pages)
         if: matrix.php == '8.4'
         env:
@@ -605,7 +605,7 @@ jobs:
       - name: Install dependencies (root and ci4)
         run: |
           composer install --no-interaction --no-progress --prefer-dist
-          composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+          composer install --no-interaction --no-progress --prefer-dist
       - name: Parity gate
         run: |
           set -o pipefail
@@ -680,6 +680,6 @@ jobs:
           done
           exit 1
       - name: Install CI4 dependencies (legacy needs none)
-        run: composer install --no-interaction --no-progress --prefer-dist --working-dir=ci4
+        run: composer install --no-interaction --no-progress --prefer-dist
       - name: Upgrade and rollback
         run: bash scripts/upgrade-rollback.sh

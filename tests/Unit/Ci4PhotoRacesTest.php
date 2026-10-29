@@ -15,7 +15,7 @@ require_once dirname(__DIR__) . '/lib.php';
  * - M-90: a double-submitted crop/rotate never loses the original and leaves
  *   no stray files.
  * The interleavings that must happen in one order are in
- * ci4/tests/Catalog/PhotoRepositoryTest.php.
+ * tests/Modules/Catalog/PhotoRepositoryTest.php.
  */
 final class Ci4PhotoRacesTest extends TestCase
 {
@@ -124,7 +124,7 @@ final class Ci4PhotoRacesTest extends TestCase
 
     private function ci4(): bool
     {
-        if (!is_file(dirname(__DIR__, 2) . '/ci4/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
+        if (!is_file(dirname(__DIR__, 2) . '/vendor/autoload.php') || PHP_VERSION_ID < 80400) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
 

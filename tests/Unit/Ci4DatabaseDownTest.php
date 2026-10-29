@@ -29,7 +29,7 @@ final class Ci4DatabaseDownTest extends TestCase
         foreach (['/healthz' => 'text/plain', '/health' => 'application/json'] as $path => $type) {
             $dir = tmpdir('ci4-dbdown');
             $legacyDir = tmpdir('legacy-dbdown');
-            $ci4 = new Server($dir, $env, 'ci4', ROOT . '/ci4/public/router.php');
+            $ci4 = new Server($dir, $env, 'ci4', ROOT . '/public/router.php');
             $legacy = new Server($legacyDir, $env, 'legacy');
             $before = $this->ci4Logs();
             try {
@@ -52,7 +52,7 @@ final class Ci4DatabaseDownTest extends TestCase
                 $this->assertNoSecrets($blob);
                 $this->assertStringNotContainsString('MigrateConnectException', $blob);
                 $this->assertStringNotContainsString('Server error', $blob);
-                $this->assertSame($before, $this->ci4Logs(), 'CI4 wrote to ci4/writable/logs');
+                $this->assertSame($before, $this->ci4Logs(), 'CI4 wrote to writable/logs');
             } finally {
                 $ci4->stop();
                 $legacy->stop();
@@ -66,7 +66,7 @@ final class Ci4DatabaseDownTest extends TestCase
 
     /**
      * A SQLite file that cannot be opened (QA #137 L-500): the sanitized line in the server log, as legacy,
-     * and no framework log entry with a stack trace in ci4/writable/logs.
+     * and no framework log entry with a stack trace in writable/logs.
      */
     public function testUnopenableSqliteFileIsTheSanitizedLineWithoutAFrameworkLog(): void
     {
@@ -76,7 +76,7 @@ final class Ci4DatabaseDownTest extends TestCase
         $line = db_connect_failure_message('sqlite', $file);
         $dir = tmpdir('ci4-sqlitedown');
         $legacyDir = tmpdir('legacy-sqlitedown');
-        $ci4 = new Server($dir, $env, 'ci4', ROOT . '/ci4/public/router.php');
+        $ci4 = new Server($dir, $env, 'ci4', ROOT . '/public/router.php');
         $legacy = new Server($legacyDir, $env, 'legacy');
         $before = $this->ci4Logs();
         try {
@@ -92,7 +92,7 @@ final class Ci4DatabaseDownTest extends TestCase
                 $this->assertStringNotContainsString('Stack trace', $blob);
                 $this->assertStringNotContainsString('SQLite3 error', $blob);
             }
-            $this->assertSame($before, $this->ci4Logs(), 'CI4 wrote to ci4/writable/logs');
+            $this->assertSame($before, $this->ci4Logs(), 'CI4 wrote to writable/logs');
         } finally {
             $ci4->stop();
             $legacy->stop();
@@ -108,7 +108,7 @@ final class Ci4DatabaseDownTest extends TestCase
     {
         clearstatcache();
         $sizes = [];
-        foreach (glob(ROOT . '/ci4/writable/logs/*.log') ?: [] as $file) {
+        foreach (glob(ROOT . '/writable/logs/*.log') ?: [] as $file) {
             $sizes[basename($file)] = filesize($file);
         }
 
@@ -178,7 +178,7 @@ final class Ci4DatabaseDownTest extends TestCase
         $this->requireCi4();
         $legacy = $this->run_(['bin/migrate.php'], $this->refusedEnv() + ['APOTHEKE_APP' => 'legacy']);
         $ci4 = $this->run_(['bin/migrate.php'], $this->refusedEnv() + ['APOTHEKE_APP' => 'ci4']);
-        $spark = $this->run_(['ci4/spark', 'apotheke:migrate', '--no-header'], $this->refusedEnv());
+        $spark = $this->run_(['spark', 'apotheke:migrate', '--no-header'], $this->refusedEnv());
         $err = db_connect_failure_message('pgsql', self::WHERE) . "\n";
         foreach (['legacy' => $legacy, 'ci4' => $ci4, 'spark' => $spark] as $name => $run) {
             $blob = $run['out'] . "\n" . $run['err'];
@@ -187,9 +187,9 @@ final class Ci4DatabaseDownTest extends TestCase
             $this->assertSame($err, $run['err'], $name);
             $this->assertNoSecrets($blob);
         }
-        $command = (string)file_get_contents(ROOT . '/ci4/modules/Migrations/Commands/Migrate.php');
+        $command = (string)file_get_contents(ROOT . '/modules/Migrations/Commands/Migrate.php');
         $this->assertDoesNotMatchRegularExpression('/\bexit\s*\(/', $command);
-        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(ROOT . '/ci4/modules', FilesystemIterator::SKIP_DOTS)) as $file) {
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator(ROOT . '/modules', FilesystemIterator::SKIP_DOTS)) as $file) {
             $this->assertStringNotContainsString('set_exception_handler', (string)file_get_contents((string)$file), (string)$file);
         }
     }
@@ -202,7 +202,7 @@ final class Ci4DatabaseDownTest extends TestCase
         $env = ['DATA_DIR' => $bad, 'DB_DRIVER' => 'sqlite'];
         $legacy = $this->run_(['bin/migrate.php'], $env + ['APOTHEKE_APP' => 'legacy']);
         $ci4 = $this->run_(['bin/migrate.php'], $env + ['APOTHEKE_APP' => 'ci4']);
-        $spark = $this->run_(['ci4/spark', 'apotheke:migrate', '--no-header'], $env);
+        $spark = $this->run_(['spark', 'apotheke:migrate', '--no-header'], $env);
         foreach (['legacy' => $legacy, 'ci4' => $ci4, 'spark' => $spark] as $name => $run) {
             $this->assertSame(1, $run['code'], $name . $run['out'] . $run['err']);
             $this->assertSame('', $run['out'], $name);
@@ -212,7 +212,7 @@ final class Ci4DatabaseDownTest extends TestCase
         $dir = tmpdir('ci4-unwritable');
         $legacyDir = tmpdir('legacy-unwritable');
         $web = ['DATA_DIR' => $bad, 'DB_DRIVER' => 'sqlite', 'CI_ENVIRONMENT' => 'production', 'APOTHEKE_TEST_DB' => null];
-        $ci4Server = new Server($dir, $web, 'ci4', ROOT . '/ci4/public/router.php');
+        $ci4Server = new Server($dir, $web, 'ci4', ROOT . '/public/router.php');
         $legacyServer = new Server($legacyDir, $web, 'legacy');
         try {
             $got = $ci4Server->client()->get('/healthz');
@@ -233,7 +233,7 @@ final class Ci4DatabaseDownTest extends TestCase
 
     private function requireCi4(): void
     {
-        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/ci4/vendor/autoload.php')) {
+        if (PHP_VERSION_ID < 80400 || !is_file(ROOT . '/vendor/autoload.php')) {
             $this->markTestSkipped('CI4 vendor and PHP 8.4 are required');
         }
     }

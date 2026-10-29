@@ -16,7 +16,7 @@ use CodeIgniter\Boot;
 use Config\Paths;
 use Config\Services;
 
-$ci4 = dirname(__DIR__, 3);
+$ci4 = dirname(__DIR__, 4);
 define('FCPATH', $ci4 . '/public/');
 chdir(FCPATH);
 require $ci4 . '/app/Config/Paths.php';
