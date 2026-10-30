@@ -21,7 +21,10 @@ final class UsersController extends AuthPages
 {
     /** The security section's settings this API reads: the sign-in policy, never a secret. */
     public const POLICY = ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval',
-        'session_days', 'session_idle_hours', 'trust_proxy'];
+        'session_days', 'session_idle_hours'];
+
+    /** Readable security-section settings left out on purpose: trust_proxy is server set-up, not sign-in policy. */
+    public const NOT_POLICY = ['trust_proxy'];
 
     /** GET /api/v1/users: every account, sorted by name. */
     public function listUsers(): ResponseInterface

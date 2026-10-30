@@ -316,15 +316,14 @@
           "policy": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["auth_guest_disabled", "auth_register_disabled", "auth_register_role", "auth_register_approval", "session_days", "session_idle_hours", "trust_proxy"],
+            "required": ["auth_guest_disabled", "auth_register_disabled", "auth_register_role", "auth_register_approval", "session_days", "session_idle_hours"],
             "properties": {
               "auth_guest_disabled": {"type": "boolean"},
               "auth_register_disabled": {"type": "boolean"},
               "auth_register_role": {"type": "string"},
               "auth_register_approval": {"type": "boolean"},
               "session_days": {"type": "integer"},
-              "session_idle_hours": {"type": "integer"},
-              "trust_proxy": {"type": "boolean"}
+              "session_idle_hours": {"type": "integer"}
             }
           }
         }

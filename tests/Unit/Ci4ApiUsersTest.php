@@ -21,7 +21,10 @@ final class Ci4ApiUsersTest extends TestCase
     private const USER_KEYS = ['id', 'name', 'role', 'status', 'created_at', 'last_login_at'];
 
     private const POLICY_KEYS = ['auth_guest_disabled', 'auth_register_disabled', 'auth_register_role', 'auth_register_approval',
-        'session_days', 'session_idle_hours', 'trust_proxy'];
+        'session_days', 'session_idle_hours'];
+
+    /** Readable security-section keys the security read leaves out on purpose (PM, #186). */
+    private const NOT_POLICY_KEYS = ['trust_proxy'];
 
     /** No key anywhere in an answer may look like one of these. */
     private const FORBIDDEN_KEY = '/hash|token|secret|password|passwd|epoch|^session_id$|^sid$|csrf|e_?mail|cookie|key_?material/i';
@@ -140,7 +143,7 @@ final class Ci4ApiUsersTest extends TestCase
         $this->assertSame(['sign_in_enabled', 'policy'], array_keys($r['json']));
         $this->assertTrue($r['json']['sign_in_enabled']);
         $this->assertSame(self::POLICY_KEYS, array_keys($r['json']['policy']));
-        $this->assertSame([true, true, 'viewer', false, 30, 168, false], array_values($r['json']['policy']), 'the defaults');
+        $this->assertSame([true, true, 'viewer', false, 30, 168], array_values($r['json']['policy']), 'the defaults');
         $this->setting('session_days', 7);
         $this->setting('auth_register_disabled', false);
         $after = $admin->rest('GET', '/api/v1/security')['json']['policy'];
@@ -149,11 +152,27 @@ final class Ci4ApiUsersTest extends TestCase
         $this->setting('auth_register_disabled', true);
     }
 
-    /** A new key in the security section is a decision: it is not read until it is added to the policy list. */
+    /**
+     * A new key in the security section is a decision: every readable key is either in the policy or excluded on
+     * purpose, so an unlisted one fails here until it is put in one of the two lists.
+     */
     public function testThePolicyIsTheSecuritySectionsReadableKeys(): void
     {
-        $this->assertSame(self::POLICY_KEYS, (new \Apotheke\Settings\SettingsSchema())->sectionKeys('security'));
+        $readable = (new \Apotheke\Settings\SettingsSchema())->sectionKeys('security');
+        $this->assertSame([], array_intersect(self::POLICY_KEYS, self::NOT_POLICY_KEYS));
+        $this->assertEqualsCanonicalizing($readable, [...self::POLICY_KEYS, ...self::NOT_POLICY_KEYS], 'a security key that is in neither list');
         $this->assertSame(self::POLICY_KEYS, \Apotheke\Auth\Controllers\Api\UsersController::POLICY);
+        $this->assertSame(self::NOT_POLICY_KEYS, \Apotheke\Auth\Controllers\Api\UsersController::NOT_POLICY);
+    }
+
+    public function testExcludedKeysAreNeverInTheSecurityRead(): void
+    {
+        $r = $this->signedIn('admin')->rest('GET', '/api/v1/security');
+        $this->assertSame(200, $r['status'], $r['body']);
+        foreach (self::NOT_POLICY_KEYS as $key) {
+            $this->assertArrayNotHasKey($key, $r['json']['policy']);
+            $this->assertStringNotContainsString($key, $r['body']);
+        }
     }
 
     /** Recursive key scan of every answer, and no stored hash or session epoch value anywhere in a body. */
