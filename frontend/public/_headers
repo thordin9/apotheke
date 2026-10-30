@@ -16,10 +16,8 @@
   Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
   Cache-Control: no-cache
 
-# HTML, including this file. /404.html is named again below so it stays no-cache.
-/404.html
-  ! Cache-Control
-  Cache-Control: no-cache
+# That no-cache covers HTML, including /404.html. A second /404.html rule that
+# only set no-cache again did not change the result.
 
 # Hashed build output (CSS). Fonts stay unhashed at /fonts/ (tokens.css).
 /assets/*
