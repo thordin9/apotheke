@@ -107,7 +107,11 @@ PostgreSQL settings (`TEST_PG_HOST`, `TEST_PG_PORT`, `TEST_PG_DB`, `TEST_PG_USER
 `127.0.0.1`, `5432`, `apotheke`, `apotheke`, `apotheke`. The credential tests (`Ci4DsnCredentialsTest`,
 `PgsqlSchemaCreateTest`) create login roles, so a non-superuser test role needs `CREATEROLE`, and on PostgreSQL 16 or
 later also `createrole_self_grant = 'set, inherit'` (for example `ALTER ROLE apotheke SET createrole_self_grant =
-'set, inherit'`). The container below makes `apotheke` a superuser, which needs neither. A throwaway server:
+'set, inherit'`). The container below makes `apotheke` a superuser, which needs neither. Seven tests prove that a
+wrong password is refused (`Ci4DsnCredentialsTest` three of them, `Ci4ConnectFailureLeakTest`, and
+`Ci4BranchCiTest::testPgsqlProofSeparatesMissingTableFromOtherFailures`), so the server must check passwords
+(`scram-sha-256` or `md5` in `pg_hba.conf`, as the container below does). Against a server with `trust` auth they skip
+locally with "the test PostgreSQL accepts a wrong password (trust auth)", and fail in CI. A throwaway server:
 
 ```bash
 docker run --rm -p 5432:5432 -e POSTGRES_USER=apotheke -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=apotheke postgres:17

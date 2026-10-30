@@ -443,6 +443,29 @@ function test_pg_ident(string $name): string
 }
 
 /** Admin connection to the test PostgreSQL (the role that can create schemas). */
+/**
+ * Whether the test PostgreSQL refuses a wrong password (N-1301). A server with trust auth lets any password in, so a
+ * test that proves a refused login cannot run there. True as well when the server is not reachable: the tests have
+ * their own handling for that.
+ */
+function test_pg_rejects_wrong_password(): bool
+{
+    static $known = [];
+    $e = test_pg_params();
+    $key = $e['host'] . ':' . $e['port'] . '/' . $e['user'];
+    if (!array_key_exists($key, $known)) {
+        try {
+            new PDO("pgsql:host={$e['host']};port={$e['port']};dbname={$e['name']};connect_timeout=3", $e['user'],
+                $e['password'] . '-not-the-password', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+            $known[$key] = false;
+        } catch (PDOException) {
+            $known[$key] = true;
+        }
+    }
+
+    return $known[$key];
+}
+
 function test_pg_admin(): PDO
 {
     $e = test_pg_params();
