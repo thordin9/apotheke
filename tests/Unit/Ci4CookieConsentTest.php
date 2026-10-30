@@ -179,6 +179,23 @@ final class Ci4CookieConsentTest extends TestCase
             $this->assertCount(1, $session);
             $this->assertMatchesRegularExpression('/^__Host-apothekesid=[^;]+; .*secure/i', $session[0]);
             $this->assertStringNotContainsStringIgnoringCase('domain=', $session[0], 'the __Host- cookie stays host-only');
+            // L-1481 (b): the notice's data-domain is host-matched too: empty on another host.
+            $fresh = static function () use ($server): \Client {
+                $c = $server->client();
+                $c->consent = null;
+
+                return $c;
+            };
+            $this->assertStringContainsString('data-domain=""', $fresh()->get('/login')['body']);
+            // L-1481 (a): X-Forwarded-Host never picks the Domain, even with trust_proxy on.
+            $pdo = testdb($dir);
+            $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute(['trust_proxy']);
+            $pdo->prepare("INSERT INTO settings (name, value, updated_at) VALUES ('trust_proxy', 'true', '2026-01-01')")->execute();
+            $xfh = ['X-Forwarded-Host: app.example.test', 'X-Forwarded-Proto: https'];
+            $this->assertStringContainsString('data-domain=""', $fresh()->get('/login', $xfh)['body'], 'X-Forwarded-Host: notice');
+            $r = $fresh()->post('/consent', ['consent' => 'accept'], [], [...$xfh, 'Sec-Fetch-Site: same-origin']);
+            $this->assertSame(303, $r['status']);
+            $this->assertSame('apotheke_consent=v1; Path=/; Max-Age=15552000; Secure; SameSite=Lax', self::setCookies($r)[0] ?? null, 'X-Forwarded-Host: no Domain (trust_proxy on: Secure from X-Forwarded-Proto)');
         } finally {
             $server->stop();
             testdb_drop($dir);

@@ -34,9 +34,9 @@ class Consent extends BaseConfig
     public bool $required = true;
 
     /**
-     * COOKIE_DOMAIN, normalised (domainFrom()): the parent domain the consent cookie (and any later cookie that is
-     * not __Host-) is set for, when the request's host is that domain or under it. '' (the default): host-only.
-     * Never applied to the __Host- session cookie.
+     * COOKIE_DOMAIN, normalised (domainFrom()): the parent domain the consent cookie is set for (and only that
+     * cookie), when the request's Host is that domain or under it. '' (the default): host-only. Never applied to
+     * the session cookie or any other cookie.
      */
     public string $cookieDomain = '';
 
