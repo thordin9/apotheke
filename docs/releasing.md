@@ -46,6 +46,14 @@ The GitHub Release body is that whole section, handwritten notes included, plus 
 1. Merge the security fix into `old` through a pull request whose commits are `fix:` (a `feat:` or a breaking change
    cannot ship from `old`). Wait for CI's push run on `old` to pass.
 2. *Actions → Release → Run workflow*, branch **`old`** (or `gh workflow run release.yml --ref old`).
+3. Check that the run started and finished: `old` and `main` share `concurrency: release`, which allows one running and
+   one pending run. A pending run is cancelled when a newer run of the group queues, and `main`'s release workflow
+   queues after every successful CI push run on `main`. A cancelled `old` run made no changes; run it again.
+
+GitHub only offers *Run workflow* (and `gh workflow run`) for a workflow file that also exists on the default
+branch `main` with a `workflow_dispatch` trigger; the run then uses `old`'s copy of the file. The `old` release
+therefore depends on `main`'s `.github/workflows/release.yml` keeping that filename and its `workflow_dispatch`
+trigger.
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) on `old` only runs by hand (`workflow_dispatch`),
 and only for the branch `old` (`if: github.ref == 'refs/heads/old'`):
@@ -57,8 +65,8 @@ and only for the branch `old` (`if: github.ref == 'refs/heads/old'`):
 3. `php scripts/release.php apply --notes=…` updates `VERSION` and `CHANGELOG.md` and writes the release notes; commit
    `chore(release): vX.Y.Z [skip ci]` and create the tag;
 4. push both to `old` with `git push --atomic origin HEAD:old "vX.Y.Z"`;
-5. `gh release create vX.Y.Z --notes-file … --latest=false`, then check that the *Latest* release is still a `v3.*`
-   one and fail loudly if not (fix it with `gh release edit <newest v3 tag> --latest`).
+5. `gh release create vX.Y.Z --notes-file … --verify-tag --latest=false`, then check that the *Latest* release is still
+   a `v3.*` one and fail loudly if not (fix it with `gh release edit <newest v3 tag> --latest`).
 
 The push uses `GITHUB_TOKEN` with `contents: write` (plus `actions: read` for the CI check): the release GitHub App that
 `main` uses lives in an environment that only admits `main`. A ruleset on `old` must therefore let a `GITHUB_TOKEN`
@@ -77,14 +85,25 @@ on `old`.
 npm run release:plan          # = php scripts/release.php plan: current version, last tag, bump, next version
 ```
 
-To re-run a failed release, run the workflow again on `old`. If a release must be made locally (on `old`; pass
-`--latest=false` and keep a 2.6.x version):
+Running the workflow again on `old` only helps when the release failed before the push. Once the push went through,
+`old`'s tip is the release commit, which has no CI run, so the CI guard stops the re-run. Finish the release by hand
+from a clone instead (the commit and the tag are already on `old`; put the new `CHANGELOG.md` section in
+`/tmp/notes.md`):
+
+```bash
+gh release create v2.6.N --title v2.6.N --notes-file /tmp/notes.md --verify-tag --latest=false
+gh api repos/thordin9/apotheke/releases/latest --jq .tag_name   # must still be a v3.* tag
+```
+
+If it is not, fix it with `gh release edit <newest v3 tag> --latest`.
+
+If a whole release must be made locally (on `old`; pass `--latest=false` and keep a 2.6.x version):
 
 ```bash
 php scripts/release.php apply --notes=/tmp/notes.md
 git commit -am "chore(release): v$(cat VERSION) [skip ci]"
 git tag -a "v$(cat VERSION)" -m "v$(cat VERSION)" && git push --atomic origin HEAD:old "v$(cat VERSION)"
-gh release create "v$(cat VERSION)" --notes-file /tmp/notes.md --latest=false
+gh release create "v$(cat VERSION)" --notes-file /tmp/notes.md --verify-tag --latest=false
 ```
 
 `apply` refuses to run when `VERSION` does not match the last tag (exit 4) or when there is nothing to release (exit 3).

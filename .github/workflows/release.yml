@@ -4,6 +4,8 @@ name: Release
 # hand: Actions → Release → Run workflow → branch `old`. Computes the next version from the Conventional Commits since
 # the last tag, updates VERSION, CHANGELOG.md, commits "chore(release): vX.Y.Z [skip ci]", tags it and publishes a
 # GitHub Release that never becomes Latest (3.x on main stays Latest). See docs/releasing.md.
+# GitHub only offers "Run workflow" for a file that also exists on the default branch (main) with workflow_dispatch;
+# the run then uses this copy from old. Keep main's release.yml at this filename with its workflow_dispatch trigger.
 on:
   workflow_dispatch:
 
@@ -25,8 +27,7 @@ jobs:
       actions: read
     if: github.ref == 'refs/heads/old'
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
+    # GH_TOKEN is set only on the two steps that call gh (the CI guard and the GitHub Release).
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -40,6 +41,8 @@ jobs:
           coverage: none
           tools: none
       - name: Only release a commit CI passed on old
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           head=$(git rev-parse HEAD)
           runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=old&event=push&status=success&head_sha=$head" --jq '.total_count')
@@ -87,6 +90,7 @@ jobs:
       - name: GitHub Release (never Latest)
         if: steps.plan.outputs.release == 'true'
         env:
+          GH_TOKEN: ${{ github.token }}
           NEXT: ${{ steps.plan.outputs.next }}
         run: |
           gh release create "v$NEXT" --title "v$NEXT" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag --latest=false

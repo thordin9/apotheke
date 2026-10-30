@@ -75,6 +75,40 @@ final class WorkflowsTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/set\s+-[a-z]*x|set\s+-o\s+xtrace|bash\s+-[a-z]*x|GIT_TRACE|GIT_CURL_VERBOSE/', $yml);
     }
 
+    public function testGhTokenOnlyOnTheStepsThatCallGh(): void
+    {
+        $yml = $this->workflow('release.yml');
+        $steps = $this->steps('release.yml');
+        $ci = $this->step($steps, 'actions/workflows/ci.yml/runs?branch=old');
+        $release = $this->step($steps, 'gh release create');
+        // No workflow- or job-level env at all, so nothing but these steps sees a token through GH_TOKEN.
+        $this->assertDoesNotMatchRegularExpression('/^(?:  )?env:/m', $yml);
+        $this->assertSame(2, substr_count($yml, 'GH_TOKEN:'));
+        $this->assertSame([$ci, $release], array_keys(array_filter($steps, static fn (string $s): bool => str_contains($s, 'GH_TOKEN:'))));
+        foreach ([$ci, $release] as $i) {
+            $this->assertStringContainsString("        env:\n          GH_TOKEN: \${{ github.token }}\n", $steps[$i]);
+        }
+    }
+
+    public function testReleasePinsGuardInputsConcurrencyAndOnePush(): void
+    {
+        $yml = $this->workflow('release.yml');
+        $steps = $this->steps('release.yml');
+        // The CI guard checks the commit that was checked out (old's tip), not the dispatch SHA.
+        $ci = $this->step($steps, 'actions/workflows/ci.yml/runs?branch=old');
+        $this->assertStringContainsString("head=\$(git rev-parse HEAD)\n", $steps[$ci]);
+        $this->assertStringContainsString('&head_sha=$head"', $steps[$ci]);
+        $this->assertStringNotContainsString('github.sha', $yml);
+        $this->assertStringNotContainsString('GITHUB_SHA', $yml);
+        $this->assertStringContainsString("concurrency:\n  group: release\n  cancel-in-progress: false\n", $yml);
+        $this->assertSame(1, substr_count($yml, 'cancel-in-progress'));
+        $php = $this->step($steps, 'uses: shivammathur/setup-php@');
+        $this->assertDoesNotMatchRegularExpression('/token|GH_TOKEN|env:/i', $steps[$php]);
+        // Branch and tag go up together in one atomic push.
+        $this->assertSame(1, preg_match_all('/\bgit push\b/', $yml));
+        $this->assertSame(1, substr_count($yml, 'git push --atomic origin HEAD:old "v$NEXT"'));
+    }
+
     private function workflow(string $file): string
     {
         return (string)file_get_contents(dirname(__DIR__, 2) . '/.github/workflows/' . $file);
