@@ -88,7 +88,7 @@ Request hardening ported from `main` (SEC-M3, SEC-L2, SEC-N6, SEC-M1, SEC-M2):
 
 ## Consequences
 
-* Pull requests for the port target `feature/ci4`. The cutover, version 3.0.0, is the pull request into `main`.
+* Before the switch, pull requests for the port targeted `feature/ci4` (now deleted). The cutover, version 3.0.0, is the pull request into `main`.
 * After 3.0.0, the 2.x line gets security fixes only, for 90 days, as 2.6.x releases from the branch `old` (this
   read 2.5.x on `release/2.5` when 2.5 was current; see the branch-switch note below).
 * Rollback to the 2.6.x image needs no data step, because the schema does not move ahead of 2.6.x.
