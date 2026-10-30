@@ -57,7 +57,9 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-apotheke}
       POSTGRES_USER: ${DB_USER:-apotheke}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env to use the postgres profile}
+      # Not ${DB_PASSWORD:?…}: Compose interpolates every service, profile or not, so a required variable here broke
+      # `docker compose up` for SQLite installs. Without DB_PASSWORD the postgres image itself refuses to initialise.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
