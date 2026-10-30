@@ -75,11 +75,13 @@ check "an h2c upgrade stays on HTTP/1.1" "1.1 200" "$(curl -s -o /dev/null -w '%
 # M-1420: slow uploads never take the server down. SLOW_UPLOADS (default 4, more than the FrankenPHP image's 2 PHP
 # threads) clients send a 60 KB sign-in form at 1 KB/s; while they are in flight, /healthz, the sign-in page and a
 # normal form post still answer within 2 s. nginx reads the body before php-fpm sees it; FrankenPHP reads bodies up to
-# 64 KiB in Caddy before PHP does (larger ones only after sign-in, see docker-auth-checks.sh).
+# 64 KiB in Caddy before PHP does (larger ones only after sign-in, see docker-auth-checks.sh). The clients (and the
+# chunked GETs below) carry the consent cookie, like a browser after Accept, so the app would act on them if it got
+# them; the web server holds them either way.
 slow=$(mktemp); { printf 'username=slow&password='; head -c 59000 /dev/zero | tr '\0' a; } > "$slow"
 pids=()
 for _ in $(seq 1 "${SLOW_UPLOADS:-4}"); do
-  curl -s -o /dev/null --max-time 90 --limit-rate 1000 --data-binary "@$slow" \
+  curl -s -o /dev/null --max-time 90 --limit-rate 1000 -b apotheke_consent=v1 --data-binary "@$slow" \
     -H 'Content-Type: application/x-www-form-urlencoded' "$base/login" & pids+=($!)
 done
 sleep 3
@@ -87,7 +89,7 @@ fast() { curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 10 "$@"
 within() { awk -v t="${1#* }" 'BEGIN { print (t < 2.0) ? "fast" : "slow " t }'; }
 r=$(fast "$base/healthz");        check "healthz during ${#pids[@]} slow uploads"      "200 fast" "${r%% *} $(within "$r")"
 r=$(fast "$base/login");          check "sign-in page during slow uploads"            "fast" "$(within "$r")"
-r=$(fast -X POST -d 'name=x' "$base/locations"); check "small POST during slow uploads" "419 fast" "${r%% *} $(within "$r")"
+r=$(fast -b apotheke_consent=v1 -X POST -d 'name=x' "$base/locations"); check "small POST during slow uploads" "419 fast" "${r%% *} $(within "$r")"
 alive=0; for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive=$((alive + 1)); done
 check "the slow uploads were still in flight" "${#pids[@]}" "$alive"
 kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; rm -f "$slow"
@@ -102,6 +104,7 @@ def one():
     try:
         s = socket.create_connection((u.hostname, u.port), timeout=30)
         s.sendall(f"GET /login HTTP/1.1\r\nHost: {u.hostname}:{u.port}\r\nTransfer-Encoding: chunked\r\n"
+                  "Cookie: apotheke_consent=v1\r\n"
                   "Content-Type: application/x-www-form-urlencoded\r\n\r\n".encode())
         s.sendall(b"%x\r\n" % 70000 + b"a" * 70000 + b"\r\n")
         for _ in range(30):
@@ -116,6 +119,6 @@ PY
 sleep 3
 r=$(fast "$base/healthz");        check "healthz during slow chunked GETs"            "200 fast" "${r%% *} $(within "$r")"
 r=$(fast "$base/login");          check "sign-in page during slow chunked GETs"       "fast" "$(within "$r")"
-r=$(fast -X POST -d 'name=x' "$base/locations"); check "small POST during slow chunked GETs" "419 fast" "${r%% *} $(within "$r")"
+r=$(fast -b apotheke_consent=v1 -X POST -d 'name=x' "$base/locations"); check "small POST during slow chunked GETs" "419 fast" "${r%% *} $(within "$r")"
 kill "$slowget" 2>/dev/null || true; wait 2>/dev/null || true
 exit $fail
