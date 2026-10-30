@@ -298,7 +298,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   shown only to its uploader (`imports.actor`, no schema change) or an admin (`Imports::mine()`), anyone else gets the
   same 404 as an unknown id (the HTML pages are unchanged, pending a PM decision); L-1361, `sample_formula` and each
   preview row's `formula` list the cells `CsvCells::formulaLike()` flags (the export's rule), values stay raw. With #182's consent gate the import reads answer
-  cookieless and the upload is 403 `consent_required` (`Ci4CookieConsentTest`). Open.
+  cookieless and the upload is 403 `consent_required` (`Ci4CookieConsentTest`). Merged at e46ba47 (v3.5.0).
 - [#185](https://github.com/thordin9/apotheke/pull/185): API P3, second part (stacked on #184): `POST /api/v1/imports/{id}/commit`
   saves the mapping, checks the file as the preview does (422 with errors and no `skip_errors`) and starts an
   `import.commit` job (202; a queued or running job for the import is answered instead of a second one);
@@ -319,7 +319,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   uploader-or-admin scope and 404 as GET (`Ci4ApiJobsTest`: another importer gets the unknown-id answer, byte for
   byte, on GET, preview and commit; an admin gets through); N-1381, a job of a SIGKILLed worker resumes only after its
   300 s lease (`docs/api.md`, Background jobs). Under #182's consent gate `GET /api/v1/jobs/{id}` answers cookieless
-  and the commit is 403 `consent_required` (`Ci4CookieConsentTest`). Open.
+  and the commit is 403 `consent_required` (`Ci4CookieConsentTest`). Merged with `main` after v3.5.0; awaiting
+  QA's merge-only read.
 - [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
   session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
   without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
@@ -422,6 +423,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
+- Now: #184 is merged (e46ba47, v3.5.0); #185 is merged with `main` and awaits QA's merge-only read; #188
+  (configurable consent cookie domain) is next.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
