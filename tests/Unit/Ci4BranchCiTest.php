@@ -354,6 +354,15 @@ final class Ci4BranchCiTest extends TestCase
             . "      include: scope\n"
             . "    groups:\n"
             . "      frontend:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /edge\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      edge:\n"
             . "        patterns: ['*']\n",
             (string)file_get_contents($this->root() . '/.github/dependabot.yml')
         );
@@ -364,7 +373,7 @@ final class Ci4BranchCiTest extends TestCase
                 $found[] = $dir;
             }
         }
-        $this->assertSame(['.', 'tests/e2e', 'frontend'], $found);
+        $this->assertSame(['.', 'tests/e2e', 'frontend', 'edge'], $found);
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void

@@ -1,0 +1,189 @@
+name: Deploy frontend
+
+# The Worker getapotheke-app (edge/app/: routing, /config.json and headers) with frontend/dist as static assets:
+# the landing page at / and the SPA under /app/.
+# - Pull requests that touch it: build, Worker guard, typecheck and `wrangler deploy --dry-run`. No secrets, no previews.
+# - Published releases (tags v*): the same build, then the deploy in the GitHub environment deploy-site (main and v* only).
+# - workflow_dispatch on main or a v* tag: the same as a tag.
+# Without the CLOUDFLARE_API_TOKEN secret, or without a frontend build yet, the deploy is skipped and the run stays green.
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'edge/app/**'
+      - 'edge/package.json'
+      - 'edge/package-lock.json'
+      - 'scripts/cf-worker-guard.mjs'
+      - 'scripts/cf-deploy.sh'
+      - 'scripts/deploy-scripts.test.mjs'
+      - 'scripts/app-worker-check.mjs'
+      - '.github/workflows/deploy-frontend.yml'
+  # A published GitHub Release (release.yml creates it with the release App's token, for tag vX.Y.Z). Not `push: tags`:
+  # the tag points at the "chore(release): … [skip ci]" commit, and [skip ci] would suppress a tag-push run.
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: Build and check (getapotheke-app)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      has_build: ${{ steps.detect.outputs.has_build }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          # All history and tags: the frontend build reads the latest release tag and its date (N-1411).
+          fetch-depth: 0
+      # zizmor cache-poisoning is a false positive (N-1437): setup-node v4 caches nothing without a `cache:` input
+      # (the automatic package-manager cache came with v5), and no step here saves or restores a cache.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+        with:
+          node-version: '22'
+      - name: Is there a frontend build yet?
+        id: detect
+        run: |
+          if [ -f frontend/package.json ] && node -e 'process.exit(require("./frontend/package.json").scripts?.build ? 0 : 1)'; then
+            echo "has_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_build=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=No frontend build::frontend/package.json has no build script yet; the dry run uses a stub and nothing is deployed."
+          fi
+      - name: Build frontend/ (npm ci --ignore-scripts && npm run build)
+        if: steps.detect.outputs.has_build == 'true'
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+      - name: Stub dist (no frontend build yet)
+        if: steps.detect.outputs.has_build != 'true'
+        run: |
+          mkdir -p frontend/dist/app
+          printf '<!doctype html><title>Apotheke</title>\n' > frontend/dist/index.html
+          printf '<!doctype html><title>Apotheke app</title>\n' > frontend/dist/app/index.html
+      - name: Install the Worker tooling (edge/)
+        working-directory: edge
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Deploy tooling tests (Worker headers and caching, drift check, guard, cf-deploy.sh; no network)
+        run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
+      - name: Worker guard (allowlist; no routes, no custom domains)
+        run: node scripts/cf-worker-guard.mjs getapotheke-app edge/app/wrangler.jsonc -- --dry-run
+      - name: Types and typecheck
+        working-directory: edge/app
+        run: |
+          npx --no-install wrangler types --check --config wrangler.jsonc
+          npx --no-install tsc --noEmit -p .
+      - name: wrangler deploy --dry-run (no token, nothing uploaded)
+        working-directory: edge/app
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/app-bundle"
+      - name: Worker routing and headers against the build (wrangler dev, local only)
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+          STUB_DIST: ${{ steps.detect.outputs.has_build == 'true' && '0' || '1' }}
+        run: |
+          (cd edge/app && nohup npx --no-install wrangler dev --config wrangler.jsonc --ip 127.0.0.1 --port 8788 > "$RUNNER_TEMP/app-dev.log" 2>&1 &)
+          for _ in $(seq 1 60); do grep -q 'Ready on' "$RUNNER_TEMP/app-dev.log" && break; sleep 1; done
+          code=0
+          node scripts/app-worker-check.mjs http://127.0.0.1:8788 frontend/dist || code=$?
+          pkill -f 'wrangler dev' || true
+          if [ "$code" != 0 ]; then cat "$RUNNER_TEMP/app-dev.log"; fi
+          exit "$code"
+
+  deploy:
+    name: Deploy getapotheke-app
+    needs: build
+    # A published release that is not a pre-release (tag v*), or a manual run on main or a v* tag; never pull requests
+    # (so never forks). The first step also requires a tag to be exactly vX.Y.Z (N-1438).
+    if: >-
+      needs.build.outputs.has_build == 'true' &&
+      ((github.event_name == 'release' && !github.event.release.prerelease &&
+         startsWith(github.ref, 'refs/tags/v')) ||
+       (github.event_name == 'workflow_dispatch' &&
+        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: deploy-site
+    # One deploy per environment at a time, across refs and runs (N-1434); a running deploy is never cancelled.
+    concurrency:
+      group: deploy-site
+      cancel-in-progress: false
+    # Only reads the release for the tag (L-1460); nothing in this job writes to the repository.
+    permissions:
+      contents: read
+    steps:
+      # This step and the gates below must never be allowed to fail open (N-1461): a failure stops the deploy.
+      - name: Tag is vX.Y.Z with a published full release (a release or a manual run on a tag)
+        env:
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        # The runner's `bash --noprofile --norc -eo pipefail`, as scripts/deploy-scripts.test.mjs runs it (N-1465).
+        shell: bash
+        run: |
+          case "$REF" in
+            refs/heads/main) exit 0 ;;
+            refs/tags/*) ;;
+            *) echo "::error title=Not a release ref::Deploys run only on main or a vX.Y.Z tag."; exit 1 ;;
+          esac
+          if ! [[ "${REF#refs/tags/}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error title=Not a release tag::Deploys run only for tags vX.Y.Z (numbers only)."
+            exit 1
+          fi
+          # L-1460: a manual run on a tag deploys only a published full release. The release-by-tag endpoint returns
+          # only published releases, so a draft and a missing release are both a 404 here, and both fail.
+          tag="${REF#refs/tags/}"
+          if ! state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '"draft=\(.draft) prerelease=\(.prerelease)"')"; then
+            echo "::error title=No published release::No published GitHub Release for $tag (missing or a draft); nothing was deployed."
+            exit 1
+          fi
+          if [ "$state" != "draft=false prerelease=false" ]; then
+            echo "::error title=Not a full release::The release for $tag is a draft or a pre-release ($state); nothing was deployed."
+            exit 1
+          fi
+      - name: Mask the account id and check for the token
+        id: token
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then echo "::add-mask::$CLOUDFLARE_ACCOUNT_ID"; fi
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "set=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Deploy skipped::The deploy-site environment has no CLOUDFLARE_API_TOKEN secret; nothing was deployed."
+          else
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.token.outputs.set == 'true'
+        with:
+          persist-credentials: false
+          # All history and tags: the frontend build reads the latest release tag and its date (N-1411).
+          fetch-depth: 0
+      # zizmor cache-poisoning is a false positive (N-1437): setup-node v4 caches nothing without a `cache:` input
+      # (the automatic package-manager cache came with v5), and no step here saves or restores a cache.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
+        if: steps.token.outputs.set == 'true'
+        with:
+          node-version: '22'
+      - name: Build frontend/ (npm ci --ignore-scripts && npm run build)
+        if: steps.token.outputs.set == 'true'
+        working-directory: frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+      - name: Install the Worker tooling (edge/)
+        if: steps.token.outputs.set == 'true'
+        working-directory: edge
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Deploy (Worker guard, then wrangler deploy of getapotheke-app only)
+        if: steps.token.outputs.set == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/cf-deploy.sh getapotheke-app edge/app

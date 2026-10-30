@@ -1,0 +1,19 @@
+{
+  "name": "apotheke-edge",
+  "private": true,
+  "type": "module",
+  "description": "Apotheke edge: the Worker apotheke-api with its Container Durable Object (Cloudflare Containers). Not versioned on its own.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "check": "wrangler types --check && tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "wrangler": "4.156.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
