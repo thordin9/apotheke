@@ -8,10 +8,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Current state
 
-- `feature/ci4` carries `main` up to v2.6.22 (sync [#129](https://github.com/thordin9/apotheke/pull/129)), including the legacy session limits, `user signout NAME`
-  and #87's `keepSignIn` rule. The shipped image still runs the legacy app; `APOTHEKE_APP=ci4` selects CI4 in CI and
-  in development, and at run time on the PHP 8.4 image (step 15, [#132](https://github.com/thordin9/apotheke/pull/132)).
-  The CI4 image serves the backup pages since step 14's second part (#133).
+- `main` is the CI4 app (v3.0.0 and later); the shipped image runs CI4. The 2.6.x security line ships from the
+  branch `old` (the former `main`) for 90 days after 3.0.0. `feature/ci4`, `release/2.5` and the merged branches are
+  deleted; only `main`, `old` and open PR heads remain. Mentions of them below are historical (before the 3.0.0 switch).
 - CI4 modules: Core (config, DSN, filters, storage, secret sealing), Migrations (PDO runner, 28 migrations shared with
   `main`), Settings (schema, service, branding, `apotheke:settings`), Autofill (client and `/autofill/suggest`; stored photos read through Media), ControlPanel (below), Auth
   (current user, admin guards, session epoch, sign out everywhere, the Permission filter, the sign-in and account pages), Layout (page
@@ -259,6 +258,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the legacy tests and CI legs removed, `src/` removed. Merged at f1b4535.
 - [#162](https://github.com/thordin9/apotheke/pull/162): branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
   N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Open.
+- [#168](https://github.com/thordin9/apotheke/pull/168): mark `feature/ci4` and `release/2.5` as historical in HANDOFF, PLAN and ADR 001 after the
+  old branches were deleted. Open.
 
 ## Lanes
 
@@ -334,6 +335,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
+0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
    follow-up) is merged into `main` (3f81db2, v2.6.24); #142 and #146 are merged (b12fbbb). Now: QA notes batch 4,

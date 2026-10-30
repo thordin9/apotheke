@@ -8,6 +8,25 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-30
+
+### Added
+
+- **core:** add ApiResponse with problem+json errors ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **core:** use the __Host- session cookie on https ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **core:** read the client address from the edge or REAL_IP_HEADER ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **core:** route /api with the API headers and opt-in CORS ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **core:** add ApiCsrf for non-safe /api requests ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **auth:** add the /api/v1 session endpoints and GET /me ([#166](https://github.com/thordin9/apotheke/pull/166))
+
+### Maintenance
+
+- **api:** test: add the OpenAPI document and a contract-test harness ([#166](https://github.com/thordin9/apotheke/pull/166))
+- docs: describe the /api/v1 session API ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **frontend:** chore: design tokens, base styles and brand assets ([#163](https://github.com/thordin9/apotheke/pull/163))
+- **api:** docs: keep the OpenAPI contract at docs/api/openapi.yaml ([#166](https://github.com/thordin9/apotheke/pull/166))
+- **qa:** docs: add the PR 166 API foundation QA review ([#166](https://github.com/thordin9/apotheke/pull/166))
+
 ## [3.0.1] - 2026-10-30
 
 ### Fixed
@@ -930,7 +949,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.0.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/thordin9/apotheke/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/thordin9/apotheke/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/thordin9/apotheke/compare/v2.6.26...v3.0.0
 [2.6.26]: https://github.com/thordin9/apotheke/compare/v2.6.25...v2.6.26

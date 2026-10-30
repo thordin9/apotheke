@@ -43,7 +43,8 @@ These decisions are reflected in the body. §8 lists what is still open.
 3. **Branches.** `feature/ci4` is cut from `v2.5.0` (87850e3, verified). Every CI4 PR targets it. **There is no
    lock on main.** Main is merged into `feature/ci4` (merge commits) **after each main release**. The cutover is the only
    CI4 PR into main and ships **3.0.0**. A **`release/2.5`** branch carries 2.5.x security fixes until 3.0.0 + 90 days
-   (§4.5).
+   (§4.5). *(historical: before the 3.0.0 switch)* Both branches are deleted; `main` is the CI4 app and the 2.6.x security line ships
+   from `old` for 90 days after 3.0.0.
 4. **Same contracts.** URLs (including `/originals` → 404 in any spelling), form fields (including `MAX_FILE_SIZE`), JSON
    shapes and codes (`unavailable`/`busy`), status codes, headers, cookie names, `trust_proxy` + `X-Forwarded-Proto`
    Secure-cookie behaviour, CLI argv/output/exit codes (`bin/*.php`), env vars (including `DB_DSN`, `ORIGINALS_DIR`,
@@ -322,7 +323,7 @@ rule green (L-1); **the PR adds its own parity-recorder steps** and they pass at
 at 100%. Aim for under ~1,500 changed lines, excluding views moved verbatim.
 
 **Step 0 (not a PR):** the maintainer creates `feature/ci4` and `release/2.5` from
-`v2.5.0`.
+`v2.5.0`. *(historical: before the 3.0.0 switch)*
 
 ### 4.2 PR list
 
@@ -411,6 +412,9 @@ only in QA's private config), stops at the cap, and QA **posts the Neuron usage*
 
 ### 4.5 `release/2.5` (M-4)
 
+> Historical: before the 3.0.0 switch. `release/2.5` was never used and is deleted; the 2.6.x security line ships
+> from `old` for 90 days after 3.0.0.
+
 * Cut from `v2.5.0` at Step 0 and **kept until 3.0.0 + 90 days**, then archived (deleted after a final tag check).
 * This needs a small **main-side PR** (owner DevOps; it isn't a CI4 PR):
   - add `release/2.5` to `ci.yml` push branches and to `release.yml` `workflow_run.branches`. Workflow-run triggers
@@ -424,7 +428,7 @@ only in QA's private config), stops at the cap, and QA **posts the Neuron usage*
 
 ### 4.6 Keeping parity with main; freeze
 
-Main stays **unlocked**, and after each main release it is merged into `feature/ci4`. The new tests run on both legs, so
+Main stays **unlocked**, and after each main release it is merged into `feature/ci4` *(historical: before the 3.0.0 switch)*. The new tests run on both legs, so
 gaps show up as red ci4 legs and get port PRs. **The parity target freezes when Coder's L-4 patch lands on main.** That
 patch covers Imagick+libheif in Docker, N-6 (a generic refusal page), N-7 (`error_log`) and N-8 (HEIC wording). Releases
 after that point still merge in, but they are ported as their own PRs against the frozen baseline plus the delta. PRs
