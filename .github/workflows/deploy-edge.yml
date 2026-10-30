@@ -6,7 +6,8 @@ name: Deploy edge
 # - Published releases (tags v*): the same checks, then the deploy in the GitHub environment deploy-edge (main and v* only, with a
 #   required reviewer).
 # - workflow_dispatch on main or a v* tag: the same as a tag.
-# Without the CLOUDFLARE_API_TOKEN secret the deploy is skipped and the run stays green.
+# Without the CLOUDFLARE_API_TOKEN secret the deploy is skipped and the run stays green; so is the whole deploy job (before
+# the environment's review) until the repository variable EDGE_STORAGE_READY is true.
 on:
   pull_request:
     paths:
@@ -68,11 +69,14 @@ jobs:
     needs: check
     # A published release that is not a pre-release (tag v*), or a manual run on main or a v* tag; never pull requests
     # (so never forks). The first step also requires a tag to be exactly vX.Y.Z (N-1438).
+    # Storage gate (PM decision), here too: until the repository variable EDGE_STORAGE_READY is exactly true the job is
+    # skipped before the deploy-edge environment gate, so no review is requested; the in-job gate below stays.
     if: >-
+      vars.EDGE_STORAGE_READY == 'true' && (
       (github.event_name == 'release' && !github.event.release.prerelease &&
         startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' &&
-       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
+       (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: deploy-edge
@@ -125,8 +129,9 @@ jobs:
           else
             echo "set=true" >> "$GITHUB_OUTPUT"
           fi
-      # Storage gate (PM decision): no apotheke-api deploy until P4 storage (D1 for data, R2 for files) lands.
-      # Runs on every trigger, after the token check (no token = skipped, green) and before any wrangler call.
+      # Storage gate (PM decision): no apotheke-api deploy until P4 storage (D1 for data, R2 for files) lands. The job's
+      # `if:` already skips it while EDGE_STORAGE_READY is not true; this second check runs after the token check (no
+      # token = skipped, green) and before any wrangler call, in case the job condition is ever changed.
       - name: Storage gate (repository variable EDGE_STORAGE_READY)
         if: steps.token.outputs.set == 'true'
         env:
