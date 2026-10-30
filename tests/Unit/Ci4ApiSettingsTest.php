@@ -22,6 +22,23 @@ final class Ci4ApiSettingsTest extends TestCase
 
     private const SECTIONS = ['general', 'appearance', 'locale', 'list', 'items', 'limits', 'labels', 'uploads', 'autofill', 'data'];
 
+    /**
+     * Every key each section returns, pinned (L-1240): a write-only or internal key whose type became a readable one
+     * would show up here first.
+     */
+    private const KEYS = [
+        'general' => ['app_name', 'app_tagline', 'public_url'],
+        'appearance' => ['accent', 'theme_default', 'icon_background'],
+        'locale' => ['currency', 'money_format', 'currency_position', 'date_format', 'time_format', 'timezone'],
+        'list' => ['page_size', 'default_sort', 'list_view', 'recent_limit', 'recent_scope', 'search_typos', 'overview_open'],
+        'items' => ['default_quantity', 'default_min_qty', 'default_tags', 'default_notes', 'default_purchase_today', 'default_expiry_months'],
+        'limits' => ['expiry_soon_days', 'lend_due_days', 'saved_filters_max', 'undo_seconds', 'stocktake_apply_moves', 'max_photos'],
+        'labels' => ['label_width_mm', 'label_height_mm', 'label_columns', 'label_gap_mm', 'label_show_sub', 'label_show_url', 'label_border'],
+        'uploads' => ['max_upload_mb', 'image_full_max', 'image_thumb_max', 'jpeg_quality', 'attach_types', 'attach_max_mb', 'attach_max_per_item'],
+        'autofill' => ['autofill_enabled', 'autofill_auto', 'autofill_url', 'autofill_timeout', 'autofill_model', 'autofill_image_size', 'autofill_max_image_bytes'],
+        'data' => ['import_create_missing'],
+    ];
+
     private static ?Server $server = null;
 
     private static string $dir = '';
@@ -87,6 +104,8 @@ final class Ci4ApiSettingsTest extends TestCase
         $raw = json_decode($r['body']);
         $this->assertSame('accent', $raw->sections[1]->fields[0]->key);
         $this->assertEquals(new stdClass(), $raw->sections[1]->fields[0]->rules, 'no rules is an empty object, not a list');
+        $this->assertSame(self::KEYS, array_combine(array_column($sections, 'section'), array_map(static fn (array $s): array => array_keys($s['values']), $sections)),
+            'every section returns exactly its pinned keys');
         foreach ($sections as $s) {
             $this->assertMatchesRegularExpression('/^"[a-f0-9]{64}"$/', $s['etag']);
             $this->assertSame(array_keys($s['values']), array_column($s['fields'], 'key'));
@@ -125,7 +144,13 @@ final class Ci4ApiSettingsTest extends TestCase
         $this->assertContains($saved['status'], [200, 302, 303], $saved['body']);
         $after = $admin->rest('GET', '/api/v1/settings/autofill');
         $this->assertTrue($after['json']['token_set']);
-        $this->assertNotSame($before['json']['etag'], $after['json']['etag'], 'a new token changes the ETag');
+        $this->assertNotSame($before['json']['etag'], $after['json']['etag'], 'setting a token changes the ETag (token_set)');
+        $other = $web->post('/settings/autofill/token', ['csrf' => $web->csrf(), 'token' => self::TOKEN . '-other']);
+        $this->assertContains($other['status'], [200, 302, 303], $other['body']);
+        $changed = $admin->rest('GET', '/api/v1/settings/autofill');
+        $this->assertTrue($changed['json']['token_set']);
+        $this->assertSame($after['json']['etag'], $changed['json']['etag'], 'another token keeps the ETag: it says nothing about the value (N-1242)');
+        $this->assertStringNotContainsString(self::TOKEN, $changed['body']);
         foreach (['/api/v1/settings', '/api/v1/settings/autofill'] as $path) {
             $body = $admin->rest('GET', $path)['body'];
             $this->assertStringNotContainsString(self::TOKEN, $body);

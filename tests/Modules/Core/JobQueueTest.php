@@ -134,6 +134,30 @@ final class JobQueueTest extends CIUnitTestCase
         $this->assertSame(['running', 'w2', null], [$q->find($id)?->status, $q->find($id)?->leaseOwner, $q->find($id)?->checkpoint]);
     }
 
+    /**
+     * N-1243: the lease is this owner's for this attempt. A forged owner with the right attempt, and the right owner
+     * with another attempt (a worker that claimed the same job again after its lease ran out), are both refused.
+     */
+    #[DataProvider('drivers')]
+    public function testOwnerAndAttemptBothGuardTheLease(string $driver): void
+    {
+        $q = $this->queue($driver);
+        $id = $q->enqueue('a', []);
+        $job = $q->claim('w1');
+        $this->assertNotNull($job);
+        $forged = self::withLease($job, 'w2', $job->attempts);
+        $stale = self::withLease($job, 'w1', $job->attempts + 1);
+        foreach (['forged owner, same attempt' => $forged, 'same owner, other attempt' => $stale] as $case => $other) {
+            $this->assertFalse($q->checkpoint($other, ['x' => 1]), $case);
+            $this->assertFalse($q->complete($other, []), $case);
+            $this->assertFalse($q->fail($other, 'x', false), $case);
+            $this->assertFalse($q->release($other), $case);
+        }
+        $row = $q->find($id);
+        $this->assertSame(['running', 'w1', 1, null], [$row?->status, $row?->leaseOwner, $row?->attempts, $row?->checkpoint]);
+        $this->assertTrue($q->complete($job, []), 'the real lease still works');
+    }
+
     #[DataProvider('drivers')]
     public function testAJobWhoseLastAttemptExpiredFails(string $driver): void
     {
@@ -244,6 +268,11 @@ final class JobQueueTest extends CIUnitTestCase
     {
         $source = (string)file_get_contents(dirname(__DIR__, 3) . '/modules/Core/Jobs/JobQueue.php');
         $this->assertDoesNotMatchRegularExpression('/\b(BEGIN|SAVEPOINT|COMMIT|ROLLBACK)\b|trans(Begin|Start|Complete|Commit)\(/', $source, 'no transaction: one guarded statement per step (D1)');
+    }
+
+    private static function withLease(Job $job, string $owner, int $attempts): Job
+    {
+        return new Job($job->id, $job->type, $job->status, $job->payload, $job->checkpoint, $job->result, $job->error, $attempts, $job->maxAttempts, $job->actor, $owner);
     }
 
     private function queue(string $driver): JobQueue
