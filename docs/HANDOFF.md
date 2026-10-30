@@ -297,7 +297,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. QA: M-1360, an import is
   shown only to its uploader (`imports.actor`, no schema change) or an admin (`Imports::mine()`), anyone else gets the
   same 404 as an unknown id (the HTML pages are unchanged, pending a PM decision); L-1361, `sample_formula` and each
-  preview row's `formula` list the cells `CsvCells::formulaLike()` flags (the export's rule), values stay raw. Open.
+  preview row's `formula` list the cells `CsvCells::formulaLike()` flags (the export's rule), values stay raw. With #182's consent gate the import reads answer
+  cookieless and the upload is 403 `consent_required` (`Ci4CookieConsentTest`). Open.
 - [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
   session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
   without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
