@@ -85,6 +85,17 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertArrayNotHasKey('set-cookie', $r['headers']);
     }
 
+    /** QA N-1221: a listed origin sent with a trailing dot gets the CORS headers; an unlisted one gets none. */
+    public function testATrailingDotOriginGetsTheCorsHeaders(): void
+    {
+        $r = $this->client()->get('/api/v1/nothing-here', ['Origin: ' . self::APP . '.']);
+        $this->assertSame(self::APP . '.', $r['headers']['access-control-allow-origin'] ?? null);
+        $this->assertSame('true', $r['headers']['access-control-allow-credentials'] ?? null);
+        $other = $this->client()->get('/api/v1/nothing-here', ['Origin: https://other.example.test.']);
+        $this->assertArrayNotHasKey('access-control-allow-origin', $other['headers']);
+        $this->assertArrayNotHasKey('access-control-allow-credentials', $other['headers']);
+    }
+
     public function testOtherOriginsGetNoCorsHeaders(): void
     {
         foreach (['https://evil.example.test', 'null', 'http://app.example.test'] as $origin) {
@@ -167,6 +178,10 @@ final class Ci4ApiHttpTest extends TestCase
         try {
             $r = $server->client()->get('/api/v1/nothing-here');
             $this->assertSame('max-age=31536000', $r['headers']['strict-transport-security'] ?? null);
+            // QA L-1220: an uncaught error (the exception handler) gets it too.
+            $e = $server->client()->get('/api/v1/a;b');
+            $this->assertSame([400, 'application/problem+json'], [$e['status'], $e['headers']['content-type'] ?? null]);
+            $this->assertSame('max-age=31536000', $e['headers']['strict-transport-security'] ?? null);
             $this->assertArrayNotHasKey('access-control-allow-origin', $server->client()->get('/api/v1/x', ['Origin: ' . self::APP])['headers'], 'CORS off by default');
         } finally {
             $server->stop();

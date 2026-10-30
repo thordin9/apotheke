@@ -41,8 +41,15 @@ final class PlainHandler implements ExceptionHandlerInterface
      * @param Closure(): ErrorPage|null $page
      * @param Closure(): void|null $cleanup the request's RequestCleanup, run before exit (a fatal error included)
      * @param (Closure(string): void)|null $log error_log() when null
+     * @param (Closure(): string)|null $publicUrl PUBLIC_URL from the environment or config.php (never the database),
+     *        for the HSTS decision of an /api answer
      */
-    public function __construct(private readonly ?Closure $page = null, private readonly ?Closure $cleanup = null, private readonly ?Closure $log = null)
+    public function __construct(
+        private readonly ?Closure $page = null,
+        private readonly ?Closure $cleanup = null,
+        private readonly ?Closure $log = null,
+        private readonly ?Closure $publicUrl = null,
+    )
     {
     }
 
@@ -149,11 +156,23 @@ final class PlainHandler implements ExceptionHandlerInterface
             $status === 404 => 'No such API endpoint.',
             default => 'Bad request.',
         };
-        foreach ((new ApiSecurityPolicy())->headers((new RequestScheme(false))->isHttps($server)) as $name => $value) {
+        // HSTS as on the success path (an https:// PUBLIC_URL), read from the config, not the database, which may be
+        // what failed (QA L-1220); a direct HTTPS connection counts too.
+        $https = (new RequestScheme(false))->isHttps($server) || str_starts_with(strtolower($this->publicUrl()), 'https://');
+        foreach ((new ApiSecurityPolicy())->headers($https) as $name => $value) {
             $response->setHeader($name, $value);
         }
 
         return ApiResponse::problem($response, $status, $code, $detail);
+    }
+
+    private function publicUrl(): string
+    {
+        try {
+            return $this->publicUrl !== null ? ($this->publicUrl)() : '';
+        } catch (Throwable) {
+            return '';
+        }
     }
 
     private function log(string $line): void
