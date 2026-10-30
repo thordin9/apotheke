@@ -197,5 +197,9 @@ $routes->get('api/v1/settings', $apiSettings . '::index', $settingsPerm);
 foreach (\Apotheke\ControlPanel\Controllers\Api\SettingsController::SECTIONS as $section) {
     $routes->get('api/v1/settings/' . $section, $apiSettings . '::show/' . $section, $settingsPerm);
 }
+$apiImports = '\\Apotheke\\ImportExport\\Controllers\\Api\\ImportsController';
+$routes->post('api/v1/imports', $apiImports . '::create', ['permission' => 'import']);
+$routes->get('api/v1/imports/([0-9]+)', $apiImports . '::show/$1', ['permission' => 'import']);
+$routes->get('api/v1/imports/([0-9]+)/preview', $apiImports . '::preview/$1', ['permission' => 'import']);
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

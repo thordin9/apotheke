@@ -3,7 +3,7 @@
   "info": {
     "title": "Apotheke API",
     "version": "1.0.0-p1",
-    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings; P3: CSV imports). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
   },
   "paths": {
     "/api/v1/session": {
@@ -105,12 +105,70 @@
     },
     "/api/v1/settings/data": {
       "get": {"operationId": "getSettingsData", "summary": "The data section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/imports": {
+      "post": {
+        "operationId": "createImport",
+        "summary": "Upload a CSV file to import (import permission)",
+        "description": "The file waits until it is imported; a day after its upload it is deleted. Columns are mapped automatically from their headers.",
+        "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
+        "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["file"], "properties": {"file": {"type": "string", "format": "binary", "description": "A CSV file, at most 5 MB"}}}}}},
+        "responses": {
+          "201": {"description": "The upload", "headers": {"Location": {"description": "The import", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Import"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "413": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/imports/{id}": {
+      "get": {
+        "operationId": "getImport",
+        "summary": "An upload: its columns, a sample of its rows and the fields they can map to (import permission)",
+        "parameters": [{"$ref": "#/components/parameters/ImportId"}],
+        "responses": {
+          "200": {"description": "The upload", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Import"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/imports/{id}/preview": {
+      "get": {
+        "operationId": "previewImport",
+        "summary": "What importing the file would do, row by row (import permission)",
+        "description": "Writes nothing. Without `map` the saved mapping is used; with it, it is checked and used for this answer only.",
+        "parameters": [
+          {"$ref": "#/components/parameters/ImportId"},
+          {"name": "map", "in": "query", "required": false, "description": "The field for each column, in order, comma-separated; empty ignores the column", "schema": {"type": "string"}},
+          {"name": "create", "in": "query", "required": false, "description": "Create missing locations, categories and tags (1 or 0)", "schema": {"type": "string", "enum": ["0", "1", "true", "false"]}},
+          {"name": "skip_errors", "in": "query", "required": false, "description": "Import the rows without errors and skip the others (1 or 0)", "schema": {"type": "string", "enum": ["0", "1", "true", "false"]}},
+          {"$ref": "#/components/parameters/Page"},
+          {"$ref": "#/components/parameters/PerPage"}
+        ],
+        "responses": {
+          "200": {"description": "One page of rows, and the totals", "headers": {"Link": {"description": "The next and previous pages", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ImportPreview"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "410": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
     }
   },
   "components": {
     "parameters": {
       "CsrfToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "description": "The csrf_token from GET /api/v1/session", "schema": {"type": "string"}},
-      "IfNoneMatch": {"name": "If-None-Match", "in": "header", "required": false, "description": "An ETag from an earlier answer: 304 when it is still current", "schema": {"type": "string"}}
+      "IfNoneMatch": {"name": "If-None-Match", "in": "header", "required": false, "description": "An ETag from an earlier answer: 304 when it is still current", "schema": {"type": "string"}},
+      "ImportId": {"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}},
+      "Page": {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "default": 1}},
+      "PerPage": {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}
     },
     "responses": {
       "Problem": {"description": "An error", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
@@ -139,7 +197,7 @@
           "title": {"type": "string"},
           "status": {"type": "integer"},
           "detail": {"type": "string"},
-          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed"},
+          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, import.done, import.gone"},
           "errors": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Field => message, for 422"}
         }
       },
@@ -225,6 +283,58 @@
             }
           }
         }
+      },
+      "ImportOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["create", "skip_errors"],
+        "properties": {"create": {"type": "boolean"}, "skip_errors": {"type": "boolean"}}
+      },
+      "Import": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "file_name", "status", "total_rows", "options", "columns", "sample", "fields", "result", "created_at", "finished_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "file_name": {"type": "string"},
+          "status": {"type": "string", "description": "uploaded (waiting) or done"},
+          "total_rows": {"type": "integer"},
+          "options": {"$ref": "#/components/schemas/ImportOptions"},
+          "columns": {"type": "array", "description": "Empty once imported (the file is gone)", "items": {"type": "object", "additionalProperties": false, "required": ["index", "header", "field"], "properties": {"index": {"type": "integer"}, "header": {"type": "string"}, "field": {"type": "string", "description": "The mapped field, or empty"}}}},
+          "sample": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+          "fields": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["key", "label"], "properties": {"key": {"type": "string"}, "label": {"type": "string"}}}},
+          "result": {"type": "object", "nullable": true, "description": "Once imported: created, updated, unchanged, skipped and made"},
+          "created_at": {"type": "string"},
+          "finished_at": {"type": "string", "nullable": true}
+        }
+      },
+      "ImportPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["import_id", "mapping", "options", "summary", "data", "meta", "links"],
+        "properties": {
+          "import_id": {"type": "integer"},
+          "mapping": {"type": "array", "items": {"type": "string"}},
+          "options": {"$ref": "#/components/schemas/ImportOptions"},
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rows", "created", "updated", "unchanged", "errors", "made"],
+            "properties": {
+              "rows": {"type": "integer"}, "created": {"type": "integer"}, "updated": {"type": "integer"}, "unchanged": {"type": "integer"}, "errors": {"type": "integer"},
+              "made": {"type": "object", "additionalProperties": false, "required": ["location", "category", "tag"], "properties": {"location": {"type": "array", "items": {"type": "string"}}, "category": {"type": "array", "items": {"type": "string"}}, "tag": {"type": "array", "items": {"type": "string"}}}}
+            }
+          },
+          "data": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["line", "state", "name", "error"], "properties": {"line": {"type": "integer"}, "state": {"type": "string", "enum": ["new", "update", "same", "error"]}, "name": {"type": "string"}, "error": {"type": "string"}}}},
+          "meta": {"$ref": "#/components/schemas/PageMeta"},
+          "links": {"type": "object", "additionalProperties": false, "required": ["next", "prev"], "properties": {"next": {"type": "string", "nullable": true}, "prev": {"type": "string", "nullable": true}}}
+        }
+      },
+      "PageMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["page", "per_page", "total"],
+        "properties": {"page": {"type": "integer"}, "per_page": {"type": "integer"}, "total": {"type": "integer"}}
       }
     }
   }

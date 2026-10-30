@@ -35,6 +35,7 @@ use Throwable;
  *
  * @phpstan-type Import array{id:int,file_name:string,status:string,total_rows:int,mapping:array<int|string,mixed>,options:array<string,mixed>,result:?array<string,mixed>,created_at:string,finished_at:?string,actor:?string}
  * @phpstan-type Made array{location:list<string>,category:list<string>,tag:list<string>}
+ * @phpstan-type Sim array{location:array<string,int>,category:array<string,int>,items:array<int,array<string,mixed>>,next:int}
  * @phpstan-type Run array{rows:list<array{line:int,state:string,name:string,error:string}>,created:int,updated:int,unchanged:int,errors:int,skipped:int,made:Made,committed:bool,done_before:bool}
  */
 final class Imports
@@ -228,6 +229,21 @@ final class Imports
      */
     public function setMapping(int $id, array $header, array $post): array
     {
+        [$map, $opt] = self::mapping($header, $post);
+        Writes::check($this->db->query('UPDATE imports SET mapping = ?, options = ? WHERE id = ?', [(string)json_encode($map), (string)json_encode($opt), $id]), 'save mapping');
+
+        return [$map, $opt];
+    }
+
+    /**
+     * The mapping and options of a form's fields, checked (setMapping() without saving them).
+     *
+     * @param list<string> $header
+     * @param array<string,mixed> $post
+     * @return array{0:list<string>,1:array{create:bool,skip_errors:bool}}
+     */
+    public static function mapping(array $header, array $post): array
+    {
         $fields = self::fields();
         $cols = $post['col'] ?? null;
         $map = [];
@@ -250,10 +266,8 @@ final class Imports
         if (!isset($seen['name'])) {
             throw new UserError('Choose which column holds the item name.', 422);
         }
-        $opt = ['create' => !empty($post['create']), 'skip_errors' => !empty($post['skip_errors'])];
-        Writes::check($this->db->query('UPDATE imports SET mapping = ?, options = ? WHERE id = ?', [(string)json_encode($map), (string)json_encode($opt), $id]), 'save mapping');
 
-        return [$map, $opt];
+        return [$map, ['create' => !empty($post['create']), 'skip_errors' => !empty($post['skip_errors'])]];
     }
 
     /**
@@ -261,15 +275,16 @@ final class Imports
      * or "Garage / Shelf 2"); creates it when allowed.
      *
      * @param Made $made
+     * @param Sim|null $sim
      */
-    private function location(string $v, bool $create, array &$made): ?int
+    private function location(string $v, bool $create, array &$made, ?array &$sim = null): ?int
     {
         $parts = array_values(array_filter(array_map(static fn (string $p): string => Text::cleanLine($p, 120), preg_split('/\s*(?:›|>|\/)\s*/u', $v) ?: []), static fn (string $p): bool => $p !== ''));
         if ($parts === []) {
             return null;
         }
         $last = $parts[count($parts) - 1];
-        $ex = $this->taxonomy->find('location', $last);
+        $ex = $this->find('location', $last, $sim);
         if ($ex !== null) {
             return $ex['id'];
         }
@@ -278,10 +293,10 @@ final class Imports
         }
         $parent = null;
         foreach ($parts as $p) {
-            $r = $this->taxonomy->create('location', $p);
+            $r = $this->create('location', $p, $sim);
             if ($r['created']) {
                 $made['location'][] = $r['name'];
-                if ($parent !== null) {
+                if ($parent !== null && $sim === null) {
                     $this->taxonomy->setParent($r['id'], $parent);
                 }
             }
@@ -302,16 +317,10 @@ final class Imports
      */
     public function run(array $imp, bool $commit): array
     {
-        $map = $imp['mapping'];
         $create = !empty($imp['options']['create']);
         $skip = !empty($imp['options']['skip_errors']);
-        $col = [];
-        foreach ($map as $i => $k) {
-            if (is_string($k) && $k !== '') {
-                $col[$k] = (int)$i;
-            }
-        }
-        $out = ['rows' => [], 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => 0, 'skipped' => 0, 'made' => ['location' => [], 'category' => [], 'tag' => []], 'committed' => false, 'done_before' => false];
+        $col = self::columns($imp['mapping']);
+        $out = self::blank();
         $db = $this->db;
         $db->resetTransStatus();
         if (!$db->transBegin()) {
@@ -328,90 +337,14 @@ final class Imports
             }
             // Read after the lock and the status: the file is the one this run may import.
             [, $rows] = $this->rows($imp);
-            $knownTags = [];
-            foreach (Writes::rows($db, 'SELECT name FROM tags') as $t) {
-                $knownTags[Text::fold((string)$t['name'])] = true;
-            }
+            $knownTags = $this->knownTags();
             $tomorrow = $this->calendar->now()->modify('+86400 seconds')->format('Y-m-d');
+            $real = null;
             foreach ($rows as $n => $r) {
-                $get = static fn (string $k): string => isset($col[$k]) ? trim($r[$col[$k]] ?? '') : '';
-                $line = $n + 2;
                 $name = '';
                 Writes::check($db->query('SAVEPOINT imp_row'), 'savepoint');
                 try {
-                    $id = $get('id');
-                    $existing = null;
-                    if ($id !== '') {
-                        if (!ctype_digit($id)) {
-                            throw new UserError('ID must be a number.');
-                        }
-                        $existing = $this->items->get((int)$id);   // unknown id: a new item
-                    }
-                    $name = Text::cleanLine($get('name'), 200);
-                    if ($name === '') {
-                        throw new UserError('Name is empty.');
-                    }
-                    $qtyRaw = $get('quantity');
-                    $qty = $qtyRaw === '' ? ($existing !== null ? (int)$existing['quantity'] : 1) : filter_var($qtyRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
-                    if ($qty === false) {
-                        throw new UserError('Quantity “' . $qtyRaw . '” is not a whole number from 0 to 1,000,000.');
-                    }
-                    $keep = static fn (string $k, mixed $fromExisting, callable $parse): mixed => isset($col[$k]) ? $parse($get($k)) : ($existing !== null ? $fromExisting : $parse(''));
-                    $in = [
-                        'name' => $name, 'quantity' => $qty,
-                        'notes' => $keep('notes', (string)($existing['notes'] ?? ''), static fn (string $v): string => mb_substr($v, 0, 5000)),
-                        'value_cents' => $keep('value', $existing['value_cents'] ?? null, static fn (string $v): ?int => ItemInput::money($v)),
-                        'purchase_date' => $keep('purchase_date', $existing['purchase_date'] ?? null, static fn (string $v): ?string => ItemInput::purchaseDate($v, $tomorrow)),
-                        'expires_on' => $keep('expires_on', $existing['expires_on'] ?? null, static fn (string $v): ?string => ItemInput::expiryDate($v)),
-                        'serial' => $keep('serial', (string)($existing['serial'] ?? ''), static fn (string $v): string => Text::cleanLine($v, 100)),
-                        'barcode' => $keep('barcode', (string)($existing['barcode'] ?? ''), static fn (string $v): string => ItemInput::barcode($v)),
-                        'min_qty' => $keep('min_qty', $existing['min_qty'] ?? null, static fn (string $v): ?int => ItemInput::minQty($v)),
-                        'tags' => $keep('tags', array_column($existing['tags'] ?? [], 'name'), static fn (string $v): array => Text::tags($v)),
-                    ];
-                    foreach ($in['tags'] as $t) {
-                        if (isset($knownTags[Text::fold($t)])) {
-                            continue;
-                        }
-                        if (!$create) {
-                            throw new UserError('Unknown tag “' . $t . '”.');
-                        }
-                        $knownTags[Text::fold($t)] = true;
-                        $out['made']['tag'][] = $t;
-                    }
-                    $in['location_id'] = isset($col['location']) ? $this->location($get('location'), $create, $out['made'])
-                        : ($existing !== null && $existing['location_id'] !== null ? (int)$existing['location_id'] : null);
-                    if (isset($col['category'])) {
-                        $c = Text::cleanLine($get('category'), 120);
-                        $ex = $c === '' ? null : $this->taxonomy->find('category', $c);
-                        if ($c === '') {
-                            $in['category_id'] = null;
-                        } elseif ($ex !== null) {
-                            $in['category_id'] = $ex['id'];
-                        } elseif ($create) {
-                            $made = $this->taxonomy->create('category', $c);
-                            $in['category_id'] = $made['id'];
-                            $out['made']['category'][] = $made['name'];
-                        } else {
-                            throw new UserError('Unknown category “' . $c . '”.');
-                        }
-                    } else {
-                        $in['category_id'] = $existing !== null && $existing['category_id'] !== null ? (int)$existing['category_id'] : null;
-                    }
-                    $lentTo = Text::cleanLine($get('lent_to'), 100);
-                    $due = isset($col['lent_due']) ? ItemInput::expiryDate($get('lent_due')) : null;
-                    $lend = $lentTo !== '' && $lentTo !== (string)($existing['lent_to'] ?? '');
-                    if ($existing !== null && !$lend && self::same($existing, $in)) {
-                        $state = 'same';      // nothing to change: no save, no history entry, updated_at kept
-                        $out['unchanged']++;
-                    } else {
-                        /** @var array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string,tags:list<string>,value_cents:?int,purchase_date:?string,expires_on:?string,serial:string,barcode:string,min_qty:?int} $in */
-                        $savedId = $this->items->save($existing, $in, null, false);
-                        if ($lend) {
-                            $this->loans->lend($savedId, $lentTo, null, $due);
-                        }
-                        $state = $existing !== null ? 'update' : 'new';
-                        $out[$existing !== null ? 'updated' : 'created']++;
-                    }
+                    $state = $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $real);
                     Writes::check($db->query('RELEASE SAVEPOINT imp_row'), 'savepoint');
                     $msg = '';
                 } catch (UserError $e) {
@@ -420,11 +353,9 @@ final class Imports
                     $msg = $e->getMessage();
                     $out['errors']++;
                 }
-                $out['rows'][] = ['line' => $line, 'state' => $state, 'name' => $name, 'error' => $msg];
+                $out['rows'][] = ['line' => $n + 2, 'state' => $state, 'name' => $name, 'error' => $msg];
             }
-            foreach ($out['made'] as $k => $list) {
-                $out['made'][$k] = array_values(array_unique($list));
-            }
+            $out['made'] = self::unique($out['made']);
             if ($commit && ($out['errors'] === 0 || $skip)) {
                 $out['skipped'] = $out['errors'];
                 $summary = ['created' => $out['created'], 'updated' => $out['updated'], 'unchanged' => $out['unchanged'], 'skipped' => $out['skipped'], 'made' => $out['made']];
@@ -454,6 +385,247 @@ final class Imports
         }
 
         return $out;
+    }
+
+    /**
+     * One CSV row of a run: read it, find or (when allowed) create its location, category and tags, and save the
+     * item. $sim null: for real, inside the run's savepoint. An array: a dry run that writes nothing (preview()):
+     * what a real run would create gets a stand-in id below 0 in $sim, and the saved item is kept there for a later
+     * row with its id. A UserError is the row's error.
+     *
+     * @param list<string> $r
+     * @param array<string,int> $col
+     * @param array<string,bool> $knownTags
+     * @param Run $out
+     * @param Sim|null $sim
+     * @return string new, update or same
+     */
+    private function row(array $r, array $col, bool $create, string $tomorrow, array &$knownTags, array &$out, string &$name, ?array &$sim): string
+    {
+        $get = static fn (string $k): string => isset($col[$k]) ? trim($r[$col[$k]] ?? '') : '';
+        $id = $get('id');
+        $existing = null;
+        if ($id !== '') {
+            if (!ctype_digit($id)) {
+                throw new UserError('ID must be a number.');
+            }
+            $existing = ($sim['items'][(int)$id] ?? null) ?? $this->items->get((int)$id);   // unknown id: a new item
+        }
+        $name = Text::cleanLine($get('name'), 200);
+        if ($name === '') {
+            throw new UserError('Name is empty.');
+        }
+        $qtyRaw = $get('quantity');
+        $qty = $qtyRaw === '' ? ($existing !== null ? (int)$existing['quantity'] : 1) : filter_var($qtyRaw, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 1000000]]);
+        if ($qty === false) {
+            throw new UserError('Quantity “' . $qtyRaw . '” is not a whole number from 0 to 1,000,000.');
+        }
+        $csvTags = isset($col['tags']) ? Text::tags($get('tags')) : [];
+        $keep = static fn (string $k, mixed $fromExisting, callable $parse): mixed => isset($col[$k]) ? $parse($get($k)) : ($existing !== null ? $fromExisting : $parse(''));
+        $in = [
+            'name' => $name, 'quantity' => $qty,
+            'notes' => $keep('notes', (string)($existing['notes'] ?? ''), static fn (string $v): string => mb_substr($v, 0, 5000)),
+            'value_cents' => $keep('value', $existing['value_cents'] ?? null, static fn (string $v): ?int => ItemInput::money($v)),
+            'purchase_date' => $keep('purchase_date', $existing['purchase_date'] ?? null, static fn (string $v): ?string => ItemInput::purchaseDate($v, $tomorrow)),
+            'expires_on' => $keep('expires_on', $existing['expires_on'] ?? null, static fn (string $v): ?string => ItemInput::expiryDate($v)),
+            'serial' => $keep('serial', (string)($existing['serial'] ?? ''), static fn (string $v): string => Text::cleanLine($v, 100)),
+            'barcode' => $keep('barcode', (string)($existing['barcode'] ?? ''), static fn (string $v): string => ItemInput::barcode($v)),
+            'min_qty' => $keep('min_qty', $existing['min_qty'] ?? null, static fn (string $v): ?int => ItemInput::minQty($v)),
+            'tags' => isset($col['tags']) ? $csvTags : array_column($existing['tags'] ?? [], 'name'),
+        ];
+        foreach ($csvTags as $t) {   // an item's own tags exist already
+            if (isset($knownTags[Text::fold($t)])) {
+                continue;
+            }
+            if (!$create) {
+                throw new UserError('Unknown tag “' . $t . '”.');
+            }
+            $knownTags[Text::fold($t)] = true;
+            $out['made']['tag'][] = $t;
+        }
+        $in['location_id'] = isset($col['location']) ? $this->location($get('location'), $create, $out['made'], $sim)
+            : ($existing !== null && $existing['location_id'] !== null ? (int)$existing['location_id'] : null);
+        if (isset($col['category'])) {
+            $c = Text::cleanLine($get('category'), 120);
+            $ex = $c === '' ? null : $this->find('category', $c, $sim);
+            if ($c === '') {
+                $in['category_id'] = null;
+            } elseif ($ex !== null) {
+                $in['category_id'] = $ex['id'];
+            } elseif ($create) {
+                $made = $this->create('category', $c, $sim);
+                $in['category_id'] = $made['id'];
+                $out['made']['category'][] = $made['name'];
+            } else {
+                throw new UserError('Unknown category “' . $c . '”.');
+            }
+        } else {
+            $in['category_id'] = $existing !== null && $existing['category_id'] !== null ? (int)$existing['category_id'] : null;
+        }
+        $lentTo = Text::cleanLine($get('lent_to'), 100);
+        $due = isset($col['lent_due']) ? ItemInput::expiryDate($get('lent_due')) : null;
+        $lend = $lentTo !== '' && $lentTo !== (string)($existing['lent_to'] ?? '');
+        if ($existing !== null && !$lend && self::same($existing, $in)) {
+            $state = 'same';      // nothing to change: no save, no history entry, updated_at kept
+            $out['unchanged']++;
+        } else {
+            /** @var array{name:string,location_id:?int,category_id:?int,quantity:int,notes:string,tags:list<string>,value_cents:?int,purchase_date:?string,expires_on:?string,serial:string,barcode:string,min_qty:?int} $in */
+            if ($sim === null) {
+                $savedId = $this->items->save($existing, $in, null, false);
+                if ($lend) {
+                    $this->loans->lend($savedId, $lentTo, null, $due);
+                }
+            } else {
+                if ($lend) {
+                    $this->checkLend($lentTo, $due);
+                }
+                if ($existing !== null) {   // a later row with this id sees the saved item
+                    $sim['items'][(int)$existing['id']] = ['tags' => array_map(static fn (string $t): array => ['name' => $t], $in['tags']), 'lent_to' => $lend ? $lentTo : ($existing['lent_to'] ?? null),
+                        'barcode' => ItemInput::barcode($in['barcode'])] + $in + $existing;
+                }
+            }
+            $state = $existing !== null ? 'update' : 'new';
+            $out[$existing !== null ? 'updated' : 'created']++;
+        }
+
+        return $state;
+    }
+
+    /**
+     * A location or category by name: the database's, or one a dry run made.
+     *
+     * @param Sim|null $sim
+     * @return array{id:int}|null
+     */
+    private function find(string $kind, string $name, ?array $sim): ?array
+    {
+        $made = $sim[$kind][Text::fold(Text::cleanLine($name, 120))] ?? null;
+
+        return $made !== null ? ['id' => $made] : $this->taxonomy->find($kind, $name);
+    }
+
+    /**
+     * TaxonomyRepository::create(), or in a dry run a stand-in for what it would create.
+     *
+     * @param Sim|null $sim
+     * @return array{id:int,name:string,created:bool}
+     */
+    private function create(string $kind, string $name, ?array &$sim): array
+    {
+        if ($sim === null) {
+            return $this->taxonomy->create($kind, $name);
+        }
+        $ex = $this->find($kind, $name, $sim);
+        if ($ex !== null) {
+            return ['id' => $ex['id'], 'name' => $name, 'created' => false];
+        }
+        $name = Text::cleanLine($name, 120);
+        $id = --$sim['next'];
+        if ($kind === 'location') {
+            $sim['location'][Text::fold($name)] = $id;
+        } else {
+            $sim['category'][Text::fold($name)] = $id;
+        }
+
+        return ['id' => $id, 'name' => $name, 'created' => true];
+    }
+
+    /** What Loans::lend() refuses for an import's row (it lends today), without lending. */
+    private function checkLend(string $to, ?string $due): void
+    {
+        if (Text::cleanLine((string)preg_replace('/[^\P{Cc}\s]/u', '', $to), 100) === '') {
+            throw new UserError('Enter who you lent it to.');
+        }
+        if ($due !== null && $due < $this->calendar->today()) {
+            throw new UserError('The due date cannot be before the lent date.');
+        }
+    }
+
+    /**
+     * The API's preview (API plan §3): what run() would answer for a dry run, every validation error included, but
+     * found without writing anything, so with no transaction, savepoint or lock (D1). A done import previews
+     * nothing (done_before), as a run does.
+     *
+     * @param Import $imp
+     * @return Run
+     */
+    public function preview(array $imp): array
+    {
+        $out = self::blank();
+        if ((Writes::rows($this->db, 'SELECT status FROM imports WHERE id = ?', [$imp['id']])[0]['status'] ?? '') === 'done') {
+            $out['done_before'] = true;
+
+            return $out;
+        }
+        [, $rows] = $this->rows($imp);
+        $col = self::columns($imp['mapping']);
+        $create = !empty($imp['options']['create']);
+        $knownTags = $this->knownTags();
+        $tomorrow = $this->calendar->now()->modify('+86400 seconds')->format('Y-m-d');
+        $sim = ['location' => [], 'category' => [], 'items' => [], 'next' => 0];
+        foreach ($rows as $n => $r) {
+            $name = '';
+            try {
+                $state = $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $sim);
+                $msg = '';
+            } catch (UserError $e) {
+                $state = 'error';
+                $msg = $e->getMessage();
+                $out['errors']++;
+            }
+            $out['rows'][] = ['line' => $n + 2, 'state' => $state, 'name' => $name, 'error' => $msg];
+        }
+        $out['made'] = self::unique($out['made']);
+
+        return $out;
+    }
+
+    /**
+     * Field => column index of a mapping.
+     *
+     * @param array<int|string,mixed> $map
+     * @return array<string,int>
+     */
+    private static function columns(array $map): array
+    {
+        $col = [];
+        foreach ($map as $i => $k) {
+            if (is_string($k) && $k !== '') {
+                $col[$k] = (int)$i;
+            }
+        }
+
+        return $col;
+    }
+
+    /** @return Run */
+    private static function blank(): array
+    {
+        return ['rows' => [], 'created' => 0, 'updated' => 0, 'unchanged' => 0, 'errors' => 0, 'skipped' => 0, 'made' => ['location' => [], 'category' => [], 'tag' => []], 'committed' => false, 'done_before' => false];
+    }
+
+    /** @return array<string,bool> folded name => true for every tag there is */
+    private function knownTags(): array
+    {
+        $known = [];
+        foreach (Writes::rows($this->db, 'SELECT name FROM tags') as $t) {
+            $known[Text::fold((string)$t['name'])] = true;
+        }
+
+        return $known;
+    }
+
+    /**
+     * @param Made $made
+     * @return Made
+     */
+    private static function unique(array $made): array
+    {
+        foreach ($made as $k => $list) {
+            $made[$k] = array_values(array_unique($list));
+        }
+
+        return $made;
     }
 
     /**

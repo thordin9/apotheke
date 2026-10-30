@@ -17,6 +17,9 @@ answer against it.
 | `DELETE /api/v1/session` | anyone with a session | Sign out (`204`). |
 | `GET /api/v1/me` | signed in | `id`, `username`, `role`, `permissions`. With sign-in turned off there is no account, so this is `403`. |
 | `GET /api/v1/openapi.json` | anyone | The OpenAPI document. |
+| `POST /api/v1/imports` | Import | Upload a CSV (`multipart/form-data`, field `file`); `201` with the import and a `Location` header. |
+| `GET /api/v1/imports/{id}` | Import | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
+| `GET /api/v1/imports/{id}/preview` | Import | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
 
 Any other path under `/api` answers `404`.
 
@@ -43,7 +46,7 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 ```
 
 `code` is stable: `auth.required` (401), `auth.invalid_credentials` (401), `auth.pending_approval` (403),
-`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `not_found` (404), `permission.denied` (403),
+`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `import.gone` (410), `not_found` (404), `permission.denied` (403),
 `rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
 (413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
 problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's

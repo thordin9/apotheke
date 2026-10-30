@@ -279,7 +279,15 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   [Background jobs](deployment-and-operations.md#background-jobs)), N-1245 (handler rules in `JobHandler`), N-1246
   (Cloudflare: Cron Triggers or Queues, same schema). `Ci4MigrateTest` keys its 2.6.26 sha256 pins by version, so
   gitleaks has no file name with "key" to match; the only `.gitleaks.toml` entry left covers commit 1b5f5c8 in history
-  (commit, path and value must all match). Open.
+  (commit, path and value must all match). Merged at c22853f.
+- feat/api-import-preview: API P3, first part (API plan §6): `POST /api/v1/imports` (upload), `GET /api/v1/imports/{id}`
+  and `GET /api/v1/imports/{id}/preview`, Import permission. `Imports::preview()` is a dry-run validator that shares
+  `row()` with the HTML run but writes nothing: no transaction or savepoint (D1), stand-in ids for the locations and
+  categories it would make, `checkLend()` in place of the loan, and later rows see an earlier row's update. The API
+  preview takes its mapping from the query and does not save it (`Imports::mapping()`). The HTML preview and commit are
+  unchanged. Tests: `ImportPreviewTest` (equal to the HTML dry run on both drivers, with and without creating; no write,
+  transaction or DDL statement and every table's row count unchanged), `Ci4ApiImportsTest` (contract, permissions, CSRF,
+  404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. Open.
 
 ## Lanes
 
