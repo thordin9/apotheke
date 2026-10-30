@@ -1,6 +1,7 @@
 # QA: PR #185, import commit job and GET /jobs/{id}
 
-- **Head:** `f397d57c8030d94030bc3fc9a3e49148ae0f9ac2`. 15 commits, base main `f1eee32` (v3.3.0), 0 behind, same repo, mergeable CLEAN. CI 17/17 green on this head.
+- **Head:** `dc916d9438fafa94fb8a44a58bb0194b82cc1f4e`. 22 commits, base main `c057394` (v3.4.0), 0 behind, same repo, mergeable CLEAN. CI 17/17 green on this head.
+- **Merge re-check** (`7092283` #184 merge, `dc916d9`): conflicts only in CHANGELOG, RoutesCompiled and HANDOFF. The 0030 note is under `[Unreleased]` above `[3.4.0]`, and the released sections are byte-identical to main. Routes regenerate byte-identical. The scoping code is unchanged, and the owner/admin 404 tests are present and pass. The consent, imports and jobs API tests pass on SQLite and PG17. A test mutation that sends consent makes the new commit 403 test fail.
 - **Re-gate delta** since `5c31f74`: fix `feaa932` (ImportsController::commit scope, Ci4ApiJobsTest, OpenAPI, docs/api.md, deployment-and-operations, HANDOFF), plus merges of #184 (`89cbdc5`, `73f406e`, `f397d57`). It also contains all of #184's fix `902841c`.
 - **Verdict: PASS.** M-1380 fixed and N-1381 documented. No H/M open.
 
@@ -44,7 +45,7 @@
 
 - **M-1380:** fixed (`feaa932`), verified on both drivers.
 - **N-1381:** documented (lease wait after SIGKILL/OOM).
-- **N-1382:** #182 cookie consent is still separate, not on this stack.
+- **N-1382:** closed. #182 cookie consent is on main (v3.4.0) and merged here. `POST /imports/{id}/commit` is 403 `consent_required` without consent, and `GET /jobs/{id}` is in the consent matrix.
 
 ## New findings
 
