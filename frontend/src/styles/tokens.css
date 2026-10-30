@@ -1,0 +1,123 @@
+/* Apotheke shared design tokens: one file for the SPA (app.getapotheke.com) and the landing page (getapotheke.com).
+   Source of truth: thordin9/apotheke frontend/src/styles/tokens.css. getapotheke-site keeps a byte copy that its CI compares.
+   Hallmark theme Ink (deal 1/3) for neutrals, type, space and motion; the accent comes from the brand layer below.
+   Mode: follows prefers-color-scheme; <html data-theme="light|dark"> overrides it ("auto" or no attribute = OS).
+   Layers: 1 brand (swappable, per mode) -> 2 semantic colour (derived, never edited for a rebrand) -> components. */
+
+/* Fonts: self-hosted, OFL. Greek loads only when Greek text is on the page (unicode-range). */
+@font-face { font-family: "Epilogue"; src: url("/fonts/epilogue-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Epilogue"; src: url("/fonts/epilogue-latin-ext-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap;
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+/* "Apotheke Greek": Commissioner (modern Greek, U+0370-03FF) + Noto Sans (polytonic, U+1F00-1FFF). Epilogue has no Greek. */
+@font-face { font-family: "Apotheke Greek"; src: url("/fonts/commissioner-greek-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap;
+  unicode-range: U+0370-03FF; }
+@font-face { font-family: "Apotheke Greek"; src: url("/fonts/noto-sans-greek-ext-wght-normal.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap;
+  unicode-range: U+1F00-1FFF; }
+/* Wordmark: Nunito ExtraBold (OFL), latin only, used for the name beside the mark. */
+@font-face { font-family: "Nunito"; src: url("/fonts/nunito-latin-800-normal.woff2") format("woff2"); font-weight: 800; font-style: normal; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+
+:root {
+  color-scheme: light dark;
+
+  /* 1. BRAND, light. Final palette, sampled from the approved mascot and logo (brand/logo-sheet.jpg, mascot-base.jpg).
+        To rebrand, edit only these --brand-* values and the dark set below, then run: node frontend/scripts/contrast.mjs */
+  --brand-primary: #5b3b8e;          /* violet sleeve: accent, buttons, links, focus, progress */
+  --brand-primary-strong: #4b3081;   /* wordmark violet: hover and pressed */
+  --brand-primary-ink: #ffffff;      /* text on --brand-primary */
+  --brand-primary-soft: #ede7f6;     /* "In" pill, selection */
+  --brand-primary-soft-ink: #4b3081;
+  --brand-secondary: #e88b3d;        /* box orange: fills, highlights, illustration. Never text on paper */
+  --brand-secondary-shade: #cd7128;  /* box shade: illustration, fill borders */
+  --brand-secondary-ink: #04303d;    /* text on an orange fill */
+  --brand-secondary-text: #a4500f;   /* darker orange when orange must be text */
+  --brand-secondary-soft: #fcebd9;   /* "Low stock" pill, highlight */
+  --brand-secondary-soft-ink: #7d3a08;
+  --brand-tertiary: #a81f29;         /* trouser red: danger and alerts */
+  --brand-tertiary-ink: #ffffff;
+  --brand-tertiary-soft: #fae6e7;
+  --brand-outline: #04303d;          /* outline ink: mascot outline, mark, strong rules */
+  --brand-halo: #04303d;             /* rim drawn round the artwork's outline ink; only drawn in dark mode, where the ink alone is faint */
+  --brand-tan: #cfa267;              /* tape: illustration only */
+  --brand-grey: #43434d;             /* shoe: illustration only */
+  --brand-wordmark: #4b3081;         /* the wordmark text colour */
+
+  /* spacing (Hallmark shared scale) */
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  /* type: page scale (landing) */
+  --text-xs: 0.8125rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.25rem; --text-xl: 1.5625rem; --text-2xl: 1.953rem; --text-3xl: 2.441rem;
+  --text-display-s: clamp(2.25rem, 4vw + 0.5rem, 3.75rem); --text-display: clamp(2.75rem, 5vw + 1rem, 5.25rem);
+  --text-section: clamp(2rem, 2.5vw + 1rem, 3.5rem); --text-title: clamp(1.25rem, 0.75vw + 0.875rem, 1.625rem); --text-lead: clamp(1.125rem, 0.35vw + 1rem, 1.375rem);
+  /* type: app scale (fixed, ratio 1.2; Hallmark app screens) */
+  --app-text-xs: 0.8125rem; --app-text-sm: 0.875rem; --app-text-md: 1rem; --app-text-lg: 1.2rem; --app-text-xl: 1.44rem; --app-text-2xl: 1.728rem;
+  --font-display: "Epilogue", "Apotheke Greek", ui-sans-serif, system-ui, sans-serif; --font-body: var(--font-display);
+  --font-brand: "Nunito", "Epilogue", ui-rounded, system-ui, sans-serif; /* wordmark only */
+  --font-outlier: "IBM Plex Mono", ui-monospace, monospace;
+  --tracking-display: -0.04em; --display-weight: 700; --body-weight: 400; --strong-weight: 600;
+  /* motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  /* layout */
+  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
+  --app-container: 1200px; --form-measure: 40rem;
+  --control-h: 44px; --app-control-h: 40px; --hit: 44px;
+  --mascot-s: 48px; --mascot-m: 120px; --mascot-l: 200px; /* reserved square slots for mascot poses */
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+  /* shape */
+  /* fixed colours that never follow the mode: the label sheet is printed on white paper; the dark logo sits on outline ink */
+  --label-paper: #fefdfb; --label-ink: #04303d; --label-rule: #8a9aa0; --logo-dark-ground: #0a1d23;
+  --logo-dark-halo: #8fb3bd;
+  --halo-on-dark: drop-shadow(1px 0 0 var(--logo-dark-halo)) drop-shadow(-1px 0 0 var(--logo-dark-halo)) drop-shadow(0 1px 0 var(--logo-dark-halo)) drop-shadow(0 -1px 0 var(--logo-dark-halo));
+  /* halo on mascot poses and marks: none in light; in dark a 1px rim of --brand-halo (four 0-blur drop-shadows) */
+  --mascot-halo: none;
+  --radius-card: 12px; --radius-control: 10px; --radius-pill: 999px; --rule-hair: 1px;
+
+  /* 2. SEMANTIC colour. Neutrals are Ink; brand-derived roles follow layer 1 in both modes. */
+  --color-paper: #fdfcfa; --color-paper-2: #f6f4f0; --color-paper-3: #eeebe5;
+  --color-ink: #04303d; --color-ink-2: #1f4652; --color-muted: #4f6770;   /* text is outline ink #04303d */
+  --color-rule: #dcdcd8; --color-rule-2: #e9e8e4;
+  --color-field-edge: #6f838a;
+  --color-accent: var(--brand-primary); --color-accent-ink: var(--brand-primary-ink); --color-accent-strong: var(--brand-primary-strong);
+  --color-accent-soft: var(--brand-primary-soft); --color-accent-soft-ink: var(--brand-primary-soft-ink);
+  --color-focus: var(--brand-primary);
+  --color-wordmark: var(--brand-wordmark);
+  --color-highlight: var(--brand-secondary-soft); --color-highlight-ink: var(--brand-secondary-soft-ink);
+  --color-brand-fill: var(--brand-secondary); --color-brand-fill-ink: var(--brand-secondary-ink); --color-brand-text: var(--brand-secondary-text);
+  --color-error: var(--brand-tertiary); --color-error-ink: var(--brand-tertiary-ink); --color-error-soft: var(--brand-tertiary-soft);
+  --color-success: #1f6b45;
+  --color-overlay: rgb(4 48 61 / 0.55);
+  --shadow-card: 0 20px 40px rgb(4 48 61 / 0.14);
+}
+/* dark: brand set + the neutrals that move (paper 16%, ink 95%, elevation lighter, no resting shadow).
+   The two dark blocks must stay identical; contrast.mjs fails if they drift. */
+:root[data-theme="dark"] {
+  color-scheme: dark; --body-weight: 350;
+  --brand-primary: #b7a0e6; --brand-primary-strong: #cbb9f0; --brand-primary-ink: #1d1236; --brand-primary-soft: #33275a; --brand-primary-soft-ink: #e6ddf8;
+  --brand-secondary: #e88b3d; --brand-secondary-shade: #cd7128; --brand-secondary-ink: #04303d; --brand-secondary-text: #f2a865; --brand-secondary-soft: #3e2a17; --brand-secondary-soft-ink: #f8d2ad;
+  --brand-tertiary: #f2949a; --brand-tertiary-ink: #2b0609; --brand-tertiary-soft: #3c1a1d;
+  --brand-outline: #8fb3bd; --brand-tan: #cfa267; --brand-grey: #43434d; --brand-wordmark: #f4efe8;
+  --brand-halo: #8fb3bd; --mascot-halo: drop-shadow(1px 0 0 var(--brand-halo)) drop-shadow(-1px 0 0 var(--brand-halo)) drop-shadow(0 1px 0 var(--brand-halo)) drop-shadow(0 -1px 0 var(--brand-halo));
+  --color-paper: #0a1d23; --color-paper-2: #0f252c; --color-paper-3: #152e36;
+  --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
+  --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
+  --color-success: #7fd1a4;
+  --color-overlay: rgb(1 10 13 / 0.7); --shadow-card: 0 0 0 1px #24414a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark; --body-weight: 350;
+    --brand-primary: #b7a0e6; --brand-primary-strong: #cbb9f0; --brand-primary-ink: #1d1236; --brand-primary-soft: #33275a; --brand-primary-soft-ink: #e6ddf8;
+    --brand-secondary: #e88b3d; --brand-secondary-shade: #cd7128; --brand-secondary-ink: #04303d; --brand-secondary-text: #f2a865; --brand-secondary-soft: #3e2a17; --brand-secondary-soft-ink: #f8d2ad;
+    --brand-tertiary: #f2949a; --brand-tertiary-ink: #2b0609; --brand-tertiary-soft: #3c1a1d;
+    --brand-outline: #8fb3bd; --brand-tan: #cfa267; --brand-grey: #43434d; --brand-wordmark: #f4efe8;
+  --brand-halo: #8fb3bd; --mascot-halo: drop-shadow(1px 0 0 var(--brand-halo)) drop-shadow(-1px 0 0 var(--brand-halo)) drop-shadow(0 1px 0 var(--brand-halo)) drop-shadow(0 -1px 0 var(--brand-halo));
+    --color-paper: #0a1d23; --color-paper-2: #0f252c; --color-paper-3: #152e36;
+    --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
+    --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
+    --color-success: #7fd1a4;
+    --color-overlay: rgb(1 10 13 / 0.7); --shadow-card: 0 0 0 1px #24414a;
+  }
+}
+:root[data-theme="light"] { color-scheme: light; }
+@media (prefers-reduced-motion: reduce) { :root { --dur-micro: 0ms; --dur-short: 0ms; --dur-long: 0ms; } }
