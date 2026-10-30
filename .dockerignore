@@ -13,3 +13,4 @@ tests/
 config.php
 coverage/
 .phpunit.cache/
+frontend/
