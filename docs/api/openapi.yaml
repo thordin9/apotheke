@@ -1,0 +1,135 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Apotheke API",
+    "version": "1.0.0-p1",
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
+  },
+  "paths": {
+    "/api/v1/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Who is signed in, what they may do, and the CSRF token",
+        "description": "Starts a session when there is none, so the token can be used for the next request.",
+        "responses": {
+          "200": {"description": "The session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
+        }
+      },
+      "post": {
+        "operationId": "signIn",
+        "summary": "Sign in",
+        "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Credentials"}}}
+        },
+        "responses": {
+          "200": {"description": "Signed in: the new session, with a new CSRF token", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"},
+          "429": {"$ref": "#/components/responses/RateLimited"}
+        }
+      },
+      "delete": {
+        "operationId": "signOut",
+        "summary": "Sign out",
+        "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
+        "responses": {
+          "204": {"description": "Signed out"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "Your own account (signed in only)",
+        "responses": {
+          "200": {"description": "Your account", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Me"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "getOpenApi",
+        "summary": "This document",
+        "responses": {
+          "200": {"description": "The OpenAPI document", "content": {"application/json": {"schema": {"type": "object", "required": ["openapi", "paths"]}}}}
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "CsrfToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "description": "The csrf_token from GET /api/v1/session", "schema": {"type": "string"}}
+    },
+    "responses": {
+      "Problem": {"description": "An error", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "RateLimited": {
+        "description": "Too many attempts",
+        "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
+        "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "title", "status", "detail", "code"],
+        "properties": {
+          "type": {"type": "string"},
+          "title": {"type": "string"},
+          "status": {"type": "integer"},
+          "detail": {"type": "string"},
+          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed"},
+          "errors": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Field => message, for 422"}
+        }
+      },
+      "Permissions": {
+        "type": "array",
+        "items": {"type": "string", "enum": ["view", "create", "edit", "delete", "move", "bulk", "lend", "import", "export", "stocktake", "labels", "settings", "users", "backup"]}
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["signed_in", "sign_in_enabled", "registration_open", "user", "permissions", "csrf_token"],
+        "properties": {
+          "signed_in": {"type": "boolean"},
+          "sign_in_enabled": {"type": "boolean", "description": "Off: everyone is the anonymous admin and there is nothing to sign in to"},
+          "registration_open": {"type": "boolean"},
+          "user": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": false,
+            "required": ["id", "username", "role"],
+            "properties": {"id": {"type": "integer"}, "username": {"type": "string"}, "role": {"type": "string"}}
+          },
+          "permissions": {"$ref": "#/components/schemas/Permissions"},
+          "csrf_token": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      },
+      "Credentials": {
+        "type": "object",
+        "required": ["username", "password"],
+        "properties": {"username": {"type": "string", "minLength": 1}, "password": {"type": "string", "minLength": 1, "format": "password"}}
+      },
+      "Me": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "username", "role", "permissions"],
+        "properties": {
+          "id": {"type": "integer"},
+          "username": {"type": "string"},
+          "role": {"type": "string"},
+          "permissions": {"$ref": "#/components/schemas/Permissions"}
+        }
+      }
+    }
+  }
+}

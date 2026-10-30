@@ -8,8 +8,11 @@ use Apotheke\Auth\Accounts;
 use Apotheke\Auth\CurrentUser;
 use Apotheke\Auth\RateLimiter;
 use Apotheke\Auth\RoleRepository;
+use Apotheke\Auth\SessionEpoch;
+use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\CsrfCheck;
+use Apotheke\Core\Http\SessionGate;
 use Apotheke\Core\Http\WantsJson;
 use Apotheke\Layout\Page;
 use Apotheke\Settings\SettingsService;
@@ -96,6 +99,41 @@ abstract class AuthPages extends Controller
         }
 
         return $this->response;
+    }
+
+    /** Legacy auth_enabled() creates the account "admin" from APP_PASSWORD on an install without accounts. */
+    protected function firstAdmin(): void
+    {
+        /** @var ApothekeConfig $config */
+        $config = service('apothekeConfig');
+        $password = $config->values()['app_password'] ?? '';
+        $this->accounts()->ensureFirstAdmin((bool)$this->settings()->get('auth_enabled'), is_string($password) ? $password : '');
+    }
+
+    /**
+     * One sign-in attempt for /login and POST /api/v1/session, begun at
+     * $started (Accounts::startSignIn()): the per-address and per-account
+     * limits, the password check, then a new session. $raw is the name as
+     * sent, $who the cleaned one.
+     *
+     * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}|null null for a wrong name or password
+     * @throws UserError 429 over a limit, 403 for an account waiting for approval
+     */
+    protected function attemptSignIn(int $started, string $raw, string $who, #[\SensitiveParameter] string $password): ?array
+    {
+        $mine = $this->limiter()->hit('login_address');   // all names from this address
+        $this->limiter()->hit('login', $who);
+        // A name with a null character anywhere (checked before trimming) never matches an account (N-221).
+        $user = $this->accounts()->signIn($started, str_contains($raw, "\0") ? $raw : $who, $password);
+        if ($user === null) {
+            return null;
+        }
+        $this->accounts()->admit($user);
+        (new SessionGate(time()))->signIn($user['id'], (new SessionEpoch())->of($user));
+        $this->limiter()->clear('login', $who);
+        $this->limiter()->forget($mine);   // a success takes back only its own address row
+
+        return $user;
     }
 
     /** @return array{id:?int,username:string,role:string,status:string,guest:bool,anon:bool}|null */

@@ -501,7 +501,8 @@ class Services extends BaseService
     /**
      * Sign-in and registration throttling (Auth) for this request's client
      * address (legacy client_address(): X-Forwarded-For only from a trusted
-     * proxy with trust_proxy on) at legacy app_time().
+     * proxy with trust_proxy on; API plan §2.4 adds the edge header and
+     * REAL_IP_HEADER) at legacy app_time().
      */
     public static function rateLimiter(bool $getShared = true): \Apotheke\Auth\RateLimiter
     {
@@ -515,12 +516,8 @@ class Services extends BaseService
         } catch (\Throwable) {
             $trust = false;
         }
-        $address = (new \Apotheke\Core\Http\ClientAddress())->from(
-            is_string($_SERVER['REMOTE_ADDR'] ?? null) ? $_SERVER['REMOTE_ADDR'] : '',
-            is_string($_SERVER['HTTP_X_FORWARDED_FOR'] ?? null) ? $_SERVER['HTTP_X_FORWARDED_FOR'] : '',
-            $trust,
-            static::apothekeConfig()->trustedProxies(),
-        );
+        $config = static::apothekeConfig();
+        $address = (new \Apotheke\Core\Http\ClientAddress())->forServer($_SERVER, $trust, $config->trustedProxies(), $config->realIpHeader(), $config->proxySharedSecret());
 
         return new \Apotheke\Auth\RateLimiter($db, $address, (new \Apotheke\Core\Libraries\Clock())->unix());
     }

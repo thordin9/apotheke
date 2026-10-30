@@ -30,6 +30,32 @@ final class SessionGate
 {
     public const COOKIE = 'apothekesid';
 
+    /** The name on HTTPS: host-only, Secure and Path=/ are enforced by the browser (API plan §2.1). */
+    public const SECURE_COOKIE = '__Host-apothekesid';
+
+    /** The session cookie's name: __Host-apothekesid on HTTPS, apothekesid on plain HTTP (a __Host- cookie needs Secure). */
+    public static function cookieName(bool $secure): string
+    {
+        return $secure ? self::SECURE_COOKIE : self::COOKIE;
+    }
+
+    /**
+     * The session id this request's cookie names. On HTTPS the plain name is
+     * still read, so a session from before 3.1 survives the rename.
+     * shortcut: the plain-name fallback on HTTPS is for one release, drop it in 3.2.
+     *
+     * @param callable(string):mixed $cookie the request's cookie by name
+     */
+    public static function requestId(callable $cookie, bool $secure): ?string
+    {
+        $id = $cookie(self::cookieName($secure));
+        if (!is_string($id) && $secure) {
+            $id = $cookie(self::COOKIE);
+        }
+
+        return is_string($id) ? $id : null;
+    }
+
     /** Unix time of the last request that used the session (legacy last_activity). */
     public const LAST_SEEN = 'last_activity';
 

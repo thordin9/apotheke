@@ -78,7 +78,12 @@ Important routes:
 
 ### Sessions, auth and CSRF
 
-`Core\Filters\SessionCookie` sets up the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid`, `HttpOnly`,
+`/api/v1` (see [JSON API](api.md)) uses the same sessions and permissions. The required `api` filter
+(`Core\Filters\ApiFilter`) answers CORS preflights before the session and sets the API headers and CORS on every
+`/api` answer; `apicsrf` (`Core\Filters\ApiCsrfFilter`) replaces the form-token check there. Refusals are
+problem+json (`Core\Http\ApiResponse`).
+
+`Core\Filters\SessionCookie` sets up the PHP session (files in `DATA_DIR/sessions`, cookie `apothekesid` on plain HTTP and `__Host-apothekesid` on HTTPS, `HttpOnly`,
 `SameSite=Lax`, `Secure` on HTTPS – including `X-Forwarded-Proto: https` when “Trust the reverse proxy” is on; the cookie lifetime comes from `session_days`, default 30). The server also stores the sign-in time in the session and ends it, the same way as a sign-out, once that time is older than `session_days`. Later visits do not move it. A session that has no sign-in time yet is stamped on its next request and is not ended immediately. A signed-in session also ends when no request has arrived for `session_idle_hours` hours (default 168, at most 8760). That last-request time is kept in the session file and moves at most once a minute, so a busy page does not rewrite the file on every request. `/healthz`, `/health` and the branding routes (`/theme.css`, `/labels.css`, `/manifest.webmanifest`, `/favicon.ico`, `/brand/…`) are answered without loading the session, so they do not refresh it. A session starts only when a request needs one (a sign-in or a CSRF token), and it is **closed right away** so parallel
 requests (photos, instant search) never wait for the session lock. Every state-changing request passes `Core\Filters\CsrfFilter`
 (form field `csrf` or header `X-CSRF-Token`). Sign-out stays a POST. A live session still needs the token; one the server has already ended redirects to the sign-in page. When sign-in is on (Settings → Users & sign-in; `APP_PASSWORD` creates the account `admin`), everything except `/login`, `/healthz`, `/health` and

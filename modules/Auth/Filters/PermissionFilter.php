@@ -7,6 +7,7 @@ namespace Apotheke\Auth\Filters;
 use Apotheke\Auth\PermissionCheck;
 use Apotheke\Auth\Permissions;
 use Apotheke\Auth\RoutePermission;
+use Apotheke\Core\Http\ApiResponse;
 use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
@@ -74,9 +75,15 @@ final class PermissionFilter implements FilterInterface
         if ($refusal === null) {
             return null;
         }
+        $response = new Response(config(App::class));
+        if (ApiResponse::isApi($path)) {
+            // problem+json, never a redirect; the api filter adds the headers (API plan §3).
+            return $refusal === PermissionCheck::SIGN_IN
+                ? ApiResponse::problem($response, 401, 'auth.required', 'Sign in first.')
+                : ApiResponse::problem($response, 403, 'permission.denied', $refusal);
+        }
         $server = $request->getServer();
         $json = (new WantsJson())->check(is_array($server) ? $server : []);
-        $response = new Response(config(App::class));
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
             $response->setHeader($name, $value);
         }
