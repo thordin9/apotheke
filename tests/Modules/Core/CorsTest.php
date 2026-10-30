@@ -22,6 +22,22 @@ final class CorsTest extends TestCase
         $this->assertFalse($cors->allows('null'));
     }
 
+    /** QA N-1221: one trailing dot of the host is the same origin; the answer echoes the Origin the browser sent. */
+    public function testATrailingDotMatchesTheListedOrigin(): void
+    {
+        $cors = new Cors(['https://app.example.test', 'https://dot.example.test.:8443'], false);
+        $this->assertSame(['https://app.example.test', 'https://dot.example.test:8443'], $cors->origins());
+        $this->assertTrue($cors->allows('https://app.example.test.'));
+        $this->assertTrue($cors->allows('https://APP.example.test.'));
+        $this->assertTrue($cors->allows('https://dot.example.test:8443'), 'a dot in the list');
+        $this->assertSame('https://app.example.test.', $cors->headers('https://app.example.test.', false)['Access-Control-Allow-Origin'] ?? null);
+        $this->assertSame([], $cors->headers('https://other.example.test.', false), 'an unlisted origin with a dot');
+        $this->assertSame([], $cors->headers('https://other.example.test.', true));
+        $this->assertSame([], $cors->headers('https://app.example.test..', false), 'only one dot');
+        $this->assertSame([], $cors->headers('https://app.example.tes', false));
+        $this->assertSame([], $cors->headers('http://app.example.test.', false), 'scheme still counts');
+    }
+
     public function testWildcardsNullPathsAndPlainHttpAreDropped(): void
     {
         $list = ['*', 'null', 'https://*.example.test', 'https://app.example.test/path', 'http://app.example.test', 'http://127.0.0.1:5173', 'http://localhost:5173', 'ftp://x.test', 'https://ok.example.test'];

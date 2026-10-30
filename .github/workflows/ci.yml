@@ -200,7 +200,8 @@ jobs:
         run: composer install --no-interaction --no-progress --prefer-dist --no-dev
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # puppeteer-core 25 needs Node 22.12 or later.
+          node-version: '22'
           cache: npm
           cache-dependency-path: tests/e2e/package-lock.json
       - name: Install puppeteer-core
