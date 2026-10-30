@@ -5,7 +5,7 @@ const base = process.argv[2] || 'http://127.0.0.1:9091';
 const exe = process.env.CHROME || '/usr/bin/google-chrome';
 let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ✔ ' : '  ✘ ') + m); if (!c) fails++; };
-const browser = await puppeteer.launch({ executablePath: exe, headless: 'new', args: ['--no-sandbox'] });
+const browser = await puppeteer.launch({ executablePath: exe, headless: true, args: ['--no-sandbox'] });
 try {
   for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
     console.log(`== ${vp.width}×${vp.height}`);

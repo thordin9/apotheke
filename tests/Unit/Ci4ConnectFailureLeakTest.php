@@ -27,10 +27,12 @@ final class Ci4ConnectFailureLeakTest extends TestCase
     protected function setUp(): void
     {
         try {
-            $this->admin = test_pg_admin();
+            $admin = test_pg_admin();
         } catch (PDOException $e) {
             $this->markTestSkipped('PostgreSQL not reachable: ' . $e->getMessage());
         }
+        $this->skipUnlessPgRejectsWrongPasswords();   // before $this->admin: tearDown has nothing to drop yet
+        $this->admin = $admin;
         $this->tag = bin2hex(random_bytes(4));
         $this->user = 'lk_u_' . $this->tag;
         $this->password = 'lkpw_' . $this->tag;

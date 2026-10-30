@@ -9,3 +9,21 @@ updates:
     groups:
       github-actions:
         patterns: ['*']
+  - package-ecosystem: npm
+    directory: /tests/e2e
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      tests-e2e:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      playwright:
+        patterns: ['*']

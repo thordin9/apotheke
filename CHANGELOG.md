@@ -10,6 +10,16 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 **Upgrade note:** the app now sets no cookie until the user clicks Accept on the cookie consent notice (`apotheke_consent=v1`, see [Cookie consent](docs/deployment-and-operations.md#cookie-consent)). Until then every page shows the notice, and sign-in and every change answer 403 `consent_required`. A session from before the upgrade is used again once the user accepts. Scripts that sign in or post with curl must send `Cookie: apotheke_consent=v1`.
 
+## [3.2.1] - 2026-10-30
+
+### Fixed
+
+- **api:** HSTS on /api errors, trailing-dot CORS origins ([#172](https://github.com/thordin9/apotheke/pull/172))
+
+### Maintenance
+
+- **release:** ci: mask the push credential and keep the token out of apply ([#171](https://github.com/thordin9/apotheke/pull/171))
+
 ## [3.2.0] - 2026-10-30
 
 **Upgrade note:** migration 0029 adds a `jobs` table that only the CI4 app uses (background jobs for `php spark jobs:work`). It changes no table or column 2.6.x reads. After a rollback to 2.6.x the table stays behind in the database and is harmless: 2.6.x ignores it, and switching to 3.x again uses it as it was. Backups do not carry it and do not name migration 0029, so a backup made by this version restores on 2.6.x.
@@ -981,7 +991,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.2.1...HEAD
+[3.2.1]: https://github.com/thordin9/apotheke/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/thordin9/apotheke/compare/v3.1.1...v3.2.0
 [3.1.1]: https://github.com/thordin9/apotheke/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/thordin9/apotheke/compare/v3.0.1...v3.1.0

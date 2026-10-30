@@ -4,10 +4,13 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2) . '/scripts/ci4-arch.php';
+require_once dirname(__DIR__) . '/lib.php';
 
 /** Feature 12: CI branch wiring, the PHP 8.4 legs of the one app, deptrac and DI configs. */
 final class Ci4BranchCiTest extends TestCase
 {
+    use SkipsOutsideCi;
+
     private function root(): string
     {
         return dirname(__DIR__, 2);
@@ -88,6 +91,7 @@ final class Ci4BranchCiTest extends TestCase
             $this->markTestIncomplete('PostgreSQL is not reachable, so the auth and missing-table cases were not run');
         }
 
+        $this->skipUnlessPgRejectsWrongPasswords();
         $bogus = 'proof-auth-should-not-leak';
         [$code, $out, $err] = $this->runProof([
             'TEST_PG_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
@@ -299,7 +303,10 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertSame(2, substr_count($yml, 'permissions:'));
     }
 
-    /** Dependabot keeps the SHA-pinned actions current: one weekly grouped PR whose commits pass check-commits. */
+    /**
+     * Dependabot keeps the SHA-pinned actions and the npm dev dependencies (Playwright at the root, tests/e2e) current: one weekly grouped PR
+     * per ecosystem and directory, whose commits pass check-commits.
+     */
     public function testDependabotUpdatesTheActionsWeeklyInOneGroup(): void
     {
         $this->assertSame(
@@ -313,9 +320,35 @@ final class Ci4BranchCiTest extends TestCase
             . "      prefix: ci\n"
             . "    groups:\n"
             . "      github-actions:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /tests/e2e\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      tests-e2e:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      playwright:\n"
             . "        patterns: ['*']\n",
             (string)file_get_contents($this->root() . '/.github/dependabot.yml')
         );
+        // A package.json added under frontend/, edge/ or site/ needs its own entry here.
+        $found = [];
+        foreach (['.', 'tests/e2e', 'frontend', 'edge', 'site'] as $dir) {
+            if (is_file($this->root() . '/' . $dir . '/package.json')) {
+                $found[] = $dir;
+            }
+        }
+        $this->assertSame(['.', 'tests/e2e'], $found);
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void
