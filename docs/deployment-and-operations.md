@@ -411,19 +411,39 @@ once. Two fit Cloudflare's `basic` instance (1/4 vCPU, 1 GiB) with two large HEI
 about 300 MB while it is decoded). On a bigger server, raise it, for example to 8. A value outside 1–64 exits with
 code 64. The nginx image ignores it (php-fpm's own settings apply).
 
-**Request body limits.** The same as the nginx image, enforced by Caddy per route:
+**Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same
+limits as the nginx image, enforced by Caddy per route:
 
-* **22 MB on every route.** A request that declares a larger `Content-Length` gets **413** before the body is read,
-  signed in or not; a body without a length (chunked) is cut off at 22 MB and the request fails.
-* **520 MB only on `POST /backup/restore`, and only after sign-in.** Caddy first asks the app
-  (`/backup/restore/check`, the same as nginx's `auth_request`); a request that is not signed in with the Backup
-  permission gets the app's answer (401, 403 or 421) before the body is read.
+* **22 MiB on every route.** A request that declares a larger `Content-Length` gets **413** before the body is read,
+  signed in or not; a body without a length (chunked) gets **413** when it passes 22 MiB.
+* **520 MiB only on `POST /backup/restore`** (exactly that path: not `/backup/restore/`, not another case, not
+  another method), **and only after sign-in.** Caddy first asks the app (`/backup/restore/check`, the same as
+  nginx's `auth_request`); a request that is not signed in with the Backup permission gets the app's answer (401,
+  403 or 421) before the body is read, and only then is a declared size over 520 MiB a 413.
 
 FrankenPHP has one PHP configuration, so PHP's own `upload_max_filesize` and `post_max_size` are the restore values
-(512M and 520M, `docker/frankenphp/php-frankenphp.ini`); the caps above are what keeps every other route at 22 MB.
+(512M and 520M, `docker/frankenphp/php-frankenphp.ini`); the caps above are what keeps every other route at 22 MiB.
 The per-photo and per-attachment limits in the Control Panel still apply. `scripts/docker-auth-checks.sh` signs in
-and checks that a 30 MB POST to other routes (`/save`, photo and attachment uploads, the logo, the import,
-`/backup/restore/confirm`, the API, an unknown path) gets 413, on both images.
+and checks that a 30 MiB POST to other routes (`/save`, photo and attachment uploads, the logo, the import,
+`/backup/restore/confirm`, the API, an unknown path, `/Backup/restore`) gets 413, on both images.
+
+**Slow uploads (M-1420).** FrankenPHP hands a request body to PHP as it arrives, so a client that uploads slowly
+would hold one of the few PHP threads for as long as it likes, and two of them could stop even `/healthz`. The
+Caddyfile therefore runs two servers in one process: the public one on `PORT` applies all the rules above and
+passes the request to the PHP server (a unix socket under `/run`, unreachable from outside) through a reverse proxy
+that first reads up to **64 KiB** of the body. That is everything a signed-out client can send (the sign-in form,
+`POST /api/v1/session`), so a slow anonymous client holds a Caddy goroutine and at most 64 KiB, never a PHP thread.
+A body over 64 KiB, or a request that may have a body but declares no length, is only read after the app said the
+client is signed in (or sign-in is off): Caddy asks `GET /upload/check` (204 or 401, no session, no body) first.
+Headers have 10 s (`read_header`), and a body 300 s (`read_body`, for a large restore on a slow line). PHP sees the
+client's address, port and own `X-Forwarded-*` headers as before. `scripts/docker-checks.sh` keeps four slow uploads
+in flight (more than the two threads) and checks that `/healthz`, the sign-in page and a form post still answer
+within 2 s, on both images.
+
+**Access log.** JSON on stdout, one line per request, without the request's `Cookie`, `Authorization`,
+`Proxy-Authorization`, `X-CSRF-Token` and `X-Apotheke-Proxy` (the edge proxy's shared secret) headers, or the
+response's `Set-Cookie` (L-1422). `scripts/docker-log-checks.sh` sends marker values in those headers and checks
+that none reaches the log, on both images.
 
 **Differences from the nginx image** (none changes security headers, blocked paths or status codes of the app):
 
@@ -432,7 +452,8 @@ and checks that a 30 MB POST to other routes (`/save`, photo and attachment uplo
 * CSS and JavaScript are sent as `text/css; charset=utf-8` and `text/javascript; charset=utf-8`;
 * responses under 512 bytes and `HEAD` answers are not gzipped;
 * errors produced by the web server itself (413, a missing asset) are a plain-text status line;
-* the access log is JSON on stdout.
+* the access log is JSON on stdout (nginx: the combined format), without secret headers;
+* a declared restore size over 520 MiB is a 401 before sign-in (nginx: 413, it checks the size first).
 
 ## HTTPS
 

@@ -33,6 +33,13 @@ if [ "$(id -u)" = 0 ]; then su -s /bin/sh www-data -c "$mark" sh "$DATA_DIR/sess
 
 if [ "$#" -gt 0 ] && [ "$1" != "apotheke" ]; then exec "$@"; fi
 
+# PostgreSQL needs a password (N-1426): say so now, instead of retrying a connection that cannot work. A server that
+# trusts the connection ignores the value, so any DB_PASSWORD works there; a full DB_DSN is left to the driver.
+if [ "${DB_DRIVER:-sqlite}" = pgsql ] && [ -z "${DB_PASSWORD:-}" ] && [ -z "${DB_DSN:-}" ]; then
+  echo "apotheke: DB_DRIVER=pgsql needs DB_PASSWORD (in .env with docker compose; the postgres profile uses the same value)" >&2
+  exit 78
+fi
+
 # Sign-in must be on unless ALLOW_NO_LOGIN says otherwise. `auth status` asks the app itself (as www-data, so a new
 # SQLite file belongs to it): 0 = on, 3 = off, 4 = APP_PASSWORD too short (it says so on stderr), anything else = no
 # answer (PostgreSQL may still be starting). With APOTHEKE_APP=ci4 (kept by su -p) bin/settings.php runs the CI4 form,

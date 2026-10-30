@@ -103,7 +103,8 @@ and start with the profile:
 docker compose --profile postgres up -d --build
 ```
 
-The `postgres` service only starts with `--profile postgres`. It refuses to start without `DB_PASSWORD`, keeps its
+The `postgres` service only starts with `--profile postgres`. Without `DB_PASSWORD` the app stops at once with
+*DB_DRIVER=pgsql needs DB_PASSWORD* (exit code 78) and the `postgres` service does not initialise. It keeps its
 data in `./data/postgres` and has a `pg_isready` health check. The app reaches it as host `postgres` (the default
 `DB_HOST` in the compose file).
 

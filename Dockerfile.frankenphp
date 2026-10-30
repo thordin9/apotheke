@@ -20,6 +20,8 @@ RUN composer dump-autoload --no-dev --optimize --ignore-platform-req=ext-intl
 # Build stage: the PHP extensions on the FrankenPHP base. Only the runtime files leave this stage (/out), so the
 # final image has no compiler, headers, PHP sources, php-cgi, phpdbg, pecl or apk build packages.
 FROM dunglas/frankenphp:${FRANKENPHP_VERSION}-php${PHP_VERSION}-alpine AS php
+# Every RUN with a pipe fails when any part of it fails (hadolint DL4006).
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 ARG ALPINE_VERSION
 # GD (JPEG/PNG/WebP), Imagick with HEIC/HEIF (libheif), EXIF, pdo_pgsql, zip, pgsql, intl (CI4) and pcntl.
 # pdo_sqlite, sodium and OPcache ship with the FrankenPHP base.
@@ -31,6 +33,8 @@ ARG ALPINE_VERSION
 ARG IMAGICK_VERSION=3.8.0
 ARG IMAGICK_SHA256=a964e54a441392577f195d91da56e0b3cf30c32e6d60d0531a355b37bb1e1a59
 ARG IMAGICK_PECL_SHA256=bda67461c854f20d6105782b769c524fc37388b75d4481d951644d2167ffeec6
+# Alpine keeps only the current package versions, so apk add is not pinned (DL3018); $PHPIZE_DEPS is a word list (SC2086).
+# hadolint ignore=DL3018,SC2086
 RUN set -eux; \
     grep -qx "${ALPINE_VERSION}.*" /etc/alpine-release || { echo "ALPINE_VERSION ${ALPINE_VERSION} is not the base's $(cat /etc/alpine-release)" >&2; exit 1; }; \
     apk add --no-cache $PHPIZE_DEPS libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev postgresql-dev imagemagick-dev libheif-dev icu-dev; \
@@ -68,6 +72,7 @@ RUN set -eux; \
     cat /out/runtime-deps.txt
 
 FROM alpine:${ALPINE_VERSION}
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
 LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.description="Apotheke, the storehouse for your stuff: a self-hosted PHP catalog for your belongings (FrankenPHP)" \
@@ -79,6 +84,8 @@ LABEL org.opencontainers.image.title="Apotheke" \
 # Caddy's Content-Type for static files). www-data is uid 82 / gid 82, as in the official PHP images.
 COPY --from=php /out/usr/local /usr/local
 COPY --from=php /out/runtime-deps.txt /tmp/runtime-deps.txt
+# Not pinned, as above (DL3018); runtime-deps.txt is a word list of so: names (SC2046).
+# hadolint ignore=DL3018,SC2046
 RUN set -eux; \
     apk add --no-cache tini su-exec ca-certificates mailcap imagemagick libheif libgomp $(cat /tmp/runtime-deps.txt); \
     rm /tmp/runtime-deps.txt; \
@@ -144,7 +151,6 @@ ENV PHP_INI_DIR=/usr/local/etc/php \
     XDG_DATA_HOME=/run/apotheke-caddy/data \
     CI_ENVIRONMENT=production \
     DATA_DIR=/data \
-    APP_PASSWORD="" \
     TZ=UTC \
     PORT=9091 \
     FRANKENPHP_NUM_THREADS=2
@@ -154,7 +160,8 @@ VOLUME ["/data"]
 EXPOSE 9091
 STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${PORT}/healthz\" || exit 1"]
 
 ENTRYPOINT ["/sbin/tini", "--", "apotheke-entrypoint"]
 CMD ["apotheke"]
