@@ -285,7 +285,7 @@ final class Ci4CookieConsentTest extends TestCase
     }
 
     /**
-     * A host-only cookie (self-hosted) and a Domain=getapotheke.com one (hosted) arrive as the same Cookie
+     * A host-only cookie (self-hosted) and one with a Domain (hosted, COOKIE_DOMAIN) arrive as the same Cookie
      * header, often among other cookies; both count. The name is exact.
      */
     public function testHostOnlyAndParentDomainCookiesBothCount(): void
