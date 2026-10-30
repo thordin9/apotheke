@@ -478,7 +478,7 @@ jobs:
             apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8081
-      - name: Background jobs worker (runs a queued job, restarts with a backoff, stops on SIGTERM, APOTHEKE_JOBS_WORKER=0)
+      - name: Background jobs worker (queued job, timed backoff, stop races, web server exit status, APOTHEKE_JOBS_WORKER=0)
         run: bash scripts/docker-jobs-checks.sh apotheke:ci
       - name: Graceful stop (SIGTERM reaches the web server, PHP and the jobs worker, exit code 0)
         run: |
