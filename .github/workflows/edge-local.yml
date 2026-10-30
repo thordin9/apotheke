@@ -1,0 +1,66 @@
+name: Edge local test
+
+# Manual only. Runs `wrangler dev` with the real container (Cloudflare Containers local dev, Docker on the runner)
+# and checks that the Worker starts the Apotheke container through the Durable Object. No secrets, no Cloudflare
+# account: APP_PASSWORD and APP_KEY are random per run and never printed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wrangler-dev:
+    name: wrangler dev with the container
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install the Worker tooling (edge/)
+        working-directory: edge
+        run: npm ci --no-audit --no-fund
+      - name: Throwaway .dev.vars
+        working-directory: edge
+        run: |
+          umask 077
+          printf 'APP_PASSWORD=%s\nAPP_KEY=%s\n' "$(openssl rand -hex 16)" "$(openssl rand -base64 32)" > .dev.vars
+      - name: Start wrangler dev (builds the image, starts the container on the first request)
+        working-directory: edge
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          nohup npx --no-install wrangler dev --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/wrangler-dev.log" 2>&1 &
+          for _ in $(seq 1 600); do
+            grep -q 'Ready on' "$RUNNER_TEMP/wrangler-dev.log" && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/wrangler-dev.log"
+          exit 1
+      - name: The Worker reaches the container (/healthz 200, sign-in redirect, Server-Timing)
+        run: |
+          set -euo pipefail
+          ok=0
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 60 http://127.0.0.1:8787/healthz || true)
+            if [ "$code" = 200 ]; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = 1
+          curl -s -D - -o /dev/null http://127.0.0.1:8787/ | tr -d '\r' | tee headers.txt
+          grep -q '^HTTP/1.1 303' headers.txt
+          grep -qi '^server-timing: container-start;dur=' headers.txt
+          grep -qi '^content-security-policy:' headers.txt
+      - name: wrangler dev log
+        if: always()
+        run: cat "$RUNNER_TEMP/wrangler-dev.log" || true
+      - name: Stop
+        if: always()
+        run: |
+          pkill -f 'wrangler dev' || true
+          rm -f edge/.dev.vars
+          docker ps -a --format '{{.Names}}' | grep '^workerd-' | xargs -r docker rm -f || true
