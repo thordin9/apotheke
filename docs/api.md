@@ -18,12 +18,18 @@ answer against it.
 | `GET /api/v1/me` | signed in | `id`, `username`, `role`, `permissions`. With sign-in turned off there is no account, so this is `403`. |
 | `GET /api/v1/openapi.json` | anyone | The OpenAPI document. |
 | `POST /api/v1/imports` | Import | Upload a CSV (`multipart/form-data`, field `file`); `201` with the import and a `Location` header. |
-| `GET /api/v1/imports/{id}` | Import | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
-| `GET /api/v1/imports/{id}/preview` | Import | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
-| `POST /api/v1/imports/{id}/commit` | Import | Import the file as a background job, with an optional `{"map": […], "create": …, "skip_errors": …}`. `202` with the job and a `Location` header; `422` when rows have errors and `skip_errors` is off. Rows are committed one by one, so they show up while the job runs; a stopped or failed job resumes when the import is committed again. |
+| `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
+| `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
+| `POST /api/v1/imports/{id}/commit` | Import, and the user who uploaded it or an admin | Import the file as a background job, with an optional `{"map": […], "create": …, "skip_errors": …}`. `202` with the job and a `Location` header; `422` when rows have errors and `skip_errors` is off. Rows are committed one by one, so they show up while the job runs; a stopped or failed job resumes when the import is committed again. |
 | `GET /api/v1/jobs/{id}` | the job type's permission, and the user who started it or an admin | `status` (`queued`, `running`, `done`, `failed`), `progress` (`done` and `total` rows), `result` and `error`. Anyone else gets `404`, as for an id that is not there. |
 
 Any other path under `/api` answers `404`.
+
+An import is shown only to the user who uploaded it, or an admin; anyone else gets the same `404` as for an id that
+is not there. Cell values in an import's `sample` and the preview's `name` are raw, as they are imported. A cell that
+starts with `=`, `+`, `-`, `@`, a tab or CR is listed in `sample_formula` (per sample row) and in each preview row's
+`formula` (column indexes): a spreadsheet runs such a cell as a formula, so a client that writes these values to a CSV
+must neutralise them, as the export does with a leading apostrophe.
 
 ## Requests
 

@@ -7,6 +7,7 @@ namespace Apotheke\ImportExport\Controllers\Api;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\ApiResponse;
 use Apotheke\Core\Jobs\JobQueue;
+use Apotheke\ImportExport\CsvCells;
 use Apotheke\ImportExport\Imports;
 use Apotheke\ImportExport\Jobs\ImportCommitJob;
 use CodeIgniter\Controller;
@@ -49,11 +50,12 @@ final class ImportsController extends Controller
     public function show(string $id): ResponseInterface
     {
         $imp = $this->imports()->get((int)$id);
-        if ($imp === null) {
+        if ($imp === null || !$this->imports()->mine($imp)) {
             return $this->notFound();
         }
         $columns = [];
         $sample = [];
+        $formula = [];
         if ($imp['status'] !== 'done') {
             try {
                 [$header, $rows] = $this->imports()->rows($imp);
@@ -64,6 +66,7 @@ final class ImportsController extends Controller
                 $columns[] = ['index' => $i, 'header' => $h, 'field' => (string)($imp['mapping'][$i] ?? '')];
             }
             $sample = array_slice($rows, 0, self::SAMPLE_ROWS);
+            $formula = array_map(self::formulaCells(...), $sample);
         }
         $fields = [];
         foreach (Imports::fields() as $key => [$label]) {
@@ -73,7 +76,7 @@ final class ImportsController extends Controller
         return ApiResponse::json($this->response, [
             'id' => $imp['id'], 'file_name' => $imp['file_name'], 'status' => $imp['status'], 'total_rows' => $imp['total_rows'],
             'options' => ['create' => !empty($imp['options']['create']), 'skip_errors' => !empty($imp['options']['skip_errors'])],
-            'columns' => $columns, 'sample' => $sample, 'fields' => $fields, 'result' => $imp['result'] === null ? null : (object)$imp['result'],
+            'columns' => $columns, 'sample' => $sample, 'sample_formula' => $formula, 'fields' => $fields, 'result' => $imp['result'] === null ? null : (object)$imp['result'],
             'created_at' => $imp['created_at'], 'finished_at' => $imp['finished_at'],
         ]);
     }
@@ -83,14 +86,14 @@ final class ImportsController extends Controller
     {
         $imports = $this->imports();
         $imp = $imports->get((int)$id);
-        if ($imp === null) {
+        if ($imp === null || !$imports->mine($imp)) {
             return $this->notFound();
         }
         if ($imp['status'] === 'done') {
             return ApiResponse::problem($this->response, 409, 'import.done', 'This file was imported already.');
         }
         try {
-            [$header] = $imports->rows($imp);
+            [$header, $rows] = $imports->rows($imp);
         } catch (UserError $e) {
             return ApiResponse::problem($this->response, 410, 'import.gone', $e->getMessage());
         }
@@ -119,12 +122,25 @@ final class ImportsController extends Controller
         $response = ApiResponse::json($this->response, [
             'import_id' => $imp['id'], 'mapping' => $imp['mapping'], 'options' => $imp['options'],
             'summary' => ['rows' => $total, 'created' => $run['created'], 'updated' => $run['updated'], 'unchanged' => $run['unchanged'], 'errors' => $run['errors'], 'made' => $run['made']],
-            'data' => array_slice($run['rows'], ($page - 1) * $per, $per),
+            'data' => array_map(static fn (array $row): array => $row + ['formula' => self::formulaCells($rows[$row['line'] - 2] ?? [])],
+                array_slice($run['rows'], ($page - 1) * $per, $per)),
             'meta' => ['page' => $page, 'per_page' => $per, 'total' => $total], 'links' => $links,
         ]);
         $link = implode(', ', array_filter([$links['next'] !== null ? '<' . $links['next'] . '>; rel="next"' : null, $links['prev'] !== null ? '<' . $links['prev'] . '>; rel="prev"' : null]));
 
         return $link === '' ? $response : $response->setHeader('Link', $link);
+    }
+
+    /**
+     * L-1361: the indexes of the cells a spreadsheet would run as a formula (CsvCells::formulaLike(), as the export
+     * guards them). The values stay raw, as they are imported; a client that writes them to a CSV must neutralise them.
+     *
+     * @param list<string> $cells
+     * @return list<int>
+     */
+    private static function formulaCells(array $cells): array
+    {
+        return array_keys(array_filter($cells, CsvCells::formulaLike(...)));
     }
 
     /** POST /api/v1/imports/{id}/commit with an optional {"map": [...], "create": bool, "skip_errors": bool} */

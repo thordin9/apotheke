@@ -55,6 +55,7 @@ final class Imports
      * @param Storage $files DATA_DIR
      * @param Closure(): ?string $actor legacy current_actor()
      * @param bool $createMissing the import_create_missing setting
+     * @param (Closure(): bool)|null $admin whether this request's user is an admin (the API's owner scope)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -66,7 +67,21 @@ final class Imports
         private readonly Loans $loans,
         private readonly Closure $actor,
         private readonly bool $createMissing,
+        private readonly ?Closure $admin = null,
     ) {
+    }
+
+    /**
+     * Whether the API may show $imp to this request's user (M-1360): the account that uploaded it, or an admin. An
+     * upload without an account (a guest's) is an admin's only.
+     *
+     * @param Import $imp
+     */
+    public function mine(array $imp): bool
+    {
+        $me = ($this->actor)();
+
+        return ($me !== null && $imp['actor'] === $me) || ($this->admin !== null && ($this->admin)());
     }
 
     /**

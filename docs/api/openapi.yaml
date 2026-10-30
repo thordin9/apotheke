@@ -141,7 +141,7 @@
       "get": {
         "operationId": "previewImport",
         "summary": "What importing the file would do, row by row (import permission)",
-        "description": "Writes nothing. Without `map` the saved mapping is used; with it, it is checked and used for this answer only.",
+        "description": "Writes nothing. Without `map` the saved mapping is used; with it, it is checked and used for this answer only. Only the user who uploaded the file, or an admin, sees it; anyone else gets the same 404 as for an unknown id.",
         "parameters": [
           {"$ref": "#/components/parameters/ImportId"},
           {"name": "map", "in": "query", "required": false, "description": "The field for each column, in order, comma-separated; empty ignores the column", "schema": {"type": "string"}},
@@ -329,7 +329,7 @@
       "Import": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "file_name", "status", "total_rows", "options", "columns", "sample", "fields", "result", "created_at", "finished_at"],
+        "required": ["id", "file_name", "status", "total_rows", "options", "columns", "sample", "sample_formula", "fields", "result", "created_at", "finished_at"],
         "properties": {
           "id": {"type": "integer"},
           "file_name": {"type": "string"},
@@ -337,7 +337,8 @@
           "total_rows": {"type": "integer"},
           "options": {"$ref": "#/components/schemas/ImportOptions"},
           "columns": {"type": "array", "description": "Empty once imported (the file is gone)", "items": {"type": "object", "additionalProperties": false, "required": ["index", "header", "field"], "properties": {"index": {"type": "integer"}, "header": {"type": "string"}, "field": {"type": "string", "description": "The mapped field, or empty"}}}},
-          "sample": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
+          "sample": {"type": "array", "description": "The first rows, each cell raw (as it is imported)", "items": {"type": "array", "items": {"type": "string"}}},
+          "sample_formula": {"type": "array", "description": "For each sample row, the indexes of its cells that start with = + - @, a tab or CR (a spreadsheet runs them as formulas). The values stay raw: a client that writes them to a CSV must neutralise them, as the export does with a leading apostrophe.", "items": {"type": "array", "items": {"type": "integer"}}},
           "fields": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["key", "label"], "properties": {"key": {"type": "string"}, "label": {"type": "string"}}}},
           "result": {"type": "object", "nullable": true, "description": "Once imported: created, updated, unchanged, skipped and made"},
           "created_at": {"type": "string"},
@@ -361,7 +362,7 @@
               "made": {"type": "object", "additionalProperties": false, "required": ["location", "category", "tag"], "properties": {"location": {"type": "array", "items": {"type": "string"}}, "category": {"type": "array", "items": {"type": "string"}}, "tag": {"type": "array", "items": {"type": "string"}}}}
             }
           },
-          "data": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["line", "state", "name", "error"], "properties": {"line": {"type": "integer"}, "state": {"type": "string", "enum": ["new", "update", "same", "error"]}, "name": {"type": "string"}, "error": {"type": "string"}}}},
+          "data": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["line", "state", "name", "error", "formula"], "properties": {"line": {"type": "integer"}, "state": {"type": "string", "enum": ["new", "update", "same", "error"]}, "name": {"type": "string", "description": "Raw, as it is imported"}, "error": {"type": "string"}, "formula": {"type": "array", "description": "The indexes of the row's cells that a spreadsheet runs as formulas (see Import.sample_formula); a client writing them to a CSV must neutralise them", "items": {"type": "integer"}}}}},
           "meta": {"$ref": "#/components/schemas/PageMeta"},
           "links": {"type": "object", "additionalProperties": false, "required": ["next", "prev"], "properties": {"next": {"type": "string", "nullable": true}, "prev": {"type": "string", "nullable": true}}}
         }
