@@ -1,0 +1,50 @@
+# Cloudflare static-asset headers (Workers _headers).
+# Matching rules are inherited and joined with a comma. A later rule does not
+# replace an earlier one by being more specific. To replace a header, detach
+# it with `! Header-Name` and set it again in the same rule. Rules are listed
+# broad-first so the detach in a narrower rule runs after the broad one.
+#
+# Chosen mechanism: `!` detach (not path ordering alone). DevOps mirrors the
+# /app/* CSP in the Worker, because _headers is not applied to Worker responses.
+
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()
+  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
+  Cache-Control: no-cache
+
+# HTML, including this file. /404.html is named again below so it stays no-cache.
+/404.html
+  ! Cache-Control
+  Cache-Control: no-cache
+
+# Hashed build output (CSS). Fonts stay unhashed at /fonts/ (tokens.css).
+/assets/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+# Unhashed files copied from public/. These rules are narrower than /assets/*
+# and detach Cache-Control so the immutable value is not comma-joined in.
+/assets/brand/*
+  ! Cache-Control
+  Cache-Control: public, max-age=86400
+
+/assets/mascot/*
+  ! Cache-Control
+  Cache-Control: public, max-age=86400
+
+/assets/shots/*
+  ! Cache-Control
+  Cache-Control: public, max-age=86400
+
+/assets/icons.svg
+  ! Cache-Control
+  Cache-Control: public, max-age=86400
+
+# SPA. Detach the landing CSP first so the two policies are not both applied.
+/app/*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; connect-src 'self' https://api.services.getapotheke.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'
