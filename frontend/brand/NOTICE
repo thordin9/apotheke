@@ -1,0 +1,17 @@
+The Apotheke logo, wordmark and mascot artwork were AI-generated for the
+Apotheke project. They are owned by the project maintainer (thordin9).
+
+They are not covered by the repository's MIT licence. You may use them only
+to refer to Apotheke.
+
+This covers:
+
+- frontend/brand/ (this notice, and og-1200x630.png)
+- frontend/public/assets/brand/ — logo-light.svg and logo-dark.svg (the logo
+  and the wordmark), mark.svg, mark-small.svg, app-icon.svg, favicon.svg,
+  favicon-32.png, apple-touch-icon-180.png
+- frontend/public/assets/mascot/ — every pose-*.svg
+
+The icon sprite at frontend/public/assets/icons.svg and the fonts under
+frontend/public/fonts/ are not this artwork. The fonts keep their own
+licence texts.
