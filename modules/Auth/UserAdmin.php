@@ -27,7 +27,7 @@ final class UserAdmin
     ) {
     }
 
-    /** @return list<array{id:int,username:string,role:string,status:string,last_login_at:?string}> */
+    /** @return list<array{id:int,username:string,role:string,status:string,created_at:string,last_login_at:?string}> */
     public function all(): array
     {
         return $this->users->all();

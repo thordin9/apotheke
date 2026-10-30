@@ -17,6 +17,10 @@ answer against it.
 | `DELETE /api/v1/session` | anyone with a session | Sign out (`204`). |
 | `GET /api/v1/me` | signed in | `id`, `username`, `role`, `permissions`. With sign-in turned off there is no account, so this is `403`. |
 | `GET /api/v1/openapi.json` | anyone | The OpenAPI document. |
+| `GET /api/v1/branding` | anyone | `name`, `tagline`, `accent`, `theme_default`, `logo_url`, `favicon_url`, `touch_icon_url`: what every page's head already shows, so no sign-in is needed. |
+| `GET /api/v1/users` | Users | Every account, sorted by name: `id`, `name`, `role`, `status`, `created_at`, `last_login_at` (UTC; `null` when never signed in). Nothing else. |
+| `GET /api/v1/roles` | Users | Every role, built-in first: `key`, `name`, `builtin`, `permissions`, `users` (how many accounts have it). |
+| `GET /api/v1/security` | Users | `sign_in_enabled` and `policy`: the guest, registration and session-length settings of Users & sign-in. The reverse-proxy setting is not included (it is server set-up). |
 
 Any other path under `/api` answers `404`.
 
@@ -47,8 +51,11 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 `rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
 (413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
 problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's
-own text (it is logged); its HSTS header depends on the connection itself being HTTPS, not on `PUBLIC_URL`. Any other
-uncaught error status without a code listed here (a 409 or 410, say) is `request.failed`.
+own text (it is logged). Any other uncaught error status without a code listed here (a 409 or 410, say) is
+`request.failed`. Such an answer comes from the error handler and skips the API's after-filters: it has the security
+headers below, but never the CORS headers, so a page on another origin cannot read it (the browser reports a network
+error). Its HSTS header follows `PUBLIC_URL` from the environment or `config.php` (the database may be what failed),
+or a direct HTTPS connection; a `PUBLIC_URL` changed only in the settings page does not count there.
 
 Every `/api` answer is `Cache-Control: no-store` and carries `Content-Security-Policy: default-src 'none';
 frame-ancestors 'none'; sandbox`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
@@ -60,7 +67,9 @@ frame-ancestors 'none'; sandbox`, `X-Content-Type-Options: nosniff`, `Referrer-P
 CORS is off by default: the app's own pages need none. Set `CORS_ALLOWED_ORIGINS` to the exact origins of an app
 on another host of the same site (`https://app.example.com`) to let it call the API with the session cookie.
 `*`, `null` and paths are ignored, and `http://` counts only for a loopback origin with
-`CI_ENVIRONMENT=development`. See [Configuration](configuration.md).
+`CI_ENVIRONMENT=development`. Origins compare case-insensitively, and one trailing dot of the host is ignored
+(`https://app.example.com.` matches `https://app.example.com`); the answer's `Access-Control-Allow-Origin` echoes the
+`Origin` as the browser sent it. See [Configuration](configuration.md).
 
 ## Behind a proxy
 

@@ -1,0 +1,38 @@
+name: Frontend
+
+# Landing site. A pull request or a push to main runs it when frontend/ changes.
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Install and build
+        working-directory: frontend
+        run: npm ci && npm run build
+      - name: Contrast
+        run: node frontend/scripts/contrast.mjs
+      - name: Dist layout, headers and links
+        run: node frontend/scripts/check-dist.mjs

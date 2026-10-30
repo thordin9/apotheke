@@ -4,10 +4,13 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2) . '/scripts/ci4-arch.php';
+require_once dirname(__DIR__) . '/lib.php';
 
 /** Feature 12: CI branch wiring, the PHP 8.4 legs of the one app, deptrac and DI configs. */
 final class Ci4BranchCiTest extends TestCase
 {
+    use SkipsOutsideCi;
+
     private function root(): string
     {
         return dirname(__DIR__, 2);
@@ -88,6 +91,7 @@ final class Ci4BranchCiTest extends TestCase
             $this->markTestIncomplete('PostgreSQL is not reachable, so the auth and missing-table cases were not run');
         }
 
+        $this->skipUnlessPgRejectsWrongPasswords();
         $bogus = 'proof-auth-should-not-leak';
         [$code, $out, $err] = $this->runProof([
             'TEST_PG_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',
@@ -281,13 +285,86 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertSame(2, substr_count($yml, 'steps.app-token.outputs.token'));
         $this->assertStringContainsString("          APP_TOKEN: \${{ steps.app-token.outputs.token }}\n", $steps[$users[0]]);
         $this->assertStringContainsString("          GH_TOKEN: \${{ steps.app-token.outputs.token }}\n", $steps[$users[1]]);
-        $this->assertStringContainsString('"AUTHORIZATION: basic $(printf \'x-access-token:%s\' "$APP_TOKEN" | base64 -w0)"', $steps[$users[0]]);
         $this->assertDoesNotMatchRegularExpression('/(echo|set -x|::debug::).*TOKEN/', $yml);
+        // N-1183: release.php apply, the commit and the tag run in an earlier step without the token; the token is
+        // minted right before the push step, which does nothing but push.
+        [$apply] = $at('php scripts/release.php apply');
+        $this->assertLessThan($token, $apply);
+        $this->assertStringNotContainsString('TOKEN', $steps[$apply]);
+        $this->assertSame($token + 1, $users[0]);
+        $this->assertStringNotContainsString('release.php', $steps[$users[0]]);
+        $this->assertSame(1, substr_count($yml, 'release.php apply'));
+        // L-1180: the base64 credential is masked before it is used; no tracing can print it.
+        $push = $steps[$users[0]];
+        $mask = (int)strpos($push, "          basic=$(printf 'x-access-token:%s' \"\$APP_TOKEN\" | base64 -w0)\n          echo \"::add-mask::\$basic\"\n");
+        $this->assertGreaterThan(0, $mask);
+        $this->assertGreaterThan($mask, strpos($push, 'GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic"'));
+        $this->assertGreaterThan($mask, strpos($push, 'git push --atomic'));
+        $this->assertSame(1, substr_count($yml, 'base64 -w0'));
+        $this->assertDoesNotMatchRegularExpression('/set\s+-[a-z]*x|set\s+-o\s+xtrace|bash\s+-[a-z]*x|shell:.*-[a-z]*x|GIT_TRACE|GIT_CURL_VERBOSE/', $yml);
         // GITHUB_TOKEN: read-only at workflow and job level; nothing asks it for write access.
         $this->assertStringContainsString("permissions:\n  contents: read\n", $yml);
         $this->assertStringContainsString("    permissions:\n      contents: read\n      actions: read\n", $yml);
         $this->assertSame(0, substr_count($yml, ': write') - substr_count($yml, 'permission-contents: write'));
         $this->assertSame(2, substr_count($yml, 'permissions:'));
+    }
+
+    /**
+     * Dependabot keeps the SHA-pinned actions and the npm dev dependencies (Playwright at the root, tests/e2e, Vite in frontend/) current: one weekly grouped PR
+     * per ecosystem and directory, whose commits pass check-commits. frontend uses prefix build with a scope, so subjects look like build(deps-dev): ….
+     */
+    public function testDependabotUpdatesTheActionsWeeklyInOneGroup(): void
+    {
+        $this->assertSame(
+            "version: 2\n"
+            . "updates:\n"
+            . "  - package-ecosystem: github-actions\n"
+            . "    directory: /\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      github-actions:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /tests/e2e\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      tests-e2e:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      playwright:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /frontend\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: build\n"
+            . "      include: scope\n"
+            . "    groups:\n"
+            . "      frontend:\n"
+            . "        patterns: ['*']\n",
+            (string)file_get_contents($this->root() . '/.github/dependabot.yml')
+        );
+        // A package.json added under edge/ or site/ needs its own entry here.
+        $found = [];
+        foreach (['.', 'tests/e2e', 'frontend', 'edge', 'site'] as $dir) {
+            if (is_file($this->root() . '/' . $dir . '/package.json')) {
+                $found[] = $dir;
+            }
+        }
+        $this->assertSame(['.', 'tests/e2e', 'frontend'], $found);
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void

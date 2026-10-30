@@ -279,7 +279,25 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   [Background jobs](deployment-and-operations.md#background-jobs)), N-1245 (handler rules in `JobHandler`), N-1246
   (Cloudflare: Cron Triggers or Queues, same schema). `Ci4MigrateTest` keys its 2.6.26 sha256 pins by version, so
   gitleaks has no file name with "key" to match; the only `.gitleaks.toml` entry left covers commit 1b5f5c8 in history
-  (commit, path and value must all match). Open.
+  (commit, path and value must all match). Merged at c22853f.
+- test/schema-guard-indexes: QA follow-ups to #170. L-1300: `testNoCi4OnlyMigrationChangesATable26Reads` also compares
+  every 2.6.26 table's indexes (name, columns, unique, partial WHERE), UNIQUE/CHECK/FK constraints and triggers, on
+  SQLite (`sqlite_master`, `index_list`/`index_info`/`foreign_key_list`) and PostgreSQL (`pg_indexes`, `pg_constraint`,
+  `pg_trigger`); the optional `search_docs_trgm` index is left out as in the upgrade dump. N-1301: the seven tests that
+  need a refused wrong password skip on a trust-auth server (`SkipsOutsideCi::skipUnlessPgRejectsWrongPasswords`, a
+  failure in CI; `docs/testing.md`). N-1302: `DockerfileTest`'s pcntl test sits after the OpenAPI test, which has its
+  docblock back. Open.
+
+- [#186](https://github.com/thordin9/apotheke/pull/186): API P2 reads (API plan §3, Users and sign-in and Branding rows):
+  `GET /api/v1/users` (id, name, role, status, created_at, last_login_at; 2.6.x stores no e-mail, so there is none),
+  `GET /api/v1/roles` (key, name, builtin, permissions, users) and `GET /api/v1/security` (`sign_in_enabled` and the
+  security section's readable settings in `UsersController::POLICY`; `trust_proxy` is left out on purpose,
+  `NOT_POLICY`, PM decision), all with the users permission, refused exactly as
+  the settings read is. `GET /api/v1/branding` is public: name, tagline, accent, theme_default and the logo, favicon
+  and touch-icon URLs, all already in every page's head and on the sign-in page; no session. Every answer is built
+  field by field; `Ci4ApiUsersTest` scans every key at any depth for hash, token, secret, password, epoch, csrf and
+  e-mail names and every body for the stored hashes, session epochs, the CSRF token and cookie values. A new
+  security-section key fails the test until it is put in `POLICY` or `NOT_POLICY` on purpose. Open.
 
 ## Lanes
 

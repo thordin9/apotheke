@@ -9,7 +9,8 @@ This covers:
 - frontend/brand/ (this notice, and og-1200x630.png)
 - frontend/public/assets/brand/ — logo-light.svg and logo-dark.svg (the logo
   and the wordmark), mark.svg, mark-small.svg, app-icon.svg, favicon.svg,
-  favicon-32.png, apple-touch-icon-180.png
+  favicon-32.png, apple-touch-icon-180.png, and og-1200x630.png (the Open
+  Graph card, the same file as frontend/brand/og-1200x630.png)
 - frontend/public/assets/mascot/ — every pose-*.svg
 
 The icon sprite at frontend/public/assets/icons.svg and the fonts under
