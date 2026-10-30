@@ -38,6 +38,14 @@ Any other path under `/api` answers `404`.
   any other is the same as none. A cross-origin SPA sends it with `credentials: 'include'` like the session cookie.
   See [Cookie consent](deployment-and-operations.md#cookie-consent).
 
+  ```sh
+  # read the token, then sign in; the jar keeps the session cookie
+  curl -s -c jar -b jar -H 'Cookie: apotheke_consent=v1' https://apotheke.example/api/v1/session
+  curl -s -c jar -b jar -H 'Cookie: apotheke_consent=v1' -H 'Origin: https://apotheke.example' \
+    -H 'X-CSRF-Token: <csrf_token>' -H 'Content-Type: application/json' \
+    -d '{"username": "admin", "password": "<password>"}' https://apotheke.example/api/v1/session
+  ```
+
 ## Answers
 
 JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)

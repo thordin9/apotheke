@@ -55,6 +55,28 @@
         }
       }
     },
+    "/consent": {
+      "post": {
+        "operationId": "acceptCookies",
+        "summary": "Cookie consent without JavaScript (the pages' notice form; not part of /api)",
+        "description": "The consent notice's Accept form on the app's own pages. No CSRF token: the request must be strictly same-origin (Sec-Fetch-Site same-origin, or an Origin that is this server's own; same-site, cross-site and none are refused, and so is a request with neither header). Sets only apotheke_consent=v1 (Path=/; Max-Age=15552000; SameSite=Lax; Secure on HTTPS; not HttpOnly; Domain=getapotheke.com on a getapotheke.com host, else host-only).",
+        "requestBody": {"required": true, "content": {"application/x-www-form-urlencoded": {"schema": {
+          "type": "object", "required": ["consent"],
+          "properties": {
+            "consent": {"type": "string", "enum": ["accept"]},
+            "return": {"type": "string", "description": "Where to go back to: a path on this site starting with a single /; anything else (//host, /\\host, a URL, %2F%2F, %5C, CR or LF) goes to /", "default": "/"}
+          }
+        }}}},
+        "responses": {
+          "303": {"description": "The consent cookie is set; Location is the return path or /", "headers": {
+            "Location": {"schema": {"type": "string"}},
+            "Set-Cookie": {"schema": {"type": "string", "example": "apotheke_consent=v1; Path=/; Max-Age=15552000; SameSite=Lax"}}
+          }},
+          "400": {"description": "consent is not accept: no cookie", "content": {"text/html": {}}},
+          "403": {"description": "Not strictly same-origin: no cookie", "content": {"text/html": {}}}
+        }
+      }
+    },
     "/api/v1/openapi.json": {
       "get": {
         "operationId": "getOpenApi",

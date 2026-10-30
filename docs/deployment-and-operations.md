@@ -461,13 +461,13 @@ From 3.3 the app sets no cookie in the browser until the user clicks Accept on t
 banner, or the notice the app's own pages show at the top until then). The contract, kept in `app/Config/Consent.php`:
 
 * **The cookie:** `apotheke_consent=v1`, set by the banner script, never by the server: `Path=/`,
-  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. Hosted installs set
-  `Domain=getapotheke.com`, so it also reaches `api.services.getapotheke.com`; self-hosted installs set it
-  host-only. It is the first cookie the app ever has.
+  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. On a `getapotheke.com`
+  host (hosted) it gets `Domain=getapotheke.com`, so it also reaches `api.services.getapotheke.com`; elsewhere
+  (self-hosted) it is host-only. It is the first cookie the app ever has.
 * **What counts:** the server compares only the name and the exact value (attributes never reach it), so both
   forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
   cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
-* **Without consent:** no `Set-Cookie` on any answer (no session cookie, no CSRF token, no `theme`,
+* **Without consent:** no `Set-Cookie` on any answer but `POST /consent`'s (no session cookie, no CSRF token, no `theme`,
   `stats_open` or recently-viewed cookie, and the page scripts write none), redirects and 404, 419 and 500 pages included; no session is loaded or started, so an old
   session cookie is not used until consent is back. Reads that need no session still answer. Every POST, PUT,
   PATCH and DELETE (sign-in, sign-up, sign-out, forms, `/api` writes) is `403`: under `/api` problem+json with
@@ -475,8 +475,16 @@ banner, or the notice the app's own pages show at the top until then). The contr
   `{"ok": false, "error": "…", "code": "consent_required"}`, otherwise the error page with the notice. A
   `Set-Cookie` that reaches the answer anyway is removed (`Core\Filters\ConsentFilter`).
 * **With consent** everything is as before.
-* The app's notice needs JavaScript to accept (it sets the cookie in the browser). 2.6.x (branch `old`) has no
-  banner and stays security-only.
+* **Without JavaScript** the notice's Accept is a form: `POST /consent` with `consent=accept` and `return` (the
+  page's path). It needs no token but must be strictly same-origin (`Sec-Fetch-Site: same-origin`, or this
+  server's own `Origin`; anything else is `403`), sets only the consent cookie (`Secure` on HTTPS, `Domain` as
+  above) and answers `303` to `return` when that is a path on this site, else to `/`. Another `consent` value
+  is `400`. There is no decline button: ignoring the notice keeps the browser cookieless.
+* **`COOKIE_CONSENT`** (environment): `required` (the default) or `off`. With `off` the app behaves as before
+  3.3: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
+  `required`. In Docker set it in `.env`.
+* Answers without a cookie get `Cache-Control: no-store` when they set no caching of their own (no session sends
+  its no-cache headers). 2.6.x (branch `old`) has no banner and stays security-only.
 
 ## Monitoring and logs
 

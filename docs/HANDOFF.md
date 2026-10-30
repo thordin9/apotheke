@@ -296,7 +296,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   start no session without it. Tests: `Ci4CookieConsentTest` (route matrix, wrong values answer byte-for-byte like
   none, host-only and parent-domain cookies, sign-in end to end with consent), `ConsentFilterTest`,
   `tests/visual/consent.spec.ts`; the test clients, Playwright (`storageState`) and the curl scripts send consent.
-  Docs: [Cookie consent](deployment-and-operations.md#cookie-consent), `docs/api.md`, OpenAPI. Open.
+  Docs: [Cookie consent](deployment-and-operations.md#cookie-consent), `docs/api.md`, OpenAPI. QA round 1 (D-1340,
+  PM): `POST /consent` (`Core\Controllers\ConsentController`, strictly same-origin, `consent=accept`, `return`
+  through `CookieConsent::returnPath()`) is the no-JS Accept; `COOKIE_CONSENT=off` turns it all off; L-1341
+  (backstop test with `session.auto_start`), L-1342 (no-store), N-1343..N-1345 fixed; N-1346: no decline button
+  by design (ignoring the notice stays cookieless). Mutation list in the PR body. Open.
 
 ## Lanes
 
