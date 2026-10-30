@@ -18,6 +18,9 @@ final class CookieConsent
 
     public const CODE = 'consent_required';
 
+    /** The longest return path POST /consent sends back, in bytes as sent (percent-encoded). */
+    public const MAX_RETURN = 2048;
+
     public const MESSAGE = 'Cookies are needed to sign in or save changes. Accept cookies in the notice at the top of the page, then try again.';
 
     /** Methods that need no session (TRACE is not served, so it is refused like a write). */
@@ -68,18 +71,32 @@ final class CookieConsent
         return (string)json_encode(['ok' => false, 'error' => self::MESSAGE, 'code' => self::CODE], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
 
-    /** The cookie's Domain for this Host header: the hosted parent domain, or '' (host-only). */
-    public static function domain(string $host): string
+    /**
+     * The consent cookie's Domain for this Host header: $configured (Config\Consent::$cookieDomain, COOKIE_DOMAIN)
+     * when the host is that domain or ends with "." and it, else '' (host-only, no error).
+     */
+    public static function domain(string $host, string $configured): string
     {
+        if ($configured === '') {
+            return '';
+        }
         $host = rtrim(strtolower((string)preg_replace('/:\d+$/', '', trim($host))), '.');
 
-        return $host === Consent::HOSTED_DOMAIN || str_ends_with($host, '.' . Consent::HOSTED_DOMAIN) ? Consent::HOSTED_DOMAIN : '';
+        return $host === $configured || str_ends_with($host, '.' . $configured) ? $configured : '';
+    }
+
+    /** COOKIE_DOMAIN as configured (Config\Consent::$cookieDomain), '' when unset or unusable. */
+    public static function configuredDomain(): string
+    {
+        $config = config(Consent::class);
+
+        return $config instanceof Consent ? $config->cookieDomain : '';
     }
 
     /** The Set-Cookie value POST /consent sends: the same attributes as the notice's script (app.js). */
-    public static function cookie(string $host, bool $secure): string
+    public static function cookie(string $host, bool $secure, string $configured = ''): string
     {
-        $domain = self::domain($host);
+        $domain = self::domain($host, $configured);
 
         return Consent::COOKIE . '=' . Consent::CURRENT . '; Path=/; Max-Age=' . Consent::MAX_AGE
             . ($domain !== '' ? '; Domain=' . $domain : '') . ($secure ? '; Secure' : '') . '; SameSite=Lax';
@@ -88,11 +105,11 @@ final class CookieConsent
     /**
      * Where POST /consent sends the browser back: a path on this site ("/…"), else "/". Refused, also once to
      * three times percent-decoded: no leading "/", "//" anywhere, a backslash, control characters (CR, LF …).
-     * Bytes above ASCII are percent-encoded.
+     * Bytes above ASCII are percent-encoded; longer than MAX_RETURN after that is "/" too.
      */
     public static function returnPath(mixed $path): string
     {
-        if (!is_string($path) || strlen($path) > 2048 || str_contains($path, ' ')) {
+        if (!is_string($path) || str_contains($path, ' ')) {
             return '/';
         }
         for ($d = $path, $i = 0; $i < 4; $i++, $d = rawurldecode($d)) {
@@ -102,6 +119,8 @@ final class CookieConsent
         }
 
         // N-1424: a Location header carries ASCII only, so other bytes go out percent-encoded.
-        return (string)preg_replace_callback('/[\x80-\xFF]/', static fn (array $m): string => rawurlencode($m[0]), $path);
+        $path = (string)preg_replace_callback('/[\x80-\xFF]/', static fn (array $m): string => rawurlencode($m[0]), $path);
+
+        return strlen($path) > self::MAX_RETURN ? '/' : $path;   // N-1460: the length as sent, after encoding
     }
 }

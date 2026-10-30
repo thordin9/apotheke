@@ -82,17 +82,37 @@ final class ConsentFilterTest extends CIUnitTestCase
             $this->assertSame($p, CookieConsent::returnPath($p));
         }
         $this->assertSame('/search?q=caf%C3%A9&x=%E2%9C%93', CookieConsent::returnPath("/search?q=caf\u{e9}&x=\u{2713}"), 'N-1424: non-ASCII percent-encoded');
+        $this->assertSame('/' . str_repeat('a', 2047), CookieConsent::returnPath('/' . str_repeat('a', 2047)), '2 KB is the limit');
+        $this->assertSame('/', CookieConsent::returnPath('/' . str_repeat("\u{e9}", 400)), 'N-1460: 801 bytes raw, 2401 as sent');
     }
 
     public function testTheCookieMatchesTheNoticeScript(): void
     {
         $this->assertSame('apotheke_consent=v1; Path=/; Max-Age=15552000; SameSite=Lax', CookieConsent::cookie('apotheke.local:8080', false));
-        $this->assertSame('apotheke_consent=v1; Path=/; Max-Age=15552000; Domain=getapotheke.com; Secure; SameSite=Lax', CookieConsent::cookie('App.GetApotheke.com.', true));
-        foreach (['getapotheke.com', 'a.b.getapotheke.com:443'] as $h) {
-            $this->assertSame('getapotheke.com', CookieConsent::domain($h), $h);
+        $this->assertSame('apotheke_consent=v1; Path=/; Max-Age=15552000; Secure; SameSite=Lax', CookieConsent::cookie('app.getapotheke.com', true), 'no domain is built in');
+        $this->assertSame('apotheke_consent=v1; Path=/; Max-Age=15552000; Domain=getapotheke.com; Secure; SameSite=Lax', CookieConsent::cookie('App.GetApotheke.com.', true, 'getapotheke.com'));
+    }
+
+    /** COOKIE_DOMAIN applies only to its own host and hosts under it; anything else is host-only, without an error. */
+    public function testTheCookieDomainMatchesOnlyItsHosts(): void
+    {
+        foreach (['getapotheke.com' => 'match', 'app.getapotheke.com' => 'subdomain', 'a.b.getapotheke.com:443' => 'deeper, with a port', 'GETAPOTHEKE.COM.' => 'case and trailing dot'] as $host => $why) {
+            $this->assertSame('getapotheke.com', CookieConsent::domain($host, 'getapotheke.com'), $why);
         }
-        foreach (['getapotheke.com.evil.test', 'evilgetapotheke.com', 'localhost', ''] as $h) {
-            $this->assertSame('', CookieConsent::domain($h), $h);
+        foreach (['evilgetapotheke.com', 'getapotheke.com.evil', 'getapotheke.com.evil.test', 'apotheke.local', 'localhost', '127.0.0.1', ''] as $host) {
+            $this->assertSame('', CookieConsent::domain($host, 'getapotheke.com'), 'lookalike or mismatch: ' . $host);
+        }
+        $this->assertSame('', CookieConsent::domain('app.getapotheke.com', ''), 'empty: host-only');
+    }
+
+    public function testCookieDomainIsNormalisedOrIgnored(): void
+    {
+        foreach (['getapotheke.com' => 'getapotheke.com', '.GetApotheke.com' => 'getapotheke.com', ' example.co.uk ' => 'example.co.uk', 'a-b.example.test' => 'a-b.example.test'] as $in => $out) {
+            $this->assertSame($out, Consent::domainFrom($in), $in);
+        }
+        foreach ([false, '', '.', 'com', '.com', 'localhost', '127.0.0.1', '10.0.0.1', '[::1]', '::1', 'example.com:443', 'example.com/x', '*.example.com',
+            'example..com', '-example.com', 'example.com.', 'exa mple.com', 'example.123'] as $in) {
+            $this->assertSame('', Consent::domainFrom($in), var_export($in, true));
         }
     }
 

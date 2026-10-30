@@ -130,6 +130,8 @@ final class Ci4CookieConsentTest extends TestCase
         }
         $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => "/search?q=caf\u{e9}"], [], ['Origin: ' . self::$server->base]);
         $this->assertSame('/search?q=caf%C3%A9', $r['headers']['location'] ?? null, 'N-1424: non-ASCII percent-encoded');
+        $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => '/' . str_repeat("\u{e9}", 400)], [], ['Origin: ' . self::$server->base]);
+        $this->assertSame('/', $r['headers']['location'] ?? null, 'N-1460: too long once percent-encoded');
     }
 
     /** COOKIE_CONSENT=off: as before 3.4 (cookies, sign-in, no notice); any value but off is required. */
@@ -153,6 +155,35 @@ final class Ci4CookieConsentTest extends TestCase
                 rrmdir($dir);
                 @unlink($dir . '.server.log');
             }
+        }
+    }
+
+    /**
+     * COOKIE_DOMAIN: the consent cookie gets Domain on a host under it (form and the notice's data-domain); the
+     * __Host- session cookie never does.
+     */
+    public function testTheCookieDomainIsForTheConsentCookieOnly(): void
+    {
+        $dir = tmpdir('consent-domain');
+        $server = new Server($dir, ['APP_PASSWORD' => self::PASSWORD, 'COOKIE_DOMAIN' => '.Example.test', 'PUBLIC_URL' => 'https://app.example.test'], 'ci4');
+        try {
+            $host = ['Host: app.example.test'];
+            $none = $server->client();
+            $none->consent = null;
+            $this->assertStringContainsString('data-domain="example.test"', $none->get('/login', $host)['body']);
+            $r = $none->post('/consent', ['consent' => 'accept'], [], [...$host, 'Sec-Fetch-Site: same-origin']);
+            $this->assertSame(['apotheke_consent=v1; Path=/; Max-Age=15552000; Domain=example.test; Secure; SameSite=Lax'], self::setCookies($r));
+            $other = $none->post('/consent', ['consent' => 'accept'], [], ['Sec-Fetch-Site: same-origin']);
+            $this->assertSame(['apotheke_consent=v1; Path=/; Max-Age=15552000; SameSite=Lax'], self::setCookies($other), 'another host: host-only');
+            $session = self::setCookies($server->client()->get('/login', $host));
+            $this->assertCount(1, $session);
+            $this->assertMatchesRegularExpression('/^__Host-apothekesid=[^;]+; .*secure/i', $session[0]);
+            $this->assertStringNotContainsStringIgnoringCase('domain=', $session[0], 'the __Host- cookie stays host-only');
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
         }
     }
 
