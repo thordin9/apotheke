@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **release:** a merge titled like a squash commit, `subject (#N)`, now links its commits to PR #N in the release notes ([#164](https://github.com/thordin9/apotheke/pull/164))
+
 ## [3.0.0] - 2026-10-29
 
 **3.0.0 is the CodeIgniter 4 app** (PHP 8.4, Docker only, no schema change, one re-login). Back up first and read
