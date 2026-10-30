@@ -8,9 +8,19 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-30
+
 ### Fixed
 
 - **release:** a merge titled like a squash commit, `subject (#N)`, now links its commits to PR #N in the release notes ([#164](https://github.com/thordin9/apotheke/pull/164))
+
+### Maintenance
+
+- **ci:** test: pin release.yml to its main-only triggers ([#164](https://github.com/thordin9/apotheke/pull/164))
+- **changelog:** docs: note the merge-subject PR links ([#164](https://github.com/thordin9/apotheke/pull/164))
+- **golden:** test: mask VERSION in the page goldens ([#164](https://github.com/thordin9/apotheke/pull/164))
+- **golden:** test: run CI on the VERSION mask ([#164](https://github.com/thordin9/apotheke/pull/164))
+- **qa:** docs: add the PR 164 release squash-links QA review ([#164](https://github.com/thordin9/apotheke/pull/164))
 
 ## [3.0.0] - 2026-10-29
 
@@ -920,7 +930,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/thordin9/apotheke/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/thordin9/apotheke/compare/v2.6.26...v3.0.0
 [2.6.26]: https://github.com/thordin9/apotheke/compare/v2.6.25...v2.6.26
 [2.6.25]: https://github.com/thordin9/apotheke/compare/v2.6.24...v2.6.25
