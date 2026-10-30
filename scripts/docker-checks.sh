@@ -63,6 +63,13 @@ check "30 MB body rejected on /save (22m limit)" 413 "$(code -X POST -F "photo=@
 # (sign-in is off here, so the restore check lets it through; the app then refuses the missing CSRF token with 419)
 check "30 MB body accepted by /backup/restore" 419 "$(code -X POST -F "backup=@$big" "$base/backup/restore")"
 
+# M-1454: HTTP/1.1 only (no cleartext HTTP/2, h2c), on both images: with prior knowledge the connection fails, and
+# an upgrade request stays on HTTP/1.1 (an HTTP/2 body has no Transfer-Encoding, so it would skip the 411 and the
+# sign-in check).
+v=$(curl -s -o /dev/null -w '%{http_version} %{http_code}' --max-time 10 --http2-prior-knowledge "$base/healthz" || true)
+check "no HTTP/2 with prior knowledge (h2c)" 1 "$([[ $v != 2* ]] && echo 1 || echo "$v")"
+check "an h2c upgrade stays on HTTP/1.1" "1.1 200" "$(curl -s -o /dev/null -w '%{http_version} %{http_code}' --max-time 10 --http2 "$base/healthz" || true)"
+
 # M-1420: slow uploads never take the server down. SLOW_UPLOADS (default 4, more than the FrankenPHP image's 2 PHP
 # threads) clients send a 60 KB sign-in form at 1 KB/s; while they are in flight, /healthz, the sign-in page and a
 # normal form post still answer within 2 s. nginx reads the body before php-fpm sees it; FrankenPHP reads bodies up to
