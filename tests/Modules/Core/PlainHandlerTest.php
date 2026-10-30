@@ -6,6 +6,8 @@ namespace Tests\Core;
 
 use Apotheke\Core\Exceptions\PlainHandler;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\ApiSecurityPolicy;
+use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\ErrorPage;
 use Apotheke\Core\Http\SecurityPolicy;
 use CodeIgniter\Exceptions\PageNotFoundException;
@@ -99,6 +101,51 @@ final class PlainHandlerTest extends CIUnitTestCase
         $out = (new PlainHandler())->render(new RuntimeException('x'), $response);
         $this->assertSame("default-src 'none'", $out->getHeaderLine('Content-Security-Policy'));
         $this->assertSame('nosniff', $out->getHeaderLine('X-Content-Type-Options'));
+    }
+
+    /**
+     * QA L-1142: under /api every uncaught error is problem+json with the API headers, whether the
+     * app's page is wired or not (the text-only fallback); a 5xx never shows the exception's text.
+     */
+    public function testApiPathsGetProblemJson(): void
+    {
+        $cases = [
+            [new RuntimeException('internal detail in /data/secret.php:12'), 500, 'server_error', 'Something went wrong on the server.'],
+            [new UserError('internal 500 text', 500), 500, 'server_error', 'Something went wrong on the server.'],
+            [PageNotFoundException::forPageNotFound('internal'), 404, 'not_found', 'No such API endpoint.'],
+            [new BadRequestException('The URI you submitted has disallowed characters: "a;b"'), 400, 'bad_request', 'Bad request.'],
+            [new UserError('Name is required.', 422), 422, 'validation.failed', 'Name is required.'],
+            [new UserError('Your session expired.', CsrfCheck::STATUS), 403, 'csrf.invalid', 'Your session expired.'],
+        ];
+        $page = static fn (): ErrorPage => new class () implements ErrorPage {
+            public function html(int $status, string $message): string
+            {
+                return '<page>';
+            }
+        };
+        foreach ([new PlainHandler(), new PlainHandler($page)] as $handler) {
+            foreach (['/api', '/api/v1/me?x=1', '/api/v1/%61'] as $uri) {
+                foreach ($cases as [$error, $status, $code, $detail]) {
+                    $r = $handler->render($error, new Response(config(App::class)), ['REQUEST_URI' => $uri, 'HTTP_ACCEPT' => 'text/html']);
+                    $this->assertSame($status, $r->getStatusCode(), $uri . ' ' . $code);
+                    $this->assertSame('application/problem+json', $r->getHeaderLine('Content-Type'));
+                    $json = json_decode((string)$r->getBody(), true, 8, JSON_THROW_ON_ERROR);
+                    $this->assertSame(['type' => 'about:blank', 'title' => $r->getReasonPhrase(), 'status' => $status, 'detail' => $detail, 'code' => $code], $json);
+                    $this->assertStringNotContainsString('internal', (string)$r->getBody());
+                    foreach ((new ApiSecurityPolicy())->headers(false) as $name => $value) {
+                        $this->assertSame($value, $r->getHeaderLine($name), $name);
+                    }
+                    $this->assertFalse($r->hasHeader('X-Frame-Options'));
+                    $this->assertFalse($r->hasHeader('Strict-Transport-Security'));
+                }
+            }
+        }
+        $https = (new PlainHandler())->render(new RuntimeException('x'), new Response(config(App::class)), ['REQUEST_URI' => '/api/v1/me', 'HTTPS' => 'on']);
+        $this->assertSame('max-age=31536000', $https->getHeaderLine('Strict-Transport-Security'));
+        foreach (['/apix', '/', '/x/api/v1'] as $uri) {
+            $plain = (new PlainHandler())->render(new RuntimeException('x'), new Response(config(App::class)), ['REQUEST_URI' => $uri]);
+            $this->assertSame('text/plain; charset=UTF-8', $plain->getHeaderLine('Content-Type'), $uri);
+        }
     }
 
     /** #97 N-33, N-36: the log lines before an answer: a cleanup failure by class only, a 500 without the row detail. */
