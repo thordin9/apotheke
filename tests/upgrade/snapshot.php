@@ -8,6 +8,7 @@ declare(strict_types=1);
  * app. Output: the columns and rows of every table (rows sorted, values as strings), path => sha256 for every file
  * under images/, thumbs/, originals/ (map/ included) and files/ (attachments), the mode of every path there, and
  * the carried tables (what a backup zip holds: backup_tables() of both apps, plus the settings rows).
+ * What only CI4 adds (upg_ci4_only(): the jobs table and its migration's row) is left out of every snapshot.
  * --scope=backup keeps only the carried tables; a restore writes each setting again, so `settings.updated_at` is
  * the one value left out there.
  */
@@ -35,15 +36,17 @@ if ($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql') {
 }
 
 $carried = [...upg_carried_tables(), 'settings'];
+$ci4Only = upg_ci4_only();
 $out = ['carried' => $carried, 'schema' => [], 'tables' => [], 'files' => [], 'modes' => []];
 foreach ($tables as $t) {
-    if (!preg_match('/^[a-z0-9_]+$/', (string)$t) || ($scope === 'backup' && !in_array($t, $carried, true))) continue;
+    if (!preg_match('/^[a-z0-9_]+$/', (string)$t) || ($scope === 'backup' && !in_array($t, $carried, true)) || in_array($t, $ci4Only['tables'], true)) continue;
     $out['schema'][$t] = $columns($t);
     $rows = array_map(static function (array $r) use ($scope, $t): string {
         ksort($r);
         if ($scope === 'backup' && $t === 'settings') unset($r['updated_at']);
         return (string)json_encode(array_map(static fn ($v) => $v === null ? null : (string)$v, $r), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    }, $pdo->query('SELECT * FROM "' . $t . '"')->fetchAll(PDO::FETCH_ASSOC));
+    }, array_filter($pdo->query('SELECT * FROM "' . $t . '"')->fetchAll(PDO::FETCH_ASSOC),
+        static fn (array $r): bool => $t !== 'schema_migrations' || !in_array((string)$r['version'], $ci4Only['versions'], true)));
     sort($rows, SORT_STRING);
     $out['tables'][$t] = $rows;
 }

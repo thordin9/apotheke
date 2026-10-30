@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** migration 0029 adds a `jobs` table that only the CI4 app uses (background jobs for `php spark jobs:work`). It changes no table or column 2.6.x reads. After a rollback to 2.6.x the table stays behind in the database and is harmless: 2.6.x ignores it, and switching to 3.x again uses it as it was. Backups do not carry it and do not name migration 0029, so a backup made by this version restores on 2.6.x.
+
 ## [3.1.1] - 2026-10-30
 
 ### Fixed

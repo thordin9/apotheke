@@ -192,5 +192,10 @@ $routes->post('api/v1/session', $apiSession . '::create', $public);
 $routes->delete('api/v1/session', $apiSession . '::delete', $public);
 $routes->get('api/v1/me', $apiSession . '::account', ['permission' => 'self']);
 $routes->get('api/v1/openapi.json', '\\Apotheke\\Core\\Controllers\\ApiController::openapi', $public);
+$apiSettings = '\\Apotheke\\ControlPanel\\Controllers\\Api\\SettingsController';
+$routes->get('api/v1/settings', $apiSettings . '::index', $settingsPerm);
+foreach (\Apotheke\ControlPanel\Controllers\Api\SettingsController::SECTIONS as $section) {
+    $routes->get('api/v1/settings/' . $section, $apiSettings . '::show/' . $section, $settingsPerm);
+}
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

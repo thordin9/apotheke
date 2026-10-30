@@ -52,7 +52,7 @@ RUN set -eux; \
     rm /tmp/imagick.tar.gz; \
     sed -i "s/@PACKAGE_VERSION@/${IMAGICK_VERSION}/" /usr/src/php/ext/imagick/php_imagick.h; \
     docker-php-ext-configure gd --with-jpeg --with-webp; \
-    docker-php-ext-install -j"$(nproc)" gd exif opcache pdo_pgsql pgsql zip imagick intl; \
+    docker-php-ext-install -j"$(nproc)" gd exif opcache pdo_pgsql pgsql zip imagick intl pcntl; \
     docker-php-source delete; \
     apk del --no-network .build-deps; \
     rm -rf /tmp/pear /usr/local/etc/php-fpm.d/www.conf.default; \
@@ -62,6 +62,7 @@ RUN set -eux; \
     php -m | grep -qx intl; \
     php -m | grep -qx sqlite3; \
     php -m | grep -qx pgsql; \
+    php -m | grep -qx pcntl; \
     php -r "exit(phpversion('imagick') === '${IMAGICK_VERSION}' ? 0 : 1);"; \
     php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'; \
     php -r 'exit(in_array("HEIC", array_map("strtoupper", Imagick::queryFormats()), true) ? 0 : 1);'

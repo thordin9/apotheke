@@ -257,9 +257,29 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#161](https://github.com/thordin9/apotheke/pull/161): step 18, the cutover: the CI4 tree at the repository root,
   the legacy tests and CI legs removed, `src/` removed. Merged at f1b4535.
 - [#162](https://github.com/thordin9/apotheke/pull/162): branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
-  N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Open.
+  N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Merged at f576b00.
 - [#168](https://github.com/thordin9/apotheke/pull/168): mark `feature/ci4` and `release/2.5` as historical in HANDOFF, PLAN and ADR 001 after the
-  old branches were deleted. Open.
+  old branches were deleted. Merged at 9f90b9d.
+- [#170](https://github.com/thordin9/apotheke/pull/170): API P1/P2 (API plan §3): the `jobs` table (migration 0029, CI4 only) with `Core\Jobs` (`JobQueue`, `JobRunner`) and
+  `php spark jobs:work`, and the settings read API (`GET /api/v1/settings`, `GET /api/v1/settings/{section}` with ETag and
+  If-None-Match; settings permission, write-only and internal keys never returned, autofill gives only `token_set`). Every
+  job step is one statement guarded by status and lease owner (no transaction, at most 8 binds: D1-ready). A backup leaves
+  0029 out of its `schema` (`Backups::UNCARRIED_MIGRATIONS`) so 2.6.x restores it; the upgrade/rollback gate migrates
+  CI4 first and leaves the CI4-only table out of its snapshots. No job types yet (P3: CSV import commit, backup restore);
+  `GET /api/v1/jobs/{id}` comes with them. PM conditions for "No shared schema change" (AGENTS.md):
+  `Ci4MigrateTest::testEveryCi4OnlyMigrationIsRegistered` (2.6.26 migrations byte-identical; every later one in
+  `Backups::UNCARRIED_MIGRATIONS` and `upg_ci4_only()` with its tables) and `testNoCi4OnlyMigrationChangesATable26Reads`
+  (every 2.6.26 table and column unchanged), on SQLite and PostgreSQL; the upgrade/rollback gate seeds two `jobs` rows
+  and `tests/upgrade/ci4-only.php` checks them after the CI4 backup, the rollback and both in-place restores, and that
+  the CI4 zip names no CI4-only migration; an Upgrade note under CHANGELOG `[Unreleased]` and `docs/upgrade-3.0.md`
+  say the `jobs` table stays behind after a rollback, harmless. QA interim notes: L-1240 (every section's keys pinned
+  in `Ci4ApiSettingsTest`), L-1241 (the image builds `pcntl`; `DockerfileTest::testImageBuildsAndChecksPcntl`, a CI
+  docker step, `Ci4JobsWorkTest` for the no-pcntl path), N-1242 (another token keeps the ETag), N-1243
+  (`JobQueueTest::testOwnerAndAttemptBothGuardTheLease`), N-1244 (exit codes in `jobs:work --help` and
+  [Background jobs](deployment-and-operations.md#background-jobs)), N-1245 (handler rules in `JobHandler`), N-1246
+  (Cloudflare: Cron Triggers or Queues, same schema). `Ci4MigrateTest` keys its 2.6.26 sha256 pins by version, so
+  gitleaks has no file name with "key" to match; the only `.gitleaks.toml` entry left covers commit 1b5f5c8 in history
+  (commit, path and value must all match). Open.
 
 ## Lanes
 

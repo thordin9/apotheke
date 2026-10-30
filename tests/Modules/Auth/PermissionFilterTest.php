@@ -310,6 +310,17 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
             'GET /api/v1/session' => Permissions::PUBLIC,
+            'GET /api/v1/settings' => 'settings',
+            'GET /api/v1/settings/appearance' => 'settings',
+            'GET /api/v1/settings/autofill' => 'settings',
+            'GET /api/v1/settings/data' => 'settings',
+            'GET /api/v1/settings/general' => 'settings',
+            'GET /api/v1/settings/items' => 'settings',
+            'GET /api/v1/settings/labels' => 'settings',
+            'GET /api/v1/settings/limits' => 'settings',
+            'GET /api/v1/settings/list' => 'settings',
+            'GET /api/v1/settings/locale' => 'settings',
+            'GET /api/v1/settings/uploads' => 'settings',
             'POST /api/v1/session' => Permissions::PUBLIC,
         ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
     }
