@@ -109,3 +109,5 @@ characters, checked in CI); see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE) © 2026 Stathis Papandreou
+
+The logo, wordmark and mascot artwork is not covered by that licence; see [frontend/brand/NOTICE](frontend/brand/NOTICE).
