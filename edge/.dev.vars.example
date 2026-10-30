@@ -1,0 +1,3 @@
+# Copy to .dev.vars (git-ignored) for `wrangler dev`. Generate values; never commit them.
+APP_PASSWORD=<at-least-8-characters>
+APP_KEY=<base64 of 32 random bytes>
