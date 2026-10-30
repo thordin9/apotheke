@@ -277,7 +277,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   docker step, `Ci4JobsWorkTest` for the no-pcntl path), N-1242 (another token keeps the ETag), N-1243
   (`JobQueueTest::testOwnerAndAttemptBothGuardTheLease`), N-1244 (exit codes in `jobs:work --help` and
   [Background jobs](deployment-and-operations.md#background-jobs)), N-1245 (handler rules in `JobHandler`), N-1246
-  (Cloudflare: Cron Triggers or Queues, same schema). Open.
+  (Cloudflare: Cron Triggers or Queues, same schema). `Ci4MigrateTest` keys its 2.6.26 sha256 pins by version, so
+  gitleaks has no file name with "key" to match; the only `.gitleaks.toml` entry left covers commit 1b5f5c8 in history
+  (commit, path and value must all match). Open.
 
 ## Lanes
 

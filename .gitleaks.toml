@@ -28,11 +28,12 @@ condition = "AND"
 paths = ['''^tests/Unit/Ci4ControlPanelParityTest\.php$''']
 regexes = ['''^tok-Placeholder-7Q$''']
 
-# The sha256 of migrations/0002_sort_keys_and_settings.php as released in 2.6.26, pinned in Ci4MigrateTest
-# (LEGACY_MIGRATIONS) so the 2.6.26 migrations stay byte-identical. A public file hash, not a credential: the file
-# name has "key" in it. Both the path and the exact value must match.
+# The 2.6.26 sha256 of migrations/0002_sort_keys_and_settings.php, pinned by file name in commit 1b5f5c8. The test
+# now keys its pins by version so gitleaks has nothing to match; that commit stays in history (no rebase). The
+# commit, the path and the exact value must all match.
 [[allowlists]]
-description = "Ci4MigrateTest pinned 2.6.26 migration sha256 flagged by generic-api-key."
+description = "Ci4MigrateTest 2.6.26 migration sha256 in commit 1b5f5c8, flagged by generic-api-key."
 condition = "AND"
+commits = ['1b5f5c81dcfa91a194c2dd5a46f5a595aee4a88d']
 paths = ['''^tests/Unit/Ci4MigrateTest\.php$''']
 regexes = ['''^f8066324b818295d8c616b37a9598691c7ac568b00867a59ced15c5357ac2d75$''']
