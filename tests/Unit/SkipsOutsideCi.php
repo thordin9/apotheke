@@ -16,4 +16,13 @@ trait SkipsOutsideCi
         }
         $this->markTestSkipped($why);
     }
+
+    /** For tests that prove a refused PostgreSQL login: they need a server that checks passwords (N-1301). */
+    private function skipUnlessPgRejectsWrongPasswords(): void
+    {
+        if (!test_pg_rejects_wrong_password()) {
+            $this->skipOutsideCi('the test PostgreSQL accepts a wrong password (trust auth), so a refused login cannot be shown',
+                'use password (scram-sha-256) auth for TEST_PG_* (docs/testing.md).');
+        }
+    }
 }
