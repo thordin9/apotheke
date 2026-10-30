@@ -3,7 +3,7 @@
   "info": {
     "title": "Apotheke API",
     "version": "1.0.0-p1",
-    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings, users, roles, the sign-in policy and the branding). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
   },
   "paths": {
     "/api/v1/session": {
@@ -105,6 +105,50 @@
     },
     "/api/v1/settings/data": {
       "get": {"operationId": "getSettingsData", "summary": "The data section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "getUsers",
+        "summary": "Every account, sorted by name (users permission)",
+        "description": "Each account is exactly id, name, role, status, created_at and last_login_at. Passwords, their hashes and session data are never returned.",
+        "responses": {
+          "200": {"description": "Every account", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Users"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "operationId": "getRoles",
+        "summary": "Every role, built-in first, with its permissions (users permission)",
+        "responses": {
+          "200": {"description": "Every role", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Roles"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/security": {
+      "get": {
+        "operationId": "getSecurity",
+        "summary": "Whether sign-in is on, and the sign-in policy (users permission)",
+        "responses": {
+          "200": {"description": "The sign-in policy", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Security"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/branding": {
+      "get": {
+        "operationId": "getBranding",
+        "summary": "The app's name, colours and icons (anyone)",
+        "description": "What every page's head and the sign-in page already show, so it needs no sign-in, like /manifest.webmanifest.",
+        "responses": {
+          "200": {"description": "The branding", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Branding"}}}}
+        }
+      }
     }
   },
   "components": {
@@ -224,6 +268,79 @@
               "options": {"type": "object", "additionalProperties": {"type": "string"}}
             }
           }
+        }
+      },
+      "Users": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data"],
+        "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/User"}}}
+      },
+      "User": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "role", "status", "created_at", "last_login_at"],
+        "properties": {
+          "id": {"type": "integer"},
+          "name": {"type": "string"},
+          "role": {"type": "string"},
+          "status": {"type": "string", "enum": ["active", "pending"]},
+          "created_at": {"type": "string", "description": "UTC, YYYY-MM-DD HH:MM:SS"},
+          "last_login_at": {"type": "string", "nullable": true, "description": "UTC, YYYY-MM-DD HH:MM:SS; null: never signed in"}
+        }
+      },
+      "Roles": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data"],
+        "properties": {"data": {"type": "array", "items": {"$ref": "#/components/schemas/Role"}}}
+      },
+      "Role": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "name", "builtin", "permissions", "users"],
+        "properties": {
+          "key": {"type": "string"},
+          "name": {"type": "string"},
+          "builtin": {"type": "boolean"},
+          "permissions": {"$ref": "#/components/schemas/Permissions"},
+          "users": {"type": "integer", "description": "How many accounts have this role"}
+        }
+      },
+      "Security": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sign_in_enabled", "policy"],
+        "properties": {
+          "sign_in_enabled": {"type": "boolean"},
+          "policy": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["auth_guest_disabled", "auth_register_disabled", "auth_register_role", "auth_register_approval", "session_days", "session_idle_hours", "trust_proxy"],
+            "properties": {
+              "auth_guest_disabled": {"type": "boolean"},
+              "auth_register_disabled": {"type": "boolean"},
+              "auth_register_role": {"type": "string"},
+              "auth_register_approval": {"type": "boolean"},
+              "session_days": {"type": "integer"},
+              "session_idle_hours": {"type": "integer"},
+              "trust_proxy": {"type": "boolean"}
+            }
+          }
+        }
+      },
+      "Branding": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "tagline", "accent", "theme_default", "logo_url", "favicon_url", "touch_icon_url"],
+        "properties": {
+          "name": {"type": "string"},
+          "tagline": {"type": "string"},
+          "accent": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+          "theme_default": {"type": "string", "enum": ["auto", "light", "dark"]},
+          "logo_url": {"type": "string"},
+          "favicon_url": {"type": "string"},
+          "touch_icon_url": {"type": "string"}
         }
       }
     }
