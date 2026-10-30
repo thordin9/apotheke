@@ -81,6 +81,7 @@ final class ConsentFilterTest extends CIUnitTestCase
         foreach (['/', '/login', '/item/12?tab=notes&x=%20y', '/a%2Fb', '/search?q=caf%C3%A9#top'] as $p) {
             $this->assertSame($p, CookieConsent::returnPath($p));
         }
+        $this->assertSame('/search?q=caf%C3%A9&x=%E2%9C%93', CookieConsent::returnPath("/search?q=caf\u{e9}&x=\u{2713}"), 'N-1424: non-ASCII percent-encoded');
     }
 
     public function testTheCookieMatchesTheNoticeScript(): void
@@ -105,7 +106,7 @@ final class ConsentFilterTest extends CIUnitTestCase
         $this->assertTrue($rule->strict($host + ['HTTP_ORIGIN' => 'https://pub.test'], false, 'https://pub.test/'));
         foreach ([[], ['HTTP_SEC_FETCH_SITE' => 'same-site'], ['HTTP_SEC_FETCH_SITE' => 'cross-site'], ['HTTP_SEC_FETCH_SITE' => 'none'],
             ['HTTP_ORIGIN' => 'http://evil.test'], ['HTTP_ORIGIN' => 'null'], ['HTTP_ORIGIN' => 'https://app.test'],
-            ['HTTP_SEC_FETCH_SITE' => 'same-origin', 'HTTP_ORIGIN' => 'http://evil.test'], ['HTTP_SEC_FETCH_SITE' => 'same-site', 'HTTP_ORIGIN' => 'http://app.test']] as $h) {
+            ['HTTP_SEC_FETCH_SITE' => 'same-origin', 'HTTP_ORIGIN' => 'http://evil.test'], ['HTTP_SEC_FETCH_SITE' => 'same-site', 'HTTP_ORIGIN' => 'http://app.test'], ['HTTP_SEC_FETCH_SITE' => 'none', 'HTTP_ORIGIN' => 'http://app.test']] as $h) {
             $this->assertFalse($rule->strict($host + $h, false), json_encode($h));
         }
     }

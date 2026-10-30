@@ -88,6 +88,7 @@ final class CookieConsent
     /**
      * Where POST /consent sends the browser back: a path on this site ("/…"), else "/". Refused, also once to
      * three times percent-decoded: no leading "/", "//" anywhere, a backslash, control characters (CR, LF …).
+     * Bytes above ASCII are percent-encoded.
      */
     public static function returnPath(mixed $path): string
     {
@@ -100,6 +101,7 @@ final class CookieConsent
             }
         }
 
-        return $path;
+        // N-1424: a Location header carries ASCII only, so other bytes go out percent-encoded.
+        return (string)preg_replace_callback('/[\x80-\xFF]/', static fn (array $m): string => rawurlencode($m[0]), $path);
     }
 }

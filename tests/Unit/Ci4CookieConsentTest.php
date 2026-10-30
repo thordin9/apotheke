@@ -104,7 +104,7 @@ final class Ci4CookieConsentTest extends TestCase
     public function testTheFormAcceptIsStrictlySameOrigin(): void
     {
         foreach ([[], ['Sec-Fetch-Site: same-site'], ['Sec-Fetch-Site: cross-site'], ['Sec-Fetch-Site: none'], ['Origin: http://evil.test'],
-            ['Origin: null'], ['Sec-Fetch-Site: same-site', 'Origin: ' . self::$server->base]] as $headers) {
+            ['Origin: null'], ['Sec-Fetch-Site: same-site', 'Origin: ' . self::$server->base], ['Sec-Fetch-Site: none', 'Origin: ' . self::$server->base]] as $headers) {
             $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => '/'], [], $headers);
             $this->assertSame(403, $r['status'], implode(', ', $headers));
             $this->assertSame([], self::setCookies($r), implode(', ', $headers));
@@ -128,6 +128,8 @@ final class Ci4CookieConsentTest extends TestCase
             $this->assertSame([303, '/'], [$r['status'], $r['headers']['location'] ?? null], var_export($back, true));
             $this->assertArrayNotHasKey('x-evil', $r['headers']);
         }
+        $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => "/search?q=caf\u{e9}"], [], ['Origin: ' . self::$server->base]);
+        $this->assertSame('/search?q=caf%C3%A9', $r['headers']['location'] ?? null, 'N-1424: non-ASCII percent-encoded');
     }
 
     /** COOKIE_CONSENT=off: as before 3.3 (cookies, sign-in, no notice); any value but off is required. */
