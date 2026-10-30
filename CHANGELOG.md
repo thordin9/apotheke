@@ -13,7 +13,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Added
 
 - **docker:** run the background jobs worker in both images: `apotheke-jobs-worker` keeps `php spark jobs:work` running as `www-data`, restarts it after a failure with a 1–60 s backoff without stopping the web server, and stops cleanly on `docker stop`; `APOTHEKE_JOBS_WORKER=0` turns it off ([#187](https://github.com/thordin9/apotheke/pull/187))
-- **edge:** set `COOKIE_DOMAIN=getapotheke.com` for `apotheke-api` (a non-secret var in `edge/wrangler.jsonc`); the compose file shows it as a commented-out hosted setting, and self-hosting keeps the host-only default ([#187](https://github.com/thordin9/apotheke/pull/187))
+- **edge:** reserve `COOKIE_DOMAIN=getapotheke.com` for `apotheke-api` (a non-secret var in `edge/wrangler.jsonc`, not read by the app yet; it never applies to the `__Host-` session cookie, which may not carry a `Domain` attribute); the compose file shows it as a commented-out hosted setting, and self-hosting keeps the host-only default. `apotheke-api` sets `APOTHEKE_JOBS_WORKER=0`: on Cloudflare, jobs will run through a Cron Trigger or Queues ([#187](https://github.com/thordin9/apotheke/pull/187))
 
 ### Fixed
 

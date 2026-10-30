@@ -62,7 +62,7 @@ see [Stored secrets](configuration.md#stored-secrets).
 
 **Background jobs.** The container also runs the background jobs worker (`php spark jobs:work`, as `www-data`),
 which carries out queued work such as imports. Its lines in `docker compose logs` start with `apotheke-jobs:` or `job`.
-Set `APOTHEKE_JOBS_WORKER=0` in `.env` to turn it off; see [Background jobs](deployment-and-operations.md#background-jobs).
+It is on by default in self-hosted images (the Cloudflare deploy turns it off). Set `APOTHEKE_JOBS_WORKER=0` in `.env` to turn it off; see [Background jobs](deployment-and-operations.md#background-jobs).
 
 **What's in the image:** `php:8.4.27-fpm-alpine` with nginx in the same container and the `gd`, `imagick` (HEIC/HEIF
 via `libheif`), `exif`, `opcache`, `pdo_pgsql`, `sodium` and `zip` extensions. Imagick is built from its GitHub

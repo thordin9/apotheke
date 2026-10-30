@@ -158,6 +158,7 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
 * **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
   and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
   ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.
+
 **In the Docker images.** The entrypoint of both images (nginx + php-fpm, and FrankenPHP) starts
 `apotheke-jobs-worker` (`docker/jobs-worker.sh`) next to the web server, as `www-data`, under `tini` as PID 1:
 
@@ -165,7 +166,7 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
   started again after 1 s; any other exit (no database yet, a crash, a kill) restarts it after 1, 2, 4 … 60 s, back
   to 1 s after a run of 60 s or more;
 * a crash loop never stops the web server, and the web server does not wait for the worker. If the web server itself
-  exits, the container stops as before;
+  exits (FrankenPHP; nginx or php-fpm), the container stops with that exit status, or 1 if it was 0;
 * `docker stop` (SIGTERM) reaches the worker too: the running job checkpoints and goes back to the queue (`pcntl`),
   and the container exits 0;
 * logs go to the container's output: `apotheke-jobs: …` lines from the supervisor and one `job <id> (<type>): <status>`
@@ -179,12 +180,18 @@ A separate process was chosen over a FrankenPHP worker script: FrankenPHP's work
 long-lived script and would hold one of the few PHP threads for a loop that serves none, and it has no counterpart
 in the nginx image. A plain process under the same entrypoint works the same way in both images and keeps the
 worker's crashes, memory and restarts apart from the requests. `scripts/docker-jobs-checks.sh` tests it on both
-images: the processes run as `www-data`, a queued job is worked, a killed `jobs:work` comes back with the backoff
-while `/healthz` keeps answering, `docker stop` exits 0, the log never carries `APP_PASSWORD`, and
-`APOTHEKE_JOBS_WORKER=0` runs no worker.
+images: the processes run as `www-data`, a queued job is worked, a killed `jobs:work` comes back after the measured
+waits of 1, 2, 4 and 8 s while `/healthz` keeps answering, a clean exit and a run of 60 s or more bring the wait back
+to 1 s, `docker stop` exits 0 (also when it arrives while `jobs:work` or the backoff sleep is starting), the web
+server dying on its own stops the container with its exit status (137 for a kill), the log never carries
+`APP_PASSWORD`, and `APOTHEKE_JOBS_WORKER=0` runs no worker.
+
+Self-hosted images keep the worker on by default; the Cloudflare deploy (`apotheke-api`) turns it off with
+`APOTHEKE_JOBS_WORKER=0` in `edge/wrangler.jsonc`.
 
 * **On Cloudflare** (API plan §1A, the edge deployment) the same jobs run from a Cron Trigger or a Queue consumer that
-  calls the runner instead of a long-lived `jobs:work` process. The `jobs` table and its schema stay as they are: each
+  calls the runner instead of a long-lived `jobs:work` process, designed in P4 with the D1/R2 storage; until then the
+  container runs no worker. The `jobs` table and its schema stay as they are: each
   step is one guarded statement with no transaction, which D1 supports.
 
 ## Behind a web server or reverse proxy
@@ -500,9 +507,11 @@ this repository, and only these two:
 | `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
 
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
-the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`) and
-`COOKIE_DOMAIN` (`getapotheke.com`; the session cookie's domain, where empty means host-only, the self-hosting
-default). The secrets `APP_PASSWORD` and `APP_KEY` are set separately (below).
+the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
+`APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
+[Background jobs](#background-jobs)) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is reserved: the app
+does not read it yet, empty means host-only (the self-hosting default), and it must never apply to the
+`__Host-apothekesid` session cookie, which may not carry a `Domain` attribute. The secrets `APP_PASSWORD` and `APP_KEY` are set separately (below).
 
 **When they deploy.** Only for a published GitHub Release that is not marked pre-release (tag `vX.Y.Z`, created
 by `release.yml`), or a manual *Run workflow* on `main` or a `vX.Y.Z` tag. The deploy job's first step fails on any
