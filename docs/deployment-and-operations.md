@@ -569,7 +569,11 @@ banner, or the notice the app's own pages show at the top until then). The contr
   the request's host is that domain or ends with `.` and it; on any other host the cookie stays host-only (no
   error). An IP address, a single label or bare TLD (`com`), or a value with a port, a path or a wildcard is
   ignored. It never applies to the session cookie, which stays host-only (`__Host-apothekesid` on HTTPS has no
-  `Domain`). The app passes the same domain to the notice's script.
+  `Domain`). The app passes the same domain to the notice's script. Only the request's `Host` header is compared,
+  never `X-Forwarded-Host`.
+  Set it to a registrable domain you control (`getapotheke.com`, `example.org`), never a public suffix such as
+  `co.uk` or `github.io`: browsers drop a cookie whose Domain is a public suffix, and the broader the value, the
+  more sibling hosts share the consent.
 * Answers without a cookie get `Cache-Control: no-store` when they set no caching of their own (no session sends
   its no-cache headers). 2.6.x (branch `old`) has no banner and stays security-only.
 

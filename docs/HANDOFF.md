@@ -319,7 +319,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   consent cookie and the notice's `data-domain`, only on that host or below (`CookieConsent::domain()`); the
   `__Host-` session cookie never gets a Domain (tested with it set). Hosted installs must set
   `COOKIE_DOMAIN=getapotheke.com` (CHANGELOG note; DevOps). N-1460: the return path's 2 KB limit counts the
-  percent-encoded bytes. Mutation list in the PR body. Open.
+  percent-encoded bytes. QA round 1: L-1480 (registrable domain only, docs), L-1481 (Host header only, never
+  X-Forwarded-Host; data-domain host-matched; tests), N-1483 fixed; N-1482, N-1484 backlog. Mutation list in the PR
+  body. Open.
 
 ## Lanes
 
