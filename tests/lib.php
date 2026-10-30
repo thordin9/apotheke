@@ -213,6 +213,9 @@ final class Client
 {
     public array $cookies = [];
 
+    /** The cookie-consent value sent with every request (Config\Consent); null sends none (docs/deployment-and-operations.md). */
+    public ?string $consent = 'v1';
+
     public function __construct(public string $base) {}
 
     /**
@@ -244,11 +247,19 @@ final class Client
             $body = http_build_query($fields);
             $h[] = 'Content-Type: application/x-www-form-urlencoded';
         }
-        if ($this->cookies) {
-            $h[] = 'Cookie: ' . implode('; ', array_map(fn($k, $v) => "$k=$v", array_keys($this->cookies), $this->cookies));
+        if ($line = $this->cookieHeader()) {
+            $h[] = $line;
         }
 
         return $this->send($method, $path, $h, $body);
+    }
+
+    /** The Cookie header: the consent cookie first (unless $cookies names it), then the jar; '' for none. */
+    private function cookieHeader(): string
+    {
+        $jar = $this->consent !== null && !array_key_exists('apotheke_consent', $this->cookies) ? ['apotheke_consent' => $this->consent] + $this->cookies : $this->cookies;
+
+        return $jar ? 'Cookie: ' . implode('; ', array_map(fn($k, $v) => "$k=$v", array_keys($jar), $jar)) : '';
     }
 
     /**
@@ -299,7 +310,7 @@ final class Client
             return $this->req($method, $path, [], [], $h);
         }
         $h[] = 'Content-Type: application/json';
-        $ctx = $this->cookies ? ['Cookie: ' . implode('; ', array_map(fn($k, $v) => "$k=$v", array_keys($this->cookies), $this->cookies))] : [];
+        $ctx = ($line = $this->cookieHeader()) !== '' ? [$line] : [];
 
         return $this->send($method, $path, array_merge($h, $ctx), (string)json_encode($data));
     }

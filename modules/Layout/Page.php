@@ -25,6 +25,8 @@ final class Page
      * @param mixed $themeCookie the request's `theme` cookie
      * @param string $requestUri the request's path and query, for the menu's way back
      * @param (Closure(): ?array{label:string,left:int,token:string})|null $undo the Undo bar for this request's ?undo= token (the Undo module's), or null
+     * @param bool $consent the request carries cookie consent (Core\Http\CookieConsent); false shows the consent notice
+     * @param string $consentDomain the consent cookie's Domain for this host ('' host-only; CookieConsent::domain())
      */
     public function __construct(
         private readonly SettingsService $settings,
@@ -36,6 +38,8 @@ final class Page
         private readonly mixed $themeCookie,
         private readonly string $requestUri,
         private readonly ?Closure $undo = null,
+        private readonly bool $consent = true,
+        private readonly string $consentDomain = '',
     ) {
     }
 
@@ -68,7 +72,7 @@ final class Page
         $theme = $this->theme();
         $csrf = ($this->csrf)($session);
         $accent = (string)$this->settings->get('accent');
-        $o = "<!doctype html>\n<html lang=\"en\" data-theme=\"" . self::e($theme) . "\">\n<head>\n<meta charset=\"utf-8\">\n"
+        $o = "<!doctype html>\n<html lang=\"en\" data-theme=\"" . self::e($theme) . '"' . ($this->consent ? '' : ' data-no-cookies') . ">\n<head>\n<meta charset=\"utf-8\">\n"
             . "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n"
             . '<title>' . self::e($t) . "</title>\n";
         if ($theme === 'auto') {
@@ -98,7 +102,26 @@ final class Page
         return $o . '<script src="' . self::e($this->assets->url('theme.js')) . "\"></script>\n"
             . '<script src="' . self::e($this->assets->url('app.js')) . "\" defer></script>\n"
             . "</head>\n"
-            . '<body class="' . self::e(trim($bodyClass . ' ' . $this->viewer->bodyClass())) . "\">\n";
+            . '<body class="' . self::e(trim($bodyClass . ' ' . $this->viewer->bodyClass())) . "\">\n"
+            . $this->consentNotice();
+    }
+
+    /**
+     * The cookie-consent notice, on every page until the request carries consent. Accept (app.js) sets the
+     * consent cookie and reloads; without JavaScript the form posts to /consent (ConsentController), which sets
+     * it and comes back here. No cookie is set before that.
+     */
+    public function consentNotice(): string
+    {
+        if ($this->consent) {
+            return '';
+        }
+
+        return '<div class="consent" id="consent" role="region" aria-label="Cookies"><p>This app uses cookies only to keep you signed in and to protect '
+            . 'your changes. Nothing is stored in your browser until you accept.</p>'
+            . '<form method="post" action="/consent"><input type="hidden" name="return" value="' . self::e(Theme::safeBack($this->requestUri)) . '">'
+            . '<button type="submit" class="btn btn-primary" id="consent-accept" data-consent="' . self::e(\Config\Consent::CURRENT) . '" data-domain="'
+            . self::e($this->consentDomain) . "\" name=\"consent\" value=\"accept\">Accept cookies</button></form></div>\n";
     }
 
     /** Legacy page_end(): the Undo bar, then the end of the document. */

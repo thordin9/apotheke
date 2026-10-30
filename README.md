@@ -71,32 +71,32 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | Module suite | Root suite (with HTTP) | Combined |
 |---|---:|---:|---:|
-| Front controller, config & routes | 80.2 % | 87.5 % | 88.0 % |
+| Front controller, config & routes | 80.5 % | 87.7 % | 88.2 % |
 | Items, search, bulk, lending | 29.2 % | 76.2 % | 82.1 % |
 | Favourites, undo, history | 10.6 % | 61.6 % | 64.8 % |
 | Stocktake & labels | 46.7 % | 95.6 % | 95.8 % |
-| Users, roles & sign-in | 59.9 % | 78.5 % | 81.7 % |
+| Users, roles & sign-in | 59.1 % | 78.8 % | 82.0 % |
 | CSV import & export | 54.7 % | 94.3 % | 96.3 % |
 | Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
-| Notes & layout | 90.1 % | 68.5 % | 90.5 % |
-| Settings & Control Panel | 53.8 % | 48.0 % | 68.8 % |
+| Notes & layout | 88.3 % | 74.8 % | 94.3 % |
+| Settings & Control Panel | 53.3 % | 48.5 % | 69.1 % |
 | Backup & restore | 53.9 % | 73.3 % | 79.4 % |
 | Database & migrations | 71.4 % | 72.8 % | 74.0 % |
-| Core & dev server | 76.9 % | 76.6 % | 93.9 % |
-| **All PHP** (15392 lines) | **60.9 %** | **72.6 %** | **83.2 %** |
+| Core & dev server | 75.9 % | 77.7 % | 94.1 % |
+| **All PHP** (15586 lines) | **60.9 %** | **73.0 %** | **83.5 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
-| `chromium-pixel` | 141 | 22 |
+| `chromium-pixel` | 142 | 22 |
 | `chromium-pixel-dark` | 2 | 22 |
-| `desktop-chromium` | 141 | 22 |
+| `desktop-chromium` | 142 | 22 |
 | `desktop-chromium-dark` | 2 | 22 |
-| `pgsql-smoke` | 33 | 0 |
-| `webkit-iphone-se` | 141 | 22 |
+| `pgsql-smoke` | 34 | 0 |
+| `webkit-iphone-se` | 142 | 22 |
 | `webkit-iphone-se-dark` | 2 | 22 |
-| `webkit-iphone13` | 141 | 22 |
+| `webkit-iphone13` | 142 | 22 |
 | `webkit-iphone13-dark` | 2 | 22 |
-| **Total** | **605** | **176** |
+| **Total** | **610** | **176** |
 
 <sub>Line coverage from pcov: the module suite (`tests/Modules`), the root suite (`tests/Unit`, with every `php -S` request its servers answer, collected by `tests/coverage/prepend.php`) and both merged with phpcov, SQLite driver. Regenerate with `npm run coverage:readme`; the release workflow refreshes it from the CI artifact in every release commit.</sub>
 <!-- coverage:end -->

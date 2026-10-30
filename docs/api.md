@@ -17,6 +17,10 @@ answer against it.
 | `DELETE /api/v1/session` | anyone with a session | Sign out (`204`). |
 | `GET /api/v1/me` | signed in | `id`, `username`, `role`, `permissions`. With sign-in turned off there is no account, so this is `403`. |
 | `GET /api/v1/openapi.json` | anyone | The OpenAPI document. |
+| `GET /api/v1/branding` | anyone | `name`, `tagline`, `accent`, `theme_default`, `logo_url`, `favicon_url`, `touch_icon_url`: what every page's head already shows, so no sign-in is needed. |
+| `GET /api/v1/users` | Users | Every account, sorted by name: `id`, `name`, `role`, `status`, `created_at`, `last_login_at` (UTC; `null` when never signed in). Nothing else. |
+| `GET /api/v1/roles` | Users | Every role, built-in first: `key`, `name`, `builtin`, `permissions`, `users` (how many accounts have it). |
+| `GET /api/v1/security` | Users | `sign_in_enabled` and `policy`: the guest, registration and session-length settings of Users & sign-in. The reverse-proxy setting is not included (it is server set-up). |
 
 Any other path under `/api` answers `404`.
 
@@ -32,6 +36,21 @@ Any other path under `/api` answers `404`.
   A body must be `application/json`, or `multipart/form-data` for a file, otherwise the answer is
   `415 unsupported_media_type`. So a script needs to send `Origin` too.
 * A sign-in or sign-out gives a new session id and a new token; read it from the answer.
+* **Cookie consent.** Until the request carries the cookie `apotheke_consent=v1` (the banner sets it), the API sets
+  no cookie: `GET /api/v1/session` starts no session and answers `csrf_token: ""`, and every `POST`, `PUT`, `PATCH`
+  and `DELETE` is `403` problem+json with `code` and `error` both `consent_required`. Only the exact value counts;
+  any other is the same as none. A cross-origin SPA sends it with `credentials: 'include'` like the session cookie.
+  See [Cookie consent](deployment-and-operations.md#cookie-consent).
+
+  ```sh
+  # one cookie jar: seed it with the consent cookie (host, subdomains, path, secure, expiry, name, value; tabs)
+  printf 'apotheke.example\tFALSE\t/\tFALSE\t0\tapotheke_consent\tv1\n' > jar
+  # read the token (this starts the session), then sign in; the jar keeps both cookies
+  token=$(curl -s -c jar -b jar https://apotheke.example/api/v1/session | jq -r .csrf_token)
+  curl -s -c jar -b jar -H 'Origin: https://apotheke.example' -H "X-CSRF-Token: $token" \
+    -H 'Content-Type: application/json' -d '{"username": "admin", "password": "<password>"}' \
+    https://apotheke.example/api/v1/session
+  ```
 
 ## Answers
 

@@ -106,7 +106,7 @@ final class RoutePermission
     /**
      * Requests legacy answers before its permission check, so they need
      * nothing here either: the health checks, the branding files (GET),
-     * the restore probe (GET, it answers 401/403 itself), sign-in and
+     * the restore and upload probes (GET, they answer 204/401/403 themselves), sign-in and
      * registration (any method) and sign-out (POST). $method is after HEAD → GET.
      */
     public function isBeforeCheck(string $method, string $path): bool
@@ -115,10 +115,10 @@ final class RoutePermission
             return true;
         }
         if ($method === 'GET') {
-            return in_array($path, ['/theme.css', '/labels.css', '/manifest.webmanifest', '/favicon.ico', '/backup/restore/check'], true)
+            return in_array($path, ['/theme.css', '/labels.css', '/manifest.webmanifest', '/favicon.ico', '/backup/restore/check', '/upload/check'], true)
                 || preg_match('#^/brand/[a-z0-9.\-]+$#D', $path) === 1;
         }
 
-        return $method === 'POST' && $path === '/logout';
+        return $method === 'POST' && ($path === '/logout' || $path === '/consent');   // /consent: cookie consent without JavaScript
     }
 }

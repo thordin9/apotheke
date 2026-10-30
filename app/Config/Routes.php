@@ -24,6 +24,9 @@ $routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\C
 // Media: served photos and thumbnails, never an original (legacy serve_image()).
 $routes->match(['GET', 'HEAD'], 'media/(full|thumb)/([^/]+)', '\\Apotheke\\Media\\Controllers\\MediaController::serve/$1/$2', ['permission' => 'view']);
 
+// Cookie consent without JavaScript: the notice's Accept form (strictly same-origin, no CSRF token).
+$routes->post('consent', '\\Apotheke\\Core\\Controllers\\ConsentController::accept', $none);
+
 // Layout: the menu's Auto / Light / Dark.
 $routes->post('theme', '\\Apotheke\\Layout\\Controllers\\ThemeController::save', ['permission' => 'view']);
 
@@ -179,6 +182,8 @@ $backup = '\\Apotheke\\Backup\\Controllers\\BackupController';
 $routes->match(['GET', 'HEAD'], 'backup', $backup . '::index', ['permission' => 'backup']);
 $routes->match(['GET', 'HEAD'], 'backup.zip', $backup . '::download', ['permission' => 'backup']);
 $routes->match(['GET', 'HEAD'], 'backup/restore/check', $backup . '::check', ['permission' => 'none']);
+// The FrankenPHP image's probe before it reads a body over 64 KiB (docker/frankenphp/Caddyfile, M-1420).
+$routes->match(['GET', 'HEAD'], 'upload/check', '\\Apotheke\\Core\\Controllers\\UploadCheckController::check', ['permission' => 'none']);
 $routes->post('backup/restore', $backup . '::upload', ['permission' => 'backup']);
 $routes->post('backup/restore/confirm', $backup . '::confirm', ['permission' => 'backup']);
 
@@ -197,5 +202,10 @@ $routes->get('api/v1/settings', $apiSettings . '::index', $settingsPerm);
 foreach (\Apotheke\ControlPanel\Controllers\Api\SettingsController::SECTIONS as $section) {
     $routes->get('api/v1/settings/' . $section, $apiSettings . '::show/' . $section, $settingsPerm);
 }
+$apiUsers = '\\Apotheke\\Auth\\Controllers\\Api\\UsersController';
+$routes->get('api/v1/users', $apiUsers . '::listUsers', $users);
+$routes->get('api/v1/roles', $apiUsers . '::listRoles', $users);
+$routes->get('api/v1/security', $apiUsers . '::policy', $users);
+$routes->get('api/v1/branding', '\\Apotheke\\Settings\\Controllers\\Api\\BrandingController::show', $public);   // what every page's <head> shows
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

@@ -123,7 +123,7 @@ final class PermissionFilterTest extends CIUnitTestCase
     private const SELF_POST_ROUTES = ['account' => 'self', 'account/signout' => 'self'];
 
     /** POST routes legacy answers before its permission check; they check the CSRF token themselves (Auth). */
-    private const NONE_POST_ROUTES = ['login', 'logout', 'register'];
+    private const NONE_POST_ROUTES = ['login', 'logout', 'register', 'consent'];   // consent: strictly same-origin, no session yet
 
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
     private const VIEW_POST_ROUTES = ['theme' => 'view', 'recent/clear' => 'view'];
@@ -167,7 +167,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertGreaterThan(array_search('session', $required, true), $at);
         $this->assertGreaterThan(array_search('sameorigin', $required, true), $at);
         // Required filters run before the global ones, so before CSRF, in legacy's order.
-        $this->assertSame(['except' => ['login', 'register', 'logout', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
+        $this->assertSame(['except' => ['login', 'register', 'logout', 'consent', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
         $this->assertNotContains('permission', $filters->globals['before']);
         $this->assertSame(\Apotheke\Auth\Filters\PermissionFilter::class, $filters->aliases['permission']);
     }
@@ -190,7 +190,7 @@ final class PermissionFilterTest extends CIUnitTestCase
                 foreach (self::sample((string)$route) as $path) {
                     $seen[] = $path;
                     if ($need === Permissions::NONE) {
-                        $this->assertContains(ltrim($path, '/'), self::NONE_POST_ROUTES, $verb . ' ' . $path . ': only sign-in, registration and sign-out skip the check');
+                        $this->assertContains(ltrim($path, '/'), self::NONE_POST_ROUTES, $verb . ' ' . $path . ': only sign-in, registration, sign-out and consent skip the check');
                         $this->assertTrue($rules->isBeforeCheck($verb, $path), $verb . ' ' . $path);
                         continue;
                     }
@@ -280,8 +280,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(106, $n, "58 GET and 48 HEAD routes");
-        $this->assertSame(120, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(108, $n, "59 GET and 49 HEAD routes (with the FrankenPHP image's /upload/check)");
+        $this->assertSame(122, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /** API P1: every /api route records its permission, as in the plan's table (API plan §3); the rest is 404 for anyone. */
@@ -307,8 +307,11 @@ final class PermissionFilterTest extends CIUnitTestCase
         ksort($seen);
         $this->assertSame([
             'DELETE /api/v1/session' => Permissions::PUBLIC,
+            'GET /api/v1/branding' => Permissions::PUBLIC,
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
+            'GET /api/v1/roles' => 'users',
+            'GET /api/v1/security' => 'users',
             'GET /api/v1/session' => Permissions::PUBLIC,
             'GET /api/v1/settings' => 'settings',
             'GET /api/v1/settings/appearance' => 'settings',
@@ -321,6 +324,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/settings/list' => 'settings',
             'GET /api/v1/settings/locale' => 'settings',
             'GET /api/v1/settings/uploads' => 'settings',
+            'GET /api/v1/users' => 'users',
             'POST /api/v1/session' => Permissions::PUBLIC,
         ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
     }
@@ -643,6 +647,10 @@ final class PermissionFilterTest extends CIUnitTestCase
         // Legacy answers GET /backup/restore/check before its check; HEAD is a GET there.
         $this->assertNull($this->filterOrNull('backup/restore/check', [], 'HEAD'));
         $this->assertSame(303, $this->filter('backup/restore/check', [], 'POST')->getStatusCode());
+        // The FrankenPHP image's probe before a body over 64 KiB (M-1420) is answered the same way.
+        $this->assertNull($this->filterOrNull('upload/check', [], 'GET'));
+        $this->assertNull($this->filterOrNull('upload/check', [], 'HEAD'));
+        $this->assertSame(303, $this->filter('upload/check', [], 'POST')->getStatusCode());
 
         $this->db()->table('roles')->insert(['role_key' => 'desk', 'name' => '<b>Desk</b> & "Co"', 'perms' => json_encode(['view', 'edit']), 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);
         $this->signInAs($this->account('dee', 'desk'));

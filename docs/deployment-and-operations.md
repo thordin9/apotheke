@@ -3,6 +3,7 @@
 * [Backup and restore](#backup-and-restore)
 * [Upgrades](#upgrades)
 * [Behind a web server or reverse proxy](#behind-a-web-server-or-reverse-proxy)
+* [The FrankenPHP image](#the-frankenphp-image)
 * [HTTPS](#https)
 * [PostgreSQL role](#postgresql-role)
 * [Security](#security)
@@ -382,6 +383,86 @@ policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick 
 from `magick -list policy` no rights for delegates or `@file` paths, including any narrower rule added later, and a
 time limit of 60 s or less).
 
+## The FrankenPHP image
+
+The repository builds two images from the same code, data and settings:
+
+| | `Dockerfile` (default) | `Dockerfile.frankenphp` |
+|---|---|---|
+| Web server and PHP | nginx + php-fpm, supervised by the entrypoint | FrankenPHP 1.13.4 (Caddy 2 + PHP 8.4 ZTS in one process) |
+| Used by | self-hosting (default) | Apotheke on Cloudflare Containers (`edge/`), and self-hosting by choice |
+| Size (PHP 8.4.27, podman) | about 146 MB | about 175 MB (+29 MB, +20%) |
+
+Both run `tini` as PID 1 and the same entrypoint checks (sign-in required at start, SEC-M3; exit codes 64 and 78;
+the data volume rules, L-430), serve `public/` only, and run the web server and PHP as `www-data` (uid 82). The
+FrankenPHP image is a multi-stage build: the PHP extensions are compiled in a build stage on the official
+`dunglas/frankenphp` Alpine image, and only the `frankenphp` and `php` binaries, `libphp.so`, the extensions and
+their shared libraries are copied onto a plain Alpine base, so it has no compiler, headers, PHP sources, `php-cgi`,
+`phpdbg` or `pecl`. Its `HEALTHCHECK` is the same `/healthz` probe. A slimmer base (for example a static
+FrankenPHP build) is a possible later step.
+
+**Switching with docker compose.** Set `APOTHEKE_DOCKERFILE=Dockerfile.frankenphp` in `.env` and run
+`docker compose up -d --build`. To go back to nginx (the rollback), remove the line, or set it to `Dockerfile`,
+and run the same command. The data directory, database, `APP_KEY` and settings are shared; nothing is migrated.
+With plain Docker: `docker build -f Dockerfile.frankenphp -t apotheke:frankenphp .`.
+
+**Threads.** `FRANKENPHP_NUM_THREADS` (1–64, default **2**) is the number of PHP threads, i.e. requests served at
+once. Two fit Cloudflare's `basic` instance (1/4 vCPU, 1 GiB) with two large HEIC uploads at a time (each can take
+about 300 MB while it is decoded). On a bigger server, raise it, for example to 8. A value outside 1–64 exits with
+code 64. The nginx image ignores it (php-fpm's own settings apply).
+
+**Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same
+limits as the nginx image, enforced by Caddy per route:
+
+* **22 MiB on every route.** A request that declares a larger `Content-Length` gets **413** before the body is read,
+  signed in or not; a body without a length (chunked) gets **413** when it passes 22 MiB.
+* **520 MiB only on `POST /backup/restore`** (exactly that path: not `/backup/restore/`, not another case, not
+  another method), **and only after sign-in.** Caddy first asks the app (`/backup/restore/check`, the same as
+  nginx's `auth_request`); a request that is not signed in with the Backup permission gets the app's answer (401,
+  403 or 421) before the body is read, and only then is a declared size over 520 MiB a 413.
+
+FrankenPHP has one PHP configuration, so PHP's own `upload_max_filesize` and `post_max_size` are the restore values
+(512M and 520M, `docker/frankenphp/php-frankenphp.ini`); the caps above are what keeps every other route at 22 MiB.
+The per-photo and per-attachment limits in the Control Panel still apply. `scripts/docker-auth-checks.sh` signs in
+and checks that a 30 MiB POST to other routes (`/save`, photo and attachment uploads, the logo, the import,
+`/backup/restore/confirm`, the API, an unknown path, `/Backup/restore`) gets 413, on both images.
+
+**Slow uploads (M-1420).** FrankenPHP hands a request body to PHP as it arrives, so a client that uploads slowly
+would hold one of the few PHP threads for as long as it likes, and two of them could stop even `/healthz`. The
+Caddyfile therefore runs two servers in one process: the public one on `PORT` applies all the rules above and
+passes the request to the PHP server (a unix socket under `/run`, unreachable from outside) through a reverse proxy
+that first reads up to **64 KiB** of the body. That is everything a signed-out client can send (the sign-in form,
+`POST /api/v1/session`), so a slow anonymous client holds a Caddy goroutine and at most 64 KiB, never a PHP thread.
+A body over 64 KiB (any method), or a request that may have a body but declares no length, is only read after the
+app said the client is signed in (or sign-in is off): Caddy asks `GET /upload/check` (204 or 401, no session, no
+body) first. A `GET`, `HEAD` or `OPTIONS` request with a chunked body (no declared length) gets **411** before
+PHP sees it, whoever sends it (M-1451); Go's server may still read and drop up to 256 KiB of that body in Caddy to
+keep the connection open. Both servers speak HTTP/1.1 only (`protocols h1`, as nginx): no cleartext HTTP/2 (h2c),
+whose bodies carry no `Transfer-Encoding` and would otherwise get past these rules (M-1454). Headers have 10 s (`read_header`), and a body 300 s (`read_body`, for a
+large restore on a slow line). PHP sees the client's address, port and own `X-Forwarded-*` headers as before, on
+the request itself and on both sign-in checks (`/upload/check`, `/backup/restore/check`): all three hops share one
+header block (`php_hop`), so behind an HTTPS proxy with `trust_proxy` on the checks see the `__Host-` session cookie
+too (M-1450). `scripts/docker-checks.sh` checks that HTTP/2 with prior knowledge fails and an h2c upgrade stays on HTTP/1.1,
+keeps four slow uploads, then four slow chunked `GET`s, in flight (more than
+the two threads) and checks that `/healthz`, the sign-in page and a form post still answer within 2 s, on both
+images. `scripts/docker-auth-checks.sh` with `CONTAINER=` turns `trust_proxy` on and checks a signed-in 300 KB
+upload and restore behind `X-Forwarded-Proto: https` (and that signed-out ones are still refused).
+
+**Access log.** JSON on stdout, one line per request, without the request's `Cookie`, `Authorization`,
+`Proxy-Authorization`, `X-CSRF-Token` and `X-Apotheke-Proxy` (the edge proxy's shared secret) headers, or the
+response's `Set-Cookie` (L-1422). `scripts/docker-log-checks.sh` sends marker values in those headers and checks
+that none reaches the log, on both images.
+
+**Differences from the nginx image** (none changes security headers, blocked paths or status codes of the app):
+
+* no `Server` header (nginx sends `Server: nginx` without a version);
+* a blocked path traversal such as `/assets/../../app/Config/App.php` gets 404 instead of 400; neither serves a file;
+* CSS and JavaScript are sent as `text/css; charset=utf-8` and `text/javascript; charset=utf-8`;
+* responses under 512 bytes and `HEAD` answers are not gzipped;
+* errors produced by the web server itself (413, a missing asset) are a plain-text status line;
+* the access log is JSON on stdout (nginx: the combined format), without secret headers;
+* a declared restore size over 520 MiB is a 401 before sign-in (nginx: 413, it checks the size first).
+
 ## HTTPS
 
 Plain HTTP on a trusted LAN works for every feature, including camera uploads. Use HTTPS when the app is reachable
@@ -425,6 +506,7 @@ and `bin/settings.php` exit 1 with `Could not connect to the database` and only 
   ```
 
   No inline scripts, no inline styles, no third-party hosts. `blob:` is needed for client-side photo shrinking.
+* **Cookie consent:** see [Cookie consent](#cookie-consent) below: no cookie at all until the user accepts.
 * **CSRF:** every state-changing request (forms and fetch calls, including bulk actions, lending and duplicating)
   needs the per-session token; an expired token shows a friendly page (status 419) and changes nothing.
 * **SQL:** prepared statements everywhere; dynamic parts (sort columns, table names in backups) come from fixed
@@ -453,6 +535,37 @@ and `bin/settings.php` exit 1 with `Could not connect to the database` and only 
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.
+
+### Cookie consent
+
+From 3.4 the app sets no cookie in the browser until the user clicks Accept on the consent banner (the hosted SPA's
+banner, or the notice the app's own pages show at the top until then). The contract, kept in `app/Config/Consent.php`:
+
+* **The cookie:** `apotheke_consent=v1`, set by the banner script, never by the server: `Path=/`,
+  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. On a `getapotheke.com`
+  host (hosted) it gets `Domain=getapotheke.com`, so it also reaches `api.services.getapotheke.com`; elsewhere
+  (self-hosted) it is host-only. It is the first cookie the app ever has.
+* **What counts:** the server compares only the name and the exact value (attributes never reach it), so both
+  forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
+  cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
+* **Without consent:** no `Set-Cookie` on any answer but `POST /consent`'s (no session cookie, no CSRF token, no `theme`,
+  `stats_open` or recently-viewed cookie, and the page scripts write none), redirects and 404, 419 and 500 pages included; no session is loaded or started, so an old
+  session cookie is not used until consent is back. Reads that need no session still answer. Every POST, PUT,
+  PATCH and DELETE (sign-in, sign-up, sign-out, forms, `/api` writes) is `403`: under `/api` problem+json with
+  `"code": "consent_required"` and `"error": "consent_required"`, for a fetch from the pages
+  `{"ok": false, "error": "…", "code": "consent_required"}`, otherwise the error page with the notice. A
+  `Set-Cookie` that reaches the answer anyway is removed (`Core\Filters\ConsentFilter`).
+* **With consent** everything is as before.
+* **Without JavaScript** the notice's Accept is a form: `POST /consent` with `consent=accept` and `return` (the
+  page's path). It needs no token but must be strictly same-origin (`Sec-Fetch-Site: same-origin`, or this
+  server's own `Origin`; anything else is `403`), sets only the consent cookie (`Secure` on HTTPS, `Domain` as
+  above) and answers `303` to `return` when that is a path on this site, else to `/`. Another `consent` value
+  is `400`. There is no decline button: ignoring the notice keeps the browser cookieless.
+* **`COOKIE_CONSENT`** (environment): `required` (the default) or `off`. With `off` the app behaves as before
+  3.4: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
+  `required`. In Docker set it in `.env`.
+* Answers without a cookie get `Cache-Control: no-store` when they set no caching of their own (no session sends
+  its no-cache headers). 2.6.x (branch `old`) has no banner and stays security-only.
 
 ## Monitoring and logs
 
