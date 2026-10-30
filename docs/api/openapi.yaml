@@ -138,7 +138,7 @@
         "responses": {
           "201": {"description": "The upload", "headers": {"Location": {"description": "The import", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Import"}}}},
           "401": {"$ref": "#/components/responses/Problem"},
-          "403": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
           "413": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"}
