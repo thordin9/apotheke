@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Core\Filters;
 
 use Apotheke\Core\Config\ApothekeConfig;
+use Apotheke\Core\Http\CookieConsent;
 use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\RequestScheme;
 use Apotheke\Core\Http\SessionGate;
@@ -42,6 +43,10 @@ final class SessionCookie implements FilterInterface
         // Every request starts without one; only a live cookie loads it again.
         $_SESSION = [];
         if ($this->isHealth($request) || $this->isPublicAsset($request)) {
+            return null;
+        }
+        // Cookie consent: without it no session is loaded or started, so no cookie (ConsentFilter).
+        if (!CookieConsent::configured()->given($request instanceof IncomingRequest ? (array)$request->getCookie() : $_COOKIE)) {
             return null;
         }
         $config = ApothekeConfig::fromEnvironment();

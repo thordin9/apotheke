@@ -1,0 +1,55 @@
+# QA: PR #184, CSV import upload / read / preview API
+
+- **Head:** `3769532d8806d09d7808731873b0fb404b276897`. 7 commits, base main `f1eee32` (v3.3.0), 0 behind, same repo, mergeable CLEAN. CI 17/17 green on this head.
+- **Re-gate delta** since `8be5e4e`: fix `902841c` (8 files: Services, Imports::mine, ImportsController, CsvCells::formulaLike, OpenAPI, docs/api.md, HANDOFF, Ci4ApiImportsTest) and merges `fd1175a` (#186) / `3769532` (v3.3.0).
+- **Verdict: PASS.** M-1360 and L-1361 fixed. No H/M open. New findings are N only.
+
+## Checklist (delta)
+
+- [x] **Owner scope (M-1360).** `Imports::mine()`: `imports.actor` equals the signed-in username, or the injected admin closure (`Services`, `currentUser()->isAdmin()`). No schema change, no migration in the delta. Deptrac 0 violations.
+- [x] **Matrix, SQLite and PG17.** Show and preview: owner 200, admin 200, other editor 404, actor-NULL (guest) upload 404 for both editors and 200 for admin, unknown id 404. Every 404 is byte-identical to the unknown-id answer: status, `application/problem+json`, length 103, body `Import not found.`.
+- [x] **Timing.** 40 requests each, other-user vs unknown id. Medians differ by 0.1 to 0.8 ms (SQLite about 2.6 to 3.0 ms, PG about 10 to 11 ms) and the p90 ranges overlap, so the difference is within loopback noise.
+- [x] **Other routes.** `GET /api/v1/imports` (list), `DELETE /api/v1/imports/{id}` and `GET /api/v1/jobs` are not routed and return the generic API 404. There is no other import read path in the API.
+- [x] **Formula flags (L-1361).** Values stay raw. `sample_formula` (per sample row) and each preview row's `formula` hold the column indexes that `CsvCells::formulaLike()` matches. `FORMULA` (`/^'*[=+\-@\t\r]/`) is unchanged, and `protect()` now calls `formulaLike()`. Old vs new `protect()` over 3,375 generated prefixes (= + - @ TAB CR LF, space, apostrophe, fullwidth =, NUL): 0 differences. The export is unchanged, including the leading-apostrophe rule and the absence of leading-whitespace handling. OpenAPI marks `sample_formula` and `formula` as required and describes both; docs/api.md documents them.
+- [x] **Mutations (own run, all killed):**
+  - owner clause dropped;
+  - owner forced true;
+  - admin bypass dropped;
+  - admin closure not wired in Services;
+  - show check dropped;
+  - preview check dropped;
+  - 403 instead of 404 on show;
+  - formula flags emptied.
+- [x] **Merges.** `--remerge-diff` shows conflict resolution only. Routes.php keeps both the import routes and the #186 routes. docs/api.md keeps both table blocks. The openapi.yaml info text merges P2 users/branding and P3 imports, and both path and schema sets are kept (21 paths, valid JSON). `3769532` has an empty remerge diff. `php spark apotheke:routes` regenerates `RoutesCompiled.php` byte-identical; `routes --check` OK.
+- [x] **Suites.**
+  - Root: SQLite 363 OK (6 skipped); PG17 363 OK (2 skipped).
+  - Modules: 850 OK (SQLite and PG in one run; `TEST_PG_*` set).
+  - Lint OK, deptrac 0, gitleaks 8.30.1 clean on `8be5e4e..3769532`.
+  - `.gitleaks.toml` and CHANGELOG are identical to main.
+
+## Prior findings
+
+- **M-1360:** fixed (`902841c`), verified on both drivers.
+- **L-1361:** fixed (flagged, documented, values raw).
+- **N-1362:** open, unchanged (whole-file read up to the 5 MB cap; acceptable).
+- **L-1321, N-1320, N-1322:** fixed earlier.
+
+## New findings
+
+**N-1440 (main, not this PR): `Ci4BranchCiTest::testPgsqlProofSeparatesMissingTableFromOtherFailures` shares a fixed PG table.**
+- With no `TEST_PG_*` set (a SQLite run included), the test connects to `127.0.0.1:5432/apotheke`.
+- It drops and recreates `public.apotheke_ci4_pgsql_probe`.
+- Two runs against the same server race (drop/drop/create/create), which gives "relation already exists". This matches the flake seen during this PR's SQLite run.
+- CI is not affected (one PG service per job). Locally it can touch a shared PG.
+- **Fix idea:** skip unless `TEST_PG_*` is set explicitly, or use a per-run table or schema name.
+
+**N-1441 (main, pre-existing): the HTML pages `/import/{id}`, `/preview` and `/commit` are not owner-scoped.** They look up the import by id only, as legacy does. HANDOFF records this as "pending a PM decision". This PR does not change those pages.
+
+**N-1442:** ownership is keyed by username (`imports.actor`, as `jobs.actor`).
+- An admin renaming an account moves its pending uploads out of reach.
+- After a delete, a new account with the same name sees the old pending uploads.
+- The sweep removes stale uploads.
+
+## Security
+
+API show and preview are limited to the uploader or an admin, with a uniform 404. Upload caps, Storage keys and the read-only preview are unchanged from the previous review. Formula-like cells are flagged without changing their values. Testing used a private scratch tree and a throwaway PG17 on port 55493.

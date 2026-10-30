@@ -123,7 +123,7 @@ final class PermissionFilterTest extends CIUnitTestCase
     private const SELF_POST_ROUTES = ['account' => 'self', 'account/signout' => 'self'];
 
     /** POST routes legacy answers before its permission check; they check the CSRF token themselves (Auth). */
-    private const NONE_POST_ROUTES = ['login', 'logout', 'register'];
+    private const NONE_POST_ROUTES = ['login', 'logout', 'register', 'consent'];   // consent: strictly same-origin, no session yet
 
     /** State-changing routes that need only View (a viewer and the guest may use them, as on legacy). */
     private const VIEW_POST_ROUTES = ['theme' => 'view', 'recent/clear' => 'view'];
@@ -167,7 +167,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertGreaterThan(array_search('session', $required, true), $at);
         $this->assertGreaterThan(array_search('sameorigin', $required, true), $at);
         // Required filters run before the global ones, so before CSRF, in legacy's order.
-        $this->assertSame(['except' => ['login', 'register', 'logout', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
+        $this->assertSame(['except' => ['login', 'register', 'logout', 'consent', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
         $this->assertNotContains('permission', $filters->globals['before']);
         $this->assertSame(\Apotheke\Auth\Filters\PermissionFilter::class, $filters->aliases['permission']);
     }
@@ -190,7 +190,7 @@ final class PermissionFilterTest extends CIUnitTestCase
                 foreach (self::sample((string)$route) as $path) {
                     $seen[] = $path;
                     if ($need === Permissions::NONE) {
-                        $this->assertContains(ltrim($path, '/'), self::NONE_POST_ROUTES, $verb . ' ' . $path . ': only sign-in, registration and sign-out skip the check');
+                        $this->assertContains(ltrim($path, '/'), self::NONE_POST_ROUTES, $verb . ' ' . $path . ': only sign-in, registration, sign-out and consent skip the check');
                         $this->assertTrue($rules->isBeforeCheck($verb, $path), $verb . ' ' . $path);
                         continue;
                     }

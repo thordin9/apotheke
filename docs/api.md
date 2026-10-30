@@ -51,6 +51,21 @@ must neutralise them, as the export does with a leading apostrophe.
   A body must be `application/json`, or `multipart/form-data` for a file, otherwise the answer is
   `415 unsupported_media_type`. So a script needs to send `Origin` too.
 * A sign-in or sign-out gives a new session id and a new token; read it from the answer.
+* **Cookie consent.** Until the request carries the cookie `apotheke_consent=v1` (the banner sets it), the API sets
+  no cookie: `GET /api/v1/session` starts no session and answers `csrf_token: ""`, and every `POST`, `PUT`, `PATCH`
+  and `DELETE` is `403` problem+json with `code` and `error` both `consent_required`. Only the exact value counts;
+  any other is the same as none. A cross-origin SPA sends it with `credentials: 'include'` like the session cookie.
+  See [Cookie consent](deployment-and-operations.md#cookie-consent).
+
+  ```sh
+  # one cookie jar: seed it with the consent cookie (host, subdomains, path, secure, expiry, name, value; tabs)
+  printf 'apotheke.example\tFALSE\t/\tFALSE\t0\tapotheke_consent\tv1\n' > jar
+  # read the token (this starts the session), then sign in; the jar keeps both cookies
+  token=$(curl -s -c jar -b jar https://apotheke.example/api/v1/session | jq -r .csrf_token)
+  curl -s -c jar -b jar -H 'Origin: https://apotheke.example' -H "X-CSRF-Token: $token" \
+    -H 'Content-Type: application/json' -d '{"username": "admin", "password": "<password>"}' \
+    https://apotheke.example/api/v1/session
+  ```
 
 ## Answers
 

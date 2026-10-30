@@ -32,6 +32,8 @@ services:
       # Optional file mounted from outside the data volume. Ignored when APP_KEY is set.
       # With the bind mount or Compose secret above, set APP_KEY_FILE=/run/secrets/app_key in .env.
       APP_KEY_FILE: ${APP_KEY_FILE:-}
+      # required (default: no cookie until the user accepts the consent notice) or off.
+      COOKIE_CONSENT: ${COOKIE_CONSENT:-required}
       # sqlite (default, stored in ./data/catalog.sqlite) or pgsql (start with: docker compose --profile postgres up -d)
       DB_DRIVER: ${DB_DRIVER:-sqlite}
       DB_HOST: ${DB_HOST:-postgres}

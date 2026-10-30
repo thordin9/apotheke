@@ -40,6 +40,8 @@ class Filters extends BaseFilters
         'securityheaders' => \Apotheke\Core\Filters\SecurityHeaders::class,
         'posttoolarge' => \Apotheke\Core\Filters\PostTooLargeFilter::class,
         'session' => \Apotheke\Core\Filters\SessionCookie::class,
+        // Cookie consent (Config\Consent): no Set-Cookie and no writes (403 consent_required) without it.
+        'consent' => \Apotheke\Core\Filters\ConsentFilter::class,
         // Host allow-list (SEC-M3): 421 for an unknown name, before /healthz.
         'hostcheck' => \Apotheke\Core\Filters\HostFilter::class,
         // CI4's base URL from public_url / PUBLIC_URL and trust_proxy, per request (#76 L-2).
@@ -80,6 +82,7 @@ class Filters extends BaseFilters
             'publicbase',
             'api',
             'posttoolarge',
+            'consent',
             'session',
             'sameorigin',
             'permission',
@@ -87,6 +90,7 @@ class Filters extends BaseFilters
         'after' => [
             'requestcleanup',
             'api',
+            'consent',
         ],
     ];
 
@@ -102,8 +106,8 @@ class Filters extends BaseFilters
     public array $globals = [
         'before' => [
             // /login, /register and /logout check the token themselves, after their own redirects (Auth).
-            // /api has its own, stricter check ('apicsrf' below).
-            'sessioncsrf' => ['except' => ['login', 'register', 'logout', 'api', 'api/*']],
+            // /api has its own, stricter check ('apicsrf' below). /consent has no session yet: strictly same-origin.
+            'sessioncsrf' => ['except' => ['login', 'register', 'logout', 'consent', 'api', 'api/*']],
         ],
         'after' => [
             'securityheaders',
