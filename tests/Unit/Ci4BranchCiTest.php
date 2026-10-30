@@ -4,10 +4,13 @@ declare(strict_types=1);
 use PHPUnit\Framework\TestCase;
 
 require_once dirname(__DIR__, 2) . '/scripts/ci4-arch.php';
+require_once dirname(__DIR__) . '/lib.php';
 
 /** Feature 12: CI branch wiring, the PHP 8.4 legs of the one app, deptrac and DI configs. */
 final class Ci4BranchCiTest extends TestCase
 {
+    use SkipsOutsideCi;
+
     private function root(): string
     {
         return dirname(__DIR__, 2);
@@ -88,6 +91,7 @@ final class Ci4BranchCiTest extends TestCase
             $this->markTestIncomplete('PostgreSQL is not reachable, so the auth and missing-table cases were not run');
         }
 
+        $this->skipUnlessPgRejectsWrongPasswords();
         $bogus = 'proof-auth-should-not-leak';
         [$code, $out, $err] = $this->runProof([
             'TEST_PG_HOST' => getenv('TEST_PG_HOST') ?: '127.0.0.1',

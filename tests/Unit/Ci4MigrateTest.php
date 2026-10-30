@@ -284,8 +284,8 @@ final class Ci4MigrateTest extends TestCase
 
     /**
      * AGENTS.md "No shared schema change": after every migration, each table 2.6.26 creates is still there with the
-     * same columns (name, type, null, default, order): no CI4-only migration alters, adds to or drops a table or
-     * column 2.6.x reads.
+     * same columns (name, type, null, default, order), indexes, UNIQUE/CHECK/FK constraints and triggers (L-1300): no
+     * CI4-only migration alters, adds to or drops a table, column, index, constraint or trigger 2.6.x reads.
      */
     public function testNoCi4OnlyMigrationChangesATable26Reads(): void
     {
@@ -331,21 +331,75 @@ final class Ci4MigrateTest extends TestCase
         return [$out[0], $out[1]];
     }
 
-    /** @return array<string,list<string>> table => "column type null default" in column order */
+    /**
+     * Each table's shape as 2.x reads it: columns ("column name type null default", in order), then its indexes (name,
+     * columns, unique, partial WHERE), constraints (UNIQUE, CHECK, FK) and triggers, sorted. Index and trigger names
+     * and SQL are compared as written, with the pgsql schema name taken out (each run has its own schema).
+     *
+     * @return array<string,list<string>>
+     */
     private function shape(PDO $pdo, string $driver): array
     {
-        $shape = [];
-        if ($driver === 'sqlite') {
-            foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN) as $t) {
-                $shape[(string)$t] = array_map(static fn (array $c): string => implode(' ', [$c['name'], $c['type'], $c['notnull'], (string)$c['dflt_value']]),
-                    $pdo->query('PRAGMA table_info("' . $t . '")')->fetchAll(PDO::FETCH_ASSOC));
-            }
+        return $driver === 'sqlite' ? $this->sqliteShape($pdo) : $this->pgShape($pdo);
+    }
 
-            return $shape;
+    /** @return array<string,list<string>> */
+    private function sqliteShape(PDO $pdo): array
+    {
+        $shape = [];
+        $tables = $pdo->query("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_KEY_PAIR);
+        foreach ($tables as $t => $sql) {
+            $q = '"' . str_replace('"', '""', (string)$t) . '"';
+            $columns = array_map(static fn (array $c): string => implode(' ', ['column', $c['name'], $c['type'], $c['notnull'], (string)$c['dflt_value']]),
+                $pdo->query('PRAGMA table_info(' . $q . ')')->fetchAll(PDO::FETCH_ASSOC));
+            // UNIQUE and CHECK constraints live only in the CREATE TABLE text on SQLite
+            $rest = ['table ' . preg_replace('/\s+/', ' ', (string)$sql)];
+            foreach ($pdo->query('PRAGMA index_list(' . $q . ')')->fetchAll(PDO::FETCH_ASSOC) as $i) {
+                $cols = array_column($pdo->query('PRAGMA index_info("' . str_replace('"', '""', (string)$i['name']) . '")')->fetchAll(PDO::FETCH_ASSOC), 'name');
+                $isql = $pdo->query("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = " . $pdo->quote((string)$i['name']))->fetchColumn();
+                $where = is_string($isql) && preg_match('/\bWHERE\b(.*)$/is', $isql, $m) ? trim(preg_replace('/\s+/', ' ', $m[1])) : '';
+                $rest[] = implode(' ', ['index', $i['name'], 'unique=' . $i['unique'], 'origin=' . $i['origin'], 'cols=' . implode(',', $cols), 'where=' . $where]);
+            }
+            foreach ($pdo->query('PRAGMA foreign_key_list(' . $q . ')')->fetchAll(PDO::FETCH_ASSOC) as $f) {
+                $rest[] = implode(' ', ['fk', $f['id'], $f['seq'], $f['from'], '->', $f['table'] . '.' . $f['to'], 'update=' . $f['on_update'], 'delete=' . $f['on_delete']]);
+            }
+            $triggers = $pdo->query("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND tbl_name = " . $pdo->quote((string)$t))->fetchAll(PDO::FETCH_KEY_PAIR);
+            foreach ($triggers as $name => $tsql) {
+                $rest[] = 'trigger ' . $name . ' ' . preg_replace('/\s+/', ' ', (string)$tsql);
+            }
+            sort($rest, SORT_STRING);
+            $shape[(string)$t] = [...$columns, ...$rest];
         }
+
+        return $shape;
+    }
+
+    /** @return array<string,list<string>> */
+    private function pgShape(PDO $pdo): array
+    {
+        $schema = (string)$pdo->query('SELECT current_schema()')->fetchColumn();
+        $unqualify = static fn (string $sql): string => str_replace(['"' . $schema . '".', $schema . '.'], '', $sql);
+        $shape = [];
         foreach ($pdo->query('SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns
             WHERE table_schema = current_schema() ORDER BY table_name, ordinal_position')->fetchAll(PDO::FETCH_ASSOC) as $c) {
-            $shape[(string)$c['table_name']][] = implode(' ', [$c['column_name'], $c['data_type'], $c['is_nullable'], (string)$c['column_default']]);
+            $shape[(string)$c['table_name']][] = implode(' ', ['column', $c['column_name'], $c['data_type'], $c['is_nullable'], $unqualify((string)$c['column_default'])]);
+        }
+        $rest = [];
+        // search_docs_trgm is optional (0019 skips it when this schema cannot see pg_trgm), as in dumpPgsql()
+        foreach ($pdo->query("SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname <> 'search_docs_trgm'")->fetchAll(PDO::FETCH_ASSOC) as $i) {
+            $rest[(string)$i['tablename']][] = 'index ' . $i['indexname'] . ' ' . $unqualify((string)$i['indexdef']);
+        }
+        foreach ($pdo->query("SELECT c.relname, k.conname, k.contype, pg_get_constraintdef(k.oid) AS def FROM pg_constraint k
+            JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema()")->fetchAll(PDO::FETCH_ASSOC) as $k) {
+            $rest[(string)$k['relname']][] = implode(' ', ['constraint', $k['conname'], $k['contype'], $unqualify((string)$k['def'])]);
+        }
+        foreach ($pdo->query('SELECT c.relname, t.tgname, pg_get_triggerdef(t.oid) AS def FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal')->fetchAll(PDO::FETCH_ASSOC) as $t) {
+            $rest[(string)$t['relname']][] = 'trigger ' . $t['tgname'] . ' ' . $unqualify((string)$t['def']);
+        }
+        foreach ($rest as $table => $lines) {
+            sort($lines, SORT_STRING);
+            $shape[$table] = [...($shape[$table] ?? []), ...$lines];
         }
 
         return $shape;
