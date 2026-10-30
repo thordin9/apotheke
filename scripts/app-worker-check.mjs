@@ -47,6 +47,10 @@ async function get(path, method = "GET") {
 }
 
 function mirrors(res, path, csp) {
+	// Present on every Worker response, with or without a _headers to compare against (N-1414).
+	for (const k of ["strict-transport-security", "x-content-type-options", "x-frame-options", "content-security-policy"]) {
+		expect(Boolean(res.headers.get(k)), `${path} has ${k}`);
+	}
 	for (const [k, v] of all) {
 		if (k === "content-security-policy" || k === "cache-control") continue;
 		expect(res.headers.get(k) === v, `${path} ${k} matches _headers /*`);
@@ -70,6 +74,13 @@ for (const p of ["/app/", "/app/items/5", "/app/settings/backup"]) {
 }
 r = await get("/app/assets/does-not-exist.js");
 expect(r.status === 404, "/app/assets/does-not-exist.js -> 404 (no SPA fallback for files)");
+mirrors(r, "404 /app/assets/does-not-exist.js", appCsp);
+r = await get("/app/items/5", "HEAD");
+expect(r.status === 200, "HEAD /app/items/5 -> 200");
+mirrors(r, "HEAD /app/items/5", appCsp);
+r = await get("/fonts/does-not-exist.woff2");
+expect(r.status === 404 && r.headers.get("cache-control") === "no-cache", "/fonts/does-not-exist.woff2 -> 404, not cached");
+mirrors(r, "404 /fonts/does-not-exist.woff2");
 
 r = await get("/config.json");
 const cfg = await r.json();
@@ -77,8 +88,11 @@ expect(r.status === 200 && cfg.apiBase === "https://api.services.getapotheke.com
 expect(r.headers.get("cache-control") === "no-cache", "/config.json no-cache");
 mirrors(r, "/config.json");
 
-r = await get("/app/", "POST");
-expect(r.status === 405, "POST /app/ -> 405");
+for (const p of ["/app/", "/config.json", "/fonts/x.woff2"]) {
+	r = await get(p, "POST");
+	expect(r.status === 405, `POST ${p} -> 405`);
+	mirrors(r, `405 ${p}`, p.startsWith("/app/") ? appCsp : undefined);
+}
 
 if (existsSync(`${dist}/fonts`)) {
 	const font = readdirSync(`${dist}/fonts`).find((f) => f.endsWith(".woff2"));

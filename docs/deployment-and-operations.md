@@ -482,6 +482,9 @@ permission the environment's token probably lacks; a missing container push perm
 `apotheke-api` needs its secrets set once on the Worker, outside CI: `wrangler secret put APP_PASSWORD` and
 `wrangler secret put APP_KEY` (a deploy without them fails with *required secrets have not been set*).
 
+**getapotheke-app build.** The job checks out the full history with tags (`fetch-depth: 0`), so the build can read
+the latest release tag and its date rather than the build date.
+
 **getapotheke-app routing and headers.** The static assets serve the landing page and its files directly, with
 the headers in `frontend/public/_headers` (copied to `dist/_headers`); the landing page's CSP is set there only.
 Cloudflare does not apply `_headers` to responses a Worker makes, so only the paths in `run_worker_first`
@@ -493,7 +496,7 @@ Cloudflare does not apply `_headers` to responses a Worker makes, so only the pa
 * `/config.json` is answered by the Worker from its non-secret var `API_BASE`
   (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`), with `Cache-Control: no-cache`;
 * `/fonts/*` (unhashed) get one day (`max-age=86400`), like `/assets/brand/*` and `/assets/mascot/*` in `_headers`;
-* the Worker's responses carry the `/*` headers of `_headers` (HSTS, nosniff, `X-Frame-Options`, `Referrer-Policy`,
+* every response the Worker makes (the SPA fallback, the `/app` redirect, its 404, 405 and 500 answers) carries the `/*` headers of `_headers` (HSTS, nosniff, `X-Frame-Options`, `Referrer-Policy`,
   `Permissions-Policy`), and under `/app/` exactly its `/app/*` Content-Security-Policy. When `_headers` changes
   `/*` or `/app/*`, change `COMMON` or `APP_CSP` in the Worker too; the check below fails until they match. A change to
   the landing CSP needs `_headers` only.

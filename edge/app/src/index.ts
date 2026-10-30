@@ -51,28 +51,38 @@ function finish(path: string, res: Response): Response {
 
 export default {
 	async fetch(request, env): Promise<Response> {
-		const url = new URL(request.url);
-		const path = url.pathname;
-		if (request.method !== "GET" && request.method !== "HEAD") {
-			return finish(path, new Response("Method Not Allowed\n", { status: 405, headers: { Allow: "GET, HEAD" } }));
+		// Every response this Worker makes, errors included, goes through finish() and so carries the headers.
+		try {
+			return await route(request, env);
+		} catch {
+			const path = new URL(request.url).pathname;
+			return finish(path, new Response("Internal Server Error\n", { status: 500 }));
 		}
-		if (path === "/config.json") {
-			const body = JSON.stringify({ apiBase: env.API_BASE });
-			return finish(
-				path,
-				new Response(request.method === "HEAD" ? null : body, {
-					headers: { "Content-Type": "application/json; charset=utf-8" },
-				}),
-			);
-		}
-		if (path === "/app") {
-			return finish(path, new Response(null, { status: 301, headers: { Location: APP + url.search } }));
-		}
-		let res = await env.ASSETS.fetch(request);
-		if (res.status === 404 && path.startsWith(APP) && !/\.[A-Za-z0-9]+$/.test(path)) {
-			res = await env.ASSETS.fetch(new Request(new URL(APP, url), request));
-			if (res.status === 200) res = new Response(res.body, { status: 200, headers: res.headers });
-		}
-		return finish(path, res);
 	},
 } satisfies ExportedHandler<Env>;
+
+async function route(request: Request, env: Env): Promise<Response> {
+	const url = new URL(request.url);
+	const path = url.pathname;
+	if (request.method !== "GET" && request.method !== "HEAD") {
+		return finish(path, new Response("Method Not Allowed\n", { status: 405, headers: { Allow: "GET, HEAD" } }));
+	}
+	if (path === "/config.json") {
+		const body = JSON.stringify({ apiBase: env.API_BASE });
+		return finish(
+			path,
+			new Response(request.method === "HEAD" ? null : body, {
+				headers: { "Content-Type": "application/json; charset=utf-8" },
+			}),
+		);
+	}
+	if (path === "/app") {
+		return finish(path, new Response(null, { status: 301, headers: { Location: APP + url.search } }));
+	}
+	let res = await env.ASSETS.fetch(request);
+	if (res.status === 404 && path.startsWith(APP) && !/\.[A-Za-z0-9]+$/.test(path)) {
+		res = await env.ASSETS.fetch(new Request(new URL(APP, url), request));
+		if (res.status === 200) res = new Response(res.body, { status: 200, headers: res.headers });
+	}
+	return finish(path, res);
+}
