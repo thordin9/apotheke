@@ -13,6 +13,8 @@ COPY modules ./modules
 RUN composer dump-autoload --no-dev --optimize --ignore-platform-req=ext-intl
 
 FROM php:${PHP_VERSION}-fpm-alpine
+# Every RUN with a pipe fails when any part of it fails (hadolint DL4006).
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
 LABEL org.opencontainers.image.title="Apotheke" \
       org.opencontainers.image.description="Apotheke, the storehouse for your stuff: a self-hosted PHP catalog for your belongings (nginx + php-fpm)" \
@@ -30,6 +32,8 @@ LABEL org.opencontainers.image.title="Apotheke" \
 ARG IMAGICK_VERSION=3.8.0
 ARG IMAGICK_SHA256=a964e54a441392577f195d91da56e0b3cf30c32e6d60d0531a355b37bb1e1a59
 ARG IMAGICK_PECL_SHA256=bda67461c854f20d6105782b769c524fc37388b75d4481d951644d2167ffeec6
+# Alpine keeps only the current package versions, so apk add is not pinned (DL3018); $PHPIZE_DEPS is a word list (SC2086).
+# hadolint ignore=DL3018,SC2086
 RUN set -eux; \
     apk add --no-cache nginx tini libjpeg-turbo libpng libwebp libzip libpq imagemagick libheif libgomp icu-libs; \
     apk add --no-cache --virtual .build-deps $PHPIZE_DEPS libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev postgresql-dev imagemagick-dev libheif-dev icu-dev; \
@@ -104,7 +108,6 @@ RUN set -eux; \
 
 ENV CI_ENVIRONMENT=production \
     DATA_DIR=/data \
-    APP_PASSWORD="" \
     TZ=UTC \
     PORT=9091
 
@@ -113,7 +116,8 @@ VOLUME ["/data"]
 EXPOSE 9091
 STOPSIGNAL SIGTERM
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -q -O /dev/null "http://127.0.0.1:${PORT}/healthz" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${PORT}/healthz\" || exit 1"]
 
 ENTRYPOINT ["/sbin/tini", "--", "apotheke-entrypoint"]
 CMD ["apotheke"]

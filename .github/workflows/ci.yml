@@ -288,17 +288,29 @@ jobs:
           retention-days: 14
 
   docker:
-    name: Docker build + smoke test (PHP ${{ matrix.php }})
+    name: Docker build + smoke test (PHP ${{ matrix.php }}${{ matrix.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         # The exact PHP patch, passed as the PHP_VERSION build-arg. It is the shipped
-        # default (Dockerfile ARG PHP_VERSION) and must match it.
+        # default (ARG PHP_VERSION in both Dockerfiles) and must match it.
+        # Two images from the same code: nginx + php-fpm (Dockerfile) and FrankenPHP (Dockerfile.frankenphp).
+        # The nginx leg keeps its check name (label '').
         include:
           - php: '8.4'
             php_patch: '8.4.27'
+            dockerfile: Dockerfile
+            from: 'php:${PHP_VERSION}-fpm-alpine'
+            label: ''
+            server: nginx
+          - php: '8.4'
+            php_patch: '8.4.27'
+            dockerfile: Dockerfile.frankenphp
+            from: 'dunglas/frankenphp:${FRANKENPHP_VERSION}-php${PHP_VERSION}-alpine AS php'
+            label: ', FrankenPHP'
+            server: frankenphp
     services:
       postgres:
         image: postgres:17
@@ -310,54 +322,62 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           load: true
           tags: apotheke:ci
           build-args: |
             PHP_VERSION=${{ matrix.php_patch }}
-          cache-from: type=gha,scope=php${{ matrix.php }}
-          cache-to: type=gha,mode=max,scope=php${{ matrix.php }}
+          cache-from: type=gha,scope=php${{ matrix.php }}-${{ matrix.server }}
+          cache-to: type=gha,mode=max,scope=php${{ matrix.php }}-${{ matrix.server }}
+      - name: hadolint (no warnings; pinned by digest)
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: docker run --rm -i hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d hadolint --failure-threshold info - < "$DOCKERFILE"
       - name: Assert the image runs the pinned PHP patch
         env:
           BUILT: ${{ matrix.php_patch }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          FROM_PHP: ${{ matrix.from }}
         run: |
           set -euo pipefail
-          # The pin is the ARG PHP_VERSION default; every FROM php: line must use it.
+          # The pin is the ARG PHP_VERSION default; the FROM line of the PHP base must use it.
           # Instruction keywords are case-insensitive, as in Docker.
-          pins=$(sed -nE 's/^[Aa][Rr][Gg] PHP_VERSION=([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' Dockerfile)
+          pins=$(sed -nE 's/^[Aa][Rr][Gg] PHP_VERSION=([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' "$DOCKERFILE")
           if [ -z "$pins" ] || [ "$(printf '%s\n' "$pins" | wc -l)" -ne 1 ]; then
-            echo "Dockerfile does not pin exactly one ARG PHP_VERSION=X.Y.Z" >&2
+            echo "$DOCKERFILE does not pin exactly one ARG PHP_VERSION=X.Y.Z" >&2
             exit 1
           fi
           pin=$pins
+          # Exactly one FROM line uses the PHP base image, and it is the pinned one (matrix.from):
+          # php:${PHP_VERSION}-fpm-alpine (nginx) or dunglas/frankenphp:…-php${PHP_VERSION}-alpine (FrankenPHP).
+          base=${FROM_PHP%%:*}
           froms=0
           while IFS= read -r line || [ -n "$line" ]; do
             case "$line" in
-              [Ff][Rr][Oo][Mm]' php:'*)
+              [Ff][Rr][Oo][Mm]" $base:"*)
                 froms=$((froms + 1))
-                # shellcheck disable=SC2016 # a literal ${PHP_VERSION}, not an expansion
-                case "$line" in
-                  [Ff][Rr][Oo][Mm]' php:${PHP_VERSION}-fpm-alpine') ;;
-                  *)
-                    echo "Dockerfile FROM line does not use the pinned ARG PHP_VERSION" >&2
-                    exit 1
-                    ;;
-                esac
+                if [ "${line#* }" != "$FROM_PHP" ]; then
+                  echo "$DOCKERFILE FROM line does not use the pinned ARG PHP_VERSION: $line" >&2
+                  exit 1
+                fi
                 ;;
             esac
-          done < Dockerfile
+          done < "$DOCKERFILE"
           if [ "$froms" -ne 1 ]; then
-            echo "Dockerfile needs exactly one FROM php:\${PHP_VERSION}-fpm-alpine line" >&2
+            echo "$DOCKERFILE needs exactly one FROM $FROM_PHP line" >&2
             exit 1
           fi
           # The default must be what the same-minor leg builds, so a bump can't skip CI.
           if [ "${BUILT%.*}" = "${pin%.*}" ] && [ "$BUILT" != "$pin" ]; then
-            echo "Dockerfile default $pin differs from the $BUILT build-arg in ci.yml" >&2
+            echo "$DOCKERFILE default $pin differs from the $BUILT build-arg in ci.yml" >&2
             exit 1
           fi
           # Check the patch this leg actually built (the build-arg), not a fixed value.
@@ -378,16 +398,71 @@ jobs:
         run: docker run -d --name apotheke -p 9091:9091 -e ALLOW_NO_LOGIN=1 apotheke:ci
       - name: Smoke test SQLite (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:9091
+      - name: The web server and PHP run as www-data, never root (tini and the entrypoint only start them)
+        env:
+          SERVER: ${{ matrix.server }}
+        run: |
+          set -euo pipefail
+          docker exec apotheke ps -o user,args > ps.txt
+          cat ps.txt
+          case "$SERVER" in
+            nginx) procs='php-fpm: pool|nginx: worker' ;;
+            frankenphp) procs='frankenphp run' ;;
+          esac
+          grep -E "$procs" ps.txt | grep -v '^root ' | grep -q .
+          if grep -E "$procs" ps.txt | grep -E '^root ' | grep -v 'php-fpm: master\|nginx: master'; then
+            echo "a request-serving process runs as root" >&2
+            exit 1
+          fi
+      - name: FrankenPHP threads (FRANKENPHP_NUM_THREADS, default 2, 1-64)
+        if: matrix.server == 'frankenphp'
+        run: |
+          set -euo pipefail
+          docker logs apotheke 2>&1 | grep -F 'frankenphp on :9091 (/var/www/app/public), 2 PHP threads'
+          for bad in 0 65 abc; do
+            code=0
+            docker run --rm -e ALLOW_NO_LOGIN=1 -e FRANKENPHP_NUM_THREADS="$bad" apotheke:ci > out.txt 2>&1 || code=$?
+            test "$code" = 64 || { cat out.txt; echo "FRANKENPHP_NUM_THREADS=$bad: exit $code, expected 64" >&2; exit 1; }
+          done
+          docker run -d --name apotheke-threads -p 9095:9091 -e ALLOW_NO_LOGIN=1 -e FRANKENPHP_NUM_THREADS=4 apotheke:ci
+          for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9095/healthz && break; sleep 0.2; done
+          curl -fsS -o /dev/null http://127.0.0.1:9095/healthz
+          docker logs apotheke-threads 2>&1 | grep -F ', 4 PHP threads'
+          docker rm -f apotheke-threads >/dev/null
+      - name: HEALTHCHECK turns healthy
+        run: |
+          set -euo pipefail
+          test -n "$(docker inspect -f '{{json .Config.Healthcheck}}' apotheke:ci | grep -F healthz)"
+          for _ in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' apotheke)" = healthy ] && exit 0
+            sleep 2
+          done
+          docker inspect -f '{{json .State.Health}}' apotheke
+          exit 1
       - name: Web server checks (routing, blocked paths, headers, gzip, body limits)
         run: bash scripts/docker-checks.sh http://127.0.0.1:9091
+      - name: www-data cannot write the app code (only writable/ and /data; N-1427)
+        run: |
+          set -euo pipefail
+          docker exec -u www-data apotheke sh -c '
+            found=$(find /var/www/app /etc/apotheke /usr/local/etc /usr/local/bin /usr/local/lib /etc/ImageMagick-7 \
+              -path /var/www/app/writable -prune -o -exec sh -c "for f; do [ -w \"\$f\" ] && echo \"\$f\"; done; true" sh {} + 2>/dev/null)
+            if [ -n "$found" ]; then echo "writable by www-data:"; echo "$found"; exit 1; fi
+            if touch /var/www/app/public/index.php 2>/dev/null || touch /var/www/app/public/new.php 2>/dev/null; then exit 1; fi
+            test -w /var/www/app/writable && test -w /data
+            echo "app code read-only for www-data"'
       - name: Sign-in mode checks (sessions on demand, restore limit after sign-in)
         run: |
           set -euo pipefail
           APP_PW=$(openssl rand -hex 16)
           export APP_PW
-          docker run -d --name apotheke-auth -p 9092:9092 -e PORT=9092 -e APP_PASSWORD="$APP_PW" apotheke:ci
+          # TRUSTED_PROXIES: the private ranges docker connects from, so the behind-a-proxy checks (CONTAINER=,
+          # M-1450) can see X-Forwarded-For used; the earlier checks send none.
+          docker run -d --name apotheke-auth -p 9092:9092 -e PORT=9092 -e APP_PASSWORD="$APP_PW" \
+            -e TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8 apotheke:ci
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9092/healthz && break; sleep 0.2; done
-          bash scripts/docker-auth-checks.sh http://127.0.0.1:9092
+          SERVER=${{ matrix.server }} CONTAINER=apotheke-auth bash scripts/docker-auth-checks.sh http://127.0.0.1:9092
+          bash scripts/docker-log-checks.sh apotheke-auth http://127.0.0.1:9092
           docker rm -f apotheke-auth >/dev/null
       - name: Run container (PostgreSQL)
         run: |
@@ -396,7 +471,7 @@ jobs:
             apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8081
-      - name: Graceful stop (SIGTERM reaches nginx and php-fpm, exit code 0)
+      - name: Graceful stop (SIGTERM reaches the web server and PHP, exit code 0)
         run: |
           start=$(date +%s)
           docker stop -t 20 apotheke
@@ -411,9 +486,9 @@ jobs:
           docker run -d --name apotheke-auth-ms -p 9094:9094 -e PORT=9094 -e SIGN_IN_FAIL_MS=1500 \
             -e APP_PASSWORD="$APP_PW" apotheke:ci
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9094/healthz && break; sleep 0.2; done
-          FAIL_MS=1500 bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
+          FAIL_MS=1500 SERVER=${{ matrix.server }} bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
           docker rm -f apotheke-auth-ms >/dev/null
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: npm
@@ -427,9 +502,9 @@ jobs:
           npx playwright test --project=docker-smoke
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: playwright-report-docker-php-${{ matrix.php }}
+          name: playwright-report-docker-php-${{ matrix.php }}-${{ matrix.server }}
           path: |
             tests/visual/report/
             tests/visual/results/
@@ -439,6 +514,99 @@ jobs:
         run: |
           docker logs apotheke || true
           docker logs apotheke-pg || true
+
+  # Self-hosting with docker compose, as docs/getting-started.md and docs/deployment-and-operations.md describe it,
+  # for both images: the port is published on 127.0.0.1 only, a new install refuses to start without APP_PASSWORD
+  # (SEC-M3), starts with it, signs in, and the PostgreSQL profile works.
+  compose:
+    name: Docker Compose self-hosting (${{ matrix.dockerfile }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile: [Dockerfile, Dockerfile.frankenphp]
+    env:
+      APOTHEKE_DOCKERFILE: ${{ matrix.dockerfile }}
+      APOTHEKE_IMAGE_TAG: compose-ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build with docker compose
+        run: docker compose build
+      - name: New install without APP_PASSWORD refuses to start (exit 78)
+        run: |
+          set -euo pipefail
+          code=0
+          APP_PASSWORD='' docker compose run --rm --no-deps apotheke > out.txt 2>&1 || code=$?
+          cat out.txt
+          test "$code" = 78
+          grep -q 'sign-in is off' out.txt
+          sudo rm -rf data
+      - name: Start with APP_PASSWORD (compose .env) and wait until healthy
+        run: |
+          set -euo pipefail
+          umask 077
+          printf 'APP_PASSWORD=%s\nAPP_KEY=%s\n' "$(openssl rand -hex 16)" "$(openssl rand -base64 32)" > .env
+          docker compose up -d --wait --wait-timeout 120
+          docker compose ps
+      - name: Published on 127.0.0.1 only (SEC-M3)
+        run: |
+          set -euo pipefail
+          docker compose port apotheke 9091 | tee port.txt
+          test "$(cat port.txt)" = 127.0.0.1:9091
+          bindings=$(docker inspect -f '{{json .HostConfig.PortBindings}}' apotheke)
+          echo "$bindings"
+          test "$bindings" = '{"9091/tcp":[{"HostIp":"127.0.0.1","HostPort":"9091"}]}'
+          ip=$(hostname -I | awk '{print $1}')
+          if curl -s -m 3 -o /dev/null "http://$ip:9091/healthz"; then echo "reachable on $ip" >&2; exit 1; fi
+      - name: Smoke, web server and sign-in checks through compose
+        run: |
+          set -euo pipefail
+          APP_PW=$(sed -n 's/^APP_PASSWORD=//p' .env)
+          export APP_PW
+          case "$APOTHEKE_DOCKERFILE" in Dockerfile.frankenphp) export SERVER=frankenphp ;; *) export SERVER=nginx ;; esac
+          bash scripts/docker-auth-checks.sh http://127.0.0.1:9091
+          bash scripts/docker-log-checks.sh apotheke http://127.0.0.1:9091
+      - name: Restart keeps data and sign-in, without APP_PASSWORD
+        run: |
+          set -euo pipefail
+          sed -i '/^APP_PASSWORD=/d' .env
+          docker compose up -d --wait --wait-timeout 120 --force-recreate
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9091/)" = 303
+          docker compose down
+      - name: PostgreSQL without DB_PASSWORD stops at once with a clear message (N-1426)
+        run: |
+          set -euo pipefail
+          sudo rm -rf data
+          umask 077
+          printf 'APP_PASSWORD=%s\nDB_DRIVER=pgsql\n' "$(openssl rand -hex 16)" > .env
+          code=0
+          timeout 60 docker compose run --rm --no-deps apotheke > out.txt 2>&1 || code=$?
+          cat out.txt
+          test "$code" = 78
+          grep -q 'DB_DRIVER=pgsql needs DB_PASSWORD' out.txt
+          sudo rm -rf data .env out.txt
+      - name: PostgreSQL profile
+        run: |
+          set -euo pipefail
+          sudo rm -rf data
+          umask 077
+          printf 'APP_PASSWORD=%s\nDB_DRIVER=pgsql\nDB_PASSWORD=%s\n' "$(openssl rand -hex 16)" "$(openssl rand -hex 16)" > .env
+          docker compose --profile postgres up -d --wait --wait-timeout 180
+          APP_PW=$(sed -n 's/^APP_PASSWORD=//p' .env)
+          export APP_PW
+          bash scripts/docker-auth-checks.sh http://127.0.0.1:9091
+          docker compose exec -T apotheke sh -c 'test "$DB_DRIVER" = pgsql'
+      - name: Container logs
+        if: always()
+        run: docker compose --profile postgres logs --no-color || true
+      - name: Clean up
+        if: always()
+        run: |
+          docker compose --profile postgres down -v || true
+          sudo rm -rf data .env
 
   commits:
     name: Conventional Commits

@@ -193,12 +193,14 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('name: Lint (PHP ${{ matrix.php }})', $yml);
         $this->assertStringContainsString('name: Headless mobile checks (PHP ${{ matrix.php }})', $yml);
         $this->assertStringContainsString('name: Visual E2E (Playwright, PHP ${{ matrix.php }}, shard ${{ matrix.shard }}/3)', $yml);
-        $this->assertStringContainsString('name: Docker build + smoke test (PHP ${{ matrix.php }})', $yml);
+        $this->assertStringContainsString('name: Docker build + smoke test (PHP ${{ matrix.php }}${{ matrix.label }})', $yml);
         $this->assertStringContainsString('scripts/e2e-container-setup.sh "${{ matrix.php }}"', $yml);
         // docker: the exact patch as the PHP_VERSION build-arg; it is the Dockerfile default (8.4 since #132).
         $this->assertMatchesRegularExpression(
             "/docker:\\n(?:    .*\\n)*?    strategy:\\n      fail-fast: false\\n      matrix:\\n(?:        #.*\\n)*        include:\\n"
-            . "          - php: '8\\.4'\\n            php_patch: '8\\.4\\.\\d+'\\n    services:\\n/",
+            . "          - php: '8\\.4'\\n            php_patch: '8\\.4\\.\\d+'\\n            dockerfile: Dockerfile\\n"
+            . "(?:            .*\\n)*          - php: '8\\.4'\\n            php_patch: '8\\.4\\.\\d+'\\n"
+            . "            dockerfile: Dockerfile\\.frankenphp\\n(?:            .*\\n)*    services:\\n/",
             $yml,
             'docker builds the shipped PHP 8.4 image, as an exact patch'
         );
@@ -211,6 +213,10 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('ARG PHP_VERSION=' . $patch[1] . "\n", $docker);
         $this->assertStringContainsString('FROM php:${PHP_VERSION}-fpm-alpine', $docker);
         $this->assertStringNotContainsString('FROM php:8.', $docker);
+        // The FrankenPHP image builds the same PHP patch (same matrix patch for both legs).
+        $this->assertSame(2, substr_count($yml, "php_patch: '" . $patch[1] . "'"), 'both docker legs build the same PHP patch');
+        $frankenphp = (string)file_get_contents($this->root() . '/Dockerfile.frankenphp');
+        $this->assertStringContainsString('ARG PHP_VERSION=' . $patch[1] . "\n", $frankenphp);
 
         $setup = (string)file_get_contents($this->root() . '/scripts/e2e-container-setup.sh');
         $this->assertStringContainsString('version="${1:-8.3}"', $setup);
