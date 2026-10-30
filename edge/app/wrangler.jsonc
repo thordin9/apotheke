@@ -13,16 +13,15 @@
 	"assets": {
 		"directory": "../../frontend/dist",
 		"binding": "ASSETS",
-		// The script sees every request first: it adds the security and cache headers, answers /config.json,
-		// and falls back to the SPA's index.html only under /app/.
-		"run_worker_first": true,
+		// Only these paths go through the script (src/index.ts): the SPA under /app/ (its CSP and the fallback to
+		// /app/index.html), /config.json and the fonts' cache. Everything else is served straight from the assets
+		// with frontend/public/_headers, which owns the landing page's CSP.
+		"run_worker_first": ["/app", "/app/*", "/config.json", "/fonts/*"],
 		"html_handling": "auto-trailing-slash",
 		"not_found_handling": "404-page"
 	},
 	"vars": {
 		// Served as /config.json (no-cache). Non-secret, reviewed here.
-		"API_BASE": "https://api.services.getapotheke.com/api/v1",
-		// Allowed in the SPA's connect-src and img-src.
-		"API_ORIGIN": "https://api.services.getapotheke.com"
+		"API_BASE": "https://api.services.getapotheke.com/api/v1"
 	}
 }

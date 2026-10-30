@@ -482,20 +482,24 @@ permission the environment's token probably lacks; a missing container push perm
 `apotheke-api` needs its secrets set once on the Worker, outside CI: `wrangler secret put APP_PASSWORD` and
 `wrangler secret put APP_KEY` (a deploy without them fails with *required secrets have not been set*).
 
-**getapotheke-app routing** (`edge/app/src/index.ts`, Workers static assets with `run_worker_first`):
+**getapotheke-app routing and headers.** The static assets serve the landing page and its files directly, with
+the headers in `frontend/public/_headers` (copied to `dist/_headers`); the landing page's CSP is set there only.
+Cloudflare does not apply `_headers` to responses a Worker makes, so only the paths in `run_worker_first`
+(`edge/app/wrangler.jsonc`) go through `edge/app/src/index.ts`, which sets the same headers itself:
 
 * `/app` answers 301 to `/app/`. Under `/app/`, an existing file is served; any other path without a file extension
-  gets `/app/index.html` (the SPA's client-side routes). Outside `/app/` there is no SPA fallback: a missing page is
-  a 404 with `404.html`;
-* `/config.json` is answered by the Worker from its non-secret `vars` (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`),
-  with `Cache-Control: no-cache`;
-* `Cache-Control`: `/assets/brand/*` and `/assets/mascot/*` one day (`max-age=86400`, not hashed); other `/assets/*`
-  (and `/app/assets/*`) a year, `immutable`; HTML `no-cache`;
-* every response gets `Strict-Transport-Security: max-age=31536000` (without `includeSubDomains`, so other
-  getapotheke.com hosts are not affected), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
-  `Referrer-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`. The landing page's CSP is
-  `default-src 'self'` with no `script-src`; the SPA's CSP adds `script-src 'self'` and allows
-  `https://api.services.getapotheke.com` in `connect-src` and `img-src`.
+  gets `/app/index.html` (the SPA's client-side routes), a missing file with an extension is a 404. Outside `/app/`
+  there is no SPA fallback: a missing page is a 404 with `404.html`;
+* `/config.json` is answered by the Worker from its non-secret var `API_BASE`
+  (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`), with `Cache-Control: no-cache`;
+* `/fonts/*` (unhashed) get one day (`max-age=86400`), like `/assets/brand/*` and `/assets/mascot/*` in `_headers`;
+* the Worker's responses carry the `/*` headers of `_headers` (HSTS, nosniff, `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`), and under `/app/` exactly its `/app/*` Content-Security-Policy. When `_headers` changes
+  `/*` or `/app/*`, change `COMMON` or `APP_CSP` in the Worker too; the check below fails until they match. A change to
+  the landing CSP needs `_headers` only.
+
+`scripts/app-worker-check.mjs` checks a running `wrangler dev` of the Worker against `frontend/dist`: the routing
+above, and that the Worker's headers match `dist/_headers`. The pull request job runs it on every change.
 
 **Local checks** without an account: `cd edge && npm ci && npx wrangler dev` (needs Docker for the container, and
 `.dev.vars` from `.dev.vars.example`); the manual workflow *Edge local test* does the same on a GitHub runner.

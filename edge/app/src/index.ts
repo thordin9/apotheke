@@ -1,52 +1,51 @@
-// getapotheke-app: routing, /config.json and headers in front of the static assets (frontend/dist).
-//  - /            the landing page and its static pages (no SPA fallback; a missing page is a 404, with
-//                 dist/404.html as its body when the build has one)
-//  - /app         301 to /app/
-//  - /app/...     the SPA: an existing file, otherwise /app/index.html (client-side routes); a missing file with an
-//                 extension (for example /app/assets/x.js) stays a 404
-//  - /config.json the SPA's runtime config, from the vars below, never cached
-// Every response gets the security headers (HSTS included); the SPA and the landing page get their own CSP.
+// getapotheke-app: the Worker in front of the static assets (frontend/dist).
+//
+// The static assets serve the landing page and its files (/, /privacy/, /404.html, robots.txt, sitemap.xml, icons,
+// site.webmanifest, /assets/...) directly, with the headers in frontend/public/_headers: the landing CSP lives
+// there only, and this Worker never sets it. Cloudflare does not apply _headers to responses the Worker makes, so
+// for the paths in run_worker_first (wrangler.jsonc) this script sets the headers itself, mirroring _headers:
+//  - /app          301 to /app/
+//  - /app/...      the SPA: an existing file, otherwise /app/index.html (client-side routes); a missing file with an
+//                  extension (for example /app/assets/x.js) stays a 404. The `/*` headers plus the `/app/*` CSP.
+//  - /config.json  the SPA's runtime config, from the vars in wrangler.jsonc, never cached
+//  - /fonts/...    unhashed fonts: one day, like /assets/brand/* and /assets/mascot/*
+// Keep COMMON and APP_CSP in step with frontend/public/_headers (`/*` and `/app/*`).
 
 const APP = "/app/";
 
+// _headers `/*`, apart from its Content-Security-Policy (the landing CSP) and Cache-Control.
 const COMMON: Record<string, string> = {
-	"Strict-Transport-Security": "max-age=31536000",
+	"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 	"X-Content-Type-Options": "nosniff",
+	"Referrer-Policy": "strict-origin-when-cross-origin",
 	"X-Frame-Options": "DENY",
-	"Referrer-Policy": "same-origin",
-	"Cross-Origin-Opener-Policy": "same-origin",
-	"Permissions-Policy": "geolocation=(), microphone=(), payment=(), usb=()",
+	"Permissions-Policy":
+		"camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), " +
+		"payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()",
 };
 
-// The landing page runs no script: default-src 'self' and no script-src.
-const LANDING_CSP =
-	"default-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; " +
-	"object-src 'none'; upgrade-insecure-requests";
+// _headers `/app/*` (which detaches the landing CSP with `! Content-Security-Policy`).
+const APP_CSP =
+	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; " +
+	"connect-src 'self' https://api.services.getapotheke.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; " +
+	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 
-function spaCsp(api: string): string {
-	return (
-		`default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: ${api}; ` +
-		`connect-src 'self' ${api}; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; ` +
-		"form-action 'none'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
-	);
-}
+// For what the Worker serves outside /app/ (config.json, fonts, errors): nothing to run, embed or frame.
+const DATA_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
-function cacheControl(path: string, res: Response): string | null {
-	if (path.startsWith("/assets/brand/") || path.startsWith("/assets/mascot/")) return "public, max-age=86400";
-	if (path.startsWith("/assets/") || path.startsWith(APP + "assets/")) {
-		return res.status === 200 ? "public, max-age=31536000, immutable" : "no-store";
-	}
-	if ((res.headers.get("Content-Type") ?? "").startsWith("text/html")) return "no-cache";
-	return null;
-}
+const DAY = "public, max-age=86400";
+const YEAR = "public, max-age=31536000, immutable";
 
-function finish(path: string, res: Response, env: Env): Response {
+function finish(path: string, res: Response): Response {
 	const out = new Response(res.body, res);
 	for (const [k, v] of Object.entries(COMMON)) out.headers.set(k, v);
-	const spa = path === "/app" || path.startsWith(APP);
-	out.headers.set("Content-Security-Policy", spa ? spaCsp(env.API_ORIGIN) : LANDING_CSP);
-	const cc = cacheControl(path, out);
-	if (cc) out.headers.set("Cache-Control", cc);
+	const app = path === "/app" || path.startsWith(APP);
+	out.headers.set("Content-Security-Policy", app ? APP_CSP : DATA_CSP);
+	let cc = "no-cache";
+	if (res.status === 200 && path.startsWith("/fonts/")) cc = DAY;
+	else if (res.status === 200 && path.startsWith(APP + "assets/")) cc = YEAR;
+	else if (res.status >= 400 && res.status !== 404) cc = "no-store";
+	out.headers.set("Cache-Control", cc);
 	return out;
 }
 
@@ -55,23 +54,25 @@ export default {
 		const url = new URL(request.url);
 		const path = url.pathname;
 		if (request.method !== "GET" && request.method !== "HEAD") {
-			return finish(path, new Response("Method Not Allowed\n", { status: 405, headers: { Allow: "GET, HEAD" } }), env);
+			return finish(path, new Response("Method Not Allowed\n", { status: 405, headers: { Allow: "GET, HEAD" } }));
 		}
 		if (path === "/config.json") {
 			const body = JSON.stringify({ apiBase: env.API_BASE });
-			const res = new Response(request.method === "HEAD" ? null : body, {
-				headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-cache" },
-			});
-			return finish(path, res, env);
+			return finish(
+				path,
+				new Response(request.method === "HEAD" ? null : body, {
+					headers: { "Content-Type": "application/json; charset=utf-8" },
+				}),
+			);
 		}
 		if (path === "/app") {
-			return finish(path, new Response(null, { status: 301, headers: { Location: APP + url.search } }), env);
+			return finish(path, new Response(null, { status: 301, headers: { Location: APP + url.search } }));
 		}
 		let res = await env.ASSETS.fetch(request);
 		if (res.status === 404 && path.startsWith(APP) && !/\.[A-Za-z0-9]+$/.test(path)) {
 			res = await env.ASSETS.fetch(new Request(new URL(APP, url), request));
 			if (res.status === 200) res = new Response(res.body, { status: 200, headers: res.headers });
 		}
-		return finish(path, res, env);
+		return finish(path, res);
 	},
 } satisfies ExportedHandler<Env>;

@@ -15,6 +15,7 @@ on:
       - 'edge/package-lock.json'
       - 'scripts/cf-worker-guard.mjs'
       - 'scripts/cf-deploy.sh'
+      - 'scripts/app-worker-check.mjs'
       - '.github/workflows/deploy-frontend.yml'
   # A published GitHub Release (release.yml creates it with the release App's token, for tag vX.Y.Z). Not `push: tags`:
   # the tag points at the "chore(release): … [skip ci]" commit, and [skip ci] would suppress a tag-push run.
@@ -77,6 +78,17 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/app-bundle"
+      - name: Worker routing and headers against the build (wrangler dev, local only)
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: |
+          (cd edge/app && nohup npx --no-install wrangler dev --ip 127.0.0.1 --port 8788 > "$RUNNER_TEMP/app-dev.log" 2>&1 &)
+          for _ in $(seq 1 60); do grep -q 'Ready on' "$RUNNER_TEMP/app-dev.log" && break; sleep 1; done
+          code=0
+          node scripts/app-worker-check.mjs http://127.0.0.1:8788 frontend/dist || code=$?
+          pkill -f 'wrangler dev' || true
+          if [ "$code" != 0 ]; then cat "$RUNNER_TEMP/app-dev.log"; fi
+          exit "$code"
 
   deploy:
     name: Deploy getapotheke-app
