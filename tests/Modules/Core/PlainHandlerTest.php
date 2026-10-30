@@ -142,6 +142,25 @@ final class PlainHandlerTest extends CIUnitTestCase
         }
         $https = (new PlainHandler())->render(new RuntimeException('x'), new Response(config(App::class)), ['REQUEST_URI' => '/api/v1/me', 'HTTPS' => 'on']);
         $this->assertSame('max-age=31536000', $https->getHeaderLine('Strict-Transport-Security'));
+    }
+
+    /** QA L-1220: HSTS on an /api error follows an https:// PUBLIC_URL from the config, as the success path does. */
+    public function testApiErrorHstsFollowsTheConfiguredPublicUrl(): void
+    {
+        $hsts = static fn (?\Closure $url): string => (new PlainHandler(null, null, null, $url))
+            ->render(new RuntimeException('x'), new Response(config(App::class)), ['REQUEST_URI' => '/api/v1/me', 'HTTP_X_FORWARDED_PROTO' => 'http'])
+            ->getHeaderLine('Strict-Transport-Security');
+        $this->assertSame('max-age=31536000', $hsts(static fn (): string => 'https://inv.example.test'));
+        $this->assertSame('max-age=31536000', $hsts(static fn (): string => 'HTTPS://inv.example.test'));
+        $this->assertSame('', $hsts(static fn (): string => 'http://inv.example.test'));
+        $this->assertSame('', $hsts(static fn (): string => ''));
+        $this->assertSame('', $hsts(null));
+        $this->assertSame('', $hsts(static function (): string {
+            throw new RuntimeException('config unreadable');
+        }), 'a failing lookup does not break the answer');
+        $page = (new PlainHandler(null, null, null, static fn (): string => 'https://inv.example.test'))
+            ->render(new RuntimeException('x'), new Response(config(App::class)), ['REQUEST_URI' => '/']);
+        $this->assertFalse($page->hasHeader('Strict-Transport-Security'), 'pages are unchanged');
         foreach (['/apix', '/', '/x/api/v1'] as $uri) {
             $plain = (new PlainHandler())->render(new RuntimeException('x'), new Response(config(App::class)), ['REQUEST_URI' => $uri]);
             $this->assertSame('text/plain; charset=UTF-8', $plain->getHeaderLine('Content-Type'), $uri);
