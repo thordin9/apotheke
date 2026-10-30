@@ -16,10 +16,11 @@ and do not include real credentials, tokens or personal data in a report.
 
 ## What to expect
 
-- We acknowledge a report within **[N] working days**.
-- We aim to confirm the issue and share a plan within **[N] days**, and to publish a fix
-  and a GitHub security advisory once it is ready. Credit is given in the advisory unless
-  you prefer otherwise.
+These times are targets, not guarantees. Apotheke has one maintainer.
+
+- We aim to acknowledge reports within 3 working days, confirm the issue and share a plan within 14 days, and release a fix within 90 days.
+- Complex issues may take longer, and we will keep the reporter informed.
+- We aim to publish a GitHub security advisory with the fix. Credit is given in the advisory unless you prefer otherwise.
 - We may ask for more detail through the private advisory thread.
 
 ## Supported versions
