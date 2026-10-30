@@ -92,16 +92,29 @@ final class DockerfileTest extends TestCase
             $this->assertStringContainsString('  0|false|no) jobs_worker=0 ;;', $sh, $f);
             $this->assertMatchesRegularExpression('/su-exec www-data (apotheke-jobs-worker|"\$@")/', $sh, $f);
             $this->assertMatchesRegularExpression('/kill -TERM "\$jobs"/', $sh, $f);
+            // L-1470: the trap is in place before anything starts, and the flag is checked again once the PIDs are set
+            $trap = strpos($sh, 'trap stop TERM INT QUIT');
+            $this->assertNotFalse($trap, $f);
+            $this->assertLessThan(strpos($sh, ' &' . "\n", (int)strpos($sh, 'PORT="${PORT:-9091}"')), $trap, "$f: trap before the first child");
+            $this->assertStringContainsString('if [ "$stopping" = 1 ]; then stop; fi', $sh, $f);
+            // L-1472: the web server's own exit status is the container's
+            $this->assertStringContainsString('exited unexpectedly (exit $code), stopping', $sh, $f);
             // compose keeps PostgreSQL's files in ./data/postgres, inside the app's /data: never chowned by the app
             $this->assertStringContainsString('find "$DATA_DIR" -path "$DATA_DIR/postgres" -prune -o \! -user www-data -exec chown -h www-data:www-data {} +', $sh, $f);
         }
         $worker = (string)file_get_contents("$root/docker/jobs-worker.sh");
-        $this->assertStringContainsString('php spark --no-header jobs:work &', $worker);
+        $this->assertStringContainsString('spawn php spark --no-header jobs:work', $worker);
+        $this->assertStringContainsString('spawn sleep "$delay"', $worker);
+        // L-1470: a stop that came before child=$! is passed on right after it
+        $this->assertStringContainsString("  \"\$@\" &\n  child=\$!\n  if [ \"\$stopping\" = 1 ]; then kill -TERM \"\$child\" 2>/dev/null || true; fi\n", $worker);
         $this->assertStringContainsString('trap stop TERM INT', $worker);
         $this->assertStringContainsString('if [ "$delay" -gt 60 ]; then delay=60; fi', $worker);
         $this->assertDoesNotMatchRegularExpression('/\benv\b|printenv|set -x|APP_PASSWORD|APP_KEY|DB_PASSWORD/', $worker, 'never prints the environment');
         $compose = (string)file_get_contents("$root/docker-compose.yml");
         $this->assertStringContainsString('      APOTHEKE_JOBS_WORKER: ${APOTHEKE_JOBS_WORKER:-1}', $compose);
+        // the Cloudflare container runs no worker (jobs will run through a Cron Trigger or Queues there)
+        $this->assertStringContainsString('"APOTHEKE_JOBS_WORKER": "0"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
+        $this->assertStringContainsString('APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",', (string)file_get_contents("$root/edge/src/index.ts"));
     }
 
     public function testEntrypointRefusesToStartWithSignInOff(): void
