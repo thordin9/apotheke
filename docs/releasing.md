@@ -53,16 +53,18 @@ manual run checks out `main`.
 5. commit `chore(release): vX.Y.Z [skip ci]`, create the tag and push both with `git push --atomic`;
 6. `gh release create vX.Y.Z --notes-file …`.
 
-`check-commits.sh` skips release commits, and the release commit starts no new CI run.
+`check-commits.sh` skips release commits. The release commit starts no new CI run because its message carries
+`[skip ci]`; that marker is what prevents a release loop, since the App-token push would otherwise trigger CI.
 
 ### Push credentials: the release GitHub App
 
 `main` is protected by a ruleset, so the workflow does not push with `GITHUB_TOKEN` (which stays read-only:
 `contents: read`, plus `actions: read` for the coverage artifact). Step 5 and step 6 use an installation token of a
-GitHub App, created at the start of the job by
-[`actions/create-github-app-token`](https://github.com/actions/create-github-app-token) (pinned by commit SHA) with
-`permission-contents: write`. The checkout keeps that token for `git push`, and `gh release create` gets it as
-`GH_TOKEN`. One-time setup by a repository admin:
+GitHub App, created by [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
+(pinned by commit SHA, like every action in the workflow) with `permission-contents: write`, only when there is a release
+and right before the push. The checkout keeps no credentials (`persist-credentials: false`). Only two steps get the
+token, as step-level environment: the push step hands it to `git` as an `http.extraheader` through `GIT_CONFIG_*`
+variables (never on the command line or in `.git/config`, never printed), and `gh release create` gets it as `GH_TOKEN`. One-time setup by a repository admin:
 
 1. a GitHub App with the repository permission *Contents: Read and write* and nothing else, installed on this
    repository only;
