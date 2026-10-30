@@ -50,8 +50,9 @@ manual run checks out `main`.
 2. `php scripts/release.php plan --github-output` (exit early when there is nothing to release);
 3. download the `coverage-ci4-sqlite` artifact of that CI run and regenerate the README coverage table from it;
 4. `php scripts/release.php apply --notes=…` updates `VERSION` and `CHANGELOG.md` and writes the release notes;
-5. commit `chore(release): vX.Y.Z [skip ci]`, create the tag and push both with `git push --atomic`;
-6. `gh release create vX.Y.Z --notes-file …`.
+5. commit `chore(release): vX.Y.Z [skip ci]` and create the tag (no token in this step);
+6. push both with `git push --atomic`, using the release App's token;
+7. `gh release create vX.Y.Z --notes-file …`.
 
 `check-commits.sh` skips release commits. The release commit starts no new CI run because its message carries
 `[skip ci]`; that marker is what prevents a release loop, since the App-token push would otherwise trigger CI.
@@ -59,12 +60,17 @@ manual run checks out `main`.
 ### Push credentials: the release GitHub App
 
 `main` is protected by a ruleset, so the workflow does not push with `GITHUB_TOKEN` (which stays read-only:
-`contents: read`, plus `actions: read` for the coverage artifact). Step 5 and step 6 use an installation token of a
+`contents: read`, plus `actions: read` for the coverage artifact). Step 6 and step 7 use an installation token of a
 GitHub App, created by [`actions/create-github-app-token`](https://github.com/actions/create-github-app-token)
 (pinned by commit SHA, like every action in the workflow) with `permission-contents: write`, only when there is a release
 and right before the push. The checkout keeps no credentials (`persist-credentials: false`). Only two steps get the
 token, as step-level environment: the push step hands it to `git` as an `http.extraheader` through `GIT_CONFIG_*`
-variables (never on the command line or in `.git/config`, never printed), and `gh release create` gets it as `GH_TOKEN`. One-time setup by a repository admin:
+variables (never on the command line or in `.git/config`; its base64 form is registered with `::add-mask::` before
+use), and `gh release create` gets it as `GH_TOKEN`. `release.php apply` runs in the earlier step, without the token.
+The workflow has no `set -x`, `bash -x` or `GIT_TRACE`, which could print the header; a test pins all of this.
+[Dependabot](../.github/dependabot.yml) proposes updates to the pinned actions in one weekly `ci:` pull request.
+
+One-time setup by a repository admin:
 
 1. a GitHub App with the repository permission *Contents: Read and write* and nothing else, installed on this
    repository only;
