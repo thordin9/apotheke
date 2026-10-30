@@ -455,9 +455,12 @@ jobs:
           set -euo pipefail
           APP_PW=$(openssl rand -hex 16)
           export APP_PW
-          docker run -d --name apotheke-auth -p 9092:9092 -e PORT=9092 -e APP_PASSWORD="$APP_PW" apotheke:ci
+          # TRUSTED_PROXIES: the private ranges docker connects from, so the behind-a-proxy checks (CONTAINER=,
+          # M-1450) can see X-Forwarded-For used; the earlier checks send none.
+          docker run -d --name apotheke-auth -p 9092:9092 -e PORT=9092 -e APP_PASSWORD="$APP_PW" \
+            -e TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8 apotheke:ci
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9092/healthz && break; sleep 0.2; done
-          SERVER=${{ matrix.server }} bash scripts/docker-auth-checks.sh http://127.0.0.1:9092
+          SERVER=${{ matrix.server }} CONTAINER=apotheke-auth bash scripts/docker-auth-checks.sh http://127.0.0.1:9092
           bash scripts/docker-log-checks.sh apotheke-auth http://127.0.0.1:9092
           docker rm -f apotheke-auth >/dev/null
       - name: Run container (PostgreSQL)
