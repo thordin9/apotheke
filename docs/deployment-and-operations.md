@@ -458,12 +458,17 @@ Caddyfile therefore runs two servers in one process: the public one on `PORT` ap
 passes the request to the PHP server (a unix socket under `/run`, unreachable from outside) through a reverse proxy
 that first reads up to **64 KiB** of the body. That is everything a signed-out client can send (the sign-in form,
 `POST /api/v1/session`), so a slow anonymous client holds a Caddy goroutine and at most 64 KiB, never a PHP thread.
-A body over 64 KiB, or a request that may have a body but declares no length, is only read after the app said the
-client is signed in (or sign-in is off): Caddy asks `GET /upload/check` (204 or 401, no session, no body) first.
-Headers have 10 s (`read_header`), and a body 300 s (`read_body`, for a large restore on a slow line). PHP sees the
-client's address, port and own `X-Forwarded-*` headers as before. `scripts/docker-checks.sh` keeps four slow uploads
-in flight (more than the two threads) and checks that `/healthz`, the sign-in page and a form post still answer
-within 2 s, on both images.
+A body over 64 KiB (any method), or a request that may have a body but declares no length, is only read after the
+app said the client is signed in (or sign-in is off): Caddy asks `GET /upload/check` (204 or 401, no session, no
+body) first. A `GET`, `HEAD` or `OPTIONS` request with a chunked body (no declared length) gets **411** before
+anything is read, whoever sends it (M-1451). Headers have 10 s (`read_header`), and a body 300 s (`read_body`, for a
+large restore on a slow line). PHP sees the client's address, port and own `X-Forwarded-*` headers as before, on
+the request itself and on both sign-in checks (`/upload/check`, `/backup/restore/check`): all three hops share one
+header block (`php_hop`), so behind an HTTPS proxy with `trust_proxy` on the checks see the `__Host-` session cookie
+too (M-1450). `scripts/docker-checks.sh` keeps four slow uploads, then four slow chunked `GET`s, in flight (more than
+the two threads) and checks that `/healthz`, the sign-in page and a form post still answer within 2 s, on both
+images. `scripts/docker-auth-checks.sh` with `CONTAINER=` turns `trust_proxy` on and checks a signed-in 300 KB
+upload and restore behind `X-Forwarded-Proto: https` (and that signed-out ones are still refused).
 
 **Access log.** JSON on stdout, one line per request, without the request's `Cookie`, `Authorization`,
 `Proxy-Authorization`, `X-CSRF-Token` and `X-Apotheke-Proxy` (the edge proxy's shared secret) headers, or the

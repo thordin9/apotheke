@@ -15,6 +15,20 @@
 # exact path), and only after the app said yes to /backup/restore/check (signed in with the Backup permission).
 # PHP's own limits (php-frankenphp.ini) are the restore ones, so these caps are what keeps every other route at
 # 22 MiB (scripts/docker-auth-checks.sh tests it).
+# Every hop to the PHP server (the main reverse_proxy and both forward_auth checks) carries the same request headers
+# (M-1450): the client address in X-Apotheke-Peer-* (set here, never from the client), and the client's own
+# X-Forwarded-For, -Proto and -Host unchanged (the app decides whom to trust, with trust_proxy and TRUSTED_PROXIES).
+# Without them Caddy would put its own values (X-Forwarded-Proto: http) on the sign-in checks, and behind an HTTPS
+# proxy the app would not see the __Host- session cookie there. The Host header is passed through as is.
+(php_hop) {
+	header_up -Via
+	header_up X-Apotheke-Peer-Addr {remote_host}
+	header_up X-Apotheke-Peer-Port {remote_port}
+	header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+	header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
+	header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
+}
+
 {
 	admin off
 	auto_https off
@@ -129,8 +143,7 @@
 		}
 		forward_auth @restore unix//run/apotheke-caddy/php.sock {
 			uri /backup/restore/check
-			header_up X-Apotheke-Peer-Addr {remote_host}
-			header_up X-Apotheke-Peer-Port {remote_port}
+			import php_hop
 		}
 		# over 520 MiB: refused only after the check, so a signed-out client learns nothing but 401 (nginx checks the
 		# declared size first and answers 413)
@@ -155,10 +168,17 @@
 		request_body @notrestore {
 			max_size 22MiB
 		}
-		# A body over 64 KiB, or a request that may have a body but declares no length (chunked; Go hides
-		# Transfer-Encoding, so: no Content-Length on a method other than GET, HEAD or OPTIONS), only after the app said
-		# the client is signed in (or sign-in is off): 204 from /upload/check, else its 401 as is. Signed-out clients
-		# never need more (M-1420).
+		# GET, HEAD and OPTIONS never carry a body the app reads: one without a declared length (chunked) is a 411
+		# before anything is read, on any route and whether signed in or not (M-1451). The header matcher sees
+		# Transfer-Encoding (Go moves it out of the header map; the {http.request.header.*} placeholders do not).
+		@chunkednobody {
+			method GET HEAD OPTIONS
+			header Transfer-Encoding *
+		}
+		respond @chunkednobody 411
+		# A body over 64 KiB (any method), or one without a declared length (chunked: no Content-Length on a method other
+		# than GET, HEAD or OPTIONS, which got their 411 above), only after the app said the client is signed in (or
+		# sign-in is off): 204 from /upload/check, else its 401 as is. Signed-out clients never need more (M-1420).
 		@largebody {
 			not {
 				method POST
@@ -168,23 +188,16 @@
 		}
 		forward_auth @largebody unix//run/apotheke-caddy/php.sock {
 			uri /upload/check
-			header_up X-Apotheke-Peer-Addr {remote_host}
-			header_up X-Apotheke-Peer-Port {remote_port}
+			import php_hop
 		}
 
 		# PHP, through the socket. Up to 64 KiB of the body is read here first, so a slow small body never reaches a
-		# PHP thread; the client's own X-Forwarded-* headers go through unchanged (the app decides whom to trust), and
-		# the client address travels in X-Apotheke-Peer-* (set here, never from the client).
+		# PHP thread; the request headers are the php_hop ones (see the top of this file).
 		reverse_proxy unix//run/apotheke-caddy/php.sock {
 			request_buffers 64KiB
 			flush_interval -1
-			header_up -Via
 			header_down -Via
-			header_up X-Apotheke-Peer-Addr {remote_host}
-			header_up X-Apotheke-Peer-Port {remote_port}
-			header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
-			header_up X-Forwarded-Proto {http.request.header.X-Forwarded-Proto}
-			header_up X-Forwarded-Host {http.request.header.X-Forwarded-Host}
+			import php_hop
 		}
 	}
 
