@@ -300,7 +300,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   PM): `POST /consent` (`Core\Controllers\ConsentController`, strictly same-origin, `consent=accept`, `return`
   through `CookieConsent::returnPath()`) is the no-JS Accept; `COOKIE_CONSENT=off` turns it all off; L-1341
   (backstop test with `session.auto_start`), L-1342 (no-store), N-1343..N-1345 fixed; N-1346: no decline button
-  by design (ignoring the notice stays cookieless). Mutation list in the PR body. Open.
+  by design (ignoring the notice stays cookieless). QA round 2: M-1420 upgrade note (`upgrade-3.0.md`, CHANGELOG),
+  N-1422 curl example with one seeded jar, N-1423, N-1424 (non-ASCII `return` percent-encoded); L-1421 is a
+  follow-up. Mutation list in the PR body. Open.
 
 - [#186](https://github.com/thordin9/apotheke/pull/186): API P2 reads (API plan §3, Users and sign-in and Branding rows):
   `GET /api/v1/users` (id, name, role, status, created_at, last_login_at; 2.6.x stores no e-mail, so there is none),

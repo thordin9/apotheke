@@ -43,11 +43,13 @@ Any other path under `/api` answers `404`.
   See [Cookie consent](deployment-and-operations.md#cookie-consent).
 
   ```sh
-  # read the token, then sign in; the jar keeps the session cookie
-  curl -s -c jar -b jar -H 'Cookie: apotheke_consent=v1' https://apotheke.example/api/v1/session
-  curl -s -c jar -b jar -H 'Cookie: apotheke_consent=v1' -H 'Origin: https://apotheke.example' \
-    -H 'X-CSRF-Token: <csrf_token>' -H 'Content-Type: application/json' \
-    -d '{"username": "admin", "password": "<password>"}' https://apotheke.example/api/v1/session
+  # one cookie jar: seed it with the consent cookie (host, subdomains, path, secure, expiry, name, value; tabs)
+  printf 'apotheke.example\tFALSE\t/\tFALSE\t0\tapotheke_consent\tv1\n' > jar
+  # read the token (this starts the session), then sign in; the jar keeps both cookies
+  token=$(curl -s -c jar -b jar https://apotheke.example/api/v1/session | jq -r .csrf_token)
+  curl -s -c jar -b jar -H 'Origin: https://apotheke.example' -H "X-CSRF-Token: $token" \
+    -H 'Content-Type: application/json' -d '{"username": "admin", "password": "<password>"}' \
+    https://apotheke.example/api/v1/session
   ```
 
 ## Answers
