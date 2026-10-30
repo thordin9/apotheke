@@ -82,7 +82,7 @@ final class Ci4ImportRaceTest extends TestCase
             $this->assertSame("held\n", (string)fgets($pipes[1]));
             $preview = curl_init($server->base . '/import/2/preview');
             curl_setopt_array($preview, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query(['csrf' => $token, 'col' => ['name']]),
-                CURLOPT_COOKIE => 'apothekesid=' . $sid, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30]);
+                CURLOPT_COOKIE => 'apotheke_consent=v1; apothekesid=' . $sid, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30]);
             $multi = curl_multi_init();
             curl_multi_add_handle($multi, $preview);
             // Once the preview has read the file and waits for the lock, the submit's file goes.

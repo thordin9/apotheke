@@ -28,7 +28,8 @@ final class OpenApiTest extends CIUnitTestCase
         foreach (array_values(array_diff(Router::HTTP_METHODS, ['CLI'])) as $verb) {
             foreach (array_keys($collection->getRoutes($verb)) as $route) {
                 $route = (string)$route;
-                if (str_starts_with($route, 'api/') && $route !== 'api/(.*)') {
+                // POST /consent is outside /api but documented too: the pages' no-JS consent form.
+                if ((str_starts_with($route, 'api/') && $route !== 'api/(.*)') || $route === 'consent') {
                     $routed[] = strtolower($verb) . ' /' . $route;
                 }
             }

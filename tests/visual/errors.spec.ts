@@ -17,7 +17,7 @@ test.describe('friendly error pages', () => {
 
   test('expired session (CSRF) shows a friendly page and changes nothing', async ({ app, page }) => {
     await app.go('/item/2');
-    await page.context().clearCookies();
+    await page.context().clearCookies({ name: 'apothekesid' });   // the session only: consent stays (docs/deployment-and-operations.md)
     page.once('dialog', d => d.accept());
     await page.getByRole('button', { name: 'Delete item' }).click();
     await expect(page.locator('.empty p')).toHaveText('Your session expired. Reload the page and try again.');

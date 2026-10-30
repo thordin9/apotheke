@@ -12,6 +12,7 @@ use Apotheke\Catalog\Items\UndoApply;
 use Apotheke\Catalog\RecentItems;
 use Apotheke\Catalog\Views\ItemView;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Http\CookieConsent;
 use Apotheke\Core\Http\ErrorPage;
 use Apotheke\Core\Libraries\Text;
 use Apotheke\Core\Security\PermissionGate;
@@ -59,7 +60,8 @@ final class ItemController extends CatalogController
             return $this->missing();
         }
         $iid = (int)$it['id'];
-        $cookie = $this->wantsJson() ? null : $this->recent()->record($iid);
+        // No cookie consent: no device cookie, so nothing is recorded under a scope no one can read back.
+        $cookie = $this->wantsJson() || !CookieConsent::request() ? null : $this->recent()->record($iid);
         /** @var ActivityLog $log */
         $log = service('activityLog');
         $hist = $log->list($iid, 1, 10);

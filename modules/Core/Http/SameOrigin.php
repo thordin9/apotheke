@@ -43,6 +43,26 @@ final class SameOrigin
     }
 
     /**
+     * Strictly same-origin (POST /consent): Sec-Fetch-Site, when sent, must be same-origin (not same-site or
+     * none), Origin, when sent, must be one of ownOrigins(), and at least one of them must be there.
+     *
+     * @param array<string,mixed> $server
+     */
+    public function strict(array $server, bool $https, string $publicUrl = ''): bool
+    {
+        $site = strtolower(trim((string)($server['HTTP_SEC_FETCH_SITE'] ?? '')));
+        if ($site !== '' && $site !== 'same-origin') {
+            return false;
+        }
+        $origin = trim((string)($server['HTTP_ORIGIN'] ?? ''));
+        if ($origin !== '') {
+            return in_array(self::normalise($origin), $this->ownOrigins($server, $https, $publicUrl), true);
+        }
+
+        return $site === 'same-origin';
+    }
+
+    /**
      * An origin for comparison: lower case, no trailing '/', and one trailing
      * dot of the host dropped (`example.test.` is `example.test`, QA L-1140).
      */

@@ -44,7 +44,9 @@ check "localhost Host accepted"       200 "$(code -H 'Host: localhost' "$base/")
 check "IPv6 address Host accepted"    200 "$(code -H 'Host: [::1]:9091' "$base/")"
 # sign-in is off in this container: a cross-site form post is refused, a plain one is not
 check "cross-site POST refused"       403 "$(code -X POST -H 'Sec-Fetch-Site: cross-site' -d 'name=x' "$base/locations")"
-check "plain POST reaches the app"    419 "$(code -X POST -d 'name=x' "$base/locations")"
+check "plain POST reaches the app"    419 "$(code -b apotheke_consent=v1 -X POST -d 'name=x' "$base/locations")"
+check "POST without cookie consent"   403 "$(code -X POST -d 'name=x' "$base/locations")"
+check "  and it sets no cookie"       "" "$(hdr Set-Cookie -X POST -d 'name=x' "$base/locations")"
 # sessions on demand (SEC-L2): no cookie for a 404 or static branding
 check "404 sets no session cookie"    "" "$(hdr Set-Cookie "$base/no/such/page")"
 check "favicon sets no cookie"        "" "$(hdr Set-Cookie "$base/favicon.ico")"
@@ -56,5 +58,5 @@ head -c $((30 * 1024 * 1024)) /dev/zero > "$big"
 check "30 MB body rejected on /save (22m limit)" 413 "$(code -X POST -F "photo=@$big" "$base/save")"
 # /backup/restore accepts it at the HTTP layer (the app then rejects the CSRF/zip, but not with 413)
 # (sign-in is off here, so the restore check lets it through; the app then refuses the missing CSRF token with 419)
-check "30 MB body accepted by /backup/restore" 419 "$(code -X POST -F "backup=@$big" "$base/backup/restore")"
+check "30 MB body accepted by /backup/restore" 419 "$(code -b apotheke_consent=v1 -X POST -F "backup=@$big" "$base/backup/restore")"
 exit $fail
