@@ -19,7 +19,10 @@ final class JobsCli
         . "  --once           run at most one job\n"
         . "  --max-jobs=N     stop after N jobs (default: no limit)\n"
         . "  --max-seconds=N  stop after N seconds (default: 3600)\n"
-        . "  --sleep=MS       wait MS milliseconds when no job is due (default: 1000; 0: stop instead)\n";
+        . "  --sleep=MS       wait MS milliseconds when no job is due (default: 1000; 0: stop instead)\n"
+        . "Exit codes: 0 after a clean stop (a limit, an empty queue with --sleep=0, or SIGTERM/SIGINT with pcntl: the\n"
+        . "running job checkpoints and goes back to the queue); 1 for a bad argument or no database; without pcntl,\n"
+        . "SIGTERM ends the worker at once (143) and its job is taken over when its lease runs out.\n";
 
     private bool $stop = false;
 
@@ -76,7 +79,7 @@ final class JobsCli
     /** @return \Closure():void puts the previous handlers back */
     private function trapSignals(): \Closure
     {
-        if (!function_exists('pcntl_signal') || !function_exists('pcntl_async_signals')) {
+        if (!function_exists('pcntl_signal') || !function_exists('pcntl_async_signals') || !function_exists('pcntl_signal_get_handler')) {
             return static function (): void {
             };
         }
