@@ -3,6 +3,7 @@
 * [Backup and restore](#backup-and-restore)
 * [Upgrades](#upgrades)
 * [Behind a web server or reverse proxy](#behind-a-web-server-or-reverse-proxy)
+* [The FrankenPHP image](#the-frankenphp-image)
 * [HTTPS](#https)
 * [PostgreSQL role](#postgresql-role)
 * [Security](#security)
@@ -381,6 +382,57 @@ and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as befor
 policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick reports, the refused coders, and
 from `magick -list policy` no rights for delegates or `@file` paths, including any narrower rule added later, and a
 time limit of 60 s or less).
+
+## The FrankenPHP image
+
+The repository builds two images from the same code, data and settings:
+
+| | `Dockerfile` (default) | `Dockerfile.frankenphp` |
+|---|---|---|
+| Web server and PHP | nginx + php-fpm, supervised by the entrypoint | FrankenPHP 1.13.4 (Caddy 2 + PHP 8.4 ZTS in one process) |
+| Used by | self-hosting (default) | Apotheke on Cloudflare Containers (`edge/`), and self-hosting by choice |
+| Size (PHP 8.4.27, podman) | about 146 MB | about 175 MB (+29 MB, +20%) |
+
+Both run `tini` as PID 1 and the same entrypoint checks (sign-in required at start, SEC-M3; exit codes 64 and 78;
+the data volume rules, L-430), serve `public/` only, and run the web server and PHP as `www-data` (uid 82). The
+FrankenPHP image is a multi-stage build: the PHP extensions are compiled in a build stage on the official
+`dunglas/frankenphp` Alpine image, and only the `frankenphp` and `php` binaries, `libphp.so`, the extensions and
+their shared libraries are copied onto a plain Alpine base, so it has no compiler, headers, PHP sources, `php-cgi`,
+`phpdbg` or `pecl`. Its `HEALTHCHECK` is the same `/healthz` probe. A slimmer base (for example a static
+FrankenPHP build) is a possible later step.
+
+**Switching with docker compose.** Set `APOTHEKE_DOCKERFILE=Dockerfile.frankenphp` in `.env` and run
+`docker compose up -d --build`. To go back to nginx (the rollback), remove the line, or set it to `Dockerfile`,
+and run the same command. The data directory, database, `APP_KEY` and settings are shared; nothing is migrated.
+With plain Docker: `docker build -f Dockerfile.frankenphp -t apotheke:frankenphp .`.
+
+**Threads.** `FRANKENPHP_NUM_THREADS` (1–64, default **2**) is the number of PHP threads, i.e. requests served at
+once. Two fit Cloudflare's `basic` instance (1/4 vCPU, 1 GiB) with two large HEIC uploads at a time (each can take
+about 300 MB while it is decoded). On a bigger server, raise it, for example to 8. A value outside 1–64 exits with
+code 64. The nginx image ignores it (php-fpm's own settings apply).
+
+**Request body limits.** The same as the nginx image, enforced by Caddy per route:
+
+* **22 MB on every route.** A request that declares a larger `Content-Length` gets **413** before the body is read,
+  signed in or not; a body without a length (chunked) is cut off at 22 MB and the request fails.
+* **520 MB only on `POST /backup/restore`, and only after sign-in.** Caddy first asks the app
+  (`/backup/restore/check`, the same as nginx's `auth_request`); a request that is not signed in with the Backup
+  permission gets the app's answer (401, 403 or 421) before the body is read.
+
+FrankenPHP has one PHP configuration, so PHP's own `upload_max_filesize` and `post_max_size` are the restore values
+(512M and 520M, `docker/frankenphp/php-frankenphp.ini`); the caps above are what keeps every other route at 22 MB.
+The per-photo and per-attachment limits in the Control Panel still apply. `scripts/docker-auth-checks.sh` signs in
+and checks that a 30 MB POST to other routes (`/save`, photo and attachment uploads, the logo, the import,
+`/backup/restore/confirm`, the API, an unknown path) gets 413, on both images.
+
+**Differences from the nginx image** (none changes security headers, blocked paths or status codes of the app):
+
+* no `Server` header (nginx sends `Server: nginx` without a version);
+* a blocked path traversal such as `/assets/../../app/Config/App.php` gets 404 instead of 400; neither serves a file;
+* CSS and JavaScript are sent as `text/css; charset=utf-8` and `text/javascript; charset=utf-8`;
+* responses under 512 bytes and `HEAD` answers are not gzipped;
+* errors produced by the web server itself (413, a missing asset) are a plain-text status line;
+* the access log is JSON on stdout.
 
 ## HTTPS
 
