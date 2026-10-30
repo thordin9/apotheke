@@ -18,6 +18,35 @@ final class ClientAddress
     {
     }
 
+    /**
+     * This request's client (API plan §2.4): X-Apotheke-Client-IP when the edge
+     * proxy sent the matching PROXY_SHARED_SECRET; else REAL_IP_HEADER from a
+     * listed proxy with trust_proxy on; else from() over X-Forwarded-For.
+     *
+     * @param array<string,mixed> $server $_SERVER
+     * @param list<string> $proxies trusted_proxies
+     */
+    public function forServer(array $server, bool $trustProxy, array $proxies, string $realIpHeader, string $secret): string
+    {
+        $get = static fn (string $key): string => is_string($server[$key] ?? null) ? $server[$key] : '';
+        $remote = trim($get('REMOTE_ADDR'));
+        if ($secret !== '' && hash_equals($secret, $get('HTTP_X_APOTHEKE_PROXY'))) {
+            $ip = $this->proxies->normalize(trim($get('HTTP_X_APOTHEKE_CLIENT_IP')));
+            if ($ip !== null) {
+                return $ip;
+            }
+        }
+        $realIpHeader = trim($realIpHeader);
+        if ($realIpHeader !== '' && $trustProxy && $proxies !== [] && $remote !== '' && $this->proxies->allows($remote, $proxies)) {
+            $ip = $this->proxies->normalize(trim($get('HTTP_' . strtoupper(str_replace('-', '_', $realIpHeader)))));
+            if ($ip !== null) {
+                return $ip;
+            }
+        }
+
+        return $this->from($remote, $get('HTTP_X_FORWARDED_FOR'), $trustProxy, $proxies);
+    }
+
     /** @param list<string> $proxies trusted_proxies */
     public function from(string $remote, string $forwarded, bool $trustProxy, array $proxies): string
     {

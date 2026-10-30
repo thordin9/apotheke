@@ -71,19 +71,19 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | Module suite | Root suite (with HTTP) | Combined |
 |---|---:|---:|---:|
-| Front controller, config & routes | 78.3 % | 86.4 % | 86.9 % |
+| Front controller, config & routes | 79.7 % | 87.3 % | 87.8 % |
 | Items, search, bulk, lending | 29.2 % | 76.2 % | 82.1 % |
 | Favourites, undo, history | 10.6 % | 61.6 % | 64.8 % |
 | Stocktake & labels | 46.7 % | 95.6 % | 95.8 % |
-| Users, roles & sign-in | 62.7 % | 77.3 % | 80.9 % |
+| Users, roles & sign-in | 59.9 % | 78.5 % | 81.7 % |
 | CSV import & export | 54.7 % | 94.3 % | 96.3 % |
 | Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
 | Notes & layout | 90.1 % | 68.5 % | 90.5 % |
 | Settings & Control Panel | 55.2 % | 46.7 % | 68.0 % |
 | Backup & restore | 53.8 % | 73.5 % | 79.4 % |
-| Database & migrations | 71.0 % | 71.5 % | 73.0 % |
-| Core & dev server | 75.7 % | 83.0 % | 94.1 % |
-| **All PHP** (14568 lines) | **59.7 %** | **72.3 %** | **82.5 %** |
+| Database & migrations | 71.0 % | 72.4 % | 73.7 % |
+| Core & dev server | 75.3 % | 84.2 % | 94.5 % |
+| **All PHP** (15025 lines) | **60.3 %** | **73.1 %** | **83.0 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
@@ -109,3 +109,5 @@ characters, checked in CI); see [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE) © 2026 Stathis Papandreou
+
+The logo, wordmark and mascot artwork is not covered by that licence; see [frontend/brand/NOTICE](frontend/brand/NOTICE).

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Filters;
 
+use Apotheke\Core\Http\ApiResponse;
 use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\PostTooLarge;
 use Apotheke\Core\Http\SecurityPolicy;
@@ -31,6 +32,15 @@ final class PostTooLargeFilter implements FilterInterface
         $server = $request->getServer();
         $server = is_array($server) ? $server : [];
         $length = (int)($server['CONTENT_LENGTH'] ?? 0);
+        if (ApiResponse::isApi(LegacyPathRouter::requestPath($request))) {
+            // A JSON body never fills $_POST, so /api goes by the declared length (API plan §2.3).
+            $limit = ini_parse_quantity((string)ini_get('post_max_size'));
+            if ($limit <= 0 || $length <= $limit) {
+                return null;
+            }
+
+            return ApiResponse::problem(new Response(config(App::class)), 413, 'upload.too_large', $checker->message());
+        }
         $post = $request instanceof IncomingRequest ? $request->getPost() : $_POST;
         if (!is_array($post)) {
             $post = [];

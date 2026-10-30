@@ -38,6 +38,19 @@ final class SameOrigin
         if ($origin === '') {
             return true;
         }
+
+        return in_array(rtrim($origin, '/'), $this->ownOrigins($server, $https, $publicUrl), true);
+    }
+
+    /**
+     * The app's own origins, lower case: this request's scheme and host, and
+     * PUBLIC_URL's origin.
+     *
+     * @param array<string,mixed> $server
+     * @return list<string>
+     */
+    public function ownOrigins(array $server, bool $https, string $publicUrl = ''): array
+    {
         $own = [($https ? 'https' : 'http') . '://' . strtolower((string)($server['HTTP_HOST'] ?? ''))];
         $p = $publicUrl !== '' ? parse_url($publicUrl) : false;
         if (is_array($p) && isset($p['scheme'], $p['host'])) {
@@ -45,7 +58,7 @@ final class SameOrigin
             $own[] = strtolower($p['scheme'] . '://' . $host . (isset($p['port']) ? ':' . $p['port'] : ''));
         }
 
-        return in_array(rtrim($origin, '/'), $own, true);
+        return $own;
     }
 
     public function jsonBody(): string

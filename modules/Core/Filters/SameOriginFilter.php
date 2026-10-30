@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Filters;
 
+use Apotheke\Core\Http\ApiResponse;
+use Apotheke\Core\Http\LegacyPathRouter;
 use Apotheke\Core\Http\RequestScheme;
 use Apotheke\Core\Http\SameOrigin;
 use Apotheke\Core\Http\SecurityPolicy;
@@ -27,7 +29,8 @@ final class SameOriginFilter implements FilterInterface
     public function before(RequestInterface $request, $arguments = null): ?ResponseInterface
     {
         $rule = new SameOrigin();
-        if ($rule->isSafe($request->getMethod())) {
+        // /api checks Origin itself, on every non-safe request (ApiCsrfFilter).
+        if ($rule->isSafe($request->getMethod()) || ApiResponse::isApi(LegacyPathRouter::requestPath($request))) {
             return null;
         }
         $settings = Services::settings();
