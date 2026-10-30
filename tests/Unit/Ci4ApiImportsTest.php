@@ -26,8 +26,10 @@ final class Ci4ApiImportsTest extends TestCase
         self::$dir = tmpdir('api-imports');
         self::$server = new Server(self::$dir, ['APP_PASSWORD' => self::PASSWORD], 'ci4');
         self::$server->client()->rest('GET', '/api/v1/session');   // migrates and creates admin
-        testdb(self::$dir)->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-            ->execute(['vera', 'vera', password_hash(self::PASSWORD, PASSWORD_DEFAULT), 'viewer', 'active', '2026-01-01 00:00:00']);
+        $users = testdb(self::$dir)->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+        foreach ([['vera', 'viewer'], ['ed', 'editor'], ['eli', 'editor']] as [$name, $role]) {
+            $users->execute([$name, $name, password_hash(self::PASSWORD, PASSWORD_DEFAULT), $role, 'active', '2026-01-01 00:00:00']);
+        }
     }
 
     public static function tearDownAfterClass(): void
@@ -92,7 +94,7 @@ final class Ci4ApiImportsTest extends TestCase
         ApiContract::assertMatches('GET', $path, $r);
         $this->assertSame(['rows' => 3, 'created' => 2, 'updated' => 0, 'unchanged' => 0, 'errors' => 1,
             'made' => ['location' => ['Shed', 'Wall', 'Garage'], 'category' => [], 'tag' => ['red']]], $r['json']['summary']);
-        $this->assertSame(['line' => 4, 'state' => 'error', 'name' => 'Box', 'error' => 'Quantity “x” is not a whole number from 0 to 1,000,000.'], $r['json']['data'][2]);
+        $this->assertSame(['line' => 4, 'state' => 'error', 'name' => 'Box', 'error' => 'Quantity “x” is not a whole number from 0 to 1,000,000.', 'formula' => []], $r['json']['data'][2]);
         $this->assertSame(['create' => true, 'skip_errors' => false], $r['json']['options']);
         $known = $admin->rest('GET', $path . '?create=0');
         $this->assertSame(3, $known['json']['summary']['errors'], 'without create, unknown places and tags are errors');
@@ -101,7 +103,7 @@ final class Ci4ApiImportsTest extends TestCase
         $this->assertSame(200, $page['status'], $page['body']);
         ApiContract::assertMatches('GET', $path, $page);
         $this->assertSame(['name', '', '', ''], $page['json']['mapping']);
-        $this->assertSame([['line' => 3, 'state' => 'new', 'name' => 'Rope', 'error' => '']], $page['json']['data']);
+        $this->assertSame([['line' => 3, 'state' => 'new', 'name' => 'Rope', 'error' => '', 'formula' => []]], $page['json']['data']);
         $this->assertSame(['page' => 2, 'per_page' => 1, 'total' => 3], $page['json']['meta']);
         $this->assertStringEndsWith('page=3', (string)$page['json']['links']['next']);
         $this->assertStringEndsWith('page=1', (string)$page['json']['links']['prev']);
@@ -115,6 +117,39 @@ final class Ci4ApiImportsTest extends TestCase
             ApiContract::assertMatches('GET', $path, $bad);
         }
         $this->assertSame($before, $this->counts(), 'the previews wrote nothing');
+    }
+
+    public function testAnImportIsOnlyItsUploadersOrAnAdmins(): void
+    {
+        $ed = $this->signedIn('ed');
+        $id = $this->upload($ed)['json']['id'];
+        $eli = $this->signedIn('eli');
+        $admin = $this->signedIn('admin');
+        foreach (['/api/v1/imports/%d', '/api/v1/imports/%d/preview'] as $path) {
+            $this->assertSame(200, $ed->rest('GET', sprintf($path, $id))['status'], 'the uploader');
+            $this->assertSame(200, $admin->rest('GET', sprintf($path, $id))['status'], 'an admin');
+            $other = $eli->rest('GET', sprintf($path, $id));
+            $unknown = $eli->rest('GET', sprintf($path, 999999));
+            $this->assertSame([404, 'not_found'], [$other['status'], $other['json']['code'] ?? null], 'another user with the import permission');
+            $this->assertSame([$unknown['status'], $unknown['headers']['content-type'] ?? null, $unknown['body']], [$other['status'], $other['headers']['content-type'] ?? null, $other['body']], 'the same answer as an unknown id');
+            ApiContract::assertMatches('GET', sprintf($path, $id), $other);
+        }
+    }
+
+    public function testFormulaLikeCellsAreRawAndFlagged(): void
+    {
+        $admin = $this->signedIn('admin');
+        $csv = "Name;Location;Tags;Qty\n=HYPERLINK(\"x\");Garage;@red;2\nRope;Garage;;-1\nPlain;Garage;tab;3\n";
+        $r = $admin->req('POST', '/api/v1/imports', [], ['file' => ['name' => 'f.csv', 'type' => 'text/csv', 'data' => $csv]], $this->writeHeaders($admin));
+        $this->assertSame(201, $r['status'], $r['body']);
+        ApiContract::assertMatches('POST', '/api/v1/imports', $r);
+        $this->assertSame(['=HYPERLINK("x")', 'Garage', '@red', '2'], $r['json']['sample'][0], 'raw, as imported');
+        $this->assertSame([[0, 2], [3], []], $r['json']['sample_formula']);
+        $p = $admin->rest('GET', '/api/v1/imports/' . $r['json']['id'] . '/preview?create=1');
+        $this->assertSame(200, $p['status'], $p['body']);
+        ApiContract::assertMatches('GET', '/api/v1/imports/' . $r['json']['id'] . '/preview', $p);
+        $this->assertSame(['=HYPERLINK("x")', [0, 2]], [$p['json']['data'][0]['name'], $p['json']['data'][0]['formula']]);
+        $this->assertSame([[3], []], [$p['json']['data'][1]['formula'], $p['json']['data'][2]['formula']]);
     }
 
     public function testADoneImport(): void

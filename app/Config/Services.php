@@ -1110,7 +1110,7 @@ class Services extends BaseService
                 $user = static::currentUser()->resolve();
 
                 return $user !== null && !$user['guest'] ? (string)$user['username'] : null;
-            }, (bool)static::settings()->get('import_create_missing'));
+            }, (bool)static::settings()->get('import_create_missing'), static fn (): bool => static::currentUser()->isAdmin());
     }
 
     /** The CSV import screens (ImportExport). */

@@ -24,7 +24,13 @@ final class CsvCells
     {
         $s = is_scalar($v) ? (string)$v : '';
 
-        return preg_match(self::FORMULA, $s) === 1 ? "'" . $s : $s;
+        return self::formulaLike($s) ? "'" . $s : $s;
+    }
+
+    /** Whether a spreadsheet would run $s as a formula (what protect() guards on export; L-1361 flags it in the API). */
+    public static function formulaLike(string $s): bool
+    {
+        return preg_match(self::FORMULA, $s) === 1;
     }
 
     public static function unprotect(string $s): string

@@ -294,7 +294,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   preview takes its mapping from the query and does not save it (`Imports::mapping()`). The HTML preview and commit are
   unchanged. Tests: `ImportPreviewTest` (equal to the HTML dry run on both drivers, with and without creating; no write,
   transaction or DDL statement and every table's row count unchanged), `Ci4ApiImportsTest` (contract, permissions, CSRF,
-  404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. Open.
+  404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. QA: M-1360, an import is
+  shown only to its uploader (`imports.actor`, no schema change) or an admin (`Imports::mine()`), anyone else gets the
+  same 404 as an unknown id (the HTML pages are unchanged, pending a PM decision); L-1361, `sample_formula` and each
+  preview row's `formula` list the cells `CsvCells::formulaLike()` flags (the export's rule), values stay raw. Open.
 
 ## Lanes
 
