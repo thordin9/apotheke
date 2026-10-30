@@ -1,0 +1,167 @@
+# Apotheke on FrankenPHP (Caddy + PHP in one process): the image for Cloudflare Containers (edge/) and an
+# alternative to the nginx + php-fpm image (Dockerfile) for self-hosting. Same app, data, environment and hardening.
+# Default is the shipped image. Bump the PHP patch pin on each PHP security release, together with Dockerfile.
+# CI's Docker job passes the same exact PHP_VERSION build-arg (see .github/workflows/ci.yml).
+ARG PHP_VERSION=8.4.27
+# The FrankenPHP release; its base tag pins it together with the PHP patch and Alpine (see ALPINE_VERSION).
+ARG FRANKENPHP_VERSION=1.13.4
+# Must be the Alpine release of the FrankenPHP base image, so the copied binaries find the same shared libraries.
+ARG ALPINE_VERSION=3.24
+
+# Composer packages without dev dependencies, and the optimised autoloader. intl is checked in the image below.
+FROM composer:2.10.3 AS vendor
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts --no-autoloader --ignore-platform-req=ext-intl
+COPY app ./app
+COPY modules ./modules
+RUN composer dump-autoload --no-dev --optimize --ignore-platform-req=ext-intl
+
+# Build stage: the PHP extensions on the FrankenPHP base. Only the runtime files leave this stage (/out), so the
+# final image has no compiler, headers, PHP sources, php-cgi, phpdbg, pecl or apk build packages.
+FROM dunglas/frankenphp:${FRANKENPHP_VERSION}-php${PHP_VERSION}-alpine AS php
+# Every RUN with a pipe fails when any part of it fails (hadolint DL4006).
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+ARG ALPINE_VERSION
+# GD (JPEG/PNG/WebP), Imagick with HEIC/HEIF (libheif), EXIF, pdo_pgsql, zip, pgsql, intl (CI4) and pcntl.
+# pdo_sqlite, sodium and OPcache ship with the FrankenPHP base.
+# Imagick is built from its GitHub release tag, with pecl.php.net as a second source. Each source
+# has its own sha256 pin, both are fetched over https only with retries, and the build fails if
+# neither download matches its pin. This avoids `pecl install`, so one outage can't break the build.
+# The version sed fills the GitHub archive's @PACKAGE_VERSION@ placeholder; on the PECL tarball it is a no-op.
+# set -e does not apply inside fetch() because it runs in an if, so keep its && chain.
+ARG IMAGICK_VERSION=3.8.0
+ARG IMAGICK_SHA256=a964e54a441392577f195d91da56e0b3cf30c32e6d60d0531a355b37bb1e1a59
+ARG IMAGICK_PECL_SHA256=bda67461c854f20d6105782b769c524fc37388b75d4481d951644d2167ffeec6
+# Alpine keeps only the current package versions, so apk add is not pinned (DL3018); $PHPIZE_DEPS is a word list (SC2086).
+# hadolint ignore=DL3018,SC2086
+RUN set -eux; \
+    grep -qx "${ALPINE_VERSION}.*" /etc/alpine-release || { echo "ALPINE_VERSION ${ALPINE_VERSION} is not the base's $(cat /etc/alpine-release)" >&2; exit 1; }; \
+    apk add --no-cache $PHPIZE_DEPS libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev postgresql-dev imagemagick-dev libheif-dev icu-dev; \
+    docker-php-source extract; \
+    fetch() { \
+        rm -f /tmp/imagick.tar.gz; \
+        curl -fsSL --proto '=https' --proto-redir '=https' --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 20 -o /tmp/imagick.tar.gz "$1" \
+        && echo "$2  /tmp/imagick.tar.gz" | sha256sum -c -; \
+    }; \
+    if fetch "https://github.com/Imagick/imagick/archive/refs/tags/${IMAGICK_VERSION}.tar.gz" "${IMAGICK_SHA256}"; then \
+        echo "imagick source: github"; \
+    elif fetch "https://pecl.php.net/get/imagick-${IMAGICK_VERSION}.tgz" "${IMAGICK_PECL_SHA256}"; then \
+        echo "imagick source: pecl"; \
+    else \
+        echo "imagick: no source matched its sha256 pin" >&2; exit 1; \
+    fi; \
+    mkdir -p /usr/src/php/ext/imagick; \
+    tar -xzf /tmp/imagick.tar.gz -C /usr/src/php/ext/imagick --strip-components=1; \
+    rm /tmp/imagick.tar.gz; \
+    sed -i "s/@PACKAGE_VERSION@/${IMAGICK_VERSION}/" /usr/src/php/ext/imagick/php_imagick.h; \
+    docker-php-ext-configure gd --with-jpeg --with-webp; \
+    docker-php-ext-install -j"$(nproc)" gd exif pdo_pgsql pgsql zip imagick intl pcntl; \
+    docker-php-source delete; \
+    : 'the runtime files, and the shared libraries they need outside /usr/local, as apk so: names'; \
+    mkdir -p /out/usr/local/bin /out/usr/local/lib/php /out/usr/local/etc; \
+    cp -a /usr/local/bin/frankenphp /usr/local/bin/php /out/usr/local/bin/; \
+    cp -a /usr/local/lib/libphp.so /usr/local/lib/libwatcher-c.so* /out/usr/local/lib/; \
+    cp -a /usr/local/lib/php/extensions /out/usr/local/lib/php/; \
+    cp -a /usr/local/etc/php /out/usr/local/etc/; \
+    rm -f /out/usr/local/etc/php/php.ini-*; \
+    scanelf --needed --nobanner --format '%n#p' --recursive /out/usr/local \
+        | tr ',' '\n' | sort -u \
+        | awk 'system("test -e /out/usr/local/lib/" $1) == 0 { next } { print "so:" $1 }' > /out/runtime-deps.txt; \
+    cat /out/runtime-deps.txt
+
+FROM alpine:${ALPINE_VERSION}
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+LABEL org.opencontainers.image.title="Apotheke" \
+      org.opencontainers.image.description="Apotheke, the storehouse for your stuff: a self-hosted PHP catalog for your belongings (FrankenPHP)" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.authors="Stathis Papandreou"
+
+# Runtime only: the shared libraries the binaries and extensions link (runtime-deps.txt), ImageMagick with the HEIC
+# coder, tini (PID 1), su-exec (drops to www-data), CA certificates (outbound HTTPS) and mailcap (/etc/mime.types,
+# Caddy's Content-Type for static files). www-data is uid 82 / gid 82, as in the official PHP images.
+COPY --from=php /out/usr/local /usr/local
+COPY --from=php /out/runtime-deps.txt /tmp/runtime-deps.txt
+# Not pinned, as above (DL3018); runtime-deps.txt is a word list of so: names (SC2046).
+# hadolint ignore=DL3018,SC2046
+RUN set -eux; \
+    apk add --no-cache tini su-exec ca-certificates mailcap imagemagick libheif libgomp $(cat /tmp/runtime-deps.txt); \
+    rm /tmp/runtime-deps.txt; \
+    getent group www-data >/dev/null || addgroup -g 82 -S www-data; \
+    adduser -u 82 -D -S -H -h /var/www -s /sbin/nologin -G www-data www-data; \
+    php -m | grep -qx "Zend OPcache"; \
+    php -m | grep -qi pdo_sqlite; \
+    php -m | grep -qi imagick; \
+    php -m | grep -qx sodium; \
+    php -m | grep -qx intl; \
+    php -m | grep -qx sqlite3; \
+    php -m | grep -qx pgsql; \
+    php -m | grep -qx pcntl; \
+    php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'; \
+    php -r 'exit(in_array("HEIC", array_map("strtoupper", Imagick::queryFormats()), true) ? 0 : 1);'; \
+    frankenphp version; \
+    for f in /usr/bin/gcc /usr/bin/make /usr/local/include /usr/src/php.tar.xz /usr/local/bin/php-cgi /usr/local/bin/phpdbg /usr/local/bin/pecl; do \
+        if [ -e "$f" ]; then echo "build file $f in the final image" >&2; exit 1; fi; \
+    done
+
+# ImageMagick policy (hardening, S-M1 and S-L1): resource limits, risky coders and delegates off.
+# The build fails unless `magick -list policy` shows the file and Imagick reports the limits and refuses the coders.
+COPY docker/imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+COPY scripts/imagick-policy-check.php /usr/local/lib/apotheke/imagick-policy-check.php
+RUN set -eux; \
+    magick -list policy > /tmp/im-policy.txt; \
+    grep -qF '/etc/ImageMagick-7/policy.xml' /tmp/im-policy.txt; \
+    for want in 16384 128MP 256MiB 1GiB '{MVG,MSL,TEXT,TXT,LABEL,CAPTION,URL,HTTP,HTTPS,FTP,XPS,PS,EPS,PDF,SVG,MSVG,EPHEMERAL}' '@*'; do \
+        grep -qF -- "$want" /tmp/im-policy.txt || { cat /tmp/im-policy.txt; echo "ImageMagick policy is missing $want" >&2; exit 1; }; \
+    done; \
+    rm /tmp/im-policy.txt; \
+    php /usr/local/lib/apotheke/imagick-policy-check.php
+
+COPY docker/php.ini /usr/local/etc/php/conf.d/zz-apotheke.ini
+COPY docker/frankenphp/php-frankenphp.ini /usr/local/etc/php/conf.d/zzz-apotheke-frankenphp.ini
+COPY docker/frankenphp/Caddyfile /etc/apotheke/Caddyfile
+COPY docker/frankenphp/entrypoint.sh /usr/local/bin/apotheke-entrypoint
+RUN chmod 0755 /usr/local/bin/apotheke-entrypoint
+
+# FrankenPHP serves public/; app, modules, vendor, writable and spark stay outside it.
+COPY --chown=root:root public /var/www/app/public
+COPY --chown=root:root app /var/www/app/app
+COPY --chown=root:root modules /var/www/app/modules
+COPY --chown=root:root migrations /var/www/app/migrations
+COPY --chown=root:root bin /var/www/app/bin
+COPY --chown=root:root spark config.example.php VERSION /var/www/app/
+COPY --chown=root:root docs/api/openapi.yaml /var/www/app/docs/api/openapi.yaml
+COPY --from=vendor --chown=root:root /app/vendor /var/www/app/vendor
+# Caddy's own state (admin off, no certificates) lives under the root-owned /run, never in DATA_DIR or /tmp (L-430);
+# it belongs to www-data, so the image also runs with --user www-data (see docs/deployment-and-operations.md).
+RUN set -eux; \
+    mkdir -p /var/www/app/writable/cache /var/www/app/writable/logs /var/www/app/writable/session \
+        /var/www/app/writable/uploads /var/www/app/writable/debugbar /run/apotheke-caddy/config /run/apotheke-caddy/data /data; \
+    chown -R www-data:www-data /var/www/app/writable /run/apotheke-caddy /data; \
+    php -r 'require "/var/www/app/vendor/autoload.php"; exit(class_exists("CodeIgniter\\CodeIgniter") && class_exists("Apotheke\\Auth\\SignInPace") ? 0 : 1);'; \
+    PORT=9091 FRANKENPHP_NUM_THREADS=2 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile
+
+# FRANKENPHP_NUM_THREADS: PHP threads (requests served at once). 2 fits Cloudflare Containers "basic"
+# (1/4 vCPU, 1 GiB) with two large HEIC uploads at a time; raise it on bigger hosts.
+ENV PHP_INI_DIR=/usr/local/etc/php \
+    GODEBUG=cgocheck=0 \
+    XDG_CONFIG_HOME=/run/apotheke-caddy/config \
+    XDG_DATA_HOME=/run/apotheke-caddy/data \
+    CI_ENVIRONMENT=production \
+    DATA_DIR=/data \
+    TZ=UTC \
+    PORT=9091 \
+    FRANKENPHP_NUM_THREADS=2
+
+WORKDIR /var/www/app
+VOLUME ["/data"]
+EXPOSE 9091
+STOPSIGNAL SIGTERM
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD ["/bin/sh", "-c", "wget -q -O /dev/null \"http://127.0.0.1:${PORT}/healthz\" || exit 1"]
+
+ENTRYPOINT ["/sbin/tini", "--", "apotheke-entrypoint"]
+CMD ["apotheke"]
