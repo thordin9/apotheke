@@ -479,8 +479,44 @@ to its one Worker; the guard then stays as a second line of defence.
 
 **When a deploy fails,** `scripts/cf-deploy.sh` names the likely cause: an authentication error or 403 names the
 permission the environment's token probably lacks; a missing container push permission names *Containers > Edit*.
-`apotheke-api` needs its secrets set once on the Worker, outside CI: `wrangler secret put APP_PASSWORD` and
-`wrangler secret put APP_KEY` (a deploy without them fails with *required secrets have not been set*).
+`apotheke-api` needs its two secrets set once on the Worker, outside CI; see
+[One-time manual step before the first edge deploy](#one-time-manual-step-before-the-first-edge-deploy).
+
+### One-time manual step before the first edge deploy
+
+`edge/wrangler.jsonc` lists `APP_PASSWORD` and `APP_KEY` under `secrets.required`, so `wrangler deploy` of
+`apotheke-api` fails until both exist on the Worker. CI never sets them: the deploy token is not used for secrets, and
+the values never go through GitHub. The operator sets them once, from a trusted machine, with a token that can edit
+the Worker (Account > Workers Scripts > Edit). The Worker passes both to the container as environment variables on
+every container start (`edge/src/index.ts`).
+
+`wrangler secret put` reads the value from standard input, so it never appears in the command line, shell history or
+logs. Run these in `edge/` so wrangler uses that config, and keep `--name apotheke-api` so the target is explicit:
+
+```sh
+# APP_KEY: 32 random bytes, base64 (44 characters). Apotheke's SecretKey accepts base64 of exactly 32 bytes, with an
+# optional "base64:" prefix; anything else is refused as "APP_KEY is not a 32-byte key". It encrypts stored secrets
+# (libsodium secretbox), so keep a copy somewhere safe: without it they can't be decrypted.
+umask 077
+mkdir -p <private-dir>
+openssl rand -base64 32 > <private-dir>/apotheke-api-app-key
+npx wrangler secret put APP_KEY --name apotheke-api < <private-dir>/apotheke-api-app-key
+
+# APP_PASSWORD: chosen by the operator, at least 8 characters, not only spaces, no null character. Typed at the prompt
+# (wrangler asks for the value), or from a private file the same way as APP_KEY.
+npx wrangler secret put APP_PASSWORD --name apotheke-api
+
+npx wrangler secret list --name apotheke-api   # names only; values are never shown
+```
+
+**Data does not persist yet.** A Cloudflare Containers instance has no persistent disk: `/data` starts empty on every
+cold start (after `sleepAfter`, a deploy or a restart). Each start is therefore a new install, where `APP_PASSWORD`
+creates the account `admin` again and anything saved before is gone. Until storage is designed, treat `apotheke-api`
+as stateless.
+
+Never print, paste or commit either value, and never put them in `wrangler.jsonc`, `vars` or a GitHub secret.
+If the Worker does not exist yet, `wrangler secret put` offers to create a draft Worker; answer no and deploy first
+(the deploy then fails only on the missing secrets), or set them with the Cloudflare API's Worker secrets endpoint.
 
 **getapotheke-app build.** The job checks out the full history with tags (`fetch-depth: 0`), so the build can read
 the latest release tag and its date rather than the build date.

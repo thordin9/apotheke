@@ -15,7 +15,7 @@ const APP = "/app/";
 
 // _headers `/*`, apart from its Content-Security-Policy (the landing CSP) and Cache-Control.
 const COMMON: Record<string, string> = {
-	"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+	"Strict-Transport-Security": "max-age=31536000",
 	"X-Content-Type-Options": "nosniff",
 	"Referrer-Policy": "strict-origin-when-cross-origin",
 	"X-Frame-Options": "DENY",

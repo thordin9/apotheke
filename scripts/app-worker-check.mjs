@@ -42,6 +42,13 @@ const all = rules?.get("/*") ?? new Map();
 const appCsp = rules?.get("/app/*")?.get("content-security-policy");
 if (!rules) console.log("note: no _headers in dist (stub build); header mirroring not compared");
 
+const stripSub = (v) =>
+	v
+		.split(";")
+		.map((d) => d.trim())
+		.filter((d) => d && d.toLowerCase() !== "includesubdomains")
+		.join("; ");
+
 async function get(path, method = "GET") {
 	return fetch(base + path, { method, redirect: "manual" });
 }
@@ -51,9 +58,14 @@ function mirrors(res, path, csp) {
 	for (const k of ["strict-transport-security", "x-content-type-options", "x-frame-options", "content-security-policy"]) {
 		expect(Boolean(res.headers.get(k)), `${path} has ${k}`);
 	}
+	// HSTS: the Worker never sends includeSubDomains (PM decision: HSTS for getapotheke.com only), so it is
+	// compared with includeSubDomains removed from _headers, and any includeSubDomains from the Worker fails.
+	const hsts = res.headers.get("strict-transport-security") ?? "";
+	expect(!/includesubdomains/i.test(hsts), `${path} HSTS has no includeSubDomains`);
 	for (const [k, v] of all) {
 		if (k === "content-security-policy" || k === "cache-control") continue;
-		expect(res.headers.get(k) === v, `${path} ${k} matches _headers /*`);
+		const want = k === "strict-transport-security" ? stripSub(v) : v;
+		expect(res.headers.get(k) === want, `${path} ${k} matches _headers /*`);
 	}
 	if (csp) expect(res.headers.get("content-security-policy") === csp, `${path} CSP is exactly _headers /app/*`);
 }
