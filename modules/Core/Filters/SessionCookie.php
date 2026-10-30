@@ -18,7 +18,7 @@ use Config\Session;
 use Throwable;
 
 /**
- * Sets up the apothekesid session the same way the legacy app does, and loads
+ * Sets up the apothekesid session (__Host-apothekesid on HTTPS) the same way the legacy app does, and loads
  * it only when the request's cookie names a live session (SEC-L2, legacy
  * init_session() on main); SessionToken starts one on demand. CI4's Session
  * service is configured to match, and PHP's session API does the work. The
@@ -62,7 +62,8 @@ final class SessionCookie implements FilterInterface
         $cookie->secure = $secure;
         $lifetime = Services::sessionLifetime(false)->seconds();
         $session = config(Session::class);
-        $session->cookieName = 'apothekesid';
+        $name = SessionGate::cookieName($secure);
+        $session->cookieName = $name;
         $session->expiration = $lifetime;
         $save = $config->dataDir() . '/sessions';
         if (!is_dir($save)) {
@@ -72,7 +73,7 @@ final class SessionCookie implements FilterInterface
         ini_set('session.gc_maxlifetime', (string)$lifetime);
         ini_set('session.use_strict_mode', '1');
         session_save_path($save);
-        session_name('apothekesid');
+        session_name($name);
         session_set_cookie_params([
             'lifetime' => $lifetime,
             'path' => '/',
@@ -83,9 +84,12 @@ final class SessionCookie implements FilterInterface
         // SEC-L2: only a cookie that names a live session loads one. A signed-in
         // session ends after session_idle_hours idle or session_days after sign-in;
         // any other session after session_days without use (SEC-N6).
-        $id = $request instanceof IncomingRequest ? $request->getCookie(SessionGate::COOKIE) : ($_COOKIE[SessionGate::COOKIE] ?? null);
+        $id = SessionGate::requestId(static fn (string $n): mixed => $request instanceof IncomingRequest ? $request->getCookie($n) : ($_COOKIE[$n] ?? null), $secure);
         $gate = new SessionGate(time());
-        if (is_string($id) && $gate->isLive($id, $save)) {
+        if ($id !== null && $gate->isLive($id, $save)) {
+            if (!isset($_COOKIE[$name])) {
+                session_id($id);   // it came under the plain name on HTTPS: PHP sends it again under the new one
+            }
             $gate->resume(Services::sessionIdle(false)->seconds(), $lifetime);
         }
 

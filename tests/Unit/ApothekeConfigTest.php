@@ -14,6 +14,9 @@ final class ApothekeConfigTest extends TestCase
     /** @var array<string,mixed> */
     private const FROM_MAIN = ['allowed_hosts' => '', 'trusted_proxies' => []];
 
+    /** Keys only the CI4 tree has (API plan §2.2, §2.4); the legacy loader never gets them. */
+    private const CI4_ONLY = ['cors_allowed_origins' => '', 'real_ip_header' => '', 'proxy_shared_secret' => ''];
+
     public function testLoadMatchesTheLegacyLoader(): void
     {
         $root = sys_get_temp_dir() . '/apo-cfg-' . bin2hex(random_bytes(3));
@@ -29,6 +32,10 @@ final class ApothekeConfigTest extends TestCase
                 $this->assertSame($default, $ours[$key], $key);
                 unset($ours[$key]);
             }
+        }
+        foreach (self::CI4_ONLY as $key => $default) {
+            $this->assertSame($default, $ours[$key], $key);
+            unset($ours[$key]);
         }
         $this->assertSame($legacy, $ours);
         $this->assertSame(dirname(__DIR__, 2) . '/camera', ApothekeConfig::load($root, $file, $env)->originalsDir());
@@ -51,6 +58,22 @@ final class ApothekeConfigTest extends TestCase
             $this->assertSame($want, config_load('/repo', null, $env)['sign_in_fail_ms'], 'legacy ' . $raw);
             $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['sign_in_fail_ms'], 'ci4 ' . $raw);
         }
+    }
+
+    public function testTheApiEdgeSettings(): void
+    {
+        $none = ApothekeConfig::load('/repo', null, []);
+        $this->assertSame([], $none->corsAllowedOrigins());
+        $this->assertSame('', $none->realIpHeader());
+        $this->assertSame('', $none->proxySharedSecret());
+        $set = ApothekeConfig::load('/repo', null, [
+            'CORS_ALLOWED_ORIGINS' => ' https://app.example.test, https://b.example.test ,,',
+            'REAL_IP_HEADER' => ' CF-Connecting-IP ',
+            'PROXY_SHARED_SECRET' => 'shared-1',
+        ]);
+        $this->assertSame(['https://app.example.test', 'https://b.example.test'], $set->corsAllowedOrigins());
+        $this->assertSame('CF-Connecting-IP', $set->realIpHeader());
+        $this->assertSame('shared-1', $set->proxySharedSecret());
     }
 
     public function testAbsoluteOriginalsAreKept(): void

@@ -93,6 +93,7 @@ COPY --chown=root:root modules /var/www/app/modules
 COPY --chown=root:root migrations /var/www/app/migrations
 COPY --chown=root:root bin /var/www/app/bin
 COPY --chown=root:root spark config.example.php VERSION /var/www/app/
+COPY --chown=root:root docs/api/openapi.yaml /var/www/app/docs/api/openapi.yaml
 COPY --from=vendor --chown=root:root /app/vendor /var/www/app/vendor
 RUN set -eux; \
     mkdir -p /var/www/app/writable/cache /var/www/app/writable/logs /var/www/app/writable/session \
