@@ -25,6 +25,8 @@ foreach (['APP_KEY', 'APP_KEY_FILE', 'APOTHEKE_SODIUM'] as $k) {
     putenv($k);
     unset($_SERVER[$k], $_ENV[$k]);
 }
+// Cookie consent (Config\Consent): requests carry it, as a browser after Accept; ConsentFilterTest builds its own.
+$_COOKIE['apotheke_consent'] = 'v1';
 register_shutdown_function(static function () use ($tmp): void {
     if (!is_dir($tmp)) {
         return;
