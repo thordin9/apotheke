@@ -42,6 +42,19 @@ final class SameOriginTest extends TestCase
         $this->assertFalse($this->rule()->check(['HTTP_HOST' => 'inv.example.org', 'HTTP_ORIGIN' => 'https://other.example'], false, 'https://inv.example.org'));
     }
 
+    /** QA L-1140: a fully qualified host (one trailing dot) is the same host, on either side, without PUBLIC_URL. */
+    public function testTrailingDotOnTheHostIsTheSameHost(): void
+    {
+        $this->assertTrue($this->rule()->check(['HTTP_HOST' => 'example.test.', 'HTTP_ORIGIN' => 'http://example.test'], false), 'dot on Host');
+        $this->assertTrue($this->rule()->check(['HTTP_HOST' => 'example.test', 'HTTP_ORIGIN' => 'http://example.test.'], false), 'dot on Origin');
+        $this->assertTrue($this->rule()->check(['HTTP_HOST' => 'Example.Test.:9091', 'HTTP_ORIGIN' => 'http://example.test:9091'], false), 'with a port, any case');
+        $this->assertTrue($this->rule()->check(['HTTP_HOST' => 'x', 'HTTP_ORIGIN' => 'https://example.test.'], false, 'https://example.test'), 'against PUBLIC_URL');
+        $this->assertFalse($this->rule()->check(['HTTP_HOST' => 'example.test.', 'HTTP_ORIGIN' => 'http://other.test.'], false), 'another host still fails');
+        $this->assertFalse($this->rule()->check(['HTTP_HOST' => 'example.test.', 'HTTP_ORIGIN' => 'http://example.tes'], false));
+        $this->assertFalse($this->rule()->check(['HTTP_HOST' => 'example.test', 'HTTP_ORIGIN' => 'http://example.test..'], false), 'only one dot');
+        $this->assertSame(['http://example.test:9091'], $this->rule()->ownOrigins(['HTTP_HOST' => 'EXAMPLE.test.:9091'], false));
+    }
+
     public function testMissingHeadersAllowed(): void
     {
         $this->assertTrue($this->rule()->check(['HTTP_HOST' => '192.168.1.10:9091'], false), 'curl and old clients send neither header');
