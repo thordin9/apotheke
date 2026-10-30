@@ -74,6 +74,15 @@ final class Ci4BackupParityTest extends TestCase
         $this->assertSame('attachment; filename="apotheke-backup-2026-06-16-003000.zip"', $l['download']['disposition']);
         $this->assertSame(['backup.json', 'images/' . self::PHOTO2, 'thumbs/' . self::PHOTO2, 'images/' . self::PHOTO, 'thumbs/' . self::PHOTO, 'originals/index.json', 'originals/' . self::ORIGINAL, 'files/' . self::FILE],
             array_column($l['download']['zip'], 'name'));
+        $tmp = tempnam(sys_get_temp_dir(), 'bk');
+        file_put_contents($tmp, $this->zips['ci4']);
+        $archive = new ZipArchive();
+        $this->assertTrue($archive->open($tmp));
+        $schema = json_decode((string)$archive->getFromName('backup.json'), true)['schema'] ?? null;
+        $archive->close();
+        unlink($tmp);
+        $this->assertSame(array_map(static fn (int $n): string => sprintf('%04d', $n), range(1, 28)), $schema,
+            'the jobs table (0029, CI4 only) is not in a backup, so its migration is not named: 2.6.x restores the zip');
         $this->assertSame([204, 204, 403, 401, 204], [$l['check admin']['status'], $l['check keeper']['status'], $l['check viewer']['status'], $l['check signed out']['status'], $l['check HEAD']['status']]);
         $this->assertSame('no-store', $l['check admin']['cache-control']);
         $this->assertSame(403, $l['viewer page']['status']);

@@ -58,7 +58,8 @@ regression fixtures.
 legacy on PHP 8.3 seeds the demo catalog (`bin/seed.php --demo`, JPEG photos), then
 [`tests/upgrade/seed-extra.php`](../tests/upgrade/seed-extra.php) adds a PNG and a HEIC photo with their originals,
 tags, a PDF attachment under `files/`, a saved filter and a stocktake, so every table a backup carries has rows (the
-seed guard fails otherwise). CI4 on PHP 8.4 takes over (`bin/migrate.php --status` shows every migration applied;
+seed guard fails otherwise). CI4 on PHP 8.4 takes over (its `bin/migrate.php` runs first and applies the CI4-only
+migrations; `bin/migrate.php --status` shows every migration applied;
 `/healthz`, the list and a photo with its thumbnail answer), then legacy on 8.3 again. Each app then restores the
 other's `bin/backup.php` zip with `bin/restore.php`, over the same install and into a fresh one. After every step
 [`tests/upgrade/snapshot.php`](../tests/upgrade/snapshot.php) takes every table (columns and rows, sorted) and the
@@ -67,7 +68,11 @@ sha256 of every file under `images/`, `thumbs/`, `originals/` (`map/` included) 
 directory that is not 0750 or a file there that is not 0640, and on a `files/` that is not the apps' mode (legacy's 0770 under
 the script's umask, passed as `UPGRADE_FILES_MODE`; 0750 under 022); other mode differences are printed as `WARN`. After a
 restore only the carried tables (`backup_tables()`, which must equal CI4's `Backups::tables()`) and the settings are
-compared, without `settings.updated_at`. Last, mutation checks on a throwaway install show that an emptied or
+compared, without `settings.updated_at`. The CI4-only additions (`upg_ci4_only()` in
+[`tests/upgrade/lib.php`](../tests/upgrade/lib.php): migration 0029 and its `jobs` table) are left out of every
+snapshot and checked on their own by [`tests/upgrade/ci4-only.php`](../tests/upgrade/ci4-only.php): two `jobs` rows
+seeded after the upgrade must be there unchanged after the CI4 backup, the rollback to legacy and both in-place
+restores, and the CI4 zip must not name migration 0029 or carry the table. Last, mutation checks on a throwaway install show that an emptied or
 dropped table, a changed or missing attachment, a 0644 original and a 0700 `files/` each fail
 against a clean snapshot, each undone before the next (the dropped table runs last). `UPGRADE_WORK` must be a new path;
 the script removes only that directory and its own `upg_<run>_*` schemas. CI runs it on SQLite and PostgreSQL

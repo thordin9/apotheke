@@ -3,7 +3,7 @@
   "info": {
     "title": "Apotheke API",
     "version": "1.0.0-p1",
-    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
   },
   "paths": {
     "/api/v1/session": {
@@ -63,11 +63,54 @@
           "200": {"description": "The OpenAPI document", "content": {"application/json": {"schema": {"type": "object", "required": ["openapi", "paths"]}}}}
         }
       }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "summary": "Every Control Panel section's settings, with their schema (settings permission)",
+        "description": "The sections general, appearance, locale, list, items, limits, labels, uploads, autofill and data, in that order. Users & sign-in has its own API (users permission). Write-only settings, such as the autofill access token, are never returned: the autofill section says only whether a token is set.",
+        "responses": {
+          "200": {"description": "Every section", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Settings"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/settings/general": {
+      "get": {"operationId": "getSettingsGeneral", "summary": "The general section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/appearance": {
+      "get": {"operationId": "getSettingsAppearance", "summary": "The appearance section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/locale": {
+      "get": {"operationId": "getSettingsLocale", "summary": "The locale section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/list": {
+      "get": {"operationId": "getSettingsList", "summary": "The list section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/items": {
+      "get": {"operationId": "getSettingsItems", "summary": "The items section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/limits": {
+      "get": {"operationId": "getSettingsLimits", "summary": "The limits section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/labels": {
+      "get": {"operationId": "getSettingsLabels", "summary": "The labels section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/uploads": {
+      "get": {"operationId": "getSettingsUploads", "summary": "The uploads section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/autofill": {
+      "get": {"operationId": "getSettingsAutofill", "summary": "The autofill section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/v1/settings/data": {
+      "get": {"operationId": "getSettingsData", "summary": "The data section (settings permission)", "parameters": [{"$ref": "#/components/parameters/IfNoneMatch"}], "responses": {"200": {"$ref": "#/components/responses/SettingsSection"}, "304": {"$ref": "#/components/responses/NotModified"}, "401": {"$ref": "#/components/responses/Problem"}, "403": {"$ref": "#/components/responses/Problem"}}}
     }
   },
   "components": {
     "parameters": {
-      "CsrfToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "description": "The csrf_token from GET /api/v1/session", "schema": {"type": "string"}}
+      "CsrfToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "description": "The csrf_token from GET /api/v1/session", "schema": {"type": "string"}},
+      "IfNoneMatch": {"name": "If-None-Match", "in": "header", "required": false, "description": "An ETag from an earlier answer: 304 when it is still current", "schema": {"type": "string"}}
     },
     "responses": {
       "Problem": {"description": "An error", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
@@ -75,6 +118,15 @@
         "description": "Too many attempts",
         "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
         "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "SettingsSection": {
+        "description": "One section",
+        "headers": {"ETag": {"description": "The section's version, for If-None-Match", "schema": {"type": "string"}}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SettingsSection"}}}
+      },
+      "NotModified": {
+        "description": "Not modified: the ETag in If-None-Match is current",
+        "headers": {"ETag": {"description": "The current ETag", "schema": {"type": "string"}}}
       }
     },
     "schemas": {
@@ -128,6 +180,50 @@
           "username": {"type": "string"},
           "role": {"type": "string"},
           "permissions": {"$ref": "#/components/schemas/Permissions"}
+        }
+      },
+      "Settings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sections"],
+        "properties": {"sections": {"type": "array", "items": {"$ref": "#/components/schemas/SettingsSection"}}}
+      },
+      "SettingsSection": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "title", "description", "values", "fields", "etag"],
+        "properties": {
+          "section": {"type": "string", "enum": ["general", "appearance", "locale", "list", "items", "limits", "labels", "uploads", "autofill", "data"]},
+          "title": {"type": "string"},
+          "description": {"type": "string"},
+          "values": {"type": "object", "description": "Each field's current value, by key", "additionalProperties": {"nullable": true}},
+          "fields": {"type": "array", "items": {"$ref": "#/components/schemas/SettingsField"}},
+          "token_set": {"type": "boolean", "description": "autofill only: whether an access token is set (the token itself is write-only)"},
+          "etag": {"type": "string", "pattern": "^\"[a-f0-9]{64}\"$"}
+        }
+      },
+      "SettingsField": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "type", "default", "help", "rules"],
+        "properties": {
+          "key": {"type": "string"},
+          "label": {"type": "string"},
+          "type": {"type": "string", "enum": ["string", "int", "bool", "enum", "color", "timezone", "url", "tags", "af_model", "af_size", "af_bytes"]},
+          "default": {"nullable": true},
+          "help": {"type": "string"},
+          "rules": {
+            "type": "object",
+            "description": "Validation: min, max (a number, or a string's length), required, nullable, placeholder, and options (value => label) for an enum",
+            "properties": {
+              "min": {"type": "integer"},
+              "max": {"type": "integer"},
+              "required": {"type": "boolean"},
+              "nullable": {"type": "boolean"},
+              "placeholder": {"type": "string"},
+              "options": {"type": "object", "additionalProperties": {"type": "string"}}
+            }
+          }
         }
       }
     }

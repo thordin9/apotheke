@@ -139,6 +139,27 @@ the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes 
   `sslpassword` keyword); boot stops with a message saying so. Remove that text from `DB_DSN`, or change the
   credential so it has no `;`.
 
+## Background jobs
+
+From 3.2 long tasks can run as background jobs: a row in the `jobs` table (migration 0029) that
+`php spark jobs:work` picks up. 3.2 has no job types yet and the image does not start the worker; the CSV import commit
+and the backup restore move to jobs later, and the image then runs it next to PHP-FPM.
+
+```bash
+php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
+```
+
+* It runs one job at a time until `--max-jobs` jobs ran or `--max-seconds` passed (default 3600, then a supervisor
+  starts it again), waiting `--sleep` ms when no job is due (`--sleep=0` stops instead; `--once` runs at most one).
+* A job is leased for five minutes and the lease is renewed on every checkpoint; a job whose worker died is taken over
+  once its lease runs out and resumes from its last checkpoint. A job is tried at most three times.
+* **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
+  and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
+  ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.
+* **On Cloudflare** (API plan §1A, the edge deployment) the same jobs run from a Cron Trigger or a Queue consumer that
+  calls the runner instead of a long-lived `jobs:work` process. The `jobs` table and its schema stay as they are: each
+  step is one guarded statement with no transaction, which D1 supports.
+
 ## Behind a web server or reverse proxy
 
 Rules for any web server in front of PHP-FPM:

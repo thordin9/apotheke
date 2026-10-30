@@ -265,6 +265,8 @@ class Services extends BaseService
                 => new \Apotheke\Backup\Commands\BackupCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
             \Apotheke\Backup\Commands\RestoreCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Backup\Commands\RestoreCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err), static fn (): string => static::apothekeConfig()->dataDir()),
+            \Apotheke\Core\Commands\JobsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Core\Commands\JobsCommand($logger, $commands, static fn (mixed $out, mixed $err): \Apotheke\Core\Commands\JobsCli => static::jobsCli($out, $err)),
         ]);
     }
 
@@ -1188,5 +1190,36 @@ class Services extends BaseService
         $settings = static::settings(false, new \Apotheke\Core\Security\CommandLine());
 
         return new \Apotheke\Backup\Commands\BackupCli(static::backups(false, $settings), static::restorer(false, $settings), static::apothekeConfig()->dataDir(), $in, $out, $err, (string)(getenv('APOTHEKE_CLI_CWD') ?: ''));
+    }
+
+    /** The background jobs table (Core\Jobs): five-minute leases, renewed on every checkpoint. */
+    public static function jobQueue(bool $getShared = true): \Apotheke\Core\Jobs\JobQueue
+    {
+        if ($getShared) {
+            return static::getSharedInstance('jobQueue');
+        }
+
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Core\Jobs\JobQueue($db, new \Apotheke\Core\Libraries\Clock(), 300);
+    }
+
+    /**
+     * The handler of each job type. None yet: the CSV import commit and the backup restore arrive as jobs in P3.
+     *
+     * @return array<string,\Apotheke\Core\Jobs\JobHandler>
+     */
+    public static function jobHandlers(): array
+    {
+        return [];
+    }
+
+    /** php spark jobs:work, as one worker named for its host and process. */
+    public static function jobsCli(mixed $out, mixed $err): \Apotheke\Core\Commands\JobsCli
+    {
+        $owner = substr((gethostname() ?: 'host') . ':' . getmypid() . ':' . bin2hex(random_bytes(4)), 0, 120);
+
+        return new \Apotheke\Core\Commands\JobsCli(static::jobQueue(false), static::jobHandlers(), $owner, $out, $err);
     }
 }

@@ -365,6 +365,8 @@ jobs:
             echo "expected $pin" >&2
             exit 1
           fi
+      - name: pcntl (jobs:work stops cleanly on SIGTERM, L-1241)
+        run: docker run --rm apotheke:ci php -m | grep -qx pcntl
       - name: Image size
         run: docker image ls apotheke:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: HEIC, ImageMagick policy and startup refusal

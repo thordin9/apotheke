@@ -33,6 +33,12 @@ use ZipArchive;
  */
 final class Backups
 {
+    /**
+     * Migrations that only add tables a backup does not carry (CI4 only: 0029 jobs). They are left out of the
+     * backup's "schema", which names what its rows need, so 2.6.x still restores a backup made by 3.2 and later.
+     */
+    public const UNCARRIED_MIGRATIONS = ['0029'];
+
     public const FORMAT = 'apotheke-backup';
 
     public const VERSION = 1;
@@ -255,7 +261,9 @@ final class Backups
             $schema = [];
             if ($this->tableExists('schema_migrations')) {   // legacy migrations_applied()
                 foreach (Writes::rows($this->db, 'SELECT version FROM schema_migrations ORDER BY version') as $r) {
-                    $schema[(string)$r['version']] = true;   // array_keys(), as legacy: "1000" would read as a number
+                    if (!in_array((string)$r['version'], self::UNCARRIED_MIGRATIONS, true)) {
+                        $schema[(string)$r['version']] = true;   // array_keys(), as legacy: "1000" would read as a number
+                    }
                 }
             }
             $put('{"format":' . self::enc(self::FORMAT) . ',"version":' . self::VERSION . ',"created_at":' . self::enc($this->clock->now())
