@@ -8,6 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** both Docker images now run the background jobs worker (`php spark jobs:work`) next to the web server, as `www-data`. Set `APOTHEKE_JOBS_WORKER=0` to turn it off, for example when another container runs the worker. If you use the compose `postgres` profile, this release also stops the app from changing the owner of `./data/postgres` on start (see Fixed).
+
+### Added
+
+- **docker:** run the background jobs worker in both images: `apotheke-jobs-worker` keeps `php spark jobs:work` running as `www-data`, restarts it after a failure with a 1–60 s backoff without stopping the web server, and stops cleanly on `docker stop`; `APOTHEKE_JOBS_WORKER=0` turns it off ([#187](https://github.com/thordin9/apotheke/pull/187))
+- **edge:** set `COOKIE_DOMAIN=getapotheke.com` for `apotheke-api` (a non-secret var in `edge/wrangler.jsonc`); the compose file shows it as a commented-out hosted setting, and self-hosting keeps the host-only default ([#187](https://github.com/thordin9/apotheke/pull/187))
+
+### Fixed
+
+- **docker:** the container no longer changes the owner of `./data/postgres` to `www-data` on start. With the compose `postgres` profile that directory holds PostgreSQL's files inside the app's `/data`, so starting the app next to a new database could break its initialisation, and a later start took over the database's files. This bug is already in released versions ([#187](https://github.com/thordin9/apotheke/pull/187))
+
 ## [3.3.0] - 2026-10-30
 
 ### Added
