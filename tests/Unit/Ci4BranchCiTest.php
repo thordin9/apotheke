@@ -232,6 +232,8 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertSame(1, substr_count($yml, 'branches:'));
         $this->assertMatchesRegularExpression('/ref: main\\n/', $yml);
         $this->assertStringContainsString('git push --atomic origin HEAD:main "v$NEXT"', $yml);
+        // L-1121: the App token's push would start CI again; the skip marker on the release commit prevents the loop.
+        $this->assertStringContainsString('git commit -m "chore(release): v$NEXT [skip ci]"', $yml);
     }
 
     /** L-1060: the release pushes with the release GitHub App's token; GITHUB_TOKEN stays read-only. */
@@ -241,6 +243,7 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertMatchesRegularExpression('/^    environment: release\n/m', $yml);
         $this->assertStringContainsString(
             "        id: app-token\n"
+            . "        if: steps.plan.outputs.release == 'true'\n"
             . "        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n"
             . "        with:\n"
             . "          client-id: \${{ vars.RELEASE_APP_CLIENT_ID }}\n"
@@ -249,8 +252,31 @@ final class Ci4BranchCiTest extends TestCase
             $yml
         );
         $this->assertStringNotContainsString('app-id:', $yml);
-        $this->assertStringContainsString("          token: \${{ steps.app-token.outputs.token }}\n", $yml);
-        $this->assertStringContainsString("          GH_TOKEN: \${{ steps.app-token.outputs.token }}\n", $yml);
+        // M-1120: every action is pinned by a full commit SHA with its version as a comment.
+        preg_match_all('/^\s*(?:- )?uses: (\S+)(.*)$/m', $yml, $uses);
+        $this->assertCount(3, $uses[1]);
+        foreach ($uses[1] as $i => $ref) {
+            $this->assertMatchesRegularExpression('/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/', $ref);
+            $this->assertMatchesRegularExpression('/^ # v?\d+\.\d+\.\d+$/', $uses[2][$i], $ref);
+        }
+        // The checkout leaves no credentials behind.
+        $this->assertStringContainsString("          persist-credentials: false\n", $yml);
+        $this->assertStringNotContainsString('          token:', $yml);
+        // The token is minted after the guard and the plan, only when there is a release, and reaches only
+        // the push step and the gh release create step (step-level env).
+        $steps = preg_split('/\n      - /', substr($yml, (int)strpos($yml, "\n    steps:\n")));
+        $at = static fn (string $needle): array => array_keys(array_filter($steps, static fn (string $s): bool => str_contains($s, $needle)));
+        [$token] = $at('id: app-token');
+        $this->assertGreaterThan($at('id: guard')[0], $token);
+        $this->assertGreaterThan($at('id: plan')[0], $token);
+        $this->assertStringContainsString("        if: steps.plan.outputs.release == 'true'\n", $steps[$token]);
+        $users = $at('steps.app-token.outputs.token');
+        $this->assertSame([$at('git push --atomic')[0], $at('gh release create')[0]], $users);
+        $this->assertSame(2, substr_count($yml, 'steps.app-token.outputs.token'));
+        $this->assertStringContainsString("          APP_TOKEN: \${{ steps.app-token.outputs.token }}\n", $steps[$users[0]]);
+        $this->assertStringContainsString("          GH_TOKEN: \${{ steps.app-token.outputs.token }}\n", $steps[$users[1]]);
+        $this->assertStringContainsString('"AUTHORIZATION: basic $(printf \'x-access-token:%s\' "$APP_TOKEN" | base64 -w0)"', $steps[$users[0]]);
+        $this->assertDoesNotMatchRegularExpression('/(echo|set -x|::debug::).*TOKEN/', $yml);
         // GITHUB_TOKEN: read-only at workflow and job level; nothing asks it for write access.
         $this->assertStringContainsString("permissions:\n  contents: read\n", $yml);
         $this->assertStringContainsString("    permissions:\n      contents: read\n      actions: read\n", $yml);

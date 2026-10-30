@@ -38,20 +38,13 @@ jobs:
       RUN_ID: ${{ github.event.workflow_run.id }}
       RUN_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - name: Release App token
-        id: app-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-          permission-contents: write
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
           fetch-depth: 0
-          # git push below uses the App token, which the main ruleset lets through.
-          token: ${{ steps.app-token.outputs.token }}
-      - uses: shivammathur/setup-php@v2
+          # No token is left in .git/config; only the push step below gets the App token.
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.3'
           coverage: none
@@ -78,10 +71,21 @@ jobs:
           else
             echo "::warning::coverage-ci4-sqlite artifact not found; README coverage table left as is"
           fi
+      # Only when there is something to release, right before the push: the release GitHub App's installation
+      # token (Contents write, revoked when the job ends), which the main ruleset lets through.
+      - name: Release App token
+        id: app-token
+        if: steps.plan.outputs.release == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
       - name: Update VERSION and CHANGELOG.md, commit, tag and push
         if: steps.plan.outputs.release == 'true'
         env:
           NEXT: ${{ steps.plan.outputs.next }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           php scripts/release.php apply --notes="$RUNNER_TEMP/notes.md"
           git config user.name 'github-actions[bot]'
@@ -89,6 +93,11 @@ jobs:
           git add VERSION CHANGELOG.md README.md
           git commit -m "chore(release): v$NEXT [skip ci]"
           git tag -a "v$NEXT" -m "v$NEXT"
+          # The App token goes to git through the environment (not argv, not .git/config) and is never printed.
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
           git push --atomic origin HEAD:main "v$NEXT"
       - name: GitHub Release
         if: steps.plan.outputs.release == 'true'
