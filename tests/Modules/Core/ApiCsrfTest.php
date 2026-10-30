@@ -47,6 +47,8 @@ final class ApiCsrfTest extends TestCase
         $this->assertNull($this->refusal('PATCH', $this->server(['CONTENT_TYPE' => 'application/json; charset=utf-8'])));
         $this->assertNull($this->refusal('POST', $this->server(['CONTENT_TYPE' => 'multipart/form-data; boundary=x'])));
         $this->assertNull($this->refusal('POST', $this->server(['HTTP_ORIGIN' => 'https://app.example.test', 'HTTP_SEC_FETCH_SITE' => 'same-site'])), 'a listed origin');
+        $this->assertNull($this->refusal('POST', $this->server(['HTTP_ORIGIN' => 'https://API.example.test.'])), 'one trailing dot, any case (QA L-1140)');
+        $this->assertNotNull($this->refusal('POST', $this->server(['HTTP_ORIGIN' => 'https://evil.example.test.'])), 'another host with a dot still fails');
         $this->assertNull($this->refusal('DELETE', $this->server(['CONTENT_TYPE' => '', 'CONTENT_LENGTH' => ''])), 'no body, no type needed');
         $noFetch = $this->server();
         unset($noFetch['HTTP_SEC_FETCH_SITE']);
