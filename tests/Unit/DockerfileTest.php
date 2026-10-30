@@ -45,6 +45,12 @@ final class DockerfileTest extends TestCase
     }
 
     /** GET /api/v1/openapi.json serves docs/api/openapi.yaml, so the image carries it at the same relative path. */
+    public function testImageCarriesTheOpenApiDocument(): void
+    {
+        $this->assertStringContainsString("COPY --chown=root:root docs/api/openapi.yaml /var/www/app/docs/api/openapi.yaml\n", $this->dockerfile());
+        $this->assertDoesNotMatchRegularExpression('#^docs|^\*\.ya?ml#m', (string)file_get_contents(dirname(__DIR__, 2) . '/.dockerignore'));
+    }
+
     /**
      * L-1241: the official image has no pcntl, so the Dockerfile builds it and its build-time check needs it:
      * without it `php spark jobs:work` ends on SIGTERM (143) instead of handing the running job back.
@@ -56,12 +62,6 @@ final class DockerfileTest extends TestCase
         $this->assertMatchesRegularExpression('/^\s*php -m \| grep -qx pcntl;/m', $docker);
         $ci = (string)file_get_contents(dirname(__DIR__, 2) . '/.github/workflows/ci.yml');
         $this->assertStringContainsString('docker run --rm apotheke:ci php -m | grep -qx pcntl', $ci);
-    }
-
-    public function testImageCarriesTheOpenApiDocument(): void
-    {
-        $this->assertStringContainsString("COPY --chown=root:root docs/api/openapi.yaml /var/www/app/docs/api/openapi.yaml\n", $this->dockerfile());
-        $this->assertDoesNotMatchRegularExpression('#^docs|^\*\.ya?ml#m', (string)file_get_contents(dirname(__DIR__, 2) . '/.dockerignore'));
     }
 
     /** Hardening (SEC-M3): compose publishes the app on localhost only, and the image needs sign-in to start. */

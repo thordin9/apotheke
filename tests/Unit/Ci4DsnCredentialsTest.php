@@ -16,6 +16,8 @@ require_once dirname(__DIR__, 2) . '/modules/Migrations/PdoMigrationRunner.php';
  */
 final class Ci4DsnCredentialsTest extends TestCase
 {
+    use SkipsOutsideCi;
+
     private ?PDO $admin = null;
     /** @var array{env:array{user:string,password:string},dsn:array{user:string,password:string}} */
     private array $roles;
@@ -73,6 +75,7 @@ final class Ci4DsnCredentialsTest extends TestCase
      */
     public function testCredentialsFollowLegacyOnPhp83(): void
     {
+        $this->skipUnlessPgRejectsWrongPasswords();
         $name = test_pg_params()['name'];
         $dsnCreds = 'dbname=' . $name . ';user=%du;password=%dp';
         $cases = [
@@ -103,6 +106,7 @@ final class Ci4DsnCredentialsTest extends TestCase
      */
     public function testRunnerFollowsLegacyOnPhp83OnEveryPhpVersion(): void
     {
+        $this->skipUnlessPgRejectsWrongPasswords();
         $pg = test_pg_params();
         $base = sprintf('pgsql:host=%s;port=%s;dbname=%s', $pg['host'], $pg['port'], $pg['name']);
         $env = $this->roles['env'];
@@ -189,6 +193,7 @@ final class Ci4DsnCredentialsTest extends TestCase
      */
     public function testSpecialCharacterCredentialsOnBothPaths(): void
     {
+        $this->skipUnlessPgRejectsWrongPasswords();
         $pg = test_pg_params();
         $tag = bin2hex(random_bytes(3));
         $roles = [
