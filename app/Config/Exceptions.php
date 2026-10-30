@@ -101,7 +101,7 @@ class Exceptions extends BaseConfig
      */
     public function handler(int $statusCode, Throwable $exception): ExceptionHandlerInterface
     {
-        return new PlainHandler($this->page, $this->cleanup);
+        return new PlainHandler($this->page, $this->cleanup, null, $this->publicUrl);
     }
 
     /**
@@ -120,4 +120,10 @@ class Exceptions extends BaseConfig
      * @var (\Closure(): void)|null
      */
     public ?\Closure $cleanup = null;
+
+    /**
+     * PUBLIC_URL from the environment or config.php (not the database), set by
+     * Config\Services::exceptions(): the HSTS decision of an /api error answer.
+     */
+    public ?\Closure $publicUrl = null;
 }
