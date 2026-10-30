@@ -482,8 +482,23 @@ permission the environment's token probably lacks; a missing container push perm
 `apotheke-api` needs its two secrets set once on the Worker, outside CI; see
 [One-time manual step before the first edge deploy](#one-time-manual-step-before-the-first-edge-deploy).
 
+### Storage gate: EDGE_STORAGE_READY
+
+The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
+job of `deploy-edge.yml` fails on purpose, on every trigger (release and manual), unless the **repository variable**
+`EDGE_STORAGE_READY` is exactly `true`:
+
+* no `CLOUDFLARE_API_TOKEN` in `deploy-edge`: the job is skipped and stays green, as before;
+* a token, but `EDGE_STORAGE_READY` unset or anything other than `true`: the job fails before any wrangler call with
+  *apotheke-api is stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that*;
+* `EDGE_STORAGE_READY=true`: the deploy runs.
+
+Set it (Settings > Secrets and variables > Actions > Variables) only once storage has landed. The pull request checks
+and `deploy-frontend.yml` are not affected.
+
 ### One-time manual step before the first edge deploy
 
+Do this at the first real edge deploy, after the storage gate above is opened, not before.
 `edge/wrangler.jsonc` lists `APP_PASSWORD` and `APP_KEY` under `secrets.required`, so `wrangler deploy` of
 `apotheke-api` fails until both exist on the Worker. CI never sets them: the deploy token is not used for secrets, and
 the values never go through GitHub. The operator sets them once, from a trusted machine, with a token that can edit
