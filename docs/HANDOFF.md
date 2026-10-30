@@ -286,8 +286,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `pg_trigger`); the optional `search_docs_trgm` index is left out as in the upgrade dump. N-1301: the seven tests that
   need a refused wrong password skip on a trust-auth server (`SkipsOutsideCi::skipUnlessPgRejectsWrongPasswords`, a
   failure in CI; `docs/testing.md`). N-1302: `DockerfileTest`'s pcntl test sits after the OpenAPI test, which has its
-  docblock back. Merged at 4ac2fe9. QA follow-ups L-1321, N-1320 and N-1322 are in feat/api-import-preview.
-- feat/api-import-preview: API P3, first part (API plan §6): `POST /api/v1/imports` (upload), `GET /api/v1/imports/{id}`
+  docblock back. Merged at 4ac2fe9. QA follow-ups L-1321, N-1320 and N-1322 are in #184.
+- [#184](https://github.com/thordin9/apotheke/pull/184): API P3, first part (API plan §6): `POST /api/v1/imports` (upload), `GET /api/v1/imports/{id}`
   and `GET /api/v1/imports/{id}/preview`, Import permission. `Imports::preview()` is a dry-run validator that shares
   `row()` with the HTML run but writes nothing: no transaction or savepoint (D1), stand-in ids for the locations and
   categories it would make, `checkLend()` in place of the loan, and later rows see an earlier row's update. The API
