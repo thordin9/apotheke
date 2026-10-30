@@ -79,14 +79,15 @@ final class UserRepository
      * Every account sorted by name (legacy users_list()), for the Users page.
      * A failed read throws.
      *
-     * @return list<array{id:int,username:string,role:string,status:string,last_login_at:?string}>
+     * @return list<array{id:int,username:string,role:string,status:string,created_at:string,last_login_at:?string}>
      */
     public function all(): array
     {
         $out = [];
-        foreach (Writes::rows($this->db, 'SELECT id, username, role, status, last_login_at FROM users ORDER BY username_key, id') as $row) {
+        foreach (Writes::rows($this->db, 'SELECT id, username, role, status, created_at, last_login_at FROM users ORDER BY username_key, id') as $row) {
             $out[] = ['id' => (int)$row['id'], 'username' => (string)$row['username'], 'role' => (string)$row['role'],
-                'status' => (string)$row['status'], 'last_login_at' => $row['last_login_at'] === null ? null : (string)$row['last_login_at']];
+                'status' => (string)$row['status'], 'created_at' => (string)$row['created_at'],
+                'last_login_at' => $row['last_login_at'] === null ? null : (string)$row['last_login_at']];
         }
 
         return $out;

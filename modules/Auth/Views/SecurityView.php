@@ -27,7 +27,7 @@ final class SecurityView
     /**
      * @param array{
      *   on:bool, guestBrowsing:bool, me:array{id:?int,username:string,role:string,guest:bool},
-     *   admins:int, users:list<array{id:int,username:string,role:string,status:string,last_login_at:?string}>,
+     *   admins:int, users:list<array{id:int,username:string,role:string,status:string,created_at:string,last_login_at:?string}>,
      *   roles:array<string,array{key:string,name:string,builtin:bool,users:int,perms:list<string>}>,
      *   fields:list<array{key:string,label:string,type:string,default:mixed,help:string,options:array<string,mixed>,value:mixed}>,
      *   usernameMax:int, passwordMin:int, timeFormat:string, timezone:string
