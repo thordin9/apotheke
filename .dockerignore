@@ -15,6 +15,5 @@ coverage/
 .phpunit.cache/
 frontend/
 edge/
-site/
 .wrangler/
 .dev.vars
