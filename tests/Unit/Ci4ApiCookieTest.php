@@ -40,6 +40,26 @@ final class Ci4ApiCookieTest extends TestCase
         });
     }
 
+    /**
+     * QA N-1144, PM decision: the session cookie stays SameSite=Lax while the HTML views exist (a link from
+     * another site must still open the app signed in); Strict is reconsidered for 4.0. Both names, set by a
+     * page and by the API.
+     */
+    public function testTheSessionCookieIsSameSiteLaxUnderBothNames(): void
+    {
+        foreach ([[[], 'apothekesid'], [['PUBLIC_URL' => 'https://127.0.0.1'], '__Host-apothekesid']] as [$env, $name]) {
+            $this->withServer($env, function (Client $client) use ($name): void {
+                foreach (['/login', '/api/v1/session'] as $path) {
+                    $client->cookies = [];
+                    $line = $this->cookieLine($client->get($path));
+                    $this->assertStringStartsWith('Set-Cookie: ' . $name . '=', $line, $path);
+                    $this->assertMatchesRegularExpression('/; samesite=Lax(;|$)/i', $line, $path);
+                    $this->assertSame(1, preg_match_all('/samesite=/i', $line), $path);
+                }
+            });
+        }
+    }
+
     public function testHttpsResumesASessionFromThePlainNameOnce(): void
     {
         $this->withServer(['PUBLIC_URL' => 'https://127.0.0.1'], function (Client $client, string $base): void {

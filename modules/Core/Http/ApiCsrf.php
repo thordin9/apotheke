@@ -17,7 +17,7 @@ final class ApiCsrf
 
     /**
      * @param array<string,mixed> $server
-     * @param list<string> $ownOrigins lower case (SameOrigin::ownOrigins())
+     * @param list<string> $ownOrigins normalised (SameOrigin::ownOrigins())
      * @param list<string> $corsOrigins
      * @return ?array{status:int,code:string,detail:string} null when it passes
      */
@@ -33,7 +33,7 @@ final class ApiCsrf
         if ($site !== '' && $site !== 'same-origin' && $site !== 'same-site') {
             return $refused;
         }
-        $origin = strtolower(rtrim($get('HTTP_ORIGIN'), '/'));
+        $origin = SameOrigin::normalise($get('HTTP_ORIGIN'));
         if ($origin === '' || !(in_array($origin, $ownOrigins, true) || (new Cors($corsOrigins, ENVIRONMENT === 'development'))->allows($origin))) {
             return $refused;
         }

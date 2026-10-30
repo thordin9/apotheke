@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Exceptions;
 
+use Apotheke\Core\Http\ApiResponse;
+use Apotheke\Core\Http\ApiSecurityPolicy;
 use Apotheke\Core\Http\CsrfCheck;
 use Apotheke\Core\Http\ErrorPage;
+use Apotheke\Core\Http\LegacyPathRouter;
+use Apotheke\Core\Http\RequestScheme;
 use Apotheke\Core\Http\SecurityPolicy;
 use Apotheke\Core\Http\WantsJson;
 use Apotheke\Core\Log\RedactingFileHandler;
@@ -26,6 +30,8 @@ use Throwable;
  * else gets the app's error page (Layout, through $page). A path the router
  * refuses (control characters, `;`) is a plain 400 "Bad request" and is not
  * logged. Without $page (spark, unit tests) the answers are text only.
+ * Under /api every answer is problem+json with the API headers, $page or
+ * not (QA L-1142); a 5xx detail is generic, never the exception's text.
  * The response skips the global after filters, so the security headers are
  * set here, as legacy view_error() pages have them (SEC-N8).
  */
@@ -85,6 +91,10 @@ final class PlainHandler implements ExceptionHandlerInterface
      */
     public function render(Throwable $exception, ResponseInterface $response, array $server = []): ResponseInterface
     {
+        $uri = $server['REQUEST_URI'] ?? null;
+        if (ApiResponse::isApi(LegacyPathRouter::legacyPath(is_string($uri) ? $uri : '/'))) {
+            return $this->problem($exception, $response, $server);
+        }
         [$status, $body] = $this->status($exception);
         $response->setStatusCode($status, $status === CsrfCheck::STATUS ? CsrfCheck::REASON : '');
         foreach ((new SecurityPolicy())->headers() as $name => $value) {
@@ -110,6 +120,40 @@ final class PlainHandler implements ExceptionHandlerInterface
         };
 
         return $response->setHeader('Content-Type', 'text/html; charset=UTF-8')->setBody(($this->page)()->html($status, $message));
+    }
+
+    /**
+     * The /api answer: RFC 9457 problem+json with a stable code. A UserError's
+     * message is written for the user and is kept below 500; anything else gets a
+     * fixed detail. 419 (no reason phrase in CI4) is the API's 403 csrf.invalid.
+     *
+     * @param array<string,mixed> $server
+     */
+    private function problem(Throwable $exception, ResponseInterface $response, array $server): ResponseInterface
+    {
+        [$status, $body] = $this->status($exception);
+        $status = $status === CsrfCheck::STATUS ? 403 : $status;
+        $code = match ($status) {
+            400 => 'bad_request',
+            401 => 'auth.required',
+            403 => $exception instanceof UserError && $exception->getCode() === CsrfCheck::STATUS ? 'csrf.invalid' : 'permission.denied',
+            404 => 'not_found',
+            413 => 'upload.too_large',
+            422 => 'validation.failed',
+            429 => 'rate_limited',
+            default => $status >= 500 ? 'server_error' : 'request.failed',
+        };
+        $detail = match (true) {
+            $status >= 500 => 'Something went wrong on the server.',
+            $exception instanceof UserError => $body,
+            $status === 404 => 'No such API endpoint.',
+            default => 'Bad request.',
+        };
+        foreach ((new ApiSecurityPolicy())->headers((new RequestScheme(false))->isHttps($server)) as $name => $value) {
+            $response->setHeader($name, $value);
+        }
+
+        return ApiResponse::problem($response, $status, $code, $detail);
     }
 
     private function log(string $line): void

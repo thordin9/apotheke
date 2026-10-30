@@ -59,6 +59,18 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertArrayNotHasKey('set-cookie', $r['headers'], 'no session for an API 404');
     }
 
+    /** QA L-1142: a path the router refuses goes through the exception handler, and still answers problem+json. */
+    public function testAnUncaughtErrorUnderApiIsProblemJson(): void
+    {
+        $r = $this->client()->get('/api/v1/a;b');
+        $this->assertSame(400, $r['status'], $r['body']);
+        $this->assertSame('application/problem+json', $r['headers']['content-type']);
+        $this->assertSame(['type' => 'about:blank', 'title' => 'Bad Request', 'status' => 400, 'detail' => 'Bad request.', 'code' => 'bad_request'], $r['json']);
+        $this->assertSame("default-src 'none'; frame-ancestors 'none'; sandbox", $r['headers']['content-security-policy']);
+        $this->assertSame('no-store', $r['headers']['cache-control']);
+        $this->assertArrayNotHasKey('x-frame-options', $r['headers']);
+    }
+
     public function testAPreflightFromAListedOriginGetsTheCorsHeaders(): void
     {
         $r = $this->client()->req('OPTIONS', '/api/v1/session', [], [], ['Origin: ' . self::APP, 'Access-Control-Request-Method: POST', 'Access-Control-Request-Headers: content-type, x-csrf-token']);
