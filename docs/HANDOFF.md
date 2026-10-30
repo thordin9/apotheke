@@ -280,13 +280,25 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (Cloudflare: Cron Triggers or Queues, same schema). `Ci4MigrateTest` keys its 2.6.26 sha256 pins by version, so
   gitleaks has no file name with "key" to match; the only `.gitleaks.toml` entry left covers commit 1b5f5c8 in history
   (commit, path and value must all match). Merged at c22853f.
-- test/schema-guard-indexes: QA follow-ups to #170. L-1300: `testNoCi4OnlyMigrationChangesATable26Reads` also compares
+- [#175](https://github.com/thordin9/apotheke/pull/175): QA follow-ups to #170. L-1300: `testNoCi4OnlyMigrationChangesATable26Reads` also compares
   every 2.6.26 table's indexes (name, columns, unique, partial WHERE), UNIQUE/CHECK/FK constraints and triggers, on
   SQLite (`sqlite_master`, `index_list`/`index_info`/`foreign_key_list`) and PostgreSQL (`pg_indexes`, `pg_constraint`,
   `pg_trigger`); the optional `search_docs_trgm` index is left out as in the upgrade dump. N-1301: the seven tests that
   need a refused wrong password skip on a trust-auth server (`SkipsOutsideCi::skipUnlessPgRejectsWrongPasswords`, a
   failure in CI; `docs/testing.md`). N-1302: `DockerfileTest`'s pcntl test sits after the OpenAPI test, which has its
-  docblock back. Open.
+  docblock back. Merged at 4ac2fe9. QA follow-ups L-1321, N-1320 and N-1322 are in #184.
+- [#184](https://github.com/thordin9/apotheke/pull/184): API P3, first part (API plan §6): `POST /api/v1/imports` (upload), `GET /api/v1/imports/{id}`
+  and `GET /api/v1/imports/{id}/preview`, Import permission. `Imports::preview()` is a dry-run validator that shares
+  `row()` with the HTML run but writes nothing: no transaction or savepoint (D1), stand-in ids for the locations and
+  categories it would make, `checkLend()` in place of the loan, and later rows see an earlier row's update. The API
+  preview takes its mapping from the query and does not save it (`Imports::mapping()`). The HTML preview and commit are
+  unchanged. Tests: `ImportPreviewTest` (equal to the HTML dry run on both drivers, with and without creating; no write,
+  transaction or DDL statement and every table's row count unchanged), `Ci4ApiImportsTest` (contract, permissions, CSRF,
+  404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. QA: M-1360, an import is
+  shown only to its uploader (`imports.actor`, no schema change) or an admin (`Imports::mine()`), anyone else gets the
+  same 404 as an unknown id (the HTML pages are unchanged, pending a PM decision); L-1361, `sample_formula` and each
+  preview row's `formula` list the cells `CsvCells::formulaLike()` flags (the export's rule), values stay raw. With #182's consent gate the import reads answer
+  cookieless and the upload is 403 `consent_required` (`Ci4CookieConsentTest`). Open.
 - [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
   session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
   without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
