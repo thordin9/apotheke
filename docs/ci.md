@@ -64,14 +64,15 @@ An empty config is still a pass. A filled config fails when the tool is not inst
 
 Runs when CI finishes successfully for a push to `main` (`workflow_run` with `branches: [main]`), or by hand (`workflow_dispatch`).
 Pull requests and other branches do not release: the trigger lists only `main`, and both the workflow-run job and a manual run check out `main`. `workflow_run` workflows are read from the default branch, so a copy of this file on another branch cannot widen what `main` releases. 3.0.0 is the first release cut from the switched `main`.
-The workflow token is `contents: read`. The release job raises that to `contents: write` (push the release commit and
-tag, create the GitHub Release) and `actions: read` (download the CI coverage artifact). `concurrency: release`, never
-cancelled. It skips when `main` has moved past the commit CI tested.
+The workflow token is `contents: read`; the release job adds only `actions: read` (download the CI coverage artifact).
+The release commit, the tag and the GitHub Release are written with the release GitHub App's token, minted only when
+there is a release and passed only to the push and `gh release create` steps (see
+[releasing.md](releasing.md#push-credentials-the-release-github-app)). `concurrency: release`, never cancelled. It skips when `main` has moved past the commit CI tested.
 `scripts/release.php plan` computes the bump from the Conventional Commits since the last `v*` tag; if there is one, the
 README coverage table is regenerated from `coverage-ci4-sqlite`, `release.php apply` updates `VERSION` and `CHANGELOG.md`,
 and the job pushes `chore(release): vX.Y.Z [skip ci]` plus the tag atomically and runs `gh release create`.
-The release commit doesn't start CI (`[skip ci]`, and pushes made with `GITHUB_TOKEN` never trigger workflows), so there is
-no loop. Details: [releasing.md](releasing.md).
+The release commit doesn't start CI because its message carries `[skip ci]`, so there is no loop. That marker is the only
+guard: the push is made with the App token, and unlike `GITHUB_TOKEN` pushes, App-token pushes do trigger workflows. Details: [releasing.md](releasing.md).
 
 ### Why the coverage table is refreshed by the release commit
 
