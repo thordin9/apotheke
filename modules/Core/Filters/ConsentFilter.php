@@ -15,6 +15,7 @@ use CodeIgniter\HTTP\RequestInterface;
 use CodeIgniter\HTTP\Response;
 use CodeIgniter\HTTP\ResponseInterface;
 use Config\App;
+use Config\Consent;
 use Config\Services;
 
 /**
@@ -23,9 +24,11 @@ use Config\Services;
  * - a state-changing request (sign-in, any form or API write: they all need the
  *   session's CSRF token) gets 403 consent_required: problem+json under /api,
  *   legacy JSON for fetch, else the error page, which shows the consent notice;
- * - no Set-Cookie leaves: the session filter and SessionToken start no session,
- *   and as a backstop every Set-Cookie is removed from the answer (after), and
- *   from PHP's header list right before headers go out, error answers included.
+ * - no Set-Cookie leaves but the consent cookie from POST /consent: the session
+ *   filter and SessionToken start no session, and as a backstop every other
+ *   Set-Cookie is removed from the answer (after), and from PHP's header list
+ *   right before headers go out, error answers included;
+ * - an answer without Cache-Control gets no-store (no session sends its no-cache).
  * With consent nothing changes. The server never sets the consent cookie itself.
  */
 final class ConsentFilter implements FilterInterface
@@ -38,9 +41,10 @@ final class ConsentFilter implements FilterInterface
         }
         // The backstop for answers that skip the after filters (an uncaught error, a streamed body).
         header_register_callback(static function (): void {
-            header_remove('Set-Cookie');
+            self::keepOnlyConsentCookie();
         });
-        if (!$consent->needed($request->getMethod())) {
+        // POST /consent (ConsentController) is how a browser without JavaScript gives consent.
+        if (!$consent->needed($request->getMethod()) || LegacyPathRouter::requestPath($request) === '/consent') {
             return null;
         }
         $response = new Response(config(App::class));
@@ -72,13 +76,41 @@ final class ConsentFilter implements FilterInterface
         if (CookieConsent::configured()->given(self::cookies($request))) {
             return null;
         }
+        $line = $response->hasHeader('Set-Cookie') ? $response->getHeaderLine('Set-Cookie') : '';
         $response->getCookieStore()->clear();
         $response->removeHeader('Set-Cookie');
+        if (self::isConsentCookie($line)) {
+            $response->setHeader('Set-Cookie', $line);   // POST /consent
+        }
+        // Without a session nothing sends its no-cache headers (L-1342).
+        if (!$response->hasHeader('Cache-Control')) {
+            $response->setHeader('Cache-Control', 'no-store');
+        }
         if (!headers_sent()) {
-            header_remove('Set-Cookie');   // a session PHP started during the request
+            self::keepOnlyConsentCookie();   // a session PHP started during the request
         }
 
         return $response;
+    }
+
+    /** From PHP's header list: every Set-Cookie but the consent cookie; and Cache-Control: no-store when none is set. */
+    private static function keepOnlyConsentCookie(): void
+    {
+        $headers = headers_list();
+        $keep = preg_grep('/^(?i:set-cookie):\s*' . preg_quote(Consent::COOKIE, '/') . '=[^,]*$/', $headers) ?: [];
+        header_remove('Set-Cookie');
+        foreach ($keep as $h) {
+            header($h, false);
+        }
+        if (preg_grep('/^cache-control:/i', $headers) === []) {
+            header('Cache-Control: no-store');
+        }
+    }
+
+    /** One Set-Cookie value for the consent cookie (no list: the consent cookie has no Expires, so no comma). */
+    private static function isConsentCookie(string $line): bool
+    {
+        return str_starts_with($line, Consent::COOKIE . '=') && !str_contains($line, ',');
     }
 
     /** @return array<array-key,mixed> */

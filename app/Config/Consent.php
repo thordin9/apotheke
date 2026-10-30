@@ -19,11 +19,31 @@ class Consent extends BaseConfig
     /** Accepted versions of the consent; a later banner text adds 'v2' here. */
     public const ACCEPTED = ['v1'];
 
-    /** The value the app's own notice (public/assets/theme.js) sets: the newest version. */
+    /** The value the app's own notice (Accept in public/assets/app.js, or POST /consent) sets: the newest version. */
     public const CURRENT = 'v1';
+
+    /** 180 days. */
+    public const MAX_AGE = 15552000;
+
+    /** On a host under this domain (hosted) the cookie gets Domain=getapotheke.com; elsewhere it is host-only. */
+    public const HOSTED_DOMAIN = 'getapotheke.com';
 
     public string $cookieName = self::COOKIE;
 
     /** @var list<string> */
     public array $acceptedValues = self::ACCEPTED;
+
+    /** COOKIE_CONSENT: `required` (the default; any other value too) or `off` (cookies as before 3.3, no 403). */
+    public bool $required = true;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->required = self::requiredFrom(getenv('COOKIE_CONSENT'));
+    }
+
+    public static function requiredFrom(mixed $value): bool
+    {
+        return !is_string($value) || strtolower(trim($value)) !== 'off';
+    }
 }

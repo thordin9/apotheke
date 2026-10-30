@@ -39,8 +39,11 @@
 
   /* ---------- cookie consent: Accept sets the consent cookie (the first cookie the app has), then reloads ---------- */
   const consent = $('#consent-accept');
-  if (consent) consent.addEventListener('click', () => {
-    document.cookie = 'apotheke_consent=' + consent.dataset.consent + '; Path=/; Max-Age=15552000; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+  // Same attributes as POST /consent (CookieConsent::cookie()), which the form uses without JavaScript.
+  if (consent) consent.addEventListener('click', e => {
+    e.preventDefault();
+    document.cookie = 'apotheke_consent=' + consent.dataset.consent + '; Path=/; Max-Age=15552000' + (consent.dataset.domain ? '; Domain=' + consent.dataset.domain : '')
+      + (location.protocol === 'https:' ? '; Secure' : '') + '; SameSite=Lax';
     location.reload();
   });
 

@@ -20,12 +20,15 @@ final class CookieConsent
 
     public const MESSAGE = 'Cookies are needed to sign in or save changes. Accept cookies in the notice at the top of the page, then try again.';
 
-    /** Methods that need no session (RFC 9110 safe methods). */
-    private const SAFE = ['GET', 'HEAD', 'OPTIONS', 'TRACE'];
+    /** Methods that need no session (TRACE is not served, so it is refused like a write). */
+    private const SAFE = ['GET', 'HEAD', 'OPTIONS'];
 
     /** @param list<string> $accepted */
-    public function __construct(private readonly string $name = Consent::COOKIE, private readonly array $accepted = Consent::ACCEPTED)
-    {
+    public function __construct(
+        private readonly string $name = Consent::COOKIE,
+        private readonly array $accepted = Consent::ACCEPTED,
+        private readonly bool $required = true,
+    ) {
     }
 
     /** The configured contract (Config\Consent). */
@@ -33,7 +36,7 @@ final class CookieConsent
     {
         $config = config(Consent::class);
 
-        return $config instanceof Consent ? new self($config->cookieName, $config->acceptedValues) : new self();
+        return $config instanceof Consent ? new self($config->cookieName, $config->acceptedValues, $config->required) : new self();
     }
 
     /** This request ($_COOKIE) carries consent. */
@@ -45,6 +48,9 @@ final class CookieConsent
     /** @param array<array-key,mixed> $cookies the request's cookies by name */
     public function given(array $cookies): bool
     {
+        if (!$this->required) {
+            return true;   // COOKIE_CONSENT=off
+        }
         $value = $cookies[$this->name] ?? null;
 
         return is_string($value) && in_array($value, $this->accepted, true);
@@ -60,5 +66,40 @@ final class CookieConsent
     public function jsonBody(): string
     {
         return (string)json_encode(['ok' => false, 'error' => self::MESSAGE, 'code' => self::CODE], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    /** The cookie's Domain for this Host header: the hosted parent domain, or '' (host-only). */
+    public static function domain(string $host): string
+    {
+        $host = rtrim(strtolower((string)preg_replace('/:\d+$/', '', trim($host))), '.');
+
+        return $host === Consent::HOSTED_DOMAIN || str_ends_with($host, '.' . Consent::HOSTED_DOMAIN) ? Consent::HOSTED_DOMAIN : '';
+    }
+
+    /** The Set-Cookie value POST /consent sends: the same attributes as the notice's script (app.js). */
+    public static function cookie(string $host, bool $secure): string
+    {
+        $domain = self::domain($host);
+
+        return Consent::COOKIE . '=' . Consent::CURRENT . '; Path=/; Max-Age=' . Consent::MAX_AGE
+            . ($domain !== '' ? '; Domain=' . $domain : '') . ($secure ? '; Secure' : '') . '; SameSite=Lax';
+    }
+
+    /**
+     * Where POST /consent sends the browser back: a path on this site ("/…"), else "/". Refused, also once to
+     * three times percent-decoded: no leading "/", "//" anywhere, a backslash, control characters (CR, LF …).
+     */
+    public static function returnPath(mixed $path): string
+    {
+        if (!is_string($path) || strlen($path) > 2048 || str_contains($path, ' ')) {
+            return '/';
+        }
+        for ($d = $path, $i = 0; $i < 4; $i++, $d = rawurldecode($d)) {
+            if (!str_starts_with($d, '/') || str_contains($d, '//') || str_contains($d, '\\') || preg_match('/[\x00-\x1F\x7F]/', $d) === 1) {
+                return '/';
+            }
+        }
+
+        return $path;
     }
 }

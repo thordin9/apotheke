@@ -41,6 +41,8 @@ final class Ci4CookieConsentTest extends TestCase
         yield 'list (redirect to sign-in)' => ['GET', '/', 303];
         yield 'unknown page (redirect to sign-in)' => ['GET', '/no-such-page', 303];
         yield 'sign-in page' => ['GET', '/login', 200];
+        yield 'sign-in page (HEAD)' => ['HEAD', '/login', 200];
+        yield 'branding: theme.css (HEAD)' => ['HEAD', '/theme.css', 200];
         yield 'branding: manifest' => ['GET', '/manifest.webmanifest', 200];
         yield 'branding: theme.css' => ['GET', '/theme.css', 200];
         yield 'api session' => ['GET', '/api/v1/session', 200];
@@ -60,10 +62,121 @@ final class Ci4CookieConsentTest extends TestCase
     public function testNoCookieWithoutConsent(string $method, string $path, int $status, array $fields = []): void
     {
         $c = $this->client(null);
-        $r = $method === 'GET' ? $c->get($path) : $c->post($path, $fields);
+        $r = $method === 'POST' ? $c->post($path, $fields) : $c->req($method, $path);
         $this->assertSame($status, $r['status'], $path . ': ' . substr($r['body'], 0, 300));
         $this->assertSame([], self::setCookies($r), $path);
         $this->assertSame([], $c->cookies, $path);
+    }
+
+    /** L-1342: without a session nothing sends no-cache, so a page without its own Cache-Control gets no-store. */
+    public function testCookielessPagesAreNotStored(): void
+    {
+        foreach (['/login', '/brand/no-such.png'] as $path) {
+            $this->assertSame('no-store', $this->client(null)->get($path)['headers']['cache-control'] ?? null, $path);
+        }
+        $this->assertSame('no-cache', $this->client(null)->get('/theme.css')['headers']['cache-control'] ?? null, 'its own caching stays');
+    }
+
+    /** POST /consent (the notice's form without JavaScript): only the consent cookie, then back to the page. */
+    public function testTheFormAcceptSetsOnlyTheConsentCookie(): void
+    {
+        $page = $this->client(null)->get('/login?next=1');
+        $this->assertStringContainsString('<form method="post" action="/consent"><input type="hidden" name="return" value="/login?next=1">'
+            . '<button type="submit" class="btn btn-primary" id="consent-accept" data-consent="v1" data-domain="" name="consent" value="accept">', $page['body']);
+        foreach (['Origin: ' . self::$server->base, 'Sec-Fetch-Site: same-origin'] as $header) {
+            $c = $this->client(null);
+            $r = $c->post('/consent', ['consent' => 'accept', 'return' => '/login?next=1'], [], [$header]);
+            $this->assertSame(303, $r['status'], $header . ': ' . substr($r['body'], 0, 200));
+            $this->assertSame('/login?next=1', $r['headers']['location'], $header);
+            $this->assertSame(['apotheke_consent=v1; Path=/; Max-Age=15552000; SameSite=Lax'], self::setCookies($r), $header);
+            $this->assertSame('no-store', $r['headers']['cache-control'], $header);
+            $after = $c->get('/login');
+            $this->assertStringNotContainsString('id="consent"', $after['body'], 'the cookie works');
+            $this->assertMatchesRegularExpression('/^apothekesid=/', self::setCookies($after)[0] ?? '');
+        }
+    }
+
+    /** Strictly same-origin: same-site, cross-site, none, another or a null Origin, or neither header: 403, no cookie. */
+    public function testTheFormAcceptIsStrictlySameOrigin(): void
+    {
+        foreach ([[], ['Sec-Fetch-Site: same-site'], ['Sec-Fetch-Site: cross-site'], ['Sec-Fetch-Site: none'], ['Origin: http://evil.test'],
+            ['Origin: null'], ['Sec-Fetch-Site: same-site', 'Origin: ' . self::$server->base]] as $headers) {
+            $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => '/'], [], $headers);
+            $this->assertSame(403, $r['status'], implode(', ', $headers));
+            $this->assertSame([], self::setCookies($r), implode(', ', $headers));
+        }
+    }
+
+    public function testTheFormAcceptNeedsConsentAccept(): void
+    {
+        foreach ([['return' => '/'], ['consent' => 'yes'], ['consent' => 'Accept'], ['consent' => '']] as $fields) {
+            $r = $this->client(null)->post('/consent', $fields, [], ['Origin: ' . self::$server->base]);
+            $this->assertSame(400, $r['status'], json_encode($fields));
+            $this->assertSame([], self::setCookies($r), json_encode($fields));
+        }
+    }
+
+    /** Only a path on this site comes back as Location (all variants: ConsentFilterTest). */
+    public function testTheFormAcceptReturnsOnlyToThisSite(): void
+    {
+        foreach (['//evil.test/', '/\\evil.test', '\\\\evil.test', 'https://evil.test/', '/%2F%2Fevil.test', '/%5Cevil.test', "/x\r\nX-Evil: 1", 'login'] as $back) {
+            $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => $back], [], ['Origin: ' . self::$server->base]);
+            $this->assertSame([303, '/'], [$r['status'], $r['headers']['location'] ?? null], var_export($back, true));
+            $this->assertArrayNotHasKey('x-evil', $r['headers']);
+        }
+    }
+
+    /** COOKIE_CONSENT=off: as before 3.3 (cookies, sign-in, no notice); any value but off is required. */
+    public function testTheSwitch(): void
+    {
+        foreach (['off' => true, 'required' => false, 'nope' => false] as $value => $off) {
+            $dir = tmpdir('consent-switch');
+            $server = new Server($dir, ['APP_PASSWORD' => self::PASSWORD, 'COOKIE_CONSENT' => $value], 'ci4');
+            try {
+                $c = $server->client();
+                $c->consent = null;
+                $page = $c->get('/login');
+                $this->assertSame($off, self::setCookies($page) !== [], $value);
+                $this->assertSame(!$off, str_contains($page['body'], 'id="consent"'), $value);
+                $this->assertSame(!$off, str_contains($page['body'], '<html lang="en" data-theme="auto" data-no-cookies>'), $value);
+                $in = $c->post('/login', ['csrf' => $c->csrf(), 'username' => 'admin', 'password' => self::PASSWORD]);
+                $this->assertSame($off ? 303 : 403, $in['status'], $value);
+            } finally {
+                $server->stop();
+                testdb_drop($dir);
+                rrmdir($dir);
+                @unlink($dir . '.server.log');
+            }
+        }
+    }
+
+    /**
+     * L-1341: an error answer skips the after filters, so only ConsentFilter's header callback keeps a cookie PHP put
+     * in its header list out of it. session.auto_start puts one there on every request.
+     */
+    public function testTheHeaderCallbackStripsCookiesFromErrorAnswers(): void
+    {
+        $dir = tmpdir('consent-backstop');
+        mkdir($dir . '/php-sessions', 0700, true);
+        $server = new Server($dir, ['APP_PASSWORD' => null], 'ci4', null, ['session.auto_start' => '1', 'session.save_path' => $dir . '/php-sessions']);
+        try {
+            $server->client()->get('/');   // migrates
+            testdb($dir)->exec('ALTER TABLE items RENAME TO items_gone');
+            $c = $server->client();
+            $c->consent = null;
+            $r = $c->get('/');
+            $this->assertSame(500, $r['status'], substr($r['body'], 0, 300));
+            $this->assertSame([], self::setCookies($r));
+            $this->assertStringStartsWith('no-store', $r['headers']['cache-control'] ?? '');
+            $with = $server->client()->get('/');
+            $this->assertSame(500, $with['status']);
+            $this->assertNotSame([], self::setCookies($with), 'the probe: with consent auto_start\'s cookie goes out');
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
     }
 
     public function testNoSessionFileWithoutConsent(): void
