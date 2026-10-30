@@ -196,7 +196,7 @@
           "202": {"description": "The job", "headers": {"Location": {"description": "The job", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Job"}}}},
           "400": {"$ref": "#/components/responses/Problem"},
           "401": {"$ref": "#/components/responses/Problem"},
-          "403": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
           "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "410": {"$ref": "#/components/responses/Problem"},

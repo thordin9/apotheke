@@ -54,6 +54,7 @@ final class Ci4CookieConsentTest extends TestCase
         yield 'api security' => ['GET', '/api/v1/security', 401];
         yield 'api import' => ['GET', '/api/v1/imports/1', 401];
         yield 'api import preview' => ['GET', '/api/v1/imports/1/preview', 401];
+        yield 'api job' => ['GET', '/api/v1/jobs/1', 401];
         yield 'openapi.json' => ['GET', '/api/v1/openapi.json', 200];
         yield '404' => ['GET', '/brand/no-such.png', 404];
         yield 'api 404' => ['GET', '/api/v1/no-such', 404];
@@ -236,7 +237,7 @@ final class Ci4CookieConsentTest extends TestCase
         }
     }
 
-    /** The import routes: reads answer cookieless (401, no session), the upload is refused before the CSRF check. */
+    /** The import routes: reads answer cookieless (401, no session), the upload and the commit are refused before the CSRF check. */
     public function testImportWritesGetConsentRequired(): void
     {
         $r = $this->client(null)->rest('POST', '/api/v1/imports', null, ['X-CSRF-Token: x']);
@@ -244,6 +245,10 @@ final class Ci4CookieConsentTest extends TestCase
         $this->assertSame('application/problem+json', $r['headers']['content-type']);
         $this->assertSame([], self::setCookies($r));
         ApiContract::assertMatches('POST', '/api/v1/imports', $r);
+        $c = $this->client(null)->rest('POST', '/api/v1/imports/1/commit', ['map' => ['name']], ['X-CSRF-Token: x']);
+        $this->assertSame([403, 'consent_required', 'consent_required'], [$c['status'], $c['json']['code'] ?? null, $c['json']['error'] ?? null]);
+        $this->assertSame([], self::setCookies($c));
+        ApiContract::assertMatches('POST', '/api/v1/imports/{id}/commit', $c);
     }
 
     /** @return iterable<string,array{0:string}> */

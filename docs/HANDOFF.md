@@ -318,7 +318,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   Upgrade note under CHANGELOG `[Unreleased]` and in `docs/upgrade-3.0.md`. QA: M-1380, the commit has the same
   uploader-or-admin scope and 404 as GET (`Ci4ApiJobsTest`: another importer gets the unknown-id answer, byte for
   byte, on GET, preview and commit; an admin gets through); N-1381, a job of a SIGKILLed worker resumes only after its
-  300 s lease (`docs/api.md`, Background jobs). Open.
+  300 s lease (`docs/api.md`, Background jobs). Under #182's consent gate `GET /api/v1/jobs/{id}` answers cookieless
+  and the commit is 403 `consent_required` (`Ci4CookieConsentTest`). Open.
 - [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
   session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
   without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
