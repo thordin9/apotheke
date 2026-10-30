@@ -167,7 +167,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertGreaterThan(array_search('session', $required, true), $at);
         $this->assertGreaterThan(array_search('sameorigin', $required, true), $at);
         // Required filters run before the global ones, so before CSRF, in legacy's order.
-        $this->assertSame(['except' => ['login', 'register', 'logout']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter');
+        $this->assertSame(['except' => ['login', 'register', 'logout', 'api', 'api/*']], $filters->globals['before']['sessioncsrf'] ?? null, 'only the routes that check the token themselves skip the CSRF filter (/api: ApiCsrf)');
         $this->assertNotContains('permission', $filters->globals['before']);
         $this->assertSame(\Apotheke\Auth\Filters\PermissionFilter::class, $filters->aliases['permission']);
     }
@@ -185,7 +185,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $check = new PermissionCheck(new RoleRepository($this->unreachableDb()));
         $seen = [];
         foreach (['POST', 'PUT', 'PATCH', 'DELETE', 'CONNECT'] as $verb) {
-            foreach (array_keys($collection->getRoutes($verb)) as $route) {
+            foreach (self::legacyRoutes($collection->getRoutes($verb)) as $route) {
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 foreach (self::sample((string)$route) as $path) {
                     $seen[] = $path;
@@ -224,7 +224,7 @@ final class PermissionFilterTest extends CIUnitTestCase
     private static function pageVerbPaths(\CodeIgniter\Router\RouteCollection $collection): array
     {
         $paths = [];
-        foreach (array_keys($collection->getRoutes('PUT')) as $route) {
+        foreach (self::legacyRoutes($collection->getRoutes('PUT')) as $route) {
             $route = (string)$route;
             $post = $collection->getRoutesOptions($route, 'POST')['permission'] ?? null;
             foreach (['PUT', 'PATCH', 'DELETE'] as $verb) {
@@ -233,7 +233,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             $paths[] = '/' . $route;
         }
         foreach (['PATCH', 'DELETE', 'OPTIONS', 'TRACE', 'CONNECT'] as $verb) {
-            self::assertSame(array_keys($collection->getRoutes('PUT')), array_keys($collection->getRoutes($verb)), $verb);
+            self::assertSame(self::legacyRoutes($collection->getRoutes('PUT')), self::legacyRoutes($collection->getRoutes($verb)), $verb);
         }
         sort($paths);
 
@@ -270,7 +270,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         $n = 0;
         $paths = 0;
         foreach (['GET', 'HEAD'] as $verb) {
-            foreach (array_keys($collection->getRoutes($verb)) as $route) {
+            foreach (self::legacyRoutes($collection->getRoutes($verb)) as $route) {
                 $need = $collection->getRoutesOptions((string)$route, $verb)['permission'] ?? null;
                 foreach (self::sample((string)$route) as $path) {
                     $this->assertNotNull($need, $verb . ' ' . $path);
@@ -282,6 +282,47 @@ final class PermissionFilterTest extends CIUnitTestCase
         }
         $this->assertSame(106, $n, "58 GET and 48 HEAD routes");
         $this->assertSame(120, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+    }
+
+    /** API P1: every /api route records its permission, as in the plan's table (API plan §3); the rest is 404 for anyone. */
+    public function testEveryApiRouteRecordsItsPermission(): void
+    {
+        $collection = Services::routes();
+        $collection->loadRoutes();
+        $seen = [];
+        foreach (array_values(array_diff(\CodeIgniter\Router\Router::HTTP_METHODS, ['CLI'])) as $verb) {
+            foreach (array_keys($collection->getRoutes($verb)) as $route) {
+                $route = (string)$route;
+                if ($route !== 'api' && !str_starts_with($route, 'api/')) {
+                    continue;
+                }
+                $need = $collection->getRoutesOptions($route, $verb)['permission'] ?? null;
+                if ($route === 'api' || $route === 'api/(.*)') {
+                    $this->assertSame(Permissions::PUBLIC, $need, $verb . ' ' . $route . ': the 404 problem');
+                    continue;
+                }
+                $seen[$verb . ' /' . $route] = $need;
+            }
+        }
+        ksort($seen);
+        $this->assertSame([
+            'DELETE /api/v1/session' => Permissions::PUBLIC,
+            'GET /api/v1/me' => Permissions::SELF,
+            'GET /api/v1/openapi.json' => Permissions::PUBLIC,
+            'GET /api/v1/session' => Permissions::PUBLIC,
+            'POST /api/v1/session' => Permissions::PUBLIC,
+        ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
+    }
+
+    /**
+     * The routes outside /api (API routes keep their own table above).
+     *
+     * @param array<array-key,mixed> $routes
+     * @return list<string>
+     */
+    private static function legacyRoutes(array $routes): array
+    {
+        return array_values(array_filter(array_map('strval', array_keys($routes)), static fn (string $r): bool => $r !== 'api' && !str_starts_with($r, 'api/')));
     }
 
     /**

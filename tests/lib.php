@@ -227,7 +227,9 @@ final class Client
         if ($form !== null) {
             // A urlencoded body for any method ($fields go only with POST).
             $body = $form;
-            $h[] = 'Content-Type: application/x-www-form-urlencoded';
+            if (!preg_grep('/^content-type:/i', $h)) {
+                $h[] = 'Content-Type: application/x-www-form-urlencoded';
+            }
         } elseif ($files) {
             $b = '----apotheke' . bin2hex(random_bytes(8));
             foreach ($fields as $k => $v) {
@@ -245,6 +247,16 @@ final class Client
         if ($this->cookies) {
             $h[] = 'Cookie: ' . implode('; ', array_map(fn($k, $v) => "$k=$v", array_keys($this->cookies), $this->cookies));
         }
+
+        return $this->send($method, $path, $h, $body);
+    }
+
+    /**
+     * @param list<string> $h the request's headers, cookies included
+     * @return array{status:int,headers:array<string,string>,body:string,json:mixed,raw:list<string>}
+     */
+    private function send(string $method, string $path, array $h, string $body): array
+    {
         $ctx = stream_context_create(['http' => [
             'method' => $method, 'header' => implode("\r\n", $h), 'content' => $body,
             'ignore_errors' => true, 'follow_location' => 0, 'timeout' => 30, 'protocol_version' => 1.1,
@@ -269,6 +281,28 @@ final class Client
     }
 
     public function get(string $path, array $headers = []): array { return $this->req('GET', $path, [], [], $headers); }
+
+    /**
+     * A /api/v1 request as the app's own page sends it: Origin and Sec-Fetch-Site
+     * same-origin, a JSON body when $data is not null, and the given headers.
+     *
+     * @param array<string,mixed>|null $data
+     * @param list<string> $headers
+     */
+    public function rest(string $method, string $path, ?array $data = null, array $headers = []): array
+    {
+        $given = array_map(static fn (string $line): string => strtolower(trim(explode(':', $line, 2)[0])), $headers);
+        $defaults = array_filter(['Origin: ' . $this->base, 'Sec-Fetch-Site: same-origin', 'Accept: application/json'],
+            static fn (string $line): bool => !in_array(strtolower(explode(':', $line, 2)[0]), $given, true));
+        $h = array_merge(array_values($defaults), $headers);
+        if ($data === null) {
+            return $this->req($method, $path, [], [], $h);
+        }
+        $h[] = 'Content-Type: application/json';
+        $ctx = $this->cookies ? ['Cookie: ' . implode('; ', array_map(fn($k, $v) => "$k=$v", array_keys($this->cookies), $this->cookies))] : [];
+
+        return $this->send($method, $path, array_merge($h, $ctx), (string)json_encode($data));
+    }
     public function post(string $path, array $fields = [], array $files = [], array $headers = []): array { return $this->req('POST', $path, $fields, $files, $headers); }
 
     /** POST as the app's JS does (expects JSON back). */

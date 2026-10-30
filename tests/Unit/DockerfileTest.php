@@ -44,6 +44,13 @@ final class DockerfileTest extends TestCase
         $this->assertNull($this->pin($good . $good));
     }
 
+    /** GET /api/v1/openapi.json serves docs/api/openapi.yaml, so the image carries it at the same relative path. */
+    public function testImageCarriesTheOpenApiDocument(): void
+    {
+        $this->assertStringContainsString("COPY --chown=root:root docs/api/openapi.yaml /var/www/app/docs/api/openapi.yaml\n", $this->dockerfile());
+        $this->assertDoesNotMatchRegularExpression('#^docs|^\*\.ya?ml#m', (string)file_get_contents(dirname(__DIR__, 2) . '/.dockerignore'));
+    }
+
     /** Hardening (SEC-M3): compose publishes the app on localhost only, and the image needs sign-in to start. */
     public function testComposeBindsLocalhostAndPassesTheSignInVariables(): void
     {
