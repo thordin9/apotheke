@@ -307,11 +307,14 @@ final class PermissionFilterTest extends CIUnitTestCase
         ksort($seen);
         $this->assertSame([
             'DELETE /api/v1/session' => Permissions::PUBLIC,
+            'GET /api/v1/branding' => Permissions::PUBLIC,
             'GET /api/v1/imports/([0-9]+)' => 'import',
             'GET /api/v1/imports/([0-9]+)/preview' => 'import',
             'GET /api/v1/jobs/([0-9]+)' => 'view',   // and the job type's permission, checked by JobsController
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
+            'GET /api/v1/roles' => 'users',
+            'GET /api/v1/security' => 'users',
             'GET /api/v1/session' => Permissions::PUBLIC,
             'GET /api/v1/settings' => 'settings',
             'GET /api/v1/settings/appearance' => 'settings',
@@ -324,6 +327,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/settings/list' => 'settings',
             'GET /api/v1/settings/locale' => 'settings',
             'GET /api/v1/settings/uploads' => 'settings',
+            'GET /api/v1/users' => 'users',
             'POST /api/v1/imports' => 'import',
             'POST /api/v1/imports/([0-9]+)/commit' => 'import',
             'POST /api/v1/session' => Permissions::PUBLIC,

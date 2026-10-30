@@ -1,21 +1,66 @@
 # Apotheke front end: styles and static assets
 
-This folder holds the design system the Apotheke web app (Svelte 5 + Vite, coming in P6)
-and the landing site share. Everything here is a static file: there is no build step and
-no package to install.
+This folder holds the design system the Apotheke web app (Svelte 5, step S1) and the
+landing site share, plus the single Vite build that produces both. Tokens stay in
+`src/styles/tokens.css`. The build does not copy that file.
 
 ```
 frontend/
-  src/styles/tokens.css      design tokens: the single source (the landing site keeps a byte copy that its CI compares)
+  package.json               Vite (the only direct dependency)
+  vite.config.js             multi-page build, release stamp, SPA base
+  index.html                 landing page, served at /
+  privacy/index.html         /privacy/
+  404.html                   static not-found page (root-absolute URLs)
+  app/index.html             placeholder for the SPA; S1 replaces it
+  src/styles/tokens.css      design tokens: the single source
   src/styles/base.css        reset and accessibility floor
+  src/styles/landing.css     landing, privacy, 404 and the app placeholder
   src/styles/components.css  app components; imports tokens.css and base.css
   public/fonts/              self-hosted WOFF2 files and their OFL licence texts
   public/assets/icons.svg    icon sprite (<svg class="icon"><use href="/assets/icons.svg#search"/></svg>)
   public/assets/brand/       logo-light.svg, logo-dark.svg, mark.svg, mark-small.svg, app-icon.svg,
-                             favicon.svg, favicon-32.png, apple-touch-icon-180.png
+                             favicon.svg, favicon-32.png, apple-touch-icon-180.png, og-1200x630.png
   public/assets/mascot/      pose-*.svg, the box mascot's poses
+  public/assets/shots/       landing screenshots
+  public/_headers            cache and CSP for the static site
+  public/robots.txt
+  public/sitemap.xml         / and /privacy/
+  public/site.webmanifest
+  public/favicon.svg
+  public/apple-touch-icon.png
   scripts/contrast.mjs       WCAG contrast check for tokens.css (plain Node 18+, no packages)
+  scripts/release-stamp.mjs  {version} and {date} from VERSION and the git tag
+  scripts/spa-base.mjs       SPA mount path, default /app/
 ```
+
+## Build
+
+Node 22. From `frontend/`:
+
+```
+npm ci
+npm run build
+```
+
+Output is `frontend/dist/` (gitignored). `dist/index.html` is the landing page,
+`dist/privacy/index.html` is `/privacy/`, `dist/404.html` is the not-found page, and
+`dist/app/index.html` is the SPA placeholder. Hashed CSS is under `dist/assets/`.
+The CSS is left unminified: Vite 8 minifies with lightningcss, which treats `U+0000`
+inside `unicode-range` as a string terminator and would drop the latin and polytonic
+Greek faces. Fonts stay at `/fonts/` because `tokens.css` uses those root-absolute
+urls. Brand, mascot and screenshot files are copied unhashed. There is no
+`config.json`; each environment supplies its own.
+
+`{version}` and `{date}` are filled from the repo-root `VERSION` file and the
+creatordate of the git tag `v<version>`. If that tag is not in the clone, the date
+is the build date (UTC, `YYYY-MM-DD`).
+
+`APOTHEKE_SPA_BASE` (default `/app/`) is the mount path of the SPA on this origin.
+The placeholder's canonical URL uses it. The P7 comment in the landing page names
+`/app/`, the same default. DevOps redirects bare `/app` to `/app/` in the Worker.
+
+`/privacy/` keeps the visible placeholder `[Operator contact]`. The imprint page
+is not part of this site.
 
 ## The token contract
 

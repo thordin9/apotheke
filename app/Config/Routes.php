@@ -197,6 +197,11 @@ $routes->get('api/v1/settings', $apiSettings . '::index', $settingsPerm);
 foreach (\Apotheke\ControlPanel\Controllers\Api\SettingsController::SECTIONS as $section) {
     $routes->get('api/v1/settings/' . $section, $apiSettings . '::show/' . $section, $settingsPerm);
 }
+$apiUsers = '\\Apotheke\\Auth\\Controllers\\Api\\UsersController';
+$routes->get('api/v1/users', $apiUsers . '::listUsers', $users);
+$routes->get('api/v1/roles', $apiUsers . '::listRoles', $users);
+$routes->get('api/v1/security', $apiUsers . '::policy', $users);
+$routes->get('api/v1/branding', '\\Apotheke\\Settings\\Controllers\\Api\\BrandingController::show', $public);   // what every page's <head> shows
 $apiImports = '\\Apotheke\\ImportExport\\Controllers\\Api\\ImportsController';
 $routes->post('api/v1/imports', $apiImports . '::create', ['permission' => 'import']);
 $routes->get('api/v1/imports/([0-9]+)', $apiImports . '::show/$1', ['permission' => 'import']);
