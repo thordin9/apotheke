@@ -1,10 +1,12 @@
 # QA: apotheke PR #188, "fix(consent): configurable consent cookie domain"
 
-**Verdict: PASS.** Reviewed head `5e02fb809089800ab4c18447411def8d72793f7c`, 2026-10-31 (EET):
+**Verdict: PASS.** Final reviewed head `30bddf3790feba9ef9dc0d1a11227fe5d6692495`, 2026-10-31 (EET). Round 1 was at `5e02fb8`:
 - same repo, 0 behind `main`, 3 commits, 12 files (+145/−24);
 - CI 20/20, both Tests jobs green.
 
 It fixes #182's L-1421 and N-1460.
+
+**Round 2 (light gate).** Tests, docs and one docblock only; no production code changed beyond comments. The new L-1481 test passes on SQLite and PG17. Both earlier survivors are now killed, and so is a third mutation (`data-domain` from `X-Forwarded-Host`). The new docs wording is accurate.
 
 ## Checklist
 
@@ -35,21 +37,21 @@ It fixes #182's L-1421 and N-1460.
 - [x] **Mutations: 14, of which 12 killed.**
   - The PR's 8 are all killed: suffix bypass, missing leading dot, Domain on the session cookie, length checked before encoding, single label, IP, port/path/wildcard, env not read.
   - My extras killed: no dot strip, no lower-casing, all-digit TLD, raw value used as the Domain.
-  - Survived: the domain host read from `X-Forwarded-Host`, and the notice's `data-domain` without the host match (L-1481).
+  - Survived in round 1: the domain host read from `X-Forwarded-Host`, and the notice's `data-domain` without the host match. Both are killed in round 2 (L-1481 fixed).
 
 ## Findings
 
-- **L-1480:** There is no public-suffix check, and the docs don't say so. A value such as `co.uk` is accepted on hosts under it.
+- **L-1480 (fixed in round 2):** There is no public-suffix check, and the docs don't say so. A value such as `co.uk` is accepted on hosts under it.
   - Browsers then drop the consent cookie, so users can't consent there.
   - Or, with a broader registrable domain, the consent is shared with sibling hosts the operator may not control.
   - This needs operator misconfiguration. Fix: document "a registrable domain you control, not a public suffix".
-- **L-1481:** Two correct behaviours have no test:
+- **L-1481 (fixed in round 2):** Two correct behaviours have no test:
   - the Domain uses `Host` only, never `X-Forwarded-Host`;
   - the notice's `data-domain` is host-matched.
 
   Both are verified live, but mutating either passes the suites.
 - **N-1482:** A trailing dot, a Unicode/IDN value (punycode is needed) and over-long names (no 253 limit) are silently host-only or accepted, and the docs don't list them. The docs could also say the value is ignored without an error.
-- **N-1483:** The `Config\Consent::$cookieDomain` docblock says "and any later cookie that is not __Host-". Only the consent cookie uses it today. Reword to avoid implying a wider scope.
+- **N-1483 (fixed in round 2):** The `Config\Consent::$cookieDomain` docblock says "and any later cookie that is not __Host-". Only the consent cookie uses it today. Reword to avoid implying a wider scope.
 - **N-1484:** The raw return path has no length cap before its percent-decoding passes. It is bounded by the POST size limit, so there is no practical effect.
 
 ## Security
@@ -62,4 +64,4 @@ It fixes #182's L-1421 and N-1460.
 
 ## Verdict
 
-**PASS.** No H/M findings and no decision needed. L-1480 and L-1481, and N-1482 to N-1484, are follow-ups.
+**PASS.** No H/M findings and no decision needed. L-1480, L-1481 and N-1483 are fixed. N-1482 and N-1484 stay in the backlog.
