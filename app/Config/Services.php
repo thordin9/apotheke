@@ -376,6 +376,7 @@ class Services extends BaseService
             $_COOKIE['theme'] ?? null,
             is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/',
             static fn (): ?array => is_string($_GET['undo'] ?? null) && $_GET['undo'] !== '' ? static::undoTokens()->bar($_GET['undo']) : null,
+            \Apotheke\Core\Http\CookieConsent::request(),
         );
     }
 

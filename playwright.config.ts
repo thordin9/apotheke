@@ -32,6 +32,9 @@ export default defineConfig({
     locale: 'en-GB',
     timezoneId: 'Europe/Athens',
     acceptDownloads: true,
+    // Cookie consent (docs/security.md): every context, browser.newContext() ones included, starts with the
+    // banner accepted. tests/visual/consent.spec.ts starts without it. Cookies ignore the port.
+    storageState: { cookies: [{ name: 'apotheke_consent', value: 'v1', domain: '127.0.0.1', path: '/', expires: -1, httpOnly: false, secure: false, sameSite: 'Lax' }], origins: [] },
   },
   projects: [
     // full functional suite + light visuals on every device

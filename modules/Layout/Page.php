@@ -25,6 +25,7 @@ final class Page
      * @param mixed $themeCookie the request's `theme` cookie
      * @param string $requestUri the request's path and query, for the menu's way back
      * @param (Closure(): ?array{label:string,left:int,token:string})|null $undo the Undo bar for this request's ?undo= token (the Undo module's), or null
+     * @param bool $consent the request carries cookie consent (Core\Http\CookieConsent); false shows the consent notice
      */
     public function __construct(
         private readonly SettingsService $settings,
@@ -36,6 +37,7 @@ final class Page
         private readonly mixed $themeCookie,
         private readonly string $requestUri,
         private readonly ?Closure $undo = null,
+        private readonly bool $consent = true,
     ) {
     }
 
@@ -98,7 +100,24 @@ final class Page
         return $o . '<script src="' . self::e($this->assets->url('theme.js')) . "\"></script>\n"
             . '<script src="' . self::e($this->assets->url('app.js')) . "\" defer></script>\n"
             . "</head>\n"
-            . '<body class="' . self::e(trim($bodyClass . ' ' . $this->viewer->bodyClass())) . "\">\n";
+            . '<body class="' . self::e(trim($bodyClass . ' ' . $this->viewer->bodyClass())) . "\">\n"
+            . $this->consentNotice();
+    }
+
+    /**
+     * The cookie-consent notice, on every page until the request carries consent. Accept (theme.js) sets the
+     * consent cookie and reloads; no cookie is set before that. Without JavaScript the notice says so.
+     */
+    public function consentNotice(): string
+    {
+        if ($this->consent) {
+            return '';
+        }
+
+        return '<div class="consent" id="consent" role="region" aria-label="Cookies"><p>This app uses cookies only to keep you signed in and to protect '
+            . 'your changes. Nothing is stored in your browser until you accept.</p>'
+            . '<button type="button" class="btn btn-primary" id="consent-accept" data-consent="' . self::e(\Config\Consent::CURRENT) . '">Accept cookies</button>'
+            . "<noscript><p>Turn on JavaScript to accept cookies.</p></noscript></div>\n";
     }
 
     /** Legacy page_end(): the Undo bar, then the end of the document. */

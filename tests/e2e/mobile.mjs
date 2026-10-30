@@ -11,6 +11,7 @@ try {
     console.log(`== ${vp.width}×${vp.height}`);
     const ctx = await browser.createBrowserContext();
     const p = await ctx.newPage();
+    await p.setCookie({ name: 'apotheke_consent', value: 'v1', url: base });   // the banner accepted (docs/security.md)
     await p.setViewport({ ...vp, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
     // Taps scroll their target to the middle of the screen first, so the sticky header and action bar never cover it.
     const rawTap = p.tap.bind(p);

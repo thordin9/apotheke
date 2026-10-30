@@ -186,7 +186,7 @@ final class Ci4PhotoRacesTest extends TestCase
                 $body .= "--$b\r\nContent-Disposition: form-data; name=\"$k\"; filename=\"{$f['name']}\"\r\nContent-Type: {$f['type']}\r\n\r\n{$f['data']}\r\n";
             }
             $body .= "--$b--\r\n";
-            $head = "$method $path HTTP/1.0\r\nHost: 127.0.0.1:$port\r\nCookie: apothekesid=$sid\r\nContent-Type: multipart/form-data; boundary=$b\r\nContent-Length: " . strlen($body) . "\r\n";
+            $head = "$method $path HTTP/1.0\r\nHost: 127.0.0.1:$port\r\nCookie: apotheke_consent=v1; apothekesid=$sid\r\nContent-Type: multipart/form-data; boundary=$b\r\nContent-Length: " . strlen($body) . "\r\n";
             foreach ($headers as $h) {
                 $head .= $h . "\r\n";
             }
