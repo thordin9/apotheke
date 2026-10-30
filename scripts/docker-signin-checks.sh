@@ -68,8 +68,15 @@ if grep -q 'Ab3-xyz' <<<"$out"; then echo "the value was logged" >&2; exit 1; fi
 echo "   ok"
 
 echo "== the database can't be read: refuses to start (#75 QA L-1)"
-out=$(refused 78 -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=1)
+out=$(refused 78 -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=1 -e DB_PASSWORD=not-used)
 grep -q 'could not read the sign-in setting' <<<"$out"
+echo "   ok"
+
+echo "== DB_DRIVER=pgsql without DB_PASSWORD: refuses at once with a clear message (N-1426)"
+start=$(date +%s)
+out=$(refused 78 -e DB_DRIVER=pgsql -e DB_HOST=127.0.0.1 -e DB_PORT=1 -e ALLOW_NO_LOGIN=1)
+grep -q 'DB_DRIVER=pgsql needs DB_PASSWORD' <<<"$out"
+if [ $(( $(date +%s) - start )) -gt 20 ]; then echo "it waited for the database first" >&2; exit 1; fi
 echo "   ok"
 
 echo "== APOTHEKE_APP=legacy or an unknown value: refuses to start (N-432)"

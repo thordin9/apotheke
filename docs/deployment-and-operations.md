@@ -3,6 +3,8 @@
 * [Backup and restore](#backup-and-restore)
 * [Upgrades](#upgrades)
 * [Behind a web server or reverse proxy](#behind-a-web-server-or-reverse-proxy)
+* [The FrankenPHP image](#the-frankenphp-image)
+* [Cloudflare deploys (getapotheke.com)](#cloudflare-deploys-getapothekecom)
 * [HTTPS](#https)
 * [PostgreSQL role](#postgresql-role)
 * [Security](#security)
@@ -385,6 +387,226 @@ and `@file` arguments. HEIC/HEIF, JPEG, PNG, WebP and GIF photos decode as befor
 policy is not in effect (`scripts/imagick-policy-check.php`: the limits Imagick reports, the refused coders, and
 from `magick -list policy` no rights for delegates or `@file` paths, including any narrower rule added later, and a
 time limit of 60 s or less).
+
+## The FrankenPHP image
+
+The repository builds two images from the same code, data and settings:
+
+| | `Dockerfile` (default) | `Dockerfile.frankenphp` |
+|---|---|---|
+| Web server and PHP | nginx + php-fpm, supervised by the entrypoint | FrankenPHP 1.13.4 (Caddy 2 + PHP 8.4 ZTS in one process) |
+| Used by | self-hosting (default) | Apotheke on Cloudflare Containers (`edge/`), and self-hosting by choice |
+| Size (PHP 8.4.27, podman) | about 146 MB | about 175 MB (+29 MB, +20%) |
+
+Both run `tini` as PID 1 and the same entrypoint checks (sign-in required at start, SEC-M3; exit codes 64 and 78;
+the data volume rules, L-430), serve `public/` only, and run the web server and PHP as `www-data` (uid 82). The
+FrankenPHP image is a multi-stage build: the PHP extensions are compiled in a build stage on the official
+`dunglas/frankenphp` Alpine image, and only the `frankenphp` and `php` binaries, `libphp.so`, the extensions and
+their shared libraries are copied onto a plain Alpine base, so it has no compiler, headers, PHP sources, `php-cgi`,
+`phpdbg` or `pecl`. Its `HEALTHCHECK` is the same `/healthz` probe. A slimmer base (for example a static
+FrankenPHP build) is a possible later step.
+
+**Switching with docker compose.** Set `APOTHEKE_DOCKERFILE=Dockerfile.frankenphp` in `.env` and run
+`docker compose up -d --build`. To go back to nginx (the rollback), remove the line, or set it to `Dockerfile`,
+and run the same command. The data directory, database, `APP_KEY` and settings are shared; nothing is migrated.
+With plain Docker: `docker build -f Dockerfile.frankenphp -t apotheke:frankenphp .`.
+
+**Threads.** `FRANKENPHP_NUM_THREADS` (1–64, default **2**) is the number of PHP threads, i.e. requests served at
+once. Two fit Cloudflare's `basic` instance (1/4 vCPU, 1 GiB) with two large HEIC uploads at a time (each can take
+about 300 MB while it is decoded). On a bigger server, raise it, for example to 8. A value outside 1–64 exits with
+code 64. The nginx image ignores it (php-fpm's own settings apply).
+
+**Request body limits.** Sizes are binary: 1 MiB = 1,048,576 bytes (nginx's `22m` is the same 22 MiB). The same
+limits as the nginx image, enforced by Caddy per route:
+
+* **22 MiB on every route.** A request that declares a larger `Content-Length` gets **413** before the body is read,
+  signed in or not; a body without a length (chunked) gets **413** when it passes 22 MiB.
+* **520 MiB only on `POST /backup/restore`** (exactly that path: not `/backup/restore/`, not another case, not
+  another method), **and only after sign-in.** Caddy first asks the app (`/backup/restore/check`, the same as
+  nginx's `auth_request`); a request that is not signed in with the Backup permission gets the app's answer (401,
+  403 or 421) before the body is read, and only then is a declared size over 520 MiB a 413.
+
+FrankenPHP has one PHP configuration, so PHP's own `upload_max_filesize` and `post_max_size` are the restore values
+(512M and 520M, `docker/frankenphp/php-frankenphp.ini`); the caps above are what keeps every other route at 22 MiB.
+The per-photo and per-attachment limits in the Control Panel still apply. `scripts/docker-auth-checks.sh` signs in
+and checks that a 30 MiB POST to other routes (`/save`, photo and attachment uploads, the logo, the import,
+`/backup/restore/confirm`, the API, an unknown path, `/Backup/restore`) gets 413, on both images.
+
+**Slow uploads (M-1420).** FrankenPHP hands a request body to PHP as it arrives, so a client that uploads slowly
+would hold one of the few PHP threads for as long as it likes, and two of them could stop even `/healthz`. The
+Caddyfile therefore runs two servers in one process: the public one on `PORT` applies all the rules above and
+passes the request to the PHP server (a unix socket under `/run`, unreachable from outside) through a reverse proxy
+that first reads up to **64 KiB** of the body. That is everything a signed-out client can send (the sign-in form,
+`POST /api/v1/session`), so a slow anonymous client holds a Caddy goroutine and at most 64 KiB, never a PHP thread.
+A body over 64 KiB (any method), or a request that may have a body but declares no length, is only read after the
+app said the client is signed in (or sign-in is off): Caddy asks `GET /upload/check` (204 or 401, no session, no
+body) first. A `GET`, `HEAD` or `OPTIONS` request with a chunked body (no declared length) gets **411** before
+PHP sees it, whoever sends it (M-1451); Go's server may still read and drop up to 256 KiB of that body in Caddy to
+keep the connection open. Both servers speak HTTP/1.1 only (`protocols h1`, as nginx): no cleartext HTTP/2 (h2c),
+whose bodies carry no `Transfer-Encoding` and would otherwise get past these rules (M-1454). Headers have 10 s (`read_header`), and a body 300 s (`read_body`, for a
+large restore on a slow line). PHP sees the client's address, port and own `X-Forwarded-*` headers as before, on
+the request itself and on both sign-in checks (`/upload/check`, `/backup/restore/check`): all three hops share one
+header block (`php_hop`), so behind an HTTPS proxy with `trust_proxy` on the checks see the `__Host-` session cookie
+too (M-1450). `scripts/docker-checks.sh` checks that HTTP/2 with prior knowledge fails and an h2c upgrade stays on HTTP/1.1,
+keeps four slow uploads, then four slow chunked `GET`s, in flight (more than
+the two threads) and checks that `/healthz`, the sign-in page and a form post still answer within 2 s, on both
+images. `scripts/docker-auth-checks.sh` with `CONTAINER=` turns `trust_proxy` on and checks a signed-in 300 KB
+upload and restore behind `X-Forwarded-Proto: https` (and that signed-out ones are still refused).
+
+**Access log.** JSON on stdout, one line per request, without the request's `Cookie`, `Authorization`,
+`Proxy-Authorization`, `X-CSRF-Token` and `X-Apotheke-Proxy` (the edge proxy's shared secret) headers, or the
+response's `Set-Cookie` (L-1422). `scripts/docker-log-checks.sh` sends marker values in those headers and checks
+that none reaches the log, on both images.
+
+**Differences from the nginx image** (none changes security headers, blocked paths or status codes of the app):
+
+* no `Server` header (nginx sends `Server: nginx` without a version);
+* a blocked path traversal such as `/assets/../../app/Config/App.php` gets 404 instead of 400; neither serves a file;
+* CSS and JavaScript are sent as `text/css; charset=utf-8` and `text/javascript; charset=utf-8`;
+* responses under 512 bytes and `HEAD` answers are not gzipped;
+* errors produced by the web server itself (413, a missing asset) are a plain-text status line;
+* the access log is JSON on stdout (nginx: the combined format), without secret headers;
+* a declared restore size over 520 MiB is a 401 before sign-in (nginx: 413, it checks the size first).
+
+## Cloudflare deploys (getapotheke.com)
+
+The hosted Apotheke runs on Cloudflare Workers. Self-hosting doesn't need any of this. Two Workers are deployed from
+this repository, and only these two:
+
+| Worker | Code | Serves | Workflow | GitHub environment |
+|---|---|---|---|---|
+| `getapotheke-app` | `edge/app/` (routing and headers) + `frontend/dist` (static assets) | the landing page (`/`, `/privacy/`, `/404.html`, `robots.txt`, `sitemap.xml`, icons, `site.webmanifest`, `/assets/…`) and the SPA under `/app/` | `.github/workflows/deploy-frontend.yml` | `deploy-site` |
+| `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
+
+**When they deploy.** Only for a published GitHub Release that is not marked pre-release (tag `vX.Y.Z`, created
+by `release.yml`), or a manual *Run workflow* on `main` or a `vX.Y.Z` tag. The deploy job's first step fails on any
+other tag (only `v` and three numbers, no suffix such as `-rc.1`), and on a tag it also reads that tag's GitHub Release
+with the job's read-only token: it fails unless the release exists and is neither a draft nor a pre-release (the
+release-by-tag endpoint returns only published releases, so a draft fails like a missing release). `main` needs no release. One deploy per environment runs at a time
+(concurrency group `deploy-site` or `deploy-edge`, across refs); a newer one waits, and a running deploy is never
+cancelled. Every install in these workflows (pull request, test and deploy jobs) is `npm ci --ignore-scripts`: no package
+install script runs where the token is, and a dependency that needs one fails on the pull request already. Pull requests that touch them run the build, the Worker guard, the typecheck
+and `wrangler deploy --dry-run` (which, for `apotheke-api`, builds the container image), with no secret and no
+preview. The deploy is not a release check. Routes and custom domains are never in the wrangler configs CI uses
+(`workers_dev` and `preview_urls` are off); the custom domains are attached in the Cloudflare dashboard.
+
+**Secrets and variables** (set by the repository owner, never in the repository):
+
+* in each environment, the secret `CLOUDFLARE_API_TOKEN` and the variable `CLOUDFLARE_ACCOUNT_ID`;
+* both environments are limited to `main` and tags `v*`; `deploy-edge` also has a required reviewer;
+* without the secret the deploy job prints a notice, skips its steps and stays green. Fork pull requests never get
+  secrets and never reach the deploy job;
+* the account id is masked in the logs (it is a variable, but it appears in container registry paths), and the token
+  is only passed in the environment of the deploy step.
+
+**Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
+*Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone or R2 permissions, and CI makes no Zone
+or R2 API calls. Account-wide means such a token could edit **any** Worker in the account, including ones this
+repository must never touch (for example `apotheke-autofill`). So:
+
+* each workflow hard-codes its Worker name (`getapotheke-app` or `apotheke-api`); no name comes from inputs,
+  variables or files outside review;
+* `scripts/cf-deploy.sh` and every `wrangler` call in the workflows pass `--config wrangler.jsonc` explicitly;
+* before every deploy and dry run, `scripts/cf-worker-guard.mjs` reads the effective name from the wrangler config and
+  fails the job unless it is exactly the workflow's Worker and on the allowlist (`getapotheke-app`, `apotheke-api`).
+  It also fails on any other name (such as `apotheke-autofill` or `flaremo`), on `env` sections, routes or custom
+  domains in the config, on `--name`, `--env`, `--route`, `--domain` or `--config` arguments, and on
+  `CLOUDFLARE_ENV`/`WRANGLER_ENV`. It also fails when another config could win over that file: a `wrangler.json`
+  or `wrangler.toml` next to it, or a `.wrangler/deploy/config.json` redirect in its directory or any directory
+  above;
+* changing the allowlist means changing that file, which needs a reviewed pull request.
+
+When Cloudflare offers per-Worker roles (or token resources scoped to one Worker) for the account, switch each token
+to its one Worker; the guard then stays as a second line of defence.
+
+**When a deploy fails,** `scripts/cf-deploy.sh` names the likely cause: an authentication error or 403 names the
+permission the environment's token probably lacks; a missing container push permission names *Containers > Edit*.
+`apotheke-api` needs its two secrets set once on the Worker, outside CI; see
+[One-time manual step before the first edge deploy](#one-time-manual-step-before-the-first-edge-deploy).
+
+### Storage gate: EDGE_STORAGE_READY
+
+The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
+job of `deploy-edge.yml` fails on purpose, on every trigger (release and manual), unless the **repository variable**
+`EDGE_STORAGE_READY` is exactly `true`:
+
+* no `CLOUDFLARE_API_TOKEN` in `deploy-edge`: the job is skipped and stays green, as before;
+* a token, but `EDGE_STORAGE_READY` unset or anything other than `true`: the job fails before any wrangler call with
+  *apotheke-api is stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that*;
+* `EDGE_STORAGE_READY=true`: the deploy runs.
+
+Set it (Settings > Secrets and variables > Actions > Variables) only once storage has landed. The pull request checks
+and `deploy-frontend.yml` are not affected.
+
+### One-time manual step before the first edge deploy
+
+Do this at the first real edge deploy, after the storage gate above is opened, not before.
+`edge/wrangler.jsonc` lists `APP_PASSWORD` and `APP_KEY` under `secrets.required`, so `wrangler deploy` of
+`apotheke-api` fails until both exist on the Worker. CI never sets them: the deploy token is not used for secrets, and
+the values never go through GitHub. The operator sets them once, from a trusted machine, with a token that can edit
+the Worker (Account > Workers Scripts > Edit). The Worker passes both to the container as environment variables on
+every container start (`edge/src/index.ts`).
+
+`wrangler secret put` reads the value from standard input, so it never appears in the command line, shell history or
+logs. Run these in `edge/` so wrangler uses that config, and keep `--name apotheke-api` so the target is explicit:
+
+```sh
+# APP_KEY: 32 random bytes, base64 (44 characters). Apotheke's SecretKey accepts base64 of exactly 32 bytes, with an
+# optional "base64:" prefix; anything else is refused as "APP_KEY is not a 32-byte key". It encrypts stored secrets
+# (libsodium secretbox), so keep a copy somewhere safe: without it they can't be decrypted.
+umask 077
+mkdir -p <private-dir>
+openssl rand -base64 32 > <private-dir>/apotheke-api-app-key
+npx wrangler secret put APP_KEY --name apotheke-api < <private-dir>/apotheke-api-app-key
+
+# APP_PASSWORD: chosen by the operator, at least 8 characters, not only spaces, no null character. Typed at the prompt
+# (wrangler asks for the value), or from a private file the same way as APP_KEY.
+npx wrangler secret put APP_PASSWORD --name apotheke-api
+
+npx wrangler secret list --name apotheke-api   # names only; values are never shown
+```
+
+**Data does not persist yet.** A Cloudflare Containers instance has no persistent disk: `/data` starts empty on every
+cold start (after `sleepAfter`, a deploy or a restart). Each start is therefore a new install, where `APP_PASSWORD`
+creates the account `admin` again and anything saved before is gone. Until storage is designed, treat `apotheke-api`
+as stateless.
+
+Never print, paste or commit either value, and never put them in `wrangler.jsonc`, `vars` or a GitHub secret.
+If the Worker does not exist yet, `wrangler secret put` offers to create a draft Worker; answer no and deploy first
+(the deploy then fails only on the missing secrets), or set them with the Cloudflare API's Worker secrets endpoint.
+
+**getapotheke-app build.** The job checks out the full history with tags (`fetch-depth: 0`), so the build can read
+the latest release tag and its date rather than the build date.
+
+**getapotheke-app routing and headers.** The static assets serve the landing page and its files directly, with
+the headers in `frontend/public/_headers` (copied to `dist/_headers`); the landing page's CSP is set there only.
+Cloudflare does not apply `_headers` to responses a Worker makes, so only the paths in `run_worker_first`
+(`edge/app/wrangler.jsonc`) go through `edge/app/src/index.ts`, which sets the same headers itself:
+
+* `/app` answers 301 to `/app/`. Under `/app/`, an existing file is served; any other path without a file extension
+  gets `/app/index.html` (the SPA's client-side routes), a missing file with an extension is a 404. Outside `/app/`
+  there is no SPA fallback: a missing page is a 404 with `404.html`;
+* `/config.json` is answered by the Worker from its non-secret var `API_BASE`
+  (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`), with `Cache-Control: no-cache`;
+* `/fonts/*` (unhashed) get one day (`max-age=86400`), like `/assets/brand/*` and `/assets/mascot/*` in `_headers`,
+  on a 200 and on a 304 (a revalidation keeps the same `Cache-Control`). Everything else the Worker answers is
+  `no-cache` (its 404s too), and its other errors `no-store`. The SPA's hashed files are under `/assets/`, served
+  from the assets with `_headers` (immutable), not by the Worker;
+* every response the Worker makes (the SPA fallback, the `/app` redirect, its 404, 405 and 500 answers) carries the `/*` headers of `_headers` (HSTS, nosniff, `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`), and under `/app/` exactly its `/app/*` Content-Security-Policy. When `_headers` changes
+  `/*` or `/app/*`, change `COMMON` or `APP_CSP` in the Worker too; the check below fails until they match. A change to
+  the landing CSP needs `_headers` only.
+
+`scripts/app-worker-check.mjs` checks a running `wrangler dev` of the Worker against `frontend/dist`: the routing
+above, and that the Worker's headers match `dist/_headers`. Without `dist/_headers` it fails at once (only the
+workflow's stub dist, before there was a frontend build, sets `STUB_DIST=1`). The pull request job runs it on every
+change. `scripts/deploy-scripts.test.mjs` (`node --test`, no network) tests the Worker with a fake assets binding
+(the headers on its own 500, 405 and 301, the caching of 200 and 304), the drift check without `_headers`, the guard
+and `cf-deploy.sh`; both workflows run it. `tests/Unit/DeployWorkflowsTest.php` checks the workflows themselves
+(triggers and deploy conditions, permissions, checkouts, the token and storage gates, concurrency, the wrangler pin).
+
+**Local checks** without an account: `cd edge && npm ci && npx wrangler dev` (needs Docker for the container, and
+`.dev.vars` from `.dev.vars.example`); the manual workflow *Edge local test* does the same on a GitHub runner.
 
 ## HTTPS
 

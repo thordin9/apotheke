@@ -1,7 +1,12 @@
 services:
   apotheke:
-    build: .
-    image: apotheke:latest
+    # Two images from the same code: Dockerfile (nginx + php-fpm, the default) or Dockerfile.frankenphp (FrankenPHP,
+    # the image Apotheke runs on Cloudflare). Pick one in .env, e.g. APOTHEKE_DOCKERFILE=Dockerfile.frankenphp, then
+    # docker compose up -d --build. Same data, settings and environment; switching back is the same step.
+    build:
+      context: .
+      dockerfile: ${APOTHEKE_DOCKERFILE:-Dockerfile}
+    image: apotheke:${APOTHEKE_IMAGE_TAG:-latest}
     container_name: apotheke
     restart: unless-stopped
     ports:
@@ -41,6 +46,8 @@ services:
       DB_NAME: ${DB_NAME:-apotheke}
       DB_USER: ${DB_USER:-apotheke}
       DB_PASSWORD: ${DB_PASSWORD:-}
+      # FrankenPHP image only: PHP threads, i.e. requests served at once (1-64, default 2). The nginx image ignores it.
+      FRANKENPHP_NUM_THREADS: ${FRANKENPHP_NUM_THREADS:-2}
 
   # Optional PostgreSQL. Enable with DB_DRIVER=pgsql and DB_PASSWORD=… in .env, then:
   #   docker compose --profile postgres up -d
@@ -52,7 +59,9 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-apotheke}
       POSTGRES_USER: ${DB_USER:-apotheke}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env to use the postgres profile}
+      # Not ${DB_PASSWORD:?…}: Compose interpolates every service, profile or not, so a required variable here broke
+      # `docker compose up` for SQLite installs. Without DB_PASSWORD the postgres image itself refuses to initialise.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:

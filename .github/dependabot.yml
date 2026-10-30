@@ -37,3 +37,12 @@ updates:
     groups:
       frontend:
         patterns: ['*']
+  - package-ecosystem: npm
+    directory: /edge
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      edge:
+        patterns: ['*']

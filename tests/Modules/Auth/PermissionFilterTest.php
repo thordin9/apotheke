@@ -280,8 +280,8 @@ final class PermissionFilterTest extends CIUnitTestCase
                 $n++;
             }
         }
-        $this->assertSame(106, $n, "58 GET and 48 HEAD routes");
-        $this->assertSame(120, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
+        $this->assertSame(108, $n, "59 GET and 49 HEAD routes (with the FrankenPHP image's /upload/check)");
+        $this->assertSame(122, $paths, 'every alternative of a route is checked: (rename|default|parent) is three paths, (full|thumb) two');
     }
 
     /** API P1: every /api route records its permission, as in the plan's table (API plan §3); the rest is 404 for anyone. */
@@ -652,6 +652,10 @@ final class PermissionFilterTest extends CIUnitTestCase
         // Legacy answers GET /backup/restore/check before its check; HEAD is a GET there.
         $this->assertNull($this->filterOrNull('backup/restore/check', [], 'HEAD'));
         $this->assertSame(303, $this->filter('backup/restore/check', [], 'POST')->getStatusCode());
+        // The FrankenPHP image's probe before a body over 64 KiB (M-1420) is answered the same way.
+        $this->assertNull($this->filterOrNull('upload/check', [], 'GET'));
+        $this->assertNull($this->filterOrNull('upload/check', [], 'HEAD'));
+        $this->assertSame(303, $this->filter('upload/check', [], 'POST')->getStatusCode());
 
         $this->db()->table('roles')->insert(['role_key' => 'desk', 'name' => '<b>Desk</b> & "Co"', 'perms' => json_encode(['view', 'edit']), 'builtin' => 0, 'created_at' => '2026-01-01 00:00:00']);
         $this->signInAs($this->account('dee', 'desk'));
