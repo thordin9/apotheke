@@ -34,16 +34,16 @@ const APP_CSP =
 const DATA_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
 
 const DAY = "public, max-age=86400";
-const YEAR = "public, max-age=31536000, immutable";
 
 function finish(path: string, res: Response): Response {
 	const out = new Response(res.body, res);
 	for (const [k, v] of Object.entries(COMMON)) out.headers.set(k, v);
 	const app = path === "/app" || path.startsWith(APP);
 	out.headers.set("Content-Security-Policy", app ? APP_CSP : DATA_CSP);
+	// A 304 carries the Cache-Control its 200 would have (RFC 9110 15.4.5), so a revalidated font keeps its day
+	// (N-1435). The SPA's hashed files are under /assets/ (served from the assets with _headers, not this Worker).
 	let cc = "no-cache";
-	if (res.status === 200 && path.startsWith("/fonts/")) cc = DAY;
-	else if (res.status === 200 && path.startsWith(APP + "assets/")) cc = YEAR;
+	if ((res.status === 200 || res.status === 304) && path.startsWith("/fonts/")) cc = DAY;
 	else if (res.status >= 400 && res.status !== 404) cc = "no-store";
 	out.headers.set("Cache-Control", cc);
 	return out;

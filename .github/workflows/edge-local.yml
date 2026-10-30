@@ -34,7 +34,7 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: |
-          nohup npx --no-install wrangler dev --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/wrangler-dev.log" 2>&1 &
+          nohup npx --no-install wrangler dev --config wrangler.jsonc --ip 127.0.0.1 --port 8787 > "$RUNNER_TEMP/wrangler-dev.log" 2>&1 &
           for _ in $(seq 1 600); do
             grep -q 'Ready on' "$RUNNER_TEMP/wrangler-dev.log" && exit 0
             sleep 1

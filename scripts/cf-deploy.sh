@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # cf-deploy.sh WORKER DIR [wrangler deploy args...]: the deploy step of deploy-frontend.yml and deploy-edge.yml.
-# Runs the Worker guard, then `wrangler deploy` in DIR (its wrangler.jsonc), and on failure names the likely cause
+# Runs the Worker guard, then `wrangler deploy --config wrangler.jsonc` in DIR (always that file, never a sibling
+# wrangler.json/.toml or a .wrangler/ redirect, which the guard also refuses; L-1431), and on failure names the likely cause
 # (a missing token permission, a missing Worker secret) without printing the token or the account id.
 # Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in the environment (the job masks the account id).
 set -euo pipefail
@@ -17,7 +18,7 @@ node "$root/scripts/cf-worker-guard.mjs" "$worker" "$dir/wrangler.jsonc" -- "$@"
 log=$(mktemp); trap 'rm -f "$log"' EXIT
 cd "$dir"
 code=0
-WRANGLER_SEND_METRICS=false npx --no-install wrangler deploy "$@" > "$log" 2>&1 || code=$?
+WRANGLER_SEND_METRICS=false npx --no-install wrangler deploy --config wrangler.jsonc "$@" > "$log" 2>&1 || code=$?
 cat "$log"
 if [ "$code" = 0 ]; then exit 0; fi
 if grep -qiE 'Authentication error|code: 10000|code: 10001|Unauthorized|\b403\b|not authorized|permission' "$log"; then

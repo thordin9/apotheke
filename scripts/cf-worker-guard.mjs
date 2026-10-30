@@ -6,9 +6,13 @@
 //  - <expected-name> is on the allowlist below (hard-coded; a PR changing it is a reviewed change to this file);
 //  - the config's top-level "name" is exactly <expected-name>, and the config has no "env" sections, no routes,
 //    no custom domains and no workers.dev subdomain;
-//  - the deploy args have no --name, --env, -e, --route, --routes, --domain or --config (the workflow passes the
-//    config itself), and no CLOUDFLARE_ENV / WRANGLER_ENV selects an environment.
-import { readFileSync } from "node:fs";
+//  - no other wrangler config could be picked up instead (L-1431): no wrangler.json or wrangler.toml next to it, and
+//    no .wrangler/deploy/config.json (wrangler's redirect) in its directory or any directory above. cf-deploy.sh
+//    also passes --config <wrangler-config> explicitly;
+//  - the deploy args have no --name, --env, -e, --route, --routes, --domain or --config (cf-deploy.sh adds --config
+//    itself), and no CLOUDFLARE_ENV / WRANGLER_ENV selects an environment.
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 
 const ALLOWLIST = new Set(["getapotheke-app", "apotheke-api"]);
 // Never deployed from this repository; named so a mistake reads clearly in the log.
@@ -48,6 +52,18 @@ if (!expected || !configPath || (sep !== undefined && sep !== "--")) {
 }
 if (DENYLIST.has(expected) || !ALLOWLIST.has(expected)) {
 	fail(`"${expected}" is not a Worker this repository deploys (allowed: ${[...ALLOWLIST].join(", ")})`);
+}
+if (basename(configPath) !== "wrangler.jsonc") fail(`${configPath}: the config must be a wrangler.jsonc`);
+const configDir = resolve(dirname(configPath));
+for (const other of ["wrangler.json", "wrangler.toml"]) {
+	if (existsSync(join(configDir, other))) {
+		fail(`${join(dirname(configPath), other)} exists next to ${configPath}; wrangler could read it instead, so remove it`);
+	}
+}
+for (let dir = configDir; ; dir = dirname(dir)) {
+	const redirect = join(dir, ".wrangler", "deploy", "config.json");
+	if (existsSync(redirect)) fail(`${redirect} exists; wrangler would follow this redirect to another config, so remove it`);
+	if (dirname(dir) === dir) break;
 }
 let config;
 try {

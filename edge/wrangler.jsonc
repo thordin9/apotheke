@@ -1,7 +1,7 @@
 // Apotheke edge: the Worker `apotheke-api`, its Container Durable Object and the container image.
 // No account id, no resource ids, no secrets, and no routes or custom domains: the deploy workflow
 // (.github/workflows/deploy-edge.yml) uses this file as is, and the custom domain is attached outside CI.
-// The Worker name is checked against an allowlist before every deploy (scripts/cf-worker-guard.sh).
+// The Worker name is checked against an allowlist before every deploy (scripts/cf-worker-guard.mjs).
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "apotheke-api",

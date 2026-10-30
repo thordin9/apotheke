@@ -16,6 +16,7 @@ on:
       - 'docker/frankenphp/**'
       - 'scripts/cf-worker-guard.mjs'
       - 'scripts/cf-deploy.sh'
+      - 'scripts/deploy-scripts.test.mjs'
       - '.github/workflows/deploy-edge.yml'
   # A published GitHub Release (release.yml creates it with the release App's token, for tag vX.Y.Z). Not `push: tags`:
   # the tag points at the "chore(release): … [skip ci]" commit, and [skip ci] would suppress a tag-push run.
@@ -39,37 +40,60 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # zizmor cache-poisoning is a false positive (N-1437): setup-node v4 caches nothing without a `cache:` input
+      # (the automatic package-manager cache came with v5), and no step here saves or restores a cache.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
         with:
           node-version: '22'
       - name: Install the Worker tooling (edge/)
         working-directory: edge
         run: npm ci --no-audit --no-fund
+      - name: Deploy tooling tests (Worker headers and caching, drift check, guard, cf-deploy.sh; no network)
+        run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
       - name: Worker guard (allowlist; no routes, no custom domains)
         run: node scripts/cf-worker-guard.mjs apotheke-api edge/wrangler.jsonc -- --dry-run
       - name: Types and typecheck
         working-directory: edge
         run: |
-          npx --no-install wrangler types --check
+          npx --no-install wrangler types --check --config wrangler.jsonc
           npx --no-install tsc --noEmit
       - name: wrangler deploy --dry-run (builds the container image; no token, nothing pushed)
         working-directory: edge
         env:
           WRANGLER_SEND_METRICS: 'false'
-        run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/api-bundle"
+        run: npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/api-bundle"
 
   deploy:
     name: Deploy apotheke-api
     needs: check
-    # A published release (tag v*), or a manual run on main or a v* tag; never pull requests (so never forks).
+    # A published release that is not a pre-release (tag v*), or a manual run on main or a v* tag; never pull requests
+    # (so never forks). The first step also requires a tag to be exactly vX.Y.Z (N-1438).
     if: >-
-      (github.event_name == 'release' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'release' && !github.event.release.prerelease &&
+        startsWith(github.ref, 'refs/tags/v')) ||
       (github.event_name == 'workflow_dispatch' &&
        (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: deploy-edge
+    # One deploy per environment at a time, across refs and runs (N-1434); a running deploy is never cancelled.
+    concurrency:
+      group: deploy-edge
+      cancel-in-progress: false
     steps:
+      - name: Tag is vX.Y.Z (a release or a manual run on a tag)
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/heads/main) exit 0 ;;
+            refs/tags/*) ;;
+            *) echo "::error title=Not a release ref::Deploys run only on main or a vX.Y.Z tag."; exit 1 ;;
+          esac
+          if ! [[ "${REF#refs/tags/}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error title=Not a release tag::Deploys run only for tags vX.Y.Z (numbers only)."
+            exit 1
+          fi
       - name: Mask the account id and check for the token
         id: token
         env:
@@ -98,14 +122,16 @@ jobs:
         if: steps.token.outputs.set == 'true'
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # zizmor cache-poisoning is a false positive (N-1437): setup-node v4 caches nothing without a `cache:` input
+      # (the automatic package-manager cache came with v5), and no step here saves or restores a cache.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
         if: steps.token.outputs.set == 'true'
         with:
           node-version: '22'
       - name: Install the Worker tooling (edge/)
         if: steps.token.outputs.set == 'true'
         working-directory: edge
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Deploy (Worker guard, then wrangler deploy of apotheke-api and its container only)
         if: steps.token.outputs.set == 'true'
         env:

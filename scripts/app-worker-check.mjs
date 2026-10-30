@@ -3,6 +3,8 @@
 //  - responses the Worker makes (/app/..., /config.json, /fonts/...) carry the same `/*` headers as
 //    frontend/dist/_headers and, under /app/, exactly its `/app/*` Content-Security-Policy;
 //  - routing: /app -> 301 /app/, SPA fallback only under /app/, 404 outside it, config.json, caching.
+//  - a dist without _headers fails at once (the mirror cannot be compared), unless STUB_DIST=1 says it is the
+//    workflow's stub (no frontend build yet).
 // Usage: node scripts/app-worker-check.mjs http://127.0.0.1:8788 frontend/dist
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 
@@ -40,7 +42,13 @@ const hfile = `${dist}/_headers`;
 const rules = existsSync(hfile) ? parseHeaders(readFileSync(hfile, "utf8")) : null;
 const all = rules?.get("/*") ?? new Map();
 const appCsp = rules?.get("/app/*")?.get("content-security-policy");
-if (!rules) console.log("note: no _headers in dist (stub build); header mirroring not compared");
+if (!rules) {
+	if (process.env.STUB_DIST !== "1") {
+		console.log(`FAIL ${hfile} is missing, so the Worker's headers cannot be compared with it (STUB_DIST=1 only for the stub)`);
+		process.exit(1);
+	}
+	console.log("note: no _headers in the stub dist; header mirroring not compared");
+}
 
 const stripSub = (v) =>
 	v
@@ -112,6 +120,12 @@ if (existsSync(`${dist}/fonts`)) {
 		r = await get(`/fonts/${font}`);
 		expect(r.status === 200 && r.headers.get("cache-control") === "public, max-age=86400", `/fonts/${font} one day`);
 		mirrors(r, `/fonts/${font}`);
+		const etag = r.headers.get("etag");
+		if (etag) {
+			r = await fetch(`${base}/fonts/${font}`, { headers: { "If-None-Match": etag }, redirect: "manual" });
+			expect(r.status === 304 && r.headers.get("cache-control") === "public, max-age=86400", `/fonts/${font} 304 keeps one day (N-1435)`);
+			mirrors(r, `304 /fonts/${font}`);
+		}
 	}
 }
 

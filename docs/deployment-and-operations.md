@@ -445,8 +445,11 @@ this repository, and only these two:
 | `getapotheke-app` | `edge/app/` (routing and headers) + `frontend/dist` (static assets) | the landing page (`/`, `/privacy/`, `/404.html`, `robots.txt`, `sitemap.xml`, icons, `site.webmanifest`, `/assets/…`) and the SPA under `/app/` | `.github/workflows/deploy-frontend.yml` | `deploy-site` |
 | `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
 
-**When they deploy.** Only for a published GitHub Release (tag `v*`, created by `release.yml`), or a manual
-*Run workflow* on `main` or a `v*` tag. Pull requests that touch them run the build, the Worker guard, the typecheck
+**When they deploy.** Only for a published GitHub Release that is not marked pre-release (tag `vX.Y.Z`, created
+by `release.yml`), or a manual *Run workflow* on `main` or a `vX.Y.Z` tag. The deploy job's first step fails on any
+other tag (only `v` and three numbers, no suffix such as `-rc.1`). One deploy per environment runs at a time
+(concurrency group `deploy-site` or `deploy-edge`, across refs); a newer one waits, and a running deploy is never
+cancelled. The deploy job installs with `npm ci --ignore-scripts`: no package install script runs where the token is. Pull requests that touch them run the build, the Worker guard, the typecheck
 and `wrangler deploy --dry-run` (which, for `apotheke-api`, builds the container image), with no secret and no
 preview. The deploy is not a release check. Routes and custom domains are never in the wrangler configs CI uses
 (`workers_dev` and `preview_urls` are off); the custom domains are attached in the Cloudflare dashboard.
@@ -467,11 +470,14 @@ repository must never touch (for example `apotheke-autofill`). So:
 
 * each workflow hard-codes its Worker name (`getapotheke-app` or `apotheke-api`); no name comes from inputs,
   variables or files outside review;
+* `scripts/cf-deploy.sh` and every `wrangler` call in the workflows pass `--config wrangler.jsonc` explicitly;
 * before every deploy and dry run, `scripts/cf-worker-guard.mjs` reads the effective name from the wrangler config and
   fails the job unless it is exactly the workflow's Worker and on the allowlist (`getapotheke-app`, `apotheke-api`).
   It also fails on any other name (such as `apotheke-autofill` or `flaremo`), on `env` sections, routes or custom
   domains in the config, on `--name`, `--env`, `--route`, `--domain` or `--config` arguments, and on
-  `CLOUDFLARE_ENV`/`WRANGLER_ENV`;
+  `CLOUDFLARE_ENV`/`WRANGLER_ENV`. It also fails when another config could win over that file: a `wrangler.json`
+  or `wrangler.toml` next to it, or a `.wrangler/deploy/config.json` redirect in its directory or any directory
+  above;
 * changing the allowlist means changing that file, which needs a reviewed pull request.
 
 When Cloudflare offers per-Worker roles (or token resources scoped to one Worker) for the account, switch each token
@@ -546,14 +552,22 @@ Cloudflare does not apply `_headers` to responses a Worker makes, so only the pa
   there is no SPA fallback: a missing page is a 404 with `404.html`;
 * `/config.json` is answered by the Worker from its non-secret var `API_BASE`
   (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`), with `Cache-Control: no-cache`;
-* `/fonts/*` (unhashed) get one day (`max-age=86400`), like `/assets/brand/*` and `/assets/mascot/*` in `_headers`;
+* `/fonts/*` (unhashed) get one day (`max-age=86400`), like `/assets/brand/*` and `/assets/mascot/*` in `_headers`,
+  on a 200 and on a 304 (a revalidation keeps the same `Cache-Control`). Everything else the Worker answers is
+  `no-cache` (its 404s too), and its other errors `no-store`. The SPA's hashed files are under `/assets/`, served
+  from the assets with `_headers` (immutable), not by the Worker;
 * every response the Worker makes (the SPA fallback, the `/app` redirect, its 404, 405 and 500 answers) carries the `/*` headers of `_headers` (HSTS, nosniff, `X-Frame-Options`, `Referrer-Policy`,
   `Permissions-Policy`), and under `/app/` exactly its `/app/*` Content-Security-Policy. When `_headers` changes
   `/*` or `/app/*`, change `COMMON` or `APP_CSP` in the Worker too; the check below fails until they match. A change to
   the landing CSP needs `_headers` only.
 
 `scripts/app-worker-check.mjs` checks a running `wrangler dev` of the Worker against `frontend/dist`: the routing
-above, and that the Worker's headers match `dist/_headers`. The pull request job runs it on every change.
+above, and that the Worker's headers match `dist/_headers`. Without `dist/_headers` it fails at once (only the
+workflow's stub dist, before there was a frontend build, sets `STUB_DIST=1`). The pull request job runs it on every
+change. `scripts/deploy-scripts.test.mjs` (`node --test`, no network) tests the Worker with a fake assets binding
+(the headers on its own 500, 405 and 301, the caching of 200 and 304), the drift check without `_headers`, the guard
+and `cf-deploy.sh`; both workflows run it. `tests/Unit/DeployWorkflowsTest.php` checks the workflows themselves
+(triggers and deploy conditions, permissions, checkouts, the token and storage gates, concurrency, the wrangler pin).
 
 **Local checks** without an account: `cd edge && npm ci && npx wrangler dev` (needs Docker for the container, and
 `.dev.vars` from `.dev.vars.example`); the manual workflow *Edge local test* does the same on a GitHub runner.
