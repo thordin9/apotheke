@@ -27,12 +27,12 @@ final class Cors
             if (str_starts_with($origin, 'http://') && !($development && in_array($host, ['localhost', '127.0.0.1', '[::1]'], true))) {
                 continue;
             }
-            $this->origins[] = $origin;
+            $this->origins[] = SameOrigin::normalise($origin);
         }
         $this->origins = array_values(array_unique($this->origins));
     }
 
-    /** @return list<string> the usable origins */
+    /** @return list<string> the usable origins, normalised (SameOrigin::normalise()) */
     public function origins(): array
     {
         return $this->origins;
@@ -42,7 +42,8 @@ final class Cors
     {
         $origin = self::origin($origin);
 
-        return $origin !== null && in_array($origin, $this->origins, true);
+        // One trailing dot of the host is the same host (QA N-1221), as in the same-origin checks.
+        return $origin !== null && in_array(SameOrigin::normalise($origin), $this->origins, true);
     }
 
     /** @return array<string,string> the headers for a request from $origin; none when it isn't allowed */
@@ -52,6 +53,7 @@ final class Cors
             return [];
         }
         $headers = [
+            // The browser compares this with the Origin it sent, so a trailing dot stays.
             'Access-Control-Allow-Origin' => (string)self::origin($origin),
             'Access-Control-Allow-Credentials' => 'true',
             'Access-Control-Expose-Headers' => 'ETag, Location, Retry-After, Link',
