@@ -288,7 +288,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   failure in CI; `docs/testing.md`). N-1302: `DockerfileTest`'s pcntl test sits after the OpenAPI test, which has its
   docblock back. Open.
 
-- feat/api-users-roles-security-reads: API P2 reads (API plan §3, Users and sign-in and Branding rows):
+- [#186](https://github.com/thordin9/apotheke/pull/186): API P2 reads (API plan §3, Users and sign-in and Branding rows):
   `GET /api/v1/users` (id, name, role, status, created_at, last_login_at; 2.6.x stores no e-mail, so there is none),
   `GET /api/v1/roles` (key, name, builtin, permissions, users) and `GET /api/v1/security` (`sign_in_enabled` and the
   security section's readable settings, `UsersController::POLICY`), all with the users permission, refused exactly as
