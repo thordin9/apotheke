@@ -227,6 +227,7 @@ Notes:
 | 0026 | `0026_autofill_max_image_bytes.php` | `autofill_max_image_bytes` (`auto`) |
 | 0027 | `0027_session_idle_hours.php` | `session_idle_hours` (default 168) |
 | 0028 | `0028_session_epoch.php` | `users.session_epoch` (sign out everywhere, new passwords), filled so existing sessions stay valid |
+| 0029 | `0029_jobs.php` | `jobs` (background jobs for `php spark jobs:work`) + index on `(status, run_after, id)`. CI4 only (3.2.0 and later): 2.6.x ignores the table, a backup does not carry it or name the migration |
 
 ## PostgreSQL schema and roles
 

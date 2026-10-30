@@ -39,6 +39,18 @@ function upg_carried_tables(): array
     return $legacy;
 }
 
+/**
+ * What only CI4 adds, additively, and a rollback keeps but 2.6.x never reads: the migrations a backup leaves out
+ * (Backups::UNCARRIED_MIGRATIONS) and the tables they create. The snapshots leave both out, so the upgrade and
+ * rollback checks compare what both apps share.
+ * @return array{versions:list<string>,tables:list<string>}
+ */
+function upg_ci4_only(): array
+{
+    require_once dirname(__DIR__, 2) . '/modules/Backup/Backups.php';
+    return ['versions' => \Apotheke\Backup\Backups::UNCARRIED_MIGRATIONS, 'tables' => ['jobs']];
+}
+
 /** The legacy 2.x checkout scripts/upgrade-rollback.sh made (UPGRADE_LEGACY_ROOT). */
 function upg_legacy_root(): string
 {

@@ -62,7 +62,7 @@ final class Ci4MigrateTest extends TestCase
 
             $applied = $this->worker($this->sqliteEnv($dir))['applied'];
             $this->assertSame('legacy-v' . $version, $applied[0] ?? null, $label);
-            $this->assertCount(28, $applied, $label . ': legacy-v' . $version . ' stands for 0001');
+            $this->assertCount(29, $applied, $label . ': legacy-v' . $version . ' stands for 0001');
 
             $backups = glob($dir . '/catalog-v' . $version . '-backup-*.sqlite') ?: [];
             $this->assertCount(1, $backups, $label . ': one backup');
@@ -155,7 +155,7 @@ final class Ci4MigrateTest extends TestCase
             $file = glob(ROOT . '/migrations/' . $version . '_*.php')[0];
             $names[$version] = substr(basename($file, '.php'), 5);
         }
-        $this->assertCount(28, $names);
+        $this->assertCount(29, $names);
         $banner = 'Database: sqlite – ' . $dir . '/catalog.sqlite';
 
         $pending = $this->migrate($dir, ['--status']);
@@ -167,7 +167,7 @@ final class Ci4MigrateTest extends TestCase
 
         $run = $this->migrate($dir, []);
         $this->assertSame(0, $run['code'], $run['out'] . $run['err']);
-        $this->assertStringEndsWith("Done: 28 step(s).\n", $run['out']);
+        $this->assertStringEndsWith("Done: 29 step(s).\n", $run['out']);
         $lines = [$banner];
         foreach ($names as $version => $name) {
             $lines[] = sprintf('  %s  %-40s %s', $version, $name, 'applied ' . self::CLOCK);
@@ -221,11 +221,11 @@ final class Ci4MigrateTest extends TestCase
     {
         $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
         sort($files, SORT_STRING);
-        $this->assertCount(28, $files);
+        $this->assertCount(29, $files);
         [$fresh, $freshSchema] = $this->target($driver, 'fresh');
-        $this->assertCount(28, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
+        $this->assertCount(29, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
         $expected = $this->dump($driver, $fresh, $freshSchema);
-        for ($n = 1; $n < 28; $n++) {
+        for ($n = 1; $n < 29; $n++) {
             $slice = $this->slice($files, $n);
             foreach ([false, true] as $demo) {
                 $label = $driver . ' from version ' . $n . ($demo ? ' with data' : '');

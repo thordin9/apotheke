@@ -159,7 +159,9 @@ serve_check legacy "$PHP83"
 snap all legacy-served
 check 'legacy@8.3 served' seeded legacy-served
 
-# 2. Upgrade: CI4@8.4 on the same data directory and database.
+# 2. Upgrade: CI4@8.4 on the same data directory and database. Its own migrations (0029 jobs on 3.2) run first, as
+# on a deploy or the first request; they only add what 2.6.x ignores (tests/upgrade/lib.php upg_ci4_only()).
+"$PHP84" "$ROOT/bin/migrate.php" > "$WORK/migrate-ci4.txt" 2>&1 || { cat "$WORK/migrate-ci4.txt"; echo "FAIL ci4: bin/migrate.php"; fail=1; }
 status_check ci4 "$PHP84"
 snap all upgraded
 check 'upgrade to CI4@8.4' seeded upgraded
