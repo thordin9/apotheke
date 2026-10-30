@@ -1,0 +1,28 @@
+{
+  "name": "Apotheke",
+  "short_name": "Apotheke",
+  "description": "A small, fast, self-hosted catalogue for your belongings.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "browser",
+  "background_color": "#fdfcfa",
+  "theme_color": "#5b3b8e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/brand/favicon-32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

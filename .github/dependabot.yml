@@ -28,6 +28,16 @@ updates:
       playwright:
         patterns: ['*']
   - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      frontend:
+        patterns: ['*']
+  - package-ecosystem: npm
     directory: /edge
     schedule:
       interval: weekly

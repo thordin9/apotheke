@@ -310,8 +310,8 @@ final class Ci4BranchCiTest extends TestCase
     }
 
     /**
-     * Dependabot keeps the SHA-pinned actions and the npm dev dependencies (Playwright at the root, tests/e2e) current: one weekly grouped PR
-     * per ecosystem and directory, whose commits pass check-commits.
+     * Dependabot keeps the SHA-pinned actions and the npm dev dependencies (Playwright at the root, tests/e2e, Vite in frontend/) current: one weekly grouped PR
+     * per ecosystem and directory, whose commits pass check-commits. frontend uses prefix build with a scope, so subjects look like build(deps-dev): ….
      */
     public function testDependabotUpdatesTheActionsWeeklyInOneGroup(): void
     {
@@ -346,6 +346,16 @@ final class Ci4BranchCiTest extends TestCase
             . "      playwright:\n"
             . "        patterns: ['*']\n"
             . "  - package-ecosystem: npm\n"
+            . "    directory: /frontend\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: build\n"
+            . "      include: scope\n"
+            . "    groups:\n"
+            . "      frontend:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
             . "    directory: /edge\n"
             . "    schedule:\n"
             . "      interval: weekly\n"
@@ -356,14 +366,14 @@ final class Ci4BranchCiTest extends TestCase
             . "        patterns: ['*']\n",
             (string)file_get_contents($this->root() . '/.github/dependabot.yml')
         );
-        // A package.json added under frontend/, edge/ or site/ needs its own entry here.
+        // A package.json added under edge/ or site/ needs its own entry here.
         $found = [];
         foreach (['.', 'tests/e2e', 'frontend', 'edge', 'site'] as $dir) {
             if (is_file($this->root() . '/' . $dir . '/package.json')) {
                 $found[] = $dir;
             }
         }
-        $this->assertSame(['.', 'tests/e2e', 'edge'], $found);
+        $this->assertSame(['.', 'tests/e2e', 'frontend', 'edge'], $found);
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void
