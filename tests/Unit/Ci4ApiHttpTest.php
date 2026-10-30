@@ -85,6 +85,17 @@ final class Ci4ApiHttpTest extends TestCase
         $this->assertArrayNotHasKey('set-cookie', $r['headers']);
     }
 
+    /** QA N-1221: a listed origin sent with a trailing dot gets the CORS headers; an unlisted one gets none. */
+    public function testATrailingDotOriginGetsTheCorsHeaders(): void
+    {
+        $r = $this->client()->get('/api/v1/nothing-here', ['Origin: ' . self::APP . '.']);
+        $this->assertSame(self::APP . '.', $r['headers']['access-control-allow-origin'] ?? null);
+        $this->assertSame('true', $r['headers']['access-control-allow-credentials'] ?? null);
+        $other = $this->client()->get('/api/v1/nothing-here', ['Origin: https://other.example.test.']);
+        $this->assertArrayNotHasKey('access-control-allow-origin', $other['headers']);
+        $this->assertArrayNotHasKey('access-control-allow-credentials', $other['headers']);
+    }
+
     public function testOtherOriginsGetNoCorsHeaders(): void
     {
         foreach (['https://evil.example.test', 'null', 'http://app.example.test'] as $origin) {
