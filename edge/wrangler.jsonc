@@ -31,7 +31,10 @@
 		// Inactivity timeout before the container sleeps (plan 1A.2: 15 minutes).
 		"SLEEP_AFTER_MS": "900000",
 		// Host names the app answers to (its Host check returns 421 for others).
-		"ALLOWED_HOSTS": "api.services.getapotheke.com"
+		"ALLOWED_HOSTS": "api.services.getapotheke.com",
+		// Session cookie domain (COOKIE_DOMAIN; empty means host-only). The hosted service sets it to its own domain.
+		// Not a secret.
+		"COOKIE_DOMAIN": "getapotheke.com"
 	},
 	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
 	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }

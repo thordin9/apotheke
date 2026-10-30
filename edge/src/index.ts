@@ -31,6 +31,7 @@ export class ApothekeContainer extends DurableObject<Env> {
 				APP_PASSWORD: this.env.APP_PASSWORD ?? "",
 				APP_KEY: this.env.APP_KEY ?? "",
 				ALLOWED_HOSTS: this.env.ALLOWED_HOSTS ?? "",
+				COOKIE_DOMAIN: this.env.COOKIE_DOMAIN ?? "",
 				PORT: String(PORT),
 				TZ: "Europe/Athens",
 			},
