@@ -259,7 +259,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the legacy tests and CI legs removed, `src/` removed. Merged at f1b4535.
 - [#162](https://github.com/thordin9/apotheke/pull/162): branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
   N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Merged at f576b00.
-- #PRNUM: API P1/P2 (API plan §3): the `jobs` table (migration 0029, CI4 only) with `Core\Jobs` (`JobQueue`, `JobRunner`) and
+- [#170](https://github.com/thordin9/apotheke/pull/170): API P1/P2 (API plan §3): the `jobs` table (migration 0029, CI4 only) with `Core\Jobs` (`JobQueue`, `JobRunner`) and
   `php spark jobs:work`, and the settings read API (`GET /api/v1/settings`, `GET /api/v1/settings/{section}` with ETag and
   If-None-Match; settings permission, write-only and internal keys never returned, autofill gives only `token_set`). Every
   job step is one statement guarded by status and lease owner (no transaction, at most 8 binds: D1-ready). A backup leaves
