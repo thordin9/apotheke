@@ -19,6 +19,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **docker:** the container no longer changes the owner of `./data/postgres` to `www-data` on start. With the compose `postgres` profile that directory holds PostgreSQL's files inside the app's `/data`, so starting the app next to a new database could break its initialisation, and a later start took over the database's files. This bug is already in released versions ([#187](https://github.com/thordin9/apotheke/pull/187))
 
+## [3.4.0] - 2026-10-30
+
+**Upgrade note:** the app now sets no cookie until the user clicks Accept on the cookie consent notice (`apotheke_consent=v1`, see [Cookie consent](docs/deployment-and-operations.md#cookie-consent)). Until then every page shows the notice, and sign-in and every change answer 403 `consent_required`. A session from before the upgrade is used again once the user accepts. Scripts that sign in or post with curl must send `Cookie: apotheke_consent=v1`. Without JavaScript the notice's Accept posts to `/consent`. After upgrading, signed-in users appear signed out until they click Accept and then keep their session; scripted `/api` clients must send the consent cookie ([curl example](docs/api.md#requests)); operators who handle consent themselves can set `COOKIE_CONSENT=off` to keep the behaviour from before.
+
+### Added
+
+- **consent:** require cookie consent before any cookie is set ([#182](https://github.com/thordin9/apotheke/pull/182))
+
 ## [3.3.0] - 2026-10-30
 
 ### Added
@@ -1013,7 +1021,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.3.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.4.0...HEAD
+[3.4.0]: https://github.com/thordin9/apotheke/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/thordin9/apotheke/compare/v3.2.1...v3.3.0
 [3.2.1]: https://github.com/thordin9/apotheke/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/thordin9/apotheke/compare/v3.1.1...v3.2.0

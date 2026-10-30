@@ -16,6 +16,8 @@ check() { # name expected actual
 }
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 jar="$work/jar"
+# Cookie consent (docs/deployment-and-operations.md): the jar starts with the banner accepted, as a browser after Accept.
+printf '%s\tFALSE\t/\tFALSE\t0\tapotheke_consent\tv1\n' "$(sed -E 's#^[a-z]+://([^/:]+).*#\1#' <<<"$base")" > "$jar"
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 hdr() { curl -s -D - -o /dev/null "${@:2}" | tr -d '\r' | awk -v h="$1" 'BEGIN{IGNORECASE=1} index(tolower($0), tolower(h) ":")==1 {sub(/^[^:]*: */, ""); print; exit}'; }
 head -c $((30 * 1024 * 1024)) /dev/zero > "$work/big"
@@ -67,7 +69,8 @@ PY
 # Before sign-in, a large or length-less body is never accepted (nginx reads it, then the app redirects to sign-in).
 r=$(code -X POST -F "photo=@$work/big" "$base/save")
 check "anonymous 30 MB POST /save refused" 1 "$([[ $r == 401 || $r == 303 || $r == 413 ]] && echo 1 || echo "$r")"
-r=$(code -H 'Transfer-Encoding: chunked' -X POST --data-binary 'name=x' "$base/locations")
+# (with consent, so the refusal is the sign-in one, not the app's 403 consent_required)
+r=$(code -b apotheke_consent=v1 -H 'Transfer-Encoding: chunked' -X POST --data-binary 'name=x' "$base/locations")
 check "anonymous chunked POST refused" 1 "$([[ $r == 401 || $r == 303 ]] && echo 1 || echo "$r")"
 if [[ $server == frankenphp ]]; then
   # The sign-in check comes before the size check (N-1424): a 600 MiB restore is a 401 before sign-in, not a 413
@@ -81,9 +84,10 @@ if [[ $server == frankenphp ]]; then
   for m in GET HEAD OPTIONS; do
     check "chunked $m /login -> 411"     411 "$(chunked "$m" /login)"
   done
-  # N-1452: only POST is the restore (a PUT is the app's, which sends a signed-out client to sign-in, not the
-  # restore check's 401), and Caddy's own Server header is gone, also on its own answers.
-  check "anonymous PUT /backup/restore is the app's" 303 "$(code -X PUT -d 'x=1' "$base/backup/restore")"
+  # N-1452: only POST is the restore (a PUT is the app's, which sends a signed-out client that has accepted the
+  # cookie notice to sign-in, not the restore check's 401), and Caddy's own Server header is gone, also on its own
+  # answers.
+  check "anonymous PUT /backup/restore is the app's" 303 "$(code -b apotheke_consent=v1 -X PUT -d 'x=1' "$base/backup/restore")"
   for p in / /originals/x.jpg /assets/no-such-file.css /no/such/page; do
     check "no Server header on $p"       "" "$(hdr Server "$base$p")"
   done
@@ -153,13 +157,14 @@ if [[ -n ${CONTAINER:-} ]]; then
   spark() { docker exec -u www-data -w /var/www/app "$CONTAINER" php spark apotheke:settings "$@" >/dev/null; }
   spark set trust_proxy 1
   xfp=(-H 'X-Forwarded-Proto: https' -H 'X-Forwarded-For: 198.51.100.7')
-  declare -A jar2=()
+  # The cookie notice accepted, as in $jar (no cookie at all before it, so no sign-in either).
+  declare -A jar2=([apotheke_consent]=v1)
   keep() { # headers-file: remember its Set-Cookie name=value pairs
     local l
     while IFS= read -r l; do [[ -n $l ]] && jar2[${l%%=*}]=${l#*=}; done < <(tr -d '\r' < "$1" | awk 'tolower($0) ~ /^set-cookie:/ {sub(/^[^:]*: */, ""); sub(/;.*/, ""); print}')
   }
   cookie() { local k c=""; for k in "${!jar2[@]}"; do c+="$k=${jar2[$k]}; "; done; printf '%s' "${c%; }"; }
-  curl -s -D "$work/h" -o "$work/login2.html" "${xfp[@]}" "$base/login"; keep "$work/h"
+  curl -s -D "$work/h" -o "$work/login2.html" "${xfp[@]}" -H "Cookie: $(cookie)" "$base/login"; keep "$work/h"
   tok2=$(sed -n 's/.*name="csrf" value="\([a-f0-9]*\)".*/\1/p' "$work/login2.html"); tok2=${tok2%%$'\n'*}
   # The client address is the X-Forwarded-For one (the peer is a listed proxy): a wrong password is counted for
   # 198.51.100.7 (legacy client_key: the first 32 hex digits of its sha256).
@@ -176,9 +181,10 @@ if [[ -n ${CONTAINER:-} ]]; then
   r=$(code "${xfp[@]}" -H "Cookie: $(cookie)" -H "X-CSRF-Token: $tok2" -X POST -F "csrf=$tok2" -F "photo=@$work/300k" "$base/save")
   check "behind the proxy, signed in: 300 KB POST /save passes the sign-in check" 1 "$([[ $r != 401 && $r != 413 && $r == [2-4][0-9][0-9] ]] && echo 1 || echo "$r")"
   check "behind the proxy, signed in: 300 KB restore reaches the app" 422 "$(code "${xfp[@]}" -H "Cookie: $(cookie)" -X POST -F "csrf=$tok2" -F "backup=@$work/300k" "$base/backup/restore")"
-  r=$(code "${xfp[@]}" -X POST -F "photo=@$work/300k" "$base/save")
+  # Signed out but with consent, so a 401 here is the sign-in check's, never the app's 403 consent_required.
+  r=$(code "${xfp[@]}" -b apotheke_consent=v1 -X POST -F "photo=@$work/300k" "$base/save")
   check "behind the proxy, signed out: 300 KB POST /save refused" 1 "$([[ $r == 401 || ($server != frankenphp && $r == 303) ]] && echo 1 || echo "$r")"
-  check "behind the proxy, signed out: 300 KB restore -> 401" 401 "$(code "${xfp[@]}" -X POST -F "backup=@$work/300k" "$base/backup/restore")"
+  check "behind the proxy, signed out: 300 KB restore -> 401" 401 "$(code "${xfp[@]}" -b apotheke_consent=v1 -X POST -F "backup=@$work/300k" "$base/backup/restore")"
   spark set trust_proxy 0
 fi
 exit $fail

@@ -119,6 +119,6 @@ final class RoutePermission
                 || preg_match('#^/brand/[a-z0-9.\-]+$#D', $path) === 1;
         }
 
-        return $method === 'POST' && $path === '/logout';
+        return $method === 'POST' && ($path === '/logout' || $path === '/consent');   // /consent: cookie consent without JavaScript
     }
 }

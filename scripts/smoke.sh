@@ -6,6 +6,8 @@ base=${1:-http://127.0.0.1:9091}
 jar=$(mktemp); img=$(mktemp --suffix=.jpg)
 page=$(mktemp)
 trap 'rm -f "$jar" "$img" "$page"' EXIT
+# Cookie consent (docs/deployment-and-operations.md): the jar starts with the banner accepted, as a browser after Accept.
+printf '%s\tFALSE\t/\tFALSE\t0\tapotheke_consent\tv1\n' "$(sed -E 's#^[a-z]+://([^/:]+).*#\1#' <<<"$base")" > "$jar"
 for _ in $(seq 1 30); do curl -fsS "$base/healthz" >/dev/null 2>&1 && break; sleep 1; done
 code=$(curl -s -o /tmp/apotheke-front.html -w '%{http_code}' -c "$jar" -b "$jar" "$base/")
 [[ $code == 200 ]] || { echo "front page returned $code"; exit 1; }
