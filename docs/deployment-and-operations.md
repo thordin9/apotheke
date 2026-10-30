@@ -153,8 +153,10 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
 
 * It runs one job at a time until `--max-jobs` jobs ran or `--max-seconds` passed (default 3600, then a supervisor
   starts it again), waiting `--sleep` ms when no job is due (`--sleep=0` stops instead; `--once` runs at most one).
-* A job is leased for five minutes and the lease is renewed on every checkpoint; a job whose worker died is taken over
-  once its lease runs out and resumes from its last checkpoint. A job is tried at most three times.
+* A job is leased for five minutes (300 s) and the lease is renewed on every checkpoint; a job whose worker died is
+  taken over once its lease runs out and resumes from its last checkpoint. So a worker killed with SIGKILL (or by the
+  out-of-memory killer, or a crash) leaves its job `running` for up to 300 s after its last checkpoint before another
+  worker resumes it; a restart does not shorten that. A job is tried at most three times.
 * **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
   and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
   ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.

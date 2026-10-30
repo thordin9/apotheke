@@ -314,7 +314,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   committed meanwhile is skipped; an error line is tried again; errors without skip fail and resume),
   `Ci4ApiJobsTest` (the job through `jobs:work`, the cross-user and unknown-id 404s, a type without a permission,
   CSRF, permissions), `Ci4MigrateTest` counts, `tests/upgrade/ci4-only.php` seeds and checks two `import_rows` rows.
-  Upgrade note under CHANGELOG `[Unreleased]` and in `docs/upgrade-3.0.md`. Open.
+  Upgrade note under CHANGELOG `[Unreleased]` and in `docs/upgrade-3.0.md`. QA: M-1380, the commit has the same
+  uploader-or-admin scope and 404 as GET (`Ci4ApiJobsTest`: another importer gets the unknown-id answer, byte for
+  byte, on GET, preview and commit; an admin gets through); N-1381, a job of a SIGKILLed worker resumes only after its
+  300 s lease (`docs/api.md`, Background jobs). Open.
 
 ## Lanes
 

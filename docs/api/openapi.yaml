@@ -165,7 +165,7 @@
       "post": {
         "operationId": "commitImport",
         "summary": "Import the file as a background job (import permission)",
-        "description": "Saves the mapping and options given (or keeps the saved ones), checks the file as the preview does, and starts an `import.commit` job; follow it with `GET /api/v1/jobs/{id}`. Each row is committed on its own, so rows show up while the job runs. A stopped job resumes where it was; one that failed on rows with errors (without `skip_errors`) resumes when the import is committed again. While a job for the import is queued or running, the answer is that job.",
+        "description": "Saves the mapping and options given (or keeps the saved ones), checks the file as the preview does, and starts an `import.commit` job; follow it with `GET /api/v1/jobs/{id}`. Each row is committed on its own, so rows show up while the job runs. A stopped job resumes where it was; one that failed on rows with errors (without `skip_errors`) resumes when the import is committed again. While a job for the import is queued or running, the answer is that job. Only the user who uploaded the file, or an admin, may commit it; anyone else gets the same 404 as for an unknown id.",
         "parameters": [{"$ref": "#/components/parameters/ImportId"}],
         "requestBody": {"required": false, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "properties": {
           "map": {"type": "array", "items": {"type": "string"}, "description": "The field for each column, in order; empty ignores the column"},
@@ -187,7 +187,7 @@
       "get": {
         "operationId": "getJob",
         "summary": "A background job: status, progress and result",
-        "description": "Only for a user with the permission of the job's type (import for an import) who started the job or is an admin; anyone else gets 404, as for an id that is not there. `error` is the fixed text the job stopped with, never the server's own error.",
+        "description": "Only for a user with the permission of the job's type (import for an import) who started the job or is an admin; anyone else gets 404, as for an id that is not there. `error` is the fixed text the job stopped with, never the server's own error. A job whose worker was killed (SIGKILL) stays running until its 300-second lease runs out, then resumes.",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}}],
         "responses": {
           "200": {"description": "The job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Job"}}}},

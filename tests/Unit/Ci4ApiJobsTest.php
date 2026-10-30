@@ -99,6 +99,27 @@ final class Ci4ApiJobsTest extends TestCase
         $this->assertSame(['id', 'type', 'status', 'progress', 'result', 'error'], array_keys($r['json']));
     }
 
+    public function testAnotherImportUserGetsTheUnknownIdAnswerOnEveryImportRoute(): void
+    {
+        $id = $this->upload($this->signedIn('ed'));
+        $eli = $this->signedIn('eli');
+        $routes = [['GET', '/api/v1/imports/%d'], ['GET', '/api/v1/imports/%d/preview'], ['POST', '/api/v1/imports/%d/commit']];
+        foreach ($routes as [$method, $path]) {
+            $send = fn (int $n): array => $eli->rest($method, sprintf($path, $n), $method === 'POST' ? ['skip_errors' => true] : null, $method === 'POST' ? $this->writeHeaders($eli) : []);
+            $other = $send($id);
+            $unknown = $send(999999);
+            $this->assertSame([404, 'not_found'], [$other['status'], $other['json']['code'] ?? null], $method . ' ' . $path);
+            $this->assertSame([$unknown['status'], $unknown['headers']['content-type'] ?? null, $unknown['body']], [$other['status'], $other['headers']['content-type'] ?? null, $other['body']], 'byte-identical to an unknown id: ' . $path);
+            ApiContract::assertMatches($method, sprintf($path, $id), $other);
+        }
+        $this->assertSame(0, (int)testdb(self::$dir)->query('SELECT COUNT(*) FROM jobs WHERE payload = ' . testdb(self::$dir)->quote('{"import_id":' . $id . '}'))->fetchColumn(), 'no job started');
+        $admin = $this->signedIn('admin');
+        $this->assertSame(200, $admin->rest('GET', '/api/v1/imports/' . $id)['status'], 'an admin');
+        $this->assertSame(200, $admin->rest('GET', '/api/v1/imports/' . $id . '/preview')['status'], 'an admin');
+        $r = $admin->rest('POST', '/api/v1/imports/' . $id . '/commit', ['create' => true, 'skip_errors' => true], $this->writeHeaders($admin));
+        $this->assertSame([202, 'queued'], [$r['status'], $r['json']['status'] ?? null], 'an admin commits another user\'s import');
+    }
+
     public function testCommitNeedsTheImportPermissionAndCsrf(): void
     {
         $id = $this->upload($this->signedIn('ed'));

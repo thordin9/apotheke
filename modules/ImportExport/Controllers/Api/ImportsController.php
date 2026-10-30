@@ -148,7 +148,7 @@ final class ImportsController extends Controller
     {
         $imports = $this->imports();
         $imp = $imports->get((int)$id);
-        if ($imp === null) {
+        if ($imp === null || !$imports->mine($imp)) {   // M-1380: as GET, the uploader or an admin
             return $this->notFound();
         }
         if ($imp['status'] === 'done') {
