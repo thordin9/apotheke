@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Apotheke, the storehouse for your stuff</title>
+<meta name="description" content="Apotheke is a small, fast, self-hosted app to catalogue your belongings: snap a photo, say where it lives, find it again.">
+<link rel="canonical" href="https://getapotheke.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://getapotheke.com/">
+<meta property="og:title" content="Apotheke, the storehouse for your stuff">
+<meta property="og:description" content="A small, fast, self-hosted catalogue for your belongings.">
+<meta property="og:image" content="https://getapotheke.com/assets/brand/og-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Apotheke. Where did you put the drill? A small, fast, self-hosted catalogue for your belongings, with the waving box mascot.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://getapotheke.com/assets/brand/og-1200x630.png">
+<meta name="twitter:image:alt" content="Apotheke. Where did you put the drill? A small, fast, self-hosted catalogue for your belongings, with the waving box mascot.">
+<link rel="preload" href="/fonts/epilogue-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/src/styles/landing.css">
+<link rel="icon" href="/assets/brand/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/brand/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/assets/brand/apple-touch-icon-180.png">
+<link rel="manifest" href="/site.webmanifest">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Apotheke","description":"A small, fast, self-hosted app to catalogue your belongings.","operatingSystem":"Linux (Docker)","applicationCategory":"UtilitiesApplication","license":"https://opensource.org/licenses/MIT","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"url":"https://getapotheke.com/","sameAs":"https://github.com/thordin9/apotheke"}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="slab">
+  <div class="container">
+    <a class="mark" href="/"><img class="brand-art" src="/assets/brand/mark-small.svg" alt="" width="36" height="36">Apotheke</a>
+    <nav aria-label="Site">
+      <ul>
+        <li class="opt"><a href="#features">Features</a></li>
+        <li><a href="#install">Install</a></li>
+        <li class="opt"><a href="#docs">Docs</a></li>
+        <li><a href="https://github.com/thordin9/apotheke">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+<main id="main">
+  <section class="hero container" aria-labelledby="hero-h">
+    <div class="hero-grid">
+      <div>
+        <h1 id="hero-h">Where did you put the drill?</h1>
+        <p class="lead">Apotheke catalogues your things: a photo, a place, found in seconds.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="#install">Install with Docker</a>
+          <a class="btn" href="https://github.com/thordin9/apotheke">View on GitHub</a><!-- P7 (3.8.0): becomes <a class="btn" href="/app/">Open the app</a> -->
+        </div>
+      </div>
+      <figure class="hero-shot">
+          <img class="brand-art hero-mascot" src="/assets/mascot/pose-wave.svg" alt="" width="160" height="160">
+          <picture>
+            <source srcset="/assets/shots/hero-list-dark.png" media="(prefers-color-scheme: dark)">
+            <img src="/assets/shots/hero-list-light.png" alt="The item list: each thing a ruled row with its place, an In or Lent out pill and its quantity." width="1024" height="1000" fetchpriority="high">
+          </picture>
+        </figure>
+    </div>
+  </section>
+
+  <section class="q" id="features" aria-labelledby="f-h">
+    <div class="container">
+      <h2 id="f-h">What does it keep track of?</h2>
+      <ul class="shelf">
+        <li><strong>Photos</strong><span>Up to 12 photos per item by default (configurable from 1 to 50), cropped and rotated.</span></li>
+        <li><strong>Places</strong><span>Nested locations and categories.</span></li>
+        <li><strong>Search</strong><span>Instant and typo-tolerant, Greek included.</span></li>
+        <li><strong>Lending</strong><span>Who has it, and since when.</span></li>
+        <li><strong>Stocktakes</strong><span>Walk a room, tick off what is there.</span></li>
+        <li><strong>Alerts</strong><span>Low stock, expiry and warranty dates.</span></li>
+        <li><strong>QR labels</strong><span>Print a label, scan the box.</span></li>
+        <li><strong>Import and export</strong><span>CSV, plus backups across SQLite and PostgreSQL.</span></li>
+        <li><strong>Users and roles</strong><span>Optional accounts and permissions.</span></li>
+        <li><strong>Phone first</strong><span>One-handed, in light or dark.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="q q-band" aria-labelledby="s-h">
+    <div class="container">
+      <h2 id="s-h">What does it look like?</h2>
+      <div class="shots">
+        <figure><picture><source srcset="/assets/shots/item-edit-1280-dark.png" media="(prefers-color-scheme: dark)"><img src="/assets/shots/item-edit-1280-light.png" alt="Editing an item on a desktop: photos on the left, the fields in two groups on the right." width="1280" height="900" loading="lazy"></picture><figcaption>Editing an item. Demo data throughout.</figcaption></figure>
+        <div class="phones">
+          <figure><img src="/assets/shots/list-375-dark.png" alt="The item list on a phone in dark mode." width="375" height="812" loading="lazy"><figcaption>The list, dark.</figcaption></figure>
+          <figure><img src="/assets/shots/autofill-375-light.png" alt="Suggestions from a photo, ready to copy into the form." width="375" height="812" loading="lazy"><figcaption>From a photo.</figcaption></figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="q" id="autofill" aria-labelledby="a-h">
+    <div class="container split">
+      <h2 id="a-h">Does it need AI?</h2>
+      <div>
+        <p class="answer">No. AI autofill is optional and off by default; while it is off, Apotheke never contacts the service.</p>
+        <p class="answer">Turned on, it suggests a name, category and tags from a photo when someone taps Analyze.</p>
+        <p><a href="https://github.com/thordin9/apotheke/blob/main/docs/autofill.md">Read how autofill works</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="q" aria-labelledby="p-h">
+    <div class="container split">
+      <h2 id="p-h">Where does my data go?</h2>
+      <ul class="facts">
+        <li><strong>Onto your server</strong>Your own database and folder.</li>
+        <li><strong>Private by default</strong>Bound to 127.0.0.1, with an admin password.</li>
+        <li><strong>Secrets encrypted</strong>Set APP_KEY to encrypt them at rest.</li>
+        <li><strong>Found a security issue?</strong><a href="https://github.com/thordin9/apotheke/security/advisories/new">Report it privately on GitHub</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="q q-band" id="docs" aria-labelledby="d-h">
+    <div class="container split">
+      <div>
+        <h2 id="d-h">Where are the docs?</h2>
+        <ul class="links">
+          <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/getting-started.md">Getting started</a></li>
+          <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/user-guide.md">User guide</a></li>
+          <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/configuration.md">Configuration</a></li>
+          <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/deployment-and-operations.md">Deployment and operations</a></li>
+          <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/upgrade-3.0.md">Upgrading to 3.0</a></li>
+        </ul>
+      </div>
+      <div class="release" aria-labelledby="r-h">
+        <h3 id="r-h">Latest release</h3>
+        <span class="figure slot-text">{version}</span>
+        <p>Released <time class="slot-text">{date}</time>, stamped at build.</p>
+        <div class="actions"><a class="btn" href="https://github.com/thordin9/apotheke/blob/main/CHANGELOG.md">Read the changelog</a><a class="btn" href="https://github.com/thordin9/apotheke/releases">All releases</a></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="q q-tall" id="faq" aria-labelledby="faq-h">
+    <div class="container">
+      <h2 id="faq-h">Anything else?</h2>
+      <dl class="faq">
+        <div><dt>Is it free?</dt><dd>Yes, MIT licensed.</dd></div>
+        <div><dt>What does it run on?</dt><dd>Docker on any small Linux server.</dd></div>
+        <div><dt>SQLite or PostgreSQL?</dt><dd>Either; backups move between them.</dd></div>
+        <div><dt>Works offline on a LAN?</dt><dd>Yes. Only AI autofill calls out.</dd></div>
+        <div><dt>What does autofill need?</dt><dd>An autofill service, set in the Control Panel.</dd></div>
+        <div><dt>How do I back up?</dt><dd>Download a backup zip; restore it anywhere.</dd></div>
+        <div><dt>Upgrading from 2.x?</dt><dd>Follow Upgrading to 3.0; data stays.</dd></div>
+        <div><dt>Is there a hosted version?</dt><dd>No public one. Your image ships the same app.</dd></div>
+        <div><dt>Where do I get help?</dt><dd><a href="https://github.com/thordin9/apotheke/issues">Open an issue on GitHub</a>.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="close" id="install" aria-labelledby="i-h">
+    <div class="container split">
+      <div>
+        <h2 id="i-h">How do I install it?</h2>
+        <p class="answer">Four lines on any Docker host, then open port 9091.</p>
+        <div class="quick" id="quick">
+          <pre tabindex="0" aria-label="Docker quick start, four commands"><code>git clone https://github.com/thordin9/apotheke.git
+cd apotheke
+echo 'APP_PASSWORD=change-me' &gt; .env
+docker compose up -d --build</code></pre>
+        </div>
+        <div class="actions"><a class="btn btn-primary" href="https://github.com/thordin9/apotheke/blob/main/docs/getting-started.md">Getting started</a><a class="btn" href="https://github.com/thordin9/apotheke">View on GitHub</a><!-- P7 (3.8.0): becomes <a class="btn" href="/app/">Open the app</a> --></div>
+      </div>
+      <figure class="shots"><img src="/assets/shots/settings-1280-dark.png" alt="The Control Panel in dark mode, open at AI autofill." width="1280" height="900" loading="lazy"></figure>
+    </div>
+  </section>
+</main>
+<footer class="mast">
+  <div class="container">
+    <p class="big"><img class="logo-l" src="/assets/brand/logo-light.svg" alt="Apotheke" width="341" height="100"><img class="brand-art logo-d" src="/assets/brand/logo-dark.svg" alt="Apotheke" width="341" height="100"></p>
+    <p class="tagline">From the Greek <span lang="grc">ἀποθήκη</span>, a storehouse.</p>
+    <nav aria-label="Footer">
+      <ul>
+        <li><a href="https://github.com/thordin9/apotheke">GitHub</a></li>
+        <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/index.md">Docs</a></li>
+        <li><a href="https://github.com/thordin9/apotheke/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="https://github.com/thordin9/apotheke/issues">Issues</a></li>
+        <li><a href="https://github.com/thordin9/apotheke/security/advisories/new">Security</a></li>
+        <li><a href="https://github.com/thordin9/apotheke/blob/main/LICENSE">MIT licence</a></li>
+        <li><a href="/privacy/">Privacy</a></li>
+      </ul>
+    </nav>
+    <small>© 2026 Stathis Papandreou</small>
+  </div>
+</footer>
+</body>
+</html>
