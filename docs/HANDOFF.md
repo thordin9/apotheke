@@ -295,7 +295,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   unchanged. Tests: `ImportPreviewTest` (equal to the HTML dry run on both drivers, with and without creating; no write,
   transaction or DDL statement and every table's row count unchanged), `Ci4ApiImportsTest` (contract, permissions, CSRF,
   404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. Open.
-- feat/api-import-job: API P3, second part (stacked on feat/api-import-preview): `POST /api/v1/imports/{id}/commit`
+- feat/api-import-job: API P3, second part (stacked on #184): `POST /api/v1/imports/{id}/commit`
   saves the mapping, checks the file as the preview does (422 with errors and no `skip_errors`) and starts an
   `import.commit` job (202; a queued or running job for the import is answered instead of a second one);
   `GET /api/v1/jobs/{id}` shows status, progress `{done, total}`, result and the stored error text, only to a user with
