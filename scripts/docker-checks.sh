@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Web-server behaviour of the Docker image (nginx + php-fpm), on top of scripts/smoke.sh.
+# Web-server behaviour of the Docker images (Dockerfile: nginx + php-fpm; Dockerfile.frankenphp: FrankenPHP), on top
+# of scripts/smoke.sh. Both images must pass it unchanged.
 # Usage: scripts/docker-checks.sh [base-url]   (default http://127.0.0.1:9091)
 set -euo pipefail
 base=${1:-http://127.0.0.1:9091}
@@ -8,6 +9,7 @@ check() { # name expected actual
   if [[ $2 == "$3" ]]; then echo "ok   $1"; else echo "FAIL $1: expected '$2', got '$3'"; fail=1; fi
 }
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+body=$(mktemp); big=$(mktemp); trap 'rm -f "$body" "$big"' EXIT
 hdr() { curl -s -D - -o /dev/null "${@:2}" | tr -d '\r' | awk -v h="$1" 'BEGIN{IGNORECASE=1} index(tolower($0), tolower(h) ":")==1 {sub(/^[^:]*: */, ""); print; exit}'; }
 
 check "front controller"              200 "$(code "$base/")"
@@ -16,8 +18,10 @@ check "healthz"                       200 "$(code "$base/healthz")"
 check "unknown route -> app 404"      404 "$(code "$base/no/such/page")"
 # /index.php is handled by the app's router (which has no such route), exactly as under Apache
 check "/index.php reaches the app"    1 "$(curl -s "$base/index.php" | grep -c 'Back to catalog')"
-r=$(code "$base/assets/../../app/Config/App.php" --path-as-is)
+# nginx answers 400, FrankenPHP 404; either way no file is served and nothing runs
+r=$(curl -s -o "$body" -w '%{http_code}' "$base/assets/../../app/Config/App.php" --path-as-is)
 check "path traversal never executes" 1 "$([[ $r == 400 || $r == 404 ]] && echo 1 || echo "$r")"
+check "path traversal serves no file" 0 "$(grep -c -e '<?php' -e 'namespace Config' "$body" || true)"
 check "originals/ blocked"            404 "$(code "$base/originals/guess.jpg")"
 check "Originals/ blocked"            404 "$(code "$base/Originals/guess.jpg")"
 check "ORIGINALS/ blocked"            404 "$(code "$base/ORIGINALS/guess.jpg")"
@@ -36,7 +40,8 @@ check "html gzip"                     gzip "$(hdr Content-Encoding -H 'Accept-En
 check "manifest type"                 application/manifest+json "$(hdr Content-Type "$base/manifest.webmanifest")"
 check "CSP on pages"                  1 "$(hdr Content-Security-Policy "$base/" | grep -c "default-src 'self'")"
 check "nosniff on pages"              nosniff "$(hdr X-Content-Type-Options "$base/")"
-check "no server version"             nginx "$(hdr Server "$base/")"
+# nginx sends "Server: nginx" (server_tokens off), FrankenPHP none; never a version
+check "no server version"             0 "$(hdr Server "$base/" | grep -c '[0-9]' || true)"
 check "no X-Powered-By"               "" "$(hdr X-Powered-By "$base/")"
 # Host allow-list (SEC-M3): addresses and localhost work with nothing configured, other names get 421
 check "unknown Host refused"          421 "$(code -H 'Host: other.example' "$base/")"
@@ -51,7 +56,6 @@ check "favicon sets no cookie"        "" "$(hdr Set-Cookie "$base/favicon.ico")"
 check "restore check (sign-in off)"   204 "$(code "$base/backup/restore/check")"
 check "restore check is not public"   404 "$(code "$base/_restore_check")"
 
-big=$(mktemp); trap 'rm -f "$big"' EXIT
 head -c $((30 * 1024 * 1024)) /dev/zero > "$big"
 check "30 MB body rejected on /save (22m limit)" 413 "$(code -X POST -F "photo=@$big" "$base/save")"
 # /backup/restore accepts it at the HTTP layer (the app then rejects the CSRF/zip, but not with 413)

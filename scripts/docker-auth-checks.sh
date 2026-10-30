@@ -45,4 +45,13 @@ tok=$(sed -n 's/.*name="csrf" content="\([a-f0-9]*\)".*/\1/p' "$work/backup.html
 tok=${tok%%$'\n'*}
 # signed in: the 30 MB body reaches the app, which rejects the non-zip with 422 (not 401/413)
 check "30 MB restore accepted after sign-in" 422 "$(code -b "$jar" -X POST -F "csrf=$tok" -F "backup=@$work/big" "$base/backup/restore")"
+# signed in, every other route keeps the 22 MB cap: 413 before the app reads the body (the FrankenPHP image has the
+# restore limits in PHP itself, so this cap is the only thing that stops a large body on these routes)
+for p in /save /item/1/photos /item/1/attachments /settings/logo /settings/import /backup/restore/confirm /api/v1/session /no/such/page /backup/restore/ /backup/restore/check; do
+  check "signed in, 30 MB POST $p -> 413" 413 "$(code -b "$jar" -H "X-CSRF-Token: $tok" -X POST -F "csrf=$tok" -F "file=@$work/big" "$base$p")"
+done
+# a body without Content-Length (chunked, as a proxy such as the edge Worker may send it) is cut off at the cap:
+# nginx answers 413; FrankenPHP stops reading at 22 MB and the app refuses the cut-off request (4xx). Never accepted.
+r=$(code -b "$jar" -H "X-CSRF-Token: $tok" -H 'Transfer-Encoding: chunked' -X POST -F "csrf=$tok" -F "photo=@$work/big" "$base/save")
+check "signed in, 30 MB chunked POST /save refused" 1 "$([[ $r == 413 || $r == 4[0-9][0-9] ]] && echo 1 || echo "$r")"
 exit $fail
