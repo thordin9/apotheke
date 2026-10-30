@@ -40,15 +40,17 @@ function upg_carried_tables(): array
 }
 
 /**
- * What only CI4 adds, additively, and a rollback keeps but 2.6.x never reads: the migrations a backup leaves out
- * (Backups::UNCARRIED_MIGRATIONS) and the tables they create. The snapshots leave both out, so the upgrade and
- * rollback checks compare what both apps share.
- * @return array{versions:list<string>,tables:list<string>}
+ * What only CI4 adds, additively, and a rollback keeps but 2.6.x never reads: each CI4-only migration (every file
+ * after 2.6.26's 0028) with the tables it creates. Every one must also be in Backups::UNCARRIED_MIGRATIONS (so a
+ * backup does not name it); Ci4MigrateTest::testEveryCi4OnlyMigrationIsRegistered fails when either is missing. The
+ * snapshots leave both the tables and the schema_migrations rows out, so the upgrade and rollback checks compare what
+ * both apps share; ci4-only.php checks that they are there and kept.
+ * @return array{map:array<string,list<string>>,versions:list<string>,tables:list<string>}
  */
 function upg_ci4_only(): array
 {
-    require_once dirname(__DIR__, 2) . '/modules/Backup/Backups.php';
-    return ['versions' => \Apotheke\Backup\Backups::UNCARRIED_MIGRATIONS, 'tables' => ['jobs']];
+    $map = ['0029' => ['jobs']];
+    return ['map' => $map, 'versions' => array_map('strval', array_keys($map)), 'tables' => array_merge(...array_values($map))];
 }
 
 /** The legacy 2.x checkout scripts/upgrade-rollback.sh made (UPGRADE_LEGACY_ROOT). */

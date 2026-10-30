@@ -19,6 +19,41 @@ final class Ci4MigrateTest extends TestCase
 
     private const SHORT = "APP_PASSWORD is too short: use at least 8 characters (not only spaces), or leave it empty.\n";
 
+    /**
+     * The migrations of 2.6.26 (branch `old`) with their sha256: they stay byte-identical, so a fresh run of them is
+     * the schema 2.6.x reads. Every later file is CI4-only (AGENTS.md "No shared schema change").
+     */
+    private const LEGACY_MIGRATIONS = [
+        '0001_initial_schema.php' => '60258bd8315094d2fabb34e97cceedd6627b9ecce0be24afc3bd875949ea7888',
+        '0002_sort_keys_and_settings.php' => 'f8066324b818295d8c616b37a9598691c7ac568b00867a59ced15c5357ac2d75',
+        '0003_item_photos.php' => '0799a265942cc9d4f15066d6be0b928d5f252bcd5204132a087465b3f8274bee',
+        '0004_tags_and_custom_fields.php' => '87f7a73e4e079b45cfa70028ea00ad6448cbe88660c5409d16eb89697be6197c',
+        '0005_activity_log.php' => '389cf5e85fd13c908988fa19b99cca2f6151d105d24e0e5def047f93cb1d7ce9',
+        '0006_low_stock.php' => '54483b840a5bc5059b5e727c6a1f8af6cf85610d10c5ae8bb3b7ceb2bb7fb683',
+        '0007_lending.php' => '7124dc0f42b59fef762523a05f0eb7e022d1129960c397785c5a9ac7f7988c72',
+        '0008_nested_locations.php' => 'faa998bcd4d8ac9161767a14aa0307a50da7eda4fff207b1537a3562d1aee6d9',
+        '0009_expiry.php' => '1ee40243768334b01cdcc682d226787247c47696f3dd38d856bc834ffd929470',
+        '0010_value_index.php' => '2e59156f0793a87e7e2a66f66550bd443c330ceaa27c867c13c9969bd593d57d',
+        '0011_saved_filters.php' => '34d9cc21605c4f22e3b823068f1964e439813e108119a89516333b97376d03b4',
+        '0012_barcode.php' => '50f29bbfc1496099f15a262fef9b8863097d52e4d159e73ca21f0ccd8e779a51',
+        '0013_settings.php' => 'b5a402c862718654b3cb9a4a40242232902115205f58713ea2a27f44ea3c5192',
+        '0014_attachments.php' => '06f2263670895e6efd5876ed9fe85d8eebc100fd1349509a68b737c77784ec53',
+        '0015_favourites_recent.php' => 'ec3a22775e4612354b023a90d3d728f8e1030f096d834b935ded108e2b2d61c6',
+        '0016_undo.php' => '8e25283ab06407eb12df40585662a61851b27d8cbb62cf8df898bf52f01d7351',
+        '0017_stocktake.php' => 'a5c10273702913c761d0115f2f7d0e2472955ccff978f706c03b42961b0ed670',
+        '0018_users.php' => '70fdcd20a62f019d06a62cf457334d07f99d0ae3a4d210e2f229d94dc4578f1f',
+        '0019_search.php' => 'c0e5d85f866542d1a39ca158fc924739816c2146e9d0da90f026cbd9ec8914dd',
+        '0020_import.php' => '5d97cbb32add8ee0a58139d59eb3ebbbb87cc2295fe60d11ea4eee88fec52a6b',
+        '0021_photo_versions.php' => 'a8fde87827cf6f7ca5fa5dbbaa91042776940cb1787430cb943104cf0fb62768',
+        '0022_roles.php' => '1764b22debd54a03fa334bbe9b6b7f950e28f6e49ac4a25f4ded94c8d7eaaa7c',
+        '0023_autofill.php' => 'c2679b6ecb490410bf40d6f1ea40cfb3a2efc70d120927004418ade9b39a8f16',
+        '0024_autofill_timeout.php' => '57e45925d2e708a0b0eee3a6ca7e183df706939ee28cacab810d4a455b318f9a',
+        '0025_autofill_on_demand.php' => '6be213a6c6a0df12769c6a52c123231b59942ba89cb0229aaded4d54a148e2af',
+        '0026_autofill_max_image_bytes.php' => 'b88c6afe133ddf8b8d8ff7fdebf1b79d8b1698fc60bda18d4e6845950f86b535',
+        '0027_session_idle_hours.php' => '6e833da10654064471742df81a309f13eac5614e559e6b507f3c45b4a782932e',
+        '0028_session_epoch.php' => '5f167997ddf0633c3ecbaf86c0433b8e6e741074fe4823913a13a8da0b0b908b',
+    ];
+
     /** @var list<string> */
     private array $schemas = [];
 
@@ -215,6 +250,103 @@ final class Ci4MigrateTest extends TestCase
         $this->assertCount(1, $users);
         $this->assertSame(['admin', 'admin'], [$users[0]['username'], $users[0]['role']]);
         $this->assertTrue(password_verify('long-enough', (string)$users[0]['password_hash']));
+    }
+
+    /**
+     * AGENTS.md "No shared schema change": the 2.6.26 migrations are unchanged, and every later (CI4-only) migration
+     * is registered in Backups::UNCARRIED_MIGRATIONS and in tests/upgrade/lib.php upg_ci4_only() with exactly the
+     * tables it creates, on each driver.
+     */
+    public function testEveryCi4OnlyMigrationIsRegistered(): void
+    {
+        require_once ROOT . '/tests/upgrade/lib.php';
+        $files = $this->migrationFiles();
+        $names = array_map('basename', $files);
+        $legacy = array_slice($names, 0, count(self::LEGACY_MIGRATIONS));
+        $this->assertSame(array_keys(self::LEGACY_MIGRATIONS), $legacy, 'the 2.6.26 migrations come first, none removed or renamed');
+        foreach (self::LEGACY_MIGRATIONS as $name => $sha) {
+            $this->assertSame($sha, hash_file('sha256', ROOT . '/migrations/' . $name), $name . ' must stay byte-identical with 2.6.26');
+        }
+        $ci4Only = array_map(static fn (string $n): string => substr($n, 0, 4), array_slice($names, count(self::LEGACY_MIGRATIONS)));
+        $this->assertSame($ci4Only, \Apotheke\Backup\Backups::UNCARRIED_MIGRATIONS, 'every CI4-only migration is in Backups::UNCARRIED_MIGRATIONS');
+        $this->assertSame($ci4Only, upg_ci4_only()['versions'], 'every CI4-only migration is in tests/upgrade/lib.php upg_ci4_only()');
+        foreach ($this->drivers() as $driver) {
+            [$legacyShape, $shape] = $this->legacyAndCurrentShape($driver);
+            $created = array_values(array_diff(array_keys($shape), array_keys($legacyShape)));
+            sort($created);
+            $registered = upg_ci4_only()['tables'];
+            sort($registered);
+            $this->assertSame($registered, $created, $driver . ': upg_ci4_only() lists exactly the tables the CI4-only migrations create');
+        }
+    }
+
+    /**
+     * AGENTS.md "No shared schema change": after every migration, each table 2.6.26 creates is still there with the
+     * same columns (name, type, null, default, order): no CI4-only migration alters, adds to or drops a table or
+     * column 2.6.x reads.
+     */
+    public function testNoCi4OnlyMigrationChangesATable26Reads(): void
+    {
+        foreach ($this->drivers() as $driver) {
+            [$legacyShape, $shape] = $this->legacyAndCurrentShape($driver);
+            $this->assertNotSame([], $legacyShape);
+            foreach ($legacyShape as $table => $columns) {
+                $this->assertSame($columns, $shape[$table] ?? null, $driver . ': table ' . $table . ' as 2.6.26 creates it');
+            }
+        }
+    }
+
+    /** @return list<string> */
+    private function migrationFiles(): array
+    {
+        $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
+        sort($files, SORT_STRING);
+
+        return $files;
+    }
+
+    /** @return list<string> */
+    private function drivers(): array
+    {
+        return $this->postgres() ? ['sqlite', 'pgsql'] : ['sqlite'];
+    }
+
+    /**
+     * The tables and columns after a fresh run of the 2.6.26 migrations, and after every migration.
+     *
+     * @return array{0:array<string,list<string>>,1:array<string,list<string>>}
+     */
+    private function legacyAndCurrentShape(string $driver): array
+    {
+        $out = [];
+        foreach (['legacy' => $this->slice($this->migrationFiles(), count(self::LEGACY_MIGRATIONS)), 'current' => null] as $label => $slice) {
+            [$dir, $schema] = $this->target($driver, 'shape' . $label);
+            $env = $this->env($driver, $dir, $schema);
+            $this->worker($slice === null ? $env : $env + ['MIGRATE_DIR' => $slice]);
+            $out[] = $this->shape($driver === 'sqlite' ? sqlite($dir . '/catalog.sqlite') : $this->pgPdo((string)$schema), $driver);
+        }
+
+        return [$out[0], $out[1]];
+    }
+
+    /** @return array<string,list<string>> table => "column type null default" in column order */
+    private function shape(PDO $pdo, string $driver): array
+    {
+        $shape = [];
+        if ($driver === 'sqlite') {
+            foreach ($pdo->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")->fetchAll(PDO::FETCH_COLUMN) as $t) {
+                $shape[(string)$t] = array_map(static fn (array $c): string => implode(' ', [$c['name'], $c['type'], $c['notnull'], (string)$c['dflt_value']]),
+                    $pdo->query('PRAGMA table_info("' . $t . '")')->fetchAll(PDO::FETCH_ASSOC));
+            }
+
+            return $shape;
+        }
+        foreach ($pdo->query('SELECT table_name, column_name, data_type, is_nullable, column_default FROM information_schema.columns
+            WHERE table_schema = current_schema() ORDER BY table_name, ordinal_position')->fetchAll(PDO::FETCH_ASSOC) as $c) {
+            $shape[(string)$c['table_name']][] = implode(' ', [$c['column_name'], $c['data_type'], $c['is_nullable'], (string)$c['column_default']]);
+        }
+
+        return $shape;
     }
 
     private function upgradeDriver(string $driver): void
