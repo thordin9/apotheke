@@ -215,14 +215,16 @@ test("cf-deploy.sh: an authentication error names the missing permission", () =>
 	}
 });
 
-// The deploy job's first step (L-1460, N-1438), taken from each workflow and run as GitHub runs it
-// (bash -eo pipefail), with a fake `gh` that answers the release-by-tag API from FAKE_RELEASE (empty = a 404,
-// which is also what a draft looks like to a read-only token) and applies the step's own --jq with jq.
+// The deploy job's first step (L-1460, N-1438), taken from each workflow and run the way the runner runs a step
+// with `shell: bash` (bash --noprofile --norc -eo pipefail; the step must say so, N-1465), with a fake `gh` that
+// answers the release-by-tag API from FAKE_RELEASE (empty = a 404, which is also the answer for a draft: that
+// endpoint returns only published releases) and applies the step's own --jq with jq.
 function tagStep(file) {
 	const yml = readFileSync(join(root, ".github/workflows", file), "utf8");
-	const m = yml.match(/\n      - name: Tag is vX\.Y\.Z[^\n]*\n(?:        (?!run:)[^\n]*\n)*        run: \|\n((?:(?:          [^\n]*)?\n)+)/);
+	const m = yml.match(/\n      - name: Tag is vX\.Y\.Z[^\n]*\n((?:        (?!run:)[^\n]*\n)*)        run: \|\n((?:(?:          [^\n]*)?\n)+)/);
 	assert.ok(m, `${file}: the tag step has a run block`);
-	return m[1].replace(/^ {10}/gm, "");
+	assert.match(m[1], /^        shell: bash\n/m, `${file}: the tag step runs with shell: bash`);
+	return m[2].replace(/^ {10}/gm, "");
 }
 function runTagStep(script, ref, release) {
 	const bin = mkdtempSync(join(tmpdir(), "fake-gh-"));

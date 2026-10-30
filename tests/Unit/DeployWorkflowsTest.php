@@ -108,6 +108,12 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag"', $first);
         $this->assertStringContainsString('if [ "$state" != "draft=false prerelease=false" ]; then', $first);
         $this->assertStringNotContainsString('secrets.', $first);
+        // N-1464: the token is only in this step, once; N-1465: the step runs in the shell the test runs it in.
+        $yml = $this->workflow($file);
+        $this->assertSame(1, substr_count($yml, 'GH_TOKEN'));
+        $this->assertSame(1, substr_count($yml, 'github.token'));
+        $this->assertSame(1, substr_count($first, 'GH_TOKEN: ${{ github.token }}'));
+        $this->assertStringContainsString("\n        shell: bash\n        run: |\n", $first);
         foreach (['v1.2.3' => true, 'v10.0.0' => true, 'v1.2' => false, 'v1.2.3-rc.1' => false, 'v01.2.3' => false, 'v1.2.3x' => false, 'vX.Y.Z' => false] as $tag => $ok) {
             $this->assertSame($ok, preg_match('/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/', $tag) === 1, $tag);
         }

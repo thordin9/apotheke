@@ -125,6 +125,8 @@ jobs:
         env:
           REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
+        # The runner's `bash --noprofile --norc -eo pipefail`, as scripts/deploy-scripts.test.mjs runs it (N-1465).
+        shell: bash
         run: |
           case "$REF" in
             refs/heads/main) exit 0 ;;
@@ -135,8 +137,8 @@ jobs:
             echo "::error title=Not a release tag::Deploys run only for tags vX.Y.Z (numbers only)."
             exit 1
           fi
-          # L-1460: a manual run on a tag deploys only a published full release. With this read-only token the API
-          # does not return drafts, so a draft and a missing release are both a 404 here, and both fail.
+          # L-1460: a manual run on a tag deploys only a published full release. The release-by-tag endpoint returns
+          # only published releases, so a draft and a missing release are both a 404 here, and both fail.
           tag="${REF#refs/tags/}"
           if ! state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '"draft=\(.draft) prerelease=\(.prerelease)"')"; then
             echo "::error title=No published release::No published GitHub Release for $tag (missing or a draft); nothing was deployed."

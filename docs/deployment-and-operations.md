@@ -474,8 +474,8 @@ this repository, and only these two:
 **When they deploy.** Only for a published GitHub Release that is not marked pre-release (tag `vX.Y.Z`, created
 by `release.yml`), or a manual *Run workflow* on `main` or a `vX.Y.Z` tag. The deploy job's first step fails on any
 other tag (only `v` and three numbers, no suffix such as `-rc.1`), and on a tag it also reads that tag's GitHub Release
-with the job's read-only token: it fails unless the release exists and is neither a draft nor a pre-release (a draft
-is invisible to that token, so it fails like a missing release). `main` needs no release. One deploy per environment runs at a time
+with the job's read-only token: it fails unless the release exists and is neither a draft nor a pre-release (the
+release-by-tag endpoint returns only published releases, so a draft fails like a missing release). `main` needs no release. One deploy per environment runs at a time
 (concurrency group `deploy-site` or `deploy-edge`, across refs); a newer one waits, and a running deploy is never
 cancelled. Every install in these workflows (pull request, test and deploy jobs) is `npm ci --ignore-scripts`: no package
 install script runs where the token is, and a dependency that needs one fails on the pull request already. Pull requests that touch them run the build, the Worker guard, the typecheck
