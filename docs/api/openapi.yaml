@@ -3,14 +3,14 @@
   "info": {
     "title": "Apotheke API",
     "version": "1.0.0-p1",
-    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`."
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`. Cookie consent: the server sets no cookie at all (no session, no CSRF token) until the request carries the cookie apotheke_consent=v1, which the banner script sets when the user clicks Accept (only the name and the exact value count; any other value is no consent). Without it, reads still answer (GET /api/v1/session with an empty csrf_token), and every POST, PUT, PATCH and DELETE is 403 with code consent_required and error consent_required."
   },
   "paths": {
     "/api/v1/session": {
       "get": {
         "operationId": "getSession",
         "summary": "Who is signed in, what they may do, and the CSRF token",
-        "description": "Starts a session when there is none, so the token can be used for the next request.",
+        "description": "Starts a session when there is none, so the token can be used for the next request. Without cookie consent it starts none and csrf_token is empty.",
         "responses": {
           "200": {"description": "The session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
         }
@@ -27,7 +27,7 @@
           "200": {"description": "Signed in: the new session, with a new CSRF token", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}},
           "400": {"$ref": "#/components/responses/Problem"},
           "401": {"$ref": "#/components/responses/Problem"},
-          "403": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
           "409": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"},
@@ -40,7 +40,7 @@
         "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
         "responses": {
           "204": {"description": "Signed out"},
-          "403": {"$ref": "#/components/responses/Problem"}
+          "403": {"$ref": "#/components/responses/Forbidden"}
         }
       }
     },
@@ -114,6 +114,7 @@
     },
     "responses": {
       "Problem": {"description": "An error", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "Forbidden": {"description": "Refused: csrf.invalid (Origin, body type or token), permission.denied, or consent_required when the request carries no apotheke_consent=v1 cookie (then the body also has error: consent_required and no cookie is set)", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
       "RateLimited": {
         "description": "Too many attempts",
         "headers": {"Retry-After": {"description": "Seconds to wait", "schema": {"type": "integer"}}},
@@ -139,7 +140,8 @@
           "title": {"type": "string"},
           "status": {"type": "integer"},
           "detail": {"type": "string"},
-          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed"},
+          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, consent_required"},
+          "error": {"type": "string", "enum": ["consent_required"], "description": "Only on 403 consent_required: the same code"},
           "errors": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Field => message, for 422"}
         }
       },
@@ -163,7 +165,7 @@
             "properties": {"id": {"type": "integer"}, "username": {"type": "string"}, "role": {"type": "string"}}
           },
           "permissions": {"$ref": "#/components/schemas/Permissions"},
-          "csrf_token": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+          "csrf_token": {"type": "string", "pattern": "^([a-f0-9]{64})?$", "description": "Empty without cookie consent: no session is started"}
         }
       },
       "Credentials": {

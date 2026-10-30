@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** the app now sets no cookie until the user clicks Accept on the cookie consent notice (`apotheke_consent=v1`, see [Cookie consent](docs/deployment-and-operations.md#cookie-consent)). Until then every page shows the notice, and sign-in and every change answer 403 `consent_required`. A session from before the upgrade is used again once the user accepts. Scripts that sign in or post with curl must send `Cookie: apotheke_consent=v1`.
+
 ## [3.2.0] - 2026-10-30
 
 **Upgrade note:** migration 0029 adds a `jobs` table that only the CI4 app uses (background jobs for `php spark jobs:work`). It changes no table or column 2.6.x reads. After a rollback to 2.6.x the table stays behind in the database and is harmless: 2.6.x ignores it, and switching to 3.x again uses it as it was. Backups do not carry it and do not name migration 0029, so a backup made by this version restores on 2.6.x.

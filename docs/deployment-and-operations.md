@@ -425,6 +425,7 @@ and `bin/settings.php` exit 1 with `Could not connect to the database` and only 
   ```
 
   No inline scripts, no inline styles, no third-party hosts. `blob:` is needed for client-side photo shrinking.
+* **Cookie consent:** see [Cookie consent](#cookie-consent) below: no cookie at all until the user accepts.
 * **CSRF:** every state-changing request (forms and fetch calls, including bulk actions, lending and duplicating)
   needs the per-session token; an expired token shows a friendly page (status 419) and changes nothing.
 * **SQL:** prepared statements everywhere; dynamic parts (sort columns, table names in backups) come from fixed
@@ -453,6 +454,29 @@ and `bin/settings.php` exit 1 with `Could not connect to the database` and only 
 * **Docker defaults:** compose publishes the app on `127.0.0.1` only, and the container refuses to start with sign-in
   off unless `ALLOW_NO_LOGIN=1`; see [Docker defaults: localhost and sign-in](#docker-defaults-localhost-and-sign-in).
 * Apotheke is meant for a trusted network. If you expose it to the internet, use HTTPS and keep sign-in on.
+
+### Cookie consent
+
+From 3.3 the app sets no cookie in the browser until the user clicks Accept on the consent banner (the hosted SPA's
+banner, or the notice the app's own pages show at the top until then). The contract, kept in `app/Config/Consent.php`:
+
+* **The cookie:** `apotheke_consent=v1`, set by the banner script, never by the server: `Path=/`,
+  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. Hosted installs set
+  `Domain=getapotheke.com`, so it also reaches `api.services.getapotheke.com`; self-hosted installs set it
+  host-only. It is the first cookie the app ever has.
+* **What counts:** the server compares only the name and the exact value (attributes never reach it), so both
+  forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
+  cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
+* **Without consent:** no `Set-Cookie` on any answer (no session cookie, no CSRF token, no theme or
+  recently-viewed cookie), redirects and 404, 419 and 500 pages included; no session is loaded or started, so an old
+  session cookie is not used until consent is back. Reads that need no session still answer. Every POST, PUT,
+  PATCH and DELETE (sign-in, sign-up, sign-out, forms, `/api` writes) is `403`: under `/api` problem+json with
+  `"code": "consent_required"` and `"error": "consent_required"`, for a fetch from the pages
+  `{"ok": false, "error": "…", "code": "consent_required"}`, otherwise the error page with the notice. A
+  `Set-Cookie` that reaches the answer anyway is removed (`Core\Filters\ConsentFilter`).
+* **With consent** everything is as before.
+* The app's notice needs JavaScript to accept (it sets the cookie in the browser). 2.6.x (branch `old`) has no
+  banner and stays security-only.
 
 ## Monitoring and logs
 
