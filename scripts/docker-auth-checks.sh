@@ -111,11 +111,13 @@ check "restore check: admin"             204 "$(code -b "$jar" "$base/backup/res
 check "upload check: admin"              204 "$(code -b "$jar" "$base/upload/check")"
 # over 520 MiB is refused after sign-in too, before the body is read (N-1424)
 check "600 MiB restore after sign-in -> 413" 413 "$(declared POST /backup/restore $((600 * 1024 * 1024)) "$jar")"
-# N-1452: the cap is exactly 520 MiB, for a declared length (one byte over) and for a chunked body (streamed, never
-# stored here: 521 MiB from /dev/zero)
+# N-1452: the cap is exactly 520 MiB, for a declared length (one byte over) and for a chunked body. The chunked one is
+# a real multipart upload of a sparse 521 MiB file (no disk space), so PHP spools it to a temporary file and Caddy's
+# 413 at 520 MiB comes first; a raw body would be read into PHP's memory and end in a memory-limit fatal (N-1455).
 check "520 MiB + 1 byte restore after sign-in -> 413" 413 "$(declared POST /backup/restore $((520 * 1024 * 1024 + 1)) "$jar")"
-r=$(head -c $((521 * 1024 * 1024)) /dev/zero | code -b "$jar" -X POST -H 'Content-Type: application/octet-stream' -T - "$base/backup/restore")
-check "521 MiB chunked restore after sign-in -> 413" 413 "$r"
+truncate -s $((521 * 1024 * 1024)) "$work/521m.zip"
+check "521 MiB chunked restore after sign-in -> 413" 413 "$(code -b "$jar" -H 'Transfer-Encoding: chunked' -X POST -F "backup=@$work/521m.zip" "$base/backup/restore")"
+rm -f "$work/521m.zip"
 if [[ $server == frankenphp ]]; then
   check "signed in, PUT /backup/restore over 22 MiB -> 413" 413 "$(declared PUT /backup/restore $((30 * 1024 * 1024)) "$jar")"
 fi

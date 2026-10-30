@@ -40,6 +40,9 @@
 		max_threads {$FRANKENPHP_NUM_THREADS:2}
 	}
 	servers {
+		# HTTP/1.1 only, on both servers, as nginx (M-1454): no cleartext HTTP/2 (h2c), whose bodies have no
+		# Transfer-Encoding, so a length-less GET body could not be told apart (411, the sign-in check) from no body.
+		protocols h1
 		# nginx: client_header_timeout, keepalive_timeout 65s, client_body_timeout (300s for a restore upload)
 		timeouts {
 			read_header 10s
@@ -169,7 +172,8 @@
 			max_size 22MiB
 		}
 		# GET, HEAD and OPTIONS never carry a body the app reads: one without a declared length (chunked) is a 411
-		# before anything is read, on any route and whether signed in or not (M-1451). The header matcher sees
+		# before PHP sees it, on any route and whether signed in or not (M-1451); Go's server may still read and drop
+		# up to 256 KiB of that body in Caddy to keep the connection open. The header matcher sees
 		# Transfer-Encoding (Go moves it out of the header map; the {http.request.header.*} placeholders do not).
 		@chunkednobody {
 			method GET HEAD OPTIONS
