@@ -222,7 +222,9 @@ final class ReleaseTest extends TestCase
         $this->assertStringStartsWith('**Upgrade note:**', $notes);
         // the whole note, as written under Unreleased, opens the notes ahead of the first section
         $unreleased = substr($cl, strpos($cl, "## [Unreleased]\n\n") + strlen("## [Unreleased]\n\n"));
-        $note = trim(substr($unreleased, 0, (int)strpos($unreleased, "\n### ")));
+        // up to the first heading under Unreleased, or the next release when Unreleased has none
+        $end = preg_match('/\n###? /', $unreleased, $m, PREG_OFFSET_CAPTURE) === 1 ? $m[0][1] : strlen($unreleased);
+        $note = trim(substr($unreleased, 0, $end));
         $this->assertStringStartsWith($note . "\n\n### ", $notes);
     }
 
