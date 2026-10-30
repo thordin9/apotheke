@@ -18,7 +18,7 @@ use Config\App;
 use Config\Services;
 
 /**
- * Cookie consent (Config\Consent, docs/security.md). A required filter, before
+ * Cookie consent (Config\Consent, docs/deployment-and-operations.md). A required filter, before
  * the session filter. Without consent:
  * - a state-changing request (sign-in, any form or API write: they all need the
  *   session's CSRF token) gets 403 consent_required: problem+json under /api,

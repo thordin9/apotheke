@@ -9,7 +9,7 @@ require_once dirname(__DIR__) . '/lib.php';
 require_once dirname(__DIR__) . '/ApiContract.php';
 
 /**
- * Cookie consent (Config\Consent, docs/security.md): no Set-Cookie on any answer until the request carries
+ * Cookie consent (Config\Consent, docs/deployment-and-operations.md): no Set-Cookie on any answer until the request carries
  * apotheke_consent=v1, and every write refused with 403 consent_required; with it, sessions and CSRF as before.
  */
 final class Ci4CookieConsentTest extends TestCase

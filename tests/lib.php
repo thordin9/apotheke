@@ -213,7 +213,7 @@ final class Client
 {
     public array $cookies = [];
 
-    /** The cookie-consent value sent with every request (Config\Consent); null sends none (docs/security.md). */
+    /** The cookie-consent value sent with every request (Config\Consent); null sends none (docs/deployment-and-operations.md). */
     public ?string $consent = 'v1';
 
     public function __construct(public string $base) {}

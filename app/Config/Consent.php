@@ -5,7 +5,7 @@ namespace Config;
 use CodeIgniter\Config\BaseConfig;
 
 /**
- * The cookie-consent contract (docs/security.md "Cookie consent"). The banner
+ * The cookie-consent contract (docs/deployment-and-operations.md "Cookie consent"). The banner
  * script sets `apotheke_consent=v1` when the user clicks Accept; it is the first
  * cookie the app ever has. Until a request carries it with an accepted value the
  * server sets no cookie at all and refuses writes with 403 consent_required.

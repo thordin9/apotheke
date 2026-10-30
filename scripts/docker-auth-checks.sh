@@ -11,7 +11,7 @@ check() { # name expected actual
 }
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 jar="$work/jar"
-# Cookie consent (docs/security.md): the jar starts with the banner accepted, as a browser after Accept.
+# Cookie consent (docs/deployment-and-operations.md): the jar starts with the banner accepted, as a browser after Accept.
 printf '%s\tFALSE\t/\tFALSE\t0\tapotheke_consent\tv1\n' "$(sed -E 's#^[a-z]+://([^/:]+).*#\1#' <<<"$base")" > "$jar"
 code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 hdr() { curl -s -D - -o /dev/null "${@:2}" | tr -d '\r' | awk -v h="$1" 'BEGIN{IGNORECASE=1} index(tolower($0), tolower(h) ":")==1 {sub(/^[^:]*: */, ""); print; exit}'; }

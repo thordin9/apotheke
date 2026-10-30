@@ -467,8 +467,8 @@ banner, or the notice the app's own pages show at the top until then). The contr
 * **What counts:** the server compares only the name and the exact value (attributes never reach it), so both
   forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
   cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
-* **Without consent:** no `Set-Cookie` on any answer (no session cookie, no CSRF token, no theme or
-  recently-viewed cookie), redirects and 404, 419 and 500 pages included; no session is loaded or started, so an old
+* **Without consent:** no `Set-Cookie` on any answer (no session cookie, no CSRF token, no `theme`,
+  `stats_open` or recently-viewed cookie, and the page scripts write none), redirects and 404, 419 and 500 pages included; no session is loaded or started, so an old
   session cookie is not used until consent is back. Reads that need no session still answer. Every POST, PUT,
   PATCH and DELETE (sign-in, sign-up, sign-out, forms, `/api` writes) is `403`: under `/api` problem+json with
   `"code": "consent_required"` and `"error": "consent_required"`, for a fetch from the pages

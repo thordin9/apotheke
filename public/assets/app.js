@@ -311,7 +311,7 @@
       if (autoClosed) { autoClosed = false; return; }
       const v = statsBox.open ? '1' : '0';
       store('statsOpen', v);
-      document.cookie = 'stats_open=' + v + '; path=/; max-age=31536000; SameSite=Lax';
+      if (!$('#consent')) document.cookie = 'stats_open=' + v + '; path=/; max-age=31536000; SameSite=Lax';
       if (statsBox.open) load();
     });
     statsBox.addEventListener('change', e => { if (e.target.name === 'strange') store('statsRange', e.target.value); });

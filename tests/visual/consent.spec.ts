@@ -1,6 +1,6 @@
 import { test, expect } from './fixtures';
 
-/* Cookie consent (docs/security.md): no cookie at all until Accept; Accept sets apotheke_consent=v1 and reloads. */
+/* Cookie consent (docs/deployment-and-operations.md): no cookie at all until Accept; Accept sets apotheke_consent=v1 and reloads. */
 test.describe('cookie consent', () => {
   test('no cookie before Accept, then the app as before @smoke', async ({ browser, server }) => {
     const ctx = await browser.newContext({ baseURL: server.base, storageState: { cookies: [], origins: [] } });
