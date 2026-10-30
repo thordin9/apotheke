@@ -314,6 +314,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   field by field; `Ci4ApiUsersTest` scans every key at any depth for hash, token, secret, password, epoch, csrf and
   e-mail names and every body for the stored hashes, session epochs, the CSRF token and cookie values. A new
   security-section key fails the test until it is put in `POLICY` or `NOT_POLICY` on purpose. Open.
+- fix/cookie-domain (L-1421, PM decisions): `COOKIE_DOMAIN` (`Config\Consent::domainFrom()`: lower case, no
+  leading dot; IPs, single labels, ports, paths and wildcards ignored) replaces the built-in getapotheke.com for the
+  consent cookie and the notice's `data-domain`, only on that host or below (`CookieConsent::domain()`); the
+  `__Host-` session cookie never gets a Domain (tested with it set). Hosted installs must set
+  `COOKIE_DOMAIN=getapotheke.com` (CHANGELOG note; DevOps). N-1460: the return path's 2 KB limit counts the
+  percent-encoded bytes. Mutation list in the PR body. Open.
 
 ## Lanes
 

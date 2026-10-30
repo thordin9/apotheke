@@ -542,9 +542,8 @@ From 3.4 the app sets no cookie in the browser until the user clicks Accept on t
 banner, or the notice the app's own pages show at the top until then). The contract, kept in `app/Config/Consent.php`:
 
 * **The cookie:** `apotheke_consent=v1`, set by the banner script, never by the server: `Path=/`,
-  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. On a `getapotheke.com`
-  host (hosted) it gets `Domain=getapotheke.com`, so it also reaches `api.services.getapotheke.com`; elsewhere
-  (self-hosted) it is host-only. It is the first cookie the app ever has.
+  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. It is host-only unless
+  `COOKIE_DOMAIN` is set (below). It is the first cookie the app ever has.
 * **What counts:** the server compares only the name and the exact value (attributes never reach it), so both
   forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
   cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
@@ -564,6 +563,13 @@ banner, or the notice the app's own pages show at the top until then). The contr
 * **`COOKIE_CONSENT`** (environment): `required` (the default) or `off`. With `off` the app behaves as before
   3.4: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
   `required`. In Docker set it in `.env`.
+* **`COOKIE_DOMAIN`** (environment, empty by default: host-only): the parent domain the consent cookie is set
+  for, so it also reaches sibling hosts (hosted installs: `COOKIE_DOMAIN=getapotheke.com`, so the cookie also
+  reaches `api.services.getapotheke.com`). It is lower-cased and a leading dot is dropped, and it is used only when
+  the request's host is that domain or ends with `.` and it; on any other host the cookie stays host-only (no
+  error). An IP address, a single label or bare TLD (`com`), or a value with a port, a path or a wildcard is
+  ignored. It never applies to the session cookie, which stays host-only (`__Host-apothekesid` on HTTPS has no
+  `Domain`). The app passes the same domain to the notice's script.
 * Answers without a cookie get `Cache-Control: no-store` when they set no caching of their own (no session sends
   its no-cache headers). 2.6.x (branch `old`) has no banner and stays security-only.
 

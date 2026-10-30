@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** the consent cookie's domain is now the `COOKIE_DOMAIN` setting (empty by default: host-only) instead of a built-in `getapotheke.com`. Hosted installs must set `COOKIE_DOMAIN=getapotheke.com` (DevOps adds it to the hosted config), or the consent cookie no longer reaches the other getapotheke.com hosts. Self-hosted installs need no change. The session cookie never gets a `Domain`. See [Cookie consent](docs/deployment-and-operations.md#cookie-consent).
+
 ## [3.4.0] - 2026-10-30
 
 **Upgrade note:** the app now sets no cookie until the user clicks Accept on the cookie consent notice (`apotheke_consent=v1`, see [Cookie consent](docs/deployment-and-operations.md#cookie-consent)). Until then every page shows the notice, and sign-in and every change answer 403 `consent_required`. A session from before the upgrade is used again once the user accepts. Scripts that sign in or post with curl must send `Cookie: apotheke_consent=v1`. Without JavaScript the notice's Accept posts to `/consent`. After upgrading, signed-in users appear signed out until they click Accept and then keep their session; scripted `/api` clients must send the consent cookie ([curl example](docs/api.md#requests)); operators who handle consent themselves can set `COOKIE_CONSENT=off` to keep the behaviour from before.
