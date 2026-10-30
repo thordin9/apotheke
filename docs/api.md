@@ -17,6 +17,10 @@ answer against it.
 | `DELETE /api/v1/session` | anyone with a session | Sign out (`204`). |
 | `GET /api/v1/me` | signed in | `id`, `username`, `role`, `permissions`. With sign-in turned off there is no account, so this is `403`. |
 | `GET /api/v1/openapi.json` | anyone | The OpenAPI document. |
+| `GET /api/v1/branding` | anyone | `name`, `tagline`, `accent`, `theme_default`, `logo_url`, `favicon_url`, `touch_icon_url`: what every page's head already shows, so no sign-in is needed. |
+| `GET /api/v1/users` | Users | Every account, sorted by name: `id`, `name`, `role`, `status`, `created_at`, `last_login_at` (UTC; `null` when never signed in). Nothing else. |
+| `GET /api/v1/roles` | Users | Every role, built-in first: `key`, `name`, `builtin`, `permissions`, `users` (how many accounts have it). |
+| `GET /api/v1/security` | Users | `sign_in_enabled` and `policy`: the guest, registration and session-length settings of Users & sign-in. The reverse-proxy setting is not included (it is server set-up). |
 | `POST /api/v1/imports` | Import | Upload a CSV (`multipart/form-data`, field `file`); `201` with the import and a `Location` header. |
 | `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
 | `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
