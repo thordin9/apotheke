@@ -258,7 +258,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the legacy tests and CI legs removed, `src/` removed. Merged at f1b4535.
 - [#162](https://github.com/thordin9/apotheke/pull/162): branch switch (step 18, last part): the push filters are `main` only, the `main` / `feature/ci4` wording in the docs,
   N-801, N-860, N-861, the L-963 doc leftovers, the N-965 restore-wrapper test and the edit-form golden. Open.
-- docs/retired-branches: mark `feature/ci4` and `release/2.5` as historical in HANDOFF, PLAN and ADR 001 after the
+- [#168](https://github.com/thordin9/apotheke/pull/168): mark `feature/ci4` and `release/2.5` as historical in HANDOFF, PLAN and ADR 001 after the
   old branches were deleted. Open.
 
 ## Lanes
@@ -335,7 +335,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-0. The docs/retired-branches PR (historical branch wording) goes through QA's light gate, then the PM merges it.
+0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
    follow-up) is merged into `main` (3f81db2, v2.6.24); #142 and #146 are merged (b12fbbb). Now: QA notes batch 4,
