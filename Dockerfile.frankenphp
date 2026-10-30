@@ -123,7 +123,8 @@ COPY docker/php.ini /usr/local/etc/php/conf.d/zz-apotheke.ini
 COPY docker/frankenphp/php-frankenphp.ini /usr/local/etc/php/conf.d/zzz-apotheke-frankenphp.ini
 COPY docker/frankenphp/Caddyfile /etc/apotheke/Caddyfile
 COPY docker/frankenphp/entrypoint.sh /usr/local/bin/apotheke-entrypoint
-RUN chmod 0755 /usr/local/bin/apotheke-entrypoint
+COPY docker/jobs-worker.sh /usr/local/bin/apotheke-jobs-worker
+RUN chmod 0755 /usr/local/bin/apotheke-entrypoint /usr/local/bin/apotheke-jobs-worker
 
 # FrankenPHP serves public/; app, modules, vendor, writable and spark stay outside it.
 COPY --chown=root:root public /var/www/app/public

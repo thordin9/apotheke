@@ -4,6 +4,9 @@
 #  - with no arguments (or "apotheke") execs FrankenPHP (Caddy + PHP in one process) as www-data; tini stays PID 1
 #    and forwards SIGTERM, on which FrankenPHP drains its requests and exits
 #  - FRANKENPHP_NUM_THREADS (1-64, default 2) sets the PHP threads, i.e. the requests served at once
+#  - next to FrankenPHP it runs the background jobs worker (apotheke-jobs-worker: `php spark jobs:work`, restarted with
+#    a backoff) as www-data; APOTHEKE_JOBS_WORKER=0 turns it off, and then FrankenPHP is exec'd as before. SIGTERM
+#    stops both; the worker never stops FrankenPHP, and if FrankenPHP exits on its own the container stops
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 #  - refuses to start the app with sign-in off (hardening, SEC-M3): set APP_PASSWORD, keep sign-in on in the
 #    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose
@@ -64,6 +67,13 @@ case "${ALLOW_NO_LOGIN:-}" in
   *) echo "ALLOW_NO_LOGIN must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
 esac
 
+# The background jobs worker (docker/jobs-worker.sh): on unless APOTHEKE_JOBS_WORKER is 0, false or no.
+case "${APOTHEKE_JOBS_WORKER:-1}" in
+  1|true|yes) jobs_worker=1 ;;
+  0|false|no) jobs_worker=0 ;;
+  *) echo "APOTHEKE_JOBS_WORKER must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
+esac
+
 PORT="${PORT:-9091}"
 case "$PORT" in ''|*[!0-9]*) echo "PORT must be a number" >&2; exit 64;; esac
 export PORT
@@ -79,5 +89,29 @@ export XDG_CONFIG_HOME=/run/apotheke-caddy/config XDG_DATA_HOME=/run/apotheke-ca
 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
   || { frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >&2; exit 78; }
 echo "apotheke: frankenphp on :$PORT ($ROOT), $FRANKENPHP_NUM_THREADS PHP threads"
-if [ "$(id -u)" = 0 ]; then exec su-exec www-data frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile; fi
-exec frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
+as_www() { if [ "$(id -u)" = 0 ]; then exec su-exec www-data "$@"; else exec "$@"; fi; }
+if [ "$jobs_worker" = 0 ]; then
+  echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
+  as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
+fi
+(as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile) &
+web=$!
+(as_www apotheke-jobs-worker) &
+jobs=$!
+stopping=0
+# shellcheck disable=SC2317 # called by the trap
+stop() { stopping=1; kill -TERM "$web" "$jobs" 2>/dev/null || true; }
+trap stop TERM INT QUIT
+while [ "$stopping" = 0 ] && kill -0 "$web" 2>/dev/null; do
+  sleep 1 & wait $! || true
+done
+code=0
+if [ "$stopping" = 0 ]; then
+  wait "$web" || code=$?
+  echo "apotheke: frankenphp exited unexpectedly (exit $code), stopping" >&2
+  if [ "$code" = 0 ]; then code=1; fi
+  kill -TERM "$jobs" 2>/dev/null || true
+fi
+wait "$web" 2>/dev/null || true
+wait "$jobs" 2>/dev/null || true
+exit "$code"

@@ -3,6 +3,8 @@
 #  - prepares the data volume (writable by www-data even if ./data was created by root on the host)
 #  - with no arguments (or "apotheke") runs php-fpm + nginx and supervises both: SIGTERM/SIGINT/SIGQUIT
 #    stop both gracefully; if either exits on its own, the other is stopped and the container exits non-zero
+#  - next to them it runs the background jobs worker (apotheke-jobs-worker: `php spark jobs:work`, restarted with a
+#    backoff) as www-data; APOTHEKE_JOBS_WORKER=0 turns it off. SIGTERM stops it too; it never stops the web server
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 #  - refuses to start the app with sign-in off (hardening, SEC-M3): set APP_PASSWORD, keep sign-in on in the
 #    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose
@@ -63,6 +65,13 @@ case "${ALLOW_NO_LOGIN:-}" in
   *) echo "ALLOW_NO_LOGIN must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
 esac
 
+# The background jobs worker (docker/jobs-worker.sh): on unless APOTHEKE_JOBS_WORKER is 0, false or no.
+case "${APOTHEKE_JOBS_WORKER:-1}" in
+  1|true|yes) jobs_worker=1 ;;
+  0|false|no) jobs_worker=0 ;;
+  *) echo "APOTHEKE_JOBS_WORKER must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
+esac
+
 PORT="${PORT:-9091}"
 case "$PORT" in ''|*[!0-9]*) echo "PORT must be a number" >&2; exit 64;; esac
 sed -e "s/__PORT__/$PORT/g" -e "s#__ROOT__#$ROOT#g" /etc/nginx/apotheke.conf.template > /etc/nginx/nginx.conf
@@ -76,8 +85,19 @@ fpm=$!
 i=0; while [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
 nginx -g 'daemon off;' &
 ngx=$!
+jobs=0
+if [ "$jobs_worker" = 1 ]; then
+  if [ "$(id -u)" = 0 ]; then su-exec www-data apotheke-jobs-worker & else apotheke-jobs-worker & fi
+  jobs=$!
+else
+  echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
+fi
 stopping=0
-stop() { stopping=1; kill -QUIT "$ngx" 2>/dev/null || true; kill -QUIT "$fpm" 2>/dev/null || true; }
+stop() {
+  stopping=1
+  kill -QUIT "$ngx" 2>/dev/null || true; kill -QUIT "$fpm" 2>/dev/null || true
+  if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
+}
 trap stop TERM INT QUIT
 echo "apotheke: nginx on :$PORT ($ROOT), php-fpm on /run/php-fpm.sock"
 while [ "$stopping" = 0 ] && kill -0 "$fpm" 2>/dev/null && kill -0 "$ngx" 2>/dev/null; do
@@ -87,4 +107,5 @@ code=0
 if [ "$stopping" = 0 ]; then echo "apotheke: a process exited unexpectedly, stopping" >&2; code=1; stop; fi
 wait "$ngx" 2>/dev/null || true
 wait "$fpm" 2>/dev/null || true
+if [ "$jobs" != 0 ]; then wait "$jobs" 2>/dev/null || true; fi
 exit "$code"

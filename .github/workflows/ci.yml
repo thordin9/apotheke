@@ -413,6 +413,13 @@ jobs:
             echo "a request-serving process runs as root" >&2
             exit 1
           fi
+          # The background jobs worker (on by default) and its jobs:work run as www-data too
+          grep -E '^www-data .*apotheke-jobs-worker' ps.txt
+          grep -E '^www-data .*spark --no-header jobs:work' ps.txt
+          if grep -E 'apotheke-jobs-worker|jobs:work' ps.txt | grep -E '^root '; then
+            echo "the jobs worker runs as root" >&2
+            exit 1
+          fi
       - name: FrankenPHP threads (FRANKENPHP_NUM_THREADS, default 2, 1-64)
         if: matrix.server == 'frankenphp'
         run: |
@@ -467,7 +474,9 @@ jobs:
             apotheke:ci
       - name: Smoke test PostgreSQL (front page + upload)
         run: bash scripts/smoke.sh http://127.0.0.1:8081
-      - name: Graceful stop (SIGTERM reaches the web server and PHP, exit code 0)
+      - name: Background jobs worker (runs a queued job, restarts with a backoff, stops on SIGTERM, APOTHEKE_JOBS_WORKER=0)
+        run: bash scripts/docker-jobs-checks.sh apotheke:ci
+      - name: Graceful stop (SIGTERM reaches the web server, PHP and the jobs worker, exit code 0)
         run: |
           start=$(date +%s)
           docker stop -t 20 apotheke
@@ -565,6 +574,12 @@ jobs:
           case "$APOTHEKE_DOCKERFILE" in Dockerfile.frankenphp) export SERVER=frankenphp ;; *) export SERVER=nginx ;; esac
           bash scripts/docker-auth-checks.sh http://127.0.0.1:9091
           bash scripts/docker-log-checks.sh apotheke http://127.0.0.1:9091
+      - name: The jobs worker runs under compose (APOTHEKE_JOBS_WORKER defaults to on)
+        run: |
+          set -euo pipefail
+          docker compose exec -T apotheke ps -o user,args | tee ps.txt
+          grep -E '^www-data .*spark --no-header jobs:work' ps.txt
+          docker compose logs apotheke | grep -F 'apotheke-jobs: worker started'
       - name: Restart keeps data and sign-in, without APP_PASSWORD
         run: |
           set -euo pipefail

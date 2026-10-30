@@ -143,8 +143,8 @@ the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes 
 ## Background jobs
 
 From 3.2 long tasks can run as background jobs: a row in the `jobs` table (migration 0029) that
-`php spark jobs:work` picks up. 3.2 has no job types yet and the image does not start the worker; the CSV import commit
-and the backup restore move to jobs later, and the image then runs it next to PHP-FPM.
+`php spark jobs:work` picks up. Job types (the CSV import commit, the backup restore) arrive in later releases; both
+Docker images already run the worker, so a queued job is picked up without any extra setup.
 
 ```bash
 php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
@@ -157,6 +157,31 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
 * **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
   and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
   ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.
+**In the Docker images.** The entrypoint of both images (nginx + php-fpm, and FrankenPHP) starts
+`apotheke-jobs-worker` (`docker/jobs-worker.sh`) next to the web server, as `www-data`, under `tini` as PID 1:
+
+* it runs `php spark --no-header jobs:work` with the defaults above. When that exits 0 (after `--max-seconds`) it is
+  started again after 1 s; any other exit (no database yet, a crash, a kill) restarts it after 1, 2, 4 … 60 s, back
+  to 1 s after a run of 60 s or more;
+* a crash loop never stops the web server, and the web server does not wait for the worker. If the web server itself
+  exits, the container stops as before;
+* `docker stop` (SIGTERM) reaches the worker too: the running job checkpoints and goes back to the queue (`pcntl`),
+  and the container exits 0;
+* logs go to the container's output: `apotheke-jobs: …` lines from the supervisor and one `job <id> (<type>): <status>`
+  line per job. Neither prints a payload, the environment or a credential; an unexpected error's class and message
+  go to stderr;
+* **`APOTHEKE_JOBS_WORKER=0`** (or `false`, `no`) turns it off, for example to run the worker in a separate
+  container (`docker compose run -u www-data apotheke php spark jobs:work`). Any value other than empty, `1`, `true`,
+  `yes`, `0`, `false` or `no` exits 64.
+
+A separate process was chosen over a FrankenPHP worker script: FrankenPHP's worker mode serves HTTP requests from a
+long-lived script and would hold one of the few PHP threads for a loop that serves none, and it has no counterpart
+in the nginx image. A plain process under the same entrypoint works the same way in both images and keeps the
+worker's crashes, memory and restarts apart from the requests. `scripts/docker-jobs-checks.sh` tests it on both
+images: the processes run as `www-data`, a queued job is worked, a killed `jobs:work` comes back with the backoff
+while `/healthz` keeps answering, `docker stop` exits 0, the log never carries `APP_PASSWORD`, and
+`APOTHEKE_JOBS_WORKER=0` runs no worker.
+
 * **On Cloudflare** (API plan §1A, the edge deployment) the same jobs run from a Cron Trigger or a Queue consumer that
   calls the runner instead of a long-lived `jobs:work` process. The `jobs` table and its schema stay as they are: each
   step is one guarded statement with no transaction, which D1 supports.

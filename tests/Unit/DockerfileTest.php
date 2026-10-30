@@ -75,6 +75,33 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('      ALLOW_NO_LOGIN: ${ALLOW_NO_LOGIN:-}', $compose);
     }
 
+    /** Both images run the background jobs worker as www-data, on unless APOTHEKE_JOBS_WORKER is 0/false/no. */
+    public function testBothImagesRunTheJobsWorker(): void
+    {
+        $root = dirname(__DIR__, 2);
+        foreach (['Dockerfile', 'Dockerfile.frankenphp'] as $f) {
+            $docker = (string)file_get_contents("$root/$f");
+            $this->assertStringContainsString("COPY docker/jobs-worker.sh /usr/local/bin/apotheke-jobs-worker\n", $docker, $f);
+            $this->assertMatchesRegularExpression('/^RUN chmod [^\n]*\/usr\/local\/bin\/apotheke-jobs-worker$/m', $docker, $f);
+            $this->assertMatchesRegularExpression('/apk add --no-cache [^\n]*\bsu-exec\b/', $docker, $f);
+        }
+        foreach (['docker/entrypoint.sh', 'docker/frankenphp/entrypoint.sh'] as $f) {
+            $sh = (string)file_get_contents("$root/$f");
+            $this->assertStringContainsString('case "${APOTHEKE_JOBS_WORKER:-1}" in', $sh, $f);
+            $this->assertStringContainsString('  1|true|yes) jobs_worker=1 ;;', $sh, $f);
+            $this->assertStringContainsString('  0|false|no) jobs_worker=0 ;;', $sh, $f);
+            $this->assertMatchesRegularExpression('/su-exec www-data (apotheke-jobs-worker|"\$@")/', $sh, $f);
+            $this->assertMatchesRegularExpression('/kill -TERM "\$jobs"/', $sh, $f);
+        }
+        $worker = (string)file_get_contents("$root/docker/jobs-worker.sh");
+        $this->assertStringContainsString('php spark --no-header jobs:work &', $worker);
+        $this->assertStringContainsString('trap stop TERM INT', $worker);
+        $this->assertStringContainsString('if [ "$delay" -gt 60 ]; then delay=60; fi', $worker);
+        $this->assertDoesNotMatchRegularExpression('/\benv\b|printenv|set -x|APP_PASSWORD|APP_KEY|DB_PASSWORD/', $worker, 'never prints the environment');
+        $compose = (string)file_get_contents("$root/docker-compose.yml");
+        $this->assertStringContainsString('      APOTHEKE_JOBS_WORKER: ${APOTHEKE_JOBS_WORKER:-1}', $compose);
+    }
+
     public function testEntrypointRefusesToStartWithSignInOff(): void
     {
         $sh = (string)file_get_contents(dirname(__DIR__, 2) . '/docker/entrypoint.sh');
