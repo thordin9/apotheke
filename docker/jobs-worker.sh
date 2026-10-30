@@ -11,6 +11,8 @@
 # status). Neither prints a payload, the environment or a credential.
 set -u
 cd /var/www/app || exit 1
+# The sign-in password variable stays in the environment: on a new install jobs:work can run the first migration,
+# which seeds the sign-in setting from it (N-1475). Nothing here prints it.
 child=0
 stopping=0
 # shellcheck disable=SC2317,SC2329 # called by the trap
@@ -19,26 +21,34 @@ stop() {
   if [ "$child" != 0 ]; then kill -TERM "$child" 2>/dev/null || true; fi
 }
 trap stop TERM INT
+# Race-free stop (L-1470): a signal that arrives after `&` but before child=$! finds no child to pass on to, so the
+# flag is checked again once child is set; one that arrives later is passed on by stop() itself. A trapped signal
+# interrupts wait, so wait again until the child has really exited; code is then the child's own status.
+spawn() { # command... -> child
+  "$@" &
+  child=$!
+  if [ "$stopping" = 1 ]; then kill -TERM "$child" 2>/dev/null || true; fi
+}
+reap() { # -> code
+  code=0
+  wait "$child" || code=$?
+  while kill -0 "$child" 2>/dev/null; do code=0; wait "$child" || code=$?; done
+  child=0
+}
 delay=1
 echo "apotheke-jobs: worker started (php spark jobs:work, as $(id -un))"
 while [ "$stopping" = 0 ]; do
   start=$(date +%s)
-  php spark --no-header jobs:work &
-  child=$!
-  code=0
-  wait "$child" || code=$?
-  # a trapped signal interrupts wait; wait again until jobs:work itself has finished
-  while kill -0 "$child" 2>/dev/null; do code=0; wait "$child" || code=$?; done
-  child=0
+  spawn php spark --no-header jobs:work
+  reap
   if [ "$stopping" = 1 ]; then break; fi
+  # a run of 60 s or more, or a clean exit (after --max-seconds), starts the backoff again at 1 s
   if [ "$code" = 0 ] || [ $(($(date +%s) - start)) -ge 60 ]; then delay=1; fi
   if [ "$code" != 0 ]; then echo "apotheke-jobs: jobs:work exited with code $code, restarting in ${delay}s" >&2; fi
-  if [ "$stopping" = 1 ]; then break; fi
-  sleep "$delay" &
-  child=$!
-  wait "$child" 2>/dev/null || true
-  child=0
-  if [ "$code" != 0 ]; then
+  failed=$code
+  spawn sleep "$delay"
+  reap
+  if [ "$failed" != 0 ]; then
     delay=$((delay * 2))
     if [ "$delay" -gt 60 ]; then delay=60; fi
   fi

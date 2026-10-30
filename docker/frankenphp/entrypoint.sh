@@ -96,24 +96,35 @@ if [ "$jobs_worker" = 0 ]; then
   echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
   as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
 fi
+# The trap is set before anything starts, and the flag checked again once both PIDs are known, so a SIGTERM during
+# start-up is never lost (L-1470).
+web=0
+jobs=0
+stopping=0
+# shellcheck disable=SC2317,SC2329 # called by the trap
+stop() {
+  stopping=1
+  if [ "$web" != 0 ]; then kill -TERM "$web" 2>/dev/null || true; fi
+  if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
+}
+trap stop TERM INT QUIT
 (as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile) &
 web=$!
 (as_www apotheke-jobs-worker) &
 jobs=$!
-stopping=0
-# shellcheck disable=SC2317,SC2329 # called by the trap
-stop() { stopping=1; kill -TERM "$web" "$jobs" 2>/dev/null || true; }
-trap stop TERM INT QUIT
+if [ "$stopping" = 1 ]; then stop; fi
 while [ "$stopping" = 0 ] && kill -0 "$web" 2>/dev/null; do
   sleep 1 & wait $! || true
 done
 code=0
 if [ "$stopping" = 0 ]; then
+  # FrankenPHP exited on its own: the container stops with its exit status (1 if that was 0), L-1472
   wait "$web" || code=$?
   echo "apotheke: frankenphp exited unexpectedly (exit $code), stopping" >&2
   if [ "$code" = 0 ]; then code=1; fi
   kill -TERM "$jobs" 2>/dev/null || true
 fi
-wait "$web" 2>/dev/null || true
-wait "$jobs" 2>/dev/null || true
+# a trapped signal interrupts wait: wait again until both have exited
+while kill -0 "$web" 2>/dev/null; do wait "$web" 2>/dev/null || true; done
+while kill -0 "$jobs" 2>/dev/null; do wait "$jobs" 2>/dev/null || true; done
 exit "$code"

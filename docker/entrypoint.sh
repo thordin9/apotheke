@@ -81,33 +81,46 @@ sed -e "s/__PORT__/$PORT/g" -e "s#__ROOT__#$ROOT#g" /etc/nginx/apotheke.conf.tem
 mkdir -p /run/apotheke-nginx
 nginx -t -q
 
+# The trap is set before anything starts, and the flag checked again once the PIDs are known, so a SIGTERM during
+# start-up is never lost (L-1470).
+fpm=0
+ngx=0
+jobs=0
+stopping=0
+stop() {
+  stopping=1
+  if [ "$ngx" != 0 ]; then kill -QUIT "$ngx" 2>/dev/null || true; fi
+  if [ "$fpm" != 0 ]; then kill -QUIT "$fpm" 2>/dev/null || true; fi
+  if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
+}
+trap stop TERM INT QUIT
 php-fpm -F &
 fpm=$!
 # let php-fpm create its socket first, so nginx never answers 502 during start-up
-i=0; while [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+i=0; while [ "$stopping" = 0 ] && [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
 nginx -g 'daemon off;' &
 ngx=$!
-jobs=0
 if [ "$jobs_worker" = 1 ]; then
   if [ "$(id -u)" = 0 ]; then su-exec www-data apotheke-jobs-worker & else apotheke-jobs-worker & fi
   jobs=$!
 else
   echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
 fi
-stopping=0
-stop() {
-  stopping=1
-  kill -QUIT "$ngx" 2>/dev/null || true; kill -QUIT "$fpm" 2>/dev/null || true
-  if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
-}
-trap stop TERM INT QUIT
+if [ "$stopping" = 1 ]; then stop; fi
 echo "apotheke: nginx on :$PORT ($ROOT), php-fpm on /run/php-fpm.sock"
 while [ "$stopping" = 0 ] && kill -0 "$fpm" 2>/dev/null && kill -0 "$ngx" 2>/dev/null; do
   sleep 1 & wait $! || true
 done
 code=0
-if [ "$stopping" = 0 ]; then echo "apotheke: a process exited unexpectedly, stopping" >&2; code=1; stop; fi
-wait "$ngx" 2>/dev/null || true
-wait "$fpm" 2>/dev/null || true
-if [ "$jobs" != 0 ]; then wait "$jobs" 2>/dev/null || true; fi
+if [ "$stopping" = 0 ]; then
+  # nginx or php-fpm exited on its own: the container stops with that exit status (1 if it was 0), L-1472
+  if kill -0 "$ngx" 2>/dev/null; then dead=php-fpm; wait "$fpm" || code=$?; else dead=nginx; wait "$ngx" || code=$?; fi
+  echo "apotheke: $dead exited unexpectedly (exit $code), stopping" >&2
+  if [ "$code" = 0 ]; then code=1; fi
+  stop
+fi
+# a trapped signal interrupts wait: wait again until each has exited
+for p in "$ngx" "$fpm" "$jobs"; do
+  if [ "$p" != 0 ]; then while kill -0 "$p" 2>/dev/null; do wait "$p" 2>/dev/null || true; done; fi
+done
 exit "$code"
