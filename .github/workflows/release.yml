@@ -1,13 +1,12 @@
 name: Release
 
-# After CI passes on a push to main, compute the next SemVer version from the Conventional Commits since the last
-# tag, update VERSION, CHANGELOG.md and the README coverage table, commit "chore(release): vX.Y.Z [skip ci]",
-# tag it and publish a GitHub Release. See docs/releasing.md.
+# 2.6.x patch releases from the branch `old` (the 2.x line, security fixes only for 90 days after 3.0.0), started by
+# hand: Actions → Release → Run workflow → branch `old`. Computes the next version from the Conventional Commits since
+# the last tag, updates VERSION, CHANGELOG.md, commits "chore(release): vX.Y.Z [skip ci]", tags it and publishes a
+# GitHub Release that never becomes Latest (3.x on main stays Latest). See docs/releasing.md.
+# GitHub only offers "Run workflow" for a file that also exists on the default branch (main) with workflow_dispatch;
+# the run then uses this copy from old. Keep main's release.yml at this filename with its workflow_dispatch trigger.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,53 +18,51 @@ concurrency:
 
 jobs:
   release:
-    name: Version, changelog, tag and GitHub Release
-    # contents: write — push the version commit and tag, and create the GitHub Release.
-    # actions: read — download the coverage-sqlite artifact from the CI workflow.
+    name: Version, changelog, tag and GitHub Release (2.6.x from old)
+    # contents: write — push the version commit and tag to old, and create the GitHub Release. The release GitHub
+    # App's environment only admits main, so old's release pushes with GITHUB_TOKEN.
+    # actions: read — find the successful CI push run on old for the released commit.
     permissions:
       contents: write
       actions: read
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.ref == 'refs/heads/old'
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-      RUN_ID: ${{ github.event.workflow_run.id }}
-      RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+    # GH_TOKEN is set only on the two steps that call gh (the CI guard and the GitHub Release).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: main
+          ref: old
           fetch-depth: 0
-      - uses: shivammathur/setup-php@v2
+          # The push step authenticates explicitly; no token is left in .git/config.
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: '8.3'
           coverage: none
           tools: none
-      - name: Only release the commit CI tested
-        id: guard
+      - name: Only release a commit CI passed on old
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           head=$(git rev-parse HEAD)
-          if [ -n "$RUN_SHA" ] && [ "$head" != "$RUN_SHA" ]; then
-            echo "main moved on ($head != $RUN_SHA); the newer commit's CI run releases it"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=old&event=push&status=success&head_sha=$head" --jq '.total_count')
+          if [ "${runs:-0}" -lt 1 ]; then
+            echo "::error::no successful CI push run on old for $head; wait for CI on old, then run the release again"
+            exit 1
           fi
       - name: Plan
         id: plan
-        if: steps.guard.outputs.skip == 'false'
         run: php scripts/release.php plan --github-output | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Refresh README coverage table from the CI artifact
-        if: steps.plan.outputs.release == 'true' && env.RUN_ID != ''
+      - name: Only 2.6.x from old
+        if: steps.plan.outputs.release == 'true'
+        env:
+          NEXT: ${{ steps.plan.outputs.next }}
         run: |
-          if gh run download "$RUN_ID" -n coverage-sqlite -D "$RUNNER_TEMP/coverage"; then
-            php scripts/coverage-readme.php "$RUNNER_TEMP/coverage"
-          else
-            echo "::warning::coverage-sqlite artifact not found; README coverage table left as is"
+          if ! [[ "$NEXT" =~ ^2\.6\.[0-9]+$ ]]; then
+            echo "::error::old only releases 2.6.x, the plan says $NEXT; ship security fixes on old as fix: commits"
+            exit 1
           fi
-      - name: Update VERSION and CHANGELOG.md, commit, tag and push
+      - name: Update VERSION and CHANGELOG.md, commit and tag
         if: steps.plan.outputs.release == 'true'
         env:
           NEXT: ${{ steps.plan.outputs.next }}
@@ -73,12 +70,32 @@ jobs:
           php scripts/release.php apply --notes="$RUNNER_TEMP/notes.md"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add VERSION CHANGELOG.md README.md
+          git add VERSION CHANGELOG.md
           git commit -m "chore(release): v$NEXT [skip ci]"
           git tag -a "v$NEXT" -m "v$NEXT"
-          git push --atomic origin HEAD:main "v$NEXT"
-      - name: GitHub Release
+      - name: Push the release commit and tag to old
         if: steps.plan.outputs.release == 'true'
         env:
           NEXT: ${{ steps.plan.outputs.next }}
-        run: gh release create "v$NEXT" --title "v$NEXT" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          # The token goes to git through the environment (not argv, not .git/config); its base64 form is masked.
+          basic=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)
+          echo "::add-mask::$basic"
+          GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0='http.https://github.com/.extraheader'
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic"
+          export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+          git push --atomic origin HEAD:old "v$NEXT"
+      - name: GitHub Release (never Latest)
+        if: steps.plan.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.plan.outputs.next }}
+        run: |
+          gh release create "v$NEXT" --title "v$NEXT" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag --latest=false
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
+          if [[ "$latest" != v3.* ]]; then
+            echo "::error::Latest is now $latest, not a 3.x release; fix it by hand: gh release edit <newest v3 tag> --latest"
+            exit 1
+          fi

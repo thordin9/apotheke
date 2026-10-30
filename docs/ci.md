@@ -2,14 +2,14 @@
 
 Three GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
 
-## `ci.yml`: on every pull request and on pushes to `main`
+## `ci.yml`: on every pull request and on pushes to `old`
 
 Runs with `permissions: contents: read`; a newer push to the same ref cancels the running one
 (`concurrency: ci-<ref>`).
 
 ```mermaid
 flowchart LR
-  push["PR / push to main"] --> lint["Lint"]
+  push["PR / push to old"] --> lint["Lint"]
   push --> secrets["Secret scan"]
   push --> test["Tests<br/>SQLite · PostgreSQL"]
   push --> mobile["Headless mobile checks"]
@@ -32,22 +32,20 @@ The jobs are independent and run in parallel.
 
 ## `release.yml`: versions, changelog and GitHub Releases
 
-Runs when CI finishes successfully for a push to `main` (`workflow_run`), or by hand (`workflow_dispatch`).
-The workflow token is `contents: read`. The release job raises that to `contents: write` (push the release commit and
-tag, create the GitHub Release) and `actions: read` (download the CI coverage artifact). `concurrency: release`, never
-cancelled. It skips when `main` has moved past the commit CI tested.
-`scripts/release.php plan` computes the bump from the Conventional Commits since the last `v*` tag; if there is one, the
-README coverage table is regenerated from `coverage-sqlite`, `release.php apply` updates `VERSION` and `CHANGELOG.md`,
-and the job pushes `chore(release): vX.Y.Z [skip ci]` plus the tag atomically and runs `gh release create`.
-The release commit doesn't start CI (`[skip ci]`, and pushes made with `GITHUB_TOKEN` never trigger workflows), so there is
-no loop. Details: [releasing.md](releasing.md).
+On `old` (the 2.x line, security fixes only for 90 days after 3.0.0) it runs by hand only (`workflow_dispatch`, branch
+`old`; the job is skipped on any other ref). The workflow token is `contents: read`; the release job raises that to
+`contents: write` (push the release commit and tag to `old`, create the GitHub Release; the release App's environment
+only admits `main`) and `actions: read` (find CI's push run). `concurrency: release`, never cancelled.
+It fails unless CI passed on `old` for the exact commit and unless the next version is 2.6.x; `release.php apply`
+updates `VERSION` and `CHANGELOG.md`, and the job pushes `chore(release): vX.Y.Z [skip ci]` plus the tag atomically to
+`old` and runs `gh release create --latest=false`, then checks that a `v3.*` release is still *Latest*.
+The release commit doesn't start CI because its message carries `[skip ci]`, so there is no loop.
+`tests/Unit/WorkflowsTest.php` pins all of this. Details: [releasing.md](releasing.md#cutting-a-26x-release-from-old).
 
-### Why the coverage table is refreshed by the release commit
+### The README coverage table
 
-The alternative, a CI check that fails when the README table is stale, would make every PR that adds a line of code
-re-run the full coverage locally and commit the result, and two PRs would conflict on the table. Coverage numbers are a
-property of what is on `main`, so the release workflow writes them from the artifact of the exact commit it releases.
-Locally `npm run coverage:readme` (or `php scripts/coverage-readme.php coverage --check`) is still available.
+Until 2.6.26 the release commit refreshed it from CI's coverage artifact. 2.6.x patch releases from `old` leave it as
+it is (a dispatched run has no CI run to download from). Locally `npm run coverage:readme` (or `php scripts/coverage-readme.php coverage --check`) is still available.
 
 ## `snapshots.yml`: Update visual snapshots
 
