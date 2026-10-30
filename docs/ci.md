@@ -143,3 +143,15 @@ scripts/check-commits.sh --message "feat(stock): add low-stock alerts"
 * Every `ci.yml` job has a `timeout-minutes` (5 to 30), so a hung step fails the job within minutes
   instead of running until GitHub's 6-hour limit. If a job times out or a mirror fails, re-run the failed
   jobs; don't push a commit just to restart CI.
+
+## Deploy workflows
+
+| Workflow | Runs on | What it does |
+|---|---|---|
+| `deploy-frontend.yml` (**Build and check (getapotheke-app)**, **Deploy getapotheke-app**) | pull requests touching `frontend/**`, `edge/app/**`, the edge package files, the deploy scripts or itself; published releases; manual on `main` or `v*` | Builds `frontend/` (`npm ci && npm run build`, Node 22; a stub when `frontend/package.json` has no build script yet), runs the Worker guard, `wrangler types --check`, `tsc` and `wrangler deploy --dry-run`. The deploy job (environment `deploy-site`) runs only for a release or a manual run, and skips cleanly without the token. |
+| `deploy-edge.yml` (**Check and dry run (apotheke-api)**, **Deploy apotheke-api**) | pull requests touching `edge/**` (not `edge/app/`), `Dockerfile.frankenphp`, `docker/frankenphp/**`, the deploy scripts or itself; published releases; manual on `main` or `v*` | Worker guard, `wrangler types --check`, `tsc`, `wrangler deploy --dry-run` (builds the container image). The deploy job (environment `deploy-edge`, required reviewer) runs only for a release or a manual run, and skips cleanly without the token. |
+| `edge-local.yml` (**wrangler dev with the container**) | manual only | `wrangler dev` with the real container on the runner's Docker, random throwaway `APP_PASSWORD`/`APP_KEY`; checks `/healthz` 200, the sign-in redirect and the `Server-Timing` header through the Durable Object. No secrets. |
+
+All actions are pinned by commit SHA, checkouts use `persist-credentials: false`, and the workflows only have
+`contents: read`. See [Cloudflare deploys](deployment-and-operations.md#cloudflare-deploys-getapothekecom) for the
+tokens, the Worker allowlist guard and the routing.

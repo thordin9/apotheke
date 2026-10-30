@@ -4,6 +4,7 @@
 * [Upgrades](#upgrades)
 * [Behind a web server or reverse proxy](#behind-a-web-server-or-reverse-proxy)
 * [The FrankenPHP image](#the-frankenphp-image)
+* [Cloudflare deploys (getapotheke.com)](#cloudflare-deploys-getapothekecom)
 * [HTTPS](#https)
 * [PostgreSQL role](#postgresql-role)
 * [Security](#security)
@@ -433,6 +434,71 @@ and checks that a 30 MB POST to other routes (`/save`, photo and attachment uplo
 * responses under 512 bytes and `HEAD` answers are not gzipped;
 * errors produced by the web server itself (413, a missing asset) are a plain-text status line;
 * the access log is JSON on stdout.
+
+## Cloudflare deploys (getapotheke.com)
+
+The hosted Apotheke runs on Cloudflare Workers. Self-hosting doesn't need any of this. Two Workers are deployed from
+this repository, and only these two:
+
+| Worker | Code | Serves | Workflow | GitHub environment |
+|---|---|---|---|---|
+| `getapotheke-app` | `edge/app/` (routing and headers) + `frontend/dist` (static assets) | the landing page (`/`, `/privacy/`, `/404.html`, `robots.txt`, `sitemap.xml`, icons, `site.webmanifest`, `/assets/…`) and the SPA under `/app/` | `.github/workflows/deploy-frontend.yml` | `deploy-site` |
+| `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
+
+**When they deploy.** Only for a published GitHub Release (tag `v*`, created by `release.yml`), or a manual
+*Run workflow* on `main` or a `v*` tag. Pull requests that touch them run the build, the Worker guard, the typecheck
+and `wrangler deploy --dry-run` (which, for `apotheke-api`, builds the container image), with no secret and no
+preview. The deploy is not a release check. Routes and custom domains are never in the wrangler configs CI uses
+(`workers_dev` and `preview_urls` are off); the custom domains are attached in the Cloudflare dashboard.
+
+**Secrets and variables** (set by the repository owner, never in the repository):
+
+* in each environment, the secret `CLOUDFLARE_API_TOKEN` and the variable `CLOUDFLARE_ACCOUNT_ID`;
+* both environments are limited to `main` and tags `v*`; `deploy-edge` also has a required reviewer;
+* without the secret the deploy job prints a notice, skips its steps and stays green. Fork pull requests never get
+  secrets and never reach the deploy job;
+* the account id is masked in the logs (it is a variable, but it appears in container registry paths), and the token
+  is only passed in the environment of the deploy step.
+
+**Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
+*Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone or R2 permissions, and CI makes no Zone
+or R2 API calls. Account-wide means such a token could edit **any** Worker in the account, including ones this
+repository must never touch (for example `apotheke-autofill`). So:
+
+* each workflow hard-codes its Worker name (`getapotheke-app` or `apotheke-api`); no name comes from inputs,
+  variables or files outside review;
+* before every deploy and dry run, `scripts/cf-worker-guard.mjs` reads the effective name from the wrangler config and
+  fails the job unless it is exactly the workflow's Worker and on the allowlist (`getapotheke-app`, `apotheke-api`).
+  It also fails on any other name (such as `apotheke-autofill` or `flaremo`), on `env` sections, routes or custom
+  domains in the config, on `--name`, `--env`, `--route`, `--domain` or `--config` arguments, and on
+  `CLOUDFLARE_ENV`/`WRANGLER_ENV`;
+* changing the allowlist means changing that file, which needs a reviewed pull request.
+
+When Cloudflare offers per-Worker roles (or token resources scoped to one Worker) for the account, switch each token
+to its one Worker; the guard then stays as a second line of defence.
+
+**When a deploy fails,** `scripts/cf-deploy.sh` names the likely cause: an authentication error or 403 names the
+permission the environment's token probably lacks; a missing container push permission names *Containers > Edit*.
+`apotheke-api` needs its secrets set once on the Worker, outside CI: `wrangler secret put APP_PASSWORD` and
+`wrangler secret put APP_KEY` (a deploy without them fails with *required secrets have not been set*).
+
+**getapotheke-app routing** (`edge/app/src/index.ts`, Workers static assets with `run_worker_first`):
+
+* `/app` answers 301 to `/app/`. Under `/app/`, an existing file is served; any other path without a file extension
+  gets `/app/index.html` (the SPA's client-side routes). Outside `/app/` there is no SPA fallback: a missing page is
+  a 404 with `404.html`;
+* `/config.json` is answered by the Worker from its non-secret `vars` (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`),
+  with `Cache-Control: no-cache`;
+* `Cache-Control`: `/assets/brand/*` and `/assets/mascot/*` one day (`max-age=86400`, not hashed); other `/assets/*`
+  (and `/app/assets/*`) a year, `immutable`; HTML `no-cache`;
+* every response gets `Strict-Transport-Security: max-age=31536000` (without `includeSubDomains`, so other
+  getapotheke.com hosts are not affected), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: same-origin` and `Cross-Origin-Opener-Policy: same-origin`. The landing page's CSP is
+  `default-src 'self'` with no `script-src`; the SPA's CSP adds `script-src 'self'` and allows
+  `https://api.services.getapotheke.com` in `connect-src` and `img-src`.
+
+**Local checks** without an account: `cd edge && npm ci && npx wrangler dev` (needs Docker for the container, and
+`.dev.vars` from `.dev.vars.example`); the manual workflow *Edge local test* does the same on a GitHub runner.
 
 ## HTTPS
 
