@@ -337,6 +337,10 @@ jobs:
             PHP_VERSION=${{ matrix.php_patch }}
           cache-from: type=gha,scope=php${{ matrix.php }}-${{ matrix.server }}
           cache-to: type=gha,mode=max,scope=php${{ matrix.php }}-${{ matrix.server }}
+      - name: hadolint (no warnings; pinned by digest)
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: docker run --rm -i hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d hadolint --failure-threshold info - < "$DOCKERFILE"
       - name: Assert the image runs the pinned PHP patch
         env:
           BUILT: ${{ matrix.php_patch }}
@@ -437,6 +441,16 @@ jobs:
           exit 1
       - name: Web server checks (routing, blocked paths, headers, gzip, body limits)
         run: bash scripts/docker-checks.sh http://127.0.0.1:9091
+      - name: www-data cannot write the app code (only writable/ and /data; N-1427)
+        run: |
+          set -euo pipefail
+          docker exec -u www-data apotheke sh -c '
+            found=$(find /var/www/app /etc/apotheke /usr/local/etc /usr/local/bin /usr/local/lib /etc/ImageMagick-7 \
+              -path /var/www/app/writable -prune -o -exec sh -c "for f; do [ -w \"\$f\" ] && echo \"\$f\"; done; true" sh {} + 2>/dev/null)
+            if [ -n "$found" ]; then echo "writable by www-data:"; echo "$found"; exit 1; fi
+            if touch /var/www/app/public/index.php 2>/dev/null || touch /var/www/app/public/new.php 2>/dev/null; then exit 1; fi
+            test -w /var/www/app/writable && test -w /data
+            echo "app code read-only for www-data"'
       - name: Sign-in mode checks (sessions on demand, restore limit after sign-in)
         run: |
           set -euo pipefail
@@ -444,7 +458,8 @@ jobs:
           export APP_PW
           docker run -d --name apotheke-auth -p 9092:9092 -e PORT=9092 -e APP_PASSWORD="$APP_PW" apotheke:ci
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9092/healthz && break; sleep 0.2; done
-          bash scripts/docker-auth-checks.sh http://127.0.0.1:9092
+          SERVER=${{ matrix.server }} bash scripts/docker-auth-checks.sh http://127.0.0.1:9092
+          bash scripts/docker-log-checks.sh apotheke-auth http://127.0.0.1:9092
           docker rm -f apotheke-auth >/dev/null
       - name: Run container (PostgreSQL)
         run: |
@@ -468,7 +483,7 @@ jobs:
           docker run -d --name apotheke-auth-ms -p 9094:9094 -e PORT=9094 -e SIGN_IN_FAIL_MS=1500 \
             -e APP_PASSWORD="$APP_PW" apotheke:ci
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9094/healthz && break; sleep 0.2; done
-          FAIL_MS=1500 bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
+          FAIL_MS=1500 SERVER=${{ matrix.server }} bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
           docker rm -f apotheke-auth-ms >/dev/null
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -548,7 +563,9 @@ jobs:
           set -euo pipefail
           APP_PW=$(sed -n 's/^APP_PASSWORD=//p' .env)
           export APP_PW
+          case "$APOTHEKE_DOCKERFILE" in Dockerfile.frankenphp) export SERVER=frankenphp ;; *) export SERVER=nginx ;; esac
           bash scripts/docker-auth-checks.sh http://127.0.0.1:9091
+          bash scripts/docker-log-checks.sh apotheke http://127.0.0.1:9091
       - name: Restart keeps data and sign-in, without APP_PASSWORD
         run: |
           set -euo pipefail
@@ -556,6 +573,18 @@ jobs:
           docker compose up -d --wait --wait-timeout 120 --force-recreate
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9091/)" = 303
           docker compose down
+      - name: PostgreSQL without DB_PASSWORD stops at once with a clear message (N-1426)
+        run: |
+          set -euo pipefail
+          sudo rm -rf data
+          umask 077
+          printf 'APP_PASSWORD=%s\nDB_DRIVER=pgsql\n' "$(openssl rand -hex 16)" > .env
+          code=0
+          timeout 60 docker compose run --rm --no-deps apotheke > out.txt 2>&1 || code=$?
+          cat out.txt
+          test "$code" = 78
+          grep -q 'DB_DRIVER=pgsql needs DB_PASSWORD' out.txt
+          sudo rm -rf data .env out.txt
       - name: PostgreSQL profile
         run: |
           set -euo pipefail

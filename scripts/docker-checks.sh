@@ -54,6 +54,7 @@ check "plain POST reaches the app"    419 "$(code -X POST -d 'name=x' "$base/loc
 check "404 sets no session cookie"    "" "$(hdr Set-Cookie "$base/no/such/page")"
 check "favicon sets no cookie"        "" "$(hdr Set-Cookie "$base/favicon.ico")"
 check "restore check (sign-in off)"   204 "$(code "$base/backup/restore/check")"
+check "upload check (sign-in off)"    204 "$(code "$base/upload/check")"
 check "restore check is not public"   404 "$(code "$base/_restore_check")"
 
 head -c $((30 * 1024 * 1024)) /dev/zero > "$big"
@@ -61,4 +62,24 @@ check "30 MB body rejected on /save (22m limit)" 413 "$(code -X POST -F "photo=@
 # /backup/restore accepts it at the HTTP layer (the app then rejects the CSRF/zip, but not with 413)
 # (sign-in is off here, so the restore check lets it through; the app then refuses the missing CSRF token with 419)
 check "30 MB body accepted by /backup/restore" 419 "$(code -X POST -F "backup=@$big" "$base/backup/restore")"
+
+# M-1420: slow uploads never take the server down. SLOW_UPLOADS (default 4, more than the FrankenPHP image's 2 PHP
+# threads) clients send a 60 KB sign-in form at 1 KB/s; while they are in flight, /healthz, the sign-in page and a
+# normal form post still answer within 2 s. nginx reads the body before php-fpm sees it; FrankenPHP reads bodies up to
+# 64 KiB in Caddy before PHP does (larger ones only after sign-in, see docker-auth-checks.sh).
+slow=$(mktemp); { printf 'username=slow&password='; head -c 59000 /dev/zero | tr '\0' a; } > "$slow"
+pids=()
+for _ in $(seq 1 "${SLOW_UPLOADS:-4}"); do
+  curl -s -o /dev/null --max-time 90 --limit-rate 1000 --data-binary "@$slow" \
+    -H 'Content-Type: application/x-www-form-urlencoded' "$base/login" & pids+=($!)
+done
+sleep 3
+fast() { curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 10 "$@"; }
+within() { awk -v t="${1#* }" 'BEGIN { print (t < 2.0) ? "fast" : "slow " t }'; }
+r=$(fast "$base/healthz");        check "healthz during ${#pids[@]} slow uploads"      "200 fast" "${r%% *} $(within "$r")"
+r=$(fast "$base/login");          check "sign-in page during slow uploads"            "fast" "$(within "$r")"
+r=$(fast -X POST -d 'name=x' "$base/locations"); check "small POST during slow uploads" "419 fast" "${r%% *} $(within "$r")"
+alive=0; for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive=$((alive + 1)); done
+check "the slow uploads were still in flight" "${#pids[@]}" "$alive"
+kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; rm -f "$slow"
 exit $fail
