@@ -8,6 +8,24 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-10-30
+
+### Fixed
+
+- **api:** trailing-dot origins, /api error answers, SameSite pin ([#169](https://github.com/thordin9/apotheke/pull/169))
+
+### Maintenance
+
+- docs: add security policy ([#167](https://github.com/thordin9/apotheke/pull/167))
+- **frontend:** chore: add Open Graph image ([#167](https://github.com/thordin9/apotheke/pull/167))
+- **frontend:** docs: add brand NOTICE and point to it from README ([#167](https://github.com/thordin9/apotheke/pull/167))
+- build: keep frontend/ out of the Docker build context ([#167](https://github.com/thordin9/apotheke/pull/167))
+- docs: send security reports to private advisories ([#167](https://github.com/thordin9/apotheke/pull/167))
+- docs: set security response targets ([#167](https://github.com/thordin9/apotheke/pull/167))
+- **qa:** docs: add the PR 167 security and brand notice QA review ([#167](https://github.com/thordin9/apotheke/pull/167))
+- docs: mark feature/ci4 and release/2.5 as historical ([#168](https://github.com/thordin9/apotheke/pull/168))
+- **release:** ci: push with the release GitHub App token ([#165](https://github.com/thordin9/apotheke/pull/165))
+
 ## [3.1.0] - 2026-10-30
 
 ### Added
@@ -949,7 +967,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.1.1...HEAD
+[3.1.1]: https://github.com/thordin9/apotheke/compare/v3.1.0...v3.1.1
 [3.1.0]: https://github.com/thordin9/apotheke/compare/v3.0.1...v3.1.0
 [3.0.1]: https://github.com/thordin9/apotheke/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/thordin9/apotheke/compare/v2.6.26...v3.0.0
