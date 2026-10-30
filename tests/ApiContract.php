@@ -11,13 +11,13 @@ use PHPUnit\Framework\Assert;
 
 /**
  * The API contract harness (API plan §7): a test client's response must match
- * modules/Core/Api/openapi.json for its operation (status, content type,
+ * docs/api/openapi.yaml for its operation (status, content type,
  * headers and body schema). Dev only: league/openapi-psr7-validator over
  * nyholm/psr7.
  */
 final class ApiContract
 {
-    public const SPEC = __DIR__ . '/../modules/Core/Api/openapi.json';
+    public const SPEC = __DIR__ . '/../docs/api/openapi.yaml';
 
     private static ?ResponseValidator $validator = null;
 

@@ -3,8 +3,10 @@
 Apotheke 3.1 starts a JSON API under `/api/v1`, for the coming single-page app. This first part has the
 session, your own account and the API's own description. The HTML pages keep working as before.
 
-The full description is [`modules/Core/Api/openapi.json`](../modules/Core/Api/openapi.json), also served at
-`GET /api/v1/openapi.json`. The tests check every API answer against it.
+The full description is [`docs/api/openapi.yaml`](api/openapi.yaml), also served at `GET /api/v1/openapi.json`.
+It is the contract between the API and the single-page app, changed in the same pull request as the endpoint it
+describes, and written in YAML's JSON form so the app can serve it without a YAML parser. The tests check every API
+answer against it.
 
 ## Endpoints
 

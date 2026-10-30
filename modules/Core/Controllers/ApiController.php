@@ -11,8 +11,11 @@ use CodeIgniter\HTTP\ResponseInterface;
 /** /api/v1/openapi.json, and the /api paths no endpoint answers: 404 problem+json (API plan §3). */
 final class ApiController extends Controller
 {
-    /** The hand-written OpenAPI document; the contract tests keep it in step with the answers. */
-    public const SPEC = __DIR__ . '/../Api/openapi.json';
+    /**
+     * The hand-written OpenAPI document, the contract the SPA builds on; the contract tests keep it in step with
+     * the answers. Written in YAML's JSON form, so it is served as is (the image copies it next to the code).
+     */
+    public const SPEC = __DIR__ . '/../../../docs/api/openapi.yaml';
 
     public function openapi(): ResponseInterface
     {
