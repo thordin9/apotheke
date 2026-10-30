@@ -210,7 +210,7 @@ final class Ci4CookieConsentTest extends TestCase
             $this->assertSame(403, $anon->post('/save', ['name' => 'X', 'quantity' => '1'])['status']);
             $with = $server->client();
             $this->assertNotSame([], self::setCookies($with->get('/item/' . $m[1])), 'with consent the device cookie is set');
-            testdb($dir)->exec('DROP TABLE items');
+            testdb($dir)->exec('ALTER TABLE items RENAME TO items_gone');   // both drivers (pgsql refuses a DROP with foreign keys)
             $c = $server->client();
             $c->consent = null;
             $r = $c->get('/');
