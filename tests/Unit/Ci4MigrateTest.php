@@ -385,8 +385,10 @@ final class Ci4MigrateTest extends TestCase
             $shape[(string)$c['table_name']][] = implode(' ', ['column', $c['column_name'], $c['data_type'], $c['is_nullable'], $unqualify((string)$c['column_default'])]);
         }
         $rest = [];
-        // search_docs_trgm is optional (0019 skips it when this schema cannot see pg_trgm), as in dumpPgsql()
-        foreach ($pdo->query("SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname <> 'search_docs_trgm'")->fetchAll(PDO::FETCH_ASSOC) as $i) {
+        // search_docs_trgm on search_docs is optional (0019 skips it when this schema cannot see pg_trgm), as in
+        // dumpPgsql(); an index of that name on another table still counts (L-1321)
+        foreach ($pdo->query("SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()
+            AND NOT (tablename = 'search_docs' AND indexname = 'search_docs_trgm')")->fetchAll(PDO::FETCH_ASSOC) as $i) {
             $rest[(string)$i['tablename']][] = 'index ' . $i['indexname'] . ' ' . $unqualify((string)$i['indexdef']);
         }
         foreach ($pdo->query("SELECT c.relname, k.conname, k.contype, pg_get_constraintdef(k.oid) AS def FROM pg_constraint k

@@ -1,0 +1,38 @@
+// Apotheke edge: the Worker `apotheke-api`, its Container Durable Object and the container image.
+// No account id, no resource ids, no secrets, and no routes or custom domains: the deploy workflow
+// (.github/workflows/deploy-edge.yml) uses this file as is, and the custom domain is attached outside CI.
+// The Worker name is checked against an allowlist before every deploy (scripts/cf-worker-guard.mjs).
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "apotheke-api",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-29",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+
+	// One container application, linked to the ApothekeContainer Durable Object (one named instance, "primary").
+	"containers": [
+		{
+			"class_name": "ApothekeContainer",
+			"image": "../Dockerfile.frankenphp",
+			"image_build_context": "..",
+			"instance_type": "basic",
+			"max_instances": 1
+		}
+	],
+	"durable_objects": {
+		"bindings": [{ "name": "APOTHEKE", "class_name": "ApothekeContainer" }]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["ApothekeContainer"] }],
+
+	"vars": {
+		// Inactivity timeout before the container sleeps (plan 1A.2: 15 minutes).
+		"SLEEP_AFTER_MS": "900000",
+		// Host names the app answers to (its Host check returns 421 for others).
+		"ALLOWED_HOSTS": "api.services.getapotheke.com"
+	},
+	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
+	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }
+}
