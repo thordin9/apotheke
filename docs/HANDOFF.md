@@ -266,7 +266,18 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   job step is one statement guarded by status and lease owner (no transaction, at most 8 binds: D1-ready). A backup leaves
   0029 out of its `schema` (`Backups::UNCARRIED_MIGRATIONS`) so 2.6.x restores it; the upgrade/rollback gate migrates
   CI4 first and leaves the CI4-only table out of its snapshots. No job types yet (P3: CSV import commit, backup restore);
-  `GET /api/v1/jobs/{id}` comes with them. Open.
+  `GET /api/v1/jobs/{id}` comes with them. PM conditions for "No shared schema change" (AGENTS.md):
+  `Ci4MigrateTest::testEveryCi4OnlyMigrationIsRegistered` (2.6.26 migrations byte-identical; every later one in
+  `Backups::UNCARRIED_MIGRATIONS` and `upg_ci4_only()` with its tables) and `testNoCi4OnlyMigrationChangesATable26Reads`
+  (every 2.6.26 table and column unchanged), on SQLite and PostgreSQL; the upgrade/rollback gate seeds two `jobs` rows
+  and `tests/upgrade/ci4-only.php` checks them after the CI4 backup, the rollback and both in-place restores, and that
+  the CI4 zip names no CI4-only migration; an Upgrade note under CHANGELOG `[Unreleased]` and `docs/upgrade-3.0.md`
+  say the `jobs` table stays behind after a rollback, harmless. QA interim notes: L-1240 (every section's keys pinned
+  in `Ci4ApiSettingsTest`), L-1241 (the image builds `pcntl`; `DockerfileTest::testImageBuildsAndChecksPcntl`, a CI
+  docker step, `Ci4JobsWorkTest` for the no-pcntl path), N-1242 (another token keeps the ETag), N-1243
+  (`JobQueueTest::testOwnerAndAttemptBothGuardTheLease`), N-1244 (exit codes in `jobs:work --help` and
+  [Background jobs](deployment-and-operations.md#background-jobs)), N-1245 (handler rules in `JobHandler`), N-1246
+  (Cloudflare: Cron Triggers or Queues, same schema). Open.
 
 ## Lanes
 
