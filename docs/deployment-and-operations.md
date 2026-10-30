@@ -562,20 +562,26 @@ permission the environment's token probably lacks; a missing container push perm
 ### Storage gate: EDGE_STORAGE_READY
 
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
-job of `deploy-edge.yml` fails on purpose, on every trigger (release and manual), unless the **repository variable**
+job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
 `EDGE_STORAGE_READY` is exactly `true`:
 
-* no `CLOUDFLARE_API_TOKEN` in `deploy-edge`: the job is skipped and stays green, as before;
-* a token, but `EDGE_STORAGE_READY` unset or anything other than `true`: the job fails before any wrangler call with
-  *apotheke-api is stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that*;
-* `EDGE_STORAGE_READY=true`: the deploy runs.
+* `EDGE_STORAGE_READY` unset or anything other than `true`: the deploy job is **skipped** by its own condition, before
+  the `deploy-edge` environment gate, so a release asks no one for a deploy review and the run stays green;
+* `EDGE_STORAGE_READY=true`, but no `CLOUDFLARE_API_TOKEN` in `deploy-edge`: the job waits for the environment review,
+  then skips the deploy and stays green;
+* `EDGE_STORAGE_READY=true` and a token: after the review, the deploy runs.
+
+The job also checks the variable again in its first steps, before any wrangler call, and fails with *apotheke-api is
+stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that* if it is not `true` (a second
+line of defence, should the job condition ever change).
 
 Set it (Settings > Secrets and variables > Actions > Variables) only once storage has landed. The pull request checks
 and `deploy-frontend.yml` are not affected.
 
 ### One-time manual step before the first edge deploy
 
-Do this at the first real edge deploy, after the storage gate above is opened, not before.
+Do this at the first real edge deploy, after the storage gate above is opened, not before. Until
+`EDGE_STORAGE_READY` is `true` the deploy job is skipped (no review is requested), so there is nothing to do yet.
 `edge/wrangler.jsonc` lists `APP_PASSWORD` and `APP_KEY` under `secrets.required`, so `wrangler deploy` of
 `apotheke-api` fails until both exist on the Worker. CI never sets them: the deploy token is not used for secrets, and
 the values never go through GitHub. The operator sets them once, from a trusted machine, with a token that can edit

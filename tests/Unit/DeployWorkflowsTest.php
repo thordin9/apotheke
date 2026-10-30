@@ -70,6 +70,13 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertNotNull($firstWrangler);
         $this->assertGreaterThan($gate, $firstWrangler, 'the gate runs before checkout and any wrangler call');
 
+        // the job itself is skipped before the deploy-edge environment gate until the variable is true (no review
+        // card), and the in-job gate below stays as a second check
+        $job = $this->job($yml, 'deploy');
+        $this->assertSame(1, preg_match("/^    if: >-\n((?:      .*\n)+)/m", $job, $m));
+        $this->assertStringStartsWith("vars.EDGE_STORAGE_READY == 'true' && (", trim($m[1]));
+        $this->assertLessThan(strpos($job, '    environment: deploy-edge'), strpos($job, "vars.EDGE_STORAGE_READY == 'true'"));
+
         $g = $steps[$gate];
         $this->assertStringContainsString("if: steps.token.outputs.set == 'true'\n", $g);
         $this->assertStringNotContainsString('github.event_name', $g);
@@ -88,7 +95,8 @@ final class DeployWorkflowsTest extends TestCase
         $cond = (string)preg_replace('/\s+/', ' ', trim($m[1]));
         $want = "(github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.ref, 'refs/tags/v')) || "
             . "(github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')))";
-        $this->assertSame($file === 'deploy-frontend.yml' ? "needs.build.outputs.has_build == 'true' && ($want)" : $want, $cond);
+        // deploy-edge: skipped before the environment gate (no review requested) until EDGE_STORAGE_READY is true
+        $this->assertSame($file === 'deploy-frontend.yml' ? "needs.build.outputs.has_build == 'true' && ($want)" : "vars.EDGE_STORAGE_READY == 'true' && ( $want)", $cond);
         $this->assertSame(1, substr_count($job, '!github.event.release.prerelease'), 'pre-releases never deploy (L-1432)');
         $this->assertSame(1, substr_count($job, "github.event_name == 'release'"));
         $this->assertStringNotContainsString('pull_request', $job);
