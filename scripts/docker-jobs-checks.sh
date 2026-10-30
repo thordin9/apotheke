@@ -5,9 +5,11 @@
 #    one log line (the image has no job types yet, so this is the job any worker can run);
 #  - killed (SIGKILL), jobs:work is started again after the measured waits 1, 2, 4 and 8 s (L-1471), while the web
 #    server keeps answering; a clean exit (0) brings the wait back to 1 s, and so does a run of 60 s or more;
-#  - docker stop: the worker stops on SIGTERM and the container exits 0 within 20 s, also when the stop arrives while
-#    jobs:work is being restarted or the backoff sleep is starting (L-1470);
-#  - the web server dying on its own stops the container with its exit status (FrankenPHP; nginx and php-fpm), L-1472;
+#  - docker stop: the worker stops on SIGTERM and the container exits 0 within 20 s; and within 3 s, exit 0, each time
+#    the stop lands at a random small delay during the backoff sleep, right after a forced restart of jobs:work, or
+#    right after start-up (L-1470: a TERM that reaches a child before its exec is sent again);
+#  - the web server dying on its own stops the container with its exit status (FrankenPHP; nginx and php-fpm), L-1472,
+#    and with 1 when the web server exits 0 (a clean stop of the server alone, N-1480);
 #  - APOTHEKE_JOBS_WORKER=0 runs no worker (the job stays queued); a bad value exits 64;
 #  - the log never carries APP_PASSWORD.
 # Usage: scripts/docker-jobs-checks.sh <image> [port]   (default port 9096)
@@ -119,35 +121,59 @@ check "stopped within 20 s" 1 "$(( $(date +%s) - t0 < 20 ))"
 check "exit code 0" 0 "$(docker inspect -f '{{.State.ExitCode}}' "$name")"
 check "the worker said it stopped" 1 "$(docker logs "$name" 2>&1 | grep -c 'apotheke-jobs: worker stopped' || true)"
 
-echo "== docker stop while jobs:work is restarting or the backoff sleep is starting (L-1470)"
-# jobs:work is killed, so the worker sleeps 1 s and then starts it again; the stop lands at, around and after that
-for at in 0 0.5 0.9 0.95 1.0 1.05 1.1 1.2; do
+echo "== docker stop at random small delays: backoff sleep, forced restart, start-up (L-1470)"
+ms() { date +%s%3N; }
+rnd() { # low-ms high-ms -> seconds, e.g. 0.137
+  awk -v ms=$(( $1 + RANDOM % ($2 - $1 + 1) )) 'BEGIN { printf "%.3f", ms / 1000 }'
+}
+stopped() { # label: docker stop now; exit 0 within 3 s
+  local t0 code; t0=$(ms)
+  docker stop -t 15 "$name" >/dev/null
+  local took=$(( $(ms) - t0 ))
+  code=$(docker inspect -f '{{.State.ExitCode}}' "$name")
+  check "$1: exit 0" 0 "$code"
+  check "$1: stopped within 3 s (${took} ms)" 1 "$(( took < 3000 ))"
+}
+# jobs:work is killed, so the worker sleeps 1 s (the backoff) and then forks jobs:work again: stops at random delays
+# in 0-0.9 s land in the sleep, 0.9-1.3 s on and just after the fork
+for window in 0:900 0:900 0:900 0:900 900:1300 900:1300 900:1300 900:1300 900:1300 900:1300; do
   start
   wait_for 10 has_jobs || true
   docker exec "$name" kill -KILL "$(jobs_pid)"
+  at=$(rnd "${window%:*}" "${window#*:}")
   sleep "$at"
-  t0=$(date +%s)
-  docker stop -t 15 "$name" >/dev/null
-  check "stop ${at} s after a kill: exit 0" 0 "$(docker inspect -f '{{.State.ExitCode}}' "$name")"
-  check "stop ${at} s after a kill: within 10 s" 1 "$(( $(date +%s) - t0 < 10 ))"
+  stopped "stop ${at} s after a kill"
+done
+# right after start-up: the web server and the worker have just been forked
+for _ in 1 2 3 4; do
+  cleanup
+  docker run -d --name "$name" -p "127.0.0.1:$port:9091" -e APP_PASSWORD="$pw" "$image" >/dev/null
+  for _ in $(seq 1 200); do docker logs "$name" 2>&1 | grep -qE '^apotheke: (frankenphp|nginx) on' && break; sleep 0.05; done
+  at=$(rnd 0 300)
+  sleep "$at"
+  stopped "stop ${at} s after start-up"
 done
 
 echo "== the web server dies: the container stops with its exit status (L-1472)"
-dies() { # label process-pattern
+dies() { # label process-pattern signal container-status server-status
   start
   wait_for 10 has_jobs || true
   local p; p=$(docker exec "$name" ps -o pid,args | awk -v re="$2" '$0 ~ re && !/awk/ { print $1; exit }')
-  docker exec "$name" kill -KILL "$p"
+  docker exec "$name" kill "-$3" "$p"
   local code; code=$(timeout 20 docker wait "$name" || echo timeout)
-  check "$1 killed: the container exits with 137" 137 "$code"
-  check "$1 killed: the log says so" 1 "$(docker logs "$name" 2>&1 | grep -c "exited unexpectedly (exit 137)" || true)"
-  check "$1 killed: the worker stopped too" 1 "$(docker logs "$name" 2>&1 | grep -c 'apotheke-jobs: worker stopped' || true)"
+  check "$1 $3: the container exits with $4" "$4" "$code"
+  check "$1 $3: the log says so" 1 "$(docker logs "$name" 2>&1 | grep -c "exited unexpectedly (exit $5)" || true)"
+  check "$1 $3: the worker stopped too" 1 "$(docker logs "$name" 2>&1 | grep -c 'apotheke-jobs: worker stopped' || true)"
 }
+# a clean stop of the web server alone (its own graceful signal, it exits 0) still stops the container with 1 (N-1480)
 if docker run --rm --entrypoint sh "$image" -c 'command -v frankenphp' >/dev/null 2>&1; then
-  dies frankenphp 'frankenphp run'
+  dies frankenphp 'frankenphp run' KILL 137 137
+  dies frankenphp 'frankenphp run' TERM 1 0
 else
-  dies nginx 'nginx: master'
-  dies php-fpm 'php-fpm: master'
+  dies nginx 'nginx: master' KILL 137 137
+  dies php-fpm 'php-fpm: master' KILL 137 137
+  dies nginx 'nginx: master' QUIT 1 0
+  dies php-fpm 'php-fpm: master' QUIT 1 0
 fi
 
 echo "== APOTHEKE_JOBS_WORKER=0 turns it off"
