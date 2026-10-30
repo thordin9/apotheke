@@ -74,7 +74,7 @@ for _ in $(seq 1 "${SLOW_UPLOADS:-4}"); do
     -H 'Content-Type: application/x-www-form-urlencoded' "$base/login" & pids+=($!)
 done
 sleep 3
-fast() { curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 10 "$@"; }
+fast() { curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 10 "$@" || true; }
 within() { awk -v t="${1#* }" 'BEGIN { print (t < 2.0) ? "fast" : "slow " t }'; }
 r=$(fast "$base/healthz");        check "healthz during ${#pids[@]} slow uploads"      "200 fast" "${r%% *} $(within "$r")"
 r=$(fast "$base/login");          check "sign-in page during slow uploads"            "fast" "$(within "$r")"
@@ -82,4 +82,31 @@ r=$(fast -X POST -d 'name=x' "$base/locations"); check "small POST during slow u
 alive=0; for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive=$((alive + 1)); done
 check "the slow uploads were still in flight" "${#pids[@]}" "$alive"
 kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; rm -f "$slow"
+
+# M-1451: the same with slow chunked GETs (no declared length; 70,000 bytes at once, more than Caddy's 64 KiB
+# buffer, then a byte a second). Neither image lets them hold a PHP thread: nginx reads the body itself, FrankenPHP
+# answers 411 before reading it.
+python3 - "$base" "${SLOW_UPLOADS:-4}" <<'PY' & slowget=$!
+import socket, sys, threading, time, urllib.parse
+u = urllib.parse.urlsplit(sys.argv[1])
+def one():
+    try:
+        s = socket.create_connection((u.hostname, u.port), timeout=30)
+        s.sendall(f"GET /login HTTP/1.1\r\nHost: {u.hostname}:{u.port}\r\nTransfer-Encoding: chunked\r\n"
+                  "Content-Type: application/x-www-form-urlencoded\r\n\r\n".encode())
+        s.sendall(b"%x\r\n" % 70000 + b"a" * 70000 + b"\r\n")
+        for _ in range(30):
+            time.sleep(1)
+            s.sendall(b"1\r\na\r\n")
+    except OSError:
+        pass
+for _ in range(int(sys.argv[2])):
+    threading.Thread(target=one, daemon=True).start()
+time.sleep(30)
+PY
+sleep 3
+r=$(fast "$base/healthz");        check "healthz during slow chunked GETs"            "200 fast" "${r%% *} $(within "$r")"
+r=$(fast "$base/login");          check "sign-in page during slow chunked GETs"       "fast" "$(within "$r")"
+r=$(fast -X POST -d 'name=x' "$base/locations"); check "small POST during slow chunked GETs" "419 fast" "${r%% *} $(within "$r")"
+kill "$slowget" 2>/dev/null || true; wait 2>/dev/null || true
 exit $fail

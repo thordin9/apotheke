@@ -3,6 +3,9 @@
 # large restore bodies only after sign-in. The container must run with APP_PASSWORD; pass the same value in APP_PW.
 # Usage: APP_PW=… [SERVER=nginx|frankenphp] scripts/docker-auth-checks.sh [base-url]   (default http://127.0.0.1:9092)
 # SERVER=frankenphp adds the checks only that image's Caddyfile can pass (refusals before the body is read).
+# CONTAINER=<name> adds the checks behind an HTTPS proxy (M-1450): it turns the trust_proxy setting on in that
+# container (docker exec), runs them, and turns it off again. Start the container with
+# TRUSTED_PROXIES=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8 so the X-Forwarded-For check can pass.
 set -euo pipefail
 base=${1:-http://127.0.0.1:9092}
 : "${APP_PW:?set APP_PW to the APP_PASSWORD of the container}"
@@ -44,6 +47,23 @@ except OSError:
     print("no answer")
 PY
 }
+# A complete small chunked request (METHOD PATH): the status.
+chunked() {
+  python3 - "$base" "$@" <<'PY'
+import http.client, sys, urllib.parse
+base, method, path = sys.argv[1:4]
+u = urllib.parse.urlsplit(base)
+c = http.client.HTTPConnection(u.hostname, u.port, timeout=20)
+c.putrequest(method, path)
+c.putheader("Transfer-Encoding", "chunked")
+c.endheaders()
+c.send(b"1\r\nx\r\n0\r\n\r\n")
+try:
+    print(c.getresponse().status)
+except OSError:
+    print("no answer")
+PY
+}
 # Before sign-in, a large or length-less body is never accepted (nginx reads it, then the app redirects to sign-in).
 r=$(code -X POST -F "photo=@$work/big" "$base/save")
 check "anonymous 30 MB POST /save refused" 1 "$([[ $r == 401 || $r == 303 || $r == 413 ]] && echo 1 || echo "$r")"
@@ -57,6 +77,16 @@ if [[ $server == frankenphp ]]; then
   # read the rest of an unread body to keep the connection; this request never sends one.)
   check "anonymous 300 KB POST /save -> 401 before the body" 401 "$(declared POST /save 300000)"
   check "anonymous chunked POST -> 401"  401 "$(code -H 'Transfer-Encoding: chunked' -X POST --data-binary 'name=x' "$base/locations")"
+  # M-1451: GET, HEAD and OPTIONS without a declared length never reach the app: 411 (any route, any client)
+  for m in GET HEAD OPTIONS; do
+    check "chunked $m /login -> 411"     411 "$(chunked "$m" /login)"
+  done
+  # N-1452: only POST is the restore (a PUT is the app's, which sends a signed-out client to sign-in, not the
+  # restore check's 401), and Caddy's own Server header is gone, also on its own answers.
+  check "anonymous PUT /backup/restore is the app's" 303 "$(code -X PUT -d 'x=1' "$base/backup/restore")"
+  for p in / /originals/x.jpg /assets/no-such-file.css /no/such/page; do
+    check "no Server header on $p"       "" "$(hdr Server "$base$p")"
+  done
 fi
 check "upload check: not signed in"      401 "$(code "$base/upload/check")"
 # nginx asks the app before it reads the body: refused without an upload
@@ -81,6 +111,11 @@ check "restore check: admin"             204 "$(code -b "$jar" "$base/backup/res
 check "upload check: admin"              204 "$(code -b "$jar" "$base/upload/check")"
 # over 520 MiB is refused after sign-in too, before the body is read (N-1424)
 check "600 MiB restore after sign-in -> 413" 413 "$(declared POST /backup/restore $((600 * 1024 * 1024)) "$jar")"
+# N-1452: the cap is exactly 520 MiB, for a declared length (one byte over) and for a chunked body (streamed, never
+# stored here: 521 MiB from /dev/zero)
+check "520 MiB + 1 byte restore after sign-in -> 413" 413 "$(declared POST /backup/restore $((520 * 1024 * 1024 + 1)) "$jar")"
+r=$(head -c $((521 * 1024 * 1024)) /dev/zero | code -b "$jar" -X POST -H 'Content-Type: application/octet-stream' -T - "$base/backup/restore")
+check "521 MiB chunked restore after sign-in -> 413" 413 "$r"
 if [[ $server == frankenphp ]]; then
   check "signed in, PUT /backup/restore over 22 MiB -> 413" 413 "$(declared PUT /backup/restore $((30 * 1024 * 1024)) "$jar")"
 fi
@@ -108,4 +143,40 @@ check "signed in, 30 MiB chunked POST /save -> 413" 413 "$(code -b "$jar" -H "X-
 head -c $((21 * 1024 * 1024)) /dev/zero > "$work/21m"
 r=$(code -b "$jar" -H "X-CSRF-Token: $tok" -H 'Transfer-Encoding: chunked' -X POST -F "csrf=$tok" -F "photo=@$work/21m" "$base/save")
 check "signed in, 21 MiB chunked POST /save reaches the app" 1 "$([[ $r != 413 && $r == [2-4][0-9][0-9] ]] && echo 1 || echo "$r")"
+
+if [[ -n ${CONTAINER:-} ]]; then
+  # Behind an HTTPS proxy (trust_proxy on, X-Forwarded-Proto: https) the session cookie is __Host-apothekesid, and the
+  # sign-in checks before a large body (/upload/check, /backup/restore/check) must see it as the app does (M-1450).
+  # curl's cookie jar drops a Secure cookie set over http, so the cookies are kept here.
+  spark() { docker exec -u www-data -w /var/www/app "$CONTAINER" php spark apotheke:settings "$@" >/dev/null; }
+  spark set trust_proxy 1
+  xfp=(-H 'X-Forwarded-Proto: https' -H 'X-Forwarded-For: 198.51.100.7')
+  declare -A jar2=()
+  keep() { # headers-file: remember its Set-Cookie name=value pairs
+    local l
+    while IFS= read -r l; do [[ -n $l ]] && jar2[${l%%=*}]=${l#*=}; done < <(tr -d '\r' < "$1" | awk 'tolower($0) ~ /^set-cookie:/ {sub(/^[^:]*: */, ""); sub(/;.*/, ""); print}')
+  }
+  cookie() { local k c=""; for k in "${!jar2[@]}"; do c+="$k=${jar2[$k]}; "; done; printf '%s' "${c%; }"; }
+  curl -s -D "$work/h" -o "$work/login2.html" "${xfp[@]}" "$base/login"; keep "$work/h"
+  tok2=$(sed -n 's/.*name="csrf" value="\([a-f0-9]*\)".*/\1/p' "$work/login2.html"); tok2=${tok2%%$'\n'*}
+  # The client address is the X-Forwarded-For one (the peer is a listed proxy): a wrong password is counted for
+  # 198.51.100.7 (legacy client_key: the first 32 hex digits of its sha256).
+  check "behind the proxy: wrong password" 401 "$(code "${xfp[@]}" -H "Cookie: $(cookie)" --data-urlencode "csrf=$tok2" --data-urlencode 'username=admin' --data-urlencode 'password=not-the-password' "$base/login")"
+  key=$(printf '%s' 198.51.100.7 | sha256sum | cut -c1-32)
+  n=$(docker exec -u www-data "$CONTAINER" php -r '$d = new PDO("sqlite:/data/catalog.sqlite"); $q = $d->prepare("SELECT COUNT(*) FROM auth_attempts WHERE kind = ? AND client = ?"); $q->execute(["login_address", $argv[1]]); echo $q->fetchColumn();' "$key")
+  check "behind the proxy: X-Forwarded-For reaches the app" 1 "$n"
+  r=$(curl -s -o /dev/null -w '%{http_code}' -D "$work/h" "${xfp[@]}" -H "Cookie: $(cookie)" --data-urlencode "csrf=$tok2" --data-urlencode 'username=admin' --data-urlencode "password@$work/pw" "$base/login"); keep "$work/h"
+  check "behind the proxy: sign in"       303 "$r"
+  check "behind the proxy: X-Forwarded-Proto reaches the app (__Host- cookie)" 1 "$([[ -n ${jar2[__Host-apothekesid]:-} ]] && echo 1 || echo "${!jar2[*]}")"
+  curl -s -o "$work/backup2.html" "${xfp[@]}" -H "Cookie: $(cookie)" "$base/backup"
+  tok2=$(sed -n 's/.*name="csrf" content="\([a-f0-9]*\)".*/\1/p' "$work/backup2.html"); tok2=${tok2%%$'\n'*}
+  head -c 300000 /dev/zero > "$work/300k"
+  r=$(code "${xfp[@]}" -H "Cookie: $(cookie)" -H "X-CSRF-Token: $tok2" -X POST -F "csrf=$tok2" -F "photo=@$work/300k" "$base/save")
+  check "behind the proxy, signed in: 300 KB POST /save passes the sign-in check" 1 "$([[ $r != 401 && $r != 413 && $r == [2-4][0-9][0-9] ]] && echo 1 || echo "$r")"
+  check "behind the proxy, signed in: 300 KB restore reaches the app" 422 "$(code "${xfp[@]}" -H "Cookie: $(cookie)" -X POST -F "csrf=$tok2" -F "backup=@$work/300k" "$base/backup/restore")"
+  r=$(code "${xfp[@]}" -X POST -F "photo=@$work/300k" "$base/save")
+  check "behind the proxy, signed out: 300 KB POST /save refused" 1 "$([[ $r == 401 || ($server != frankenphp && $r == 303) ]] && echo 1 || echo "$r")"
+  check "behind the proxy, signed out: 300 KB restore -> 401" 401 "$(code "${xfp[@]}" -X POST -F "backup=@$work/300k" "$base/backup/restore")"
+  spark set trust_proxy 0
+fi
 exit $fail
