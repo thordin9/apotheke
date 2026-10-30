@@ -90,14 +90,9 @@ export FRANKENPHP_NUM_THREADS
 export XDG_CONFIG_HOME=/run/apotheke-caddy/config XDG_DATA_HOME=/run/apotheke-caddy/data
 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
   || { frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >&2; exit 78; }
-echo "apotheke: frankenphp on :$PORT ($ROOT), $FRANKENPHP_NUM_THREADS PHP threads"
-as_www() { if [ "$(id -u)" = 0 ]; then exec su-exec www-data "$@"; else exec "$@"; fi; }
-if [ "$jobs_worker" = 0 ]; then
-  echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
-  as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
-fi
-# The trap is set before anything starts, and the flag checked again once both PIDs are known, so a SIGTERM during
-# start-up is never lost (L-1470).
+# The trap is set before anything starts, and the flag is checked right before each `&` and again once both PIDs are
+# known, so a SIGTERM during start-up is never lost (L-1470). A TERM sent right after a fork can still be lost (the
+# subshell has not run exec yet), so after a stop each process gets TERM again until it has exited (end).
 web=0
 jobs=0
 stopping=0
@@ -107,11 +102,22 @@ stop() {
   if [ "$web" != 0 ]; then kill -TERM "$web" 2>/dev/null || true; fi
   if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
 }
+end() { # pid: sends TERM every 0.2 s until the process has exited
+  if [ "$1" = 0 ]; then return 0; fi
+  while kill -0 "$1" 2>/dev/null; do kill -TERM "$1" 2>/dev/null || true; sleep 0.2; done
+}
 trap stop TERM INT QUIT
-(as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile) &
-web=$!
-(as_www apotheke-jobs-worker) &
-jobs=$!
+echo "apotheke: frankenphp on :$PORT ($ROOT), $FRANKENPHP_NUM_THREADS PHP threads"
+as_www() { if [ "$(id -u)" = 0 ]; then exec su-exec www-data "$@"; else exec "$@"; fi; }
+if [ "$jobs_worker" = 0 ]; then
+  echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
+  # the trap goes first, so a stop from here on ends this shell (exec would drop it anyway); one before it ends here
+  trap - TERM INT QUIT
+  if [ "$stopping" = 1 ]; then exit 0; fi
+  as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
+fi
+if [ "$stopping" = 0 ]; then (as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile) & web=$!; fi
+if [ "$stopping" = 0 ]; then (as_www apotheke-jobs-worker) & jobs=$!; fi
 if [ "$stopping" = 1 ]; then stop; fi
 while [ "$stopping" = 0 ] && kill -0 "$web" 2>/dev/null; do
   sleep 1 & wait $! || true
@@ -122,9 +128,8 @@ if [ "$stopping" = 0 ]; then
   wait "$web" || code=$?
   echo "apotheke: frankenphp exited unexpectedly (exit $code), stopping" >&2
   if [ "$code" = 0 ]; then code=1; fi
-  kill -TERM "$jobs" 2>/dev/null || true
+  stop
 fi
-# a trapped signal interrupts wait: wait again until both have exited
-while kill -0 "$web" 2>/dev/null; do wait "$web" 2>/dev/null || true; done
-while kill -0 "$jobs" 2>/dev/null; do wait "$jobs" 2>/dev/null || true; done
+end "$web"
+end "$jobs"
 exit "$code"

@@ -81,8 +81,9 @@ sed -e "s/__PORT__/$PORT/g" -e "s#__ROOT__#$ROOT#g" /etc/nginx/apotheke.conf.tem
 mkdir -p /run/apotheke-nginx
 nginx -t -q
 
-# The trap is set before anything starts, and the flag checked again once the PIDs are known, so a SIGTERM during
-# start-up is never lost (L-1470).
+# The trap is set before anything starts, and the flag is checked right before each `&` and again once the PIDs are
+# known, so a SIGTERM during start-up is never lost (L-1470). A signal sent right after a fork can still be lost (the
+# subshell has not run exec yet), so after a stop each process gets its signal again until it has exited (end).
 fpm=0
 ngx=0
 jobs=0
@@ -93,16 +94,20 @@ stop() {
   if [ "$fpm" != 0 ]; then kill -QUIT "$fpm" 2>/dev/null || true; fi
   if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
 }
+end() { # signal pid: sends the signal every 0.2 s until the process has exited
+  if [ "$2" = 0 ]; then return 0; fi
+  while kill -0 "$2" 2>/dev/null; do kill "-$1" "$2" 2>/dev/null || true; sleep 0.2; done
+}
 trap stop TERM INT QUIT
-php-fpm -F &
-fpm=$!
+if [ "$stopping" = 0 ]; then php-fpm -F & fpm=$!; fi
 # let php-fpm create its socket first, so nginx never answers 502 during start-up
 i=0; while [ "$stopping" = 0 ] && [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
-nginx -g 'daemon off;' &
-ngx=$!
+if [ "$stopping" = 0 ]; then nginx -g 'daemon off;' & ngx=$!; fi
 if [ "$jobs_worker" = 1 ]; then
-  if [ "$(id -u)" = 0 ]; then su-exec www-data apotheke-jobs-worker & else apotheke-jobs-worker & fi
-  jobs=$!
+  if [ "$stopping" = 0 ]; then
+    if [ "$(id -u)" = 0 ]; then su-exec www-data apotheke-jobs-worker & else apotheke-jobs-worker & fi
+    jobs=$!
+  fi
 else
   echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
 fi
@@ -119,8 +124,7 @@ if [ "$stopping" = 0 ]; then
   if [ "$code" = 0 ]; then code=1; fi
   stop
 fi
-# a trapped signal interrupts wait: wait again until each has exited
-for p in "$ngx" "$fpm" "$jobs"; do
-  if [ "$p" != 0 ]; then while kill -0 "$p" 2>/dev/null; do wait "$p" 2>/dev/null || true; done; fi
-done
+end QUIT "$ngx"
+end QUIT "$fpm"
+end TERM "$jobs"
 exit "$code"

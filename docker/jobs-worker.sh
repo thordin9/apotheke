@@ -21,18 +21,29 @@ stop() {
   if [ "$child" != 0 ]; then kill -TERM "$child" 2>/dev/null || true; fi
 }
 trap stop TERM INT
-# Race-free stop (L-1470): a signal that arrives after `&` but before child=$! finds no child to pass on to, so the
-# flag is checked again once child is set; one that arrives later is passed on by stop() itself. A trapped signal
-# interrupts wait, so wait again until the child has really exited; code is then the child's own status.
-spawn() { # command... -> child
+# Race-free stop (L-1470): the flag is checked right before each `&`, so nothing new starts once a stop has come,
+# and again once child is set. A TERM sent right after the fork can still be lost (the subshell has not run exec
+# yet), so after a stop the child gets TERM again every 0.2 s until it has exited. A trapped signal interrupts
+# wait; without a stop it simply waits again, and code is then the child's own status.
+spawn() { # command... -> child (0 if stopping)
+  child=0
+  if [ "$stopping" = 1 ]; then return 0; fi
   "$@" &
   child=$!
   if [ "$stopping" = 1 ]; then kill -TERM "$child" 2>/dev/null || true; fi
 }
 reap() { # -> code
   code=0
-  wait "$child" || code=$?
-  while kill -0 "$child" 2>/dev/null; do code=0; wait "$child" || code=$?; done
+  if [ "$child" = 0 ]; then return 0; fi
+  if [ "$stopping" = 0 ]; then wait "$child" || code=$?; fi
+  while kill -0 "$child" 2>/dev/null; do
+    if [ "$stopping" = 1 ]; then
+      kill -TERM "$child" 2>/dev/null || true
+      sleep 0.2
+    else
+      code=0; wait "$child" || code=$?
+    fi
+  done
   child=0
 }
 delay=1

@@ -95,8 +95,18 @@ final class DockerfileTest extends TestCase
             // L-1470: the trap is in place before anything starts, and the flag is checked again once the PIDs are set
             $trap = strpos($sh, 'trap stop TERM INT QUIT');
             $this->assertNotFalse($trap, $f);
-            $this->assertLessThan(strpos($sh, ' &' . "\n", (int)strpos($sh, 'PORT="${PORT:-9091}"')), $trap, "$f: trap before the first child");
+            $first = strpos($sh, 'if [ "$stopping" = 0 ]; then ', (int)strpos($sh, 'PORT="${PORT:-9091}"'));
+            $this->assertNotFalse($first, "$f: the flag is checked before the first child");
+            $this->assertLessThan($first, $trap, "$f: trap before the first child");
             $this->assertStringContainsString('if [ "$stopping" = 1 ]; then stop; fi', $sh, $f);
+            // every child of the supervisor starts behind the flag (no `&` outside `if [ "$stopping" = 0 ]`)
+            foreach (preg_split('/\n/', substr($sh, $trap)) as $line) {
+                if (preg_match('/ & /', $line) && !str_contains($line, 'sleep 1 & wait $!')) {
+                    $this->assertMatchesRegularExpression('/^\s*(if \[ "\$stopping" = 0 \]; then |if \[ "\$\(id -u\)" = 0 \]; then su-exec)/', $line, "$f: $line");
+                }
+            }
+            // a signal lost right after a fork is sent again until the process has exited
+            $this->assertMatchesRegularExpression('/while kill -0 "\$[12]" 2>\/dev\/null; do kill (-TERM|"-\$1") "\$[12]" 2>\/dev\/null \|\| true; sleep 0\.2; done/', $sh, $f);
             // L-1472: the web server's own exit status is the container's
             $this->assertStringContainsString('exited unexpectedly (exit $code), stopping', $sh, $f);
             // compose keeps PostgreSQL's files in ./data/postgres, inside the app's /data: never chowned by the app
@@ -106,7 +116,9 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('spawn php spark --no-header jobs:work', $worker);
         $this->assertStringContainsString('spawn sleep "$delay"', $worker);
         // L-1470: a stop that came before child=$! is passed on right after it
-        $this->assertStringContainsString("  \"\$@\" &\n  child=\$!\n  if [ \"\$stopping\" = 1 ]; then kill -TERM \"\$child\" 2>/dev/null || true; fi\n", $worker);
+        $this->assertStringContainsString("  if [ \"\$stopping\" = 1 ]; then return 0; fi\n  \"\$@\" &\n  child=\$!\n  if [ \"\$stopping\" = 1 ]; then kill -TERM \"\$child\" 2>/dev/null || true; fi\n", $worker);
+        // after a stop the child gets TERM again until it has exited (one sent before its exec is lost)
+        $this->assertStringContainsString("    if [ \"\$stopping\" = 1 ]; then\n      kill -TERM \"\$child\" 2>/dev/null || true\n      sleep 0.2\n", $worker);
         $this->assertStringContainsString('trap stop TERM INT', $worker);
         $this->assertStringContainsString('if [ "$delay" -gt 60 ]; then delay=60; fi', $worker);
         $this->assertDoesNotMatchRegularExpression('/\benv\b|printenv|set -x|APP_PASSWORD|APP_KEY|DB_PASSWORD/', $worker, 'never prints the environment');
