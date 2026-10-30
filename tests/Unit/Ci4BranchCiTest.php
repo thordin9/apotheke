@@ -224,11 +224,14 @@ final class Ci4BranchCiTest extends TestCase
     {
         $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');
         $this->assertStringNotContainsString('feature/ci4', $yml);
+        // The whole trigger block, so a new trigger or branch (for example `old`) has to change this test (QA N-1061).
         $this->assertMatchesRegularExpression(
-            "/workflow_run:\\n    workflows: \\[CI\\]\\n    types: \\[completed\\]\\n    branches: \\[main\\]\\n/",
+            "/^on:\\n  workflow_run:\\n    workflows: \\[CI\\]\\n    types: \\[completed\\]\\n    branches: \\[main\\]\\n  workflow_dispatch:\\n\\n/m",
             $yml
         );
+        $this->assertSame(1, substr_count($yml, 'branches:'));
         $this->assertMatchesRegularExpression('/ref: main\\n/', $yml);
+        $this->assertStringContainsString('git push --atomic origin HEAD:main "v$NEXT"', $yml);
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void

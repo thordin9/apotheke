@@ -243,7 +243,8 @@ function rel_commits(?string $tag): array
     $prOf = [];
     foreach (array_filter(explode("\n", rel_git('log', '--merges', '--first-parent', '--format=%H %s', $range))) as $line) {
         [$sha, $subj] = explode(' ', $line, 2);
-        if (!preg_match('/^Merge pull request #(\d+)/', $subj, $m)) continue;
+        // "Merge pull request #12 from …", or a merge titled like a squash: "subject (#12)".
+        if (!preg_match('/^Merge pull request #(\d+)/', $subj, $m) && !preg_match('/\(#(\d+)\)$/', $subj, $m)) continue;
         foreach (array_filter(explode("\n", rel_git('rev-list', "$sha^1..$sha^2"))) as $c) $prOf[$c] ??= (int)$m[1];
     }
     $out = [];

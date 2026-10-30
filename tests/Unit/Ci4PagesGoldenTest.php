@@ -10,8 +10,8 @@ require_once dirname(__DIR__) . '/lib.php';
  * L-961: the item list, the item page, its edit form and the main JSON answers, pinned to
  * what CI4 gave at the cutover (recorded twice, identical), in the style of
  * Ci4BrandingHttpTest: status, a few headers, and the body's sha1 (HTML) or
- * the decoded JSON (its "html" part as a sha1). The CSRF token and asset
- * cache busters are masked; the clock is fixed.
+ * the decoded JSON (its "html" part as a sha1). The CSRF token, asset
+ * cache busters and VERSION are masked; the clock is fixed.
  *
  * Re-record after an intended change: APOTHEKE_GOLDEN_RECORD=/path.json,
  * run this test twice, diff the two files, then paste one into GOLDEN.
@@ -20,11 +20,11 @@ final class Ci4PagesGoldenTest extends TestCase
 {
     private const HEADERS = ['content-type', 'cache-control', 'x-content-type-options', 'x-frame-options'];
 
-    /** Recorded at the cutover head 029188d, twice, identical; the edit form at f1b4535 (twice on SQLite, once on PostgreSQL, identical). */
+    /** Recorded at the cutover head 029188d, twice, identical; the edit form at f1b4535 (twice on SQLite, once on PostgreSQL, identical); GET / again with VERSION masked (twice on SQLite, identical). */
     private const GOLDEN = [
         'GET /' => [
             'status' => 200,
-            'sha1' => 'b1d332c2fcf47e48a089010b289c9e558e1ad368',
+            'sha1' => 'f58221024d5e0cf5c542dc39923f5b63f120f9cf',
             'content-type' => 'text/html; charset=UTF-8',
             'cache-control' => 'no-store',
             'x-content-type-options' => 'nosniff',
@@ -229,6 +229,11 @@ final class Ci4PagesGoldenTest extends TestCase
     private static function mask(string $body): string
     {
         $body = (string)preg_replace('/(name="csrf" (?:content|value)=")[a-f0-9]+/', '$1CSRF', $body);
+        // The list page shows VERSION, which every release commit bumps.
+        $version = trim((string)file_get_contents(dirname(__DIR__, 2) . '/VERSION'));
+        if ($version !== '') {
+            $body = str_replace($version, 'VERSION', $body);
+        }
 
         return (string)preg_replace('#\?v=[0-9a-f]{8,}#', '?v=V', $body);
     }
