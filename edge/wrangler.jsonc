@@ -32,9 +32,12 @@
 		"SLEEP_AFTER_MS": "900000",
 		// Host names the app answers to (its Host check returns 421 for others).
 		"ALLOWED_HOSTS": "api.services.getapotheke.com",
-		// Session cookie domain (COOKIE_DOMAIN; empty means host-only). The hosted service sets it to its own domain.
-		// Not a secret.
-		"COOKIE_DOMAIN": "getapotheke.com"
+		// Reserved: the app does not read COOKIE_DOMAIN yet (empty means host-only). When it does, it must never apply
+		// to the __Host- session cookie, which may not carry a Domain attribute. Not a secret.
+		"COOKIE_DOMAIN": "getapotheke.com",
+		// No long-lived jobs:work in the container: on Cloudflare, jobs will run through a Cron Trigger or Queues,
+		// designed in P4 with the D1/R2 storage. The self-hosted images keep the worker on by default.
+		"APOTHEKE_JOBS_WORKER": "0"
 	},
 	// Secrets: set on the Worker with `wrangler secret put` (locally .dev.vars, git-ignored). Names only.
 	"secrets": { "required": ["APP_PASSWORD", "APP_KEY"] }
