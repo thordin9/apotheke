@@ -295,6 +295,23 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   unchanged. Tests: `ImportPreviewTest` (equal to the HTML dry run on both drivers, with and without creating; no write,
   transaction or DDL statement and every table's row count unchanged), `Ci4ApiImportsTest` (contract, permissions, CSRF,
   404/409/410, paging). The commit job and `GET /api/v1/jobs/{id}` are the second part. Open.
+- feat/api-import-job: API P3, second part (stacked on feat/api-import-preview): `POST /api/v1/imports/{id}/commit`
+  saves the mapping, checks the file as the preview does (422 with errors and no `skip_errors`) and starts an
+  `import.commit` job (202; a queued or running job for the import is answered instead of a second one);
+  `GET /api/v1/jobs/{id}` shows status, progress `{done, total}`, result and the stored error text, only to a user with
+  the type's permission (`Services::jobPermissions()`) who started it or is an admin, 404 for anyone else and for an
+  unknown id. `Imports::commitRows()`: one `Writes::transaction` per row (the D1 batch), no savepoint; the row's
+  `import_rows` marker (migration 0030, CI4 only, in `Backups::UNCARRIED_MIGRATIONS` and `upg_ci4_only()`) is
+  written first with `ON CONFLICT … WHERE state = 'error'`, so a line is never imported twice and an error line is
+  tried again; checkpoints every 50 rows, honours a stop; at the end the import is marked done with the result counted
+  from the markers, or, with errors and no `skip_errors`, the job fails and a new commit resumes. The HTML
+  `/import/{id}/commit` is unchanged (one transaction); it does not check for a running API job (known limit).
+  Tests: `ImportJobTest` (the same tables and result as the page's commit; no BEGIN/SAVEPOINT statement, at most 100
+  binds; stopped at a checkpoint or crashed inside a row, then resumed: the state of one run; a line another run
+  committed meanwhile is skipped; an error line is tried again; errors without skip fail and resume),
+  `Ci4ApiJobsTest` (the job through `jobs:work`, the cross-user and unknown-id 404s, a type without a permission,
+  CSRF, permissions), `Ci4MigrateTest` counts, `tests/upgrade/ci4-only.php` seeds and checks two `import_rows` rows.
+  Upgrade note under CHANGELOG `[Unreleased]` and in `docs/upgrade-3.0.md`. Open.
 
 ## Lanes
 

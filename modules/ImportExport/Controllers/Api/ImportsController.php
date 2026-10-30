@@ -6,7 +6,9 @@ namespace Apotheke\ImportExport\Controllers\Api;
 
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\ApiResponse;
+use Apotheke\Core\Jobs\JobQueue;
 use Apotheke\ImportExport\Imports;
+use Apotheke\ImportExport\Jobs\ImportCommitJob;
 use CodeIgniter\Controller;
 use CodeIgniter\HTTP\Files\UploadedFile;
 use CodeIgniter\HTTP\ResponseInterface;
@@ -15,7 +17,8 @@ use CodeIgniter\HTTP\ResponseInterface;
  * The CSV import API (API plan §3, import permission): POST /api/v1/imports (multipart `file`), GET
  * /api/v1/imports/{id} (the upload, its columns and a sample) and GET /api/v1/imports/{id}/preview (what an import
  * would do, row by row). The preview validates without writing anything (Imports::preview); a mapping given in the
- * query is checked and used, not saved. The HTML pages are ImportController.
+ * query is checked and used, not saved. POST /api/v1/imports/{id}/commit saves the mapping and starts the
+ * import.commit job (Imports::commitRows); GET /api/v1/jobs/{id} follows it. The HTML pages are ImportController.
  */
 final class ImportsController extends Controller
 {
@@ -122,6 +125,62 @@ final class ImportsController extends Controller
         $link = implode(', ', array_filter([$links['next'] !== null ? '<' . $links['next'] . '>; rel="next"' : null, $links['prev'] !== null ? '<' . $links['prev'] . '>; rel="prev"' : null]));
 
         return $link === '' ? $response : $response->setHeader('Link', $link);
+    }
+
+    /** POST /api/v1/imports/{id}/commit with an optional {"map": [...], "create": bool, "skip_errors": bool} */
+    public function commit(string $id): ResponseInterface
+    {
+        $imports = $this->imports();
+        $imp = $imports->get((int)$id);
+        if ($imp === null) {
+            return $this->notFound();
+        }
+        if ($imp['status'] === 'done') {
+            return ApiResponse::problem($this->response, 409, 'import.done', 'This file was imported already.');
+        }
+        /** @var JobQueue $queue */
+        $queue = service('jobQueue');
+        $payload = ['import_id' => $imp['id']];
+        $running = $queue->active(ImportCommitJob::TYPE, $payload);
+        if ($running !== null) {   // a second submit follows the first one's job
+            return $this->accepted($running->view());
+        }
+        try {
+            [$header] = $imports->rows($imp);
+        } catch (UserError $e) {
+            return ApiResponse::problem($this->response, 410, 'import.gone', $e->getMessage());
+        }
+        $raw = (string)$this->request->getBody();
+        try {
+            $body = $raw === '' ? [] : json_decode($raw, true, 8, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return ApiResponse::problem($this->response, 400, 'bad_request', 'The body is not valid JSON.');
+        }
+        $body = is_array($body) ? $body : [];
+        try {
+            [$imp['mapping'], $imp['options']] = $imports->setMapping($imp['id'], $header, [
+                'col' => array_key_exists('map', $body) ? $body['map'] : $imp['mapping'],
+                'create' => array_key_exists('create', $body) ? $body['create'] === true : !empty($imp['options']['create']),
+                'skip_errors' => array_key_exists('skip_errors', $body) ? $body['skip_errors'] === true : !empty($imp['options']['skip_errors']),
+            ]);
+        } catch (UserError $e) {
+            return ApiResponse::problem($this->response, 422, 'validation.failed', $e->getMessage(), ['map' => $e->getMessage()]);
+        }
+        $run = $imports->preview($imp);
+        if ($run['errors'] > 0 && !$imp['options']['skip_errors']) {
+            $msg = $run['errors'] . ' ' . ($run['errors'] === 1 ? 'row has' : 'rows have') . ' errors. Fix the file, or set skip_errors.';
+
+            return ApiResponse::problem($this->response, 422, 'validation.failed', $msg, ['rows' => $msg]);
+        }
+        $job = $queue->find($queue->enqueue(ImportCommitJob::TYPE, $payload, $imports->actor()));
+
+        return $this->accepted($job?->view());
+    }
+
+    /** @param array<string,mixed>|null $job */
+    private function accepted(?array $job): ResponseInterface
+    {
+        return ApiResponse::json($this->response, $job, 202)->setHeader('Location', '/api/v1/jobs/' . (int)($job['id'] ?? 0));
     }
 
     private function notFound(): ResponseInterface

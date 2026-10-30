@@ -1206,13 +1206,23 @@ class Services extends BaseService
     }
 
     /**
-     * The handler of each job type. None yet: the CSV import commit and the backup restore arrive as jobs in P3.
+     * The handler of each job type (the backup restore comes later in P3).
      *
      * @return array<string,\Apotheke\Core\Jobs\JobHandler>
      */
     public static function jobHandlers(): array
     {
-        return [];
+        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => new \Apotheke\ImportExport\Jobs\ImportCommitJob(static::imports(false))];
+    }
+
+    /**
+     * The permission a user needs to read a job of each type (GET /api/v1/jobs/{id}); a type not listed is never shown.
+     *
+     * @return array<string,string>
+     */
+    public static function jobPermissions(): array
+    {
+        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import'];
     }
 
     /** php spark jobs:work, as one worker named for its host and process. */
