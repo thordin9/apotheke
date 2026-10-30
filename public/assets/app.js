@@ -37,13 +37,23 @@
     }
   } catch (_) {}
 
+  /* ---------- cookie consent: Accept sets the consent cookie (the first cookie the app has), then reloads ---------- */
+  const consent = $('#consent-accept');
+  // Same attributes as POST /consent (CookieConsent::cookie()), which the form uses without JavaScript.
+  if (consent) consent.addEventListener('click', e => {
+    e.preventDefault();
+    document.cookie = 'apotheke_consent=' + consent.dataset.consent + '; Path=/; Max-Age=15552000' + (consent.dataset.domain ? '; Domain=' + consent.dataset.domain : '')
+      + (location.protocol === 'https:' ? '; Secure' : '') + '; SameSite=Lax';
+    location.reload();
+  });
+
   /* ---------- theme switch (Auto / Light / Dark): instant, persisted in localStorage + cookie ---------- */
   const DARK = '#111113', LIGHT = '#f5f5f7';
   function applyTheme(t) {
     const d = document.documentElement;
     d.setAttribute('data-theme', t);
     try { localStorage.setItem('theme', t); } catch (_) {}
-    document.cookie = 'theme=' + t + '; path=/; max-age=34560000; SameSite=Lax';
+    if (!$('#consent')) document.cookie = 'theme=' + t + '; path=/; max-age=34560000; SameSite=Lax';   // no cookie before consent
     document.querySelectorAll('meta[name=theme-color]').forEach(m => m.remove());
     const cs = $('meta[name=color-scheme]'); if (cs) cs.content = t === 'auto' ? 'light dark' : t;
     const add = (c, media) => { const m = document.createElement('meta'); m.name = 'theme-color'; m.content = c; if (media) m.media = media; document.head.appendChild(m); };
@@ -304,7 +314,7 @@
       if (autoClosed) { autoClosed = false; return; }
       const v = statsBox.open ? '1' : '0';
       store('statsOpen', v);
-      document.cookie = 'stats_open=' + v + '; path=/; max-age=31536000; SameSite=Lax';
+      if (!$('#consent')) document.cookie = 'stats_open=' + v + '; path=/; max-age=31536000; SameSite=Lax';
       if (statsBox.open) load();
     });
     statsBox.addEventListener('change', e => { if (e.target.name === 'strange') store('statsRange', e.target.value); });

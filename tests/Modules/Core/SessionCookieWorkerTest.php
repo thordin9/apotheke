@@ -225,6 +225,7 @@ final class SessionCookieWorkerTest extends CIUnitTestCase
         }
         $config = config(App::class);
         $request = new IncomingRequest($config, new SiteURI($config, $path), null, new UserAgent());
+        $cookies += ['apotheke_consent' => 'v1'];   // cookie consent (Config\Consent)
         $request->setGlobal('cookie', $cookies);
         // PHP's session_start() reads the id from $_COOKIE, as on a web request.
         $_COOKIE = $cookies;

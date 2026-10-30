@@ -287,6 +287,22 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   need a refused wrong password skip on a trust-auth server (`SkipsOutsideCi::skipUnlessPgRejectsWrongPasswords`, a
   failure in CI; `docs/testing.md`). N-1302: `DockerfileTest`'s pcntl test sits after the OpenAPI test, which has its
   docblock back. Open.
+- [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
+  session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
+  without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
+  (`Layout\Page::consentNotice()`, Accept in `app.js`), and the theme and recently-viewed cookies wait too.
+  `Core\Filters\ConsentFilter` (required, before `session`, last after) refuses the writes and strips any
+  `Set-Cookie` (after, and a `header_register_callback` for error answers); `SessionCookie` and `SessionToken`
+  start no session without it. Tests: `Ci4CookieConsentTest` (route matrix, wrong values answer byte-for-byte like
+  none, host-only and parent-domain cookies, sign-in end to end with consent), `ConsentFilterTest`,
+  `tests/visual/consent.spec.ts`; the test clients, Playwright (`storageState`) and the curl scripts send consent.
+  Docs: [Cookie consent](deployment-and-operations.md#cookie-consent), `docs/api.md`, OpenAPI. QA round 1 (D-1340,
+  PM): `POST /consent` (`Core\Controllers\ConsentController`, strictly same-origin, `consent=accept`, `return`
+  through `CookieConsent::returnPath()`) is the no-JS Accept; `COOKIE_CONSENT=off` turns it all off; L-1341
+  (backstop test with `session.auto_start`), L-1342 (no-store), N-1343..N-1345 fixed; N-1346: no decline button
+  by design (ignoring the notice stays cookieless). QA round 2: M-1420 upgrade note (`upgrade-3.0.md`, CHANGELOG),
+  N-1422 curl example with one seeded jar, N-1423, N-1424 (non-ASCII `return` percent-encoded); L-1421 is a
+  follow-up. Mutation list in the PR body. Open.
 
 - [#186](https://github.com/thordin9/apotheke/pull/186): API P2 reads (API plan §3, Users and sign-in and Branding rows):
   `GET /api/v1/users` (id, name, role, status, created_at, last_login_at; 2.6.x stores no e-mail, so there is none),

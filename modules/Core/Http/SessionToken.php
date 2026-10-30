@@ -8,7 +8,8 @@ namespace Apotheke\Core\Http;
  * The session's CSRF token (legacy csrf_token($create) on main, SEC-L2). A page
  * that renders a form calls this before any output, which starts the session on
  * demand with the settings SessionCookie put in place. With $create false
- * (error pages), or once output has started, it never starts one.
+ * (error pages), without cookie consent, or once output has started, it never
+ * starts one.
  */
 final class SessionToken
 {
@@ -22,7 +23,8 @@ final class SessionToken
         if (is_string($token) && $token !== '') {
             return $token;
         }
-        if (!$create || headers_sent()) {
+        // No cookie consent: no session, so no token (ConsentFilter refuses the write anyway).
+        if (!$create || headers_sent() || !CookieConsent::request()) {
             return '';
         }
         if (session_status() !== PHP_SESSION_ACTIVE) {

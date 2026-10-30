@@ -24,6 +24,9 @@ $routes->match(['GET', 'HEAD'], 'brand/([a-z0-9.\-]+)', '\\Apotheke\\Settings\\C
 // Media: served photos and thumbnails, never an original (legacy serve_image()).
 $routes->match(['GET', 'HEAD'], 'media/(full|thumb)/([^/]+)', '\\Apotheke\\Media\\Controllers\\MediaController::serve/$1/$2', ['permission' => 'view']);
 
+// Cookie consent without JavaScript: the notice's Accept form (strictly same-origin, no CSRF token).
+$routes->post('consent', '\\Apotheke\\Core\\Controllers\\ConsentController::accept', $none);
+
 // Layout: the menu's Auto / Light / Dark.
 $routes->post('theme', '\\Apotheke\\Layout\\Controllers\\ThemeController::save', ['permission' => 'view']);
 
