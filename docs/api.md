@@ -44,8 +44,11 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 
 `code` is stable: `auth.required` (401), `auth.invalid_credentials` (401), `auth.pending_approval` (403),
 `auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `not_found` (404), `permission.denied` (403),
-`rate_limited` (429, with `Retry-After`), `unsupported_media_type` (415), `upload.too_large` (413) and
-`validation.failed` (422, with an `errors` map of field to message).
+`rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
+(413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
+problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's
+own text (it is logged); its HSTS header depends on the connection itself being HTTPS, not on `PUBLIC_URL`. Any other
+uncaught error status without a code listed here (a 409 or 410, say) is `request.failed`.
 
 Every `/api` answer is `Cache-Control: no-store` and carries `Content-Security-Policy: default-src 'none';
 frame-ancestors 'none'; sandbox`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,

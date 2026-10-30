@@ -39,23 +39,34 @@ final class SameOrigin
             return true;
         }
 
-        return in_array(rtrim($origin, '/'), $this->ownOrigins($server, $https, $publicUrl), true);
+        return in_array(self::normalise($origin), $this->ownOrigins($server, $https, $publicUrl), true);
     }
 
     /**
-     * The app's own origins, lower case: this request's scheme and host, and
-     * PUBLIC_URL's origin.
+     * An origin for comparison: lower case, no trailing '/', and one trailing
+     * dot of the host dropped (`example.test.` is `example.test`, QA L-1140).
+     */
+    public static function normalise(string $origin): string
+    {
+        $origin = rtrim(strtolower(trim($origin)), '/');
+
+        return (string)preg_replace('#^([a-z][a-z0-9+.-]*://[^/:\[\]]+)\.(:\d+)?$#', '$1$2', $origin);
+    }
+
+    /**
+     * The app's own origins, normalised (self::normalise()): this request's
+     * scheme and host, and PUBLIC_URL's origin.
      *
      * @param array<string,mixed> $server
      * @return list<string>
      */
     public function ownOrigins(array $server, bool $https, string $publicUrl = ''): array
     {
-        $own = [($https ? 'https' : 'http') . '://' . strtolower((string)($server['HTTP_HOST'] ?? ''))];
+        $own = [self::normalise(($https ? 'https' : 'http') . '://' . (string)($server['HTTP_HOST'] ?? ''))];
         $p = $publicUrl !== '' ? parse_url($publicUrl) : false;
         if (is_array($p) && isset($p['scheme'], $p['host'])) {
             $host = str_contains($p['host'], ':') && $p['host'][0] !== '[' ? '[' . $p['host'] . ']' : $p['host'];
-            $own[] = strtolower($p['scheme'] . '://' . $host . (isset($p['port']) ? ':' . $p['port'] : ''));
+            $own[] = self::normalise($p['scheme'] . '://' . $host . (isset($p['port']) ? ':' . $p['port'] : ''));
         }
 
         return $own;
