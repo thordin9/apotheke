@@ -1,0 +1,140 @@
+# Apotheke on FrankenPHP: Caddy + PHP in one process (Dockerfile.frankenphp). The same rules as the nginx image
+# (docker/nginx.conf); the differences are listed in docs/deployment-and-operations.md (FrankenPHP image).
+# Request bodies: 22 MB on every route; 520 MB only on POST /backup/restore, and only after the app said yes to
+# /backup/restore/check (signed in with the Backup permission). PHP's own limits (php-frankenphp.ini) are the
+# restore ones, so these caps are what keeps every other route at 22 MB (scripts/docker-auth-checks.sh tests it).
+{
+	admin off
+	auto_https off
+	persist_config off
+	skip_install_trust
+	frankenphp {
+		# PHP threads = requests served at once. The entrypoint checks the value (1-64, default 2).
+		num_threads {$FRANKENPHP_NUM_THREADS:2}
+		max_threads {$FRANKENPHP_NUM_THREADS:2}
+	}
+	servers {
+		# nginx: keepalive_timeout 65s, fastcgi_read_timeout 75s (300s on /backup/restore, set by the app itself)
+		timeouts {
+			read_body 300s
+			idle 65s
+		}
+	}
+	log {
+		output stderr
+		level WARN
+	}
+}
+
+:{$PORT:9091} {
+	root * /var/www/app/public
+	# nginx combined access log on stdout (Cookie and Authorization are redacted by Caddy by default)
+	log {
+		output stdout
+		format json
+	}
+
+	# nginx: server_tokens off (Caddy has no version in Server, but drop the name too); httpoxy (HTTP_PROXY "")
+	header -Server
+	request_header -Proxy
+
+	# nginx: gzip on, min length 512, the same types
+	encode {
+		gzip 5
+		minimum_length 512
+		match {
+			header Content-Type text/css*
+			header Content-Type application/javascript*
+			header Content-Type text/javascript*
+			header Content-Type application/json*
+			header Content-Type image/svg+xml*
+			header Content-Type text/csv*
+			header Content-Type text/plain*
+			header Content-Type text/html*
+			header Content-Type application/manifest+json*
+		}
+	}
+
+	# One route, so the rules apply in the order written (Caddy otherwise sorts directives by type)
+	route {
+		# nginx: only GET/HEAD/POST/... reach the app; TRACE gets 405
+		@trace method TRACE
+		respond @trace 405
+
+		# Camera originals are not a URL, in any spelling; dotfiles and private dirs are never served or run
+		@originals path_regexp originals (?i)^/originals(/|$)
+		respond @originals 404
+		@dot path_regexp dot /\.
+		respond @dot 404
+		@private path_regexp private ^/(src|data|bin|migrations|docker|tests|vendor|config\.php)(/|$)
+		respond @private 404
+		# Only the front controller runs PHP; any other *.php is a 404, never executed
+		@otherphp {
+			path_regexp otherphp \.(php|phtml|phar)$
+			not path /index.php
+		}
+		respond @otherphp 404
+
+		# Static assets: long-lived cache, nosniff, never the app (nginx: location ^~ /assets/ ... try_files $uri =404)
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header @assets X-Content-Type-Options nosniff
+		@assetfile {
+			path /assets/*
+			file {path}
+		}
+		file_server @assetfile
+		respond @assets 404
+
+		# Backup restore: up to 520 MB, but only after the app said yes to /backup/restore/check. forward_auth asks
+		# the app (a body-less GET, same Host and cookies) before the body is read; any non-2xx answer (401, 403,
+		# 421 with the app's text, 404) is returned as is (nginx: auth_request).
+		@restore {
+			method POST
+			path /backup/restore
+		}
+		@restoretoolarge {
+			method POST
+			path /backup/restore
+			expression `{http.request.header.Content-Length}.matches("^[0-9]{1,15}$") && int({http.request.header.Content-Length}) > 545259520`
+		}
+		request_body @restore {
+			max_size 520MB
+		}
+		forward_auth @restore 127.0.0.1:{$PORT:9091} {
+			uri /backup/restore/check
+		}
+		# over 520 MB: refused only after the check, as nginx does (auth_request runs before the body size check)
+		respond @restoretoolarge 413
+		# Every other request (any other path, or another method on /backup/restore): 22 MB (nginx:
+		# client_max_body_size 22m). A declared length over the cap is a 413 before anything is read; a body without
+		# a length (chunked) is cut off at the cap by request_body.
+		@toolarge {
+			not {
+				method POST
+				path /backup/restore
+			}
+			expression `{http.request.header.Content-Length}.matches("^[0-9]{1,15}$") && int({http.request.header.Content-Length}) > 23068672`
+		}
+		respond @toolarge 413
+		@notrestore {
+			not {
+				method POST
+				path /backup/restore
+			}
+		}
+		request_body @notrestore {
+			max_size 22MB
+		}
+		# Existing files are served, everything else goes to the front controller (nginx: try_files $uri @app)
+		php_server {
+			try_files {path} index.php
+		}
+	}
+
+	# Errors raised by Caddy itself (413, 404 of a missing asset): a bare status, no Server header
+	handle_errors {
+		header -Server
+		respond "{err.status_code} {err.status_text}" {err.status_code}
+	}
+}
