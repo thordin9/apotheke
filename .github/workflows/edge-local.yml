@@ -23,7 +23,7 @@ jobs:
           node-version: '22'
       - name: Install the Worker tooling (edge/)
         working-directory: edge
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Throwaway .dev.vars
         working-directory: edge
         run: |

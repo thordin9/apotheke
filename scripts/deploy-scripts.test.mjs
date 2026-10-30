@@ -4,6 +4,8 @@
 //  - scripts/app-worker-check.mjs fails when dist has no _headers (unless STUB_DIST=1);
 //  - scripts/cf-worker-guard.mjs: the allowlist, and no other wrangler config next to or above it (L-1431);
 //  - scripts/cf-deploy.sh: guard first, then `wrangler deploy --config wrangler.jsonc` (a fake npx records it).
+//  - each deploy job's tag step, run from the workflow with a fake `gh`: main, or vX.Y.Z with a published full
+//    release (L-1460).
 // Run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -212,3 +214,72 @@ test("cf-deploy.sh: an authentication error names the missing permission", () =>
 		rmSync(top, { recursive: true, force: true });
 	}
 });
+
+// The deploy job's first step (L-1460, N-1438), taken from each workflow and run as GitHub runs it
+// (bash -eo pipefail), with a fake `gh` that answers the release-by-tag API from FAKE_RELEASE (empty = a 404,
+// which is also what a draft looks like to a read-only token) and applies the step's own --jq with jq.
+function tagStep(file) {
+	const yml = readFileSync(join(root, ".github/workflows", file), "utf8");
+	const m = yml.match(/\n      - name: Tag is vX\.Y\.Z[^\n]*\n(?:        (?!run:)[^\n]*\n)*        run: \|\n((?:(?:          [^\n]*)?\n)+)/);
+	assert.ok(m, `${file}: the tag step has a run block`);
+	return m[1].replace(/^ {10}/gm, "");
+}
+function runTagStep(script, ref, release) {
+	const bin = mkdtempSync(join(tmpdir(), "fake-gh-"));
+	const calls = join(bin, "calls");
+	writeFileSync(calls, "");
+	writeFileSync(
+		join(bin, "gh"),
+		`#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${calls}"
+[ -n "$GH_TOKEN" ] || { echo "gh: no token" >&2; exit 4; }
+[ -n "$FAKE_RELEASE" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+jq=""; while [ $# -gt 0 ]; do [ "$1" = --jq ] && jq="$2"; shift; done
+printf '%s' "$FAKE_RELEASE" | jq -r "$jq"
+`,
+	);
+	chmodSync(join(bin, "gh"), 0o755);
+	const r = run("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", script], {
+		env: {
+			PATH: `${bin}:${process.env.PATH}`,
+			REF: ref,
+			GH_TOKEN: "placeholder-read-only",
+			GITHUB_REPOSITORY: "owner/repo",
+			FAKE_RELEASE: release === undefined ? "" : JSON.stringify(release),
+		},
+	});
+	const out = { ...r, calls: readFileSync(calls, "utf8") };
+	rmSync(bin, { recursive: true, force: true });
+	return out;
+}
+const FULL = { tag_name: "v1.2.3", draft: false, prerelease: false };
+
+for (const file of ["deploy-frontend.yml", "deploy-edge.yml"]) {
+	test(`${file}: the tag step allows main and published full releases only (L-1460)`, () => {
+		const script = tagStep(file);
+		let r = runTagStep(script, "refs/heads/main", undefined);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.equal(r.calls, "", "main needs no release");
+
+		for (const ref of ["refs/heads/feature", "refs/pull/1/merge", "refs/tags/v1.2.3-rc.1", "refs/tags/v1.2", "refs/tags/x1.2.3"]) {
+			r = runTagStep(script, ref, FULL);
+			assert.equal(r.status, 1, ref);
+			assert.equal(r.calls, "", `${ref}: refused before the API`);
+		}
+
+		r = runTagStep(script, "refs/tags/v1.2.3", FULL);
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		assert.match(r.calls, /^api repos\/owner\/repo\/releases\/tags\/v1\.2\.3 --jq /);
+		assert.equal(r.calls.split("\n").filter(Boolean).length, 1, "one API call");
+
+		r = runTagStep(script, "refs/tags/v1.2.3", undefined);
+		assert.equal(r.status, 1);
+		assert.match(r.stdout, /::error title=No published release::No published GitHub Release for v1\.2\.3/);
+
+		for (const bad of [{ ...FULL, prerelease: true }, { ...FULL, draft: true }, { ...FULL, draft: true, prerelease: true }, { tag_name: "v1.2.3" }]) {
+			r = runTagStep(script, "refs/tags/v1.2.3", bad);
+			assert.equal(r.status, 1, JSON.stringify(bad));
+			assert.match(r.stdout, /::error title=Not a full release::The release for v1\.2\.3 is a draft or a pre-release/);
+		}
+	});
+}

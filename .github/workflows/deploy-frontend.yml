@@ -58,10 +58,10 @@ jobs:
             echo "has_build=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=No frontend build::frontend/package.json has no build script yet; the dry run uses a stub and nothing is deployed."
           fi
-      - name: Build frontend/ (npm ci && npm run build)
+      - name: Build frontend/ (npm ci --ignore-scripts && npm run build)
         if: steps.detect.outputs.has_build == 'true'
         working-directory: frontend
-        run: npm ci --no-audit --no-fund && npm run build
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Stub dist (no frontend build yet)
         if: steps.detect.outputs.has_build != 'true'
         run: |
@@ -70,7 +70,7 @@ jobs:
           printf '<!doctype html><title>Apotheke app</title>\n' > frontend/dist/app/index.html
       - name: Install the Worker tooling (edge/)
         working-directory: edge
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Deploy tooling tests (Worker headers and caching, drift check, guard, cf-deploy.sh; no network)
         run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
       - name: Worker guard (allowlist; no routes, no custom domains)
@@ -116,10 +116,15 @@ jobs:
     concurrency:
       group: deploy-site
       cancel-in-progress: false
+    # Only reads the release for the tag (L-1460); nothing in this job writes to the repository.
+    permissions:
+      contents: read
     steps:
-      - name: Tag is vX.Y.Z (a release or a manual run on a tag)
+      # This step and the gates below must never be allowed to fail open (N-1461): a failure stops the deploy.
+      - name: Tag is vX.Y.Z with a published full release (a release or a manual run on a tag)
         env:
           REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$REF" in
             refs/heads/main) exit 0 ;;
@@ -128,6 +133,17 @@ jobs:
           esac
           if ! [[ "${REF#refs/tags/}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "::error title=Not a release tag::Deploys run only for tags vX.Y.Z (numbers only)."
+            exit 1
+          fi
+          # L-1460: a manual run on a tag deploys only a published full release. With this read-only token the API
+          # does not return drafts, so a draft and a missing release are both a 404 here, and both fail.
+          tag="${REF#refs/tags/}"
+          if ! state="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '"draft=\(.draft) prerelease=\(.prerelease)"')"; then
+            echo "::error title=No published release::No published GitHub Release for $tag (missing or a draft); nothing was deployed."
+            exit 1
+          fi
+          if [ "$state" != "draft=false prerelease=false" ]; then
+            echo "::error title=Not a full release::The release for $tag is a draft or a pre-release ($state); nothing was deployed."
             exit 1
           fi
       - name: Mask the account id and check for the token
@@ -155,7 +171,7 @@ jobs:
         if: steps.token.outputs.set == 'true'
         with:
           node-version: '22'
-      - name: Build frontend/ (npm ci && npm run build)
+      - name: Build frontend/ (npm ci --ignore-scripts && npm run build)
         if: steps.token.outputs.set == 'true'
         working-directory: frontend
         run: npm ci --ignore-scripts --no-audit --no-fund && npm run build

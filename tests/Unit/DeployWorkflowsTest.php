@@ -101,6 +101,13 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringContainsString('refs/heads/main) exit 0 ;;', $first);
         $this->assertStringContainsString('=~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then', $first);
         $this->assertStringNotContainsString('if:', $first);
+
+        // L-1460: a tag also needs a published full release, read with the job's read-only token (tested by running
+        // the step in scripts/deploy-scripts.test.mjs). Only GH_TOKEN, never a secret.
+        $this->assertStringContainsString('GH_TOKEN: ${{ github.token }}', $first);
+        $this->assertStringContainsString('gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag"', $first);
+        $this->assertStringContainsString('if [ "$state" != "draft=false prerelease=false" ]; then', $first);
+        $this->assertStringNotContainsString('secrets.', $first);
         foreach (['v1.2.3' => true, 'v10.0.0' => true, 'v1.2' => false, 'v1.2.3-rc.1' => false, 'v01.2.3' => false, 'v1.2.3x' => false, 'vX.Y.Z' => false] as $tag => $ok) {
             $this->assertSame($ok, preg_match('/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/', $tag) === 1, $tag);
         }
@@ -111,7 +118,10 @@ final class DeployWorkflowsTest extends TestCase
     {
         $yml = $this->workflow($file);
         $this->assertStringContainsString("\npermissions:\n  contents: read\n\n", $yml);
-        $this->assertSame(1, substr_count($yml, 'permissions:'), 'no job widens the permissions');
+        // The deploy job states its own (it reads the tag's release, L-1460); every block is contents: read only.
+        $this->assertStringContainsString("    permissions:\n      contents: read\n    steps:\n", $this->job($yml, 'deploy'));
+        $this->assertSame(2, substr_count($yml, 'permissions:'));
+        $this->assertSame(2, preg_match_all("/^( *)permissions:\n\\1  contents: read\n(?!\\1  \\S)/m", $yml), 'no block widens the permissions');
         $this->assertDoesNotMatchRegularExpression('/id-token|contents:\s*write|: write\b|write-all/', $yml);
         $this->assertStringNotContainsString('pull_request_target', $yml);
 
@@ -153,6 +163,37 @@ final class DeployWorkflowsTest extends TestCase
                 $this->assertStringContainsString('npm ci --ignore-scripts --no-audit --no-fund', $step, 'N-1436');
             }
         }
+    }
+
+    #[DataProvider('deploys')]
+    public function testNoStepMayFailOpen(string $file): void
+    {
+        // N-1461: continue-on-error on the tag step, the token check or the storage gate would let a refused deploy
+        // carry on; nothing in these workflows may fail open.
+        $yml = $this->workflow($file);
+        $this->assertStringNotContainsString('continue-on-error', $yml);
+        foreach ($this->steps($yml, 'deploy') as $step) {
+            $this->assertStringNotContainsString('continue-on-error', $step);
+        }
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function npmWorkflows(): iterable
+    {
+        yield 'frontend' => ['deploy-frontend.yml'];
+        yield 'edge' => ['deploy-edge.yml'];
+        yield 'edge-local' => ['edge-local.yml'];
+    }
+
+    #[DataProvider('npmWorkflows')]
+    public function testEveryNpmCiSkipsInstallScripts(string $file): void
+    {
+        // N-1436 (deploy) and N-1462 (PR and test jobs): the same install everywhere, so a dependency that needs an
+        // install script fails on the pull request, not at release time.
+        $yml = $this->workflow($file);
+        $all = preg_match_all('/run: [^\n]*npm ci\b/', $yml);
+        $this->assertGreaterThan(0, $all);
+        $this->assertSame($all, substr_count($yml, 'npm ci --ignore-scripts --no-audit --no-fund'));
     }
 
     #[DataProvider('deploys')]
