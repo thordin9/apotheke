@@ -18,3 +18,12 @@ updates:
     groups:
       tests-e2e:
         patterns: ['*']
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      playwright:
+        patterns: ['*']

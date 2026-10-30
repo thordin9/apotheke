@@ -300,7 +300,7 @@ final class Ci4BranchCiTest extends TestCase
     }
 
     /**
-     * Dependabot keeps the SHA-pinned actions and the npm dev dependencies of tests/e2e current: one weekly grouped PR
+     * Dependabot keeps the SHA-pinned actions and the npm dev dependencies (Playwright at the root, tests/e2e) current: one weekly grouped PR
      * per ecosystem and directory, whose commits pass check-commits.
      */
     public function testDependabotUpdatesTheActionsWeeklyInOneGroup(): void
@@ -325,17 +325,26 @@ final class Ci4BranchCiTest extends TestCase
             . "      prefix: ci\n"
             . "    groups:\n"
             . "      tests-e2e:\n"
+            . "        patterns: ['*']\n"
+            . "  - package-ecosystem: npm\n"
+            . "    directory: /\n"
+            . "    schedule:\n"
+            . "      interval: weekly\n"
+            . "    commit-message:\n"
+            . "      prefix: ci\n"
+            . "    groups:\n"
+            . "      playwright:\n"
             . "        patterns: ['*']\n",
             (string)file_get_contents($this->root() . '/.github/dependabot.yml')
         );
         // A package.json added under frontend/, edge/ or site/ needs its own entry here.
         $found = [];
-        foreach (['tests/e2e', 'frontend', 'edge', 'site'] as $dir) {
+        foreach (['.', 'tests/e2e', 'frontend', 'edge', 'site'] as $dir) {
             if (is_file($this->root() . '/' . $dir . '/package.json')) {
                 $found[] = $dir;
             }
         }
-        $this->assertSame(['tests/e2e'], $found);
+        $this->assertSame(['.', 'tests/e2e'], $found);
     }
 
     public function testServerEnvPassesApothekeTestDbExplicitly(): void
