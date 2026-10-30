@@ -167,6 +167,10 @@ final class Ci4ApiHttpTest extends TestCase
         try {
             $r = $server->client()->get('/api/v1/nothing-here');
             $this->assertSame('max-age=31536000', $r['headers']['strict-transport-security'] ?? null);
+            // QA L-1220: an uncaught error (the exception handler) gets it too.
+            $e = $server->client()->get('/api/v1/a;b');
+            $this->assertSame([400, 'application/problem+json'], [$e['status'], $e['headers']['content-type'] ?? null]);
+            $this->assertSame('max-age=31536000', $e['headers']['strict-transport-security'] ?? null);
             $this->assertArrayNotHasKey('access-control-allow-origin', $server->client()->get('/api/v1/x', ['Origin: ' . self::APP])['headers'], 'CORS off by default');
         } finally {
             $server->stop();

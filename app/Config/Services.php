@@ -401,6 +401,7 @@ class Services extends BaseService
         $config->cleanup ??= static function (): void {
             static::requestCleanup()->run();
         };
+        $config->publicUrl ??= static fn (): string => static::apothekeConfig()->publicUrl();
         if (PHP_SAPI !== 'cli') {
             $config->page ??= static fn (): \Apotheke\Core\Http\ErrorPage => static::errorPage();
         }
