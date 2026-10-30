@@ -457,7 +457,7 @@ and `bin/settings.php` exit 1 with `Could not connect to the database` and only 
 
 ### Cookie consent
 
-From 3.3 the app sets no cookie in the browser until the user clicks Accept on the consent banner (the hosted SPA's
+From 3.4 the app sets no cookie in the browser until the user clicks Accept on the consent banner (the hosted SPA's
 banner, or the notice the app's own pages show at the top until then). The contract, kept in `app/Config/Consent.php`:
 
 * **The cookie:** `apotheke_consent=v1`, set by the banner script, never by the server: `Path=/`,
@@ -481,7 +481,7 @@ banner, or the notice the app's own pages show at the top until then). The contr
   above) and answers `303` to `return` when that is a path on this site, else to `/`. Another `consent` value
   is `400`. There is no decline button: ignoring the notice keeps the browser cookieless.
 * **`COOKIE_CONSENT`** (environment): `required` (the default) or `off`. With `off` the app behaves as before
-  3.3: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
+  3.4: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
   `required`. In Docker set it in `.env`.
 * Answers without a cookie get `Cache-Control: no-store` when they set no caching of their own (no session sends
   its no-cache headers). 2.6.x (branch `old`) has no banner and stays security-only.

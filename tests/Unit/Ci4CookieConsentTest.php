@@ -132,7 +132,7 @@ final class Ci4CookieConsentTest extends TestCase
         $this->assertSame('/search?q=caf%C3%A9', $r['headers']['location'] ?? null, 'N-1424: non-ASCII percent-encoded');
     }
 
-    /** COOKIE_CONSENT=off: as before 3.3 (cookies, sign-in, no notice); any value but off is required. */
+    /** COOKIE_CONSENT=off: as before 3.4 (cookies, sign-in, no notice); any value but off is required. */
     public function testTheSwitch(): void
     {
         foreach (['off' => true, 'required' => false, 'nope' => false] as $value => $off) {
@@ -294,7 +294,7 @@ final class Ci4CookieConsentTest extends TestCase
         $this->assertSame(200, $api->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD], ['X-CSRF-Token: ' . $token])['status']);
     }
 
-    /** A signed-in session cookie without consent (from before 3.3, or consent cleared) is not used or renewed. */
+    /** A signed-in session cookie without consent (from before 3.4, or consent cleared) is not used or renewed. */
     public function testAnOldSessionCookieIsIgnoredWithoutConsent(): void
     {
         $c = $this->client();

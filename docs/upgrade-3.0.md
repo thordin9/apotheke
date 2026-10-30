@@ -18,7 +18,7 @@ only app: the variable may stay empty or `ci4`, and `APOTHEKE_APP=legacy` exits 
   the container exits with code 64.
 * **Docker only.** The supported install is the Docker image. Running without Docker works for development (see
   [Getting started → Local development](getting-started.md#local-development)), but is not a supported deployment.
-* **Cookie consent (3.3 and later).** The [cookie consent banner](deployment-and-operations.md#cookie-consent) ships
+* **Cookie consent (3.4 and later).** The [cookie consent banner](deployment-and-operations.md#cookie-consent) ships
   from 3.x only; the 2.6.x line on the branch `old` stays security-only and has none. After the upgrade, users who
   were signed in appear signed out until they click Accept on the notice; their existing session then works again
   (it is not deleted). Scripted `/api` clients (curl, cron jobs) must send the cookie `apotheke_consent=v1`, or

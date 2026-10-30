@@ -33,7 +33,7 @@ class Consent extends BaseConfig
     /** @var list<string> */
     public array $acceptedValues = self::ACCEPTED;
 
-    /** COOKIE_CONSENT: `required` (the default; any other value too) or `off` (cookies as before 3.3, no 403). */
+    /** COOKIE_CONSENT: `required` (the default; any other value too) or `off` (cookies as before 3.4, no 403). */
     public bool $required = true;
 
     public function __construct()
