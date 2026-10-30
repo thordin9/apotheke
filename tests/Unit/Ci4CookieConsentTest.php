@@ -48,6 +48,10 @@ final class Ci4CookieConsentTest extends TestCase
         yield 'api session' => ['GET', '/api/v1/session', 200];
         yield 'api me' => ['GET', '/api/v1/me', 401];
         yield 'api settings' => ['GET', '/api/v1/settings', 401];
+        yield 'api branding (public)' => ['GET', '/api/v1/branding', 200];
+        yield 'api users' => ['GET', '/api/v1/users', 401];
+        yield 'api roles' => ['GET', '/api/v1/roles', 401];
+        yield 'api security' => ['GET', '/api/v1/security', 401];
         yield 'openapi.json' => ['GET', '/api/v1/openapi.json', 200];
         yield '404' => ['GET', '/brand/no-such.png', 404];
         yield 'api 404' => ['GET', '/api/v1/no-such', 404];
@@ -298,8 +302,13 @@ final class Ci4CookieConsentTest extends TestCase
         $me = $c->rest('GET', '/api/v1/me');
         $this->assertSame(401, $me['status']);
         $this->assertSame([], self::setCookies($me));
+        foreach (['/api/v1/users', '/api/v1/roles', '/api/v1/security'] as $path) {
+            $r = $c->rest('GET', $path);
+            $this->assertSame([401, []], [$r['status'], self::setCookies($r)], $path . ': the admin session is not used');
+        }
         $c->consent = 'v1';
         $this->assertSame(200, $c->rest('GET', '/api/v1/me')['status'], 'the session is still there once consent is back');
+        $this->assertSame(200, $c->rest('GET', '/api/v1/users')['status']);
     }
 
     /**
