@@ -92,6 +92,8 @@ final class DockerfileTest extends TestCase
             $this->assertStringContainsString('  0|false|no) jobs_worker=0 ;;', $sh, $f);
             $this->assertMatchesRegularExpression('/su-exec www-data (apotheke-jobs-worker|"\$@")/', $sh, $f);
             $this->assertMatchesRegularExpression('/kill -TERM "\$jobs"/', $sh, $f);
+            // compose keeps PostgreSQL's files in ./data/postgres, inside the app's /data: never chowned by the app
+            $this->assertStringContainsString('find "$DATA_DIR" -path "$DATA_DIR/postgres" -prune -o \! -user www-data -exec chown -h www-data:www-data {} +', $sh, $f);
         }
         $worker = (string)file_get_contents("$root/docker/jobs-worker.sh");
         $this->assertStringContainsString('php spark --no-header jobs:work &', $worker);

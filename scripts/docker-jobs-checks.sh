@@ -8,7 +8,7 @@
 #  - APOTHEKE_JOBS_WORKER=0 runs no worker (the job stays queued); a bad value exits 64;
 #  - the log never carries APP_PASSWORD.
 # Usage: scripts/docker-jobs-checks.sh <image> [port]   (default port 9096)
-# shellcheck disable=SC2317 # the helpers below are called through wait_for
+# shellcheck disable=SC2317,SC2329 # the helpers below are called through wait_for
 set -euo pipefail
 image=${1:?image}
 port=${2:-9096}

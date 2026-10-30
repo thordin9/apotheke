@@ -610,6 +610,14 @@ jobs:
           export APP_PW
           bash scripts/docker-auth-checks.sh http://127.0.0.1:9091
           docker compose exec -T apotheke sh -c 'test "$DB_DRIVER" = pgsql'
+          # The app's start never takes over PostgreSQL's directory (./data/postgres inside the app's /data)
+          docker compose restart apotheke
+          docker compose --profile postgres up -d --wait --wait-timeout 120
+          owner=$(sudo stat -c %u data/postgres/PG_VERSION)
+          echo "data/postgres/PG_VERSION owner uid $owner"
+          test "$owner" != 82
+          docker compose --profile postgres restart postgres
+          docker compose --profile postgres up -d --wait --wait-timeout 120
       - name: Container logs
         if: always()
         run: docker compose --profile postgres logs --no-color || true

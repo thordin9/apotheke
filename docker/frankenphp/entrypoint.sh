@@ -25,7 +25,9 @@ for d in images thumbs originals originals/map sessions; do
   if [ -L "$DATA_DIR/$d" ]; then echo "apotheke: $DATA_DIR/$d must be a directory, not a symbolic link" >&2; exit 78; fi
 done
 mkdir -p "$DATA_DIR/images" "$DATA_DIR/thumbs" "$DATA_DIR/originals/map" "$DATA_DIR/sessions"
-find "$DATA_DIR" \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
+# ./data/postgres is the compose postgres service's own directory (owned by its postgres user): never touched here,
+# or PostgreSQL could not start (or initialise) after the app started next to it.
+find "$DATA_DIR" -path "$DATA_DIR/postgres" -prune -o \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
 chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 # The first 3.0 start signs everyone out once: legacy sessions are not carried over (PLAN 3.5). A link in place of
 # the marker counts as no marker and is replaced by a file.
@@ -99,7 +101,7 @@ web=$!
 (as_www apotheke-jobs-worker) &
 jobs=$!
 stopping=0
-# shellcheck disable=SC2317 # called by the trap
+# shellcheck disable=SC2317,SC2329 # called by the trap
 stop() { stopping=1; kill -TERM "$web" "$jobs" 2>/dev/null || true; }
 trap stop TERM INT QUIT
 while [ "$stopping" = 0 ] && kill -0 "$web" 2>/dev/null; do

@@ -13,7 +13,7 @@ set -u
 cd /var/www/app || exit 1
 child=0
 stopping=0
-# shellcheck disable=SC2317 # called by the trap
+# shellcheck disable=SC2317,SC2329 # called by the trap
 stop() {
   stopping=1
   if [ "$child" != 0 ]; then kill -TERM "$child" 2>/dev/null || true; fi
