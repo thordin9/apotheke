@@ -234,6 +234,30 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertStringContainsString('git push --atomic origin HEAD:main "v$NEXT"', $yml);
     }
 
+    /** L-1060: the release pushes with the release GitHub App's token; GITHUB_TOKEN stays read-only. */
+    public function testReleaseWorkflowPushesWithTheAppToken(): void
+    {
+        $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');
+        $this->assertMatchesRegularExpression('/^    environment: release\n/m', $yml);
+        $this->assertStringContainsString(
+            "        id: app-token\n"
+            . "        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n"
+            . "        with:\n"
+            . "          client-id: \${{ vars.RELEASE_APP_CLIENT_ID }}\n"
+            . "          private-key: \${{ secrets.RELEASE_APP_PRIVATE_KEY }}\n"
+            . "          permission-contents: write\n",
+            $yml
+        );
+        $this->assertStringNotContainsString('app-id:', $yml);
+        $this->assertStringContainsString("          token: \${{ steps.app-token.outputs.token }}\n", $yml);
+        $this->assertStringContainsString("          GH_TOKEN: \${{ steps.app-token.outputs.token }}\n", $yml);
+        // GITHUB_TOKEN: read-only at workflow and job level; nothing asks it for write access.
+        $this->assertStringContainsString("permissions:\n  contents: read\n", $yml);
+        $this->assertStringContainsString("    permissions:\n      contents: read\n      actions: read\n", $yml);
+        $this->assertSame(0, substr_count($yml, ': write') - substr_count($yml, 'permission-contents: write'));
+        $this->assertSame(2, substr_count($yml, 'permissions:'));
+    }
+
     public function testServerEnvPassesApothekeTestDbExplicitly(): void
     {
         require_once dirname(__DIR__) . '/lib.php';

@@ -20,11 +20,15 @@ concurrency:
 jobs:
   release:
     name: Version, changelog, tag and GitHub Release
-    # contents: write — push the version commit and tag, and create the GitHub Release.
+    # The version commit, the tag and the GitHub Release are written with the release GitHub App's token (see
+    # docs/releasing.md), so GITHUB_TOKEN stays read-only.
+    # contents: read — check out the repository.
     # actions: read — download the coverage-ci4-sqlite artifact from the CI workflow.
     permissions:
-      contents: write
+      contents: read
       actions: read
+    # The environment holds the App's client id and private key and only admits main.
+    environment: release
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
@@ -34,10 +38,19 @@ jobs:
       RUN_ID: ${{ github.event.workflow_run.id }}
       RUN_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
+      - name: Release App token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
+          # git push below uses the App token, which the main ruleset lets through.
+          token: ${{ steps.app-token.outputs.token }}
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
@@ -80,5 +93,6 @@ jobs:
       - name: GitHub Release
         if: steps.plan.outputs.release == 'true'
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           NEXT: ${{ steps.plan.outputs.next }}
         run: gh release create "v$NEXT" --title "v$NEXT" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
