@@ -280,7 +280,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (Cloudflare: Cron Triggers or Queues, same schema). `Ci4MigrateTest` keys its 2.6.26 sha256 pins by version, so
   gitleaks has no file name with "key" to match; the only `.gitleaks.toml` entry left covers commit 1b5f5c8 in history
   (commit, path and value must all match). Open.
-- [#PRNUM](https://github.com/thordin9/apotheke/pull/PRNUM): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
+- [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
   session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
   without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
   (`Layout\Page::consentNotice()`, Accept in `app.js`), and the theme and recently-viewed cookies wait too.
