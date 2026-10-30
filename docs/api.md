@@ -17,6 +17,10 @@ answer against it.
 | `DELETE /api/v1/session` | anyone with a session | Sign out (`204`). |
 | `GET /api/v1/me` | signed in | `id`, `username`, `role`, `permissions`. With sign-in turned off there is no account, so this is `403`. |
 | `GET /api/v1/openapi.json` | anyone | The OpenAPI document. |
+| `GET /api/v1/branding` | anyone | `name`, `tagline`, `accent`, `theme_default`, `logo_url`, `favicon_url`, `touch_icon_url`: what every page's head already shows, so no sign-in is needed. |
+| `GET /api/v1/users` | Users | Every account, sorted by name: `id`, `name`, `role`, `status`, `created_at`, `last_login_at` (UTC; `null` when never signed in). Nothing else. |
+| `GET /api/v1/roles` | Users | Every role, built-in first: `key`, `name`, `builtin`, `permissions`, `users` (how many accounts have it). |
+| `GET /api/v1/security` | Users | `sign_in_enabled` and `policy`: the guest, registration and session-length settings of Users & sign-in. |
 
 Any other path under `/api` answers `404`.
 
