@@ -45,6 +45,7 @@ class Autoload extends AutoloadConfig
         'Apotheke\Auth' => ROOTPATH . 'modules/Auth',   // spark finds apotheke:accounts
         'Apotheke\Backup' => ROOTPATH . 'modules/Backup',   // spark finds apotheke:backup and apotheke:restore
         'Apotheke\Catalog' => ROOTPATH . 'modules/Catalog',   // spark finds apotheke:seed
+        'Apotheke\Core' => ROOTPATH . 'modules/Core',   // spark finds jobs:work
     ];
 
     /**
