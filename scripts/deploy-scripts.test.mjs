@@ -338,17 +338,51 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal(started.enableInternet, false);
 });
 
-function storageMerge(id) {
+// Runs the merge on a copy of edge/wrangler.jsonc (or of `config`, an object) with edge/storage.jsonc (or `storage`).
+const readJsonc = (p) => JSON.parse(readFileSync(p, "utf8").replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
+function storageMerge(id, { config, storage } = {}) {
 	const top = mkdtempSync(join(tmpdir(), "storage-"));
 	const dir = join(top, "edge");
 	mkdirSync(dir);
 	const cfg = join(dir, "wrangler.jsonc");
-	writeFileSync(cfg, readFileSync(join(root, "edge/wrangler.jsonc")));
+	writeFileSync(cfg, config ? JSON.stringify(config) : readFileSync(join(root, "edge/wrangler.jsonc")));
+	let frag = join(root, "edge/storage.jsonc");
+	if (storage) {
+		frag = join(dir, "storage.jsonc");
+		writeFileSync(frag, JSON.stringify(storage));
+	}
 	const env = { ...process.env, APOTHEKE_D1_DATABASE_ID: id };
 	if (id === undefined) delete env.APOTHEKE_D1_DATABASE_ID;
-	const r = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, join(root, "edge/storage.jsonc")], { env });
+	const r = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, frag], { env });
 	return { r, top, cfg };
 }
+const UUID = "00000000-0000-4000-8000-000000000000";
+const DEFAULT_CONFIG = () => readJsonc(join(root, "edge/wrangler.jsonc"));
+const STORAGE = () => readJsonc(join(root, "edge/storage.jsonc"));
+function refused(id, opts, msg) {
+	const { r, top, cfg } = storageMerge(id, opts);
+	try {
+		const before = opts.config ? JSON.stringify(opts.config) : readFileSync(join(root, "edge/wrangler.jsonc"), "utf8");
+		assert.equal(r.status, 1, r.stdout + r.stderr);
+		assert.match(r.stdout, msg);
+		assert.equal(readFileSync(cfg, "utf8"), before, "the config is left as it was");
+	} finally {
+		rmSync(top, { recursive: true, force: true });
+	}
+}
+
+// N-1540: each re-merge guard on its own (a config that trips only that guard).
+test("edge-storage-config: a config that already has d1_databases (but no v2 migration) is refused", () => {
+	const config = DEFAULT_CONFIG();
+	config.d1_databases = [{ binding: "OTHER_DB", database_name: "other", database_id: UUID }];
+	refused(UUID, { config }, /already has "d1_databases"/);
+});
+
+test("edge-storage-config: a config that already has migration v2 (but no storage keys) is refused", () => {
+	const config = DEFAULT_CONFIG();
+	config.migrations = [...config.migrations, { tag: "v2", new_sqlite_classes: ["Other"] }];
+	refused(UUID, { config }, /already has migration tag "v2"/);
+});
 
 test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable Object, and the guard still passes", () => {
 	const id = "00000000-0000-4000-8000-000000000000";
