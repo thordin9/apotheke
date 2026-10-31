@@ -8,6 +8,9 @@ name: Deploy edge
 # - workflow_dispatch on main or a v* tag: the same as a tag.
 # Without the CLOUDFLARE_API_TOKEN secret the deploy is skipped and the run stays green; so is the whole deploy job (before
 # the environment's review) until the repository variable EDGE_STORAGE_READY is true.
+# P4 storage: the deploy job (so only with EDGE_STORAGE_READY=true) merges edge/storage.jsonc (D1 DB, R2 STORAGE in the
+# eu jurisdiction, the Installation Durable Object) into edge/wrangler.jsonc, deploys, then checks /healthz. The pull
+# request checks keep the default config. Flip checklist: docs/deployment-and-operations.md#p4-edge-storage-flip-checklist.
 on:
   pull_request:
     paths:
@@ -17,6 +20,7 @@ on:
       - 'docker/frankenphp/**'
       - 'scripts/cf-worker-guard.mjs'
       - 'scripts/cf-deploy.sh'
+      - 'scripts/edge-storage-config.mjs'
       - 'scripts/deploy-scripts.test.mjs'
       - '.github/workflows/deploy-edge.yml'
   # A published GitHub Release (release.yml creates it with the release App's token, for tag vX.Y.Z). Not `push: tags`:
@@ -157,9 +161,30 @@ jobs:
         if: steps.token.outputs.set == 'true'
         working-directory: edge
         run: npm ci --ignore-scripts --no-audit --no-fund
+      # P4 storage (behind EDGE_STORAGE_READY, like the whole job): the bindings live in edge/storage.jsonc and are
+      # merged into this run's checkout only, with the D1 id from a repository variable (not a secret). No
+      # `wrangler d1 migrations apply`: the app's own runner applies migrations/ through the bridge.
+      - name: Storage config (merge edge/storage.jsonc; D1 DB, R2 STORAGE in eu, Installation Durable Object)
+        if: steps.token.outputs.set == 'true'
+        env:
+          APOTHEKE_D1_DATABASE_ID: ${{ vars.APOTHEKE_D1_DATABASE_ID }}
+        run: node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc
       - name: Deploy (Worker guard, then wrangler deploy of apotheke-api and its container only)
         if: steps.token.outputs.set == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
         run: bash scripts/cf-deploy.sh apotheke-api edge
+      # The custom domain is attached outside CI (before the flip); the first request may cold-start the container.
+      - name: Smoke check (GET https://<first ALLOWED_HOSTS>/healthz is 200)
+        if: steps.token.outputs.set == 'true'
+        shell: bash
+        run: |
+          host=$(node -e 'const c=JSON.parse(require("fs").readFileSync("edge/wrangler.jsonc","utf8")); console.log(c.vars.ALLOWED_HOSTS.split(",")[0].trim())')
+          for _ in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 60 "https://$host/healthz" || true)
+            if [ "$code" = 200 ]; then echo "https://$host/healthz: 200"; exit 0; fi
+            sleep 10
+          done
+          echo "::error title=Smoke check failed::https://$host/healthz did not answer 200 (last: $code). Roll back: unset EDGE_STORAGE_READY, then wrangler rollback (docs/deployment-and-operations.md#p4-edge-storage-flip-checklist)."
+          exit 1

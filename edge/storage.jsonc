@@ -1,0 +1,20 @@
+// P4 edge storage for apotheke-api: merged into edge/wrangler.jsonc by scripts/edge-storage-config.mjs, only in the
+// deploy job of .github/workflows/deploy-edge.yml, which runs only while the repository variable EDGE_STORAGE_READY
+// is true. Not a wrangler config on its own (wrangler never reads this file), so the default config, the PR dry run
+// and `wrangler dev` stay without these bindings until the flip (docs/deployment-and-operations.md#p4-edge-storage-flip-checklist).
+// No ids here: database_id is a placeholder that the merge replaces with the repository variable
+// APOTHEKE_D1_DATABASE_ID; the merge fails if the variable is missing or not a UUID.
+{
+	// D1, created in the EU jurisdiction (`wrangler d1 create apotheke-api --jurisdiction eu`; fixed at creation).
+	// The app's own migration runner applies migrations/ through the bridge, so the deploy runs no
+	// `wrangler d1 migrations apply`. A control-plane schema would later go in edge/migrations/control/, with
+	// "migrations_dir": "migrations/control" on this binding.
+	"d1_databases": [{ "binding": "DB", "database_name": "apotheke-api", "database_id": "<APOTHEKE_D1_DATABASE_ID>" }],
+	// R2 in the EU jurisdiction (`wrangler r2 bucket create apotheke-api-storage --jurisdiction eu`; fixed at creation).
+	"r2_buckets": [{ "binding": "STORAGE", "bucket_name": "apotheke-api-storage", "jurisdiction": "eu" }],
+	// Hosted mode: one Durable Object per installation, SQLite-backed. Appended to the existing bindings and
+	// migrations; a Durable Object migration can't be undone by removing it (only by a later deleted_classes
+	// migration, which deletes data and needs the owner's approval).
+	"durable_objects": { "bindings": [{ "name": "INSTALLATION", "class_name": "Installation" }] },
+	"migrations": [{ "tag": "v2", "new_sqlite_classes": ["Installation"] }]
+}

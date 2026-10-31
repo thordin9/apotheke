@@ -6,6 +6,8 @@
 //  - scripts/cf-deploy.sh: guard first, then `wrangler deploy --config wrangler.jsonc` (a fake npx records it).
 //  - each deploy job's tag step, run from the workflow with a fake `gh`: main, or vX.Y.Z with a published full
 //    release (L-1460).
+//  - scripts/edge-storage-config.mjs: merges edge/storage.jsonc into a copy of edge/wrangler.jsonc that the guard
+//    still accepts; a missing or malformed APOTHEKE_D1_DATABASE_ID changes nothing.
 // Run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -287,3 +289,67 @@ for (const file of ["deploy-frontend.yml", "deploy-edge.yml"]) {
 		}
 	});
 }
+
+function storageMerge(id) {
+	const top = mkdtempSync(join(tmpdir(), "storage-"));
+	const dir = join(top, "edge");
+	mkdirSync(dir);
+	const cfg = join(dir, "wrangler.jsonc");
+	writeFileSync(cfg, readFileSync(join(root, "edge/wrangler.jsonc")));
+	const env = { ...process.env, APOTHEKE_D1_DATABASE_ID: id };
+	if (id === undefined) delete env.APOTHEKE_D1_DATABASE_ID;
+	const r = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, join(root, "edge/storage.jsonc")], { env });
+	return { r, top, cfg };
+}
+
+test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable Object, and the guard still passes", () => {
+	const id = "00000000-0000-4000-8000-000000000000";
+	const { r, top, cfg } = storageMerge(id);
+	try {
+		assert.equal(r.status, 0, r.stdout + r.stderr);
+		const c = JSON.parse(readFileSync(cfg, "utf8"));
+		assert.deepEqual(c.d1_databases, [{ binding: "DB", database_name: "apotheke-api", database_id: id }]);
+		assert.deepEqual(c.r2_buckets, [{ binding: "STORAGE", bucket_name: "apotheke-api-storage", jurisdiction: "eu" }]);
+		assert.deepEqual(c.durable_objects.bindings, [
+			{ name: "APOTHEKE", class_name: "ApothekeContainer" },
+			{ name: "INSTALLATION", class_name: "Installation" },
+		]);
+		assert.deepEqual(c.migrations, [
+			{ tag: "v1", new_sqlite_classes: ["ApothekeContainer"] },
+			{ tag: "v2", new_sqlite_classes: ["Installation"] },
+		]);
+		assert.equal(c.name, "apotheke-api");
+		assert.equal(c.containers.length, 1);
+		assert.equal(guard("apotheke-api", cfg).status, 0);
+		// a second merge (a re-run on the same checkout) is refused rather than doubling the bindings
+		const again = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, join(root, "edge/storage.jsonc")], {
+			env: { ...process.env, APOTHEKE_D1_DATABASE_ID: id },
+		});
+		assert.equal(again.status, 1);
+	} finally {
+		rmSync(top, { recursive: true, force: true });
+	}
+});
+
+test("edge-storage-config: no or a bad APOTHEKE_D1_DATABASE_ID fails and leaves the config as it is", () => {
+	const before = readFileSync(join(root, "edge/wrangler.jsonc"), "utf8");
+	for (const id of [undefined, "", "<APOTHEKE_D1_DATABASE_ID>", "not-a-uuid"]) {
+		const { r, top, cfg } = storageMerge(id);
+		try {
+			assert.equal(r.status, 1, String(id));
+			assert.match(r.stdout, /::error title=Edge storage config::.*APOTHEKE_D1_DATABASE_ID/);
+			assert.equal(readFileSync(cfg, "utf8"), before);
+		} finally {
+			rmSync(top, { recursive: true, force: true });
+		}
+	}
+});
+
+test("the default edge/wrangler.jsonc has no storage bindings (they apply only behind EDGE_STORAGE_READY)", () => {
+	const text = readFileSync(join(root, "edge/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+	const c = JSON.parse(text.replace(/,(\s*[}\]])/g, "$1"));
+	assert.equal(c.d1_databases, undefined);
+	assert.equal(c.r2_buckets, undefined);
+	assert.deepEqual(c.durable_objects.bindings.map((b) => b.class_name), ["ApothekeContainer"]);
+	assert.deepEqual(c.migrations.map((m) => m.tag), ["v1"]);
+});
