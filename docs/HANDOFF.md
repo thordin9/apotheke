@@ -369,7 +369,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
   PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
   in hosted mode; the D1 constraints, the `Writes::transaction` strategies, migrations, the P4 PR split, the
-  ownership split with DevOps and the `EDGE_STORAGE_READY` criteria. Docs only. Open for QA's full gate.
+  ownership split with DevOps and the `EDGE_STORAGE_READY` criteria. QA round 1: M-1540 (Status cites the owner's
+  2026-10-29 and 2026-10-31 decisions; plan B is Postgres through Hyperdrive), M-1541 (`Installation` ids from the EU
+  jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
+  as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
+  Docs only. Open for QA's full gate.
 
 ## Lanes
 

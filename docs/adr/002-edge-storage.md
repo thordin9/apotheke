@@ -2,8 +2,17 @@
 
 ## Status
 
-Accepted by the PM on 2026-10-31 as the design for P4 (storage and database adapters). The binding names and the
-file ownership below are agreed with DevOps. Nothing on Cloudflare is created yet. The deploy of `apotheke-api`
+Accepted. This is the design for P4 (storage and database adapters). The PM recorded the acceptance in the decision
+record M-1540:
+
+- **2026-10-29:** the project owner chose edge storage (D1 or Durable Object SQLite, plus R2), with Docker
+  self-hosting kept.
+- **2026-10-31:** the owner chose one Container and one Durable Object per installation, with SQLite, an EU R2 key
+  prefix and a D1 control plane.
+
+These replace the 2026-10-22 phase (a Container with Postgres through Hyperdrive, plus R2), which stays as
+[plan B](#plan-b-postgres-through-hyperdrive). The binding names and the file ownership below are agreed with
+DevOps (#204). Nothing on Cloudflare is created yet. The deploy of `apotheke-api`
 stays behind the repository variable `EDGE_STORAGE_READY` until the criteria in
 [Opening the storage gate](#opening-the-storage-gate) are met.
 
@@ -22,6 +31,15 @@ The app talks to its database through CodeIgniter's connection and `Core\Databas
 `Core\Storage` plus about 18 direct filesystem users. Self-hosted Docker uses PDO-backed SQLite or PostgreSQL and
 `DATA_DIR`. That has to keep working unchanged.
 
+The phase was first planned with Postgres through Hyperdrive (the 2026-10-22 decision). The P4(a) spike
+(2026-10-29) found that Hyperdrive can't be used from inside a Container. This is unsupported, with no date given,
+and is tracked upstream in [cloudflare/containers#97](https://github.com/cloudflare/containers/issues/97) and
+[workers-sdk#10320](https://github.com/cloudflare/workers-sdk/issues/10320). Hyperdrive can still be bound to the
+Worker and relayed to the container through an outbound handler, the same way as `d1.internal`. In that setup each
+statement of an interactive transaction costs one relayed round trip while it holds its locks. The spike also
+showed that 26 of the 29 write sites it counted fit D1's atomic batches with guards. On that basis the owner chose
+the direction recorded in the Status section (decision record M-1540).
+
 The same image has to serve three cases:
 
 | Mode | Who runs it | App data | Files | Control plane |
@@ -38,6 +56,11 @@ The same image has to serve three cases:
   `--jurisdiction eu`, and the R2 binding carries `"jurisdiction": "eu"`. A location hint such as `weur` only
   suggests where data is placed. It is not a jurisdiction, and a jurisdiction can't be added to a resource later:
   moving would mean a new resource and a data copy. So the resources are created in the jurisdiction the first time.
+- In hosted mode, every `Installation` Durable Object id comes from the EU-jurisdiction namespace: the Worker calls
+  `env.INSTALLATION.jurisdiction("eu")` and then `idFromName()` or `newUniqueId()` on that namespace, never on
+  `env.INSTALLATION` itself. The jurisdiction is fixed when the id is created and can't be changed later. An object
+  created outside it would need a new id and a data copy. `edge/src` has one helper for this, and a test checks
+  that no other code path creates an `Installation` id.
 - Single-instance resources are laid out so that they can become tenants later: R2 keys already sit under the
   storage layer's prefix (decision 4), and nothing in the app assumes "the one database of the account".
 
@@ -76,16 +99,16 @@ The same image has to serve three cases:
 
 ### 5. Host-only cookies in hosted mode
 
-- In hosted mode every cookie is host-only: `COOKIE_DOMAIN` is not passed to the container, and the app ignores it
-  if it is set there. The `__Host-` session cookie never carries a `Domain` anyway (#188). The consent cookie is then
+- In hosted mode every cookie is host-only: `COOKIE_DOMAIN` is not passed to the container (the flipped
+  configuration drops it, #204), and the app ignores it if it is set there. The `__Host-` session cookie never carries a `Domain` anyway (#188). The consent cookie is then
   host-only too.
 - `COOKIE_DOMAIN` stays available for a self-hosted single instance whose owner wants one consent answer across
   their own sub-domains.
 
 ### Modes in detail
 
-**Hosted, multi-tenant.** One Container and one Durable Object per installation (`Installation`, a SQLite-backed
-Durable Object class). The Durable Object's own SQLite storage holds that installation's app data, using the
+**Hosted, multi-tenant.** One Container and one Durable Object per installation. The Durable Object is the class
+`Installation`, SQLite-backed and bound as `INSTALLATION`, with ids from its EU-jurisdiction namespace. The Durable Object's own SQLite storage holds that installation's app data, using the
 same schema as SQLite on Docker. Files go to the shared EU bucket under that installation's prefix. D1 is the
 control plane only: the registry that maps a host to an installation and its state. Per-installation data never
 lives in D1, so one installation's data is never in another's database.
@@ -99,19 +122,36 @@ Time Travel and `wrangler d1 export`. In hosted mode a per-installation Durable 
 isolation per installation and real transactions inside the object (`transactionSync`), which the large paths below
 use.
 
+### Plan B: Postgres through Hyperdrive
+
+Plan B is a Container with PostgreSQL through Hyperdrive, plus R2. Because Hyperdrive can't be reached from inside a
+Container, it is bound to the Worker and relayed to the container through an outbound handler, so the container
+never holds database credentials. The app needs a driver for that relay but no SQL change, because PostgreSQL
+already works on PDO. Plan B applies only if the project owner decides so, for example if:
+
+- the guard cases fail on remote D1 or Durable Object SQLite and can't be fixed in the executor;
+- more than about 5 write sites turn out not to fit a batch without weakening their guarantees (the spike's exit
+  criterion);
+- the Hyperdrive limitation above goes away upstream and the owner reopens the choice.
+
+The executor adapter (decision 2) keeps this switch open, because the PDO path stays complete.
+
 ## Bindings
 
-Agreed with DevOps:
+Agreed with DevOps, with the same names as `edge/storage.jsonc` in #204:
 
 | Binding | Kind | Resource | Notes |
 |---|---|---|---|
-| `DB` | D1 | database `apotheke-api` | created with `--jurisdiction eu` |
+| `DB` | D1 | database `apotheke-api` | created with `--jurisdiction eu` (with a jurisdiction, a location hint is ignored) |
 | `STORAGE` | R2 | bucket `apotheke-api-storage` | `"jurisdiction": "eu"`, private, no public access |
-| `Installation` | Durable Object class | exported from `edge/src` | added with a `new_sqlite_classes` migration |
+| `INSTALLATION` | Durable Object namespace | class `Installation`, exported from `edge/src` | SQLite-backed, migration tag `v2` (`new_sqlite_classes`); ids from `jurisdiction("eu")` |
 
-All three go into `edge/wrangler.jsonc` only behind `EDGE_STORAGE_READY`, so the default deploy doesn't change.
-DevOps adds them to the flipped configuration once `edge/src` exports `Installation` (P4-3, wired in P4-5). No
-account id, resource id or secret is ever written to the repository.
+The existing binding `APOTHEKE` (class `ApothekeContainer`, migration `v1`) stays as it is. The storage bindings live
+in `edge/storage.jsonc`, not in `edge/wrangler.jsonc`. Only the deploy job, which runs only with
+`EDGE_STORAGE_READY=true`, merges them in (`scripts/edge-storage-config.mjs`). So the default config, the pull
+request dry run and `wrangler dev` don't change. A deploy with the merged config fails until `edge/src` exports
+`Installation` (P4-3, wired in P4-5). No account id, database id or secret is ever written to the repository: the
+database is named `apotheke-api`, and the deploy supplies its id from a repository variable.
 
 ## D1 constraints and how the design meets them
 
@@ -134,12 +174,17 @@ on a preview database before the gate opens.
 All the query features the app uses work on D1 unchanged, including FTS5 with `remove_diacritics 2`, `bm25`,
 `fts5vocab`, `json_each`, the date modifiers, `ON CONFLICT … DO NOTHING` and `INSERT … SELECT`.
 
-## The `Writes::transaction` sites
+## The transaction sites
 
-The spike counted **29 call sites in 19 files** (three of them wrappers: `UserRepository::atomically()`,
-`ItemRepository::atomically()` and `TaxonomyRepository::tx()`). Since then the CSV import job (#185) added a
-thirtieth in `Imports.php`, which already runs as one small transaction per row with an idempotent marker, so it
-maps to one batch per row. Each site gets one strategy:
+On `main` (v3.9.1) there are **34 transaction sites**: 30 `Writes::transaction` call sites in 20 files, plus 4 that
+open a transaction directly.
+
+- The spike counted 29 `Writes::transaction` sites in 19 files. Three of them are wrappers:
+  `UserRepository::atomically()`, `ItemRepository::atomically()` and `TaxonomyRepository::tx()`.
+- The CSV import job (#185) has since added a thirtieth, `Imports::commitRows()`. It already runs as one small
+  transaction per row with an idempotent marker, so it maps to one batch per row.
+
+Each `Writes::transaction` site gets one strategy:
 
 | Strategy | What it means | Sites |
 |---|---|---|
@@ -147,6 +192,15 @@ maps to one batch per row. Each site gets one strategy:
 | Ref or read-back | A ULID `Ref` or a natural-key upsert in place of `lastInsertId`, then one batch | first admin, tags (`ON CONFLICT (name_key)`), stocktake start, saved filters, taxonomy create |
 | Guard | A hold first, then `expect` n changed rows, an `assert` on a condition, or a version compare-and-swap | admin and role changes, item save, photo add, edit, reorder and actions, merge, quantity, undo, lending, settings rewrite, stocktake ticks and finish, taxonomy moves |
 | Compensating work | Can't be one batch. Run in chunks with an idempotent retry and a compensating step | backup restore, search index rebuild, bulk actions on very large selections |
+
+The four direct transactions map as follows:
+
+| Site | PDO (Docker) | D1 and Durable Object SQLite |
+|---|---|---|
+| `Imports::run()` (`Imports.php:369`): the HTML import, which holds the import and then writes its rows (commit) or rolls them back (preview) | unchanged | The commit runs as per-row batches with the marker, as the job does. The preview validates without writing: a dry run, or a scratch in-memory SQLite. |
+| `CsvExport.php:115`: a read snapshot for the export cursor (PostgreSQL only) | keeps its `REPEATABLE READ, READ ONLY` snapshot | A read inside `transactionSync` (Durable Object), or one batch of reads (D1). If one batch would pass D1's limits, the export reads in id-ordered chunks, which gives up the single snapshot on D1. |
+| `Backups.php:347`: a read snapshot for the backup cursor (PostgreSQL only) | keeps its `REPEATABLE READ, READ ONLY` snapshot | The same as the export. A chunked backup on D1 runs behind the maintenance flag, so no write lands between its chunks. |
+| `PdoMigrationRunner.php:147` (`BEGIN IMMEDIATE` on SQLite) | unchanged | The edge runner sends each migration as one `exec()` or batch (see [Migrations](#migrations)). |
 
 The guarded sites are where the edge differs most from PDO. With no reads under a lock, every conditional site has
 to carry its own guard, or a concurrent change goes through unseen. The backend matrix therefore forces one guard to
@@ -163,6 +217,28 @@ fail on every backend.
     rebuild just starts again.
   - Bulk actions keep per-item atomicity, and the undo token is idempotent.
   - Each of these gets a resume test.
+
+## Request state (FrankenPHP)
+
+The edge image runs FrankenPHP in **classic mode**. `docker/frankenphp/Caddyfile` has a plain `php_server` with no
+`worker` directive, so each request starts with fresh PHP state, as under php-fpm. Worker mode
+(`app/Config/WorkerMode.php` is in the tree) is a later optimisation, behind its own QA gate.
+
+The storage code is written for worker mode now, so that turning it on later changes nothing:
+
+- **Executor and bridge client:** built per request by `Config\Services` and never listed in
+  `WorkerMode::$persistentServices`. They hold no static property, and no request or connection state survives the
+  request.
+- **Installation context:** PHP holds none (decision 3). The only installation context is in the Worker and the
+  Durable Object, which are per installation by construction. Nothing in PHP caches an installation id, a prefix or
+  a database handle.
+- **Unit of work:** opened and closed inside one request. The registry of open units is keyed by connection (a
+  `WeakMap`) and must be empty at the end of every request. A unit still open then is an error: it is discarded,
+  never flushed.
+- **Tests:** a state test in the style of ADR-001's filter rules
+  (`FilterStateTest`) checks that `Core\Database` and the storage adapters declare no static mutable state. A worker
+  test runs two requests through the same process with the CodeIgniter worker reset in between. It checks that the
+  second request sees no unit, executor or storage client from the first. Both run in P4-2 and P4-3.
 
 ## Migrations
 
@@ -197,6 +273,9 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
 2. **P4-2: unit of work and executor adapter.** `UnitOfWork`, `Ref`, `BatchExecutor`, the PDO executor first with no
    change in behaviour, `uow_guard` and `uow_refs`, and the `json_each` fixes in `SearchIndex` and `Stocktakes`.
    Then the sites are converted in follow-up parts: batch and Ref first, then guards, then the large paths.
+   **PostgreSQL parity gate:** every P4-2 part keeps the full PHPUnit suites (root and module) green on SQLite and
+   PostgreSQL 17. A parity test also runs each converted site through the unit of work on PDO and through the batch
+   executor, and checks that both give the same rows and the same ids on SQLite and on PostgreSQL.
 3. **P4-3: edge driver and bridge.** The CodeIgniter `D1` driver, the edge migration dialect, and in `edge/src` the
    outbound handlers and the `Installation` Durable Object class. The local D1 harness cases run in CI under
    `wrangler dev`.
@@ -210,7 +289,8 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
 
 | Area | Owner |
 |---|---|
-| `edge/wrangler.jsonc` (bindings, jurisdiction, `secrets.required`) | DevOps |
+| `edge/wrangler.jsonc` (`secrets.required`, vars) and `edge/storage.jsonc` (bindings, jurisdiction) | DevOps |
+| `scripts/edge-storage-config.mjs`, `scripts/deploy-scripts.test.mjs` | DevOps |
 | `.github/workflows/deploy-edge.yml`, `.github/workflows/edge-local.yml` | DevOps |
 | The flip checklist in `docs/deployment-and-operations.md` | DevOps |
 | `tests/Unit/DeployWorkflowsTest.php` | DevOps |
@@ -229,11 +309,15 @@ A change that touches the other side's files is agreed first and reviewed by tha
    on Docker and the edge.
 3. A preview D1 and R2 pass the smoke test and the guard cases (all-or-nothing batches, `expect` and `assert`
    aborts, concurrent guarded adds, 150 `Ref`s, 101 parameters refused).
-4. The one-time steps are done. These are owned by DevOps and Stathis, not by any PR:
+4. `edge/src` creates every `Installation` id through `env.INSTALLATION.jurisdiction("eu")`. The test for this is
+   green, and on the preview an `Installation` object is checked to be in the EU jurisdiction before any real
+   installation is created. This can't be corrected after the ids exist.
+5. The one-time steps are done. These are owned by DevOps and Stathis, not by any PR:
    - create the D1 database and the R2 bucket in the EU jurisdiction (DevOps);
    - set the Worker secrets `APP_PASSWORD` (Stathis) and `APP_KEY` (DevOps), with `wrangler secret put`, never
      through GitHub;
-   - add the deploy token to the `deploy-edge` environment;
+   - add the deploy token to the `deploy-edge` environment, and the D1 database id as a repository variable (never
+     in the repository; see #204's flip checklist);
    - set the repository variable `EDGE_STORAGE_READY=true`.
 
 ## Consequences
