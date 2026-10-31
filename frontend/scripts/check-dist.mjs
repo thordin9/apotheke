@@ -69,12 +69,139 @@ export function headersFor(rules, path) {
     return out;
 }
 
+export const PAGE_SECURITY = {
+    'strict-transport-security': 'max-age=31536000',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'x-frame-options': 'DENY',
+};
+export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), interest-cohort=(), accelerometer=(), gyroscope=(), magnetometer=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), display-capture=(), browsing-topics=()";
+
 function expectedCache(path) {
     if (path === '/assets/icons.svg' || path.startsWith('/assets/brand/') || path.startsWith('/assets/mascot/') || path.startsWith('/assets/shots/')) {
         return 'public, max-age=86400';
     }
-    if (path.startsWith('/assets/')) return 'public, max-age=31536000, immutable';
+    // Only Vite's hashed name-hash.js / name-hash.css files. A missing /assets/missing.js does not match.
+    if (/^\/assets\/[^/]+-[^/]+\.(?:js|css)$/.test(path)) return 'public, max-age=31536000, immutable';
     return 'no-cache';
+}
+
+function httpsHost(text, at) {
+    const start = at + 'https://'.length;
+    let end = start;
+    while (end < text.length) {
+        const c = text[end];
+        if (c === '/' || c === '?' || c === '#' || c === '"' || c === "'" || c === ')' || c === ' ' || c === '>' || c === '\\' || c === '\n' || c === '\r' || c === '\t') break;
+        end++;
+    }
+    return text.slice(start, end).toLowerCase().replace(/:\d+$/, '');
+}
+
+function tagAround(text, index) {
+    const open = text.lastIndexOf('<', index);
+    if (open < 0) return '';
+    const close = text.indexOf('>', open);
+    if (close < 0 || close < index) return '';
+    return text.slice(open, close + 1);
+}
+
+function insideJsonLd(html, index) {
+    const lower = html.toLowerCase();
+    let from = 0;
+    while (from < index) {
+        const open = lower.indexOf('<script', from);
+        if (open < 0 || open > index) return false;
+        const openEnd = html.indexOf('>', open);
+        const close = lower.indexOf('</script', openEnd < 0 ? open : openEnd);
+        if (openEnd > 0 && close > openEnd && index > openEnd && index < close) {
+            return lower.slice(open, openEnd).includes('ld+json');
+        }
+        from = open + 7;
+    }
+    return false;
+}
+
+function onSiteHost(host) {
+    return host === 'getapotheke.com' || host === 'www.getapotheke.com';
+}
+
+function isSpace(c) {
+    return c === ' ' || c === '\t' || c === '\n' || c === '\r';
+}
+
+function isNameChar(c) {
+    const code = c.charCodeAt(0);
+    return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || c === '_' || c === ':' || c === '-';
+}
+
+function looksLikeUrlFn(text, at) {
+    let i = at - 1;
+    while (i >= 0 && (isSpace(text[i]) || text[i] === '"' || text[i] === "'")) i--;
+    if (text[i] !== '(') return false;
+    i--;
+    while (i >= 0 && (text[i] === ' ' || text[i] === '\t')) i--;
+    return i >= 2 && text.slice(i - 2, i + 1).toLowerCase() === 'url';
+}
+
+function looksLikeImport(text, at) {
+    let i = at - 1;
+    while (i >= 0 && (isSpace(text[i]) || text[i] === '"' || text[i] === "'")) i--;
+    return i >= 6 && text.slice(i - 6, i + 1).toLowerCase() === '@import';
+}
+
+function attrNameBefore(text, at) {
+    let i = at - 1;
+    while (i >= 0 && (isSpace(text[i]) || text[i] === '"' || text[i] === "'")) i--;
+    if (text[i] !== '=') return '';
+    i--;
+    while (i >= 0 && (text[i] === ' ' || text[i] === '\t')) i--;
+    const end = i + 1;
+    while (i >= 0 && isNameChar(text[i])) i--;
+    return text.slice(i + 1, end).toLowerCase();
+}
+
+function tagNameOf(tag) {
+    let i = 1;
+    if (tag[i] === '/') i++;
+    const start = i;
+    while (i < tag.length && isNameChar(tag[i])) i++;
+    return tag.slice(start, i).toLowerCase();
+}
+
+const RESOURCE_TAGS = new Set(['script', 'link', 'img', 'source', 'video', 'audio', 'iframe', 'embed', 'object', 'track', 'image', 'use']);
+const RESOURCE_ATTRS = new Set(['src', 'href', 'srcset', 'poster', 'data']);
+
+function isResourceRef(text, at, css) {
+    if (looksLikeUrlFn(text, at) || looksLikeImport(text, at)) {
+        if (css) return true;
+        return !insideJsonLd(text, at);
+    }
+    if (css) return false;
+    if (insideJsonLd(text, at)) return false;
+    const tag = tagAround(text, at);
+    if (tag === '' || tagNameOf(tag) === 'a') return false;
+    if (!RESOURCE_TAGS.has(tagNameOf(tag))) return false;
+    return RESOURCE_ATTRS.has(attrNameBefore(text, at));
+}
+
+// Hosts of https: subresources (script, style, img, font, link, url(), @import).
+// An <a href> and JSON-LD text are not subresources. getapotheke.com is this site.
+export function offSiteHosts(text, css) {
+    const found = [];
+    const lower = text.toLowerCase();
+    let from = 0;
+    while (from < text.length) {
+        const at = lower.indexOf('https://', from);
+        if (at < 0) break;
+        const host = httpsHost(text, at);
+        if (host && !onSiteHost(host) && isResourceRef(text, at, css)) found.push(host);
+        from = at + 8;
+    }
+    return found;
+}
+
+function checkOffSite(rel, text, css) {
+    for (const host of offSiteHosts(text, css)) fail(rel + ' references off-site https://' + host);
 }
 
 function walk(dir, rel = '') {
@@ -245,18 +372,31 @@ function run() {
     checkChrome();
 
     if (existsSync(join(dist, '_headers'))) {
-    const rules = parseHeaders(readFileSync(join(dist, '_headers'), 'utf8'));
-    const landingPaths = ['/', '/index.html', '/privacy/', '/privacy/index.html', '/404.html'];
-    for (const path of landingPaths) {
-        const headers = headersFor(rules, path);
-        const csp = headers.get('content-security-policy');
-        if (csp !== LANDING_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
-        if (csp && (csp.match(/script-src/g) || []).length !== 1) fail(path + ' CSP must name script-src once');
-    }
-    for (const path of ['/app/', '/app/index.html']) {
-        const csp = headersFor(rules, path).get('content-security-policy');
-        if (csp !== SPA_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
-    }
+        const rules = parseHeaders(readFileSync(join(dist, '_headers'), 'utf8'));
+        const landingPaths = ['/', '/index.html', '/privacy/', '/privacy/index.html', '/404.html'];
+        for (const path of landingPaths) {
+            const headers = headersFor(rules, path);
+            const csp = headers.get('content-security-policy');
+            if (csp !== LANDING_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
+            if (csp && (csp.match(/script-src/g) || []).length !== 1) fail(path + ' CSP must name script-src once');
+        }
+        for (const path of ['/app/', '/app/index.html']) {
+            const csp = headersFor(rules, path).get('content-security-policy');
+            if (csp !== SPA_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
+        }
+        for (const path of ['/', '/privacy/', '/404.html', '/app/', '/app/index.html']) {
+            const headers = headersFor(rules, path);
+            for (const [name, value] of Object.entries(PAGE_SECURITY)) {
+                if (headers.get(name) !== value) fail(path + ' ' + name + ' is ' + JSON.stringify(headers.get(name)));
+            }
+            if (headers.get('permissions-policy') !== PERMISSIONS_POLICY) {
+                fail(path + ' Permissions-Policy is ' + JSON.stringify(headers.get('permissions-policy')));
+            }
+        }
+        const missingAsset = headersFor(rules, '/assets/missing.js').get('cache-control');
+        if (!missingAsset || missingAsset.includes('immutable')) {
+            fail('a missing /assets file is cached as ' + JSON.stringify(missingAsset));
+        }
         const paths = new Set(['/', '/privacy/', '/app/', '/404.html']);
         if (existsSync(dist)) {
             for (const rel of walk(dist)) paths.add('/' + rel);
@@ -271,8 +411,11 @@ function run() {
     }
 
     if (existsSync(dist)) {
-        for (const rel of walk(dist).filter((name) => name.endsWith('.html'))) {
-            const html = readFileSync(join(dist, rel), 'utf8');
+        for (const rel of walk(dist).filter((name) => name.endsWith('.html') || name.endsWith('.css'))) {
+            const body = readFileSync(join(dist, rel), 'utf8');
+            checkOffSite(rel, body, rel.endsWith('.css'));
+            if (!rel.endsWith('.html')) continue;
+            const html = body;
             for (const url of htmlUrls(html)) {
                 const result = resolves(url);
                 if (!result.ok) fail(rel + ' internal URL ' + url + ' ' + result.why);
