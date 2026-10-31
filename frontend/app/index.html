@@ -16,6 +16,18 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
+<section id="consent" class="consent" aria-labelledby="consent-title">
+  <div class="container consent-inner">
+    <div class="consent-copy">
+      <p id="consent-title" class="consent-title">Cookies</p>
+      <p>This site stores nothing until you accept. Accept keeps one cookie for 180 days. <a href="/privacy/">Privacy</a></p>
+    </div>
+    <div class="consent-actions">
+      <button type="button" class="btn" id="consent-decline">Decline</button>
+      <button type="button" class="btn" id="consent-accept">Accept</button>
+    </div>
+  </div>
+</section>
 <header class="slab">
   <div class="container">
     <a class="mark" href="/"><img class="brand-art" src="/assets/brand/mark-small.svg" alt="" width="36" height="36">Apotheke</a>
@@ -33,6 +45,16 @@
   <!-- SPA base (APOTHEKE_SPA_BASE, default /app/): __APOTHEKE_SPA_BASE__ -->
   <h1>The app is coming</h1>
   <p class="answer">This page will be the Apotheke app. It is not available yet.</p>
+  <form id="sign-in" class="sign-in" method="post" action="/api/v1/session">
+    <h2>Sign in</h2>
+    <p id="sign-in-note">Sign-in stays off until you accept cookies.</p>
+    <p id="sign-in-error" role="status"></p>
+    <label for="sign-in-user">Name</label>
+    <input id="sign-in-user" name="username" autocomplete="username" disabled>
+    <label for="sign-in-pass">Password</label>
+    <input id="sign-in-pass" name="password" type="password" autocomplete="current-password" disabled>
+    <button type="submit" class="btn" id="sign-in-submit" disabled>Sign in</button>
+  </form>
 </main>
 <footer class="mast">
   <div class="container">
@@ -52,5 +74,6 @@
     <small>© 2026 Stathis Papandreou</small>
   </div>
 </footer>
+<script type="module" src="/src/consent.js"></script>
 </body>
 </html>

@@ -6,14 +6,14 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const frontend = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(frontend, 'dist');
 const failures = [];
 const fail = (msg) => failures.push(msg);
 
-const LANDING_CSP = "default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
+const LANDING_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 const SPA_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; connect-src 'self' https://api.services.getapotheke.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 
 function escapeRegExp(s) {
@@ -110,62 +110,79 @@ function resolves(url) {
     return { ok: found, why: found ? '' : 'missing in dist' };
 }
 
-if (!existsSync(dist)) fail('frontend/dist is missing (run npm run build)');
-
-for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html']) {
-    if (!existsSync(join(dist, rel))) fail('missing ' + rel);
-}
-const assetsDir = join(dist, 'assets');
-if (!existsSync(assetsDir) || !statSync(assetsDir).isDirectory()) fail('missing assets/');
-
-for (const rel of ['index.html', 'privacy/index.html', '404.html']) {
+function checkScripts(rel, external) {
     const html = readFileSync(join(dist, rel), 'utf8');
-    for (const m of html.matchAll(/<script\b([^>]*)>/gi)) {
-        if (!/\btype\s*=\s*["']application\/ld\+json["']/i.test(m[1])) {
-            fail(rel + ' has a script tag other than application/ld+json');
+    const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    let files = 0;
+    for (const tag of tags) {
+        const attrs = tag[1];
+        const body = tag[2].trim();
+        if (/\btype\s*=\s*["']application\/ld\+json["']/i.test(attrs)) {
+            if (/\bsrc\s*=/.test(attrs)) fail(rel + ' JSON-LD must stay inline');
+            continue;
         }
+        const src = attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+        if (!src || body !== '') fail(rel + ' has an inline script');
+        else files += 1;
     }
+    if (files !== external) fail(rel + ' has ' + files + ' external scripts, want ' + external);
 }
 
-if (existsSync(join(dist, '_headers'))) {
+function run() {
+    if (!existsSync(dist)) fail('frontend/dist is missing (run npm run build)');
+    for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html']) {
+        if (!existsSync(join(dist, rel))) fail('missing ' + rel);
+    }
+    const assetsDir = join(dist, 'assets');
+    if (!existsSync(assetsDir) || !statSync(assetsDir).isDirectory()) fail('missing assets/');
+    if (existsSync(join(dist, 'index.html'))) checkScripts('index.html', 1);
+    if (existsSync(join(dist, 'privacy/index.html'))) checkScripts('privacy/index.html', 1);
+    if (existsSync(join(dist, 'app/index.html'))) checkScripts('app/index.html', 1);
+    if (existsSync(join(dist, '404.html'))) checkScripts('404.html', 0);
+
+    if (existsSync(join(dist, '_headers'))) {
     const rules = parseHeaders(readFileSync(join(dist, '_headers'), 'utf8'));
     const landingPaths = ['/', '/index.html', '/privacy/', '/privacy/index.html', '/404.html'];
     for (const path of landingPaths) {
         const headers = headersFor(rules, path);
         const csp = headers.get('content-security-policy');
         if (csp !== LANDING_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
-        if (csp && /\bscript-src\b/.test(csp)) fail(path + ' CSP includes script-src');
+        if (csp && (csp.match(/script-src/g) || []).length !== 1) fail(path + ' CSP must name script-src once');
     }
     for (const path of ['/app/', '/app/index.html']) {
         const csp = headersFor(rules, path).get('content-security-policy');
         if (csp !== SPA_CSP) fail(path + ' CSP is ' + JSON.stringify(csp));
     }
-    const paths = new Set(['/', '/privacy/', '/app/', '/404.html']);
-    if (existsSync(dist)) {
-        for (const rel of walk(dist)) paths.add('/' + rel);
+        const paths = new Set(['/', '/privacy/', '/app/', '/404.html']);
+        if (existsSync(dist)) {
+            for (const rel of walk(dist)) paths.add('/' + rel);
+        }
+        for (const path of paths) {
+            const cache = headersFor(rules, path).get('cache-control');
+            const want = expectedCache(path);
+            if (cache !== want) fail(path + ' Cache-Control is ' + JSON.stringify(cache) + ', want ' + want);
+        }
+    } else {
+        fail('missing _headers');
     }
-    for (const path of paths) {
-        const cache = headersFor(rules, path).get('cache-control');
-        const want = expectedCache(path);
-        if (cache !== want) fail(path + ' Cache-Control is ' + JSON.stringify(cache) + ', want ' + want);
-    }
-} else {
-    fail('missing _headers');
-}
 
-if (existsSync(dist)) {
-    for (const rel of walk(dist).filter((name) => name.endsWith('.html'))) {
-        const html = readFileSync(join(dist, rel), 'utf8');
-        for (const url of htmlUrls(html)) {
-            const result = resolves(url);
-            if (!result.ok) fail(rel + ' internal URL ' + url + ' ' + result.why);
+    if (existsSync(dist)) {
+        for (const rel of walk(dist).filter((name) => name.endsWith('.html'))) {
+            const html = readFileSync(join(dist, rel), 'utf8');
+            for (const url of htmlUrls(html)) {
+                const result = resolves(url);
+                if (!result.ok) fail(rel + ' internal URL ' + url + ' ' + result.why);
+            }
         }
     }
+
+    if (failures.length) {
+        for (const msg of failures) console.error('FAIL  ' + msg);
+        console.error(failures.length + ' dist check(s) failed');
+        process.exit(1);
+    }
+    console.log('dist check passed');
 }
 
-if (failures.length) {
-    for (const msg of failures) console.error('FAIL  ' + msg);
-    console.error(failures.length + ' dist check(s) failed');
-    process.exit(1);
-}
-console.log('dist check passed');
+const entry = process.argv[1];
+if (entry && import.meta.url === pathToFileURL(entry).href) run();
