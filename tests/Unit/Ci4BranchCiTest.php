@@ -251,14 +251,20 @@ final class Ci4BranchCiTest extends TestCase
     {
         $yml = (string)file_get_contents($this->root() . '/.github/workflows/release.yml');
         $this->assertMatchesRegularExpression('/^    environment: release\n/m', $yml);
-        $this->assertStringContainsString(
-            "        id: app-token\n"
-            . "        if: steps.plan.outputs.release == 'true'\n"
-            . "        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0\n"
-            . "        with:\n"
-            . "          client-id: \${{ vars.RELEASE_APP_CLIENT_ID }}\n"
-            . "          private-key: \${{ secrets.RELEASE_APP_PRIVATE_KEY }}\n"
-            . "          permission-contents: write\n",
+        // Any SHA-pinned version, so a Dependabot bump passes (the pin format is checked below).
+        $this->assertMatchesRegularExpression(
+            '/^' . preg_quote(
+                "        id: app-token\n"
+                . "        if: steps.plan.outputs.release == 'true'\n"
+                . "        uses: actions/create-github-app-token@",
+                '/'
+            ) . '[0-9a-f]{40} # v\\S+\\n' . preg_quote(
+                "        with:\n"
+                . "          client-id: \${{ vars.RELEASE_APP_CLIENT_ID }}\n"
+                . "          private-key: \${{ secrets.RELEASE_APP_PRIVATE_KEY }}\n"
+                . "          permission-contents: write\n",
+                '/'
+            ) . '/m',
             $yml
         );
         $this->assertStringNotContainsString('app-id:', $yml);

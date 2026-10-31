@@ -12,8 +12,6 @@ use PHPUnit\Framework\TestCase;
  */
 final class DeployWorkflowsTest extends TestCase
 {
-    private const CHECKOUT = 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262';
-
     private static function file(string $path): string
     {
         return (string)file_get_contents(dirname(__DIR__, 2) . '/' . $path);
@@ -128,7 +126,7 @@ final class DeployWorkflowsTest extends TestCase
     }
 
     #[DataProvider('deploys')]
-    public function testPermissionsAndCheckoutsAreLeastPrivilege(string $file): void
+    public function testPermissionsAndCheckoutsAreLeastPrivilege(string $file, string $env, string $worker, string $dir, string $check): void
     {
         $yml = $this->workflow($file);
         $this->assertStringContainsString("\npermissions:\n  contents: read\n\n", $yml);
@@ -139,10 +137,15 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/id-token|contents:\s*write|: write\b|write-all/', $yml);
         $this->assertStringNotContainsString('pull_request_target', $yml);
 
-        $checkouts = substr_count($yml, 'uses: ' . self::CHECKOUT);
-        $this->assertSame(2, $checkouts, 'one checkout per job, the pinned one');
-        $this->assertSame(0, substr_count($yml, 'actions/checkout@') - $checkouts);
-        $this->assertSame($checkouts, preg_match_all("/uses: actions\/checkout@\S+ # v\S+\n(?:        if: .*\n)?        with:\n          persist-credentials: false\n/", $yml));
+        // One checkout per job, pinned by a full commit SHA with its version as a comment (any version, so a
+        // Dependabot bump passes), the same SHA everywhere, and no credentials left behind.
+        $this->assertSame(2, preg_match_all('/^      - uses: actions\/checkout@([0-9a-f]{40}) # v\d\S*\n/m', $yml, $pins), 'one checkout per job, pinned by SHA');
+        foreach ([$check, 'deploy'] as $job) {
+            $this->assertSame(1, preg_match_all('/^      - uses: actions\/checkout@/m', $this->job($yml, $job)), "one checkout in $job");
+        }
+        $this->assertSame(1, count(array_unique($pins[1])), 'both checkouts use the same SHA');
+        $this->assertSame(2, substr_count($yml, 'actions/checkout@'));
+        $this->assertSame(2, preg_match_all("/uses: actions\/checkout@[0-9a-f]{40} # v\S+\n(?:        if: .*\n)?        with:\n          persist-credentials: false\n/", $yml));
         $this->assertSame(0, preg_match_all('/persist-credentials: true/', $yml));
         if ($file === 'deploy-frontend.yml') {
             // N-1411: the build reads the latest release tag and its date.

@@ -22,9 +22,11 @@ app becomes a version, with no manual steps.
 | at least one `fix` or `perf` | **patch** | 1.4.2 → 1.4.3 |
 | only `docs`, `test`, `ci`, `build`, `chore`, `style`, `refactor` | **no release** | – |
 
-Release commits (`chore(release): …`) and merge commits are ignored. The pull request number comes from the
-`Merge pull request #N` merge commit that brought a commit to `main` (this repository merges with merge commits), or from
-a trailing `(#N)` in a squash commit.
+Release commits (`chore(release): …`) and merge commits are ignored. Every pull request into `main` is
+squash-merged (`gh pr merge --squash --match-head-commit <sha>`), so `main` gets one commit whose subject is the
+pull request's title plus a trailing `(#N)`, which gives the pull request number. The title must be a Conventional
+Commit, and its type decides the bump: `feat`, `fix`, `perf` or a breaking change cut a release; `ci`, `build`,
+`docs`, `chore` or `test` don't. A `Merge pull request #N` merge commit, if one ever lands, also gives the number.
 
 The changelog groups entries as *Breaking changes*, *Added* (`feat`), *Fixed* (`fix`), *Performance* (`perf`) and
 *Maintenance* (everything else). The new section goes below `## [Unreleased]`, and the compare links at the bottom are
