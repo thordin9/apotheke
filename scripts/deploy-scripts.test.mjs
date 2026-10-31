@@ -500,3 +500,14 @@ test("edge-storage-config: fragment migrations with any field besides tag and ne
 	storage.migrations = [{ tag: "v2" }];
 	refused(UUID, { storage }, /needs a string tag and a new_sqlite_classes list/);
 });
+
+// N-1545: drop_vars is limited to COOKIE_DOMAIN, which must be in the base vars; ALLOWED_HOSTS is never dropped.
+test("edge-storage-config: drop_vars allows only COOKIE_DOMAIN, present in the base vars, and never ALLOWED_HOSTS", () => {
+	refused(UUID, { storage: { ...STORAGE(), drop_vars: ["COOKIE_DOMAIN", "ALLOWED_HOSTS"] } }, /may never drop ALLOWED_HOSTS/);
+	refused(UUID, { storage: { ...STORAGE(), drop_vars: ["ALLOWED_HOSTS"] } }, /may never drop ALLOWED_HOSTS/);
+	refused(UUID, { storage: { ...STORAGE(), drop_vars: ["CORS_ALLOWED_ORIGINS"] } }, /may only list COOKIE_DOMAIN, not "CORS_ALLOWED_ORIGINS"/);
+	refused(UUID, { storage: { ...STORAGE(), drop_vars: "COOKIE_DOMAIN" } }, /drop_vars must be a list/);
+	const config = DEFAULT_CONFIG();
+	delete config.vars.COOKIE_DOMAIN;
+	refused(UUID, { config }, /drop_vars lists "COOKIE_DOMAIN", which .* does not set/);
+});
