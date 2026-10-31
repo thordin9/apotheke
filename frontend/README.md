@@ -86,7 +86,7 @@ stays disabled. The consent cookie is unchanged: nothing is stored before Accept
 Decline stores nothing, and `Path=/` shares `apotheke_consent=v1` across `/` and
 `/app/`.
 
-`/privacy/` keeps the visible placeholder `[Operator contact]`. The imprint page
+`/privacy/` names the operator shown in the footer. The imprint page
 is not part of this site.
 
 ## The token contract
