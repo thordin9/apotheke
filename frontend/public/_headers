@@ -19,15 +19,18 @@
 # That no-cache covers HTML, including /404.html. A second /404.html rule that
 # only set no-cache again did not change the result.
 
-# Hashed Vite output only (name-hash.js and name-hash.css). A missing file such
-# as /assets/missing.js does not match, so it keeps no-cache from /*. Fonts stay
-# unhashed at /fonts/ (the Worker caches those for a day). Brand, mascot, shots
-# and the icon sprite keep the one-day rules below.
-/assets/*-*.js
+# Hashed Vite output only (name-hash.js and name-hash.css). Cloudflare allows
+# one wildcard per rule, so these use :name and :hash rather than two stars.
+# A missing file such as /assets/missing.js does not match, so it keeps no-cache
+# from /*. A missing hyphenated file such as an old index-abc.js still gets an
+# immutable 404. That is accepted, because the hashed names never get reused.
+# Fonts stay unhashed at /fonts/ (the Worker caches those for a day). Brand,
+# mascot, shots and the icon sprite keep the one-day rules below.
+/assets/:name-:hash.js
   ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
 
-/assets/*-*.css
+/assets/:name-:hash.css
   ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
 

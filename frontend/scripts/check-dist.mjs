@@ -42,15 +42,62 @@ export function parseHeaders(text) {
             }
             continue;
         }
+        const bad = wildcardError(trimmed);
+        if (bad) throw new Error(bad);
         current = { pattern: trimmed, ops: [] };
         rules.push(current);
     }
     return rules;
 }
 
+function wildcardError(pattern) {
+    let stars = 0;
+    for (let i = 0; i < pattern.length; i++) if (pattern[i] === '*') stars++;
+    if (stars > 1) {
+        return 'Only one wildcard is allowed per rule. Use a named placeholder (e.g. :project) instead. Skipping ' + pattern + '.';
+    }
+    if (stars > 0 && /:splat(?!\w)/.test(pattern)) {
+        return 'Cannot combine a wildcard * with a :splat placeholder because wildcards are converted to :splat at runtime. Skipping ' + pattern + '.';
+    }
+    return '';
+}
+
+function isLetter(c) {
+    const code = c.charCodeAt(0);
+    return (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isWordChar(c) {
+    const code = c.charCodeAt(0);
+    return (code >= 48 && code <= 57) || isLetter(c) || c === '_';
+}
+
+function patternRegExp(pattern) {
+    let body = '';
+    let i = 0;
+    while (i < pattern.length) {
+        const c = pattern[i];
+        if (c === '*') {
+            body += '(.*)';
+            i++;
+            continue;
+        }
+        if (c === ':' && isLetter(pattern[i + 1] || '')) {
+            let j = i + 1;
+            while (j < pattern.length && isWordChar(pattern[j])) j++;
+            const name = pattern.slice(i + 1, j);
+            body += name === 'splat' ? '(.*)' : '([^/]+)';
+            i = j;
+            continue;
+        }
+        body += escapeRegExp(c);
+        i++;
+    }
+    return new RegExp('^' + body + '$');
+}
+
 function matches(pattern, path) {
-    const body = pattern.split('*').map(escapeRegExp).join('(.*)');
-    return new RegExp('^' + body + '$').test(path);
+    return patternRegExp(pattern).test(path);
 }
 
 export function headersFor(rules, path) {

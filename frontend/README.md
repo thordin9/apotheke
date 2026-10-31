@@ -87,9 +87,9 @@ runs it on every frontend pull request and on pushes to `main`. It checks:
 * every page sets `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and the Permissions-Policy from
   `public/_headers`;
-* `Cache-Control`: HTML and other files are `no-cache`; a hashed Vite file (`/assets/<name>-<hash>.js` or `.css`)
+* `Cache-Control`: HTML and other files are `no-cache`; a hashed Vite file (`/assets/:name-:hash.js` or `.css`)
   is `public, max-age=31536000, immutable`; brand, mascot, shots and `icons.svg` are one day;
-  `/assets/missing.js` stays `no-cache`;
+  `/assets/missing.js` stays `no-cache` (a missing hyphenated name such as `/assets/index-abc.js` is still immutable);
 * every `href`, `src` and `srcset` is `https:`, `mailto:` or a root-absolute path that exists in `dist`;
 * no built HTML or CSS loads an off-site `https:` script, style, image, font, `<link>` or `url()` / `@import`.
   An `<a href>` (GitHub and the other outbound links) may point off site, and so may JSON-LD.

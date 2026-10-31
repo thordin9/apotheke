@@ -636,10 +636,10 @@ Cloudflare does not apply `_headers` to responses a Worker makes, so only the pa
   (`{"apiBase": "https://api.services.getapotheke.com/api/v1"}`), with `Cache-Control: no-cache`;
 * `/fonts/*` (unhashed) get one day (`max-age=86400`), like `/assets/brand/*` and `/assets/mascot/*` in `_headers`,
   on a 200 and on a 304 (a revalidation keeps the same `Cache-Control`). Everything else the Worker answers is
-  `no-cache` (its 404s too), and its other errors `no-store`. Hashed Vite files (`/assets/*-*.js` and
-  `/assets/*-*.css`) are served from the assets with `_headers` (immutable for a year), not by the Worker. A path
+  `no-cache` (its 404s too), and its other errors `no-store`. Hashed Vite files (`/assets/:name-:hash.js` and
+  `/assets/:name-:hash.css`) are served from the assets with `_headers` (immutable for a year), not by the Worker. A path
   under `/assets/` that does not match, including a missing file such as `/assets/missing.js`, keeps `no-cache`
-  from `/*`;
+  from `/*`. A missing hyphenated name such as `/assets/index-abc.js` still matches and is an immutable 404; hashed names are not reused;
 * every response the Worker makes (the SPA fallback, the `/app` redirect, its 404, 405 and 500 answers) carries the `/*` headers of `_headers` (HSTS, nosniff, `X-Frame-Options`, `Referrer-Policy`,
   `Permissions-Policy`), and under `/app/` exactly its `/app/*` Content-Security-Policy. When `_headers` changes
   `/*` or `/app/*`, change `COMMON` or `APP_CSP` in the Worker too; the check below fails until they match. A change to

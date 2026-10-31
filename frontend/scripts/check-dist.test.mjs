@@ -23,6 +23,24 @@ test('a missing /assets file is not cached as immutable', () => {
     assert.equal(headersFor(rules, '/assets/missing.css').get('cache-control'), 'no-cache');
 });
 
+test('two wildcards are rejected and a placeholder matches a hashed name', () => {
+    assert.throws(
+        () => parseHeaders('/assets/*-*.js\n  Cache-Control: public, max-age=31536000, immutable\n'),
+        /Only one wildcard is allowed/
+    );
+    assert.throws(
+        () => parseHeaders('/assets/*/:splat.js\n  Cache-Control: no-cache\n'),
+        /:splat/
+    );
+    const hashed = parseHeaders(
+        '/assets/:name-:hash.js\n  Cache-Control: public, max-age=31536000, immutable\n'
+        + '/assets/:name-:hash.css\n  Cache-Control: public, max-age=31536000, immutable\n'
+    );
+    assert.equal(headersFor(hashed, '/assets/index-Ab12Cd34.js').get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.equal(headersFor(hashed, '/assets/style-Ab12Cd34.css').get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.equal(headersFor(hashed, '/assets/missing.js').get('cache-control'), undefined);
+});
+
 test('only a hashed Vite js or css file is immutable', () => {
     assert.equal(headersFor(rules, '/assets/index-Ab12Cd34.js').get('cache-control'), 'public, max-age=31536000, immutable');
     assert.equal(headersFor(rules, '/assets/style-Ab12Cd34.css').get('cache-control'), 'public, max-age=31536000, immutable');
