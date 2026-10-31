@@ -599,7 +599,7 @@ unchanged. Only the deploy job, which runs only with `EDGE_STORAGE_READY=true`, 
 | `STORAGE` | R2 bucket `apotheke-api-storage` | `"jurisdiction": "eu"` |
 | `INSTALLATION` | Durable Object class `Installation`, SQLite storage | hosted mode; migration `v2` (`new_sqlite_classes`) |
 
-Hosted mode keeps every cookie host-only (ADR-002, decision 5, [#203](https://github.com/thordin9/apotheke/pull/203)), so the merge also drops
+Hosted mode keeps every cookie host-only ([ADR-002](adr/002-edge-storage.md), decision 5), so the merge also drops
 `COOKIE_DOMAIN` from the flipped config: the container gets no cookie domain. The default config keeps
 `getapotheke.com` for the stateless API. `CORS_ALLOWED_ORIGINS` stays `https://getapotheke.com` in the flipped
 config, because the SPA is served there today. Per-installation origins depend on the hosted subdomain scheme, which
@@ -611,7 +611,7 @@ bridge. A control-plane D1 schema would later go in `edge/migrations/control/`, 
 Flip in this order. Every step except the last two is additive; nothing is deleted.
 
 1. **Pre-flip: the storage gate criteria hold.** Don't start until items 1 to 4 of *Opening the storage gate* in
-   ADR-002 (`docs/adr/002-edge-storage.md`, added in [#203](https://github.com/thordin9/apotheke/pull/203)) are met:
+   [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate) are met:
    1. P4-2 to P4-5 are merged (so `edge/src/index.ts` exports `Installation`; until then a deploy with the merged
       config fails on *Durable Objects not exported*, and nothing is deployed);
    2. the manual `edge-local` workflow is green with D1 and R2 (local), including a backup round trip between
