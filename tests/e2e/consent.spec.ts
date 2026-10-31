@@ -453,6 +453,37 @@ test.describe('page-view counting', () => {
     });
 });
 
+test('withdrawing on the sign-in page turns sign-in back off', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const posts: string[] = [];
+    await page.route('**/api/v1/session', (route) => {
+        if (route.request().method() === 'POST') {
+            posts.push(route.request().headers()['x-csrf-token'] || '');
+            return route.fulfill({ status: 403, contentType: 'application/problem+json', body: '{"code":"consent_required"}' });
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ csrf_token: 'fresh-token' }) });
+    });
+    await page.goto('/app/sign-in');
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#sign-in-note')).toHaveText('You can sign in.');
+    await expect(page.locator('#sign-in-submit')).toBeEnabled();
+
+    await page.getByRole('button', { name: 'Cookie settings' }).click();
+    await page.getByRole('button', { name: 'Decline' }).click();
+    expect(await context.cookies()).toEqual([]);
+    await expect(page.locator('#sign-in-note')).toHaveText('Accept cookies to sign in.');
+    await expect(page.locator('#sign-in-submit')).toBeDisabled();
+    await expect(page.locator('#sign-in-user')).toBeDisabled();
+    await expect(page.locator('#sign-in-pass')).toBeDisabled();
+    await expect(page.locator('#sign-in-home')).toBeHidden();
+    // Even a forced submit sends nothing: the CSRF token is gone.
+    await page.locator('#sign-in').evaluate((form: HTMLFormElement) => form.requestSubmit());
+    await page.waitForTimeout(300);
+    expect(posts).toEqual([]);
+    await context.close();
+});
+
 test('Cookie settings is a 44px footer control on a phone, hidden without JavaScript', async ({ browser }) => {
     const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
     const page = await phone.newPage();

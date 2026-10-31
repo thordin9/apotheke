@@ -74,7 +74,7 @@ file plus the custom domain, with the `workers.dev` and preview URLs off:
   "compatibility_flags": ["nodejs_compat_v2"],
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [{ "pattern": "analytics.services.webapp.gr", "custom_domain": true }],
+  "routes": [{ "pattern": "<analytics-host>", "custom_domain": true }],
   "assets": { "directory": "./build/client", "binding": "ASSETS" },
   "analytics_engine_datasets": [{ "binding": "WEB_COUNTER_AE", "dataset": "metricsDataset" }],
   "r2_buckets": [{ "binding": "DAILY_ROLLUPS", "bucket_name": "counterscale-daily-rollups" }],

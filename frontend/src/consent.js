@@ -75,6 +75,21 @@ export function withdrawConsent() {
         secureContext: typeof isSecureContext === 'boolean' ? isSecureContext : false,
     });
     stopAnalytics();
+    disableLogin();
+}
+
+/** After withdrawal: forget the CSRF token and put the sign-in form back as it is before Accept. */
+function disableLogin() {
+    csrfToken = '';
+    const form = document.getElementById('sign-in');
+    if (!form) return;
+    for (const el of form.querySelectorAll('input, button')) el.disabled = true;
+    const note = document.getElementById('sign-in-note');
+    if (note) note.textContent = 'Accept cookies to sign in.';
+    const error = document.getElementById('sign-in-error');
+    if (error) error.textContent = '';
+    const home = document.getElementById('sign-in-home');
+    if (home) home.hidden = true;
 }
 
 /**
