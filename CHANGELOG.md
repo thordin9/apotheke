@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **deploy:** forward CORS_ALLOWED_ORIGINS to the apotheke-api container ([#PR](https://github.com/thordin9/apotheke/pull/PR))
+
 ## [3.9.1] - 2026-10-31
 
 ### Fixed
