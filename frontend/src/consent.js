@@ -1,4 +1,4 @@
-// Cookie consent for the landing pages and the SPA placeholder.
+// Cookie consent for the landing pages and the app shell.
 // The Svelte app (step S1) should import these functions rather than copy them.
 // Nothing here reads or writes localStorage, sessionStorage, IndexedDB or Cache storage.
 // The consent cookie is the only write, and only acceptConsent() performs it.
@@ -86,13 +86,16 @@ export async function enableLogin(form, apiBase = '') {
     const session = await fetchSession(apiBase);
     const note = document.getElementById('sign-in-note');
     const token = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
+    const home = document.getElementById('sign-in-home');
     if (token === '') {
-        if (note) note.textContent = 'Sign-in stays off until the server offers a sign-in token.';
+        if (note) note.textContent = 'Sign-in is coming soon.';
+        if (home) home.hidden = false;
         return '';
     }
     csrfToken = token;
     for (const el of form.querySelectorAll('input, button')) el.disabled = false;
     if (note) note.textContent = 'You can sign in.';
+    if (home) home.hidden = true;
     return csrfToken;
 }
 
@@ -160,7 +163,7 @@ async function signIn(form, apiBase) {
     }
 }
 
-function wireLogin(form) {
+export function bindSignIn(form) {
     form.addEventListener('submit', (event) => {
         event.preventDefault();
         signIn(form, '');
@@ -170,7 +173,7 @@ function wireLogin(form) {
 function start() {
     const banner = document.getElementById('consent');
     const login = document.getElementById('sign-in');
-    if (login) wireLogin(login);
+    if (login) bindSignIn(login);
     if (hasConsent()) {
         hide(banner);
         if (login) enableLogin(login, '');
@@ -190,7 +193,8 @@ function start() {
         accept.addEventListener('click', () => {
             acceptConsent();
             dismissNotice(banner);
-            if (login) enableLogin(login, '');
+            const form = document.getElementById('sign-in');
+            if (form) enableLogin(form, '');
         });
     }
 }

@@ -7,6 +7,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { appFallback } from './app-fallback.mjs';
 
 const frontend = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(frontend, 'dist');
@@ -98,10 +99,18 @@ function htmlUrls(html) {
     return urls;
 }
 
+let spaMount = '/app';
+
 function resolves(url) {
     const path = url.split('#')[0].split('?')[0];
     if (path === '' || /^(https?:|mailto:)/i.test(path)) return { ok: true };
     if (path.startsWith('//') || !path.startsWith('/')) return { ok: false, why: 'not a root-absolute path' };
+    const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
+    if (decision.kind === 'shell' || decision.kind === 'redirect') {
+        const shell = join(dist, 'app/index.html');
+        const ok = existsSync(shell) && statSync(shell).isFile();
+        return { ok, why: ok ? '' : 'missing app shell' };
+    }
     const rel = path.replace(/^\/+/, '');
     const candidates = rel === '' ? [join(dist, 'index.html')] : [join(dist, rel), join(dist, rel, 'index.html')];
     const found = candidates.some((file) => {
@@ -150,6 +159,74 @@ function checkScripts(rel, external) {
     if (files !== external) fail(rel + ' has ' + files + ' external scripts, want ' + external);
 }
 
+function sliceBlock(html, tag) {
+    const open = '<' + tag;
+    const close = '</' + tag + '>';
+    const start = html.indexOf(open);
+    const end = html.indexOf(close, start);
+    if (start < 0 || end < 0) return '';
+    return html.slice(start, end + close.length);
+}
+
+function innerNav(header) {
+    const open = '<ul class="slab-actions">';
+    const start = header.indexOf(open);
+    const end = header.indexOf('</ul>', start);
+    if (start < 0 || end < 0) return '';
+    return header.slice(start, end + 5);
+}
+
+function withoutNav(header) {
+    const nav = innerNav(header);
+    if (!nav) return '';
+    return header.replace(nav, '');
+}
+
+function checkChrome() {
+    const pages = ['index.html', 'privacy/index.html', '404.html', 'app/index.html'];
+    const htmls = [];
+    for (const rel of pages) {
+        const file = join(dist, rel);
+        if (!existsSync(file)) return;
+        htmls.push({ rel, html: readFileSync(file, 'utf8') });
+    }
+    if (htmls.length !== pages.length) return;
+    const footers = htmls.map((page) => sliceBlock(page.html, 'footer'));
+    const headers = htmls.map((page) => sliceBlock(page.html, 'header'));
+    if (footers.some((footer) => footer === '')) fail('a page is missing its footer');
+    for (const footer of footers) {
+        if (footer !== footers[0]) fail('footers differ');
+    }
+    if (!footers[0].includes('© 2026 Stathis Papandreou')) fail('footer lost the operator line');
+    const shells = headers.map(withoutNav);
+    if (shells.some((shell) => shell === '')) fail('a page is missing the shared header');
+    for (const shell of shells) {
+        if (shell !== shells[0]) fail('header chrome differs aside from the nav');
+    }
+    const marketing = htmls.filter((page) => page.rel !== 'app/index.html').map((page) => innerNav(sliceBlock(page.html, 'header')));
+    for (const nav of marketing) {
+        if (nav !== marketing[0]) fail('landing, privacy and 404 headers differ');
+    }
+    if (!marketing[0].includes('>Open the app<') || !marketing[0].includes('href="/app/"') || !marketing[0].includes('href="/app/sign-in"')) {
+        fail('marketing nav is missing Open the app or Sign in');
+    }
+    const appNav = innerNav(sliceBlock(htmls[3].html, 'header'));
+    if (!appNav.includes('href="/"') || !appNav.includes('>Home<') || !appNav.includes('href="/privacy/"') || !appNav.includes('>Privacy<')) {
+        fail('app nav is missing Home or Privacy');
+    }
+    if (appNav.includes('Open the app')) fail('app nav still offers Open the app');
+    for (const page of htmls) {
+        if (page.html.includes('<!-- apotheke:')) fail(page.rel + ' still has an uninjected partial marker');
+    }
+    const appHtml = htmls[3].html;
+    const key = 'data-spa-base="';
+    const at = appHtml.indexOf(key);
+    const base = at < 0 ? '' : appHtml.slice(at + key.length, appHtml.indexOf('"', at + key.length));
+    spaMount = base.replace(/\/$/, '') || '/app';
+    if (base === '') fail('app shell is missing data-spa-base');
+    if (!appHtml.includes('href="https://getapotheke.com' + base + '"')) fail('app canonical does not use the SPA base');
+}
+
 function run() {
     if (!existsSync(dist)) fail('frontend/dist is missing (run npm run build)');
     for (const rel of ['index.html', 'privacy/index.html', '404.html', 'app/index.html']) {
@@ -160,7 +237,8 @@ function run() {
     if (existsSync(join(dist, 'index.html'))) checkScripts('index.html', 1);
     if (existsSync(join(dist, 'privacy/index.html'))) checkScripts('privacy/index.html', 1);
     if (existsSync(join(dist, 'app/index.html'))) checkScripts('app/index.html', 1);
-    if (existsSync(join(dist, '404.html'))) checkScripts('404.html', 0);
+    if (existsSync(join(dist, '404.html'))) checkScripts('404.html', 1);
+    checkChrome();
 
     if (existsSync(join(dist, '_headers'))) {
     const rules = parseHeaders(readFileSync(join(dist, '_headers'), 'utf8'));

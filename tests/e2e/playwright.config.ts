@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
     testDir: '.',
-    testMatch: 'consent.spec.ts',
+    testMatch: '*.spec.ts',
     timeout: 30_000,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 1 : 0,

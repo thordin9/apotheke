@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-spa-base="__APOTHEKE_SPA_BASE__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>The app is coming | Apotheke</title>
-<meta name="description" content="The Apotheke app will be served at this address. It is not available yet.">
+<title>Apotheke</title>
+<meta name="description" content="Apotheke catalogues your things: a photo, a place, found in seconds.">
 <link rel="canonical" href="https://getapotheke.com__APOTHEKE_SPA_BASE__">
 <link rel="preload" href="/fonts/epilogue-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/src/styles/landing.css">
@@ -15,65 +15,15 @@
 <link rel="manifest" href="/site.webmanifest">
 </head>
 <body>
-<a class="skip" href="#main">Skip to content</a>
-<section id="consent" class="consent" aria-labelledby="consent-title" hidden>
-  <div class="container consent-inner">
-    <div class="consent-copy">
-      <p id="consent-title" class="consent-title">Cookies</p>
-      <p>This site stores nothing until you accept. Accept keeps one cookie for 180 days. <a href="/privacy/">Privacy</a></p>
-    </div>
-    <div class="consent-actions">
-      <button type="button" class="btn" id="consent-decline">Decline</button>
-      <button type="button" class="btn" id="consent-accept">Accept</button>
-    </div>
-  </div>
-</section>
-<header class="slab">
-  <div class="container">
-    <a class="mark" href="/"><img class="brand-art" src="/assets/brand/mark-small.svg" alt="" width="36" height="36">Apotheke</a>
-    <nav aria-label="Site">
-      <ul>
-        <li class="opt"><a href="/#features">Features</a></li>
-        <li><a href="/#install">Install</a></li>
-        <li class="opt"><a href="/#docs">Docs</a></li>
-        <li><a href="https://github.com/thordin9/apotheke">GitHub</a></li>
-      </ul>
-    </nav>
-  </div>
-</header>
+<!-- apotheke:header -->
 <main id="main" class="doc container" tabindex="-1">
-  <!-- SPA base (APOTHEKE_SPA_BASE, default /app/): __APOTHEKE_SPA_BASE__ -->
-  <h1>The app is coming</h1>
-  <p class="answer">This page will be the Apotheke app. It is not available yet.</p>
-  <form id="sign-in" class="sign-in" method="post" action="/api/v1/session">
-    <h2>Sign in</h2>
-    <p id="sign-in-note">Sign-in stays off until you accept cookies.</p>
-    <p id="sign-in-error" role="status"></p>
-    <label for="sign-in-user">Name</label>
-    <input id="sign-in-user" name="username" autocomplete="username" disabled>
-    <label for="sign-in-pass">Password</label>
-    <input id="sign-in-pass" name="password" type="password" autocomplete="current-password" disabled>
-    <button type="submit" class="btn" id="sign-in-submit" disabled>Sign in</button>
-  </form>
-</main>
-<footer class="mast">
-  <div class="container">
-    <p class="big"><img class="logo-l" src="/assets/brand/logo-light.svg" alt="Apotheke" width="341" height="100"><img class="brand-art logo-d" src="/assets/brand/logo-dark.svg" alt="Apotheke" width="341" height="100"></p>
-    <p class="tagline">From the Greek <span lang="grc">ἀποθήκη</span>, a storehouse.</p>
-    <nav aria-label="Footer">
-      <ul>
-        <li><a href="https://github.com/thordin9/apotheke">GitHub</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/index.md">Docs</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/blob/main/CHANGELOG.md">Changelog</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/issues">Issues</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/security/advisories/new">Security</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/blob/main/LICENSE">MIT licence</a></li>
-        <li><a href="/privacy/">Privacy</a></li>
-      </ul>
-    </nav>
-    <small>© 2026 Stathis Papandreou</small>
+  <div id="app">
+    <h1>Where did you put the drill?</h1>
+    <p class="answer">Apotheke catalogues your things: a photo, a place, found in seconds.</p>
+    <div class="actions"><a class="btn btn-primary" href="__APOTHEKE_SPA_BASE__sign-in">Sign in</a></div>
   </div>
-</footer>
-<script type="module" src="/src/consent.js"></script>
+</main>
+<!-- apotheke:footer -->
+<script type="module" src="/src/app.js"></script>
 </body>
 </html>

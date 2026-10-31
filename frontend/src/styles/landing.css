@@ -24,7 +24,12 @@ a:hover { color: var(--color-accent-strong); }
 .slab nav a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-sm); font-weight: var(--body-weight); text-decoration: none; white-space: nowrap; border-radius: var(--radius-control); }
 .slab nav a:hover { text-decoration: underline; text-decoration-color: var(--color-accent); }
 .slab :focus-visible { outline-color: var(--color-paper); }
-@media (max-width: 47.99rem) { .slab .opt { display: none; } }
+.slab-actions { display: flex; flex-wrap: wrap; gap: var(--space-2xs); align-items: center; justify-content: flex-end; }
+.slab a.btn { min-height: 44px; padding-inline: var(--space-sm); color: var(--color-ink); font-weight: var(--strong-weight); background: var(--color-paper-2); }
+.slab a.btn:hover { background: var(--color-paper-3); color: var(--color-ink); text-decoration: none; }
+.slab a.btn-primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-accent-ink); }
+.slab a.btn-primary:hover { background: var(--color-accent-strong); border-color: var(--color-accent-strong); color: var(--color-accent-ink); text-decoration: none; }
+@media (max-width: 40rem) { .slab .container { flex-wrap: wrap; padding-block: var(--space-sm); } .slab-actions { width: 100%; } .slab-actions .btn { flex: 1 1 auto; } }
 
 /* buttons: the pair */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-xs); min-height: 48px; padding: 0 var(--space-lg); border: var(--rule-hair) solid var(--color-field-edge); border-radius: var(--radius-control); background: var(--color-paper-2); color: var(--color-ink); font-weight: var(--strong-weight); text-decoration: none; white-space: nowrap; transition: background-color var(--dur-micro) var(--ease-out); }
@@ -150,3 +155,4 @@ body:has(#consent:not([hidden])) { padding-block-end: calc(var(--space-4xl) + va
 .sign-in label { color: var(--color-ink); font-weight: var(--strong-weight); }
 .sign-in input { width: 100%; min-height: 48px; margin-top: var(--space-2xs); padding: 0 var(--space-sm); border: var(--rule-hair) solid var(--color-field-edge); border-radius: var(--radius-control); background: var(--color-paper); color: var(--color-ink); }
 .sign-in button { justify-self: start; }
+.sign-in-home { margin: 0; }
