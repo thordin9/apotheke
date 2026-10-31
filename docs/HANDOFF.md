@@ -364,7 +364,17 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   form, API 403 `permission.denied`), even when the Guest role has Import. Tests:
   `Ci4ImportHtmlScopeTest` (uploader and admin through; another editor gets the unknown-id answer on GET, HEAD and
   the POSTs of an open and a done import, nothing saved; the history filtered; consent; L-1501, a guest sees no
-  imports and gets the unknown-id 404; a guest upload stores nothing). Open for QA's full gate.
+  imports and gets the unknown-id 404; a guest upload stores nothing). Merged (c9f4e86, v3.7.1).
+- feat/chunked-restore (part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
+  `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Random ids,
+  strict id pattern, nothing followed through a link (root, folder, manifest, data), the real path checked. Chunks in
+  order, each exactly the chunk size but the last, within the declared size and `RESTORE_MAX_MB`; the size and an
+  optional SHA-256 are checked before the zip is handed to `Restorer`, which stays the only code that checks and
+  applies a restore. An upload is its owner's (`user:<id>`, `local` with sign-in off; guests none): anyone else gets
+  the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Finished,
+  cancelled and refused uploads are removed; idle for an hour, swept on each request and by
+  `spark apotheke:restore-sweep`. Tests: `tests/Modules/Backup/RestoreUploadsTest.php`. Open for QA's full gate.
+- feat/chunked-restore-api (part 2, stacked on part 1): the `/api/v1/restores` endpoints. Open after part 1.
 
 ## Lanes
 
@@ -440,10 +450,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-- Now: the queue is empty: #184, #185 and #188 are merged (v3.5.0 to v3.7.0). N-1441 (the HTML import pages scoped to
-  their uploader or an admin, [#195](https://github.com/thordin9/apotheke/pull/195)) is open for QA's full gate. Next: the chunked restore, then P4
-  with N-1442 (import ownership by user id rather than username; it needs a CI4-only column or table, as 2.6.x
-  reads `imports`).
+- Now: the chunked restore, in two stacked PRs (the store, then the API), each through QA's full gate. Next: P4 (edge
+  storage: D1 and R2, tenant-ready) with N-1442 (import ownership by user id rather than username; it needs a
+  CI4-only column or table, as 2.6.x reads `imports`). On hold: L-1520, N-1502, N-1503, N-1482.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`

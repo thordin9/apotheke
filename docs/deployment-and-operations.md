@@ -38,6 +38,13 @@ afterwards). *Restore* uploads a zip, validates it and shows a dry-run compariso
 confirmation and press *Restore* is **all data replaced**, in one transaction. Uploaded restore files wait in
 `DATA_DIR/tmp` under a random token until confirmed.
 
+**In chunks:** where a request body is capped (an edge host), a backup can be sent in pieces instead. Each upload is a folder `DATA_DIR/uploads/restore/<32 hex>/` (0770, never followed
+through a link) holding `manifest.json` and the data, at most `RESTORE_MAX_MB` in chunks of `RESTORE_CHUNK_KB`
+([Configuration](configuration.md)). The zip is checked and restored by the same code as an upload on the page. An
+account has one upload at a time. A finished, cancelled or refused upload is removed at once, and one without a
+request for an hour is removed by the next restore request or by `php spark apotheke:restore-sweep`, which you can
+run from cron (as the data directory's owner, `www-data` in the image; it creates no folder).
+
 **From the command line** (cron, and any archive larger than the browser upload limit):
 
 A backup that includes camera files is often bigger than the 22 MB body limit of a non-Docker install (Docker
