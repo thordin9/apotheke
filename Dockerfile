@@ -35,7 +35,7 @@ ARG IMAGICK_PECL_SHA256=bda67461c854f20d6105782b769c524fc37388b75d4481d951644d21
 # Alpine keeps only the current package versions, so apk add is not pinned (DL3018); $PHPIZE_DEPS is a word list (SC2086).
 # hadolint ignore=DL3018,SC2086
 RUN set -eux; \
-    apk add --no-cache nginx tini libjpeg-turbo libpng libwebp libzip libpq imagemagick libheif libgomp icu-libs; \
+    apk add --no-cache nginx tini su-exec libjpeg-turbo libpng libwebp libzip libpq imagemagick libheif libgomp icu-libs; \
     apk add --no-cache --virtual .build-deps $PHPIZE_DEPS libjpeg-turbo-dev libpng-dev libwebp-dev libzip-dev postgresql-dev imagemagick-dev libheif-dev icu-dev; \
     docker-php-source extract; \
     fetch() { \
@@ -89,7 +89,8 @@ COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zzz-apotheke.conf
 COPY docker/nginx.conf /etc/nginx/apotheke.conf.template
 COPY docker/fastcgi.conf /etc/nginx/apotheke-fastcgi.conf
 COPY docker/entrypoint.sh /usr/local/bin/apotheke-entrypoint
-RUN chmod +x /usr/local/bin/apotheke-entrypoint
+COPY docker/jobs-worker.sh /usr/local/bin/apotheke-jobs-worker
+RUN chmod +x /usr/local/bin/apotheke-entrypoint /usr/local/bin/apotheke-jobs-worker
 
 # nginx serves public/; app, modules, vendor, writable and spark stay outside it.
 COPY --chown=root:root public /var/www/app/public

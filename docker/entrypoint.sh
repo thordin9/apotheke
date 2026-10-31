@@ -3,6 +3,8 @@
 #  - prepares the data volume (writable by www-data even if ./data was created by root on the host)
 #  - with no arguments (or "apotheke") runs php-fpm + nginx and supervises both: SIGTERM/SIGINT/SIGQUIT
 #    stop both gracefully; if either exits on its own, the other is stopped and the container exits non-zero
+#  - next to them it runs the background jobs worker (apotheke-jobs-worker: `php spark jobs:work`, restarted with a
+#    backoff) as www-data; APOTHEKE_JOBS_WORKER=0 turns it off. SIGTERM stops it too; it never stops the web server
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 #  - refuses to start the app with sign-in off (hardening, SEC-M3): set APP_PASSWORD, keep sign-in on in the
 #    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose
@@ -21,7 +23,9 @@ for d in images thumbs originals originals/map sessions; do
   if [ -L "$DATA_DIR/$d" ]; then echo "apotheke: $DATA_DIR/$d must be a directory, not a symbolic link" >&2; exit 78; fi
 done
 mkdir -p "$DATA_DIR/images" "$DATA_DIR/thumbs" "$DATA_DIR/originals/map" "$DATA_DIR/sessions"
-find "$DATA_DIR" \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
+# ./data/postgres is the compose postgres service's own directory (owned by its postgres user): never touched here,
+# or PostgreSQL could not start (or initialise) after the app started next to it.
+find "$DATA_DIR" -path "$DATA_DIR/postgres" -prune -o \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
 chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 # The first 3.0 start signs everyone out once: legacy sessions are not carried over (PLAN 3.5). A link in place of
 # the marker counts as no marker and is replaced by a file.
@@ -63,6 +67,13 @@ case "${ALLOW_NO_LOGIN:-}" in
   *) echo "ALLOW_NO_LOGIN must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
 esac
 
+# The background jobs worker (docker/jobs-worker.sh): on unless APOTHEKE_JOBS_WORKER is 0, false or no.
+case "${APOTHEKE_JOBS_WORKER:-1}" in
+  1|true|yes) jobs_worker=1 ;;
+  0|false|no) jobs_worker=0 ;;
+  *) echo "APOTHEKE_JOBS_WORKER must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
+esac
+
 PORT="${PORT:-9091}"
 case "$PORT" in ''|*[!0-9]*) echo "PORT must be a number" >&2; exit 64;; esac
 sed -e "s/__PORT__/$PORT/g" -e "s#__ROOT__#$ROOT#g" /etc/nginx/apotheke.conf.template > /etc/nginx/nginx.conf
@@ -70,21 +81,50 @@ sed -e "s/__PORT__/$PORT/g" -e "s#__ROOT__#$ROOT#g" /etc/nginx/apotheke.conf.tem
 mkdir -p /run/apotheke-nginx
 nginx -t -q
 
-php-fpm -F &
-fpm=$!
-# let php-fpm create its socket first, so nginx never answers 502 during start-up
-i=0; while [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
-nginx -g 'daemon off;' &
-ngx=$!
+# The trap is set before anything starts, and the flag is checked right before each `&` and again once the PIDs are
+# known, so a SIGTERM during start-up is never lost (L-1470). A signal sent right after a fork can still be lost (the
+# subshell has not run exec yet), so after a stop each process gets its signal again until it has exited (end).
+fpm=0
+ngx=0
+jobs=0
 stopping=0
-stop() { stopping=1; kill -QUIT "$ngx" 2>/dev/null || true; kill -QUIT "$fpm" 2>/dev/null || true; }
+stop() {
+  stopping=1
+  if [ "$ngx" != 0 ]; then kill -QUIT "$ngx" 2>/dev/null || true; fi
+  if [ "$fpm" != 0 ]; then kill -QUIT "$fpm" 2>/dev/null || true; fi
+  if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
+}
+end() { # signal pid: sends the signal every 0.2 s until the process has exited
+  if [ "$2" = 0 ]; then return 0; fi
+  while kill -0 "$2" 2>/dev/null; do kill "-$1" "$2" 2>/dev/null || true; sleep 0.2; done
+}
 trap stop TERM INT QUIT
+if [ "$stopping" = 0 ]; then php-fpm -F & fpm=$!; fi
+# let php-fpm create its socket first, so nginx never answers 502 during start-up
+i=0; while [ "$stopping" = 0 ] && [ ! -S /run/php-fpm.sock ] && [ "$i" -lt 100 ] && kill -0 "$fpm" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+if [ "$stopping" = 0 ]; then nginx -g 'daemon off;' & ngx=$!; fi
+if [ "$jobs_worker" = 1 ]; then
+  if [ "$stopping" = 0 ]; then
+    if [ "$(id -u)" = 0 ]; then su-exec www-data apotheke-jobs-worker & else apotheke-jobs-worker & fi
+    jobs=$!
+  fi
+else
+  echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
+fi
+if [ "$stopping" = 1 ]; then stop; fi
 echo "apotheke: nginx on :$PORT ($ROOT), php-fpm on /run/php-fpm.sock"
 while [ "$stopping" = 0 ] && kill -0 "$fpm" 2>/dev/null && kill -0 "$ngx" 2>/dev/null; do
   sleep 1 & wait $! || true
 done
 code=0
-if [ "$stopping" = 0 ]; then echo "apotheke: a process exited unexpectedly, stopping" >&2; code=1; stop; fi
-wait "$ngx" 2>/dev/null || true
-wait "$fpm" 2>/dev/null || true
+if [ "$stopping" = 0 ]; then
+  # nginx or php-fpm exited on its own: the container stops with that exit status (1 if it was 0), L-1472
+  if kill -0 "$ngx" 2>/dev/null; then dead=php-fpm; wait "$fpm" || code=$?; else dead=nginx; wait "$ngx" || code=$?; fi
+  echo "apotheke: $dead exited unexpectedly (exit $code), stopping" >&2
+  if [ "$code" = 0 ]; then code=1; fi
+  stop
+fi
+end QUIT "$ngx"
+end QUIT "$fpm"
+end TERM "$jobs"
 exit "$code"

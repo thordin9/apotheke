@@ -40,6 +40,7 @@ services:
       # required (default: no cookie until the user accepts the consent notice) or off.
       COOKIE_CONSENT: ${COOKIE_CONSENT:-required}
       # Parent domain for the consent cookie; empty (default) is host-only. Never applied to the session cookie.
+      # The hosted service (apotheke-api) sets getapotheke.com in edge/wrangler.jsonc.
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       # sqlite (default, stored in ./data/catalog.sqlite) or pgsql (start with: docker compose --profile postgres up -d)
       DB_DRIVER: ${DB_DRIVER:-sqlite}
@@ -48,6 +49,9 @@ services:
       DB_NAME: ${DB_NAME:-apotheke}
       DB_USER: ${DB_USER:-apotheke}
       DB_PASSWORD: ${DB_PASSWORD:-}
+      # Background jobs (imports, restores): both images run `php spark jobs:work` next to the web server.
+      # APOTHEKE_JOBS_WORKER=0 turns it off, e.g. when another container runs the worker.
+      APOTHEKE_JOBS_WORKER: ${APOTHEKE_JOBS_WORKER:-1}
       # FrankenPHP image only: PHP threads, i.e. requests served at once (1-64, default 2). The nginx image ignores it.
       FRANKENPHP_NUM_THREADS: ${FRANKENPHP_NUM_THREADS:-2}
 

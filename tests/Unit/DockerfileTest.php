@@ -75,6 +75,60 @@ final class DockerfileTest extends TestCase
         $this->assertStringContainsString('      ALLOW_NO_LOGIN: ${ALLOW_NO_LOGIN:-}', $compose);
     }
 
+    /** Both images run the background jobs worker as www-data, on unless APOTHEKE_JOBS_WORKER is 0/false/no. */
+    public function testBothImagesRunTheJobsWorker(): void
+    {
+        $root = dirname(__DIR__, 2);
+        foreach (['Dockerfile', 'Dockerfile.frankenphp'] as $f) {
+            $docker = (string)file_get_contents("$root/$f");
+            $this->assertStringContainsString("COPY docker/jobs-worker.sh /usr/local/bin/apotheke-jobs-worker\n", $docker, $f);
+            $this->assertMatchesRegularExpression('/^RUN chmod [^\n]*\/usr\/local\/bin\/apotheke-jobs-worker$/m', $docker, $f);
+            $this->assertMatchesRegularExpression('/apk add --no-cache [^\n]*\bsu-exec\b/', $docker, $f);
+        }
+        foreach (['docker/entrypoint.sh', 'docker/frankenphp/entrypoint.sh'] as $f) {
+            $sh = (string)file_get_contents("$root/$f");
+            $this->assertStringContainsString('case "${APOTHEKE_JOBS_WORKER:-1}" in', $sh, $f);
+            $this->assertStringContainsString('  1|true|yes) jobs_worker=1 ;;', $sh, $f);
+            $this->assertStringContainsString('  0|false|no) jobs_worker=0 ;;', $sh, $f);
+            $this->assertMatchesRegularExpression('/su-exec www-data (apotheke-jobs-worker|"\$@")/', $sh, $f);
+            $this->assertMatchesRegularExpression('/kill -TERM "\$jobs"/', $sh, $f);
+            // L-1470: the trap is in place before anything starts, and the flag is checked again once the PIDs are set
+            $trap = strpos($sh, 'trap stop TERM INT QUIT');
+            $this->assertNotFalse($trap, $f);
+            $first = strpos($sh, 'if [ "$stopping" = 0 ]; then ', (int)strpos($sh, 'PORT="${PORT:-9091}"'));
+            $this->assertNotFalse($first, "$f: the flag is checked before the first child");
+            $this->assertLessThan($first, $trap, "$f: trap before the first child");
+            $this->assertStringContainsString('if [ "$stopping" = 1 ]; then stop; fi', $sh, $f);
+            // every child of the supervisor starts behind the flag (no `&` outside `if [ "$stopping" = 0 ]`)
+            foreach (preg_split('/\n/', substr($sh, $trap)) as $line) {
+                if (preg_match('/ & /', $line) && !str_contains($line, 'sleep 1 & wait $!')) {
+                    $this->assertMatchesRegularExpression('/^\s*(if \[ "\$stopping" = 0 \]; then |if \[ "\$\(id -u\)" = 0 \]; then su-exec)/', $line, "$f: $line");
+                }
+            }
+            // a signal lost right after a fork is sent again until the process has exited
+            $this->assertMatchesRegularExpression('/while kill -0 "\$[12]" 2>\/dev\/null; do kill (-TERM|"-\$1") "\$[12]" 2>\/dev\/null \|\| true; sleep 0\.2; done/', $sh, $f);
+            // L-1472: the web server's own exit status is the container's
+            $this->assertStringContainsString('exited unexpectedly (exit $code), stopping', $sh, $f);
+            // compose keeps PostgreSQL's files in ./data/postgres, inside the app's /data: never chowned by the app
+            $this->assertStringContainsString('find "$DATA_DIR" -path "$DATA_DIR/postgres" -prune -o \! -user www-data -exec chown -h www-data:www-data {} +', $sh, $f);
+        }
+        $worker = (string)file_get_contents("$root/docker/jobs-worker.sh");
+        $this->assertStringContainsString('spawn php spark --no-header jobs:work', $worker);
+        $this->assertStringContainsString('spawn sleep "$delay"', $worker);
+        // L-1470: a stop that came before child=$! is passed on right after it
+        $this->assertStringContainsString("  if [ \"\$stopping\" = 1 ]; then return 0; fi\n  \"\$@\" &\n  child=\$!\n  if [ \"\$stopping\" = 1 ]; then kill -TERM \"\$child\" 2>/dev/null || true; fi\n", $worker);
+        // after a stop the child gets TERM again until it has exited (one sent before its exec is lost)
+        $this->assertStringContainsString("    if [ \"\$stopping\" = 1 ]; then\n      kill -TERM \"\$child\" 2>/dev/null || true\n      sleep 0.2\n", $worker);
+        $this->assertStringContainsString('trap stop TERM INT', $worker);
+        $this->assertStringContainsString('if [ "$delay" -gt 60 ]; then delay=60; fi', $worker);
+        $this->assertDoesNotMatchRegularExpression('/\benv\b|printenv|set -x|APP_PASSWORD|APP_KEY|DB_PASSWORD/', $worker, 'never prints the environment');
+        $compose = (string)file_get_contents("$root/docker-compose.yml");
+        $this->assertStringContainsString('      APOTHEKE_JOBS_WORKER: ${APOTHEKE_JOBS_WORKER:-1}', $compose);
+        // the Cloudflare container runs no worker (jobs will run through a Cron Trigger or Queues there)
+        $this->assertStringContainsString('"APOTHEKE_JOBS_WORKER": "0"', (string)file_get_contents("$root/edge/wrangler.jsonc"));
+        $this->assertStringContainsString('APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",', (string)file_get_contents("$root/edge/src/index.ts"));
+    }
+
     public function testEntrypointRefusesToStartWithSignInOff(): void
     {
         $sh = (string)file_get_contents(dirname(__DIR__, 2) . '/docker/entrypoint.sh');

@@ -55,10 +55,14 @@ TZ=Europe/Athens
 ```
 
 Run `docker compose up -d` again after changing `.env`. The compose file passes `TZ`, `APP_PASSWORD`,
-`ALLOW_NO_LOGIN`, `APP_KEY`, `APP_KEY_FILE`, `DB_DRIVER`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD`
-through; add any other variable from [Configuration](configuration.md) under `environment:`. `APP_KEY` is the key
+`ALLOW_NO_LOGIN`, `APP_KEY`, `APP_KEY_FILE`, `DB_DRIVER`, `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`,
+`APOTHEKE_JOBS_WORKER` and `FRANKENPHP_NUM_THREADS` through; add any other variable from [Configuration](configuration.md) under `environment:`. `APP_KEY` is the key
 source to use with Docker, because it stays out of the `./data` volume. For `APP_KEY_FILE` and its file permissions
 see [Stored secrets](configuration.md#stored-secrets).
+
+**Background jobs.** The container also runs the background jobs worker (`php spark jobs:work`, as `www-data`),
+which carries out queued work such as imports. Its lines in `docker compose logs` start with `apotheke-jobs:` or `job`.
+It is on by default in self-hosted images (the Cloudflare deploy turns it off). Set `APOTHEKE_JOBS_WORKER=0` in `.env` to turn it off; see [Background jobs](deployment-and-operations.md#background-jobs).
 
 **What's in the image:** `php:8.4.27-fpm-alpine` with nginx in the same container and the `gd`, `imagick` (HEIC/HEIF
 via `libheif`), `exif`, `opcache`, `pdo_pgsql`, `sodium` and `zip` extensions. Imagick is built from its GitHub

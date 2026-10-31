@@ -145,9 +145,8 @@ the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes 
 
 From 3.2 long tasks can run as background jobs: a row in the `jobs` table (migration 0029) that
 `php spark jobs:work` picks up. The first type is `import.commit`, the API's CSV import (`POST
-/api/v1/imports/{id}/commit`; the import page still imports in the request). The image does not start the worker yet,
-so run it yourself (cron with `--once`, or a long-lived process) if you use the API import; the backup restore moves to
-jobs later, and the image then runs the worker next to PHP-FPM.
+/api/v1/imports/{id}/commit`; the import page still imports in the request); the backup restore moves to jobs later.
+Both Docker images run the worker, so a queued job is picked up without any extra setup.
 
 ```bash
 php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
@@ -162,8 +161,40 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
 * **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
   and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
   ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.
+
+**In the Docker images.** The entrypoint of both images (nginx + php-fpm, and FrankenPHP) starts
+`apotheke-jobs-worker` (`docker/jobs-worker.sh`) next to the web server, as `www-data`, under `tini` as PID 1:
+
+* it runs `php spark --no-header jobs:work` with the defaults above. When that exits 0 (after `--max-seconds`) it is
+  started again after 1 s; any other exit (no database yet, a crash, a kill) restarts it after 1, 2, 4 … 60 s, back
+  to 1 s after a run of 60 s or more;
+* a crash loop never stops the web server, and the web server does not wait for the worker. If the web server itself
+  exits (FrankenPHP; nginx or php-fpm), the container stops with that exit status, or 1 if it was 0;
+* `docker stop` (SIGTERM) reaches the worker too: the running job checkpoints and goes back to the queue (`pcntl`),
+  and the container exits 0;
+* logs go to the container's output: `apotheke-jobs: …` lines from the supervisor and one `job <id> (<type>): <status>`
+  line per job. Neither prints a payload, the environment or a credential; an unexpected error's class and message
+  go to stderr;
+* **`APOTHEKE_JOBS_WORKER=0`** (or `false`, `no`) turns it off, for example to run the worker in a separate
+  container (`docker compose run -u www-data apotheke php spark jobs:work`). Any value other than empty, `1`, `true`,
+  `yes`, `0`, `false` or `no` exits 64.
+
+A separate process was chosen over a FrankenPHP worker script: FrankenPHP's worker mode serves HTTP requests from a
+long-lived script and would hold one of the few PHP threads for a loop that serves none, and it has no counterpart
+in the nginx image. A plain process under the same entrypoint works the same way in both images and keeps the
+worker's crashes, memory and restarts apart from the requests. `scripts/docker-jobs-checks.sh` tests it on both
+images: the processes run as `www-data`, a queued job is worked, a killed `jobs:work` comes back after the measured
+waits of 1, 2, 4 and 8 s while `/healthz` keeps answering, a clean exit and a run of 60 s or more bring the wait back
+to 1 s, `docker stop` exits 0 (also when it arrives while `jobs:work` or the backoff sleep is starting), the web
+server dying on its own stops the container with its exit status (137 for a kill), the log never carries
+`APP_PASSWORD`, and `APOTHEKE_JOBS_WORKER=0` runs no worker.
+
+Self-hosted images keep the worker on by default; the Cloudflare deploy (`apotheke-api`) turns it off with
+`APOTHEKE_JOBS_WORKER=0` in `edge/wrangler.jsonc`.
+
 * **On Cloudflare** (API plan §1A, the edge deployment) the same jobs run from a Cron Trigger or a Queue consumer that
-  calls the runner instead of a long-lived `jobs:work` process. The `jobs` table and its schema stay as they are: each
+  calls the runner instead of a long-lived `jobs:work` process, designed in P4 with the D1/R2 storage; until then the
+  container runs no worker. The `jobs` table and its schema stay as they are: each
   step is one guarded statement with no transaction, which D1 supports.
 
 ## Behind a web server or reverse proxy
@@ -478,6 +509,14 @@ this repository, and only these two:
 | `getapotheke-app` | `edge/app/` (routing and headers) + `frontend/dist` (static assets) | the landing page (`/`, `/privacy/`, `/404.html`, `robots.txt`, `sitemap.xml`, icons, `site.webmanifest`, `/assets/…`) and the SPA under `/app/` | `.github/workflows/deploy-frontend.yml` | `deploy-site` |
 | `apotheke-api` | `edge/` (Worker + Container Durable Object) + `Dockerfile.frankenphp` | the API (Cloudflare Containers, instance `basic`, 1 instance, sleeps after 15 minutes) | `.github/workflows/deploy-edge.yml` | `deploy-edge` |
 
+**`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
+the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
+`APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
+[Background jobs](#background-jobs)) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
+the 3.6.1 upgrade note: the consent cookie gets `Domain=getapotheke.com` (empty means host-only, the self-hosting
+default), and it never applies to the `__Host-apothekesid` session cookie, which may not carry a `Domain` attribute
+(see [Cookie consent](#cookie-consent)). The secrets `APP_PASSWORD` and `APP_KEY` are set separately (below).
+
 **When they deploy.** Only for a published GitHub Release that is not marked pre-release (tag `vX.Y.Z`, created
 by `release.yml`), or a manual *Run workflow* on `main` or a `vX.Y.Z` tag. The deploy job's first step fails on any
 other tag (only `v` and three numbers, no suffix such as `-rc.1`), and on a tag it also reads that tag's GitHub Release
@@ -527,20 +566,26 @@ permission the environment's token probably lacks; a missing container push perm
 ### Storage gate: EDGE_STORAGE_READY
 
 The first `apotheke-api` deploy waits for the storage design (P4: D1 for data, R2 for files). Until then the deploy
-job of `deploy-edge.yml` fails on purpose, on every trigger (release and manual), unless the **repository variable**
+job of `deploy-edge.yml` does not run, on any trigger (release and manual), unless the **repository variable**
 `EDGE_STORAGE_READY` is exactly `true`:
 
-* no `CLOUDFLARE_API_TOKEN` in `deploy-edge`: the job is skipped and stays green, as before;
-* a token, but `EDGE_STORAGE_READY` unset or anything other than `true`: the job fails before any wrangler call with
-  *apotheke-api is stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that*;
-* `EDGE_STORAGE_READY=true`: the deploy runs.
+* `EDGE_STORAGE_READY` unset or anything other than `true`: the deploy job is **skipped** by its own condition, before
+  the `deploy-edge` environment gate, so a release asks no one for a deploy review and the run stays green;
+* `EDGE_STORAGE_READY=true`, but no `CLOUDFLARE_API_TOKEN` in `deploy-edge`: the job waits for the environment review,
+  then skips the deploy and stays green;
+* `EDGE_STORAGE_READY=true` and a token: after the review, the deploy runs.
+
+The job also checks the variable again in its first steps, before any wrangler call, and fails with *apotheke-api is
+stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that* if it is not `true` (a second
+line of defence, should the job condition ever change).
 
 Set it (Settings > Secrets and variables > Actions > Variables) only once storage has landed. The pull request checks
 and `deploy-frontend.yml` are not affected.
 
 ### One-time manual step before the first edge deploy
 
-Do this at the first real edge deploy, after the storage gate above is opened, not before.
+Do this at the first real edge deploy, after the storage gate above is opened, not before. Until
+`EDGE_STORAGE_READY` is `true` the deploy job is skipped (no review is requested), so there is nothing to do yet.
 `edge/wrangler.jsonc` lists `APP_PASSWORD` and `APP_KEY` under `secrets.required`, so `wrangler deploy` of
 `apotheke-api` fails until both exist on the Worker. CI never sets them: the deploy token is not used for secrets, and
 the values never go through GitHub. The operator sets them once, from a trusted machine, with a token that can edit

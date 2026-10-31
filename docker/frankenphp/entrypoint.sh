@@ -4,6 +4,9 @@
 #  - with no arguments (or "apotheke") execs FrankenPHP (Caddy + PHP in one process) as www-data; tini stays PID 1
 #    and forwards SIGTERM, on which FrankenPHP drains its requests and exits
 #  - FRANKENPHP_NUM_THREADS (1-64, default 2) sets the PHP threads, i.e. the requests served at once
+#  - next to FrankenPHP it runs the background jobs worker (apotheke-jobs-worker: `php spark jobs:work`, restarted with
+#    a backoff) as www-data; APOTHEKE_JOBS_WORKER=0 turns it off, and then FrankenPHP is exec'd as before. SIGTERM
+#    stops both; the worker never stops FrankenPHP, and if FrankenPHP exits on its own the container stops
 #  - any other command is exec'd as-is (e.g. `php /var/www/app/bin/migrate.php`)
 #  - refuses to start the app with sign-in off (hardening, SEC-M3): set APP_PASSWORD, keep sign-in on in the
 #    database, or set ALLOW_NO_LOGIN=1 to run without sign-in on purpose
@@ -22,7 +25,9 @@ for d in images thumbs originals originals/map sessions; do
   if [ -L "$DATA_DIR/$d" ]; then echo "apotheke: $DATA_DIR/$d must be a directory, not a symbolic link" >&2; exit 78; fi
 done
 mkdir -p "$DATA_DIR/images" "$DATA_DIR/thumbs" "$DATA_DIR/originals/map" "$DATA_DIR/sessions"
-find "$DATA_DIR" \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
+# ./data/postgres is the compose postgres service's own directory (owned by its postgres user): never touched here,
+# or PostgreSQL could not start (or initialise) after the app started next to it.
+find "$DATA_DIR" -path "$DATA_DIR/postgres" -prune -o \! -user www-data -exec chown -h www-data:www-data {} + 2>/dev/null || true
 chmod 0770 "$DATA_DIR/sessions" 2>/dev/null || true
 # The first 3.0 start signs everyone out once: legacy sessions are not carried over (PLAN 3.5). A link in place of
 # the marker counts as no marker and is replaced by a file.
@@ -64,6 +69,13 @@ case "${ALLOW_NO_LOGIN:-}" in
   *) echo "ALLOW_NO_LOGIN must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
 esac
 
+# The background jobs worker (docker/jobs-worker.sh): on unless APOTHEKE_JOBS_WORKER is 0, false or no.
+case "${APOTHEKE_JOBS_WORKER:-1}" in
+  1|true|yes) jobs_worker=1 ;;
+  0|false|no) jobs_worker=0 ;;
+  *) echo "APOTHEKE_JOBS_WORKER must be 1, true, yes, 0, false, no or empty" >&2; exit 64 ;;
+esac
+
 PORT="${PORT:-9091}"
 case "$PORT" in ''|*[!0-9]*) echo "PORT must be a number" >&2; exit 64;; esac
 export PORT
@@ -78,6 +90,46 @@ export FRANKENPHP_NUM_THREADS
 export XDG_CONFIG_HOME=/run/apotheke-caddy/config XDG_DATA_HOME=/run/apotheke-caddy/data
 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
   || { frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >&2; exit 78; }
+# The trap is set before anything starts, and the flag is checked right before each `&` and again once both PIDs are
+# known, so a SIGTERM during start-up is never lost (L-1470). A TERM sent right after a fork can still be lost (the
+# subshell has not run exec yet), so after a stop each process gets TERM again until it has exited (end).
+web=0
+jobs=0
+stopping=0
+# shellcheck disable=SC2317,SC2329 # called by the trap
+stop() {
+  stopping=1
+  if [ "$web" != 0 ]; then kill -TERM "$web" 2>/dev/null || true; fi
+  if [ "$jobs" != 0 ]; then kill -TERM "$jobs" 2>/dev/null || true; fi
+}
+end() { # pid: sends TERM every 0.2 s until the process has exited
+  if [ "$1" = 0 ]; then return 0; fi
+  while kill -0 "$1" 2>/dev/null; do kill -TERM "$1" 2>/dev/null || true; sleep 0.2; done
+}
+trap stop TERM INT QUIT
 echo "apotheke: frankenphp on :$PORT ($ROOT), $FRANKENPHP_NUM_THREADS PHP threads"
-if [ "$(id -u)" = 0 ]; then exec su-exec www-data frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile; fi
-exec frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
+as_www() { if [ "$(id -u)" = 0 ]; then exec su-exec www-data "$@"; else exec "$@"; fi; }
+if [ "$jobs_worker" = 0 ]; then
+  echo "apotheke: APOTHEKE_JOBS_WORKER is off, background jobs do not run"
+  # the trap goes first, so a stop from here on ends this shell (exec would drop it anyway); one before it ends here
+  trap - TERM INT QUIT
+  if [ "$stopping" = 1 ]; then exit 0; fi
+  as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile
+fi
+if [ "$stopping" = 0 ]; then (as_www frankenphp run --config /etc/apotheke/Caddyfile --adapter caddyfile) & web=$!; fi
+if [ "$stopping" = 0 ]; then (as_www apotheke-jobs-worker) & jobs=$!; fi
+if [ "$stopping" = 1 ]; then stop; fi
+while [ "$stopping" = 0 ] && kill -0 "$web" 2>/dev/null; do
+  sleep 1 & wait $! || true
+done
+code=0
+if [ "$stopping" = 0 ]; then
+  # FrankenPHP exited on its own: the container stops with its exit status (1 if that was 0), L-1472
+  wait "$web" || code=$?
+  echo "apotheke: frankenphp exited unexpectedly (exit $code), stopping" >&2
+  if [ "$code" = 0 ]; then code=1; fi
+  stop
+fi
+end "$web"
+end "$jobs"
+exit "$code"
