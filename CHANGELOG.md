@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-10-31
+
 **Upgrade note:** the consent cookie's domain is now the `COOKIE_DOMAIN` setting (empty by default: host-only) instead of a built-in `getapotheke.com`. Hosted installs must set `COOKIE_DOMAIN=getapotheke.com` (DevOps adds it to the hosted config), or the consent cookie no longer reaches the other getapotheke.com hosts. Self-hosted installs need no change. The session cookie never gets a `Domain`. See [Cookie consent](docs/deployment-and-operations.md#cookie-consent).
+
+### Fixed
+
+- **consent:** configurable consent cookie domain ([#188](https://github.com/thordin9/apotheke/pull/188))
 
 ## [3.6.0] - 2026-10-31
 
@@ -1035,7 +1041,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.6.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.6.1...HEAD
+[3.6.1]: https://github.com/thordin9/apotheke/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/thordin9/apotheke/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/thordin9/apotheke/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/thordin9/apotheke/compare/v3.3.0...v3.4.0
