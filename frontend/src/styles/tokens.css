@@ -1,5 +1,5 @@
 /* Apotheke shared design tokens: one file for the SPA (getapotheke.com/app/) and the landing page (getapotheke.com).
-   Source of truth: thordin9/apotheke frontend/src/styles/tokens.css. getapotheke-site keeps a byte copy that its CI compares.
+   Source of truth: thordin9/apotheke frontend/src/styles/tokens.css.
    Hallmark theme Ink (deal 1/3) for neutrals, type, space and motion; the accent comes from the brand layer below.
    Mode: follows prefers-color-scheme; <html data-theme="light|dark"> overrides it ("auto" or no attribute = OS).
    Layers: 1 brand (swappable, per mode) -> 2 semantic colour (derived, never edited for a rebrand) -> components. */
