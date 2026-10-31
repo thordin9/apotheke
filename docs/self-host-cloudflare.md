@@ -60,8 +60,9 @@ Until then, run Apotheke with Docker for anything you want to keep.
   ([Containers: get started](https://developers.cloudflare.com/containers/get-started/)).
 * **A domain on your account (a zone)** if you want custom domains. Without one, the configs have `workers_dev` and
   `preview_urls` off, so a Worker has no public URL until you attach a domain.
-* A checkout of a release tag (see [Upgrading](#upgrading-and-rolling-back)), with its tags: the front-end build reads
-  the latest release tag and its date.
+* A checkout of a release tag (see [Upgrading](#upgrading-and-rolling-back)), with its tags: the front-end build
+  (`frontend/scripts/release-stamp.mjs`) takes the version from `VERSION` and the date of the tag `v<VERSION>`, and
+  uses the build date when that tag is not in the clone.
 
 ```sh
 git clone https://github.com/thordin9/apotheke.git && cd apotheke
@@ -78,7 +79,8 @@ permissions, to **your zone** only. Permission names as in the dashboard (the AP
 
 | Permission | When | Why |
 |---|---|---|
-| **Account > Workers Scripts > Edit** | always | upload, deploy and roll back both Workers, and set their secrets |
+| **Workers: Admin**, at the Workers product scope (all Workers) | the first deploy | creating a Worker that does not exist yet needs product-scope *Admin* |
+| **Workers: Editor**, on `<your-frontend-worker>` and `<your-api-worker>` only | every later deploy | deploy, roll back and set secrets on those two existing Workers |
 | **Account > Containers > Edit** | API | push the container image and create or update the container application |
 | **Zone > Workers Routes > Edit**, on your zone | custom domains or routes | adding, changing or removing a Custom Domain or route needs it for every affected zone ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/)) |
 | **Zone > DNS > Edit**, on your zone | routes only, if you create their DNS record with the token | a route needs a proxied DNS record for its host; a Custom Domain creates its own DNS record and certificate, so it doesn't need this |
@@ -89,12 +91,15 @@ permissions, to **your zone** only. Permission names as in the dashboard (the AP
 No other permission is needed. In particular the token needs no KV permission (Apotheke uses no KV) and no
 *User* permissions.
 
-Cloudflare is moving Workers permissions to roles that can be **scoped to single Workers**: *Workers Scripts Edit* is
-the legacy name of the *Editor* role at the Workers product scope. Creating a Worker that does not exist yet needs
-*Admin* at the product scope, so the first deploy needs the account-wide permission. After that you can narrow the
-token to *Editor* on just `<your-frontend-worker>` and `<your-api-worker>`, except for custom-domain changes, which
-don't support per-Worker roles yet ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/)).
-An account-wide token can edit **every** Worker on the account, so keep it to the account where you run Apotheke.
+Workers permissions are roles that can be **scoped to single Workers**
+([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/workers/)). The legacy
+permission *Account > Workers Scripts > Edit* is the *Editor* role at the Workers product scope, and *Editor* cannot
+create a Worker. So the **first deploy** (which creates both Workers) needs **Workers Admin at the product scope**.
+After it, narrow the token (or make a new one) to **Editor on just `<your-frontend-worker>` and
+`<your-api-worker>`**. Custom Domains don't support per-Worker roles yet, so adding, changing or removing one still
+needs a token with Workers access at the product scope plus *Zone > Workers Routes > Edit*; once the domain is
+attached, deploys that leave it unchanged need only the per-Worker *Editor*. A product-scope token can edit
+**every** Worker on the account, so use it only for those steps and keep it to the account where you run Apotheke.
 
 Optionally set a **client IP address filter** (your own address) and a **TTL** (an end date) on the token. Keep it in
 the environment only, never in a file of the repository, a wrangler config, `.dev.vars` or shell history:
@@ -120,9 +125,21 @@ follow-up lands:
 | `edge/wrangler.jsonc` | `ALLOWED_HOSTS` (the project's API host) | `api.example.com` |
 | `edge/wrangler.jsonc` | `COOKIE_DOMAIN` (the project's domain) | `example.com`, or `""` (see [Settings](#settings)) |
 | `edge/app/src/index.ts`, `frontend/public/_headers`, `frontend/scripts/check-dist.mjs` | the project's API host in the SPA's Content-Security-Policy (`img-src`, `connect-src`) | `https://api.example.com`, the same in all three (`check-dist.mjs` and `scripts/app-worker-check.mjs` expect them to match) |
-| `frontend/index.html`, `frontend/public/robots.txt`, `frontend/public/sitemap.xml` | canonical, Open Graph and sitemap URLs of getapotheke.com | your front-end URL (they only matter for search engines and link previews) |
+| `frontend/index.html`, `frontend/app/index.html`, `frontend/privacy/index.html`, `frontend/public/robots.txt`, `frontend/public/sitemap.xml` | canonical, Open Graph, JSON-LD `url` and sitemap URLs of getapotheke.com | your front-end URL (they only matter for search engines and link previews) |
+| `frontend/privacy/index.html` | the project's own privacy notice for getapotheke.com (its description, the cookie's `Domain`) | **replace it with your own notice, or remove the page** (and its entry in `sitemap.xml`): it describes the project's site, not yours |
+| `frontend/404.html` | the description *This page is not on getapotheke.com.* | your site's name |
 | `frontend/src/consent.js` | `CONSENT_PARENT`: the banner sets `Domain=` only for the project's domain | your registrable domain, if the front end and the API are on different hosts and should share the consent |
 | `edge/src/index.ts` | `TZ: "Europe/Athens"` for the container | your time zone |
+
+The footer links to the project's GitHub repository, docs and issues, and the copyright line, are the project's and
+can stay (the MIT licence asks you to keep the copyright notice). Comments and tests that name getapotheke.com
+(`frontend/src/styles/tokens.css`, `frontend/scripts/consent.test.mjs`, the `description` in
+`frontend/package.json`) don't reach your site.
+
+After you change any `name` or `vars` in a wrangler config, regenerate its types in that directory:
+`npx --no-install wrangler types --config wrangler.jsonc`. `worker-configuration.d.ts` records the literal values and
+a hash of the config, so `wrangler types --check` fails until you do. The regenerated file is a local change, like
+the config.
 
 `wrangler deploy` also accepts `--name` (and `--var KEY:VALUE`), which change the name for one deploy without editing
 the file; editing the local file is simpler to keep consistent for later deploys, secrets and rollbacks.
@@ -135,7 +152,7 @@ API, `API_BASE`) changed in `edge/app/wrangler.jsonc`:
 ```sh
 (cd frontend && npm ci --ignore-scripts && npm run build)        # writes frontend/dist
 cd edge/app
-npx --no-install wrangler types --check --config wrangler.jsonc  # optional: the types still match the config
+npx --no-install wrangler types --config wrangler.jsonc        # after your edits: regenerates worker-configuration.d.ts
 npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$(mktemp -d)"   # nothing is uploaded
 npx --no-install wrangler deploy --config wrangler.jsonc
 ```
@@ -152,8 +169,8 @@ To try it locally first: `cd edge/app && npx --no-install wrangler dev --config 
 
 ### Settings
 
-The Worker passes these `vars` from `edge/wrangler.jsonc` to the container (`edge/src/index.ts`). They are not
-secrets:
+These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/index.ts`) passes `ALLOWED_HOSTS`,
+`COOKIE_DOMAIN` and `APOTHEKE_JOBS_WORKER` to the container; `SLEEP_AFTER_MS` is read by the Durable Object itself:
 
 * **`ALLOWED_HOSTS`**: the API's host names (`api.example.com`). Any other `Host` gets 421, health checks included
   ([Host names](deployment-and-operations.md#host-names)).
@@ -165,12 +182,13 @@ secrets:
   runs only while requests keep it awake and starts with an empty `/data`, so a worker inside it would have no durable
   queue to work on. On Cloudflare, background jobs will run from a Cron Trigger or Queues, designed in P4 with the
   storage. The Docker images keep the worker on by default ([Background jobs](deployment-and-operations.md#background-jobs)).
-* `SLEEP_AFTER_MS`: idle time before the container sleeps (`900000`, 15 minutes).
+* `SLEEP_AFTER_MS`: idle time before the Durable Object lets the container sleep (`900000`, 15 minutes). It is read
+  by the Durable Object (the container's inactivity timeout), not passed to the container.
 * **`CORS_ALLOWED_ORIGINS`** (pending): when the front end and the API are on different hosts, the API must list the
   front end's exact origin (`https://www.example.com`): exact origins, comma-separated, no `*`, `null` or paths
   ([JSON API: CORS](api.md#another-origin-cors), [Configuration](configuration.md)). **Today the Worker does not pass
-  it to the container** (only the variables above, `APP_PASSWORD` and `APP_KEY` are passed), so setting it in `vars`
-  has no effect yet. It needs the follow-up that forwards it (or a local change to `env` in `edge/src/index.ts`).
+  it to the container**: the container gets exactly `APP_PASSWORD`, `APP_KEY`, `ALLOWED_HOSTS`, `COOKIE_DOMAIN`,
+  `APOTHEKE_JOBS_WORKER`, `PORT` (`9091`) and `TZ` (`Europe/Athens`), so setting it in `vars` has no effect yet. It needs the follow-up that forwards it (or a local change to `env` in `edge/src/index.ts`).
 
 The container also has no outbound internet (`enableInternet: false`), so the AI autofill service can't be reached
 from it.
@@ -211,7 +229,7 @@ With Docker running, the token and account id in the environment, and the names 
 
 ```sh
 cd edge
-npx --no-install wrangler types --check --config wrangler.jsonc
+npx --no-install wrangler types --config wrangler.jsonc      # after your edits: regenerates worker-configuration.d.ts
 npx --no-install wrangler deploy --dry-run --config wrangler.jsonc   # builds the container image, uploads nothing
 npx --no-install wrangler deploy --config wrangler.jsonc             # add --secrets-file … the first time
 npx --no-install wrangler containers list                            # the container application and its status
