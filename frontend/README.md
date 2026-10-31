@@ -59,7 +59,7 @@ creatordate of the git tag `v<version>`. If that tag is not in the clone, the da
 is the build date (UTC, `YYYY-MM-DD`).
 
 `APOTHEKE_SPA_BASE` (default `/app/`) is the mount path of the app on this origin.
-The shell's canonical URL and `data-spa-base` use it. The P7 comment in the landing
+The shell's canonical URL and `data-spa-base` use it, and the router is given the same path when the scripts are built. The P7 comment in the landing
 page names `/app/`, the same default. DevOps serves `/app/index.html` with a 200 for
 `/app` and `/app/*` in the Worker. `vite preview` and the end-to-end server do the
 same, so a refresh of `/app/sign-in` stays on the shell.

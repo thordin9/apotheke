@@ -2,7 +2,19 @@
 // Navigation uses the History API only. No localStorage, sessionStorage, IndexedDB or Cache storage.
 import { bindSignIn, enableLogin, hasConsent } from './consent.js';
 
-const base = (document.documentElement.getAttribute('data-spa-base') || '/app/').replace(/\/$/, '') || '/app';
+// The build writes APOTHEKE_SPA_BASE in here (default /app/). The page also carries
+// data-spa-base for the shell and the fallback server. The router does not read
+// that attribute: copying it into an href is DOM text reused as HTML.
+function mountPath(value) {
+    const fallback = '/app';
+    if (typeof value !== 'string') return fallback;
+    if (!value.startsWith('/') || value.startsWith('//')) return fallback;
+    if (value.includes('\\') || value.includes(':') || value.includes('..')) return fallback;
+    const trimmed = value.replace(/\/$/, '');
+    return trimmed || fallback;
+}
+
+const base = mountPath(__APOTHEKE_SPA_BASE__);
 
 function routeOf(pathname) {
     if (pathname === base || pathname === base + '/') return 'home';

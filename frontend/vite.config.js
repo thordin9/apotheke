@@ -59,6 +59,9 @@ export default defineConfig({
     appType: 'mpa',
     server: { host: '127.0.0.1', port: 4173 },
     preview: { host: '127.0.0.1', port: 4173 },
+    define: {
+        __APOTHEKE_SPA_BASE__: JSON.stringify(appBase),
+    },
     plugins: [
         {
             name: 'apotheke-html',
