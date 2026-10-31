@@ -15,6 +15,7 @@ frontend/
   src/styles/tokens.css      design tokens: the single source
   src/styles/base.css        reset and accessibility floor
   src/styles/landing.css     landing, privacy, 404 and the app placeholder
+  src/consent.js             cookie notice; the SPA imports the same functions
   src/styles/components.css  app components; imports tokens.css and base.css
   public/fonts/              self-hosted WOFF2 files and their OFL licence texts
   public/assets/icons.svg    icon sprite (<svg class="icon"><use href="/assets/icons.svg#search"/></svg>)
