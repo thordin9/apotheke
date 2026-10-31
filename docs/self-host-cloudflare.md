@@ -124,6 +124,7 @@ follow-up lands:
 | `edge/wrangler.jsonc` | `"name": "apotheke-api"` | `"name": "<your-api-worker>"` |
 | `edge/wrangler.jsonc` | `ALLOWED_HOSTS` (the project's API host) | `api.example.com` |
 | `edge/wrangler.jsonc` | `COOKIE_DOMAIN` (the project's domain) | `example.com`, or `""` (see [Settings](#settings)) |
+| `edge/wrangler.jsonc` | `CORS_ALLOWED_ORIGINS` (the project's front end) | `https://www.example.com`, or `""` when the front end and the API share one origin (see [Settings](#settings)) |
 | `edge/app/src/index.ts`, `frontend/public/_headers`, `frontend/scripts/check-dist.mjs` | the project's API host in the SPA's Content-Security-Policy (`img-src`, `connect-src`) | `https://api.example.com`, the same in all three (`check-dist.mjs` and `scripts/app-worker-check.mjs` expect them to match) |
 | `frontend/index.html`, `frontend/app/index.html`, `frontend/privacy/index.html`, `frontend/public/robots.txt`, `frontend/public/sitemap.xml` | canonical, Open Graph, JSON-LD `url` and sitemap URLs of getapotheke.com | your front-end URL (they only matter for search engines and link previews) |
 | `frontend/privacy/index.html` | the project's own privacy notice for getapotheke.com (its description, the cookie's `Domain`) | **replace it with your own notice, or remove the page** (and its entry in `sitemap.xml`): it describes the project's site, not yours |
@@ -170,7 +171,7 @@ To try it locally first: `cd edge/app && npx --no-install wrangler dev --config 
 ### Settings
 
 These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/index.ts`) passes `ALLOWED_HOSTS`,
-`COOKIE_DOMAIN` and `APOTHEKE_JOBS_WORKER` to the container; `SLEEP_AFTER_MS` is read by the Durable Object itself:
+`COOKIE_DOMAIN`, `CORS_ALLOWED_ORIGINS` and `APOTHEKE_JOBS_WORKER` to the container; `SLEEP_AFTER_MS` is read by the Durable Object itself:
 
 * **`ALLOWED_HOSTS`**: the API's host names (`api.example.com`). Any other `Host` gets 421, health checks included
   ([Host names](deployment-and-operations.md#host-names)).
@@ -184,11 +185,10 @@ These `vars` in `edge/wrangler.jsonc` are not secrets. The Worker (`edge/src/ind
   storage. The Docker images keep the worker on by default ([Background jobs](deployment-and-operations.md#background-jobs)).
 * `SLEEP_AFTER_MS`: idle time before the Durable Object lets the container sleep (`900000`, 15 minutes). It is read
   by the Durable Object (the container's inactivity timeout), not passed to the container.
-* **`CORS_ALLOWED_ORIGINS`** (pending): when the front end and the API are on different hosts, the API must list the
+* **`CORS_ALLOWED_ORIGINS`**: when the front end and the API are on different hosts, the API must list the
   front end's exact origin (`https://www.example.com`): exact origins, comma-separated, no `*`, `null` or paths
-  ([JSON API: CORS](api.md#another-origin-cors), [Configuration](configuration.md)). **Today the Worker does not pass
-  it to the container**: the container gets exactly `APP_PASSWORD`, `APP_KEY`, `ALLOWED_HOSTS`, `COOKIE_DOMAIN`,
-  `APOTHEKE_JOBS_WORKER`, `PORT` (`9091`) and `TZ` (`Europe/Athens`), so setting it in `vars` has no effect yet. It needs the follow-up that forwards it (or a local change to `env` in `edge/src/index.ts`).
+  ([JSON API: CORS](api.md#another-origin-cors), [Configuration](configuration.md)). Empty sends no CORS headers,
+  which is right when the front end and the API share one origin.
 
 The container also has no outbound internet (`enableInternet: false`), so the AI autofill service can't be reached
 from it.

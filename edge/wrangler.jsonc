@@ -36,6 +36,9 @@
 		// the consent cookie only, never to the __Host- session cookie, which may not carry a Domain attribute.
 		// Not a secret.
 		"COOKIE_DOMAIN": "getapotheke.com",
+		// Exact origins, comma-separated, that may call /api/v1 from another host with the session cookie: the front
+		// end on getapotheke.com calls the API on api.services.getapotheke.com. Not a secret.
+		"CORS_ALLOWED_ORIGINS": "https://getapotheke.com",
 		// No long-lived jobs:work in the container: on Cloudflare, jobs will run through a Cron Trigger or Queues,
 		// designed in P4 with the D1/R2 storage. The self-hosted images keep the worker on by default.
 		"APOTHEKE_JOBS_WORKER": "0"
