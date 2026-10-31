@@ -144,8 +144,10 @@ the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes 
 ## Background jobs
 
 From 3.2 long tasks can run as background jobs: a row in the `jobs` table (migration 0029) that
-`php spark jobs:work` picks up. 3.2 has no job types yet and the image does not start the worker; the CSV import commit
-and the backup restore move to jobs later, and the image then runs it next to PHP-FPM.
+`php spark jobs:work` picks up. The first type is `import.commit`, the API's CSV import (`POST
+/api/v1/imports/{id}/commit`; the import page still imports in the request). The image does not start the worker yet,
+so run it yourself (cron with `--once`, or a long-lived process) if you use the API import; the backup restore moves to
+jobs later, and the image then runs the worker next to PHP-FPM.
 
 ```bash
 php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
@@ -153,8 +155,10 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
 
 * It runs one job at a time until `--max-jobs` jobs ran or `--max-seconds` passed (default 3600, then a supervisor
   starts it again), waiting `--sleep` ms when no job is due (`--sleep=0` stops instead; `--once` runs at most one).
-* A job is leased for five minutes and the lease is renewed on every checkpoint; a job whose worker died is taken over
-  once its lease runs out and resumes from its last checkpoint. A job is tried at most three times.
+* A job is leased for five minutes (300 s) and the lease is renewed on every checkpoint; a job whose worker died is
+  taken over once its lease runs out and resumes from its last checkpoint. So a worker killed with SIGKILL (or by the
+  out-of-memory killer, or a crash) leaves its job `running` for up to 300 s after its last checkpoint before another
+  worker resumes it; a restart does not shorten that. A job is tried at most three times.
 * **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
   and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
   ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.

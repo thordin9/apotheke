@@ -2,11 +2,13 @@
 declare(strict_types=1);
 
 /*
- * The CI4-only additions (upg_ci4_only(): migration 0029 and its jobs table) on a real install, for the
+ * The CI4-only additions (upg_ci4_only(): migrations 0029 and 0030, the jobs and import_rows
+ * tables) on a real install, for the
  * upgrade/rollback job. The snapshots leave them out, so this checks them on their own.
- *   php tests/upgrade/ci4-only.php seed          after CI4 migrated: adds two jobs rows (one done, one queued)
+ *   php tests/upgrade/ci4-only.php seed          after CI4 migrated: adds two jobs rows (one done, one queued) and
+ *                                                two import_rows rows
  *   php tests/upgrade/ci4-only.php check LABEL   every CI4-only migration is recorded, every CI4-only table is there,
- *                                                and the two seeded jobs rows are unchanged
+ *                                                and the seeded rows are unchanged
  *   php tests/upgrade/ci4-only.php zip LABEL Z   the backup zip Z (made by CI4 on that install) names no CI4-only
  *                                                migration in its schema and carries no CI4-only table, so 2.6.x takes it
  * check exits 1 with a FAIL line naming what is missing, so a rollback or a 2.6.x restore that dropped or emptied
@@ -21,13 +23,19 @@ const UPG_JOBS = [
     ['upgrade.check', 'done', '{"n":1}', '{"ok":true}', 1],
     ['upgrade.check', 'queued', '{"n":2}', null, 0],
 ];
+const UPG_IMPORT_ROWS = [
+    [9001, 2, 'new', '', '{"location":["Shed"]}'],
+    [9001, 3, 'error', 'Name is empty.', '{}'],
+];
 
 $mode = $argv[1] ?? '';
 if ($mode === 'seed' && $argc === 2) {
     $st = $pdo->prepare("INSERT INTO jobs (type, status, payload, result, attempts, run_after, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, '2026-01-01 00:00:00', '2026-01-01 00:00:00', '2026-01-01 00:00:00')");
     foreach (UPG_JOBS as $row) $st->execute($row);
-    echo 'ok ci4-only seed: ' . count(UPG_JOBS) . " jobs rows\n";
+    $st = $pdo->prepare('INSERT INTO import_rows (import_id, line, state, error, made) VALUES (?, ?, ?, ?, ?)');
+    foreach (UPG_IMPORT_ROWS as $row) $st->execute($row);
+    echo 'ok ci4-only seed: ' . count(UPG_JOBS) . ' jobs rows, ' . count(UPG_IMPORT_ROWS) . " import_rows rows\n";
     exit(0);
 }
 if ($mode === 'zip' && $argc === 4) {
@@ -61,7 +69,10 @@ if ($bad === []) {
     $rows = $pdo->query('SELECT type, status, payload, result, attempts FROM jobs ORDER BY id')->fetchAll(PDO::FETCH_NUM);
     $rows = array_map(static fn (array $r): array => [(string)$r[0], (string)$r[1], (string)$r[2], $r[3] === null ? null : (string)$r[3], (int)$r[4]], $rows);
     if ($rows !== UPG_JOBS) $bad[] = 'table jobs rows changed: ' . json_encode($rows);
+    $rows = $pdo->query('SELECT import_id, line, state, error, made FROM import_rows ORDER BY import_id, line')->fetchAll(PDO::FETCH_NUM);
+    $rows = array_map(static fn (array $r): array => [(int)$r[0], (int)$r[1], (string)$r[2], (string)$r[3], (string)$r[4]], $rows);
+    if ($rows !== UPG_IMPORT_ROWS) $bad[] = 'table import_rows rows changed: ' . json_encode($rows);
 }
 foreach ($bad as $b) echo "FAIL $label: $b\n";
-if ($bad === []) printf("ok %s: CI4-only %s recorded, %s kept with %d rows\n", $label, implode(', ', $only['versions']), implode(', ', $only['tables']), count(UPG_JOBS));
+if ($bad === []) printf("ok %s: CI4-only %s recorded, %s kept with %d rows\n", $label, implode(', ', $only['versions']), implode(', ', $only['tables']), count(UPG_JOBS) + count(UPG_IMPORT_ROWS));
 exit($bad ? 1 : 0);
