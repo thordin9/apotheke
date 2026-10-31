@@ -608,9 +608,19 @@ bridge. A control-plane D1 schema would later go in `edge/migrations/control/`, 
 
 Flip in this order. Every step except the last two is additive; nothing is deleted.
 
-1. **Code is ready.** The P4 code is merged: `edge/src/index.ts` exports the `Installation` class (until then a
-   deploy with the merged config fails on *Durable Objects not exported*, so nothing is deployed) and the app uses
-   `DB` and `STORAGE`.
+1. **Pre-flip: the storage gate criteria hold.** Don't start until items 1 to 4 of *Opening the storage gate* in
+   ADR-002 (`docs/adr/002-edge-storage.md`, added in [#203](https://github.com/thordin9/apotheke/pull/203)) are met:
+   1. P4-2 to P4-5 are merged (so `edge/src/index.ts` exports `Installation`; until then a deploy with the merged
+      config fails on *Durable Objects not exported*, and nothing is deployed);
+   2. the manual `edge-local` workflow is green with D1 and R2 (local), including a backup round trip between
+      SQLite on Docker and the edge;
+   3. a preview D1 and R2 pass the smoke test and the guard cases (all-or-nothing batches, `expect` and `assert`
+      aborts, concurrent guarded adds, 150 `Ref`s, 101 parameters refused);
+   4. `edge/src` creates every `Installation` id through `env.INSTALLATION.jurisdiction("eu")`: the test for this is
+      green, and on the preview an `Installation` object is checked to be in the EU jurisdiction before any real
+      installation is created. **This can't be corrected after the ids exist.**
+
+   The ADR's item 5 (the one-time steps) is the rest of this checklist.
 2. **Token for the one-time steps** (the operator's own, from a trusted machine, not CI): *Account > D1 > Edit*,
    *Account > Workers R2 Storage > Edit* and *Account > Workers Scripts > Edit*, on this account only, ideally with an
    IP filter and a TTL. In the environment only:
