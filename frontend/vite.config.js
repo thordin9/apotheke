@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { rewriteAppShell } from './scripts/app-fallback.mjs';
 import { readRelease } from './scripts/release-stamp.mjs';
 import { spaBase } from './scripts/spa-base.mjs';
 
@@ -27,27 +28,6 @@ function navFor(filename) {
         `<li><a class="btn btn-primary" href="${appBase}">Open the app</a></li>`,
         `<li><a class="btn" href="${appBase}sign-in">Sign in</a></li>`,
     ].join('\n        ');
-}
-
-// /app and /app/* (no file extension) serve the shell with 200, matching the
-// production Worker. /app/index.html itself is a real file and is left alone.
-function rewriteAppShell(req, _res, next) {
-    const raw = req.url || '/';
-    const q = raw.indexOf('?');
-    const path = q < 0 ? raw : raw.slice(0, q);
-    const search = q < 0 ? '' : raw.slice(q);
-    let decoded = path;
-    try {
-        decoded = decodeURIComponent(path);
-    } catch {
-        next();
-        return;
-    }
-    const mount = appBase.replace(/\/$/, '') || '/app';
-    const last = decoded.split('/').pop() || '';
-    const inApp = decoded === mount || (decoded.startsWith(mount + '/') && !last.includes('.'));
-    if (inApp) req.url = mount + '/index.html' + search;
-    next();
 }
 
 // Multi-page build. HTML output follows each input path:
@@ -78,10 +58,10 @@ export default defineConfig({
                 },
             },
             configureServer(server) {
-                server.middlewares.use(rewriteAppShell);
+                server.middlewares.use((req, res, next) => rewriteAppShell(req, res, next, appBase));
             },
             configurePreviewServer(server) {
-                server.middlewares.use(rewriteAppShell);
+                server.middlewares.use((req, res, next) => rewriteAppShell(req, res, next, appBase));
             },
         },
     ],

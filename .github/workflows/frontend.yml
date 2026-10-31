@@ -49,8 +49,8 @@ jobs:
         run: npm ci && npm run build
       - name: Contrast
         run: node frontend/scripts/contrast.mjs
-      - name: Consent cookie string
-        run: node --test frontend/scripts/consent.test.mjs
+      - name: Consent cookie and app fallback
+        run: node --test frontend/scripts/consent.test.mjs frontend/scripts/app-fallback.test.mjs
       - name: Dist layout, headers and links
         run: node frontend/scripts/check-dist.mjs
       - name: Install the end-to-end runner

@@ -7,6 +7,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { appFallback } from './app-fallback.mjs';
 
 const frontend = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(frontend, 'dist');
@@ -104,8 +105,8 @@ function resolves(url) {
     const path = url.split('#')[0].split('?')[0];
     if (path === '' || /^(https?:|mailto:)/i.test(path)) return { ok: true };
     if (path.startsWith('//') || !path.startsWith('/')) return { ok: false, why: 'not a root-absolute path' };
-    const last = path.split('/').pop() || '';
-    if (path === spaMount || (path.startsWith(spaMount + '/') && !last.includes('.'))) {
+    const decision = appFallback(path, spaMount.endsWith('/') ? spaMount : spaMount + '/');
+    if (decision.kind === 'shell' || decision.kind === 'redirect') {
         const shell = join(dist, 'app/index.html');
         const ok = existsSync(shell) && statSync(shell).isFile();
         return { ok, why: ok ? '' : 'missing app shell' };

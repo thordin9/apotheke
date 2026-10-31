@@ -60,9 +60,11 @@ is the build date (UTC, `YYYY-MM-DD`).
 
 `APOTHEKE_SPA_BASE` (default `/app/`) is the mount path of the app on this origin.
 The shell's canonical URL and `data-spa-base` use it, and the router is given the same path when the scripts are built. The P7 comment in the landing
-page names `/app/`, the same default. DevOps serves `/app/index.html` with a 200 for
-`/app` and `/app/*` in the Worker. `vite preview` and the end-to-end server do the
-same, so a refresh of `/app/sign-in` stays on the shell.
+page names `/app/`, the same default. The Worker answers bare `/app` with a 301 to
+`/app/`, and serves `/app/index.html` with a 200 for `/app/` and for any `/app/*`
+path that does not end in a file extension (`/\.[A-Za-z0-9]+$/`). A missing file
+that does end in an extension stays a 404. `vite preview` and the end-to-end
+server do the same, so a refresh of `/app/sign-in` stays on the shell.
 
 ## One product
 

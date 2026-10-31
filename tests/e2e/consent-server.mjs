@@ -2,6 +2,7 @@
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
+import { appFallback } from '../../frontend/scripts/app-fallback.mjs';
 import { parseHeaders, headersFor } from '../../frontend/scripts/check-dist.mjs';
 
 const root = join(import.meta.dirname, '../../frontend/dist');
@@ -27,7 +28,8 @@ function appMount() {
     const start = html.indexOf(key);
     if (start < 0) return '/app';
     const value = html.slice(start + key.length, html.indexOf('"', start + key.length));
-    return value.replace(/\/$/, '') || '/app';
+    if (!value.startsWith('/')) return '/app/';
+    return value.endsWith('/') ? value : value + '/';
 }
 
 const mount = appMount();
@@ -35,12 +37,6 @@ const mount = appMount();
 function fileFor(urlPath) {
     const decoded = decodeURIComponent(urlPath.split('?')[0]);
     if (decoded.includes('\0') || decoded.split('/').includes('..')) return null;
-    const last = decoded.split('/').pop() || '';
-    // The Worker serves the app shell for /app and /app/* with a 200. Mirror that.
-    if (decoded === mount || (decoded.startsWith(mount + '/') && !last.includes('.'))) {
-        const shell = join(root, 'app/index.html');
-        if (existsSync(shell)) return shell;
-    }
     const rel = decoded.replace(/^\/+/, '');
     const candidates = [];
     if (rel === '' || rel.endsWith('/')) candidates.push(join(root, rel, 'index.html'));
@@ -55,10 +51,20 @@ function fileFor(urlPath) {
 }
 
 const server = createServer((req, res) => {
-    const path = new URL(req.url || '/', 'http://' + host).pathname;
-    const file = fileFor(path) || join(root, '404.html');
-    const status = fileFor(path) ? 200 : 404;
-    for (const [name, value] of headersFor(rules, path)) res.setHeader(name, value);
+    const requestUrl = new URL(req.url || '/', 'http://' + host);
+    const decision = appFallback(req.url || '/', mount);
+    if (decision.kind === 'redirect') {
+        for (const [name, value] of headersFor(rules, requestUrl.pathname)) res.setHeader(name, value);
+        res.setHeader('Location', decision.location);
+        res.writeHead(decision.status);
+        res.end();
+        return;
+    }
+    const path = decision.kind === 'shell' ? decision.url.split('?')[0] : requestUrl.pathname;
+    const found = fileFor(path);
+    const file = found || join(root, '404.html');
+    const status = found ? 200 : 404;
+    for (const [name, value] of headersFor(rules, requestUrl.pathname)) res.setHeader(name, value);
     if (!res.getHeader('content-type')) {
         res.setHeader('content-type', types[extname(file)] || 'application/octet-stream');
     }
