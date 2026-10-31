@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
+- **frontend:** count page views on getapotheke.com with Counterscale, cookieless and only after Accept; the privacy page describes what is recorded and how to withdraw ([#200](https://github.com/thordin9/apotheke/pull/200))
+
 ## [3.8.0] - 2026-10-31
 
 ### Added
