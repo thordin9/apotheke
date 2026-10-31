@@ -132,7 +132,7 @@
       "post": {
         "operationId": "createImport",
         "summary": "Upload a CSV file to import (import permission)",
-        "description": "The file waits until it is imported; a day after its upload it is deleted. Columns are mapped automatically from their headers.",
+        "description": "The file waits until it is imported; a day after its upload it is deleted. Columns are mapped automatically from their headers. A guest (not signed in, guest browsing on) gets 403 permission.denied even when the Guest role has Import: imports need a signed-in account.",
         "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["file"], "properties": {"file": {"type": "string", "format": "binary", "description": "A CSV file, at most 5 MB"}}}}}},
         "responses": {
