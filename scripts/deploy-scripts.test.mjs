@@ -481,3 +481,22 @@ test("edge-storage-config: names that collide with the Worker's existing binding
 	storage.r2_buckets = [{ ...storage.r2_buckets[0], binding: "DB" }];
 	refused(UUID, { storage }, /binding name "DB" is already used/);
 });
+
+// N-1544: fragment migrations allow only tag and new_sqlite_classes.
+test("edge-storage-config: fragment migrations with any field besides tag and new_sqlite_classes are refused", () => {
+	const extra = {
+		deleted_classes: ["ApothekeContainer"],
+		new_classes: ["Other"],
+		renamed_classes: [{ from: "ApothekeContainer", to: "Other" }],
+		transferred_classes: [{ from: "A", from_script: "b", to: "C" }],
+		unknown: true,
+	};
+	for (const [key, value] of Object.entries(extra)) {
+		const storage = STORAGE();
+		storage.migrations = [{ ...storage.migrations[0], [key]: value }];
+		refused(UUID, { storage }, new RegExp(`migration "v2" has "${key}"; fragment migrations allow only tag and new_sqlite_classes`));
+	}
+	const storage = STORAGE();
+	storage.migrations = [{ tag: "v2" }];
+	refused(UUID, { storage }, /needs a string tag and a new_sqlite_classes list/);
+});
