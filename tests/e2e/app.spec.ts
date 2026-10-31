@@ -1,5 +1,27 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 
+test('header Sign in stays header ink and underlines on hover', async ({ browser }) => {
+    const context = await browser.newContext({ colorScheme: 'light' });
+    const page = await context.newPage();
+    await page.goto('/');
+    const decline = page.getByRole('button', { name: 'Decline' });
+    if (await decline.isVisible()) await decline.click();
+    const link = page.getByRole('banner').getByRole('link', { name: 'Sign in' });
+    await link.hover();
+    const paint = await link.evaluate((el) => {
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--color-header-ink)';
+        document.body.appendChild(probe);
+        const ink = getComputedStyle(probe).color;
+        probe.remove();
+        const style = getComputedStyle(el);
+        return { color: style.color, ink, line: style.textDecorationLine };
+    });
+    expect(paint.color).toBe(paint.ink);
+    expect(paint.line).toContain('underline');
+    await context.close();
+});
+
 test('header and hero CTAs point at the app', async ({ page }) => {
     for (const path of ['/', '/privacy/']) {
         await page.goto(path);

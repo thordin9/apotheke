@@ -59,12 +59,43 @@ creatordate of the git tag `v<version>`. If that tag is not in the clone, the da
 is the build date (UTC, `YYYY-MM-DD`).
 
 `APOTHEKE_SPA_BASE` (default `/app/`) is the mount path of the app on this origin.
-The shell's canonical URL and `data-spa-base` use it, and the router is given the same path when the scripts are built. The P7 comment in the landing
-page names `/app/`, the same default. The Worker answers bare `/app` with a 301 to
+The shell's canonical URL and `data-spa-base` use it, and the router is given the
+same path when the scripts are built. The Worker answers bare `/app` with a 301 to
 `/app/`, and serves `/app/index.html` with a 200 for `/app/` and for any `/app/*`
-path that does not end in a file extension (`/\.[A-Za-z0-9]+$/`). A missing file
-that does end in an extension stays a 404. `vite preview` and the end-to-end
-server do the same, so a refresh of `/app/sign-in` stays on the shell.
+path that does not end in a file extension (`/\.[A-Za-z0-9]+$/`). It tests the raw
+path, so `/app/x%2Ejs` and `/app/%E0` are the shell and `/app/x.js` stays a file.
+`vite preview` and the end-to-end server use the same test, so a refresh of
+`/app/sign-in` stays on the shell.
+
+## Dist check
+
+After `npm run build`:
+
+```
+node frontend/scripts/check-dist.mjs
+```
+
+`scripts/check-dist.mjs` is plain Node (no packages). [`.github/workflows/frontend.yml`](../.github/workflows/frontend.yml)
+runs it on every frontend pull request and on pushes to `main`. It checks:
+
+* the four HTML pages and `assets/` exist;
+* no inline script except JSON-LD, and each page has one external script;
+* the shared header and identical footers: marketing pages offer Open the app and Sign in, no header links to
+  Privacy, the app nav offers Home only, and the footer has Privacy and `© 2026 Stathis Papandreou`;
+* the app shell's canonical URL uses the SPA base;
+* the Content-Security-Policy on the landing paths and on `/app/` matches the policies in `public/_headers`;
+* every page sets `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY` and the Permissions-Policy from
+  `public/_headers`;
+* `Cache-Control`: HTML and other files are `no-cache`; a hashed Vite file (`/assets/:name-:hash.js` or `.css`)
+  is `public, max-age=31536000, immutable`; brand, mascot, shots and `icons.svg` are one day;
+  `/assets/missing.js` stays `no-cache` (a missing hyphenated name such as `/assets/index-abc.js` is still immutable);
+* every `href`, `src`, `srcset` and `imagesrcset` is `https:`, `mailto:` or a root-absolute path that exists in `dist`;
+* no built HTML or CSS loads an off-site script, style, image, font, link or `url()` / `@import`.
+  An `<a href>` (GitHub and the other outbound links) may point off site, and so may JSON-LD.
+  `https://getapotheke.com` is this site.
+
+`node --test frontend/scripts/check-dist.test.mjs` checks those header rules and the off-site scan without a build.
 
 ## One product
 

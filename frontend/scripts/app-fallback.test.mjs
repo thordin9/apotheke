@@ -58,6 +58,18 @@ test('a real /assets/x.js file is left alone', () => {
     assert.equal(req.url, '/assets/x.js');
 });
 
+test('/app/x%2Ejs is the shell, matching the Worker raw path', () => {
+    const { req, next } = run('/app/x%2Ejs');
+    assert.equal(next, true);
+    assert.equal(req.url, '/app/index.html');
+});
+
+test('/app/%E0 is the shell, matching the Worker raw path', () => {
+    const { req, next } = run('/app/%E0');
+    assert.equal(next, true);
+    assert.equal(req.url, '/app/index.html');
+});
+
 test('a missing script under /app stays a file, not the shell', () => {
     const { req, next } = run('/app/x.js');
     assert.equal(next, true);
