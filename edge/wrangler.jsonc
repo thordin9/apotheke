@@ -26,6 +26,8 @@
 		"bindings": [{ "name": "APOTHEKE", "class_name": "ApothekeContainer" }]
 	},
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["ApothekeContainer"] }],
+	// P4 storage (D1 DB, R2 STORAGE in the eu jurisdiction, the Installation Durable Object and its v2 migration) is in
+	// edge/storage.jsonc, merged in only by the deploy job behind EDGE_STORAGE_READY (scripts/edge-storage-config.mjs).
 
 	"vars": {
 		// Inactivity timeout before the container sleeps (plan 1A.2: 15 minutes).
@@ -36,6 +38,9 @@
 		// the consent cookie only, never to the __Host- session cookie, which may not carry a Domain attribute.
 		// Not a secret.
 		"COOKIE_DOMAIN": "getapotheke.com",
+		// Exact origins, comma-separated, that may call /api/v1 from another host with the session cookie: the front
+		// end on getapotheke.com calls the API on api.services.getapotheke.com. Not a secret.
+		"CORS_ALLOWED_ORIGINS": "https://getapotheke.com",
 		// No long-lived jobs:work in the container: on Cloudflare, jobs will run through a Cron Trigger or Queues,
 		// designed in P4 with the D1/R2 storage. The self-hosted images keep the worker on by default.
 		"APOTHEKE_JOBS_WORKER": "0"

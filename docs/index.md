@@ -11,6 +11,7 @@ Apotheke is a small, self-hosted web app for cataloguing your belongings: photos
 category, a quantity, tags and a few custom fields, with instant search. From 3.0.0 it is a CodeIgniter 4 app
 on PHP 8.4 with pinned Composer dependencies, PDO (SQLite or PostgreSQL) and GD: no JavaScript build step and no CDNs.
 See [ADR-001](adr/001-codeigniter4.md) and [upgrading to 3.0](upgrade-3.0.md). The 2.x app is on the branch `old`.
+The planned Cloudflare storage (D1, Durable Object SQLite and R2) is designed in [ADR-002](adr/002-edge-storage.md).
 
 The [README](../README.md) is the short tour, and [CHANGELOG.md](../CHANGELOG.md) lists the changes. These pages go into the details.
 Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
