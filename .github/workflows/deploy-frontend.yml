@@ -44,11 +44,12 @@ jobs:
           persist-credentials: false
           # All history and tags: the frontend build reads the latest release tag and its date (N-1411).
           fetch-depth: 0
-      # zizmor cache-poisoning is a false positive (N-1437): setup-node v4 caches nothing without a `cache:` input
-      # (the automatic package-manager cache came with v5), and no step here saves or restores a cache.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v4.4.0 # zizmor: ignore[cache-poisoning]
+      # zizmor cache-poisoning is a false positive (N-1437): setup-node's automatic package-manager cache
+      # is turned off with `package-manager-cache: false` and there is no `cache:` input, so nothing is saved or restored.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 # zizmor: ignore[cache-poisoning]
         with:
           node-version: '22'
+          package-manager-cache: false
       - name: Is there a frontend build yet?
         id: detect
         run: |
@@ -167,12 +168,13 @@ jobs:
           persist-credentials: false
           # All history and tags: the frontend build reads the latest release tag and its date (N-1411).
           fetch-depth: 0
-      # zizmor cache-poisoning is a false positive (N-1437): setup-node v4 caches nothing without a `cache:` input
-      # (the automatic package-manager cache came with v5), and no step here saves or restores a cache.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v4.4.0 # zizmor: ignore[cache-poisoning]
+      # zizmor cache-poisoning is a false positive (N-1437): setup-node's automatic package-manager cache
+      # is turned off with `package-manager-cache: false` and there is no `cache:` input, so nothing is saved or restored.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 # zizmor: ignore[cache-poisoning]
         if: steps.token.outputs.set == 'true'
         with:
           node-version: '22'
+          package-manager-cache: false
       - name: Build frontend/ (npm ci --ignore-scripts && npm run build)
         if: steps.token.outputs.set == 'true'
         working-directory: frontend

@@ -194,6 +194,29 @@ final class DeployWorkflowsTest extends TestCase
         }
     }
 
+    #[DataProvider('deploys')]
+    public function testSetupNodeNeverCachesInDeployWorkflows(string $file, string $env, string $worker, string $dir, string $check): void
+    {
+        // N-1437: setup-node v5+ turns on its package-manager cache by default; the deploy workflows switch it off
+        // on every setup-node step, so a Dependabot bump can't silently start saving or restoring a cache here.
+        $yml = $this->workflow($file);
+        $found = 0;
+        foreach ([$check, 'deploy'] as $job) {
+            foreach ($this->steps($yml, $job) as $step) {
+                if (!str_starts_with($step, 'uses: actions/setup-node@')) {
+                    continue;
+                }
+                $found++;
+                $this->assertMatchesRegularExpression("/^        with:\n(?:          .*\n)*          package-manager-cache: false\n/m", $step, "setup-node in $job");
+                $this->assertDoesNotMatchRegularExpression('/^          cache(-dependency-path)?:/m', $step, "setup-node in $job");
+            }
+        }
+        $this->assertSame(2, $found, 'one setup-node per job');
+        $this->assertSame(2, substr_count($yml, 'actions/setup-node@'));
+        $this->assertSame(2, preg_match_all('/^ +package-manager-cache:/m', $yml), 'only on the two setup-node steps');
+        $this->assertStringNotContainsString('actions/cache', $yml);
+    }
+
     /** @return iterable<string,array{string}> */
     public static function npmWorkflows(): iterable
     {
