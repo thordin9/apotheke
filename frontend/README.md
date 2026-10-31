@@ -60,7 +60,7 @@ is the build date (UTC, `YYYY-MM-DD`).
 The placeholder's canonical URL uses it. The P7 comment in the landing page names
 `/app/`, the same default. DevOps redirects bare `/app` to `/app/` in the Worker.
 
-`/privacy/` keeps the visible placeholder `[Operator contact]`. The imprint page
+`/privacy/` names the operator shown in the footer. The imprint page
 is not part of this site.
 
 ## The token contract
