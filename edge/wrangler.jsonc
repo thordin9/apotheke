@@ -26,6 +26,8 @@
 		"bindings": [{ "name": "APOTHEKE", "class_name": "ApothekeContainer" }]
 	},
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["ApothekeContainer"] }],
+	// P4 storage (D1 DB, R2 STORAGE in the eu jurisdiction, the Installation Durable Object and its v2 migration) is in
+	// edge/storage.jsonc, merged in only by the deploy job behind EDGE_STORAGE_READY (scripts/edge-storage-config.mjs).
 
 	"vars": {
 		// Inactivity timeout before the container sleeps (plan 1A.2: 15 minutes).
