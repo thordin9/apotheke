@@ -16,7 +16,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<section id="consent" class="consent" aria-labelledby="consent-title">
+<section id="consent" class="consent" aria-labelledby="consent-title" hidden>
   <div class="container consent-inner">
     <div class="consent-copy">
       <p id="consent-title" class="consent-title">Cookies</p>
@@ -41,7 +41,7 @@
     </nav>
   </div>
 </header>
-<main id="main" class="doc container">
+<main id="main" class="doc container" tabindex="-1">
   <h1>Privacy</h1>
   <p class="answer">This site runs no analytics and loads nothing from other servers. It sets one cookie, and only after you accept.</p>
   <h2>What the server sees</h2>
@@ -55,7 +55,7 @@
     <li><strong>Value</strong>v1. Any other value is not consent.</li>
     <li><strong>Purpose</strong>It remembers that you accepted.</li>
     <li><strong>Lifetime</strong>180 days.</li>
-    <li><strong>Domain</strong>On getapotheke.com it is set for that domain, so the browser also sends it to autofill.services.getapotheke.com. That host stores nothing from it. On any other host the cookie is host-only.</li>
+    <li><strong>Domain</strong>On getapotheke.com it is set for that domain, so the browser sends it to every getapotheke.com subdomain. api.services.getapotheke.com reads it as consent. autofill.services.getapotheke.com stores nothing from it. On any other host the cookie is host-only.</li>
   </ul>
   <h2>Contact</h2>
   <p class="slot-text">[Operator contact]</p>

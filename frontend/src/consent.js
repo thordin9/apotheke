@@ -80,13 +80,17 @@ export function currentCsrfToken() {
 }
 
 export async function enableLogin(form, apiBase = '') {
+    // Placeholder calls pass no API base, so this stays on the page's own origin.
+    // On getapotheke.com that is not the API host, and sign-in stays off until the
+    // SPA passes the API origin (N-1494).
     const session = await fetchSession(apiBase);
     const note = document.getElementById('sign-in-note');
-    if (!session.csrf_token) {
+    const token = session && typeof session.csrf_token === 'string' ? session.csrf_token : '';
+    if (token === '') {
         if (note) note.textContent = 'Sign-in stays off until the server offers a sign-in token.';
         return '';
     }
-    csrfToken = session.csrf_token;
+    csrfToken = token;
     for (const el of form.querySelectorAll('input, button')) el.disabled = false;
     if (note) note.textContent = 'You can sign in.';
     return csrfToken;
@@ -98,6 +102,18 @@ function readCookieHeader() {
 
 function hide(banner) {
     if (banner) banner.hidden = true;
+}
+
+function show(banner) {
+    if (banner) banner.hidden = false;
+}
+
+function dismissNotice(banner) {
+    hide(banner);
+    const main = document.getElementById('main');
+    if (!main) return;
+    if (!main.hasAttribute('tabindex')) main.setAttribute('tabindex', '-1');
+    main.focus();
 }
 
 async function signIn(form, apiBase) {
@@ -161,18 +177,19 @@ function start() {
         return;
     }
     if (!banner) return;
+    show(banner);
     const decline = document.getElementById('consent-decline');
     const accept = document.getElementById('consent-accept');
     if (decline) {
         decline.addEventListener('click', () => {
             declineConsent();
-            hide(banner);
+            dismissNotice(banner);
         });
     }
     if (accept) {
         accept.addEventListener('click', () => {
             acceptConsent();
-            hide(banner);
+            dismissNotice(banner);
             if (login) enableLogin(login, '');
         });
     }
