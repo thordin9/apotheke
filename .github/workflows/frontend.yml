@@ -9,6 +9,8 @@ on:
       - 'tests/e2e/consent.spec.ts'
       - 'tests/e2e/consent-server.mjs'
       - 'tests/e2e/playwright.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
   push:
     branches: [main]
     paths:
@@ -17,6 +19,8 @@ on:
       - 'tests/e2e/consent.spec.ts'
       - 'tests/e2e/consent-server.mjs'
       - 'tests/e2e/playwright.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
 
 permissions:
   contents: read
@@ -43,6 +47,8 @@ jobs:
         run: npm ci && npm run build
       - name: Contrast
         run: node frontend/scripts/contrast.mjs
+      - name: Consent cookie string
+        run: node --test frontend/scripts/consent.test.mjs
       - name: Dist layout, headers and links
         run: node frontend/scripts/check-dist.mjs
       - name: Install the end-to-end runner
