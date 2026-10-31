@@ -21,6 +21,7 @@ Agents working on the codebase should start with [`AGENTS.md`](../AGENTS.md).
 |---|---|
 | [AGENTS.md](../AGENTS.md) | Instructions for AI agents: stack constraints, layout, tests, commits |
 | [Getting started](getting-started.md) | Docker Compose (including the `postgres` profile), `docker run`, running without Docker, local development, command-line tools |
+| [Self-hosting on Cloudflare](self-host-cloudflare.md) | Your own Cloudflare account with wrangler: what works today (the front end), the token, names to change, secrets and settings, custom domains, upgrades and rollbacks; the API and storage are pending P4 |
 | [Configuration](configuration.md) | `config.php`, every environment variable, precedence rules, stored-secret encryption |
 | [JSON API](api.md) | `/api/v1`: the session endpoints, CSRF and Origin rules, problem+json errors, CORS, the OpenAPI document |
 | [Control Panel](control-panel.md) | Settings at `/settings`: what lives in the database vs. `config.php`, accent contrast, logo upload, users & roles, import/export, `bin/settings.php` |
