@@ -212,6 +212,9 @@ function checkChrome() {
         fail('marketing nav is missing Open the app or Sign in');
     }
     if (marketing[0].includes('>Privacy<')) fail('marketing header still offers Privacy');
+    for (const header of headers) {
+        if (header.includes('href="/privacy/"')) fail('a header still links to Privacy');
+    }
     const appNav = innerNav(sliceBlock(htmls[3].html, 'header'));
     if (!appNav.includes('href="/"') || !appNav.includes('>Home<')) fail('app nav is missing Home');
     if (appNav.includes('>Privacy<') || appNav.includes('href="/privacy/"')) fail('app nav still offers Privacy');
