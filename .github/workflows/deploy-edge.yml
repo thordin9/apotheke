@@ -182,7 +182,7 @@ jobs:
         if: steps.token.outputs.set == 'true'
         shell: bash
         run: |
-          host=$(node -e 'const c=JSON.parse(require("fs").readFileSync("edge/wrangler.jsonc","utf8")); console.log(c.vars.ALLOWED_HOSTS.split(",")[0].trim())')
+          host=$(node -e 'const t=require("fs").readFileSync("edge/wrangler.jsonc","utf8").replace(/^\s*\/\/.*$/gm,"").replace(/,(\s*[}\]])/g,(m,b)=>b); console.log(JSON.parse(t).vars.ALLOWED_HOSTS.split(",")[0].trim())')
           code=none
           for _ in $(seq 1 18); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 -m 20 "https://$host/healthz" || true)
