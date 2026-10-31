@@ -100,6 +100,12 @@ final class DeployWorkflowsTest extends TestCase
         $smoke = $steps[$n - 1];
         $this->assertStringStartsWith('name: Smoke check', $smoke);
         $this->assertStringContainsString('/healthz', $smoke);
+        // N-1542: a short per-try cap and a bounded loop, so a hanging request can't outlast the job and hide the hint
+        $this->assertStringContainsString("curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 -m 20 ", $smoke);
+        $this->assertSame(1, substr_count($smoke, 'curl '));
+        $this->assertStringContainsString('for _ in $(seq 1 18); do', $smoke);
+        $this->assertStringContainsString('Roll back: unset EDGE_STORAGE_READY', $smoke);
+        $this->assertStringNotContainsString('timeout-minutes', $smoke);
         $this->assertStringContainsString("\n        shell: bash\n", $smoke);
         $this->assertStringContainsString('exit 1', $smoke);
         $this->assertDoesNotMatchRegularExpression('/secrets\.|CLOUDFLARE_/', $smoke);
