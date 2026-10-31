@@ -145,9 +145,9 @@ a:hover { color: var(--color-accent-strong); }
 .mast nav a { display: inline-flex; align-items: center; box-sizing: border-box; min-width: 44px; min-height: 44px; font-weight: var(--body-weight); color: var(--color-ink); text-decoration: none; }
 .mast nav a:hover { color: var(--color-accent); }
 .mast small { display: block; margin-top: var(--space-lg); padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-rule); color: var(--color-muted); font-size: var(--text-sm); }
-/* Footer "Cookie settings": a button that reads like the footer links beside it. */
-.link-button { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; font: inherit; font-weight: var(--body-weight); color: var(--color-accent); text-decoration: underline; cursor: pointer; transition: text-decoration-color var(--dur-micro) var(--ease-out); }
-.link-button:hover { color: var(--color-accent-strong); }
+/* Footer "Cookie settings": a button styled exactly like the .mast nav links beside it (focus ring from base.css). */
+.link-button { display: inline-flex; align-items: center; box-sizing: border-box; min-width: 44px; min-height: 44px; margin: 0; padding: 0; border: 0; background: none; font: inherit; font-weight: var(--body-weight); color: var(--color-ink); text-align: start; text-decoration: none; cursor: pointer; transition: text-decoration-color var(--dur-micro) var(--ease-out); }
+.link-button:hover { color: var(--color-accent); }
 .link-button[hidden] { display: none; }
 @media print { .slab { background: none; color: var(--color-ink); } }
 
