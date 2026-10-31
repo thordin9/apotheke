@@ -110,20 +110,42 @@ function resolves(url) {
     return { ok: found, why: found ? '' : 'missing in dist' };
 }
 
+function scriptOpenAt(html, index) {
+    if (html.slice(index, index + 7).toLowerCase() !== '<script') return false;
+    const next = html[index + 7];
+    return next === '>' || next === '/' || next === ' ' || next === '\n' || next === '\t' || next === '\r';
+}
+
 function checkScripts(rel, external) {
     const html = readFileSync(join(dist, rel), 'utf8');
-    const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    const lower = html.toLowerCase();
     let files = 0;
-    for (const tag of tags) {
-        const attrs = tag[1];
-        const body = tag[2].trim();
-        if (/\btype\s*=\s*["']application\/ld\+json["']/i.test(attrs)) {
-            if (/\bsrc\s*=/.test(attrs)) fail(rel + ' JSON-LD must stay inline');
+    let index = 0;
+    while (index < html.length) {
+        const start = lower.indexOf('<script', index);
+        if (start < 0) break;
+        if (!scriptOpenAt(html, start)) {
+            index = start + 7;
             continue;
         }
-        const src = attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
-        if (!src || body !== '') fail(rel + ' has an inline script');
-        else files += 1;
+        const openEnd = html.indexOf('>', start);
+        const close = lower.indexOf('</script', start + 7);
+        if (openEnd < 0 || close < 0 || close < openEnd) {
+            fail(rel + ' has a script tag that does not end');
+            break;
+        }
+        const attrs = html.slice(start + 7, openEnd);
+        const body = html.slice(openEnd + 1, close).trim();
+        const type = attrs.toLowerCase();
+        if (type.includes('application/ld+json')) {
+            if (type.includes('src')) fail(rel + ' JSON-LD must stay inline');
+        } else if (!type.includes('src') || body !== '') {
+            fail(rel + ' has an inline script');
+        } else {
+            files += 1;
+        }
+        const closeEnd = html.indexOf('>', close);
+        index = closeEnd < 0 ? close + 9 : closeEnd + 1;
     }
     if (files !== external) fail(rel + ' has ' + files + ' external scripts, want ' + external);
 }
