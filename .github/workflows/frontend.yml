@@ -6,11 +6,17 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend.yml'
+      - 'tests/e2e/consent.spec.ts'
+      - 'tests/e2e/consent-server.mjs'
+      - 'tests/e2e/playwright.config.ts'
   push:
     branches: [main]
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend.yml'
+      - 'tests/e2e/consent.spec.ts'
+      - 'tests/e2e/consent-server.mjs'
+      - 'tests/e2e/playwright.config.ts'
 
 permissions:
   contents: read
@@ -23,7 +29,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,3 +45,7 @@ jobs:
         run: node frontend/scripts/contrast.mjs
       - name: Dist layout, headers and links
         run: node frontend/scripts/check-dist.mjs
+      - name: Install the end-to-end runner
+        run: npm ci
+      - name: Consent end-to-end
+        run: npx playwright install --with-deps chromium && npx playwright test -c tests/e2e/playwright.config.ts
