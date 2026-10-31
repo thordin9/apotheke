@@ -25,7 +25,7 @@ app becomes a version, with no manual steps.
 Release commits (`chore(release): …`) and merge commits are ignored. Every pull request into `main` is
 squash-merged, so `main` gets one commit, and that squash commit's subject decides the bump. The repository's squash
 setting is `COMMIT_OR_PR_TITLE`: a pull request with a single commit would get that commit's subject, not its title.
-So the PM passes the title explicitly when merging (`gh pr merge --squash --match-head-commit <sha> --subject
+So the maintainer passes the title explicitly when merging (`gh pr merge --squash --match-head-commit <sha> --subject
 "<PR title> (#N)"`); the trailing `(#N)` gives the pull request number. The subject must be a Conventional Commit,
 and its type decides the bump: `feat`, `fix`, `perf` or a breaking change cut a release; `ci`, `build`, `docs`,
 `chore` or `test` don't. A `Merge pull request #N` merge commit, if one ever lands, also gives the number.
