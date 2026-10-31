@@ -55,10 +55,15 @@ The app then runs on `http://127.0.0.1:9091`. Docker installs are private by def
 your phone, to encrypt stored secrets with `APP_KEY`, to use PostgreSQL or to run without Docker, see
 [Getting started](docs/getting-started.md).
 
+Docker is the recommended way to self-host. To run it on your own Cloudflare account instead, see
+[self-hosting on Cloudflare](docs/self-host-cloudflare.md): today only the front end is usable there; the API stays
+stateless until its D1 and R2 storage lands (P4).
+
 ## Documentation
 
 The manual lives in [`docs/`](docs/index.md):
-[getting started](docs/getting-started.md) · [configuration](docs/configuration.md) ·
+[getting started](docs/getting-started.md) ·
+[self-hosting on Cloudflare](docs/self-host-cloudflare.md) · [configuration](docs/configuration.md) ·
 [Control Panel](docs/control-panel.md) · [user guide](docs/user-guide.md) · [AI autofill](docs/autofill.md) ·
 [deployment and operations](docs/deployment-and-operations.md) (backups, upgrades, reverse proxies, security) ·
 [upgrading to 3.0](docs/upgrade-3.0.md) ·
