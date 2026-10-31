@@ -38,7 +38,7 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
     const context = await browser.newContext();
     const page = await context.newPage();
     const hits = watchSession(page);
-    for (const path of ['/', '/privacy/', '/app/']) {
+    for (const path of ['/', '/privacy/', '/app/', '/app/sign-in', '/app/does-not-exist']) {
         await page.goto(path);
         await expect(page.locator('#consent')).toBeVisible();
         await expectNothingStored(page, context);
@@ -55,7 +55,8 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
     await expect(page.locator('#consent')).toBeVisible();
     await expectNothingStored(page, context);
 
-    await page.goto('/app/');
+    await page.goto('/app/sign-in');
+    await expect(page.locator('#sign-in-note')).toHaveText('Accept cookies to sign in.');
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     expect(hits).toEqual([]);
 
@@ -78,6 +79,7 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
     await expect(page.locator('#consent')).toBeHidden();
     await expect(page.locator('#main')).toBeFocused();
     await expect(page.locator('#sign-in-note')).toHaveText('You can sign in.');
+    await expect(page.locator('#sign-in-home')).toBeHidden();
     await expect(page.locator('#sign-in-submit')).toBeEnabled();
     expect(hits).toHaveLength(1);
 
@@ -109,14 +111,16 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
 
 async function acceptOnApp(page: Page, fulfill: (route: Route) => Promise<void>) {
     const hits = watchSession(page);
-    await page.goto('/app/');
+    await page.goto('/app/sign-in');
     await expect(page.locator('#consent')).toBeVisible();
+    await expect(page.locator('#sign-in-note')).toHaveText('Accept cookies to sign in.');
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     expect(hits, 'no session request before Accept').toEqual([]);
     await page.route('**/api/v1/session', fulfill);
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#consent')).toBeHidden();
-    await expect(page.locator('#sign-in-note')).toHaveText('Sign-in stays off until the server offers a sign-in token.');
+    await expect(page.locator('#sign-in-note')).toHaveText('Sign-in is coming soon.');
+    await expect(page.locator('#sign-in-home')).toBeVisible();
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     expect(hits).toHaveLength(1);
 }
@@ -170,7 +174,7 @@ test('a value other than v1 is not consent', async ({ browser }) => {
     }]);
     const page = await context.newPage();
     const hits = watchSession(page);
-    await page.goto('/app/');
+    await page.goto('/app/sign-in');
     await expect(page.locator('#consent')).toBeVisible();
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     expect(hits).toEqual([]);

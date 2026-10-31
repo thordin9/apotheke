@@ -21,9 +21,26 @@ const types = {
     '.ico': 'image/x-icon',
 };
 
+function appMount() {
+    const html = readFileSync(join(root, 'app/index.html'), 'utf8');
+    const key = 'data-spa-base="';
+    const start = html.indexOf(key);
+    if (start < 0) return '/app';
+    const value = html.slice(start + key.length, html.indexOf('"', start + key.length));
+    return value.replace(/\/$/, '') || '/app';
+}
+
+const mount = appMount();
+
 function fileFor(urlPath) {
     const decoded = decodeURIComponent(urlPath.split('?')[0]);
     if (decoded.includes('\0') || decoded.split('/').includes('..')) return null;
+    const last = decoded.split('/').pop() || '';
+    // The Worker serves the app shell for /app and /app/* with a 200. Mirror that.
+    if (decoded === mount || (decoded.startsWith(mount + '/') && !last.includes('.'))) {
+        const shell = join(root, 'app/index.html');
+        if (existsSync(shell)) return shell;
+    }
     const rel = decoded.replace(/^\/+/, '');
     const candidates = [];
     if (rel === '' || rel.endsWith('/')) candidates.push(join(root, rel, 'index.html'));
