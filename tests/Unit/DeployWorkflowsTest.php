@@ -217,6 +217,32 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringNotContainsString('actions/cache', $yml);
     }
 
+    /** @return iterable<string,array{string,string}> file, job */
+    public static function prWorkflows(): iterable
+    {
+        yield 'frontend' => ['frontend.yml', 'build'];
+        yield 'edge-local' => ['edge-local.yml', 'wrangler-dev'];
+    }
+
+    #[DataProvider('prWorkflows')]
+    public function testSetupNodeNeverCachesAndCheckoutKeepsNoCredentialsInPrWorkflows(string $file, string $job): void
+    {
+        // N-1486 and N-1487: the same as the deploy workflows, so a later package-manager field can't start a cache
+        // and no step inherits the checkout token.
+        $yml = $this->workflow($file);
+        $steps = $this->steps($yml, $job);
+        $nodes = array_values(array_filter($steps, static fn (string $s): bool => str_starts_with($s, 'uses: actions/setup-node@')));
+        $this->assertCount(1, $nodes, 'one setup-node');
+        $this->assertSame(1, substr_count($yml, 'actions/setup-node@'));
+        $this->assertMatchesRegularExpression("/^        with:\n(?:          .*\n)*          package-manager-cache: false\n/m", $nodes[0]);
+        $this->assertDoesNotMatchRegularExpression('/^          cache(-dependency-path)?:/m', $nodes[0]);
+        $this->assertStringNotContainsString('actions/cache', $yml);
+
+        $this->assertSame(1, substr_count($yml, 'actions/checkout@'), 'one checkout');
+        $this->assertSame(1, preg_match("/^      - uses: actions\/checkout@[0-9a-f]{40} # v\S+\n        with:\n(?:          .*\n)*          persist-credentials: false\n/m", $yml));
+        $this->assertStringNotContainsString('persist-credentials: true', $yml);
+    }
+
     /** @return iterable<string,array{string}> */
     public static function npmWorkflows(): iterable
     {
