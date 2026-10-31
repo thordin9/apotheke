@@ -6,6 +6,8 @@
 //  - scripts/cf-deploy.sh: guard first, then `wrangler deploy --config wrangler.jsonc` (a fake npx records it).
 //  - each deploy job's tag step, run from the workflow with a fake `gh`: main, or vX.Y.Z with a published full
 //    release (L-1460).
+//  - the apotheke-api Durable Object (edge/src/index.ts, with a stub for cloudflare:workers and a fake container):
+//    the container gets every `vars` value of edge/wrangler.jsonc except SLEEP_AFTER_MS.
 //  - scripts/edge-storage-config.mjs: merges edge/storage.jsonc into a copy of edge/wrangler.jsonc that the guard
 //    still accepts; a missing or malformed APOTHEKE_D1_DATABASE_ID changes nothing.
 // Run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
@@ -14,6 +16,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { register } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -289,6 +292,40 @@ for (const file of ["deploy-frontend.yml", "deploy-edge.yml"]) {
 		}
 	});
 }
+
+// edge/src/index.ts imports cloudflare:workers, which Node lacks: resolve it to a stub DurableObject base class.
+const STUB = "export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }";
+register(
+	"data:text/javascript," +
+		encodeURIComponent(
+			`export async function resolve(s, c, next) { return s === "cloudflare:workers" ? { url: "data:text/javascript,${encodeURIComponent(STUB)}", shortCircuit: true } : next(s, c); }`,
+		),
+);
+
+test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEEP_AFTER_MS", async () => {
+	const { ApothekeContainer } = await import(join(root, "edge/src/index.ts"));
+	// edge/wrangler.jsonc has only whole-line comments.
+	const text = readFileSync(join(root, "edge/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+	const { vars } = JSON.parse(text.replace(/,(\s*[}\]])/g, "$1"));
+	assert.equal(vars.CORS_ALLOWED_ORIGINS, "https://getapotheke.com");
+	let started;
+	const container = {
+		running: false,
+		start(opts) {
+			started = opts;
+			this.running = true;
+		},
+		setInactivityTimeout: async () => {},
+		monitor: () => new Promise(() => {}),
+		getTcpPort: () => ({ fetch: async () => new Response("ok") }),
+	};
+	const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f() };
+	const obj = new ApothekeContainer(ctx, { ...vars, APP_PASSWORD: "placeholder", APP_KEY: "placeholder" });
+	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
+	const { SLEEP_AFTER_MS, ...forwarded } = vars;
+	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
+	assert.equal(started.enableInternet, false);
+});
 
 function storageMerge(id) {
 	const top = mkdtempSync(join(tmpdir(), "storage-"));

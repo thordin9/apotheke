@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **deploy:** forward CORS_ALLOWED_ORIGINS to the apotheke-api container ([#202](https://github.com/thordin9/apotheke/pull/202))
+
 ### Maintenance
 
 - **deploy:** prepare P4 edge storage for apotheke-api, off by default ([#204](https://github.com/thordin9/apotheke/pull/204))
