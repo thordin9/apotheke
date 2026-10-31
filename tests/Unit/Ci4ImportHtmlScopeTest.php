@@ -113,6 +113,82 @@ final class Ci4ImportHtmlScopeTest extends TestCase
         $this->assertSame(403, $r['status']);
     }
 
+    /** L-1501: a guest (not signed in, guest browsing on, the Guest role with Import) sees no one's imports. */
+    public function testAGuestSeesNoImportsAndGetsTheUnknownIdAnswer(): void
+    {
+        $id = $this->upload($this->signedIn('ed'), 'ed-guest-hidden.csv');
+        $this->asGuestWithImport(function (Client $guest) use ($id): void {
+            $home = $guest->get('/import');
+            $this->assertSame(200, $home['status'], substr($home['body'], 0, 300));
+            $this->assertStringNotContainsString('ed-guest-hidden.csv', $home['body']);
+            $this->assertStringNotContainsString('Recent imports', $home['body']);
+            foreach (['GET', 'HEAD'] as $method) {
+                $theirs = $guest->req($method, '/import/' . $id);
+                $unknown = $guest->req($method, '/import/999999');
+                $this->assertSame([404, $unknown['body']], [$theirs['status'], $theirs['body']], $method);
+            }
+            $api = $guest->rest('GET', '/api/v1/imports/' . $id);
+            $this->assertSame([404, $guest->rest('GET', '/api/v1/imports/999999')['body']], [$api['status'], $api['body']]);
+        });
+    }
+
+    /** L-1500: a guest may not upload, on the page or through the API; nothing is stored. */
+    public function testAGuestCannotUpload(): void
+    {
+        $this->asGuestWithImport(function (Client $guest): void {
+            $before = [$this->imports(), $this->rowsIn('import_rows'), $this->rowsIn('jobs'), $this->stored()];
+            $home = $guest->get('/import');
+            $this->assertStringNotContainsString('id="imp-upload"', $home['body'], 'no upload form for a guest');
+            $this->assertStringContainsString('Imports need a signed-in account.', $home['body']);
+            $file = ['csv' => ['name' => 'guest.csv', 'type' => 'text/csv', 'data' => self::CSV]];
+            $page = $guest->post('/import', ['csrf' => $guest->csrf()], $file);
+            $this->assertSame(403, $page['status'], substr($page['body'], 0, 300));
+            $this->assertStringContainsString('Imports need a signed-in account.', $page['body']);
+            $this->assertStringNotContainsString('id="imp-upload"', $page['body']);
+            $token = $guest->rest('GET', '/api/v1/session')['json']['csrf_token'];
+            $api = $guest->req('POST', '/api/v1/imports', [], ['file' => $file['csv']], ['Origin: ' . $guest->base, 'Accept: application/json', 'X-CSRF-Token: ' . $token]);
+            $this->assertSame([403, 'permission.denied', 'Imports need a signed-in account. Sign in to import a CSV file.'],
+                [$api['status'], $api['json']['code'] ?? null, $api['json']['detail'] ?? null], $api['body']);
+            $this->assertSame($before, [$this->imports(), $this->rowsIn('import_rows'), $this->rowsIn('jobs'), $this->stored()], 'nothing stored');
+        });
+        // A signed-in account still can.
+        $this->upload($this->signedIn('ed'), 'ed-after-guest.csv');
+    }
+
+    /** Guest browsing on and Import for the Guest role while $run runs; both back as they were after. */
+    private function asGuestWithImport(Closure $run): void
+    {
+        $pdo = testdb(self::$dir);
+        $perms = (string)$pdo->query("SELECT perms FROM roles WHERE role_key = 'guest'")->fetchColumn();
+        $setting = static function (string $value) use ($pdo): void {
+            $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute(['auth_guest_disabled']);
+            $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)')->execute(['auth_guest_disabled', $value, '2026-01-01']);
+        };
+        $setting('false');
+        $pdo->prepare("UPDATE roles SET perms = ? WHERE role_key = 'guest'")->execute(['["view","import"]']);
+        try {
+            $this->assertNotNull(self::$server);
+            $run(self::$server->client());
+        } finally {
+            $pdo->prepare("UPDATE roles SET perms = ? WHERE role_key = 'guest'")->execute([$perms]);
+            $setting('true');
+        }
+    }
+
+    private function rowsIn(string $table): int
+    {
+        return (int)testdb(self::$dir)->query('SELECT count(*) FROM ' . $table)->fetchColumn();
+    }
+
+    /** @return list<string> the waiting upload files */
+    private function stored(): array
+    {
+        $files = glob(self::$dir . '/tmp/import-*.csv') ?: [];
+        sort($files);
+
+        return $files;
+    }
+
     private function upload(Client $c, string $name): int
     {
         $r = $c->post('/import', ['csrf' => $c->csrf()], ['csv' => ['name' => $name, 'type' => 'text/csv', 'data' => self::CSV]]);

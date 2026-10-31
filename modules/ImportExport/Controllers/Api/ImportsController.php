@@ -40,7 +40,9 @@ final class ImportsController extends Controller
         try {
             $id = $imports->upload($file);
         } catch (UserError $e) {
-            return ApiResponse::problem($this->response, 422, 'validation.failed', $e->getMessage(), ['file' => $e->getMessage()]);
+            return $e->getCode() === 403   // L-1500: a guest's upload
+                ? ApiResponse::problem($this->response, 403, 'permission.denied', $e->getMessage())
+                : ApiResponse::problem($this->response, 422, 'validation.failed', $e->getMessage(), ['file' => $e->getMessage()]);
         }
 
         return $this->show((string)$id)->setStatusCode(201)->setHeader('Location', '/api/v1/imports/' . $id);

@@ -43,8 +43,9 @@ final class ImportView
      * Legacy view_import_home().
      *
      * @param list<array<string,mixed>> $recent
+     * @param bool $guest a guest's page: no upload form, the reason instead (L-1500)
      */
-    public function home(?string $error, ?string $toast, array $recent): string
+    public function home(?string $error, ?string $toast, array $recent, bool $guest = false): string
     {
         $head = $this->page->start('Import CSV', 'page-import') . $this->page->simpleHeader('Import CSV', '/');
         $tok = self::h($this->page->csrf());
@@ -55,12 +56,15 @@ final class ImportView
     preview with every problem, and only then import – all in one go, or nothing. A file from <a href="/export.csv">Export CSV</a>
     imports as it is (its <code>id</code> column updates those items).</p>
   <?php if ($error): ?><div class="err" role="alert" id="imp-err"><?= self::h($error) ?></div><?php endif; ?>
+  <?php if ($guest && !$error): ?><p class="hint" id="imp-guest"><?= self::h(Imports::GUEST_UPLOAD) ?> <a href="/login">Sign in</a></p><?php endif; ?>
+  <?php if (!$guest): ?>
   <form method="post" action="/import" enctype="multipart/form-data" class="set-card setform" id="imp-upload">
     <input type="hidden" name="csrf" value="<?= $tok ?>">
     <label class="field"><span>CSV file <em>max. 5 MB, <?= number_format(CsvCells::MAX_ROWS) ?> rows; comma, semicolon or tab</em></span>
       <input type="file" name="csv" id="imp-file" accept=".csv,text/csv,text/plain,.tsv" required></label>
     <button class="btn btn-primary btn-wide" id="imp-go"><?= self::icon('download') ?> Upload and map columns</button>
   </form>
+  <?php endif; ?>
   <?php if ($recent): ?>
   <section class="set-card" id="imp-history"><h2 class="set-h">Recent imports</h2><ul class="imp-hist">
     <?php foreach ($recent as $r): $res = $r['result'] ? json_decode(self::s($r['result']), true) : null; ?>

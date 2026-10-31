@@ -1112,7 +1112,8 @@ class Services extends BaseService
                 $user = static::currentUser()->resolve();
 
                 return $user !== null && !$user['guest'] ? (string)$user['username'] : null;
-            }, (bool)static::settings()->get('import_create_missing'), static fn (): bool => static::currentUser()->isAdmin());
+            }, (bool)static::settings()->get('import_create_missing'), static fn (): bool => static::currentUser()->isAdmin(),
+            static fn (): bool => PHP_SAPI !== 'cli' && (bool)(static::currentUser()->resolve()['anon'] ?? false));
     }
 
     /** The CSV import screens (ImportExport). */

@@ -37,7 +37,7 @@ final class ImportController extends CatalogController
             try {
                 $iid = $imports->upload($file);
             } catch (UserError $e) {
-                return $this->sessionPage($this->pages()->home($e->getMessage(), null, $imports->recent()), $e->getCode() ?: 422);
+                return $this->sessionPage($this->pages()->home($e->getMessage(), null, $imports->recent(), $imports->guest()), $e->getCode() ?: 422);
             }
 
             return $this->redirectTo('/import/' . $iid);
@@ -46,7 +46,7 @@ final class ImportController extends CatalogController
         $d = $done !== null ? $imports->get(self::int($done)) : null;
         $toast = $d !== null && $imports->mine($d) && $d['result'] ? 'Imported · ' . Imports::summaryText($d['result']) : null;
 
-        return $this->html($this->pages()->home(null, $toast, $imports->recent()));
+        return $this->html($this->pages()->home(null, $toast, $imports->recent(), $imports->guest()));
     }
 
     /** /import/{id} and /import/{id}/(preview|commit), in legacy's order of checks */
