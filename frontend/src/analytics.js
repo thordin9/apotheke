@@ -28,6 +28,13 @@ function load() {
     return tracker;
 }
 
+/** Stops the tracker after consent is withdrawn. trackPageview() also re-checks the cookie. */
+export function stopAnalytics() {
+    if (!tracker) return;
+    tracker.then((counterscale) => counterscale.cleanup(), () => {});
+    tracker = null;
+}
+
 /**
  * Counts one page view of the current URL, and only with consent.
  * The URL is passed explicitly: the tracker otherwise prefers <link rel="canonical">,

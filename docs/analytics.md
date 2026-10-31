@@ -15,14 +15,22 @@ Pinned version: **Counterscale v3.4.1** (the server tag and `@counterscale/track
   `/assets/`) with a dynamic `import()`. There is no third-party script, so `script-src 'self'` is unchanged.
 * It runs only with consent: after **Accept**, or on a later visit that already has the `apotheke_consent=v1`
   cookie. Before Accept and after **Decline** the chunk is not downloaded and nothing is sent. Every page view
-  checks the cookie again, so deleting it (withdrawing consent) stops counting from the next view.
+  checks the cookie again, so a deleted or changed cookie stops counting from the next view.
+* Withdrawing is as easy as accepting (GDPR Art. 7(3)): **Cookie settings** in the footer
+  (`frontend/src/partials/footer.html`, shown once JavaScript runs) reopens the notice with the current choice.
+  **Decline** there expires the cookie with the Domain and Path it was set with (`Max-Age=0`) and stops the tracker
+  without a reload.
 * Settings: `siteId: 'getapotheke.com'`, `reporterUrl: 'https://analytics.services.webapp.gr/collect'`,
-  `autoTrackPageviews: false`. `consent.js` counts `/`, `/privacy/` and `/404.html`; on `/app/` the router counts
+  `autoTrackPageviews: false`. `consent.js` counts `/`, `/privacy/` and not-found pages (a 404 is counted under
+  the path that was requested, not `/404.html`, because the page is served at that URL); on `/app/` the router counts
   one view per route render (first load, in-app links through `history.pushState`, back and forward). The URL is
   passed explicitly, because the tracker otherwise prefers `<link rel="canonical">`, which is `/app/` for every
   app route.
 * Each view is two `GET` requests: `/cache?sid=…` and `/collect?sid=…&h=…&p=…&r=…`. Only the path is sent, not the
-  query string (UTM tags are sent as their own parameters). The tracker stores nothing on the device: repeat
+  query string (UTM tags are sent as their own parameters). The referrer is `document.referrer` from another site,
+  without its query string; when there is none, the tracker takes `ref`, `referer`, `referrer`, `source` or
+  `utm_source` from the page's own query string. Views inside the app repeat the referrer of the page the visitor
+  landed on, because `document.referrer` does not change on `pushState`. The tracker stores nothing on the device: repeat
   visits on the same day are recognised through the browser's HTTP cache (`If-Modified-Since`/`Last-Modified`).
 * `connect-src https://analytics.services.webapp.gr` is in both Content-Security-Policies, identical in
   `frontend/public/_headers`, `frontend/scripts/check-dist.mjs` and `edge/app/src/index.ts`.

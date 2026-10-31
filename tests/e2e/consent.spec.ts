@@ -369,4 +369,105 @@ test.describe('page-view counting', () => {
         expect(watch.collects()).toHaveLength(2);
         await context.close();
     });
+
+    async function acceptOnAppHome(page: Page, watch: Awaited<ReturnType<typeof watchAnalytics>>) {
+        await page.route('**/api/v1/session', (route) => route.fulfill({ status: 503, body: '' }));
+        await page.goto('/app/');
+        await page.getByRole('button', { name: 'Accept' }).click();
+        await expect.poll(() => watch.collects().map((h) => h.params.get('p'))).toEqual(['/app/']);
+    }
+
+    async function navigateInApp(page: Page) {
+        await page.locator('#app').getByRole('link', { name: 'Sign in' }).click();
+        await expect(page).toHaveURL(/\/app\/sign-in$/);
+        await page.goBack();
+        await expect(page).toHaveURL(/\/app\/$/);
+        await settle(page);
+    }
+
+    test('each SPA view re-checks consent: a cleared cookie counts nothing more', async ({ browser }) => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const watch = await watchAnalytics(context);
+        await acceptOnAppHome(page, watch);
+        await context.clearCookies();
+        await navigateInApp(page);
+        expect(watch.collects()).toHaveLength(1);
+        await context.close();
+    });
+
+    test('each SPA view re-checks consent: a v0 cookie counts nothing more', async ({ browser }) => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const watch = await watchAnalytics(context);
+        await acceptOnAppHome(page, watch);
+        await context.clearCookies();
+        await context.addCookies([{ name: 'apotheke_consent', value: 'v0', url: 'http://' + TEST_HOST + ':4175/' }]);
+        await navigateInApp(page);
+        expect(watch.collects()).toHaveLength(1);
+        await context.close();
+    });
+
+    test('Cookie settings reopens the notice, and Decline there withdraws consent', async ({ browser }) => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const watch = await watchAnalytics(context);
+        const settings = page.getByRole('button', { name: 'Cookie settings' });
+
+        await page.goto('/');
+        await expect(settings).toBeVisible();
+        await settings.click();
+        await expect(page.locator('#consent-choice')).toHaveText(/not accepted/);
+        await page.getByRole('button', { name: 'Accept' }).click();
+        await expect(page.locator('#consent')).toBeHidden();
+        await expect.poll(() => watch.collects().length).toBe(1);
+
+        // Reopening with consent shows the choice, focuses the first button, and Accept again counts nothing extra.
+        await settings.click();
+        await expect(page.locator('#consent')).toBeVisible();
+        await expect(page.locator('#consent-choice')).toHaveText(/accepted\. Decline deletes/);
+        await expect(page.getByRole('button', { name: 'Decline' })).toBeFocused();
+        await page.getByRole('button', { name: 'Accept' }).click();
+        await expect(page.locator('#consent')).toBeHidden();
+        await expect(page.locator('#consent-choice')).toBeHidden();
+        await settle(page);
+        expect(watch.collects()).toHaveLength(1);
+
+        // Withdraw inside the app: no reload, then SPA and full navigations count nothing.
+        await page.route('**/api/v1/session', (route) => route.fulfill({ status: 503, body: '' }));
+        await page.goto('/app/');
+        await expect.poll(() => watch.collects().length).toBe(2);
+        await settings.click();
+        await page.getByRole('button', { name: 'Decline' }).click();
+        await expect(page.locator('#consent')).toBeHidden();
+        expect(await context.cookies()).toEqual([]);
+        await expectNothingStored(page, context);
+        await navigateInApp(page);
+        await page.goto('/privacy/');
+        await expect(page.locator('#consent')).toBeVisible();
+        await page.goto('/');
+        await settle(page);
+        expect(watch.collects()).toHaveLength(2);
+        await expectNothingStored(page, context);
+        await context.close();
+    });
+});
+
+test('Cookie settings is a 44px footer control on a phone, hidden without JavaScript', async ({ browser }) => {
+    const phone = await browser.newContext({ viewport: { width: 375, height: 812 }, colorScheme: 'dark' });
+    const page = await phone.newPage();
+    for (const path of ['/', '/privacy/', '/404.html', '/app/']) {
+        await page.goto(path);
+        const button = page.locator('footer #cookie-settings');
+        await expect(button).toBeVisible();
+        const box = await button.boundingBox();
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(376);
+    }
+    await phone.close();
+    const noJs = await browser.newContext({ javaScriptEnabled: false });
+    const plain = await noJs.newPage();
+    await plain.goto('/');
+    await expect(plain.locator('footer #cookie-settings')).toBeHidden();
+    await noJs.close();
 });

@@ -198,6 +198,7 @@ function checkChrome() {
         if (footer !== footers[0]) fail('footers differ');
     }
     if (!footers[0].includes('© 2026 Stathis Papandreou')) fail('footer lost the operator line');
+    if (!footers[0].includes('<button type="button" id="cookie-settings" class="link-button" hidden>Cookie settings</button>')) fail('footer lost Cookie settings');
     const shells = headers.map(withoutNav);
     if (shells.some((shell) => shell === '')) fail('a page is missing the shared header');
     for (const shell of shells) {

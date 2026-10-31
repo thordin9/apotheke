@@ -3,7 +3,7 @@
 // Nothing here reads or writes localStorage, sessionStorage, IndexedDB or Cache storage.
 // The consent cookie is the only write, and only acceptConsent() performs it.
 // Page-view counting (analytics.js) starts only with consent and stores nothing either.
-import { trackPageview } from './analytics.js';
+import { stopAnalytics, trackPageview } from './analytics.js';
 
 export const CONSENT_NAME = 'apotheke_consent';
 export const CONSENT_VALUE = 'v1';
@@ -27,11 +27,23 @@ export function consentDomain(hostname) {
  * or the browser would drop the cookie.
  */
 export function consentCookie(hostname, { protocol = 'https:', secureContext = false } = {}) {
+    return cookieString(CONSENT_VALUE, CONSENT_MAX_AGE, hostname, protocol, secureContext);
+}
+
+/**
+ * The cookie string that removes the consent cookie: the same Domain, Path, Secure and
+ * SameSite it was set with, an empty value and Max-Age=0.
+ */
+export function withdrawnConsentCookie(hostname, { protocol = 'https:', secureContext = false } = {}) {
+    return cookieString('', 0, hostname, protocol, secureContext);
+}
+
+function cookieString(value, maxAge, hostname, protocol, secureContext) {
     const domain = consentDomain(hostname);
     const secure = domain !== '' || protocol === 'https:' || secureContext === true;
-    const parts = [CONSENT_NAME + '=' + CONSENT_VALUE];
+    const parts = [CONSENT_NAME + '=' + value];
     if (domain) parts.push('Domain=' + domain);
-    parts.push('Path=/', 'Max-Age=' + CONSENT_MAX_AGE);
+    parts.push('Path=/', 'Max-Age=' + maxAge);
     if (secure) parts.push('Secure');
     parts.push('SameSite=Lax');
     return parts.join('; ');
@@ -56,8 +68,22 @@ export function acceptConsent() {
     });
 }
 
-/** Decline stores nothing. Hiding the notice is the caller's job. */
-export function declineConsent() {}
+/** Expires the consent cookie. Nothing is counted or stored after this. */
+export function withdrawConsent() {
+    document.cookie = withdrawnConsentCookie(location.hostname, {
+        protocol: location.protocol,
+        secureContext: typeof isSecureContext === 'boolean' ? isSecureContext : false,
+    });
+    stopAnalytics();
+}
+
+/**
+ * Decline stores nothing. If consent was given earlier (the notice reopened from
+ * Cookie settings), Decline withdraws it. Hiding the notice is the caller's job.
+ */
+export function declineConsent() {
+    if (hasConsent()) withdrawConsent();
+}
 
 export async function fetchSession(apiBase = '') {
     const base = String(apiBase || '').replace(/\/$/, '');
@@ -107,6 +133,8 @@ function readCookieHeader() {
 
 function hide(banner) {
     if (banner) banner.hidden = true;
+    const choice = document.getElementById('consent-choice');
+    if (choice) choice.hidden = true;
 }
 
 function show(banner) {
@@ -177,18 +205,31 @@ function isAppShell() {
     return document.getElementById('app') !== null;
 }
 
+// Footer "Cookie settings": reopens the notice with the current choice, so withdrawing
+// is one click, like accepting. The button stays hidden without JavaScript.
+function bindSettings(banner) {
+    const button = document.getElementById('cookie-settings');
+    if (!button || !banner) return;
+    button.hidden = false;
+    button.addEventListener('click', () => {
+        const choice = document.getElementById('consent-choice');
+        if (choice) {
+            choice.textContent = hasConsent()
+                ? 'Your choice: accepted. Decline deletes the cookie and stops counting.'
+                : 'Your choice: not accepted. Nothing is stored or counted.';
+            choice.hidden = false;
+        }
+        show(banner);
+        const first = banner.querySelector('button');
+        if (first) first.focus();
+    });
+}
+
 function start() {
     const banner = document.getElementById('consent');
     const login = document.getElementById('sign-in');
     if (login) bindSignIn(login);
-    if (hasConsent()) {
-        hide(banner);
-        if (login) enableLogin(login, '');
-        if (!isAppShell()) trackPageview();
-        return;
-    }
-    if (!banner) return;
-    show(banner);
+    bindSettings(banner);
     const decline = document.getElementById('consent-decline');
     const accept = document.getElementById('consent-accept');
     if (decline) {
@@ -199,13 +240,22 @@ function start() {
     }
     if (accept) {
         accept.addEventListener('click', () => {
+            const already = hasConsent();
             acceptConsent();
             dismissNotice(banner);
+            if (already) return;
             const form = document.getElementById('sign-in');
             if (form) enableLogin(form, '');
             trackPageview();
         });
     }
+    if (hasConsent()) {
+        hide(banner);
+        if (login) enableLogin(login, '');
+        if (!isAppShell()) trackPageview();
+        return;
+    }
+    show(banner);
 }
 
 if (typeof document !== 'undefined') start();
