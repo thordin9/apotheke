@@ -8,12 +8,18 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-10-31
+
 **Upgrade note:** both Docker images now run the background jobs worker (`php spark jobs:work`) next to the web server, as `www-data`. Set `APOTHEKE_JOBS_WORKER=0` to turn it off, for example when another container runs the worker. If you use the compose `postgres` profile, this release also stops the app from changing the owner of `./data/postgres` on start (see Fixed).
 
 ### Added
 
 - **docker:** run the background jobs worker in both images: `apotheke-jobs-worker` keeps `php spark jobs:work` running as `www-data`, restarts it after a failure with a 1–60 s backoff without stopping the web server, and stops cleanly on `docker stop`; `APOTHEKE_JOBS_WORKER=0` turns it off ([#190](https://github.com/thordin9/apotheke/pull/190))
 - **edge:** set `COOKIE_DOMAIN=getapotheke.com` for `apotheke-api` (a non-secret var in `edge/wrangler.jsonc`, the hosted setting from the 3.6.1 upgrade note; it applies to the consent cookie only and never to the `__Host-` session cookie, which may not carry a `Domain` attribute); self-hosting keeps the host-only default. `apotheke-api` sets `APOTHEKE_JOBS_WORKER=0`: on Cloudflare, jobs will run through a Cron Trigger or Queues ([#190](https://github.com/thordin9/apotheke/pull/190))
+
+### Maintenance
+
+- ci: bump typescript from 5.9.3 to 7.0.2 in /edge in the edge group ([#189](https://github.com/thordin9/apotheke/pull/189))
 
 ### Fixed
 
@@ -1052,7 +1058,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.6.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.7.0...HEAD
+[3.7.0]: https://github.com/thordin9/apotheke/compare/v3.6.1...v3.7.0
 [3.6.1]: https://github.com/thordin9/apotheke/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/thordin9/apotheke/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/thordin9/apotheke/compare/v3.4.0...v3.5.0
