@@ -109,6 +109,9 @@ import, export, stocktake, labels, settings, users, backup; `self` for /account,
 * Every write goes through `Core\Database\Writes`: a failed statement throws, and a transaction whose statement
   failed rolls back. Bulk actions and duplicating reuse the item save inside one transaction.
 * The activity log entry is written in the same transaction as the change it records.
+* On Cloudflare (P4, in progress) writes become units of work that run as one batch on D1 or a Durable Object's
+  SQLite, and files move to R2 behind `Core\Storage`; Docker keeps PDO and `DATA_DIR` unchanged
+  ([ADR-002](adr/002-edge-storage.md)).
 
 More in [Database](database.md).
 
