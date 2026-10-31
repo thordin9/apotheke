@@ -21,8 +21,23 @@ answer against it.
 | `GET /api/v1/users` | Users | Every account, sorted by name: `id`, `name`, `role`, `status`, `created_at`, `last_login_at` (UTC; `null` when never signed in). Nothing else. |
 | `GET /api/v1/roles` | Users | Every role, built-in first: `key`, `name`, `builtin`, `permissions`, `users` (how many accounts have it). |
 | `GET /api/v1/security` | Users | `sign_in_enabled` and `policy`: the guest, registration and session-length settings of Users & sign-in. The reverse-proxy setting is not included (it is server set-up). |
+| `POST /api/v1/imports` | Import | Upload a CSV (`multipart/form-data`, field `file`); `201` with the import and a `Location` header. |
+| `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
+| `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
+| `POST /api/v1/imports/{id}/commit` | Import, and the user who uploaded it or an admin | Import the file as a background job, with an optional `{"map": […], "create": …, "skip_errors": …}`. `202` with the job and a `Location` header; `422` when rows have errors and `skip_errors` is off. Rows are committed one by one, so they show up while the job runs; a stopped or failed job resumes when the import is committed again. |
+| `GET /api/v1/jobs/{id}` | the job type's permission, and the user who started it or an admin | `status` (`queued`, `running`, `done`, `failed`), `progress` (`done` and `total` rows), `result` and `error`. Anyone else gets `404`, as for an id that is not there. |
+
+A job that the worker stops cleanly (SIGTERM, with pcntl) is released and resumes at once. A worker that is killed
+(SIGKILL, an out-of-memory kill, a crash) cannot release it: the job stays `running` until its 300-second lease runs
+out, and only then does the next `jobs:work` pick it up and resume from its last checkpoint.
 
 Any other path under `/api` answers `404`.
+
+An import is shown only to the user who uploaded it, or an admin; anyone else gets the same `404` as for an id that
+is not there. Cell values in an import's `sample` and the preview's `name` are raw, as they are imported. A cell that
+starts with `=`, `+`, `-`, `@`, a tab or CR is listed in `sample_formula` (per sample row) and in each preview row's
+`formula` (column indexes): a spreadsheet runs such a cell as a formula, so a client that writes these values to a CSV
+must neutralise them, as the export does with a leading apostrophe.
 
 ## Requests
 
@@ -62,7 +77,7 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 ```
 
 `code` is stable: `auth.required` (401), `auth.invalid_credentials` (401), `auth.pending_approval` (403),
-`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `not_found` (404), `permission.denied` (403),
+`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `import.gone` (410), `not_found` (404), `permission.denied` (403),
 `rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
 (413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
 problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's

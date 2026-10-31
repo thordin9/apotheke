@@ -308,6 +308,9 @@ final class PermissionFilterTest extends CIUnitTestCase
         $this->assertSame([
             'DELETE /api/v1/session' => Permissions::PUBLIC,
             'GET /api/v1/branding' => Permissions::PUBLIC,
+            'GET /api/v1/imports/([0-9]+)' => 'import',
+            'GET /api/v1/imports/([0-9]+)/preview' => 'import',
+            'GET /api/v1/jobs/([0-9]+)' => 'view',   // and the job type's permission, checked by JobsController
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
             'GET /api/v1/roles' => 'users',
@@ -325,6 +328,8 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/settings/locale' => 'settings',
             'GET /api/v1/settings/uploads' => 'settings',
             'GET /api/v1/users' => 'users',
+            'POST /api/v1/imports' => 'import',
+            'POST /api/v1/imports/([0-9]+)/commit' => 'import',
             'POST /api/v1/session' => Permissions::PUBLIC,
         ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
     }

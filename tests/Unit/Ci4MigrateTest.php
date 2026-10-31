@@ -98,7 +98,7 @@ final class Ci4MigrateTest extends TestCase
 
             $applied = $this->worker($this->sqliteEnv($dir))['applied'];
             $this->assertSame('legacy-v' . $version, $applied[0] ?? null, $label);
-            $this->assertCount(29, $applied, $label . ': legacy-v' . $version . ' stands for 0001');
+            $this->assertCount(30, $applied, $label . ': legacy-v' . $version . ' stands for 0001');
 
             $backups = glob($dir . '/catalog-v' . $version . '-backup-*.sqlite') ?: [];
             $this->assertCount(1, $backups, $label . ': one backup');
@@ -191,7 +191,7 @@ final class Ci4MigrateTest extends TestCase
             $file = glob(ROOT . '/migrations/' . $version . '_*.php')[0];
             $names[$version] = substr(basename($file, '.php'), 5);
         }
-        $this->assertCount(29, $names);
+        $this->assertCount(30, $names);
         $banner = 'Database: sqlite – ' . $dir . '/catalog.sqlite';
 
         $pending = $this->migrate($dir, ['--status']);
@@ -203,7 +203,7 @@ final class Ci4MigrateTest extends TestCase
 
         $run = $this->migrate($dir, []);
         $this->assertSame(0, $run['code'], $run['out'] . $run['err']);
-        $this->assertStringEndsWith("Done: 29 step(s).\n", $run['out']);
+        $this->assertStringEndsWith("Done: 30 step(s).\n", $run['out']);
         $lines = [$banner];
         foreach ($names as $version => $name) {
             $lines[] = sprintf('  %s  %-40s %s', $version, $name, 'applied ' . self::CLOCK);
@@ -385,8 +385,10 @@ final class Ci4MigrateTest extends TestCase
             $shape[(string)$c['table_name']][] = implode(' ', ['column', $c['column_name'], $c['data_type'], $c['is_nullable'], $unqualify((string)$c['column_default'])]);
         }
         $rest = [];
-        // search_docs_trgm is optional (0019 skips it when this schema cannot see pg_trgm), as in dumpPgsql()
-        foreach ($pdo->query("SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname <> 'search_docs_trgm'")->fetchAll(PDO::FETCH_ASSOC) as $i) {
+        // search_docs_trgm on search_docs is optional (0019 skips it when this schema cannot see pg_trgm), as in
+        // dumpPgsql(); an index of that name on another table still counts (L-1321)
+        foreach ($pdo->query("SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()
+            AND NOT (tablename = 'search_docs' AND indexname = 'search_docs_trgm')")->fetchAll(PDO::FETCH_ASSOC) as $i) {
             $rest[(string)$i['tablename']][] = 'index ' . $i['indexname'] . ' ' . $unqualify((string)$i['indexdef']);
         }
         foreach ($pdo->query("SELECT c.relname, k.conname, k.contype, pg_get_constraintdef(k.oid) AS def FROM pg_constraint k
@@ -409,11 +411,11 @@ final class Ci4MigrateTest extends TestCase
     {
         $files = glob(ROOT . '/migrations/[0-9][0-9][0-9][0-9]_*.php') ?: [];
         sort($files, SORT_STRING);
-        $this->assertCount(29, $files);
+        $this->assertCount(30, $files);
         [$fresh, $freshSchema] = $this->target($driver, 'fresh');
-        $this->assertCount(29, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
+        $this->assertCount(30, $this->worker($this->env($driver, $fresh, $freshSchema))['applied']);
         $expected = $this->dump($driver, $fresh, $freshSchema);
-        for ($n = 1; $n < 29; $n++) {
+        for ($n = 1; $n < 30; $n++) {
             $slice = $this->slice($files, $n);
             foreach ([false, true] as $demo) {
                 $label = $driver . ' from version ' . $n . ($demo ? ' with data' : '');

@@ -207,5 +207,11 @@ $routes->get('api/v1/users', $apiUsers . '::listUsers', $users);
 $routes->get('api/v1/roles', $apiUsers . '::listRoles', $users);
 $routes->get('api/v1/security', $apiUsers . '::policy', $users);
 $routes->get('api/v1/branding', '\\Apotheke\\Settings\\Controllers\\Api\\BrandingController::show', $public);   // what every page's <head> shows
+$apiImports = '\\Apotheke\\ImportExport\\Controllers\\Api\\ImportsController';
+$routes->post('api/v1/imports', $apiImports . '::create', ['permission' => 'import']);
+$routes->get('api/v1/imports/([0-9]+)', $apiImports . '::show/$1', ['permission' => 'import']);
+$routes->get('api/v1/imports/([0-9]+)/preview', $apiImports . '::preview/$1', ['permission' => 'import']);
+$routes->post('api/v1/imports/([0-9]+)/commit', $apiImports . '::commit/$1', ['permission' => 'import']);
+$routes->get('api/v1/jobs/([0-9]+)', '\\Apotheke\\Auth\\Controllers\\Api\\JobsController::show/$1', ['permission' => 'view']);
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
