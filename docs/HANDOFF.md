@@ -365,7 +365,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Ci4ImportHtmlScopeTest` (uploader and admin through; another editor gets the unknown-id answer on GET, HEAD and
   the POSTs of an open and a done import, nothing saved; the history filtered; consent; L-1501, a guest sees no
   imports and gets the unknown-id 404; a guest upload stores nothing). Merged (c9f4e86, v3.7.1).
-- feat/chunked-restore (part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
+- [#205](https://github.com/thordin9/apotheke/pull/205) (chunked restore, part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
   `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Random ids,
   strict id pattern, nothing followed through a link (root, folder, manifest, data), the real path checked. Chunks in
   order, each exactly the chunk size but the last, within the declared size and `RESTORE_MAX_MB`; the size and an
@@ -374,7 +374,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Finished,
   cancelled and refused uploads are removed; idle for an hour, swept on each request and by
   `spark apotheke:restore-sweep`. Tests: `tests/Modules/Backup/RestoreUploadsTest.php`. Open for QA's full gate.
-- feat/chunked-restore-api (part 2, stacked on part 1): the `/api/v1/restores` endpoints. Open after part 1.
+- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2, stacked on #205): the `/api/v1/restores` endpoints. Open.
 
 ## Lanes
 
