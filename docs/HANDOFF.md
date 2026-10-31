@@ -388,7 +388,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   are unchanged), finish (the dry run, `Restorer::open()`), confirm (`Restorer::restore()`, the settings only with
   the settings permission, 409 keeps the upload), DELETE. OpenAPI and docs/api.md. Tests: `Ci4ApiRestoresTest`
   (a 64 KiB-chunk restore gives the same tables as the one-shot page restore; caps, order, SHA-256, idle sweep,
-  cross-user 404 equal to an unknown id, guest, viewer, signed out, CSRF), SQLite and PostgreSQL. Open.
+  cross-user 404 equal to an unknown id, guest, viewer, signed out, CSRF, the backup's settings only with the
+  settings permission), SQLite and PostgreSQL. Open.
 
 ## Lanes
 
