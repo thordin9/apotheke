@@ -118,21 +118,17 @@ Set with `pnpm exec wrangler secret put <NAME> --config wrangler.local.json`, va
 
 ## Access
 
-Counterscale's own password is not enough on 3.4.1: upstream issue
-[#272](https://github.com/benvinegar/counterscale/issues/272) reports that most of the dashboard's data routes
-(`/resources.country`, `/resources.browser`, `/resources.browserversion`, `/resources.device`,
-`/resources.referrer` and the `/resources.utm-*` routes) answer without a session, for any site id. So the whole
-host sits behind Cloudflare Access, and the password stays on as a second layer:
+Upstream issue [#272](https://github.com/benvinegar/counterscale/issues/272) reports that some dashboard data
+routes answer without a session, so put the whole host behind Cloudflare Access. A generic example:
 
 | Access application | Policy |
 |---|---|
-| `analytics.services.webapp.gr` (the whole host) | **Allow**: the maintainer's identity only (`<maintainer-email>`) |
-| `analytics.services.webapp.gr/collect` and `analytics.services.webapp.gr/cache` | **Bypass**: Everyone |
+| `<analytics-host>` | **Allow**: the people who read the numbers |
+| `<analytics-host>/collect` and `<analytics-host>/cache` | **Bypass**: Everyone, so the tracker can report |
 
-Access applies the most specific application, so the two tracker endpoints stay public and everything else needs
-the maintainer's sign-in. `/tracker.js` stays behind Access: the site bundles the tracker instead. `/collect`
-accepts any site id from any origin; Counterscale has no allowlist, so stray data is possible and the numbers
-should be read with that in mind. Keep `workers_dev` and `preview_urls` off, or those hostnames bypass Access.
+Access applies the most specific application. `/collect` accepts any site id from any origin (Counterscale has
+no allowlist), so read the numbers with that in mind. Keep `workers_dev` and `preview_urls` off, or those
+hostnames bypass Access.
 
 ## Upgrading
 
