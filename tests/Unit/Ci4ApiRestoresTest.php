@@ -29,7 +29,9 @@ final class Ci4ApiRestoresTest extends TestCase
         self::$server->client()->rest('GET', '/api/v1/session');   // migrates and creates admin
         $pdo = testdb(self::$dir);
         $users = $pdo->prepare('INSERT INTO users (username, username_key, password_hash, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-        foreach ([['ada', 'admin'], ['vera', 'viewer']] as [$name, $role]) {
+        // A keeper may back up and restore, but not change settings (N-443).
+        $pdo->exec("INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES ('keeper', 'Keeper', '[\"view\",\"backup\"]', 0, '2026-01-01 00:00:00')");
+        foreach ([['ada', 'admin'], ['vera', 'viewer'], ['kim', 'keeper']] as [$name, $role]) {
             $users->execute([$name, $name, password_hash(self::PASSWORD, PASSWORD_DEFAULT), $role, 'active', '2026-01-01 00:00:00']);
         }
         $item = $pdo->prepare('INSERT INTO items (name, quantity, notes, search, sort_key, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?)');
@@ -183,6 +185,44 @@ final class Ci4ApiRestoresTest extends TestCase
         touch(self::$dir . '/uploads/restore/' . $id . '/manifest.json', time() - 3700);
         $this->assertSame([404, 'not_found'], $this->code($admin->rest('GET', '/api/v1/restores/' . $id)), 'idle for over an hour');
         $this->assertSame([], $this->uploadDirs(), 'swept');
+    }
+
+    public function testTheBackupsSettingsNeedTheSettingsPermission(): void
+    {
+        $pdo = testdb(self::$dir);
+        $setting = static function (string $value) use ($pdo): void {
+            $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute(['app_name']);
+            $pdo->prepare('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)')->execute(['app_name', (string)json_encode($value), '2026-01-01']);
+        };
+        $name = static fn (): string => (string)$pdo->query("SELECT value FROM settings WHERE name = 'app_name'")->fetchColumn();
+        $saved = 'Shed ' . bin2hex(random_bytes(4));
+        $setting($saved);
+        $zip = $this->signedIn('admin')->get('/backup.zip')['body'];
+        $setting('Changed');
+        $warning = 'The settings were not restored: that needs the permission to change settings.';
+
+        $kept = $this->restoreInChunks($this->signedIn('kim'), $zip);
+        $this->assertSame([200, true], [$kept['status'], $kept['json']['restored'] ?? null], $kept['body']);
+        $this->assertContains($warning, $kept['json']['warnings'], 'a keeper: the catalog, not the settings');
+        $this->assertSame((string)json_encode('Changed'), $name());
+
+        $all = $this->restoreInChunks($this->signedIn('ada'), $zip);
+        $this->assertSame(200, $all['status'], $all['body']);
+        $this->assertNotContains($warning, $all['json']['warnings']);
+        $this->assertSame((string)json_encode($saved), $name(), 'an admin: the settings too');
+        $this->assertSame([], $this->uploadDirs());
+    }
+
+    /** @return array<string,mixed> the confirm answer of $zip sent through the chunked API */
+    private function restoreInChunks(Client $c, string $zip): array
+    {
+        $id = $this->send($c, 'POST', '/api/v1/restores', ['size' => strlen($zip)])['json']['id'];
+        foreach (str_split($zip, 65536) as $n => $bytes) {
+            $this->assertSame(200, $this->chunk($c, $id, $n, $bytes)['status']);
+        }
+        $this->assertSame(200, $this->send($c, 'POST', "/api/v1/restores/$id/finish", [])['status']);
+
+        return $this->send($c, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => true]);
     }
 
     /** @return array{0:int,1:?string} */
