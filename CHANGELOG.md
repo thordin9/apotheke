@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** in the web UI an import is now shown only to the user who uploaded it and to admins. Other users see only their own imports in *Recent imports*, and opening someone else's import answers as a missing one would (404), as the API already does. Admins still see every import.
+
 ## [3.7.0] - 2026-10-31
 
 **Upgrade note:** both Docker images now run the background jobs worker (`php spark jobs:work`) next to the web server, as `www-data`. Set `APOTHEKE_JOBS_WORKER=0` to turn it off, for example when another container runs the worker. If you use the compose `postgres` profile, this release also stops the app from changing the owner of `./data/postgres` on start (see Fixed).
