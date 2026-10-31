@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** the consent cookie's domain is now the `COOKIE_DOMAIN` setting (empty by default: host-only) instead of a built-in `getapotheke.com`. Hosted installs must set `COOKIE_DOMAIN=getapotheke.com` (DevOps adds it to the hosted config), or the consent cookie no longer reaches the other getapotheke.com hosts. Self-hosted installs need no change. The session cookie never gets a `Domain`. See [Cookie consent](docs/deployment-and-operations.md#cookie-consent).
+
 ## [3.6.0] - 2026-10-31
 
 **Upgrade note:** migration 0030 adds an `import_rows` table that only the CI4 app uses (the lines a CSV import job has committed, so a stopped job resumes without importing a line twice). It changes no table or column 2.6.x reads. After a rollback to 2.6.x the table stays behind in the database and is harmless: 2.6.x ignores it, and switching to 3.x again uses it as it was. Backups do not carry it and do not name migration 0030, so a backup made by this version restores on 2.6.x.

@@ -59,7 +59,7 @@
       "post": {
         "operationId": "acceptCookies",
         "summary": "Cookie consent without JavaScript (the pages' notice form; not part of /api)",
-        "description": "The consent notice's Accept form on the app's own pages. No CSRF token: the request must be strictly same-origin (Sec-Fetch-Site same-origin, or an Origin that is this server's own; same-site, cross-site and none are refused, and so is a request with neither header). Sets only apotheke_consent=v1 (Path=/; Max-Age=15552000; SameSite=Lax; Secure on HTTPS; not HttpOnly; Domain=getapotheke.com on a getapotheke.com host, else host-only).",
+        "description": "The consent notice's Accept form on the app's own pages. No CSRF token: the request must be strictly same-origin (Sec-Fetch-Site same-origin, or an Origin that is this server's own; same-site, cross-site and none are refused, and so is a request with neither header). Sets only apotheke_consent=v1 (Path=/; Max-Age=15552000; SameSite=Lax; Secure on HTTPS; not HttpOnly; Domain=COOKIE_DOMAIN when the host is that domain or under it, else host-only).",
         "requestBody": {"required": true, "content": {"application/x-www-form-urlencoded": {"schema": {
           "type": "object", "required": ["consent"],
           "properties": {

@@ -319,8 +319,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   uploader-or-admin scope and 404 as GET (`Ci4ApiJobsTest`: another importer gets the unknown-id answer, byte for
   byte, on GET, preview and commit; an admin gets through); N-1381, a job of a SIGKILLed worker resumes only after its
   300 s lease (`docs/api.md`, Background jobs). Under #182's consent gate `GET /api/v1/jobs/{id}` answers cookieless
-  and the commit is 403 `consent_required` (`Ci4CookieConsentTest`). Merged with `main` after v3.5.0; awaiting
-  QA's merge-only read.
+  and the commit is 403 `consent_required` (`Ci4CookieConsentTest`). Merged at 0fb65ff (v3.6.0).
 - [#182](https://github.com/thordin9/apotheke/pull/182): cookie consent (Stathis, via the PM): no `Set-Cookie` and no
   session until the request carries `apotheke_consent=v1` (`Config\Consent`; any other value is the same as none);
   without it every write is 403 `consent_required` (problem+json under `/api`), the pages show a consent notice
@@ -348,6 +347,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   field by field; `Ci4ApiUsersTest` scans every key at any depth for hash, token, secret, password, epoch, csrf and
   e-mail names and every body for the stored hashes, session epochs, the CSRF token and cookie values. A new
   security-section key fails the test until it is put in `POLICY` or `NOT_POLICY` on purpose. Open.
+- fix/cookie-domain (L-1421, PM decisions): `COOKIE_DOMAIN` (`Config\Consent::domainFrom()`: lower case, no
+  leading dot; IPs, single labels, ports, paths and wildcards ignored) replaces the built-in getapotheke.com for the
+  consent cookie and the notice's `data-domain`, only on that host or below (`CookieConsent::domain()`); the
+  `__Host-` session cookie never gets a Domain (tested with it set). Hosted installs must set
+  `COOKIE_DOMAIN=getapotheke.com` (CHANGELOG note; DevOps). N-1460: the return path's 2 KB limit counts the
+  percent-encoded bytes. QA round 1: L-1480 (registrable domain only, docs), L-1481 (Host header only, never
+  X-Forwarded-Host; data-domain host-matched; tests), N-1483 fixed; N-1482, N-1484 backlog. Mutation list in the PR
+  body. Merged with `main` after v3.6.0; awaiting QA's merge-only read.
 
 ## Lanes
 
@@ -423,8 +430,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-- Now: #184 is merged (e46ba47, v3.5.0); #185 is merged with `main` and awaits QA's merge-only read; #188
-  (configurable consent cookie domain) is next.
+- Now: #184 and #185 are merged (e46ba47, v3.5.0; 0fb65ff, v3.6.0); #188 (configurable consent cookie domain) is
+  merged with `main` and awaits QA's merge-only read; next is the HTML import scoping PR (N-1441).
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
