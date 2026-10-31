@@ -57,6 +57,14 @@ for (const m of storage.migrations ?? []) {
 		fail(`${storagePath}: each fragment migration needs a string tag and a new_sqlite_classes list`);
 	}
 }
+// drop_vars: only allowlisted names, each present in the base vars; never the Host check (ALLOWED_HOSTS).
+const DROPPABLE = new Set(["COOKIE_DOMAIN"]);
+if (storage.drop_vars !== undefined && !Array.isArray(storage.drop_vars)) fail(`${storagePath}: drop_vars must be a list`);
+for (const v of storage.drop_vars ?? []) {
+	if (v === "ALLOWED_HOSTS") fail(`${storagePath}: drop_vars may never drop ALLOWED_HOSTS (the app's Host check)`);
+	if (!DROPPABLE.has(v)) fail(`${storagePath}: drop_vars may only list ${[...DROPPABLE].join(", ")}, not "${v}"`);
+	if (!Object.hasOwn(config.vars ?? {}, v)) fail(`${storagePath}: drop_vars lists "${v}", which ${configPath} does not set`);
+}
 const migrated = new Set((config.migrations ?? []).flatMap((m) => [...(m.new_sqlite_classes ?? []), ...(m.new_classes ?? [])]));
 for (const c of (storage.migrations ?? []).flatMap((m) => m.new_sqlite_classes ?? [])) {
 	if (migrated.has(c)) fail(`${storagePath}: the Durable Object class "${c}" is already created by a migration`);
