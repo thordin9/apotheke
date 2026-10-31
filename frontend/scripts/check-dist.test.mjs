@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { PAGE_SECURITY, PERMISSIONS_POLICY, headersFor, offSiteHosts, parseHeaders } from './check-dist.mjs';
+import { PAGE_SECURITY, PERMISSIONS_POLICY, headersFor, offSiteHosts, parseHeaders, resolves } from './check-dist.mjs';
 
 const rules = parseHeaders(readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../public/_headers'), 'utf8'));
 const pages = ['/', '/privacy/', '/404.html', '/app/', '/app/index.html'];
@@ -61,4 +61,44 @@ test('off-site https subresources fail; anchor links and on-site URLs do not', (
     assert.deepEqual(offSiteHosts('<link rel="canonical" href="https://getapotheke.com/">', false), []);
     assert.deepEqual(offSiteHosts('<script type="application/ld+json">{"license":"https://opensource.org/licenses/MIT"}</script>', false), []);
     assert.deepEqual(offSiteHosts('/* see https://example.com/note */', true), []);
+});
+
+test('every srcset and imagesrcset candidate is checked', () => {
+    assert.deepEqual(offSiteHosts('<img srcset="/a.png 1x, https://cdn.example/b.png 2x">', false), ['cdn.example']);
+    assert.deepEqual(
+        offSiteHosts('<link imagesrcset="/a.png 1x, //cdn.example/b.png 2x, https://other.example/c.png 3x">', false),
+        ['cdn.example', 'other.example']
+    );
+});
+
+test('http and protocol-relative URLs are off-site unless the host is this site', () => {
+    assert.deepEqual(offSiteHosts('<script src="http://cdn.example/app.js"></script>', false), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('<img src="//cdn.example/a.png">', false), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('<img src="http://getapotheke.com/a.png">', false), []);
+    assert.deepEqual(offSiteHosts('<img src="//www.getapotheke.com/a.png">', false), []);
+    assert.deepEqual(offSiteHosts('<a href="http://github.com/thordin9/apotheke">GitHub</a>', false), []);
+    assert.deepEqual(offSiteHosts('<a href="//github.com/thordin9/apotheke">GitHub</a>', false), []);
+});
+
+test('CSS url and image-set off-site references are checked', () => {
+    assert.deepEqual(offSiteHosts('a{background:url(//cdn.example/a.png)}', true), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:url(http://cdn.example/a.png)}', true), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:image-set("https://cdn.example/a.png" 1x)}', true), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:image-set(url(//cdn.example/a.png) 1x)}', true), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:image-set(url("https://cdn.example/a.png"))}', true), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:url(https://getapotheke.com/a.png)}', true), []);
+});
+
+test('encoded schemes in attributes and stylesheets are checked', () => {
+    assert.deepEqual(offSiteHosts('<img src="https&#58;//cdn.example/a.png">', false), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('<script src="&#104;ttps://cdn.example/a.js"></script>', false), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:url(\\68 ttps://cdn.example/a.png)}', true), ['cdn.example']);
+    assert.deepEqual(offSiteHosts('a{background:url(https\\3a //cdn.example/a.png)}', true), ['cdn.example']);
+});
+
+test('resolves rejects http and allows https and mailto', () => {
+    assert.equal(resolves('http://cdn.example/a.png').ok, false);
+    assert.equal(resolves('HTTP://cdn.example/a.png').ok, false);
+    assert.equal(resolves('https://getapotheke.com/').ok, true);
+    assert.equal(resolves('mailto:ops@example').ok, true);
 });
