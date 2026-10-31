@@ -24,12 +24,12 @@ jobs:
       matrix:
         php: ['8.4']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
           tools: none
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
       - name: Install shellcheck
@@ -41,7 +41,7 @@ jobs:
     name: deptrac
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
@@ -56,7 +56,7 @@ jobs:
     name: DI rule
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
@@ -102,7 +102,7 @@ jobs:
       APOTHEKE_APP: ci4
       APOTHEKE_TEST_DB: ${{ matrix.db }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -112,7 +112,7 @@ jobs:
       - name: Composer cache dir
         id: composer-cache
         run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ steps.composer-cache.outputs.dir }}
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'composer.lock') }}
@@ -157,7 +157,7 @@ jobs:
       - name: Prove the suite used PostgreSQL
         if: matrix.db == 'pgsql'
         run: php scripts/ci4-pgsql-proof.php
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: matrix.db == 'sqlite'
         with:
           node-version: '20'
@@ -170,7 +170,7 @@ jobs:
           php scripts/coverage-readme.php coverage --print >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report (clover XML + HTML; used by the release workflow)
         if: matrix.db == 'sqlite'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-ci4-sqlite
           path: |
@@ -189,7 +189,7 @@ jobs:
       matrix:
         php: ['8.4']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -198,7 +198,7 @@ jobs:
           tools: composer:v2
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist --no-dev
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # puppeteer-core 25 needs Node 22.12 or later.
           node-version: '22'
@@ -246,7 +246,7 @@ jobs:
       TEST_PG_HOST: postgres
       TEST_PG_PASSWORD: apotheke
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install PHP ${{ matrix.php }}
         run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
@@ -279,7 +279,7 @@ jobs:
           tests/visual/auth.spec.ts tests/visual/qa-fixes.spec.ts tests/visual/qa-v2.spec.ts
       - name: Upload HTML report, traces and screenshot diffs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-php-${{ matrix.php }}-shard-${{ matrix.shard }}
           path: |
@@ -322,12 +322,12 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U apotheke" --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Build image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -497,7 +497,7 @@ jobs:
           for _ in $(seq 1 50); do curl -fs -o /dev/null http://127.0.0.1:9094/healthz && break; sleep 0.2; done
           FAIL_MS=1500 SERVER=${{ matrix.server }} bash scripts/docker-auth-checks.sh http://127.0.0.1:9094
           docker rm -f apotheke-auth-ms >/dev/null
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
           cache: npm
@@ -511,7 +511,7 @@ jobs:
           npx playwright test --project=docker-smoke
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-docker-php-${{ matrix.php }}-${{ matrix.server }}
           path: |
@@ -539,7 +539,7 @@ jobs:
       APOTHEKE_DOCKERFILE: ${{ matrix.dockerfile }}
       APOTHEKE_IMAGE_TAG: compose-ci
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Build with docker compose
@@ -637,7 +637,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check every PR commit
@@ -649,7 +649,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Install gitleaks 8.30.1
@@ -707,7 +707,7 @@ jobs:
       PHP83: php8.3
       PHP84: php8.4
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'

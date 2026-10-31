@@ -23,10 +23,12 @@ app becomes a version, with no manual steps.
 | only `docs`, `test`, `ci`, `build`, `chore`, `style`, `refactor` | **no release** | – |
 
 Release commits (`chore(release): …`) and merge commits are ignored. Every pull request into `main` is
-squash-merged (`gh pr merge --squash --match-head-commit <sha>`), so `main` gets one commit whose subject is the
-pull request's title plus a trailing `(#N)`, which gives the pull request number. The title must be a Conventional
-Commit, and its type decides the bump: `feat`, `fix`, `perf` or a breaking change cut a release; `ci`, `build`,
-`docs`, `chore` or `test` don't. A `Merge pull request #N` merge commit, if one ever lands, also gives the number.
+squash-merged, so `main` gets one commit, and that squash commit's subject decides the bump. The repository's squash
+setting is `COMMIT_OR_PR_TITLE`: a pull request with a single commit would get that commit's subject, not its title.
+So the PM passes the title explicitly when merging (`gh pr merge --squash --match-head-commit <sha> --subject
+"<PR title> (#N)"`); the trailing `(#N)` gives the pull request number. The subject must be a Conventional Commit,
+and its type decides the bump: `feat`, `fix`, `perf` or a breaking change cut a release; `ci`, `build`, `docs`,
+`chore` or `test` don't. A `Merge pull request #N` merge commit, if one ever lands, also gives the number.
 
 The changelog groups entries as *Breaking changes*, *Added* (`feat`), *Fixed* (`fix`), *Performance* (`perf`) and
 *Maintenance* (everything else). The new section goes below `## [Unreleased]`, and the compare links at the bottom are

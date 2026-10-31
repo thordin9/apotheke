@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs PHP inside the official Playwright image (Ubuntu 24.04 "noble") for the visual E2E tests.
-# CI passes 8.3 or 8.4. scripts/update-snapshots.sh calls this with no argument, which stays on 8.3
-# so baselines and the PHP 8.3 shards share one environment.
+# The CI visual E2E shards pass 8.4 (PHP 8.4 only, as in ci.yml). scripts/update-snapshots.sh and
+# snapshots.yml call this with no argument, which stays on 8.3 for the screenshot baselines.
 # Ubuntu 24.04 has php8.3 in the distro archive. php8.4 comes from ppa:ondrej/php.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
