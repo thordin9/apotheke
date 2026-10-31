@@ -364,7 +364,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   form, API 403 `permission.denied`), even when the Guest role has Import. Tests:
   `Ci4ImportHtmlScopeTest` (uploader and admin through; another editor gets the unknown-id answer on GET, HEAD and
   the POSTs of an open and a done import, nothing saved; the history filtered; consent; L-1501, a guest sees no
-  imports and gets the unknown-id 404; a guest upload stores nothing). Open for QA's full gate.
+  imports and gets the unknown-id 404; a guest upload stores nothing). Merged (#195).
+- docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
+  for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
+  PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
+  in hosted mode; the D1 constraints, the `Writes::transaction` strategies, migrations, the P4 PR split, the
+  ownership split with DevOps and the `EDGE_STORAGE_READY` criteria. Docs only. Open for QA's full gate.
 
 ## Lanes
 
@@ -440,10 +445,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-- Now: the queue is empty: #184, #185 and #188 are merged (v3.5.0 to v3.7.0). N-1441 (the HTML import pages scoped to
-  their uploader or an admin, [#195](https://github.com/thordin9/apotheke/pull/195)) is open for QA's full gate. Next: the chunked restore, then P4
-  with N-1442 (import ownership by user id rather than username; it needs a CI4-only column or table, as 2.6.x
-  reads `imports`).
+- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #195 is
+  merged. The chunked restore is in progress (Coder2, PR to follow). P4-1, the design
+  ([ADR-002](adr/002-edge-storage.md)), is open for QA's full gate. Next: P4-2 (unit of work and executor adapter,
+  PDO first with no behaviour change, `json_each` in `SearchIndex` and `Stocktakes`), then P4-3 to P4-5 as in the
+  ADR. DevOps prepares the bindings and the flip checklist behind `EDGE_STORAGE_READY`; N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
