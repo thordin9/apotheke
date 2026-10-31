@@ -56,6 +56,7 @@ final class Imports
      * @param Closure(): ?string $actor legacy current_actor()
      * @param bool $createMissing the import_create_missing setting
      * @param (Closure(): bool)|null $admin whether this request's user is an admin (the API's owner scope)
+     * @param (Closure(): bool)|null $guest whether this request is a guest's (not signed in, guest browsing on)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -68,7 +69,16 @@ final class Imports
         private readonly Closure $actor,
         private readonly bool $createMissing,
         private readonly ?Closure $admin = null,
+        private readonly ?Closure $guest = null,
     ) {
+    }
+
+    /** L-1500: a guest may not upload, even when the Guest role has Import (the page and the API say why). */
+    public const GUEST_UPLOAD = 'Imports need a signed-in account. Sign in to import a CSV file.';
+
+    public function guest(): bool
+    {
+        return $this->guest !== null && ($this->guest)();
     }
 
     /**
@@ -81,7 +91,12 @@ final class Imports
     {
         $me = ($this->actor)();
 
-        return ($me !== null && $imp['actor'] === $me) || ($this->admin !== null && ($this->admin)());
+        return ($me !== null && $imp['actor'] === $me) || $this->admin();
+    }
+
+    private function admin(): bool
+    {
+        return $this->admin !== null && ($this->admin)();
     }
 
     /**
@@ -122,6 +137,9 @@ final class Imports
      */
     public function upload(?array $file): int
     {
+        if ($this->guest()) {   // L-1500: before the file is read, stored or an import row made
+            throw new UserError(self::GUEST_UPLOAD, 403);
+        }
         if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
             throw new UserError('Choose a CSV file to import.', 422);
         }
@@ -218,7 +236,14 @@ final class Imports
     /** @return list<array<string,mixed>> the latest uploads, newest first */
     public function recent(int $n = 10): array
     {
-        return Writes::rows($this->db, 'SELECT id, file_name, status, total_rows, created_at, finished_at, actor, result FROM imports ORDER BY id DESC LIMIT ' . $n);
+        $cols = 'SELECT id, file_name, status, total_rows, created_at, finished_at, actor, result FROM imports';
+        if ($this->admin()) {
+            return Writes::rows($this->db, $cols . ' ORDER BY id DESC LIMIT ' . $n);
+        }
+        // N-1441: as mine(), the uploader's own; with no user (a guest upload) none.
+        $me = ($this->actor)();
+
+        return $me === null ? [] : Writes::rows($this->db, $cols . ' WHERE actor = ? ORDER BY id DESC LIMIT ' . $n, [$me]);
     }
 
     /**
