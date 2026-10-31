@@ -469,7 +469,8 @@ that doesn't exist is an error. A location can be a path — `Garage › Shelf 2
 you didn't map keep their values); other rows are added. Importing a file from *Export CSV* therefore changes nothing,
 and into an empty install it recreates the catalogue. Dates are `YYYY-MM-DD`; values like `49.90` or `49,90`. The
 history records every added or changed item; *Recent imports* lists who imported what. An import is shown only to the
-user who uploaded it and to admins: other users see only their own imports.
+user who uploaded it and to admins: other users see only their own imports. Guests can't import, even when the Guest
+role has Import: sign in first.
 
 ## Dark mode
 

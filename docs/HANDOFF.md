@@ -359,9 +359,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   and its preview and commit show an import only to its uploader (`imports.actor`, by username) or an admin
   (`Imports::mine()`); anyone else gets the unknown id's 404 page, byte for byte, before any check of the status or
   the file. *Recent imports* (`Imports::recent()`) lists only your own, all for an admin; the `?done=` notice only
-  for yours. No schema change. CSRF (419) and the consent gate still come first. Tests:
+  for yours. No schema change. CSRF (419) and the consent gate still come first. L-1500 (PM: option b): a guest
+  session's upload is refused (`Imports::upload()`, first thing: no file, import or job row; 403 page without the
+  form, API 403 `permission.denied`), even when the Guest role has Import. Tests:
   `Ci4ImportHtmlScopeTest` (uploader and admin through; another editor gets the unknown-id answer on GET, HEAD and
-  the POSTs of an open and a done import, nothing saved; the history filtered; consent). Open for QA's full gate.
+  the POSTs of an open and a done import, nothing saved; the history filtered; consent; L-1501, a guest sees no
+  imports and gets the unknown-id 404; a guest upload stores nothing). Open for QA's full gate.
 
 ## Lanes
 

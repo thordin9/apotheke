@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-**Note:** in the web UI an import is now shown only to the user who uploaded it and to admins. Other users see only their own imports in *Recent imports*, and opening someone else's import answers as a missing one would (404), as the API already does. Admins still see every import.
+**Note:** in the web UI an import is now shown only to the user who uploaded it and to admins. Other users see only their own imports in *Recent imports*, and opening someone else's import answers as a missing one would (404), as the API already does. Admins still see every import. Guests (visitors who are not signed in) can no longer upload a CSV import, on the page or through the API, even when the Guest role has Import: imports need a signed-in account.
 
 ## [3.7.0] - 2026-10-31
 
