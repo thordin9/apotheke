@@ -512,9 +512,10 @@ this repository, and only these two:
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
 the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
 `APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
-[Background jobs](#background-jobs)) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is reserved: the app
-does not read it yet, empty means host-only (the self-hosting default), and it must never apply to the
-`__Host-apothekesid` session cookie, which may not carry a `Domain` attribute. The secrets `APP_PASSWORD` and `APP_KEY` are set separately (below).
+[Background jobs](#background-jobs)) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
+the 3.6.1 upgrade note: the consent cookie gets `Domain=getapotheke.com` (empty means host-only, the self-hosting
+default), and it never applies to the `__Host-apothekesid` session cookie, which may not carry a `Domain` attribute
+(see [Cookie consent](#cookie-consent)). The secrets `APP_PASSWORD` and `APP_KEY` are set separately (below).
 
 **When they deploy.** Only for a published GitHub Release that is not marked pre-release (tag `vX.Y.Z`, created
 by `release.yml`), or a manual *Run workflow* on `main` or a `vX.Y.Z` tag. The deploy job's first step fails on any

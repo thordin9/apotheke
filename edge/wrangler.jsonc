@@ -32,8 +32,9 @@
 		"SLEEP_AFTER_MS": "900000",
 		// Host names the app answers to (its Host check returns 421 for others).
 		"ALLOWED_HOSTS": "api.services.getapotheke.com",
-		// Reserved: the app does not read COOKIE_DOMAIN yet (empty means host-only). When it does, it must never apply
-		// to the __Host- session cookie, which may not carry a Domain attribute. Not a secret.
+		// The consent cookie's parent domain (the 3.6.1 hosted setting; empty means host-only). The app applies it to
+		// the consent cookie only, never to the __Host- session cookie, which may not carry a Domain attribute.
+		// Not a secret.
 		"COOKIE_DOMAIN": "getapotheke.com",
 		// No long-lived jobs:work in the container: on Cloudflare, jobs will run through a Cron Trigger or Queues,
 		// designed in P4 with the D1/R2 storage. The self-hosted images keep the worker on by default.
