@@ -46,6 +46,17 @@ for (const b of storage.durable_objects?.bindings ?? []) {
 	if (classes.has(b.class_name)) fail(`${storagePath}: the Durable Object class "${b.class_name}" already has a binding`);
 	classes.add(b.class_name);
 }
+// Fragment migrations may only create SQLite-backed classes: each entry has exactly `tag` and `new_sqlite_classes`.
+for (const m of storage.migrations ?? []) {
+	for (const key of Object.keys(m)) {
+		if (key !== "tag" && key !== "new_sqlite_classes") {
+			fail(`${storagePath}: migration "${m.tag}" has "${key}"; fragment migrations allow only tag and new_sqlite_classes`);
+		}
+	}
+	if (typeof m.tag !== "string" || !Array.isArray(m.new_sqlite_classes)) {
+		fail(`${storagePath}: each fragment migration needs a string tag and a new_sqlite_classes list`);
+	}
+}
 const migrated = new Set((config.migrations ?? []).flatMap((m) => [...(m.new_sqlite_classes ?? []), ...(m.new_classes ?? [])]));
 for (const c of (storage.migrations ?? []).flatMap((m) => m.new_sqlite_classes ?? [])) {
 	if (migrated.has(c)) fail(`${storagePath}: the Durable Object class "${c}" is already created by a migration`);
