@@ -12,8 +12,26 @@ test('header and hero CTAs point at the app', async ({ page }) => {
     await page.goto('/app/');
     const bar = page.getByRole('banner');
     await expect(bar.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
-    await expect(bar.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy/');
+    await expect(bar.getByRole('link', { name: 'Privacy' })).toHaveCount(0);
     await expect(bar.getByRole('link', { name: 'Open the app' })).toHaveCount(0);
+    await expect(page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy/');
+});
+
+test('Privacy stays in the footer, and narrow phones do not scroll sideways', async ({ browser }) => {
+    for (const width of [360, 390]) {
+        const context = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: 'light' });
+        const page = await context.newPage();
+        for (const path of ['/', '/privacy/', '/404.html', '/app/', '/app/sign-in']) {
+            await page.goto(path);
+            const decline = page.getByRole('button', { name: 'Decline' });
+            if (await decline.isVisible()) await decline.click();
+            await expect(page.getByRole('banner').getByRole('link', { name: 'Privacy' })).toHaveCount(0);
+            await expect(page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy/');
+            const fits = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
+            expect(fits, path + ' at ' + width).toBe(true);
+        }
+        await context.close();
+    }
 });
 
 test('the header CTAs fit a phone in dark mode and show focus', async ({ browser }) => {
@@ -106,6 +124,10 @@ async function comingSoon(page: Page, fulfill: (route: Route) => Promise<void>) 
     const pageErrors: string[] = [];
     page.on('pageerror', (error) => pageErrors.push(String(error)));
     await page.goto('/app/sign-in');
+    const status = page.locator('#sign-in-error');
+    await expect(status).toHaveCount(1);
+    await expect(status).toHaveText('');
+    expect(await status.evaluate((el) => getComputedStyle(el).display)).not.toBe('none');
     await page.route('**/api/v1/session', fulfill);
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#sign-in-note')).toHaveText('Sign-in is coming soon.');
@@ -194,4 +216,48 @@ test('Accept on the landing page is the same single cookie in the app', async ({
     await expect(page.locator('#consent')).toBeHidden();
     expect(await context.cookies()).toHaveLength(1);
     await context.close();
+});
+
+test('header and footer controls are at least 44px', async ({ page }) => {
+    for (const width of [390, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto('/');
+        const decline = page.getByRole('button', { name: 'Decline' });
+        if (await decline.isVisible()) await decline.click();
+        const boxes = await page.locator('header a, header button, footer a, footer button').evaluateAll((els) => {
+            return els.map((el) => {
+                const box = el.getBoundingClientRect();
+                return { name: (el.textContent || '').trim(), width: box.width, height: box.height };
+            });
+        });
+        expect(boxes.length).toBeGreaterThan(0);
+        for (const box of boxes) {
+            expect(box.width, box.name + ' width at ' + width).toBeGreaterThanOrEqual(44);
+            expect(box.height, box.name + ' height at ' + width).toBeGreaterThanOrEqual(44);
+        }
+    }
+});
+
+test('keyboard focus draws an outline on the hero and the footer', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Decline' }).click();
+    await expect(page.locator('#main')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('.hero .btn-primary')).toBeFocused();
+    const hero = await page.evaluate(() => {
+        const style = getComputedStyle(document.activeElement as Element);
+        return { style: style.outlineStyle, width: style.outlineWidth };
+    });
+    expect(hero.style).not.toBe('none');
+    expect(parseFloat(hero.width)).toBeGreaterThan(0);
+
+    await page.locator('footer').getByRole('link', { name: 'GitHub' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('footer').getByRole('link', { name: 'Docs' })).toBeFocused();
+    const footer = await page.evaluate(() => {
+        const style = getComputedStyle(document.activeElement as Element);
+        return { style: style.outlineStyle, width: style.outlineWidth };
+    });
+    expect(footer.style).not.toBe('none');
+    expect(parseFloat(footer.width)).toBeGreaterThan(0);
 });

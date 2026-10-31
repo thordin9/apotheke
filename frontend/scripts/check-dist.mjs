@@ -198,6 +198,7 @@ function checkChrome() {
         if (footer !== footers[0]) fail('footers differ');
     }
     if (!footers[0].includes('© 2026 Stathis Papandreou')) fail('footer lost the operator line');
+    if (!footers[0].includes('href="/privacy/"') || !footers[0].includes('>Privacy<')) fail('footer lost Privacy');
     if (!footers[0].includes('<button type="button" id="cookie-settings" class="link-button" hidden>Cookie settings</button>')) fail('footer lost Cookie settings');
     const shells = headers.map(withoutNav);
     if (shells.some((shell) => shell === '')) fail('a page is missing the shared header');
@@ -211,10 +212,13 @@ function checkChrome() {
     if (!marketing[0].includes('>Open the app<') || !marketing[0].includes('href="/app/"') || !marketing[0].includes('href="/app/sign-in"')) {
         fail('marketing nav is missing Open the app or Sign in');
     }
-    const appNav = innerNav(sliceBlock(htmls[3].html, 'header'));
-    if (!appNav.includes('href="/"') || !appNav.includes('>Home<') || !appNav.includes('href="/privacy/"') || !appNav.includes('>Privacy<')) {
-        fail('app nav is missing Home or Privacy');
+    if (marketing[0].includes('>Privacy<')) fail('marketing header still offers Privacy');
+    for (const header of headers) {
+        if (header.includes('href="/privacy/"')) fail('a header still links to Privacy');
     }
+    const appNav = innerNav(sliceBlock(htmls[3].html, 'header'));
+    if (!appNav.includes('href="/"') || !appNav.includes('>Home<')) fail('app nav is missing Home');
+    if (appNav.includes('>Privacy<') || appNav.includes('href="/privacy/"')) fail('app nav still offers Privacy');
     if (appNav.includes('Open the app')) fail('app nav still offers Open the app');
     for (const page of htmls) {
         if (page.html.includes('<!-- apotheke:')) fail(page.rel + ' still has an uninjected partial marker');
