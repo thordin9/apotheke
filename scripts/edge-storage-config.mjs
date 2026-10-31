@@ -21,6 +21,36 @@ if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) 
 }
 const config = read(configPath);
 const storage = read(storagePath);
+// N-1541: the fragment may carry only what this merge knows how to apply; anything else (kv_namespaces, routes,
+// vars, …) would be dropped silently or widen the Worker, so it is refused.
+const KNOWN = new Set(["d1_databases", "r2_buckets", "durable_objects", "migrations", "drop_vars"]);
+for (const key of Object.keys(storage)) if (!KNOWN.has(key)) fail(`${storagePath}: unknown key "${key}" (allowed: ${[...KNOWN].join(", ")})`);
+for (const key of Object.keys(storage.durable_objects ?? {})) {
+	if (key !== "bindings") fail(`${storagePath}: unknown key "durable_objects.${key}" (allowed: bindings)`);
+}
+// Every name the Worker already uses on env: vars, secrets and the bindings of every kind.
+const taken = new Set([...Object.keys(config.vars ?? {}), ...(config.secrets?.required ?? [])]);
+for (const value of Object.values(config)) {
+	if (Array.isArray(value)) for (const b of value) if (b && typeof b.binding === "string") taken.add(b.binding);
+}
+for (const b of config.durable_objects?.bindings ?? []) taken.add(b.name);
+const added = [...(storage.d1_databases ?? []), ...(storage.r2_buckets ?? [])].map((b) => b.binding);
+added.push(...(storage.durable_objects?.bindings ?? []).map((b) => b.name));
+for (const name of added) {
+	if (taken.has(name)) fail(`${storagePath}: the binding name "${name}" is already used by ${configPath} or the fragment`);
+	taken.add(name);
+}
+// Durable Object classes: one binding per class, and no class that an earlier migration already created.
+const classes = new Set((config.durable_objects?.bindings ?? []).map((b) => b.class_name));
+for (const b of storage.durable_objects?.bindings ?? []) {
+	if (classes.has(b.class_name)) fail(`${storagePath}: the Durable Object class "${b.class_name}" already has a binding`);
+	classes.add(b.class_name);
+}
+const migrated = new Set((config.migrations ?? []).flatMap((m) => [...(m.new_sqlite_classes ?? []), ...(m.new_classes ?? [])]));
+for (const c of (storage.migrations ?? []).flatMap((m) => m.new_sqlite_classes ?? [])) {
+	if (migrated.has(c)) fail(`${storagePath}: the Durable Object class "${c}" is already created by a migration`);
+	migrated.add(c);
+}
 for (const key of ["d1_databases", "r2_buckets"]) {
 	if (key in config) fail(`${configPath} already has "${key}"; the storage bindings come only from ${storagePath}`);
 	config[key] = storage[key];

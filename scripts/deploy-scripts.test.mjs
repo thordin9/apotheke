@@ -442,3 +442,42 @@ test("the default edge/wrangler.jsonc has no storage bindings (they apply only b
 	assert.deepEqual(c.migrations.map((m) => m.tag), ["v1"]);
 	assert.equal(c.vars.COOKIE_DOMAIN, "getapotheke.com", "the default (stateless) config keeps it");
 });
+
+// N-1541: the fragment allows only its known keys, and no duplicate or colliding names.
+test("edge-storage-config: unknown keys in storage.jsonc are refused", () => {
+	refused(UUID, { storage: { ...STORAGE(), kv_namespaces: [{ binding: "KV", id: "x" }] } }, /unknown key "kv_namespaces"/);
+	refused(UUID, { storage: { ...STORAGE(), vars: { X: "1" } } }, /unknown key "vars"/);
+	const storage = STORAGE();
+	storage.durable_objects = { ...storage.durable_objects, migrations: [] };
+	refused(UUID, { storage }, /unknown key "durable_objects\.migrations"/);
+});
+
+test("edge-storage-config: duplicate Durable Object binding or class names are refused", () => {
+	let storage = STORAGE();
+	storage.durable_objects.bindings.push({ name: "INSTALLATION", class_name: "Other" });
+	refused(UUID, { storage }, /binding name "INSTALLATION" is already used/);
+	storage = STORAGE();
+	storage.durable_objects.bindings.push({ name: "INSTALLATION_2", class_name: "Installation" });
+	refused(UUID, { storage }, /class "Installation" already has a binding/);
+	storage = STORAGE();
+	storage.durable_objects.bindings = [{ name: "SECOND", class_name: "ApothekeContainer" }];
+	storage.migrations = [];
+	refused(UUID, { storage }, /class "ApothekeContainer" already has a binding/);
+	storage = STORAGE();
+	storage.migrations = [{ tag: "v2", new_sqlite_classes: ["ApothekeContainer"] }];
+	refused(UUID, { storage }, /class "ApothekeContainer" is already created by a migration/);
+});
+
+test("edge-storage-config: names that collide with the Worker's existing bindings, vars or secrets are refused", () => {
+	for (const name of ["APOTHEKE", "ALLOWED_HOSTS", "APP_KEY"]) {
+		const storage = STORAGE();
+		storage.r2_buckets = [{ ...storage.r2_buckets[0], binding: name }];
+		refused(UUID, { storage }, new RegExp(`binding name "${name}" is already used`));
+	}
+	const config = DEFAULT_CONFIG();
+	config.kv_namespaces = [{ binding: "DB", id: "x" }];
+	refused(UUID, { config }, /binding name "DB" is already used/);
+	const storage = STORAGE();
+	storage.r2_buckets = [{ ...storage.r2_buckets[0], binding: "DB" }];
+	refused(UUID, { storage }, /binding name "DB" is already used/);
+});
