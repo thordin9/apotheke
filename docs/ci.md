@@ -1,6 +1,6 @@
 # CI
 
-Three GitHub Actions workflows live in [`.github/workflows/`](../.github/workflows).
+The workflows live in [`.github/workflows/`](../.github/workflows).
 
 ## `ci.yml`: on every pull request and on pushes to `main`
 
@@ -90,6 +90,28 @@ same Playwright image as the `e2e` job, with a PostgreSQL service, it runs
 artifact **`snapshots`** (14 days). Fetch it with `scripts/update-snapshots.sh --from-ci <run id>` and commit the
 result; see [Testing](testing.md#screenshot-baselines). `=all` re-renders every baseline (not only failing ones), so
 shots that drifted within the tolerance are refreshed too. The workflow never pushes anything itself.
+
+## `frontend.yml`: the landing site and the app shell
+
+Runs on a pull request, and on a push to `main`, when the change touches `frontend/**`, this workflow, the frontend
+end-to-end files (`tests/e2e/consent.spec.ts`, `tests/e2e/app.spec.ts`, `tests/e2e/consent-server.mjs`,
+`tests/e2e/playwright.config.ts`), or the root `package.json` / `package-lock.json`.
+
+`permissions: contents: read`. A newer push to the same ref cancels the running one (`concurrency: frontend-<ref>`).
+
+The **Build** job (20 minutes) does not push. It checks out with `persist-credentials: false`, then uses
+`actions/setup-node` pinned to `949feb2413d6458794dcd2491c4babbbce0c15c1` (v7.1.0) with Node 22 and
+`package-manager-cache: false`. From `frontend/` it runs `npm ci && npm run build`, then
+`node frontend/scripts/contrast.mjs`, `node --test` on `consent.test.mjs`, `app-fallback.test.mjs` and
+`check-dist.test.mjs`, and `node frontend/scripts/check-dist.mjs`. It then runs a root `npm ci` and Playwright
+(`tests/e2e/playwright.config.ts`) on Chromium against `http://127.0.0.1:4175`.
+
+This workflow does not deploy. Publishing a release from `main` (or starting
+[Deploy frontend](#deploy-workflows) by hand on `main`) is what ships the site. **Deploy getapotheke-app** runs
+only for a published release that is not a pre-release, or a manual run on `main` or a `vX.Y.Z` tag. It deploys
+with `scripts/cf-deploy.sh`, which calls `wrangler deploy` for `getapotheke-app` and authenticates with
+`CLOUDFLARE_API_TOKEN`, not with git. Both checkouts in that workflow set `persist-credentials: false`, so the
+job has no checkout token. Without `CLOUDFLARE_API_TOKEN` the deploy is skipped and the run stays green.
 
 ## Secret scan
 
