@@ -8,7 +8,20 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.7.1] - 2026-10-31
+
 **Note:** in the web UI an import is now shown only to the user who uploaded it and to admins. Other users see only their own imports in *Recent imports*, and opening someone else's import answers as a missing one would (404), as the API already does. Admins still see every import. Guests (visitors who are not signed in) can no longer upload a CSV import, on the page or through the API, even when the Guest role has Import: imports need a signed-in account.
+
+### Fixed
+
+- **import:** scope the import pages to their uploader or an admin ([#195](https://github.com/thordin9/apotheke/pull/195))
+
+### Maintenance
+
+- ci: accept Dependabot checkout bumps in deploy workflow test ([#191](https://github.com/thordin9/apotheke/pull/191))
+- ci: bump the github-actions group and disable deploy setup-node cache ([#192](https://github.com/thordin9/apotheke/pull/192))
+- ci: disable setup-node cache and checkout credentials in frontend jobs ([#193](https://github.com/thordin9/apotheke/pull/193))
+- **frontend:** chore: cookie consent banner ([#194](https://github.com/thordin9/apotheke/pull/194))
 
 ## [3.7.0] - 2026-10-31
 
@@ -1060,7 +1073,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.7.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.7.1...HEAD
+[3.7.1]: https://github.com/thordin9/apotheke/compare/v3.7.0...v3.7.1
 [3.7.0]: https://github.com/thordin9/apotheke/compare/v3.6.1...v3.7.0
 [3.6.1]: https://github.com/thordin9/apotheke/compare/v3.6.0...v3.6.1
 [3.6.0]: https://github.com/thordin9/apotheke/compare/v3.5.0...v3.6.0
