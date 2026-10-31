@@ -34,19 +34,19 @@ jobs:
       TEST_PG_HOST: postgres
       TEST_PG_PASSWORD: apotheke
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: scripts/e2e-container-setup.sh
       - run: npm ci --no-audit --no-fund
       - name: Render baselines
         run: npx playwright test --update-snapshots=all --retries=0 --workers=3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: snapshots
           path: tests/visual/__screenshots__/
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report-update
