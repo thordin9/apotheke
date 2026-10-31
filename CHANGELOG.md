@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **deploy:** prepare P4 edge storage for apotheke-api, off by default ([#204](https://github.com/thordin9/apotheke/pull/204))
+
 ## [3.9.1] - 2026-10-31
 
 ### Fixed
