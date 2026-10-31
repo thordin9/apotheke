@@ -247,13 +247,13 @@ final class RestoreUploads
     {
         $data = rtrim($this->dataDir, '/');
         foreach ([$data . '/uploads', $data . '/uploads/restore'] as $d) {
-            $st = @lstat($d);
+            $st = self::fresh($d);
             if ($st === false && !$create) {
                 return $data . '/uploads/restore';   // nothing to sweep
             }
             if ($st === false) {
                 @mkdir($d, 0770);
-                $st = @lstat($d);
+                $st = self::fresh($d);
             }
             if ($st === false || ($st['mode'] & 0170000) !== 0040000) {
                 throw new UserError('The restore upload folder DATA_DIR/uploads/restore is a link or not a folder.', 500);
@@ -265,6 +265,14 @@ final class RestoreUploads
         }
 
         return $data . '/uploads/restore';
+    }
+
+    /** @return array<int|string,int>|false lstat() of $path, not cached */
+    private static function fresh(string $path): array|false
+    {
+        clearstatcache(true, $path);
+
+        return @lstat($path);
     }
 
     /** @return list<string> the upload folders (well-formed names that are real folders, not links) */
