@@ -12,12 +12,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Added
 
-- **docker:** run the background jobs worker in both images: `apotheke-jobs-worker` keeps `php spark jobs:work` running as `www-data`, restarts it after a failure with a 1–60 s backoff without stopping the web server, and stops cleanly on `docker stop`; `APOTHEKE_JOBS_WORKER=0` turns it off ([#187](https://github.com/thordin9/apotheke/pull/187))
-- **edge:** set `COOKIE_DOMAIN=getapotheke.com` for `apotheke-api` (a non-secret var in `edge/wrangler.jsonc`, the hosted setting from the 3.6.1 upgrade note; it applies to the consent cookie only and never to the `__Host-` session cookie, which may not carry a `Domain` attribute); self-hosting keeps the host-only default. `apotheke-api` sets `APOTHEKE_JOBS_WORKER=0`: on Cloudflare, jobs will run through a Cron Trigger or Queues ([#187](https://github.com/thordin9/apotheke/pull/187))
+- **docker:** run the background jobs worker in both images: `apotheke-jobs-worker` keeps `php spark jobs:work` running as `www-data`, restarts it after a failure with a 1–60 s backoff without stopping the web server, and stops cleanly on `docker stop`; `APOTHEKE_JOBS_WORKER=0` turns it off ([#190](https://github.com/thordin9/apotheke/pull/190))
+- **edge:** set `COOKIE_DOMAIN=getapotheke.com` for `apotheke-api` (a non-secret var in `edge/wrangler.jsonc`, the hosted setting from the 3.6.1 upgrade note; it applies to the consent cookie only and never to the `__Host-` session cookie, which may not carry a `Domain` attribute); self-hosting keeps the host-only default. `apotheke-api` sets `APOTHEKE_JOBS_WORKER=0`: on Cloudflare, jobs will run through a Cron Trigger or Queues ([#190](https://github.com/thordin9/apotheke/pull/190))
 
 ### Fixed
 
-- **docker:** the container no longer changes the owner of `./data/postgres` to `www-data` on start. With the compose `postgres` profile that directory holds PostgreSQL's files inside the app's `/data`, so starting the app next to a new database could break its initialisation, and a later start took over the database's files. This bug is already in released versions ([#187](https://github.com/thordin9/apotheke/pull/187))
+- **docker:** the container no longer changes the owner of `./data/postgres` to `www-data` on start. With the compose `postgres` profile that directory holds PostgreSQL's files inside the app's `/data`, so starting the app next to a new database could break its initialisation, and a later start took over the database's files. This bug is already in released versions ([#190](https://github.com/thordin9/apotheke/pull/190))
 
 ## [3.6.1] - 2026-10-31
 
