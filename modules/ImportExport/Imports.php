@@ -81,7 +81,12 @@ final class Imports
     {
         $me = ($this->actor)();
 
-        return ($me !== null && $imp['actor'] === $me) || ($this->admin !== null && ($this->admin)());
+        return ($me !== null && $imp['actor'] === $me) || $this->admin();
+    }
+
+    private function admin(): bool
+    {
+        return $this->admin !== null && ($this->admin)();
     }
 
     /**
@@ -218,7 +223,14 @@ final class Imports
     /** @return list<array<string,mixed>> the latest uploads, newest first */
     public function recent(int $n = 10): array
     {
-        return Writes::rows($this->db, 'SELECT id, file_name, status, total_rows, created_at, finished_at, actor, result FROM imports ORDER BY id DESC LIMIT ' . $n);
+        $cols = 'SELECT id, file_name, status, total_rows, created_at, finished_at, actor, result FROM imports';
+        if ($this->admin()) {
+            return Writes::rows($this->db, $cols . ' ORDER BY id DESC LIMIT ' . $n);
+        }
+        // N-1441: as mine(), the uploader's own; with no user (a guest upload) none.
+        $me = ($this->actor)();
+
+        return $me === null ? [] : Writes::rows($this->db, $cols . ' WHERE actor = ? ORDER BY id DESC LIMIT ' . $n, [$me]);
     }
 
     /**

@@ -17,7 +17,8 @@ use Config\App;
 /**
  * Legacy public/index.php: GET/POST /import (upload and history),
  * /import/{id}(/preview|commit) (mapping, dry run and import) and GET
- * /export.csv. Every route needs "import", the export "export".
+ * /export.csv. Every route needs "import", the export "export"; an import and the
+ * history are its uploader's or an admin's (N-1441, Imports::mine()).
  */
 final class ImportController extends CatalogController
 {
@@ -43,7 +44,7 @@ final class ImportController extends CatalogController
         }
         $done = $this->request->getGet('done');
         $d = $done !== null ? $imports->get(self::int($done)) : null;
-        $toast = $d !== null && $d['result'] ? 'Imported · ' . Imports::summaryText($d['result']) : null;
+        $toast = $d !== null && $imports->mine($d) && $d['result'] ? 'Imported · ' . Imports::summaryText($d['result']) : null;
 
         return $this->html($this->pages()->home(null, $toast, $imports->recent()));
     }
@@ -52,7 +53,11 @@ final class ImportController extends CatalogController
     public function import(string $id, string $act = ''): ResponseInterface
     {
         $imports = $this->imports();
-        $imp = $imports->get((int)$id) ?? throw new UserError('Import not found.', 404);
+        $imp = $imports->get((int)$id);
+        // N-1441: only its uploader or an admin; anyone else gets the unknown id's 404 (Imports::mine(), as the API).
+        if ($imp === null || !$imports->mine($imp)) {
+            throw new UserError('Import not found.', 404);
+        }
         if ($imp['status'] === 'done') {
             return $this->redirectTo('/import?done=' . $imp['id']);
         }
