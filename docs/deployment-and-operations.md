@@ -501,7 +501,8 @@ that none reaches the log, on both images.
 
 ## Cloudflare deploys (getapotheke.com)
 
-The hosted Apotheke runs on Cloudflare Workers. Self-hosting doesn't need any of this. Two Workers are deployed from
+The hosted Apotheke runs on Cloudflare Workers. Self-hosting doesn't need any of this; to run a copy on your own
+Cloudflare account, see [Self-hosting on Cloudflare](self-host-cloudflare.md). Two Workers are deployed from
 this repository, and only these two:
 
 | Worker | Code | Serves | Workflow | GitHub environment |
