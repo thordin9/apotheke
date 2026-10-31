@@ -10,16 +10,12 @@ export function appFallback(url, mount = '/app/') {
     const q = raw.indexOf('?');
     const path = q < 0 ? raw : raw.slice(0, q);
     const search = q < 0 ? '' : raw.slice(q);
-    let decoded = path;
-    try {
-        decoded = decodeURIComponent(path);
-    } catch {
-        return { kind: 'pass' };
-    }
+    // The Worker tests url.pathname, which keeps %2E and a bad %E0. Decoding here
+    // would treat /app/x%2Ejs as a file and drop /app/%E0. Test the raw path.
     const base = mount.endsWith('/') ? mount : mount + '/';
     const bare = base.slice(0, -1) || '/app';
-    if (decoded === bare) return { kind: 'redirect', status: 301, location: base + search };
-    if ((decoded === base || decoded.startsWith(base)) && !FILE_EXT.test(decoded)) {
+    if (path === bare) return { kind: 'redirect', status: 301, location: base + search };
+    if ((path === base || path.startsWith(base)) && !FILE_EXT.test(path)) {
         return { kind: 'shell', url: base + 'index.html' + search };
     }
     return { kind: 'pass' };

@@ -80,7 +80,9 @@ test("SPA fallback only for paths without an extension under /app/", async () =>
 	};
 	assert.equal((await call("/app/items/5", {}, assets)).status, 200);
 	assert.equal((await call("/app/assets/x.js", {}, assets)).status, 404);
-	assert.deepEqual(seen, ["/app/items/5", "/app/", "/app/assets/x.js"]);
+	assert.equal((await call("/app/x%2Ejs", {}, assets)).status, 200);
+	assert.equal((await call("/app/%E0", {}, assets)).status, 200);
+	assert.deepEqual(seen, ["/app/items/5", "/app/", "/app/assets/x.js", "/app/x%2Ejs", "/app/", "/app/%E0", "/app/"]);
 });
 
 const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: "utf8", ...opts });
