@@ -26,7 +26,7 @@ function secured(res, csp) {
 	assert.equal(res.headers.get("strict-transport-security"), "max-age=31536000");
 	assert.match(res.headers.get("content-security-policy"), csp);
 }
-const APP_CSP = /^default-src 'none'; script-src 'self';.*connect-src 'self' https:\/\/api\.services\.getapotheke\.com;/;
+const APP_CSP = /^default-src 'none'; script-src 'self';.*connect-src 'self' https:\/\/api\.services\.getapotheke\.com https:\/\/analytics\.services\.webapp\.gr;/;
 const DATA_CSP = /^default-src 'none'; frame-ancestors 'none'/;
 
 test("a failing asset fetch is a 500 with every security header, never cached", async () => {

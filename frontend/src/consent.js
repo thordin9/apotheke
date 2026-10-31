@@ -2,6 +2,8 @@
 // The Svelte app (step S1) should import these functions rather than copy them.
 // Nothing here reads or writes localStorage, sessionStorage, IndexedDB or Cache storage.
 // The consent cookie is the only write, and only acceptConsent() performs it.
+// Page-view counting (analytics.js) starts only with consent and stores nothing either.
+import { trackPageview } from './analytics.js';
 
 export const CONSENT_NAME = 'apotheke_consent';
 export const CONSENT_VALUE = 'v1';
@@ -170,6 +172,11 @@ export function bindSignIn(form) {
     });
 }
 
+// The app shell (/app/) counts its own views from its router, one per route render.
+function isAppShell() {
+    return document.getElementById('app') !== null;
+}
+
 function start() {
     const banner = document.getElementById('consent');
     const login = document.getElementById('sign-in');
@@ -177,6 +184,7 @@ function start() {
     if (hasConsent()) {
         hide(banner);
         if (login) enableLogin(login, '');
+        if (!isAppShell()) trackPageview();
         return;
     }
     if (!banner) return;
@@ -195,6 +203,7 @@ function start() {
             dismissNotice(banner);
             const form = document.getElementById('sign-in');
             if (form) enableLogin(form, '');
+            trackPageview();
         });
     }
 }
