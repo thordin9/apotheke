@@ -7,15 +7,17 @@ landing site share, plus the single Vite build that produces both. Tokens stay i
 ```
 frontend/
   package.json               Vite (the only direct dependency)
-  vite.config.js             multi-page build, release stamp, SPA base
+  vite.config.js             multi-page build, shared chrome, release stamp, SPA base
   index.html                 landing page, served at /
   privacy/index.html         /privacy/
   404.html                   static not-found page (root-absolute URLs)
-  app/index.html             placeholder for the SPA; S1 replaces it
+  app/index.html             app shell at /app/; S1 replaces the router
+  src/partials/              header and footer, injected into every page at build time
+  src/app.js                 History API routes for the app shell
   src/styles/tokens.css      design tokens: the single source
   src/styles/base.css        reset and accessibility floor
-  src/styles/landing.css     landing, privacy, 404 and the app placeholder
-  src/consent.js             cookie notice; the SPA imports the same functions
+  src/styles/landing.css     landing, privacy, 404 and the app shell
+  src/consent.js             cookie notice; the app shell imports the same functions
   src/styles/components.css  app components; imports tokens.css and base.css
   public/fonts/              self-hosted WOFF2 files and their OFL licence texts
   public/assets/icons.svg    icon sprite (<svg class="icon"><use href="/assets/icons.svg#search"/></svg>)
@@ -45,7 +47,7 @@ npm run build
 
 Output is `frontend/dist/` (gitignored). `dist/index.html` is the landing page,
 `dist/privacy/index.html` is `/privacy/`, `dist/404.html` is the not-found page, and
-`dist/app/index.html` is the SPA placeholder. Hashed CSS is under `dist/assets/`.
+`dist/app/index.html` is the app shell. Hashed CSS and JS are under `dist/assets/`.
 The CSS is left unminified: Vite 8 minifies with lightningcss, which treats `U+0000`
 inside `unicode-range` as a string terminator and would drop the latin and polytonic
 Greek faces. Fonts stay at `/fonts/` because `tokens.css` uses those root-absolute
@@ -56,9 +58,33 @@ urls. Brand, mascot and screenshot files are copied unhashed. There is no
 creatordate of the git tag `v<version>`. If that tag is not in the clone, the date
 is the build date (UTC, `YYYY-MM-DD`).
 
-`APOTHEKE_SPA_BASE` (default `/app/`) is the mount path of the SPA on this origin.
-The placeholder's canonical URL uses it. The P7 comment in the landing page names
-`/app/`, the same default. DevOps redirects bare `/app` to `/app/` in the Worker.
+`APOTHEKE_SPA_BASE` (default `/app/`) is the mount path of the app on this origin.
+The shell's canonical URL and `data-spa-base` use it. The P7 comment in the landing
+page names `/app/`, the same default. DevOps serves `/app/index.html` with a 200 for
+`/app` and `/app/*` in the Worker. `vite preview` and the end-to-end server do the
+same, so a refresh of `/app/sign-in` stays on the shell.
+
+## One product
+
+`src/partials/header.html` and `src/partials/footer.html` are the only header and
+footer. A Vite `transformIndexHtml` plugin injects them while building, and fills
+the nav. No runtime script is involved. The landing page, privacy page and 404
+offer **Open the app** (`/app/`) and **Sign in** (`/app/sign-in`). Inside the app
+the same bar offers **Home** (`/`) and **Privacy** (`/privacy/`). The footer is
+the same on every page, including `© 2026 Stathis Papandreou`.
+
+`src/app.js` is a plain module with a History API router: `/app/` (what Apotheke
+is, and a link to sign in), `/app/sign-in`, and a not-found view for any other
+`/app/*` path. That view sets `noindex` and links back to the app and the home
+page. Links inside the app do not reload the page. The router does not use web
+storage.
+
+Sign-in stays disabled until cookies are accepted, and asks for nothing until
+then. After Accept it requests `GET /api/v1/session` on this origin. A missing
+or unusable token shows "Sign-in is coming soon." with a link home, and the form
+stays disabled. The consent cookie is unchanged: nothing is stored before Accept,
+Decline stores nothing, and `Path=/` shares `apotheke_consent=v1` across `/` and
+`/app/`.
 
 `/privacy/` keeps the visible placeholder `[Operator contact]`. The imprint page
 is not part of this site.
