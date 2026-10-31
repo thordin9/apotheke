@@ -114,6 +114,11 @@ final class DeployWorkflowsTest extends TestCase
         $storage = self::file('edge/storage.jsonc');
         $this->assertStringContainsString('"database_id": "<APOTHEKE_D1_DATABASE_ID>"', $storage);
         $this->assertStringContainsString('"jurisdiction": "eu"', $storage);
+        // ADR-002 decision 5 (#203): hosted mode keeps cookies host-only, so the flipped config drops COOKIE_DOMAIN
+        // (the merge script applies drop_vars); the default config keeps it.
+        $this->assertStringContainsString('"drop_vars": ["COOKIE_DOMAIN"]', $storage);
+        $this->assertStringContainsString('for (const v of storage.drop_vars ?? []) delete vars[v];', self::file('scripts/edge-storage-config.mjs'));
+        $this->assertStringContainsString('"COOKIE_DOMAIN": "getapotheke.com"', self::file('edge/wrangler.jsonc'));
     }
 
     #[DataProvider('deploys')]

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // edge-storage-config.mjs <wrangler.jsonc> <storage.jsonc>: merges the P4 storage bindings (D1, R2, the Installation
-// Durable Object and its migration) into the Worker's wrangler.jsonc, in place. Run only by the deploy job of
+// Durable Object and its migration, and drops COOKIE_DOMAIN) into the Worker's wrangler.jsonc, in place. Run only by the deploy job of
 // deploy-edge.yml (behind EDGE_STORAGE_READY), on the runner's checkout, right before cf-deploy.sh, whose Worker guard
 // then checks the merged file as usual. The D1 database_id comes from APOTHEKE_D1_DATABASE_ID (a repository variable).
 import { readFileSync, writeFileSync } from "node:fs";
@@ -30,5 +30,9 @@ config.durable_objects = { ...config.durable_objects, bindings: [...(config.dura
 const tags = new Set((config.migrations ?? []).map((m) => m.tag));
 for (const m of storage.migrations) if (tags.has(m.tag)) fail(`${configPath} already has migration tag "${m.tag}"`);
 config.migrations = [...(config.migrations ?? []), ...storage.migrations];
+// Hosted mode: no COOKIE_DOMAIN for the container (ADR-002, decision 5); every cookie stays host-only.
+const vars = { ...config.vars };
+for (const v of storage.drop_vars ?? []) delete vars[v];
+config.vars = vars;
 writeFileSync(configPath, `${JSON.stringify(config, null, "\t")}\n`);
-console.log(`Edge storage config: merged D1 (DB), R2 (STORAGE, eu) and the Installation Durable Object into ${configPath}`);
+console.log(`Edge storage config: merged D1 (DB), R2 (STORAGE, eu) and the Installation Durable Object, without COOKIE_DOMAIN, into ${configPath}`);

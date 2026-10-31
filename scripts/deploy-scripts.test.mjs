@@ -320,6 +320,10 @@ test("edge-storage-config: D1 DB, R2 STORAGE (eu) and the Installation Durable O
 		]);
 		assert.equal(c.name, "apotheke-api");
 		assert.equal(c.containers.length, 1);
+		// hosted mode: no COOKIE_DOMAIN for the container (ADR-002, decision 5, #203); the other vars stay
+		assert.equal("COOKIE_DOMAIN" in c.vars, false);
+		assert.equal(c.vars.ALLOWED_HOSTS, "api.services.getapotheke.com");
+		assert.equal(c.vars.APOTHEKE_JOBS_WORKER, "0");
 		assert.equal(guard("apotheke-api", cfg).status, 0);
 		// a second merge (a re-run on the same checkout) is refused rather than doubling the bindings
 		const again = run("node", [join(root, "scripts/edge-storage-config.mjs"), cfg, join(root, "edge/storage.jsonc")], {
@@ -352,4 +356,5 @@ test("the default edge/wrangler.jsonc has no storage bindings (they apply only b
 	assert.equal(c.r2_buckets, undefined);
 	assert.deepEqual(c.durable_objects.bindings.map((b) => b.class_name), ["ApothekeContainer"]);
 	assert.deepEqual(c.migrations.map((m) => m.tag), ["v1"]);
+	assert.equal(c.vars.COOKIE_DOMAIN, "getapotheke.com", "the default (stateless) config keeps it");
 });

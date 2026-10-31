@@ -598,6 +598,10 @@ unchanged. Only the deploy job, which runs only with `EDGE_STORAGE_READY=true`, 
 | `STORAGE` | R2 bucket `apotheke-api-storage` | `"jurisdiction": "eu"` |
 | `INSTALLATION` | Durable Object class `Installation`, SQLite storage | hosted mode; migration `v2` (`new_sqlite_classes`) |
 
+Hosted mode keeps every cookie host-only (ADR-002, decision 5, [#203](https://github.com/thordin9/apotheke/pull/203)), so the merge also drops
+`COOKIE_DOMAIN` from the flipped config: the container gets no cookie domain. The default config keeps
+`getapotheke.com` for the stateless API.
+
 The deploy runs no `wrangler d1 migrations apply`: the app's own migration runner applies `migrations/` through the
 bridge. A control-plane D1 schema would later go in `edge/migrations/control/`, set as the binding's `migrations_dir`.
 
