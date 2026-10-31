@@ -324,6 +324,17 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
 	const { SLEEP_AFTER_MS, ...forwarded } = vars;
 	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
+	// N-1538: exactly these keys, no more and no fewer
+	assert.deepEqual(Object.keys(started.env).sort(), [
+		"ALLOWED_HOSTS",
+		"APOTHEKE_JOBS_WORKER",
+		"APP_KEY",
+		"APP_PASSWORD",
+		"COOKIE_DOMAIN",
+		"CORS_ALLOWED_ORIGINS",
+		"PORT",
+		"TZ",
+	]);
 	assert.equal(started.enableInternet, false);
 });
 
