@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **deploy:** prepare P4 edge storage for apotheke-api, off by default: D1 `DB` and R2 `STORAGE` in the EU jurisdiction and the `INSTALLATION` Durable Object, merged in only behind `EDGE_STORAGE_READY` with host-only cookies, a validated fragment, a bounded smoke check and a flip checklist that requires the ADR-002 gate criteria ([#204](https://github.com/thordin9/apotheke/pull/204))
+
 ## [3.9.2] - 2026-10-31
 
 ### Fixed

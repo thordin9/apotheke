@@ -85,6 +85,51 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertStringNotContainsString('EDGE_STORAGE_READY', $this->workflow('deploy-frontend.yml'));
     }
 
+    public function testDeployEdgeMergesTheStorageConfigOnlyInTheDeployJobThenSmokeChecks(): void
+    {
+        // P4 prep: the storage bindings (D1 DB, R2 STORAGE in eu, the Installation Durable Object) are merged only in
+        // the deploy job, which runs only with EDGE_STORAGE_READY=true; the PR checks and wrangler dev keep the default.
+        $yml = $this->workflow('deploy-edge.yml');
+        $steps = $this->steps($yml, 'deploy');
+        $n = count($steps);
+        $merge = $steps[$n - 3];
+        $this->assertStringStartsWith('name: Storage config', $merge);
+        $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: ${{ vars.APOTHEKE_D1_DATABASE_ID }}', $merge);
+        $this->assertStringContainsString("run: node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc\n", $merge);
+        $this->assertStringNotContainsString('secrets.', $merge);
+        $smoke = $steps[$n - 1];
+        $this->assertStringStartsWith('name: Smoke check', $smoke);
+        $this->assertStringContainsString('/healthz', $smoke);
+        // N-1542: a short per-try cap and a bounded loop, so a hanging request can't outlast the job and hide the hint
+        $this->assertStringContainsString("curl -s -o /dev/null -w '%{http_code}' --connect-timeout 10 -m 20 ", $smoke);
+        $this->assertSame(1, substr_count($smoke, 'curl '));
+        $this->assertStringContainsString('for _ in $(seq 1 18); do', $smoke);
+        $this->assertStringContainsString('Roll back: unset EDGE_STORAGE_READY', $smoke);
+        $this->assertStringNotContainsString('timeout-minutes', $smoke);
+        $this->assertStringContainsString("\n        shell: bash\n", $smoke);
+        $this->assertStringContainsString('exit 1', $smoke);
+        $this->assertDoesNotMatchRegularExpression('/secrets\.|CLOUDFLARE_/', $smoke);
+        // no wrangler d1 migrations apply: the app's own runner applies migrations/ through the bridge
+        $this->assertStringNotContainsString('migrations apply', implode('', $steps) . implode('', $this->steps($yml, 'check')));
+        $this->assertSame(1, substr_count($yml, 'edge-storage-config.mjs edge/'), 'merged only in the deploy job');
+        $this->assertStringNotContainsString('storage.jsonc', $this->job($yml, 'check'));
+        $this->assertStringNotContainsString('storage.jsonc', $this->workflow('edge-local.yml'));
+        $this->assertStringContainsString("      - 'scripts/edge-storage-config.mjs'\n", $yml);
+        $this->assertStringNotContainsString('d1_databases', self::file('edge/wrangler.jsonc'));
+        $this->assertStringNotContainsString('r2_buckets', self::file('edge/wrangler.jsonc'));
+        $storage = self::file('edge/storage.jsonc');
+        $this->assertStringContainsString('"database_id": "<APOTHEKE_D1_DATABASE_ID>"', $storage);
+        $this->assertStringContainsString('"jurisdiction": "eu"', $storage);
+        // ADR-002 decision 5 (#203): hosted mode keeps cookies host-only, so the flipped config drops COOKIE_DOMAIN
+        // (the merge script applies drop_vars); the default config keeps it.
+        $this->assertStringContainsString('"drop_vars": ["COOKIE_DOMAIN"]', $storage);
+        // N-1543: CORS_ALLOWED_ORIGINS is not dropped (the SPA is served from getapotheke.com today)
+        $this->assertSame(1, substr_count($storage, '"drop_vars"'));
+        $this->assertDoesNotMatchRegularExpression('/"drop_vars": \[[^\]]*CORS_ALLOWED_ORIGINS/', $storage);
+        $this->assertStringContainsString('for (const v of storage.drop_vars ?? []) delete vars[v];', self::file('scripts/edge-storage-config.mjs'));
+        $this->assertStringContainsString('"COOKIE_DOMAIN": "getapotheke.com"', self::file('edge/wrangler.jsonc'));
+    }
+
     #[DataProvider('deploys')]
     public function testDeployRunsOnlyForFullReleasesOrManualRunsOnMainOrTags(string $file, string $env, string $worker, string $dir, string $check): void
     {
@@ -168,12 +213,15 @@ final class DeployWorkflowsTest extends TestCase
         foreach (array_slice($steps, 2) as $step) {
             $this->assertStringContainsString("if: steps.token.outputs.set == 'true'\n", $step);
         }
-        $last = end($steps);
-        $this->assertStringContainsString("run: bash scripts/cf-deploy.sh $worker $dir\n", $last);
-        $this->assertStringContainsString('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}', $last);
+        $deploys = array_keys(array_filter($steps, static fn (string $s): bool => str_contains($s, "run: bash scripts/cf-deploy.sh $worker $dir\n")));
+        $this->assertCount(1, $deploys, 'one deploy step');
+        $deploy = $deploys[0];
+        $this->assertStringContainsString('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}', $steps[$deploy]);
+        // deploy-frontend: the deploy is the last step; deploy-edge: only the smoke check follows it
+        $this->assertSame(count($steps) - ($file === 'deploy-edge.yml' ? 2 : 1), $deploy);
 
         $secretSteps = array_filter($steps, static fn (string $s): bool => str_contains($s, 'secrets.'));
-        $this->assertSame([1, count($steps) - 1], array_keys($secretSteps), 'only the token check and the deploy step see the token');
+        $this->assertSame([1, $deploy], array_keys($secretSteps), 'only the token check and the deploy step see the token');
         foreach ($this->steps($this->workflow($file), 'deploy') as $step) {
             if (str_contains($step, 'npm ci')) {
                 $this->assertStringNotContainsString('secrets.', $step);
