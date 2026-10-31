@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
@@ -7,6 +8,47 @@ import { spaBase } from './scripts/spa-base.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const release = readRelease(resolve(here, '..'));
 const appBase = spaBase();
+const headerPartial = readFileSync(resolve(here, 'src/partials/header.html'), 'utf8');
+const footerPartial = readFileSync(resolve(here, 'src/partials/footer.html'), 'utf8');
+
+if (/["'<>&\s]/.test(appBase)) {
+    throw new Error('APOTHEKE_SPA_BASE cannot contain HTML or spaces');
+}
+
+function navFor(filename) {
+    const file = String(filename || '').replaceAll('\\', '/');
+    if (file.endsWith('/app/index.html')) {
+        return [
+            '<li><a class="btn" href="/">Home</a></li>',
+            '<li><a class="btn" href="/privacy/">Privacy</a></li>',
+        ].join('\n        ');
+    }
+    return [
+        `<li><a class="btn btn-primary" href="${appBase}">Open the app</a></li>`,
+        `<li><a class="btn" href="${appBase}sign-in">Sign in</a></li>`,
+    ].join('\n        ');
+}
+
+// /app and /app/* (no file extension) serve the shell with 200, matching the
+// production Worker. /app/index.html itself is a real file and is left alone.
+function rewriteAppShell(req, _res, next) {
+    const raw = req.url || '/';
+    const q = raw.indexOf('?');
+    const path = q < 0 ? raw : raw.slice(0, q);
+    const search = q < 0 ? '' : raw.slice(q);
+    let decoded = path;
+    try {
+        decoded = decodeURIComponent(path);
+    } catch {
+        next();
+        return;
+    }
+    const mount = appBase.replace(/\/$/, '') || '/app';
+    const last = decoded.split('/').pop() || '';
+    const inApp = decoded === mount || (decoded.startsWith(mount + '/') && !last.includes('.'));
+    if (inApp) req.url = mount + '/index.html' + search;
+    next();
+}
 
 // Multi-page build. HTML output follows each input path:
 //   index.html, privacy/index.html, 404.html, app/index.html
@@ -20,11 +62,23 @@ export default defineConfig({
     plugins: [
         {
             name: 'apotheke-html',
-            transformIndexHtml(html) {
-                return html
-                    .replaceAll('{version}', release.version)
-                    .replaceAll('{date}', release.date)
-                    .replaceAll('__APOTHEKE_SPA_BASE__', appBase);
+            transformIndexHtml: {
+                order: 'pre',
+                handler(html, ctx) {
+                    const header = headerPartial.replace('<!-- apotheke:nav -->', navFor(ctx.filename));
+                    return html
+                        .replace('<!-- apotheke:header -->', header.trim())
+                        .replace('<!-- apotheke:footer -->', footerPartial.trim())
+                        .replaceAll('{version}', release.version)
+                        .replaceAll('{date}', release.date)
+                        .replaceAll('__APOTHEKE_SPA_BASE__', appBase);
+                },
+            },
+            configureServer(server) {
+                server.middlewares.use(rewriteAppShell);
+            },
+            configurePreviewServer(server) {
+                server.middlewares.use(rewriteAppShell);
             },
         },
     ],

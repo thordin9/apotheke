@@ -27,32 +27,7 @@
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Apotheke","description":"A small, fast, self-hosted app to catalogue your belongings.","operatingSystem":"Linux (Docker)","applicationCategory":"UtilitiesApplication","license":"https://opensource.org/licenses/MIT","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"},"url":"https://getapotheke.com/","sameAs":"https://github.com/thordin9/apotheke"}</script>
 </head>
 <body>
-<a class="skip" href="#main">Skip to content</a>
-<section id="consent" class="consent" aria-labelledby="consent-title" hidden>
-  <div class="container consent-inner">
-    <div class="consent-copy">
-      <p id="consent-title" class="consent-title">Cookies</p>
-      <p>This site stores nothing until you accept. Accept keeps one cookie for 180 days. <a href="/privacy/">Privacy</a></p>
-    </div>
-    <div class="consent-actions">
-      <button type="button" class="btn" id="consent-decline">Decline</button>
-      <button type="button" class="btn" id="consent-accept">Accept</button>
-    </div>
-  </div>
-</section>
-<header class="slab">
-  <div class="container">
-    <a class="mark" href="/"><img class="brand-art" src="/assets/brand/mark-small.svg" alt="" width="36" height="36">Apotheke</a>
-    <nav aria-label="Site">
-      <ul>
-        <li class="opt"><a href="#features">Features</a></li>
-        <li><a href="#install">Install</a></li>
-        <li class="opt"><a href="#docs">Docs</a></li>
-        <li><a href="https://github.com/thordin9/apotheke">GitHub</a></li>
-      </ul>
-    </nav>
-  </div>
-</header>
+<!-- apotheke:header -->
 <main id="main" tabindex="-1">
   <section class="hero container" aria-labelledby="hero-h">
     <div class="hero-grid">
@@ -60,7 +35,8 @@
         <h1 id="hero-h">Where did you put the drill?</h1>
         <p class="lead">Apotheke catalogues your things: a photo, a place, found in seconds.</p>
         <div class="actions">
-          <a class="btn btn-primary" href="#install">Install with Docker</a>
+          <a class="btn btn-primary" href="__APOTHEKE_SPA_BASE__">Open the app</a>
+          <a class="btn" href="#install">Install with Docker</a>
           <a class="btn" href="https://github.com/thordin9/apotheke">View on GitHub</a><!-- P7 (3.8.0): becomes <a class="btn" href="/app/">Open the app</a> -->
         </div>
       </div>
@@ -183,24 +159,7 @@ docker compose up -d --build</code></pre>
     </div>
   </section>
 </main>
-<footer class="mast">
-  <div class="container">
-    <p class="big"><img class="logo-l" src="/assets/brand/logo-light.svg" alt="Apotheke" width="341" height="100"><img class="brand-art logo-d" src="/assets/brand/logo-dark.svg" alt="Apotheke" width="341" height="100"></p>
-    <p class="tagline">From the Greek <span lang="grc">ἀποθήκη</span>, a storehouse.</p>
-    <nav aria-label="Footer">
-      <ul>
-        <li><a href="https://github.com/thordin9/apotheke">GitHub</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/blob/main/docs/index.md">Docs</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/blob/main/CHANGELOG.md">Changelog</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/issues">Issues</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/security/advisories/new">Security</a></li>
-        <li><a href="https://github.com/thordin9/apotheke/blob/main/LICENSE">MIT licence</a></li>
-        <li><a href="/privacy/">Privacy</a></li>
-      </ul>
-    </nav>
-    <small>© 2026 Stathis Papandreou</small>
-  </div>
-</footer>
+<!-- apotheke:footer -->
 <script type="module" src="/src/consent.js"></script>
 </body>
 </html>
