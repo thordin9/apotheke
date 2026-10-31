@@ -99,9 +99,10 @@ The same image has to serve three cases:
 
 ### 5. Host-only cookies in hosted mode
 
-- In hosted mode every cookie is host-only: `COOKIE_DOMAIN` is not passed to the container (the flipped
-  configuration drops it, #204), and the app ignores it if it is set there. The `__Host-` session cookie never carries a `Domain` anyway (#188). The consent cookie is then
-  host-only too.
+- In hosted mode every cookie is host-only. The flipped configuration drops `COOKIE_DOMAIN` (#204), and `edge/src`
+  stops forwarding it to the container in hosted mode (P4-5). An empty value already means host-only in
+  `Config\Consent`, so this only keeps it explicit. The `__Host-` session cookie never carries a `Domain` anyway
+  (#188), and the consent cookie is host-only too.
 - `COOKIE_DOMAIN` stays available for a self-hosted single instance whose owner wants one consent answer across
   their own sub-domains.
 
@@ -146,11 +147,14 @@ Agreed with DevOps, with the same names as `edge/storage.jsonc` in #204:
 | `STORAGE` | R2 | bucket `apotheke-api-storage` | `"jurisdiction": "eu"`, private, no public access |
 | `INSTALLATION` | Durable Object namespace | class `Installation`, exported from `edge/src` | SQLite-backed, migration tag `v2` (`new_sqlite_classes`); ids from `jurisdiction("eu")` |
 
-The existing binding `APOTHEKE` (class `ApothekeContainer`, migration `v1`) stays as it is. The storage bindings live
-in `edge/storage.jsonc`, not in `edge/wrangler.jsonc`. Only the deploy job, which runs only with
-`EDGE_STORAGE_READY=true`, merges them in (`scripts/edge-storage-config.mjs`). So the default config, the pull
-request dry run and `wrangler dev` don't change. A deploy with the merged config fails until `edge/src` exports
-`Installation` (P4-3, wired in P4-5). No account id, database id or secret is ever written to the repository: the
+The existing binding `APOTHEKE` (class `ApothekeContainer`, migration `v1`) stays as it is. The repository's deploy
+guard refuses `env` sections and a second wrangler config, so the storage bindings (`DB`, `STORAGE`, and
+`INSTALLATION` with its `v2` `new_sqlite_classes` migration) live in a fragment, `edge/storage.jsonc`. The deploy
+job merges it into the runner's copy of `wrangler.jsonc` (`scripts/edge-storage-config.mjs`), and only when
+`EDGE_STORAGE_READY` is `true`. `edge/wrangler.jsonc` itself stays unchanged, so the default config, the pull request
+dry run and `wrangler dev` don't change. A deploy with the merged config fails until `edge/src` exports
+`Installation` (P4-3, wired in P4-5). Once it does, DevOps adds a dry run of the merged config to the pull request
+check job. No account id, database id or secret is ever written to the repository: the
 database is named `apotheke-api`, and the deploy supplies its id from a repository variable.
 
 ## D1 constraints and how the design meets them
