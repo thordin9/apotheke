@@ -117,6 +117,9 @@ final class DeployWorkflowsTest extends TestCase
         // ADR-002 decision 5 (#203): hosted mode keeps cookies host-only, so the flipped config drops COOKIE_DOMAIN
         // (the merge script applies drop_vars); the default config keeps it.
         $this->assertStringContainsString('"drop_vars": ["COOKIE_DOMAIN"]', $storage);
+        // N-1543: CORS_ALLOWED_ORIGINS is not dropped (the SPA is served from getapotheke.com today)
+        $this->assertSame(1, substr_count($storage, '"drop_vars"'));
+        $this->assertDoesNotMatchRegularExpression('/"drop_vars": \[[^\]]*CORS_ALLOWED_ORIGINS/', $storage);
         $this->assertStringContainsString('for (const v of storage.drop_vars ?? []) delete vars[v];', self::file('scripts/edge-storage-config.mjs'));
         $this->assertStringContainsString('"COOKIE_DOMAIN": "getapotheke.com"', self::file('edge/wrangler.jsonc'));
     }

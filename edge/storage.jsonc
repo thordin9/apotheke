@@ -19,5 +19,7 @@
 	"migrations": [{ "tag": "v2", "new_sqlite_classes": ["Installation"] }],
 	// Hosted mode keeps every cookie host-only (ADR-002, decision 5): the merge drops these vars, so the flipped Worker
 	// has no COOKIE_DOMAIN to pass to the container. Not a wrangler key: only the merge script reads it.
+	// CORS_ALLOWED_ORIGINS stays (https://getapotheke.com serves the SPA today); per-installation origins wait for the
+	// hosted subdomain scheme.
 	"drop_vars": ["COOKIE_DOMAIN"]
 }
