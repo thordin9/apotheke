@@ -521,7 +521,8 @@ this repository, and only these two:
 **`apotheke-api` settings** are vars in `edge/wrangler.jsonc` (not secrets; changed by a reviewed pull request) that
 the Worker passes to the container: `SLEEP_AFTER_MS`, `ALLOWED_HOSTS` (`api.services.getapotheke.com`),
 `APOTHEKE_JOBS_WORKER` (`0`: no `jobs:work` in the container; jobs will run through a Cron Trigger or Queues, see
-[Background jobs](#background-jobs)) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
+[Background jobs](#background-jobs)), `CORS_ALLOWED_ORIGINS` (`https://getapotheke.com`: the front end calls the API
+from another host) and `COOKIE_DOMAIN` (`getapotheke.com`). `COOKIE_DOMAIN` is the hosted value from
 the 3.6.1 upgrade note: the consent cookie gets `Domain=getapotheke.com` (empty means host-only, the self-hosting
 default), and it never applies to the `__Host-apothekesid` session cookie, which may not carry a `Domain` attribute
 (see [Cookie consent](#cookie-consent)). The secrets `APP_PASSWORD` and `APP_KEY` are set separately (below).
@@ -548,8 +549,9 @@ preview. The deploy is not a release check. Routes and custom domains are never 
   is only passed in the environment of the deploy step.
 
 **Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
-*Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone or R2 permissions, and CI makes no Zone
-or R2 API calls. Account-wide means such a token could edit **any** Worker in the account, including ones this
+*Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone permissions, and CI makes no Zone API
+calls; after the P4 storage flip, `deploy-edge` also needs *D1 > Edit* and *Workers R2 Storage > Edit*
+([flip checklist](#p4-edge-storage-flip-checklist)). Account-wide means such a token could edit **any** Worker in the account, including ones this
 repository must never touch (for example `apotheke-autofill`). So:
 
 * each workflow hard-codes its Worker name (`getapotheke-app` or `apotheke-api`); no name comes from inputs,
@@ -588,8 +590,84 @@ The job also checks the variable again in its first steps, before any wrangler c
 stateless until P4 storage (D1/R2) lands; set EDGE_STORAGE_READY=true only after that* if it is not `true` (a second
 line of defence, should the job condition ever change).
 
-Set it (Settings > Secrets and variables > Actions > Variables) only once storage has landed. The pull request checks
+Set it (Settings > Secrets and variables > Actions > Variables) only once storage has landed, following the
+[flip checklist](#p4-edge-storage-flip-checklist). The pull request checks
 and `deploy-frontend.yml` are not affected.
+
+### P4 edge storage: flip checklist
+
+The P4 storage for `apotheke-api` is prepared but off. Its bindings are in `edge/storage.jsonc`, not in
+`edge/wrangler.jsonc`, so the pull request dry run, `wrangler dev` and the *Edge local test* use the default config
+unchanged. Only the deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in
+(`scripts/edge-storage-config.mjs`, on the runner's checkout), deploys, and then checks `/healthz`:
+
+| Binding | Resource | Notes |
+|---|---|---|
+| `DB` | D1 database `apotheke-api` | EU jurisdiction; `database_id` from the repository variable `APOTHEKE_D1_DATABASE_ID` |
+| `STORAGE` | R2 bucket `apotheke-api-storage` | `"jurisdiction": "eu"` |
+| `INSTALLATION` | Durable Object class `Installation`, SQLite storage | hosted mode; migration `v2` (`new_sqlite_classes`) |
+
+Hosted mode keeps every cookie host-only ([ADR-002](adr/002-edge-storage.md), decision 5), so the merge also drops
+`COOKIE_DOMAIN` from the flipped config: the container gets no cookie domain. The default config keeps
+`getapotheke.com` for the stateless API. `CORS_ALLOWED_ORIGINS` stays `https://getapotheke.com` in the flipped
+config, because the SPA is served there today. Per-installation origins depend on the hosted subdomain scheme, which
+isn't decided yet; until it is, every installation's API accepts only that one origin.
+
+The deploy runs no `wrangler d1 migrations apply`: the app's own migration runner applies `migrations/` through the
+bridge. A control-plane D1 schema would later go in `edge/migrations/control/`, set as the binding's `migrations_dir`.
+
+Flip in this order. Every step except the last two is additive; nothing is deleted.
+
+1. **Pre-flip: the storage gate criteria hold.** Don't start until items 1 to 4 of *Opening the storage gate* in
+   [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate) are met:
+   1. P4-2 to P4-5 are merged (so `edge/src/index.ts` exports `Installation`; until then a deploy with the merged
+      config fails on *Durable Objects not exported*, and nothing is deployed);
+   2. the manual `edge-local` workflow is green with D1 and R2 (local), including a backup round trip between
+      SQLite on Docker and the edge;
+   3. a preview D1 and R2 pass the smoke test and the guard cases (all-or-nothing batches, `expect` and `assert`
+      aborts, concurrent guarded adds, 150 `Ref`s, 101 parameters refused);
+   4. `edge/src` creates every `Installation` id through `env.INSTALLATION.jurisdiction("eu")`: the test for this is
+      green, and on the preview an `Installation` object is checked to be in the EU jurisdiction before any real
+      installation is created. **This can't be corrected after the ids exist.**
+
+   The ADR's item 5 (the one-time steps) is the rest of this checklist.
+2. **Token for the one-time steps** (the operator's own, from a trusted machine, not CI): *Account > D1 > Edit*,
+   *Account > Workers R2 Storage > Edit* and *Account > Workers Scripts > Edit*, on this account only, ideally with an
+   IP filter and a TTL. In the environment only:
+   `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
+3. **Create D1 and R2 in the EU jurisdiction.** The jurisdiction can't be changed after creation, for either. With a
+   jurisdiction, a D1 location hint (`--location weur`) is ignored, so don't pass one. In `edge/` (the pinned wrangler):
+
+   ```sh
+   npx --no-install wrangler d1 create apotheke-api --jurisdiction eu
+   npx --no-install wrangler r2 bucket create apotheke-api-storage --jurisdiction eu
+   npx --no-install wrangler d1 info apotheke-api                 # the database UUID
+   npx --no-install wrangler r2 bucket list --jurisdiction eu     # apotheke-api-storage is listed
+   ```
+
+   Don't pass `--update-config`: the ids stay out of the repository.
+4. **Repository variable** (Settings > Secrets and variables > Actions > Variables, or
+   `gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>`). It is an identifier, not a secret; the deploy
+   job fails before wrangler if it is missing or not a UUID.
+5. **`deploy-edge` token**: besides *Workers Scripts > Edit* and *Containers > Edit*, give the environment's
+   `CLOUDFLARE_API_TOKEN` *D1 > Edit* and *Workers R2 Storage > Edit*, so the deploy can bind the database and the
+   bucket.
+6. **Worker secrets and domain**: `APP_KEY` and `APP_PASSWORD` set once at go-live
+   ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)), and the custom domain for the first
+   host in `ALLOWED_HOSTS` attached, since the smoke check calls it.
+7. **Migrations**: nothing to run by hand; the app applies `migrations/` itself on start.
+8. **Flip**: `gh variable set EDGE_STORAGE_READY --body true`, then publish a release or run *Deploy edge* on `main`
+   and approve the `deploy-edge` review.
+9. **Verify**: the job's *Storage config* step names the merged bindings, the deploy log lists `env.DB`,
+   `env.STORAGE (apotheke-api-storage (eu))` and `env.INSTALLATION`, and *Smoke check* gets 200 from
+   `https://<api-host>/healthz`. Then sign in, save an item, wait past `SLEEP_AFTER_MS` (or deploy again) and check
+   that it is still there.
+10. **Rollback**: `gh variable set EDGE_STORAGE_READY --body false` stops all further edge deploys (the job is
+    skipped again). The deployed version keeps running until you replace it: `npx --no-install wrangler deployments
+    list --name apotheke-api`, then `npx --no-install wrangler rollback <version-id> --name apotheke-api`. Cloudflare
+    refuses a rollback across a Durable Object migration, so a version from before `v2` can't come back; roll back to
+    an earlier storage version or fix forward. Nothing is deleted: the D1 database, the bucket and the Durable Object
+    data stay. Deleting any of them (or a `deleted_classes` migration) needs the owner's approval.
 
 ### One-time manual step before the first edge deploy
 
