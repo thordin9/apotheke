@@ -71,6 +71,9 @@ function renderSignIn(root) {
     note.id = 'sign-in-note';
     note.className = 'answer';
     note.textContent = 'Accept cookies to sign in.';
+    const error = document.createElement('p');
+    error.id = 'sign-in-error';
+    error.setAttribute('role', 'status');
     const home = document.createElement('p');
     home.id = 'sign-in-home';
     home.className = 'sign-in-home';
@@ -106,7 +109,7 @@ function renderSignIn(root) {
     button.disabled = true;
     button.textContent = 'Sign in';
     form.append(userLabel, user, passLabel, pass, button);
-    root.append(h1, note, home, form);
+    root.append(h1, note, error, home, form);
     if (hasConsent()) enableLogin(form, '');
 }
 

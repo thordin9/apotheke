@@ -114,7 +114,8 @@ async function comingSoon(page: Page, fulfill: (route: Route) => Promise<void>) 
     await expect(page.locator('#sign-in-user')).toBeDisabled();
     await expect(page.locator('#sign-in-home')).toBeVisible();
     await expect(page.locator('#sign-in-home').getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
-    await expect(page.locator('#sign-in-error')).toHaveCount(0);
+    await expect(page.locator('#sign-in-error')).toHaveCount(1);
+    await expect(page.locator('#sign-in-error')).toHaveText('');
     expect(pageErrors).toEqual([]);
 }
 
@@ -132,6 +133,33 @@ test('a 500 session shows that sign-in is coming soon', async ({ page }) => {
 
 test('a non-JSON session shows that sign-in is coming soon', async ({ page }) => {
     await comingSoon(page, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>no</p>' }));
+});
+
+test('a refused sign-in says to accept cookies', async ({ page }) => {
+    await page.goto('/app/sign-in');
+    await page.route('**/api/v1/session', (route) => {
+        if (route.request().method() === 'GET') {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ csrf_token: 'fresh-token', signed_in: false }),
+            });
+        }
+        return route.fulfill({
+            status: 403,
+            contentType: 'application/problem+json',
+            body: JSON.stringify({ code: 'consent_required', error: 'consent_required' }),
+        });
+    });
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#sign-in-note')).toHaveText('You can sign in.');
+    await expect(page.locator('#sign-in-submit')).toBeEnabled();
+    await page.locator('#sign-in-user').fill('ada');
+    await page.locator('#sign-in-pass').fill('secret');
+    await page.locator('#sign-in-submit').click();
+    const error = page.locator('#sign-in-error');
+    await expect(error).toBeVisible();
+    await expect(error).toHaveText('Accept cookies, then try again.');
 });
 
 test('Accept on the landing page is the same single cookie in the app', async ({ browser }) => {
