@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test';
 
 const MAX_AGE = 15552000;
 
@@ -26,30 +26,38 @@ async function expectNothingStored(page: Page, context: BrowserContext) {
     expect(await context.cookies()).toEqual([]);
 }
 
+function watchSession(page: Page) {
+    const hits: string[] = [];
+    page.on('request', (req) => {
+        if (new URL(req.url()).pathname === '/api/v1/session') hits.push(req.method() + ' ' + req.url());
+    });
+    return hits;
+}
+
 test('stores nothing until Accept, then one consent cookie', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
+    const hits = watchSession(page);
     for (const path of ['/', '/privacy/', '/app/']) {
         await page.goto(path);
         await expect(page.locator('#consent')).toBeVisible();
         await expectNothingStored(page, context);
+        expect(hits, 'no session request before Accept on ' + path).toEqual([]);
     }
 
     await page.goto('/');
     await page.getByRole('button', { name: 'Decline' }).click();
     await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#main')).toBeFocused();
     await expectNothingStored(page, context);
+    expect(hits).toEqual([]);
     await page.reload();
     await expect(page.locator('#consent')).toBeVisible();
     await expectNothingStored(page, context);
 
     await page.goto('/app/');
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
-    let sessionHits = 0;
-    page.on('request', (req) => {
-        if (new URL(req.url()).pathname === '/api/v1/session') sessionHits += 1;
-    });
-    expect(sessionHits).toBe(0);
+    expect(hits).toEqual([]);
 
     await page.route('**/api/v1/session', (route) => {
         if (route.request().method() === 'GET') {
@@ -68,8 +76,9 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
 
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#main')).toBeFocused();
     await expect(page.locator('#sign-in-submit')).toBeEnabled();
-    expect(sessionHits).toBe(1);
+    expect(hits).toHaveLength(1);
 
     const cookies = await context.cookies();
     expect(cookies).toHaveLength(1);
@@ -97,6 +106,59 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
     await context.close();
 });
 
+async function acceptOnApp(page: Page, fulfill: (route: Route) => Promise<void>) {
+    const hits = watchSession(page);
+    await page.goto('/app/');
+    await expect(page.locator('#consent')).toBeVisible();
+    await expect(page.locator('#sign-in-submit')).toBeDisabled();
+    expect(hits, 'no session request before Accept').toEqual([]);
+    await page.route('**/api/v1/session', fulfill);
+    await page.getByRole('button', { name: 'Accept' }).click();
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#sign-in-submit')).toBeDisabled();
+    expect(hits).toHaveLength(1);
+}
+
+test('an empty csrf token leaves sign-in off', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await acceptOnApp(page, (route) => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ csrf_token: '' }),
+    }));
+    await context.close();
+});
+
+test('a non-string csrf token leaves sign-in off', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await acceptOnApp(page, (route) => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ csrf_token: 1 }),
+    }));
+    await context.close();
+});
+
+test('a non-2xx session response leaves sign-in off', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await acceptOnApp(page, (route) => route.fulfill({
+        status: 503,
+        contentType: 'application/problem+json',
+        body: JSON.stringify({ code: 'unavailable' }),
+    }));
+    await context.close();
+});
+
+test('a failed session fetch leaves sign-in off', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await acceptOnApp(page, (route) => route.abort('failed'));
+    await context.close();
+});
+
 test('a value other than v1 is not consent', async ({ browser }) => {
     const context = await browser.newContext();
     await context.addCookies([{
@@ -105,8 +167,21 @@ test('a value other than v1 is not consent', async ({ browser }) => {
         url: 'http://127.0.0.1:4175/',
     }]);
     const page = await context.newPage();
-    await page.goto('/');
+    const hits = watchSession(page);
+    await page.goto('/app/');
     await expect(page.locator('#consent')).toBeVisible();
+    await expect(page.locator('#sign-in-submit')).toBeDisabled();
+    expect(hits).toEqual([]);
+    await context.close();
+});
+
+test('without JavaScript the notice stays hidden and stores nothing', async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto('/');
+    await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('h1')).toBeVisible();
+    expect(await context.cookies()).toEqual([]);
     await context.close();
 });
 
