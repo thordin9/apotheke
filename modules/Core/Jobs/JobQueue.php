@@ -61,6 +61,20 @@ final class JobQueue
     }
 
     /** The oldest due job, now leased to $owner; null when none is due. Jobs whose last lease ran out fail first. */
+    /**
+     * The queued or running job of $type with exactly $payload, if there is one (so a second request for the same
+     * work gets that job instead of a new one).
+     *
+     * @param array<string,mixed> $payload
+     */
+    public function active(string $type, array $payload): ?Job
+    {
+        $row = $this->db->query("SELECT * FROM jobs WHERE type = ? AND payload = ? AND status IN ('queued', 'running') ORDER BY id LIMIT 1",
+            [$type, self::encode($payload)])->getRowArray();
+
+        return is_array($row) ? self::job($row) : null;
+    }
+
     public function claim(string $owner): ?Job
     {
         $now = $this->at(0);

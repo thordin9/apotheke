@@ -377,7 +377,7 @@ class Services extends BaseService
             is_string($_SERVER['REQUEST_URI'] ?? null) ? $_SERVER['REQUEST_URI'] : '/',
             static fn (): ?array => is_string($_GET['undo'] ?? null) && $_GET['undo'] !== '' ? static::undoTokens()->bar($_GET['undo']) : null,
             \Apotheke\Core\Http\CookieConsent::request(),
-            \Apotheke\Core\Http\CookieConsent::domain(is_string($_SERVER['HTTP_HOST'] ?? null) ? $_SERVER['HTTP_HOST'] : ''),
+            \Apotheke\Core\Http\CookieConsent::domain(is_string($_SERVER['HTTP_HOST'] ?? null) ? $_SERVER['HTTP_HOST'] : '', \Apotheke\Core\Http\CookieConsent::configuredDomain()),
         );
     }
 
@@ -1208,13 +1208,23 @@ class Services extends BaseService
     }
 
     /**
-     * The handler of each job type. None yet: the CSV import commit and the backup restore arrive as jobs in P3.
+     * The handler of each job type (the backup restore comes later in P3).
      *
      * @return array<string,\Apotheke\Core\Jobs\JobHandler>
      */
     public static function jobHandlers(): array
     {
-        return [];
+        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => new \Apotheke\ImportExport\Jobs\ImportCommitJob(static::imports(false))];
+    }
+
+    /**
+     * The permission a user needs to read a job of each type (GET /api/v1/jobs/{id}); a type not listed is never shown.
+     *
+     * @return array<string,string>
+     */
+    public static function jobPermissions(): array
+    {
+        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import'];
     }
 
     /** php spark jobs:work, as one worker named for its host and process. */

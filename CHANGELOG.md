@@ -19,6 +19,26 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **docker:** the container no longer changes the owner of `./data/postgres` to `www-data` on start. With the compose `postgres` profile that directory holds PostgreSQL's files inside the app's `/data`, so starting the app next to a new database could break its initialisation, and a later start took over the database's files. This bug is already in released versions ([#187](https://github.com/thordin9/apotheke/pull/187))
 
+## [3.6.1] - 2026-10-31
+
+**Upgrade note:** the consent cookie's domain is now the `COOKIE_DOMAIN` setting (empty by default: host-only) instead of a built-in `getapotheke.com`. Hosted installs must set `COOKIE_DOMAIN=getapotheke.com` (DevOps adds it to the hosted config), or the consent cookie no longer reaches the other getapotheke.com hosts. Self-hosted installs need no change. The session cookie never gets a `Domain`. See [Cookie consent](docs/deployment-and-operations.md#cookie-consent).
+
+### Fixed
+
+- **consent:** configurable consent cookie domain ([#188](https://github.com/thordin9/apotheke/pull/188))
+
+## [3.6.0] - 2026-10-31
+
+**Upgrade note:** migration 0030 adds an `import_rows` table that only the CI4 app uses (the lines a CSV import job has committed, so a stopped job resumes without importing a line twice). It changes no table or column 2.6.x reads. After a rollback to 2.6.x the table stays behind in the database and is harmless: 2.6.x ignores it, and switching to 3.x again uses it as it was. Backups do not carry it and do not name migration 0030, so a backup made by this version restores on 2.6.x.
+
+### Added
+
+- **api:** run the CSV import commit as a resumable job ([#185](https://github.com/thordin9/apotheke/pull/185))
+
+### Maintenance
+
+- ci: bump @playwright/test to 1.64.1 and pin the Playwright image ([#183](https://github.com/thordin9/apotheke/pull/183))
+
 ## [3.5.0] - 2026-10-30
 
 ### Added
@@ -1032,7 +1052,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.5.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.6.1...HEAD
+[3.6.1]: https://github.com/thordin9/apotheke/compare/v3.6.0...v3.6.1
+[3.6.0]: https://github.com/thordin9/apotheke/compare/v3.5.0...v3.6.0
 [3.5.0]: https://github.com/thordin9/apotheke/compare/v3.4.0...v3.5.0
 [3.4.0]: https://github.com/thordin9/apotheke/compare/v3.3.0...v3.4.0
 [3.3.0]: https://github.com/thordin9/apotheke/compare/v3.2.1...v3.3.0

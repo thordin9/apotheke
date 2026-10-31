@@ -39,6 +39,8 @@ services:
       APP_KEY_FILE: ${APP_KEY_FILE:-}
       # required (default: no cookie until the user accepts the consent notice) or off.
       COOKIE_CONSENT: ${COOKIE_CONSENT:-required}
+      # Parent domain for the consent cookie; empty (default) is host-only. Never applied to the session cookie.
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       # sqlite (default, stored in ./data/catalog.sqlite) or pgsql (start with: docker compose --profile postgres up -d)
       DB_DRIVER: ${DB_DRIVER:-sqlite}
       DB_HOST: ${DB_HOST:-postgres}

@@ -144,8 +144,9 @@ the **Upgrade note** of each release in the [changelog](../CHANGELOG.md). Notes 
 ## Background jobs
 
 From 3.2 long tasks can run as background jobs: a row in the `jobs` table (migration 0029) that
-`php spark jobs:work` picks up. Job types (the CSV import commit, the backup restore) arrive in later releases; both
-Docker images already run the worker, so a queued job is picked up without any extra setup.
+`php spark jobs:work` picks up. The first type is `import.commit`, the API's CSV import (`POST
+/api/v1/imports/{id}/commit`; the import page still imports in the request); the backup restore moves to jobs later.
+Both Docker images run the worker, so a queued job is picked up without any extra setup.
 
 ```bash
 php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
@@ -153,8 +154,10 @@ php spark jobs:work [--once] [--max-jobs=N] [--max-seconds=N] [--sleep=MS]
 
 * It runs one job at a time until `--max-jobs` jobs ran or `--max-seconds` passed (default 3600, then a supervisor
   starts it again), waiting `--sleep` ms when no job is due (`--sleep=0` stops instead; `--once` runs at most one).
-* A job is leased for five minutes and the lease is renewed on every checkpoint; a job whose worker died is taken over
-  once its lease runs out and resumes from its last checkpoint. A job is tried at most three times.
+* A job is leased for five minutes (300 s) and the lease is renewed on every checkpoint; a job whose worker died is
+  taken over once its lease runs out and resumes from its last checkpoint. So a worker killed with SIGKILL (or by the
+  out-of-memory killer, or a crash) leaves its job `running` for up to 300 s after its last checkpoint before another
+  worker resumes it; a restart does not shorten that. A job is tried at most three times.
 * **Exit codes:** `0` after a clean stop, including SIGTERM or SIGINT when PHP has `pcntl` (the running job checkpoints
   and goes back to the queue); `1` for a bad argument or when the database cannot be reached. Without `pcntl` SIGTERM
   ends the worker at once (`143`), and its job is picked up again when its lease runs out. The image builds `pcntl`.
@@ -728,9 +731,8 @@ From 3.4 the app sets no cookie in the browser until the user clicks Accept on t
 banner, or the notice the app's own pages show at the top until then). The contract, kept in `app/Config/Consent.php`:
 
 * **The cookie:** `apotheke_consent=v1`, set by the banner script, never by the server: `Path=/`,
-  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. On a `getapotheke.com`
-  host (hosted) it gets `Domain=getapotheke.com`, so it also reaches `api.services.getapotheke.com`; elsewhere
-  (self-hosted) it is host-only. It is the first cookie the app ever has.
+  `Max-Age=15552000` (180 days), `SameSite=Lax`, `Secure` on HTTPS, not `HttpOnly`. It is host-only unless
+  `COOKIE_DOMAIN` is set (below). It is the first cookie the app ever has.
 * **What counts:** the server compares only the name and the exact value (attributes never reach it), so both
   forms count. Any other value (`v0`, `1`, empty, another case) is no consent and gets exactly the same answer as no
   cookie. A later banner text adds its version (`v2`) to `Consent::ACCEPTED`. There is no header form.
@@ -750,6 +752,17 @@ banner, or the notice the app's own pages show at the top until then). The contr
 * **`COOKIE_CONSENT`** (environment): `required` (the default) or `off`. With `off` the app behaves as before
   3.4: cookies from the first request, no notice, no `403 consent_required`. Any other value counts as
   `required`. In Docker set it in `.env`.
+* **`COOKIE_DOMAIN`** (environment, empty by default: host-only): the parent domain the consent cookie is set
+  for, so it also reaches sibling hosts (hosted installs: `COOKIE_DOMAIN=getapotheke.com`, so the cookie also
+  reaches `api.services.getapotheke.com`). It is lower-cased and a leading dot is dropped, and it is used only when
+  the request's host is that domain or ends with `.` and it; on any other host the cookie stays host-only (no
+  error). An IP address, a single label or bare TLD (`com`), or a value with a port, a path or a wildcard is
+  ignored. It never applies to the session cookie, which stays host-only (`__Host-apothekesid` on HTTPS has no
+  `Domain`). The app passes the same domain to the notice's script. Only the request's `Host` header is compared,
+  never `X-Forwarded-Host`.
+  Set it to a registrable domain you control (`getapotheke.com`, `example.org`), never a public suffix such as
+  `co.uk` or `github.io`: browsers drop a cookie whose Domain is a public suffix, and the broader the value, the
+  more sibling hosts share the consent.
 * Answers without a cookie get `Cache-Control: no-store` when they set no caching of their own (no session sends
   its no-cache headers). 2.6.x (branch `old`) has no banner and stays security-only.
 

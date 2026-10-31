@@ -10,6 +10,9 @@ use Apotheke\Catalog\Items\ItemRepository;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Jobs\JobContext;
+use Apotheke\Core\Jobs\JobFailed;
+use Apotheke\Core\Jobs\JobInterrupted;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\Text;
 use Apotheke\Core\Storage\Storage;
@@ -400,6 +403,111 @@ final class Imports
         }
 
         return $out;
+    }
+
+    /** Who is importing (legacy current_actor()): the account name, or null for a guest or the command line. */
+    public function actor(): ?string
+    {
+        return ($this->actor)();
+    }
+
+    /**
+     * The API's import (the import.commit job): each row is its own Writes::transaction with its import_rows
+     * marker, so there is no run-wide transaction or savepoint (D1: one batch per row) and other requests see the
+     * rows land as it goes. The marker is written first: a line that has one (other than error) is skipped, so a job
+     * that stopped resumes where it was and no run imports a line twice; an error line is tried again. Checkpoints {done, total} every $chunk
+     * rows. The import is marked done at the end, its result counted from the markers; with errors and no
+     * skip_errors the job fails instead (the rows without errors stay imported, and a new commit resumes).
+     *
+     * @param Import $imp
+     * @return array{created:int,updated:int,unchanged:int,skipped:int,made:Made}
+     */
+    public function commitRows(array $imp, JobContext $ctx, int $chunk = 50): array
+    {
+        $db = $this->db;
+        $id = $imp['id'];
+        $status = Writes::rows($db, 'SELECT status, result FROM imports WHERE id = ?', [$id])[0] ?? null;
+        if ($status === null) {
+            throw new JobFailed('Import not found.');
+        }
+        if ($status['status'] === 'done') {   // an earlier attempt (or the page) imported it: its recorded result
+            $done = json_decode((string)$status['result'], true);
+
+            return is_array($done) ? $done + $this->summary($id) : $this->summary($id);
+        }
+        try {
+            [, $rows] = $this->rows($imp);
+        } catch (UserError $e) {
+            throw new JobFailed($e->getMessage());
+        }
+        $col = self::columns($imp['mapping']);
+        $create = !empty($imp['options']['create']);
+        $knownTags = $this->knownTags();
+        $tomorrow = $this->calendar->now()->modify('+86400 seconds')->format('Y-m-d');
+        $total = count($rows);
+        $ctx->checkpoint(['done' => 0, 'total' => $total]);
+        foreach ($rows as $n => $r) {
+            $line = $n + 2;
+            $tags = $knownTags;
+            try {
+                Writes::transaction($db, function () use ($db, $id, $line, $r, $col, $create, $tomorrow, &$knownTags): void {
+                    // The marker first: 0 rows means another run imported this line (the key guards it).
+                    Writes::check($db->query("INSERT INTO import_rows (import_id, line, state) VALUES (?, ?, 'new')
+                        ON CONFLICT (import_id, line) DO UPDATE SET state = 'new', error = '' WHERE import_rows.state = 'error'", [$id, $line]), 'import row');
+                    if ($db->affectedRows() !== 1) {
+                        return;
+                    }
+                    $out = self::blank();
+                    $name = '';
+                    $real = null;
+                    $state = $this->row($r, $col, $create, $tomorrow, $knownTags, $out, $name, $real);
+                    Writes::check($db->query('UPDATE import_rows SET state = ?, made = ? WHERE import_id = ? AND line = ?',
+                        [$state, (string)json_encode(self::unique($out['made']), JSON_UNESCAPED_UNICODE), $id, $line]), 'import row');
+                });
+            } catch (UserError $e) {
+                $knownTags = $tags;   // the row's tags were rolled back
+                Writes::check($db->query("INSERT INTO import_rows (import_id, line, state, error) VALUES (?, ?, 'error', ?)
+                    ON CONFLICT (import_id, line) DO UPDATE SET error = excluded.error WHERE import_rows.state = 'error'", [$id, $line, $e->getMessage()]), 'import row');
+            }
+            if (($n + 1) % $chunk === 0 && $n + 1 < $total) {
+                $ctx->checkpoint(['done' => $n + 1, 'total' => $total]);
+                if ($ctx->stopRequested()) {
+                    throw new JobInterrupted('import ' . $id . ': stopped at row ' . ($n + 1));
+                }
+            }
+        }
+        $ctx->checkpoint(['done' => $total, 'total' => $total]);
+        $sum = $this->summary($id);
+        if ($sum['skipped'] > 0 && empty($imp['options']['skip_errors'])) {
+            throw new JobFailed('Some rows have errors. Fix the file, or commit again with skip_errors.');
+        }
+        Writes::check($db->query("UPDATE imports SET status = 'done', finished_at = ?, result = ? WHERE id = ? AND status <> 'done'",
+            [$this->clock->now(), (string)json_encode($sum, JSON_UNESCAPED_UNICODE), $id]), 'finish import');
+        $this->files->delete(self::key($id));
+
+        return $sum;
+    }
+
+    /**
+     * What the job imported, from its markers (the result commit() records).
+     *
+     * @return array{created:int,updated:int,unchanged:int,skipped:int,made:Made}
+     */
+    private function summary(int $id): array
+    {
+        $n = ['new' => 0, 'update' => 0, 'same' => 0, 'error' => 0];
+        $made = ['location' => [], 'category' => [], 'tag' => []];
+        foreach (Writes::rows($this->db, 'SELECT state, made FROM import_rows WHERE import_id = ? ORDER BY line', [$id]) as $m) {
+            $n[(string)$m['state']] = ($n[(string)$m['state']] ?? 0) + 1;
+            $one = json_decode((string)$m['made'], true);
+            foreach (array_keys($made) as $k) {
+                foreach (is_array($one) && is_array($one[$k] ?? null) ? $one[$k] : [] as $v) {
+                    $made[$k][] = (string)$v;
+                }
+            }
+        }
+
+        return ['created' => $n['new'], 'updated' => $n['update'], 'unchanged' => $n['same'], 'skipped' => $n['error'], 'made' => self::unique($made)];
     }
 
     /**

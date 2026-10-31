@@ -36,7 +36,7 @@ final class ConsentController extends Controller
         $host = (string)($server['HTTP_HOST'] ?? '');
 
         return $this->response->setStatusCode(303)
-            ->setHeader('Set-Cookie', CookieConsent::cookie($host, $scheme->secureCookie($server, $publicUrl)))
+            ->setHeader('Set-Cookie', CookieConsent::cookie($host, $scheme->secureCookie($server, $publicUrl), CookieConsent::configuredDomain()))
             ->setHeader('Location', CookieConsent::returnPath($this->request->getPost('return')));
     }
 

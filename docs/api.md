@@ -24,6 +24,12 @@ answer against it.
 | `POST /api/v1/imports` | Import | Upload a CSV (`multipart/form-data`, field `file`); `201` with the import and a `Location` header. |
 | `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
 | `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
+| `POST /api/v1/imports/{id}/commit` | Import, and the user who uploaded it or an admin | Import the file as a background job, with an optional `{"map": […], "create": …, "skip_errors": …}`. `202` with the job and a `Location` header; `422` when rows have errors and `skip_errors` is off. Rows are committed one by one, so they show up while the job runs; a stopped or failed job resumes when the import is committed again. |
+| `GET /api/v1/jobs/{id}` | the job type's permission, and the user who started it or an admin | `status` (`queued`, `running`, `done`, `failed`), `progress` (`done` and `total` rows), `result` and `error`. Anyone else gets `404`, as for an id that is not there. |
+
+A job that the worker stops cleanly (SIGTERM, with pcntl) is released and resumes at once. A worker that is killed
+(SIGKILL, an out-of-memory kill, a crash) cannot release it: the job stays `running` until its 300-second lease runs
+out, and only then does the next `jobs:work` pick it up and resume from its last checkpoint.
 
 Any other path under `/api` answers `404`.
 

@@ -54,6 +54,7 @@ final class Ci4CookieConsentTest extends TestCase
         yield 'api security' => ['GET', '/api/v1/security', 401];
         yield 'api import' => ['GET', '/api/v1/imports/1', 401];
         yield 'api import preview' => ['GET', '/api/v1/imports/1/preview', 401];
+        yield 'api job' => ['GET', '/api/v1/jobs/1', 401];
         yield 'openapi.json' => ['GET', '/api/v1/openapi.json', 200];
         yield '404' => ['GET', '/brand/no-such.png', 404];
         yield 'api 404' => ['GET', '/api/v1/no-such', 404];
@@ -132,6 +133,8 @@ final class Ci4CookieConsentTest extends TestCase
         }
         $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => "/search?q=caf\u{e9}"], [], ['Origin: ' . self::$server->base]);
         $this->assertSame('/search?q=caf%C3%A9', $r['headers']['location'] ?? null, 'N-1424: non-ASCII percent-encoded');
+        $r = $this->client(null)->post('/consent', ['consent' => 'accept', 'return' => '/' . str_repeat("\u{e9}", 400)], [], ['Origin: ' . self::$server->base]);
+        $this->assertSame('/', $r['headers']['location'] ?? null, 'N-1460: too long once percent-encoded');
     }
 
     /** COOKIE_CONSENT=off: as before 3.4 (cookies, sign-in, no notice); any value but off is required. */
@@ -155,6 +158,52 @@ final class Ci4CookieConsentTest extends TestCase
                 rrmdir($dir);
                 @unlink($dir . '.server.log');
             }
+        }
+    }
+
+    /**
+     * COOKIE_DOMAIN: the consent cookie gets Domain on a host under it (form and the notice's data-domain); the
+     * __Host- session cookie never does.
+     */
+    public function testTheCookieDomainIsForTheConsentCookieOnly(): void
+    {
+        $dir = tmpdir('consent-domain');
+        $server = new Server($dir, ['APP_PASSWORD' => self::PASSWORD, 'COOKIE_DOMAIN' => '.Example.test', 'PUBLIC_URL' => 'https://app.example.test'], 'ci4');
+        try {
+            $host = ['Host: app.example.test'];
+            $none = $server->client();
+            $none->consent = null;
+            $this->assertStringContainsString('data-domain="example.test"', $none->get('/login', $host)['body']);
+            $r = $none->post('/consent', ['consent' => 'accept'], [], [...$host, 'Sec-Fetch-Site: same-origin']);
+            $this->assertSame(['apotheke_consent=v1; Path=/; Max-Age=15552000; Domain=example.test; Secure; SameSite=Lax'], self::setCookies($r));
+            $other = $none->post('/consent', ['consent' => 'accept'], [], ['Sec-Fetch-Site: same-origin']);
+            $this->assertSame(['apotheke_consent=v1; Path=/; Max-Age=15552000; SameSite=Lax'], self::setCookies($other), 'another host: host-only');
+            $session = self::setCookies($server->client()->get('/login', $host));
+            $this->assertCount(1, $session);
+            $this->assertMatchesRegularExpression('/^__Host-apothekesid=[^;]+; .*secure/i', $session[0]);
+            $this->assertStringNotContainsStringIgnoringCase('domain=', $session[0], 'the __Host- cookie stays host-only');
+            // L-1481 (b): the notice's data-domain is host-matched too: empty on another host.
+            $fresh = static function () use ($server): \Client {
+                $c = $server->client();
+                $c->consent = null;
+
+                return $c;
+            };
+            $this->assertStringContainsString('data-domain=""', $fresh()->get('/login')['body']);
+            // L-1481 (a): X-Forwarded-Host never picks the Domain, even with trust_proxy on.
+            $pdo = testdb($dir);
+            $pdo->prepare('DELETE FROM settings WHERE name = ?')->execute(['trust_proxy']);
+            $pdo->prepare("INSERT INTO settings (name, value, updated_at) VALUES ('trust_proxy', 'true', '2026-01-01')")->execute();
+            $xfh = ['X-Forwarded-Host: app.example.test', 'X-Forwarded-Proto: https'];
+            $this->assertStringContainsString('data-domain=""', $fresh()->get('/login', $xfh)['body'], 'X-Forwarded-Host: notice');
+            $r = $fresh()->post('/consent', ['consent' => 'accept'], [], [...$xfh, 'Sec-Fetch-Site: same-origin']);
+            $this->assertSame(303, $r['status']);
+            $this->assertSame('apotheke_consent=v1; Path=/; Max-Age=15552000; Secure; SameSite=Lax', self::setCookies($r)[0] ?? null, 'X-Forwarded-Host: no Domain (trust_proxy on: Secure from X-Forwarded-Proto)');
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
         }
     }
 
@@ -236,7 +285,7 @@ final class Ci4CookieConsentTest extends TestCase
         }
     }
 
-    /** The import routes: reads answer cookieless (401, no session), the upload is refused before the CSRF check. */
+    /** The import routes: reads answer cookieless (401, no session), the upload and the commit are refused before the CSRF check. */
     public function testImportWritesGetConsentRequired(): void
     {
         $r = $this->client(null)->rest('POST', '/api/v1/imports', null, ['X-CSRF-Token: x']);
@@ -244,6 +293,10 @@ final class Ci4CookieConsentTest extends TestCase
         $this->assertSame('application/problem+json', $r['headers']['content-type']);
         $this->assertSame([], self::setCookies($r));
         ApiContract::assertMatches('POST', '/api/v1/imports', $r);
+        $c = $this->client(null)->rest('POST', '/api/v1/imports/1/commit', ['map' => ['name']], ['X-CSRF-Token: x']);
+        $this->assertSame([403, 'consent_required', 'consent_required'], [$c['status'], $c['json']['code'] ?? null, $c['json']['error'] ?? null]);
+        $this->assertSame([], self::setCookies($c));
+        ApiContract::assertMatches('POST', '/api/v1/imports/{id}/commit', $c);
     }
 
     /** @return iterable<string,array{0:string}> */
@@ -266,7 +319,7 @@ final class Ci4CookieConsentTest extends TestCase
     }
 
     /**
-     * A host-only cookie (self-hosted) and a Domain=getapotheke.com one (hosted) arrive as the same Cookie
+     * A host-only cookie (self-hosted) and one with a Domain (hosted, COOKIE_DOMAIN) arrive as the same Cookie
      * header, often among other cookies; both count. The name is exact.
      */
     public function testHostOnlyAndParentDomainCookiesBothCount(): void
