@@ -1,10 +1,18 @@
 # QA: apotheke PR #188, "fix(consent): configurable consent cookie domain"
 
-**Verdict: PASS.** Final reviewed head `30bddf3790feba9ef9dc0d1a11227fe5d6692495`, 2026-10-31 (EET). Round 1 was at `5e02fb8`:
+**Verdict: PASS.** Final reviewed head `9934e63376b4cd41b2a46fa83d8576f37566363e`, 2026-10-31 (EET). Round 1 was at `5e02fb8`, round 2 at `30bddf3`:
 - same repo, 0 behind `main`, 3 commits, 12 files (+145/−24);
 - CI 20/20, both Tests jobs green.
 
 It fixes #182's L-1421 and N-1460.
+
+**Merge re-check (main v3.6.0, `705d417`).** `9934e63` is a plain merge on `900ef58`, read only (no suites):
+- The only conflicts were in the CHANGELOG and HANDOFF, both resolved to main plus this PR; no new code.
+- The diff against main is the same 13 files with the same lines outside HANDOFF and CHANGELOG. The consent, cookie and session logic is byte-identical.
+- `[3.6.0]` and every older CHANGELOG section are byte-identical to main.
+- The routes files are unchanged against main, and `routes --check` passes (SQLite).
+- `docs/qa` matches main apart from this doc, which is untouched.
+- CI 21/21, both Tests jobs green; mergeable and clean.
 
 **Round 2 (light gate).** Tests, docs and one docblock only; no production code changed beyond comments. The new L-1481 test passes on SQLite and PG17. Both earlier survivors are now killed, and so is a third mutation (`data-domain` from `X-Forwarded-Host`). The new docs wording is accurate.
 
