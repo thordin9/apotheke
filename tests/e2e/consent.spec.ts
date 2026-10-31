@@ -77,6 +77,7 @@ test('stores nothing until Accept, then one consent cookie', async ({ browser })
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#consent')).toBeHidden();
     await expect(page.locator('#main')).toBeFocused();
+    await expect(page.locator('#sign-in-note')).toHaveText('You can sign in.');
     await expect(page.locator('#sign-in-submit')).toBeEnabled();
     expect(hits).toHaveLength(1);
 
@@ -115,6 +116,7 @@ async function acceptOnApp(page: Page, fulfill: (route: Route) => Promise<void>)
     await page.route('**/api/v1/session', fulfill);
     await page.getByRole('button', { name: 'Accept' }).click();
     await expect(page.locator('#consent')).toBeHidden();
+    await expect(page.locator('#sign-in-note')).toHaveText('Sign-in stays off until the server offers a sign-in token.');
     await expect(page.locator('#sign-in-submit')).toBeDisabled();
     expect(hits).toHaveLength(1);
 }
