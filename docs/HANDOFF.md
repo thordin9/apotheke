@@ -355,7 +355,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   percent-encoded bytes. QA round 1: L-1480 (registrable domain only, docs), L-1481 (Host header only, never
   X-Forwarded-Host; data-domain host-matched; tests), N-1483 fixed; N-1482, N-1484 backlog. Mutation list in the PR
   body. Merged (#188).
-- fix/import-html-scope (N-1441, follows M-1360 and M-1380): the HTML import pages use the API's scope. `/import/{id}`
+- [#195](https://github.com/thordin9/apotheke/pull/195) (N-1441, follows M-1360 and M-1380): the HTML import pages use the API's scope. `/import/{id}`
   and its preview and commit show an import only to its uploader (`imports.actor`, by username) or an admin
   (`Imports::mine()`); anyone else gets the unknown id's 404 page, byte for byte, before any check of the status or
   the file. *Recent imports* (`Imports::recent()`) lists only your own, all for an admin; the `?done=` notice only
@@ -438,7 +438,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 - Now: the queue is empty: #184, #185 and #188 are merged (v3.5.0 to v3.7.0). N-1441 (the HTML import pages scoped to
-  their uploader or an admin, `fix/import-html-scope`) is open for QA's full gate. Next: the chunked restore, then P4
+  their uploader or an admin, [#195](https://github.com/thordin9/apotheke/pull/195)) is open for QA's full gate. Next: the chunked restore, then P4
   with N-1442 (import ownership by user id rather than username; it needs a CI4-only column or table, as 2.6.x
   reads `imports`).
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
