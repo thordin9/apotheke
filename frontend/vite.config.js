@@ -19,10 +19,7 @@ if (/["'<>&\s]/.test(appBase)) {
 function navFor(filename) {
     const file = String(filename || '').replaceAll('\\', '/');
     if (file.endsWith('/app/index.html')) {
-        return [
-            '<li><a class="btn" href="/">Home</a></li>',
-            '<li><a class="btn" href="/privacy/">Privacy</a></li>',
-        ].join('\n        ');
+        return '<li><a class="btn" href="/">Home</a></li>';
     }
     return [
         `<li><a class="btn btn-primary" href="${appBase}">Open the app</a></li>`,

@@ -12,8 +12,26 @@ test('header and hero CTAs point at the app', async ({ page }) => {
     await page.goto('/app/');
     const bar = page.getByRole('banner');
     await expect(bar.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
-    await expect(bar.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy/');
+    await expect(bar.getByRole('link', { name: 'Privacy' })).toHaveCount(0);
     await expect(bar.getByRole('link', { name: 'Open the app' })).toHaveCount(0);
+    await expect(page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy/');
+});
+
+test('Privacy stays in the footer, and narrow phones do not scroll sideways', async ({ browser }) => {
+    for (const width of [360, 390]) {
+        const context = await browser.newContext({ viewport: { width, height: 800 }, colorScheme: 'light' });
+        const page = await context.newPage();
+        for (const path of ['/', '/privacy/', '/404.html', '/app/', '/app/sign-in']) {
+            await page.goto(path);
+            const decline = page.getByRole('button', { name: 'Decline' });
+            if (await decline.isVisible()) await decline.click();
+            await expect(page.getByRole('banner').getByRole('link', { name: 'Privacy' })).toHaveCount(0);
+            await expect(page.getByRole('contentinfo').getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy/');
+            const fits = await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
+            expect(fits, path + ' at ' + width).toBe(true);
+        }
+        await context.close();
+    }
 });
 
 test('the header CTAs fit a phone in dark mode and show focus', async ({ browser }) => {
