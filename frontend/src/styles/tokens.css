@@ -88,6 +88,9 @@
   --color-success: #1f6b45;
   --color-overlay: rgb(4 48 61 / 0.55);
   --shadow-card: 0 20px 40px rgb(4 48 61 / 0.14);
+  --shadow-rest: 0 1px 2px rgb(4 48 61 / 0.06), 0 12px 28px rgb(4 48 61 / 0.08);
+  --color-header: #04303d;
+  --color-header-ink: #fdfcfa;
 }
 /* dark: brand set + the neutrals that move (paper 16%, ink 95%, elevation lighter, no resting shadow).
    The two dark blocks must stay identical; contrast.mjs fails if they drift. */
@@ -102,7 +105,8 @@
   --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
   --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
   --color-success: #7fd1a4;
-  --color-overlay: rgb(1 10 13 / 0.7); --shadow-card: 0 0 0 1px #24414a;
+  --color-overlay: rgb(1 10 13 / 0.7); --shadow-card: 0 0 0 1px #24414a; --shadow-rest: 0 0 0 1px #24414a;
+  --color-header: #07161c; --color-header-ink: #eef3f3;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
@@ -116,7 +120,8 @@
     --color-ink: #eef3f3; --color-ink-2: #cdd9dc; --color-muted: #9db1b7;
     --color-rule: #24414a; --color-rule-2: #1a343c; --color-field-edge: #6f8f98;
     --color-success: #7fd1a4;
-    --color-overlay: rgb(1 10 13 / 0.7); --shadow-card: 0 0 0 1px #24414a;
+    --color-overlay: rgb(1 10 13 / 0.7); --shadow-card: 0 0 0 1px #24414a; --shadow-rest: 0 0 0 1px #24414a;
+    --color-header: #07161c; --color-header-ink: #eef3f3;
   }
 }
 :root[data-theme="light"] { color-scheme: light; }

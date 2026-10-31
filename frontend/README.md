@@ -72,8 +72,8 @@ server do the same, so a refresh of `/app/sign-in` stays on the shell.
 footer. A Vite `transformIndexHtml` plugin injects them while building, and fills
 the nav. No runtime script is involved. The landing page, privacy page and 404
 offer **Open the app** (`/app/`) and **Sign in** (`/app/sign-in`). Inside the app
-the same bar offers **Home** (`/`) and **Privacy** (`/privacy/`). The footer is
-the same on every page, including `© 2026 Stathis Papandreou`.
+the same bar offers **Home** (`/`). **Privacy** (`/privacy/`) stays in the footer
+on every page, including `© 2026 Stathis Papandreou`.
 
 `src/app.js` is a plain module with a History API router: `/app/` (what Apotheke
 is, and a link to sign in), `/app/sign-in`, and a not-found view for any other

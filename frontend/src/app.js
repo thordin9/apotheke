@@ -104,7 +104,7 @@ function renderSignIn(root) {
     pass.disabled = true;
     const button = document.createElement('button');
     button.type = 'submit';
-    button.className = 'btn';
+    button.className = 'btn btn-primary';
     button.id = 'sign-in-submit';
     button.disabled = true;
     button.textContent = 'Sign in';
