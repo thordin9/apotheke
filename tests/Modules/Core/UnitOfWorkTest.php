@@ -235,6 +235,34 @@ final class UnitOfWorkTest extends CIUnitTestCase
         $this->assertSame([], $this->parents($db));
     }
 
+    /** On SQLite the callback reads under the write lock (legacy "write first"): another client cannot start a write. */
+    public function testOnSqliteTheCallbackHoldsTheWriteLock(): void
+    {
+        [$db, $units] = $this->wire('sqlite', false);
+        $other = new \SQLite3((string)$db->database);
+        $other->busyTimeout(0);
+        $other->enableExceptions(false);
+        try {
+            $units->run('uw_parent', function () use ($other): void {
+                $this->assertFalse(@$other->exec('BEGIN IMMEDIATE'), 'the unit holds the write lock while it reads');
+            });
+            $this->assertTrue($other->exec('BEGIN IMMEDIATE'), 'and releases it at the end');
+            $other->exec('ROLLBACK');
+        } finally {
+            $other->close();
+        }
+    }
+
+    public function testARefIsResolvedOnce(): void
+    {
+        $ref = new Ref('items');
+        $ref->resolve(4);
+        $ref->resolve(4);
+        $this->assertSame(4, $ref->id());
+        $this->expectException(\LogicException::class);
+        $ref->resolve(5);
+    }
+
     public function testARefHasNoIdBeforeTheUnitRan(): void
     {
         $ref = new Ref('items');
