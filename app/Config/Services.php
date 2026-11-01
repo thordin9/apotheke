@@ -671,7 +671,7 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Catalog\Items\ItemRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::taxonomy(), static::tags(),
-            static::imageStore(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()), static::photoRepository());
+            static::imageStore(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()), static::photoRepository(), static::unitsOfWork());
     }
 
     /** An item's photos: add, order, cover, delete, crop and rotate (Catalog, PLAN 11a part 2). */
@@ -953,7 +953,7 @@ class Services extends BaseService
         $s = static::settings();
 
         return new \Apotheke\Catalog\Items\Attachments($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::itemRepository(),
-            new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir(), null, 0770), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'));
+            new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir(), null, 0770), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'), static::unitsOfWork());
     }
 
     /** The +/- buttons (BulkMerge, PLAN 11b). */

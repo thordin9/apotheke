@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Activity;
 
+use Apotheke\Core\Database\Ref;
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
@@ -29,13 +31,28 @@ final class ActivityLogger implements ItemHistory
     /** @param array<string,mixed> $details */
     public function log(int $itemId, string $itemName, string $action, array $details = []): void
     {
-        Writes::check($this->db->table('activity')->insert([
+        Writes::check($this->db->table('activity')->insert($this->row($itemId, $itemName, $action, $details)), 'item history');
+    }
+
+    /** @param array<string,mixed> $details */
+    public function queue(UnitOfWork $uow, int|Ref $itemId, string $itemName, string $action, array $details = []): void
+    {
+        $uow->insert('activity', $this->row($itemId, $itemName, $action, $details), 'item history');
+    }
+
+    /**
+     * @param array<string,mixed> $details
+     * @return array<string,int|string|Ref|null>
+     */
+    private function row(int|Ref $itemId, string $itemName, string $action, array $details): array
+    {
+        return [
             'item_id' => $itemId,
             'item_name' => $itemName,
             'action' => $action,
             'details' => json_encode($details, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
             'created_at' => $this->clock->now(),
             'actor' => ($this->actor)(),
-        ]), 'item history');
+        ];
     }
 }
