@@ -317,10 +317,12 @@ atomic unit; they are not visible to `$fn`'s own reads.
   unit is a `BatchUnitOfWork`: nothing runs while `$fn` reads, and at the end every step goes out as one batch,
   holds first, with no `BEGIN` or `SAVEPOINT`. Guards are batch statements on `uow_guard`, `Ref`s go through
   `uow_refs` (migration 0031), and a failed batch is replayed in prefixes to throw the failed step's own error.
-  `LocalBatchExecutor` models D1's statement rules: it refuses more than one statement (a `CREATE TRIGGER` body
-  aside), transaction statements, PRAGMAs D1 does not document, `ATTACH`, `DETACH`, `VACUUM`, `ANALYZE`, `REINDEX`,
-  `sqlite_*()` calls and more than 100 parameters, and lets through what D1 documents (its PRAGMA list, writes to
-  `sqlite_sequence`). Statements are read with each dialect's quoting and comments; one it cannot read is refused.
+  `LocalBatchExecutor` models D1's statement rules: a step is one statement (a `CREATE TRIGGER` body aside, on
+  SQLite only) that starts with `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, `WITH`, `VALUES`, `CREATE`,
+  `DROP`, `ALTER` or a PRAGMA D1 documents (`optimize` without a value); anything else (transaction statements,
+  `ATTACH`, `VACUUM`, `SET`, `DO`, `COPY`, ...) is refused, as are `sqlite_*()` and `set_config()` calls and more
+  than 100 parameters. Writes to `sqlite_sequence` pass. Statements are read with each dialect's quoting, comments
+  and whitespace; one it cannot read is refused.
   The unit-of-work tests run every case in both modes on SQLite and PostgreSQL.
 - A hold, write or assert needs one bind per `?` placeholder (outside quotes; a `?` or `'` inside a quoted name is
   refused, as CI4's binder would read it differently), and a hold cannot bind the `Ref` of a
