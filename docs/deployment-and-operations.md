@@ -38,6 +38,13 @@ afterwards). *Restore* uploads a zip, validates it and shows a dry-run compariso
 confirmation and press *Restore* is **all data replaced**, in one transaction. Uploaded restore files wait in
 `DATA_DIR/tmp` under a random token until confirmed.
 
+**In chunks:** where a request body is capped (an edge host), a backup can be sent in pieces instead. Each upload is a folder `DATA_DIR/uploads/restore/<32 hex>/` (0770, never followed
+through a link) holding `manifest.json` and the data, at most `RESTORE_MAX_MB` in chunks of `RESTORE_CHUNK_KB`
+([Configuration](configuration.md)). The zip is checked and restored by the same code as an upload on the page. An
+account has one upload at a time. A finished, cancelled or refused upload is removed at once, and one without a
+request for an hour is removed by the next restore request or by `php spark apotheke:restore-sweep`, which you can
+run from cron (as the data directory's owner, `www-data` in the image; it creates no folder).
+
 **From the command line** (cron, and any archive larger than the browser upload limit):
 
 A backup that includes camera files is often bigger than the 22 MB body limit of a non-Docker install (Docker
@@ -542,8 +549,8 @@ preview. The deploy is not a release check. Routes and custom domains are never 
 
 **Token scope.** The tokens are account-wide: `deploy-site` has *Account > Workers Scripts > Edit*; `deploy-edge` has
 *Workers Scripts > Edit* and *Account > Containers > Edit*. Neither has Zone permissions, and CI makes no Zone API
-calls; after the P4 storage flip, `deploy-edge` also needs *D1 > Edit* and *Workers R2 Storage > Edit*
-([flip checklist](#p4-edge-storage-flip-checklist)). Account-wide means such a token could edit **any** Worker in the account, including ones this
+calls. Deploying a Worker with D1, R2 or Durable Object bindings needs no permission on the bound resources, so the
+P4 storage flip adds none ([flip checklist](#p4-edge-storage-flip-checklist)). Account-wide means such a token could edit **any** Worker in the account, including ones this
 repository must never touch (for example `apotheke-autofill`). So:
 
 * each workflow hard-codes its Worker name (`getapotheke-app` or `apotheke-api`); no name comes from inputs,
@@ -558,8 +565,9 @@ repository must never touch (for example `apotheke-autofill`). So:
   above;
 * changing the allowlist means changing that file, which needs a reviewed pull request.
 
-When Cloudflare offers per-Worker roles (or token resources scoped to one Worker) for the account, switch each token
-to its one Worker; the guard then stays as a second line of defence.
+Cloudflare now offers per-Worker roles ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/)):
+once a Worker exists, switch its token to *Editor* on that one Worker; the guard then stays as a second line of
+defence.
 
 **When a deploy fails,** `scripts/cf-deploy.sh` names the likely cause: an authentication error or 403 names the
 permission the environment's token probably lacks; a missing container push permission names *Containers > Edit*.
@@ -623,9 +631,10 @@ Flip in this order. Every step except the last two is additive; nothing is delet
       installation is created. **This can't be corrected after the ids exist.**
 
    The ADR's item 5 (the one-time steps) is the rest of this checklist.
-2. **Token for the one-time steps** (the operator's own, from a trusted machine, not CI): *Account > D1 > Edit*,
-   *Account > Workers R2 Storage > Edit* and *Account > Workers Scripts > Edit*, on this account only, ideally with an
-   IP filter and a TTL. In the environment only:
+2. **Token for creating the resources** (the operator's own, from a trusted machine, not CI; separate from the CI
+   token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Write*, on this account only,
+   with a TTL and ideally an IP filter ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)).
+   Setting the Worker secrets in step 6 needs *Editor* on the Worker (or *Workers Scripts > Edit*). In the environment only:
    `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
 3. **Create D1 and R2 in the EU jurisdiction.** The jurisdiction can't be changed after creation, for either. With a
    jurisdiction, a D1 location hint (`--location weur`) is ignored, so don't pass one. In `edge/` (the pinned wrangler):
@@ -641,9 +650,16 @@ Flip in this order. Every step except the last two is additive; nothing is delet
 4. **Repository variable** (Settings > Secrets and variables > Actions > Variables, or
    `gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>`). It is an identifier, not a secret; the deploy
    job fails before wrangler if it is missing or not a UUID.
-5. **`deploy-edge` token**: besides *Workers Scripts > Edit* and *Containers > Edit*, give the environment's
-   `CLOUDFLARE_API_TOKEN` *D1 > Edit* and *Workers R2 Storage > Edit*, so the deploy can bind the database and the
-   bucket.
+5. **`deploy-edge` token** (the environment's `CLOUDFLARE_API_TOKEN`): *Individual Workers > Editor* on `apotheke-api`
+   plus *Account > Containers > Edit*. It needs no D1 or R2 permission: deploying a Worker with D1, R2 or Durable
+   Object bindings needs only *Editor* on that Worker
+   ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)).
+   - A per-Worker role can only name a Worker that already exists, so the **very first** deploy of `apotheke-api`
+     needs a one-time *Account > Workers Scripts > Edit* (or *Workers Admin*) token; replace it with the per-Worker
+     token right after.
+   - Resource creation (step 2) uses its own short-lived token, never this one.
+   - Only a future control-plane `wrangler d1 migrations apply` (see above) would need a separate *D1 > Edit*
+     token, kept out of the `deploy-edge` environment.
 6. **Worker secrets and domain**: `APP_KEY` and `APP_PASSWORD` set once at go-live
    ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)), and the custom domain for the first
    host in `ALLOWED_HOSTS` attached, since the smoke check calls it.

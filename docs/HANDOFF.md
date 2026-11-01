@@ -365,6 +365,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Ci4ImportHtmlScopeTest` (uploader and admin through; another editor gets the unknown-id answer on GET, HEAD and
   the POSTs of an open and a done import, nothing saved; the history filtered; consent; L-1501, a guest sees no
   imports and gets the unknown-id 404; a guest upload stores nothing). Merged (#195).
+- [#205](https://github.com/thordin9/apotheke/pull/205) (chunked restore, part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
+  `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Chunks in order, within
+  the declared size and `RESTORE_MAX_MB`; size and optional SHA-256 checked before `Restorer`, which stays the only
+  code that checks and applies a restore. Owner-only (anyone else gets the unknown id's 404), one upload per
+  account (409), idle uploads swept after an hour and by `spark apotheke:restore-sweep`. Tests:
+  `tests/Modules/Backup/RestoreUploadsTest.php`. Merged (0c8503e), released as v3.11.0.
+- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2): the `/api/v1/restores` endpoints. Reopened against `main` after #205's
+  branch was deleted; open, in QA's merge-only read. The fix(backup) hardening follow-up comes right after it.
 - docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
   for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
   PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
@@ -456,12 +464,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. The chunked
-  restore is with QA (#205, and #206 stacked on it). P4-1 ([ADR-002](adr/002-edge-storage.md)) is merged (#203).
-  P4-2a is three stacked PRs with QA: the executor adapter, then the unit of work, then the batch path and parity
-  test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the large
-  paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
-  `EDGE_STORAGE_READY` (#204 merged); N-1442 follows with P4.
+- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
+  chunked restore store) is merged as v3.11.0; #206 (the API) is open on `main` in QA's merge-only read; the
+  fix(backup) hardening follow-up (L-1580, L-1581, N-1582 to N-1588) opens right after #206 merges, before more P4-2
+  work. P4-1 ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor
+  adapter (#209), then the unit of work (#210, retargeted to `main` before #209 merges), then the batch path and
+  parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
+  `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`
