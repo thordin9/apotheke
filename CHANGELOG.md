@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** saving a filter, recording a viewed item, deleting a role, resetting the built-in roles and starting a stocktake now write through the unit of work (P4-2b, part 1). Nothing changes for users.
+
 ## [3.15.2] - 2026-11-01
 
 ### Fixed
