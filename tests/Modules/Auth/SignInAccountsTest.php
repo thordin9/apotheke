@@ -707,6 +707,19 @@ final class SignInAccountsTest extends CIUnitTestCase
         (new UserRepository($broken))->find(1);
     }
 
+    /** N-1636: createdAt() is null only for an account that is not there; a database error throws. */
+    #[DataProvider('drivers')]
+    public function testCreatedAtFailsLoudlyOnADatabaseError(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $id = $this->account('ada', 'admin', 'active', 4);
+        $this->assertSame('2026-01-01 00:00:00', $this->users()->createdAt($id));
+        $this->assertNull($this->users()->createdAt($id + 1), 'no such account');
+        $this->db()->query('ALTER TABLE users RENAME COLUMN created_at TO made_at');
+        $this->expectException(WriteFailed::class);
+        $this->users()->createdAt($id);
+    }
+
     private function assertLimited(callable $hit, string $message): void
     {
         try {

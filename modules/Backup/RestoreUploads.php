@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Backup;
 
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Exceptions\WriteFailed;
 use Closure;
 
 /**
@@ -27,6 +28,9 @@ final class RestoreUploads
     public const IDLE = 3600;
 
     public const GUEST = 'Restores need a signed-in account.';
+
+    /** N-1636: the signed-in account could not be read (a database error), not a guest. */
+    public const OWNER_UNREADABLE = 'Your account could not be checked. Try again later.';
 
     public const NOT_FOUND = 'Restore upload not found.';
 
@@ -65,7 +69,7 @@ final class RestoreUploads
     private readonly Closure $afterLock;
 
     /**
-     * @param Closure():?string $owner this request's account key ("user:<id>:<sha256 of created_at>", "local" with sign-in off), null for a guest
+     * @param Closure():?string $owner this request's account key ("user:<id>:<sha256 of created_at>", "local" with sign-in off), null for a guest; WriteFailed when the account cannot be read (500)
      * @param int $maxOpen most uploads not yet confirmed, all accounts together
      * @param ?Closure(string):?float $freeBytes free bytes on the folder's disk, null when unknown (disk_free_space())
      * @param ?Closure(string):void $afterLock a test seam: runs on the manifest's path once it is locked, before the checks again
@@ -355,10 +359,14 @@ final class RestoreUploads
         return count($this->ids($this->root(false)));
     }
 
-    /** this request's owner key; guests are refused */
+    /** this request's owner key; guests are refused, and an account that cannot be read is a server fault (N-1636) */
     private function me(): string
     {
-        $me = ($this->owner)();
+        try {
+            $me = ($this->owner)();
+        } catch (WriteFailed $e) {
+            throw new UserError(self::OWNER_UNREADABLE, 500, $e);
+        }
         if ($me === null || $me === '') {
             throw new UserError(self::GUEST, 403);
         }
