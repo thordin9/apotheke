@@ -76,10 +76,13 @@ The same image has to serve three cases:
   on SQLite or PostgreSQL, so behaviour is the same on every backend. PostgreSQL-only code paths (`FOR UPDATE`,
   `LOCK TABLE`, snapshot reads) are simply not taken on the edge.
 - Ids that a unit inserts are `Ref`s: a ULID generated up front, resolved after the batch through `uow_refs`
-  (`last_insert_rowid()` right after the insert). Ids are read back with one `json_each(?)` parameter.
+  (`last_insert_rowid()` right after the insert; on PostgreSQL the insert's own `RETURNING id`). Later statements
+  of the batch read the id from `uow_refs`, and the ids are read back, and the rows deleted, at the end of the same
+  batch with one `json_each(?)` parameter.
 - Guards make the whole batch fail: an insert into the `NOT NULL` column `uow_guard.ok` that only happens when
-  `changes()` is not what was expected, or when an asserted condition is false. After the rollback the failed
-  guard is identified by reading again, so the caller's own error (for example a `UserError`) is thrown.
+  `changes()` (PostgreSQL: the write's `RETURNING` count) is not what was expected, or when an asserted condition
+  is not true. After the rollback the failed step is identified by replaying prefixes of the batch that always fail
+  at their end (so nothing is kept), and the caller's own error (for example a `UserError`) is thrown.
 - A unit started inside another one on the same connection joins it: one batch, one commit, all or nothing. On PDO
   a unit inside a plain transaction runs under a `SAVEPOINT`, so it is kept whole or not at all; on D1 a unit never
   nests in a plain transaction.
@@ -284,7 +287,9 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    Then the sites are converted in follow-up parts: batch and Ref first, then guards, then the large paths.
    P4-2a is three stacked parts: the executor adapter (`SqlExecutor`, its default `ConnectionExecutor`, `Dialect`
    and the `json_each` fixes), the unit of work on a connection (`UnitsOfWork`, the per-request registry), and the
-   batch path (planned: `BatchUnitOfWork`, the `uow_guard` and `uow_refs` migration, the parity test). P4-2b converts
+   batch path (`BatchUnitOfWork`, migration 0031 with `uow_guard` and `uow_refs`, and the parity cases).
+   `LocalBatchExecutor` runs the batch path on SQLite and PostgreSQL with D1's limits (no transaction statement,
+   pragma or `sqlite_*()` function, 100 parameters), so every unit-of-work test runs in both modes. P4-2b converts
    the sites; until then no call site uses the executor's batch or a unit of work.
    **PostgreSQL parity gate:** every P4-2 part keeps the full PHPUnit suites (root and module) green on SQLite and
    PostgreSQL 17. A parity test also runs each converted site through the unit of work on PDO and through the batch

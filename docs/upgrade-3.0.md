@@ -95,8 +95,9 @@ docker compose exec -u www-data apotheke php /var/www/app/bin/migrate.php --stat
 ```
 
 No data step is needed. From 3.2 the CI4 app has migrations of its own (`0029` adds the `jobs` table for background
-jobs, `0030` the `import_rows` table of the CSV import job); they only add tables, change no table or column 2.x
-reads, and 2.x ignores them: `--status` lists the 2.x migrations only, and the `jobs` and `import_rows` tables stay behind in the database, harmless, until you switch to CI4 again. A
+jobs, `0030` the `import_rows` table of the CSV import job, `0031` the empty `uow_guard` and `uow_refs` tables of
+the batch unit of work); they only add tables, change no table or column 2.x
+reads, and 2.x ignores them: `--status` lists the 2.x migrations only, and the `jobs`, `import_rows`, `uow_guard` and `uow_refs` tables stay behind in the database, harmless, until you switch to CI4 again. A
 backup made by 3.2 or later does not carry them, so 2.x restores it (step 4 below). Both apps keep sessions in the same files under
 `sessions/`, so a sign-in usually survives the switch back.
 
@@ -138,8 +139,8 @@ Unchanged from 2.x, noted because it can surprise:
   runs on the same data directory and database; then the 2.x app again; then each app restores the other's backup
   zip, over the install and into a fresh one. After every step every table and the sha256 of every file under
   `images/`, `thumbs/`, `originals/` (`map/` included) and `files/` must equal the seeded state, originals must be
-  0750/0640 and `files/` 0750. The CI4-only additions (migrations `0029` and `0030` with the `jobs` and `import_rows`
-  tables, two rows each seeded after the upgrade) must stay through the rollback and both in-place restores, and the CI4 backup must not name
+  0750/0640 and `files/` 0750. The CI4-only additions (migrations `0029` to `0031` with the `jobs`, `import_rows`,
+  `uow_guard` and `uow_refs` tables, two rows each seeded in the first two after the upgrade) must stay through the rollback and both in-place restores, and the CI4 backup must not name
   them (`tests/upgrade/ci4-only.php`). Mutation checks prove the comparison catches a lost table, a changed or missing
   attachment and a wrong mode.
 * **Parity gate** (until the cutover, SQLite and PostgreSQL): one scenario over every ported area on both apps,

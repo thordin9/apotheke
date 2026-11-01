@@ -228,6 +228,8 @@ Notes:
 | 0027 | `0027_session_idle_hours.php` | `session_idle_hours` (default 168) |
 | 0028 | `0028_session_epoch.php` | `users.session_epoch` (sign out everywhere, new passwords), filled so existing sessions stay valid |
 | 0029 | `0029_jobs.php` | `jobs` (background jobs for `php spark jobs:work`) + index on `(status, run_after, id)`. CI4 only (3.2.0 and later): 2.6.x ignores the table, a backup does not carry it or name the migration |
+| 0030 | `0030_import_rows.php` | `import_rows` (the CSV import job's lines, so a stopped job resumes). CI4 only, as 0029 |
+| 0031 | `0031_unit_of_work.php` | `uow_guard` and `uow_refs`, the batch unit of work's guard and id tables (ADR-002), empty outside a batch. CI4 only, as 0029 |
 
 ## PostgreSQL schema and roles
 
@@ -311,6 +313,12 @@ atomic unit; they are not visible to `$fn`'s own reads.
   outer one even if the outer callback catches it.
 - `UnitsOfWork` is the registry of the open unit: per request, no static state, empty again when `run()` returns or
   throws. A unit a fatal error left open is discarded by the request's `RequestCleanup`, never run.
+- On an executor without a connection (D1 and Durable Object SQLite from P4-3; `LocalBatchExecutor` in tests) the
+  unit is a `BatchUnitOfWork`: nothing runs while `$fn` reads, and at the end every step goes out as one batch,
+  holds first, with no `BEGIN` or `SAVEPOINT`. Guards are batch statements on `uow_guard`, `Ref`s go through
+  `uow_refs` (migration 0031), and a failed batch is replayed in prefixes to throw the failed step's own error.
+  `LocalBatchExecutor` refuses what D1 refuses (transaction statements, pragmas, `sqlite_*()` functions, more than
+  100 parameters), so the unit-of-work tests run every case in both modes on SQLite and PostgreSQL.
 - A unit takes writes only inside its `run()` callback. Once it ran or threw, any further call throws a
   `LogicException` (a discarded unit: `WriteFailed`) instead of queueing a write that would never run.
 
