@@ -132,9 +132,9 @@ final class SqlExecutorTest extends CIUnitTestCase
 
     /**
      * LocalBatchExecutor holds every statement to D1's limits before any
-     * runs (no transaction statement, pragma or sqlite_*() function, at most
-     * 100 parameters), has no connection, and keeps a failed batch out of an
-     * open transaction, which carries on.
+     * runs (no transaction statement, undocumented pragma or sqlite_*()
+     * call, at most 100 parameters), has no connection, and keeps a failed
+     * batch out of an open transaction, which carries on.
      */
     #[DataProvider('drivers')]
     public function testTheLocalBatchExecutorKeepsToD1sLimits(string $driver): void
@@ -146,7 +146,7 @@ final class SqlExecutorTest extends CIUnitTestCase
         $ok = ['sql' => 'INSERT INTO uw_parent (name) VALUES (?)', 'params' => ['kept?']];
         $refused = [
             ['BEGIN', []], [' savepoint x', []], ['RELEASE x', []], ['ROLLBACK', []], ['COMMIT', []], ['END', []],
-            ['PRAGMA foreign_keys', []], ['SELECT sqlite_version()', []],
+            ['PRAGMA journal_mode', []], ['SELECT sqlite_version()', []],
             ['SELECT ' . implode(' + ', array_fill(0, 101, '?')) . ' AS n', array_fill(0, 101, 1)],
         ];
         foreach ($refused as [$sql, $params]) {
@@ -176,50 +176,98 @@ final class SqlExecutorTest extends CIUnitTestCase
         $this->assertSame(['outer', 'batch'], array_column(Writes::rows($db, 'SELECT name FROM uw_parent ORDER BY id'), 'name'));
     }
 
-    /** @return iterable<string,array{0:string,1:list<scalar|null>,2:bool}> statement, params, refused */
+    /** @return iterable<string,array{0:string,1:string,2:list<scalar|null>,3:bool}> driver, statement, params, refused */
     public static function batchStatements(): iterable
     {
         $insert = 'INSERT INTO uw_parent (name) VALUES (?)';
-        foreach ([
-            'begin' => 'BEGIN', 'begin after a line comment' => "-- note\nBEGIN", 'commit after a block comment' => '/* note */ COMMIT',
-            'rollback after both comments' => "/* a */ -- b\n  ROLLBACK", 'end' => 'END', 'savepoint' => ' savepoint x', 'release' => 'RELEASE x',
-            'start transaction' => 'START TRANSACTION', 'abort' => 'ABORT', 'pragma' => 'PRAGMA foreign_keys',
-            'pragma after a comment' => '/**/PRAGMA journal_mode', 'attach' => "ATTACH DATABASE ':memory:' AS x",
-            'detach' => 'DETACH DATABASE x', 'vacuum' => 'VACUUM', 'analyze' => 'ANALYZE', 'reindex' => 'REINDEX',
-            'sqlite function' => 'SELECT sqlite_version()', 'sqlite function, space' => "SELECT sqlite_version \n()",
-            'sqlite function, comment' => 'SELECT sqlite_version/* x */()', 'sqlite function, quoted' => 'SELECT "sqlite_version"()',
-            'second statement' => 'SELECT 1; SELECT 2', 'second statement after a literal' => "SELECT 'a;b'; BEGIN",
-            'two trailing semicolons' => 'SELECT 1;;', 'only a comment' => '-- nothing', 'empty' => '',
-        ] as $name => $sql) {
-            yield 'refused: ' . $name => [$sql, [], true];
-        }
-        yield 'refused: 101 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 101, '?')) . ' AS n', array_fill(0, 101, 1), true];
-        foreach ([
-            'an insert' => [$insert, ['a']],
-            'one trailing semicolon' => [$insert . ';', ['a']],
-            'a trailing semicolon and comment' => [$insert . " ; -- done; really\n", ['a']],
-            'a literal holding refused words' => ["INSERT INTO uw_parent (name) VALUES ('BEGIN; VACUUM; sqlite_version() -- /*')", []],
-            'a doubled quote' => ["INSERT INTO uw_parent (name) VALUES ('it''s; ATTACH')", []],
-            'a leading comment' => ["/* why */ -- and\n" . $insert, ['a']],
-            'a semicolon in a comment' => ["SELECT name FROM uw_parent /* ; */ WHERE name = 'end' -- ;", []],
-            'a quoted name' => ['SELECT name AS "begin;end" FROM uw_parent', []],
-            '100 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 100, '?')) . ' AS n', array_fill(0, 100, 1)],
-        ] as $name => [$sql, $params]) {
-            yield 'allowed: ' . $name => [$sql, $params, false];
+        $trigger = 'CREATE TRIGGER IF NOT EXISTS uw_t AFTER INSERT ON uw_parent BEGIN ';
+        $refused = [
+            'both' => [
+                'begin' => 'BEGIN', 'begin after a line comment' => "-- note\nBEGIN", 'commit after a block comment' => '/* note */ COMMIT',
+                'rollback after both comments' => "/* a */ -- b\n  ROLLBACK", 'end' => 'END', 'savepoint' => ' savepoint x', 'release' => 'RELEASE x',
+                'start transaction' => 'START TRANSACTION', 'abort' => 'ABORT', 'pragma not documented' => 'PRAGMA journal_mode',
+                'pragma not documented, after a comment' => '/**/PRAGMA writable_schema = on', 'pragma optimize with a value' => 'PRAGMA optimize(-1)',
+                'pragma with a second value' => 'PRAGMA foreign_keys = on off', 'attach' => "ATTACH DATABASE ':memory:' AS x",
+                'detach' => 'DETACH DATABASE x', 'vacuum' => 'VACUUM', 'analyze' => 'ANALYZE', 'reindex' => 'REINDEX',
+                'sqlite function' => 'SELECT sqlite_version()', 'sqlite function, space' => "SELECT sqlite_version \n()",
+                'sqlite function, comment' => 'SELECT sqlite_version/* x */()', 'sqlite function, quoted' => 'SELECT "sqlite_version"()',
+                'sqlite function next to sqlite_sequence' => 'SELECT seq, sqlite_version() FROM sqlite_sequence',
+                'second statement' => 'SELECT 1; SELECT 2', 'second statement after a literal' => "SELECT 'a;b'; BEGIN",
+                'second statement after a quoted name' => 'SELECT 1 AS "a;b"; COMMIT', 'nested comment' => '/* a /* b */ ; */ COMMIT',
+                'two trailing semicolons' => 'SELECT 1;;', 'only a comment' => '-- nothing', 'empty' => '',
+                'unclosed block comment' => 'SELECT 1 /* x', 'unclosed literal' => "SELECT 'a", 'unclosed quoted name' => 'SELECT 1 AS "a',
+                'trigger, then a commit' => $trigger . 'SELECT 1; END; COMMIT', 'trigger body with a commit' => $trigger . 'SELECT 1; COMMIT; END',
+                'trigger without a body' => $trigger . 'END; COMMIT', 'trigger, empty body statement' => $trigger . 'SELECT 1;; END',
+                'not a trigger' => 'CREATE TABLE uw_x (a INT); COMMIT', 'trigger named begin' => 'CREATE TRIGGER "begin" AFTER INSERT ON uw_parent COMMIT; END',
+            ],
+            'sqlite' => [
+                'a quote in a [ name' => "SELECT 1 AS [a'b]; COMMIT", 'bracketed sqlite function' => 'SELECT [sqlite_version]()',
+                'backtick sqlite function' => 'SELECT `sqlite_version`()', 'a semicolon in a backtick name' => 'SELECT 1 AS `a;b`; COMMIT',
+                'unclosed [ name' => 'SELECT 1 AS [a', 'unclosed backtick name' => 'SELECT 1 AS `a',
+            ],
+            'pgsql' => [
+                'an escaped quote in an E literal' => "SELECT E'\\'', 1; COMMIT; SELECT ''", 'a quote in a dollar quote' => 'SELECT $$\'$$; COMMIT; SELECT $$\'$$',
+                'a quote in a tagged dollar quote' => 'SELECT $t$\'$t$; COMMIT; SELECT $t$\'$t$', 'unclosed dollar quote' => 'SELECT $$a',
+                'a backtick' => 'SELECT 1 AS `a`', 'unclosed E literal' => "SELECT E'a\\'",
+            ],
+        ];
+        $allowed = [
+            'both' => [
+                'an insert' => [$insert, ['a']],
+                'one trailing semicolon' => [$insert . ';', ['a']],
+                'a trailing semicolon and comment' => [$insert . " ; -- done; really\n", ['a']],
+                'a literal holding refused words' => ["INSERT INTO uw_parent (name) VALUES ('BEGIN; VACUUM; sqlite_version() -- /*')", []],
+                'a doubled quote' => ["INSERT INTO uw_parent (name) VALUES ('it''s; ATTACH')", []],
+                'a backslash in a standard literal' => ["SELECT 'a\\' AS a", []],
+                'a leading comment' => ["/* why */ -- and\n" . $insert, ['a']],
+                'a semicolon in a comment' => ["SELECT name FROM uw_parent /* ; */ WHERE name = 'end' -- ;", []],
+                'a quoted name' => ['SELECT name AS "begin;end" FROM uw_parent', []],
+                '100 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 100, '?')) . ' AS n', array_fill(0, 100, 1)],
+            ],
+            'sqlite' => [
+                'bracket and backtick names' => ['SELECT 1 AS [a;b], 2 AS `c;``d`', []],
+                'pragma foreign_keys' => ['PRAGMA foreign_keys', []], 'pragma defer_foreign_keys' => ['PRAGMA defer_foreign_keys = on', []],
+                'pragma table_info' => ["PRAGMA table_info('uw_parent')", []], 'pragma table_info, quoted' => ['PRAGMA main.table_info("uw_parent")', []],
+                'pragma optimize' => ['PRAGMA optimize', []],
+                'a write to sqlite_sequence' => ["UPDATE sqlite_sequence SET seq = seq WHERE name = 'uw_seq'", []],
+                'an insert into sqlite_sequence' => ["INSERT INTO sqlite_sequence(name, seq) SELECT 'uw_none', 0 WHERE 0", []],
+                'a trigger' => [$trigger . "UPDATE uw_parent SET note = 'a;b' WHERE id = NEW.id; DELETE FROM uw_child WHERE 0; END;", []],
+                'a temp trigger' => ['CREATE TEMP TRIGGER IF NOT EXISTS uw_tt AFTER DELETE ON uw_parent BEGIN SELECT 1; END', []],
+            ],
+            'pgsql' => [
+                'an escaped quote in an E literal' => ["SELECT E'it\\'s; ATTACH' AS a, e'\\\\' AS b", []],
+                'dollar quotes' => ['SELECT $$a; COMMIT$$ AS a, $t$ $$ ; $t$ AS b', []],
+                'a nested comment' => ['SELECT 1 /* a /* ; */ b */ AS a', []],
+            ],
+        ];
+        foreach (TestDatabase::drivers() as $driver) {
+            foreach (['both', $driver] as $set) {
+                foreach ($refused[$set] as $name => $sql) {
+                    yield $driver . ' refused: ' . $name => [$driver, $sql, [], true];
+                }
+                foreach ($allowed[$set] as $name => [$sql, $params]) {
+                    yield $driver . ' allowed: ' . $name => [$driver, $sql, $params, false];
+                }
+            }
+            yield $driver . ' refused: 101 parameters' => [$driver, 'SELECT ' . implode(' + ', array_fill(0, 101, '?')) . ' AS n', array_fill(0, 101, 1), true];
         }
     }
 
     /**
-     * L-1637: LocalBatchExecutor matches a statement with its comments taken
-     * out and its literals emptied, so a comment hides no refused word, a
-     * second statement is refused, and a literal is only a value.
+     * L-1637, L-1643, N-1644, N-1646: LocalBatchExecutor reads a statement
+     * with each dialect's quoting and comments, so a comment or quote hides
+     * no refused word or second statement, a literal is only a value, an
+     * unreadable statement is refused, and what D1 documents is let through.
      *
      * @param list<scalar|null> $params
      */
     #[DataProvider('batchStatements')]
-    public function testTheLocalBatchExecutorRefusesWhatD1Refuses(string $sql, array $params, bool $refused): void
+    public function testTheLocalBatchExecutorModelsD1sStatementRules(string $driver, string $sql, array $params, bool $refused): void
     {
-        [$this->database, $db] = UowSchema::create('sqlite');
+        [$this->database, $db] = UowSchema::create($driver);
+        if ($driver === 'sqlite') {
+            $db->query('CREATE TABLE uw_seq (id INTEGER PRIMARY KEY AUTOINCREMENT)');
+        }
         $exec = new LocalBatchExecutor($db);
         foreach (['run' => static fn () => $exec->run([['sql' => $sql, 'params' => $params]]), 'query' => static fn () => $exec->query($sql, $params)] as $call => $f) {
             try {
