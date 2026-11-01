@@ -27,7 +27,7 @@ const COMMON: Record<string, string> = {
 // _headers `/app/*` (which detaches the landing CSP with `! Content-Security-Policy`).
 const APP_CSP =
 	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data: https://api.services.getapotheke.com; " +
-	"connect-src 'self' https://api.services.getapotheke.com; font-src 'self'; manifest-src 'self'; worker-src 'self'; " +
+	"connect-src 'self' https://api.services.getapotheke.com https://analytics.services.webapp.gr; font-src 'self'; manifest-src 'self'; worker-src 'self'; " +
 	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'";
 
 // For what the Worker serves outside /app/ (config.json, fonts, errors): nothing to run, embed or frame.
