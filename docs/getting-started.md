@@ -134,7 +134,8 @@ The supported install is the Docker image ([Upgrading to 3.0](upgrade-3.0.md)); 
 development and testing. Requirements: PHP 8.4 (as the Docker image) and Composer, with `pdo_sqlite` or `pdo_pgsql`, `gd` (JPEG and WebP),
 `mbstring`, `sodium` (stored secrets) and `zip` (backups); `exif` is recommended (photo orientation), `dom` for SVG
 logo uploads, `opcache` for speed. Optional `imagick` reads HEIC and files GD cannot; without it a HEIC upload is kept
-and shown as a placeholder. SQLite is built in; PostgreSQL is tested with 17. If you turn on function JIT, see
+and shown as a placeholder. SQLite is built in and must be 3.38 or newer (its JSON functions; the app and
+`apotheke:migrate` refuse an older one, and the Docker images are newer); PostgreSQL is tested with 17. If you turn on function JIT, see
 [PHP and web server limits](configuration.md#php-and-web-server-limits).
 
 ```bash

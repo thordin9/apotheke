@@ -6,7 +6,10 @@ namespace Tests\Support;
 
 use CodeIgniter\Database\BaseConnection;
 
-/** A bare test database with the unit-of-work tables (migration 0031) and two test tables. */
+/**
+ * A bare test database with the unit-of-work tables (`uow_guard`, `uow_refs`; their migration is planned for the
+ * batch path, P4-2a part 3) and two test tables.
+ */
 final class UowSchema
 {
     /** @return array{0:TestDatabase,1:BaseConnection<object|resource, object|resource>} */

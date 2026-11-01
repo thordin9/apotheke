@@ -71,6 +71,38 @@ final class CatalogTest extends CIUnitTestCase
         $this->assertSame([], $names('hammer'));
     }
 
+    /**
+     * L-1620: the ranking query binds every id of each 500-id chunk as one
+     * list. An exact name "Bolt" sits inside each chunk, never at a chunk's
+     * first id, and "Hex bolt" repeats the word in its notes, so the
+     * engine's own score (FTS5 or ts_rank) alone would not put both "Bolt"s
+     * first: only the field weights, applied to every id of every chunk, do.
+     */
+    #[DataProvider('drivers')]
+    public function testRankingScoresEveryIdOfEachChunk(string $driver): void
+    {
+        $this->seed($driver);
+        $special = [250 => 'Bolt', 300 => 'Hex bolt', 550 => 'Bolt', 580 => 'Hex bolt'];
+        $rows = [];
+        for ($i = 1; $i <= 600; $i++) {
+            $name = $special[$i] ?? sprintf('Part %03d', $i);
+            $rows[] = ['name' => $name, 'quantity' => 1, 'favourite' => 0, 'notes' => $name === 'Hex bolt' ? 'bolt bolt bolt bolt' : 'bolt',
+                'sort_key' => Text::natkey($name), 'created_at' => '2026-06-01 08:00:00', 'updated_at' => '2026-06-01 08:00:00'];
+        }
+        $this->assertSame(600, (int)$this->db()->table('items')->insertBatch($rows));
+        $ids = fn (string $name): array => array_map('intval', array_column($this->db()->query('SELECT id FROM items WHERE name = ? ORDER BY id', [$name])->getResultArray(), 'id'));
+        $hits = (new SearchIndex($this->db(), $this->taxonomy(), true))->match('bolt')['ids'];
+        $this->assertCount(600, $hits);
+        $top = static function (array $part): array {
+            sort($part);
+
+            return $part;
+        };
+        // both exact names first, then the word-start names, then the notes-only hits
+        $this->assertSame($ids('Bolt'), $top(array_slice($hits, 0, 2)));
+        $this->assertSame($ids('Hex bolt'), $top(array_slice($hits, 2, 2)));
+    }
+
     /** M-50: SQLite without FTS5 (migration 0019 skips the FTS tables) searches with LIKE, as legacy does. */
     public function testSqliteWithoutFts5SearchesWithLike(): void
     {

@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** installs without Docker need SQLite 3.38 or newer (the JSON functions the app now uses for long id lists); the app and `php spark apotheke:migrate` stop with a clear message on an older one. The Docker images already ship a newer SQLite.
+
 ## [3.13.0] - 2026-11-01
 
 ### Added

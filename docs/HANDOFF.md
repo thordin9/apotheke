@@ -365,36 +365,16 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `Ci4ImportHtmlScopeTest` (uploader and admin through; another editor gets the unknown-id answer on GET, HEAD and
   the POSTs of an open and a done import, nothing saved; the history filtered; consent; L-1501, a guest sees no
   imports and gets the unknown-id 404; a guest upload stores nothing). Merged (#195).
-- docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
-  for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
-  PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
-  in hosted mode; the D1 constraints, the `Writes::transaction` strategies, migrations, the P4 PR split, the
-  ownership split with DevOps and the `EDGE_STORAGE_READY` criteria. QA round 1: M-1540 (Status cites the owner's
-  2026-10-29 and 2026-10-31 decisions; plan B is Postgres through Hyperdrive), M-1541 (`Installation` ids from the EU
-  jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
-  as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
-  Docs only. Merged (#203). QA's nits N-1560 to N-1562, and N-1584 (the chunked restore store goes behind `Core\Storage` in P4-4), are in P4-2a part 1, with N-1589 (restore confirm likely becomes a background job on D1 and the DO, P4-4).
-- feat/p4-executor (P4-2a, part 1 of 3): the SQL executor adapter. `Core\Database\SqlExecutor` (`run()` one atomic
-  batch, `query()`, `dialect()`, `connection()`), its default `ConnectionExecutor` (the request's CodeIgniter
-  connection; no behaviour change on SQLite or PostgreSQL), `Dialect`, and `Services::sqlExecutor()` (per request,
-  not persistent). Long id lists are one list parameter (`Dialect::inList()`: `json_each` on SQLite,
-  `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
-  `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
-  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Open for QA's full gate.
 - [#205](https://github.com/thordin9/apotheke/pull/205) (chunked restore, part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
-  `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Random ids,
-  strict id pattern, nothing followed through a link (root, folder, manifest, data), the real path checked. Chunks in
-  order, each exactly the chunk size but the last, within the declared size and `RESTORE_MAX_MB`; the size and an
-  optional SHA-256 are checked before the zip is handed to `Restorer`, which stays the only code that checks and
-  applies a restore. An upload is its owner's (`user:<id>`, `local` with sign-in off; guests none): anyone else gets
-  the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Idle for
-  an hour, swept on each request and by `spark apotheke:restore-sweep`. Tests:
-  `tests/Modules/Backup/RestoreUploadsTest.php`. Merged (v3.11.0).
-- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2): `Backup\Controllers\Api\RestoresController`, the
-  `/api/v1/restores` endpoints (backup permission): create, GET, chunks (multipart `chunk`, so the API CSRF rules
-  are unchanged), finish (the dry run, `Restorer::open()`), confirm (`Restorer::restore()`, the settings only with
-  the settings permission, 409 keeps the upload), DELETE. OpenAPI and docs/api.md. Tests: `Ci4ApiRestoresTest`,
-  SQLite and PostgreSQL. Merged (v3.12.0).
+  `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Chunks in order, within
+  the declared size and `RESTORE_MAX_MB`; size and optional SHA-256 checked before `Restorer`, which stays the only
+  code that checks and applies a restore. Owner-only (anyone else gets the unknown id's 404), one upload per
+  account (409), idle uploads swept after an hour and by `spark apotheke:restore-sweep`. Tests:
+  `tests/Modules/Backup/RestoreUploadsTest.php`. Merged (0c8503e), released as v3.11.0.
+- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2): `Backup\Controllers\Api\RestoresController`, the `/api/v1/restores`
+  endpoints (backup permission): create, GET, chunks (multipart `chunk`), finish (the dry run, `Restorer::open()`),
+  confirm (`Restorer::restore()`; settings only with the settings permission), DELETE. OpenAPI and docs/api.md.
+  Tests: `Ci4ApiRestoresTest`, SQLite and PostgreSQL. Merged, released as v3.12.0.
 - [#211](https://github.com/thordin9/apotheke/pull/211) (chunked restore upload limits; L-1580, L-1581, N-1582, N-1583, N-1586, N-1587, N-1588):
   starts are serialised by `create.lock` (`Restorer::openLock(wait: true)`), with `RESTORE_MAX_UPLOADS` (default 8,
   1–64; 503 `restore.busy`) and a free-disk check (size + 64 MiB; 507 `storage.insufficient`). The sweep and removals
@@ -405,9 +385,31 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   second confirm, which never restores twice (a background job is ADR P4-4, N-1589). There is no chunked uploader in
   the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
   (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
-  outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29).
-- Open PRs: the P4-2 stack [#209](https://github.com/thordin9/apotheke/pull/209) (SQL executor) with
-  [#210](https://github.com/thordin9/apotheke/pull/210) stacked on it (retarget #210 to main before #209 merges).
+  outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29), released as v3.12.1.
+- docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
+  for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
+  PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
+  in hosted mode; the D1 constraints, the `Writes::transaction` strategies, migrations, the P4 PR split, the
+  ownership split with DevOps and the `EDGE_STORAGE_READY` criteria. QA round 1: M-1540 (Status cites the owner's
+  2026-10-29 and 2026-10-31 decisions; plan B is Postgres through Hyperdrive), M-1541 (`Installation` ids from the EU
+  jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
+  as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
+  Docs only. Merged (#203). QA's nits N-1560 to N-1562, and N-1584 (the chunked restore store goes behind `Core\Storage` in P4-4), are in P4-2a part 1, with N-1589 (restore confirm likely becomes a background job on D1 and the DO, P4-4).
+- [#209](https://github.com/thordin9/apotheke/pull/209) (P4-2a, part 1 of 3): the SQL executor adapter. `Core\Database\SqlExecutor` (`run()` one atomic
+  batch, `query()`, `dialect()`, `connection()`), its default `ConnectionExecutor` (the request's CodeIgniter
+  connection; no behaviour change on SQLite or PostgreSQL), `Dialect`, and `Services::sqlExecutor()` (per request,
+  not persistent). Long id lists are one list parameter (`Dialect::inList()`: `json_each` on SQLite,
+  `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
+  `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
+  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Merged (08aebbc), released as v3.13.0.
+- [#210](https://github.com/thordin9/apotheke/pull/210) (P4-2a, part 2 of 3): the unit of work on a connection. `UnitOfWork` (`hold`,
+  `insert` with a `Ref`, `update`, `write` with `expect`, `assert`), `ConnectionUnitOfWork` (a real transaction,
+  the queue run in order at the end), and `UnitsOfWork`, the per-request registry of the open unit
+  (`Services::unitsOfWork()`): nested units join the outer one, a failed joined unit fails it, and a unit left open
+  is discarded by `RequestCleanup`. No call site uses it yet. Tests: `UnitOfWorkTest` (SQLite and PostgreSQL) and
+  `DatabaseStateTest` (empty registry after a failure; two worker requests in one process). Also #209's QA items
+  L-1620 and N-1621 to N-1623: SQLite 3.38 or newer is required (checked at connect and by the migration runner).
+  Open for QA's full gate.
 
 ## Lanes
 
@@ -484,9 +486,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
-  chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0), and so is their upload-limit hardening
-  (#211). P4-1 ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
-  (#209), then the unit of work (#210, retargeted to `main` before #209 merges), then the batch path and parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
+  (#211) is merged (v3.12.1); #209 is merged (v3.13.0); #210 is the open PR. P4-1
+  ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
+  (#209), then the unit of work (#210, now based on `main`), then the batch path and parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.

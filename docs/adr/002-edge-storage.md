@@ -282,7 +282,8 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    Then the sites are converted in follow-up parts: batch and Ref first, then guards, then the large paths.
    P4-2a is three stacked parts: the executor adapter (`SqlExecutor`, its default `ConnectionExecutor`, `Dialect`
    and the `json_each` fixes), the unit of work on a connection (`UnitsOfWork`, the per-request registry), and the
-   batch path (`BatchUnitOfWork`, `uow_guard` and `uow_refs`, the parity test). P4-2b converts the sites.
+   batch path (planned: `BatchUnitOfWork`, the `uow_guard` and `uow_refs` migration, the parity test). P4-2b converts
+   the sites; until then no call site uses the executor's batch or a unit of work.
    **PostgreSQL parity gate:** every P4-2 part keeps the full PHPUnit suites (root and module) green on SQLite and
    PostgreSQL 17. A parity test also runs each converted site through the unit of work on PDO and through the batch
    executor, and checks that both give the same rows and the same ids on SQLite and on PostgreSQL.

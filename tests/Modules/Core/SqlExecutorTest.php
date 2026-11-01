@@ -8,6 +8,7 @@ use Apotheke\Core\Database\BatchExecutor;
 use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -83,6 +84,76 @@ final class SqlExecutorTest extends CIUnitTestCase
         }
         $this->assertSame([], Writes::rows($db, 'SELECT * FROM uw_parent'), 'nothing of either batch is kept');
         $this->assertSame(0, (int)$db->transDepth);
+    }
+
+    /**
+     * N-1621: only the guard's own NOT NULL violation is GUARD_FAILED. A
+     * stored value that names the guard table, or even spells out the
+     * guard's message, in another error (PostgreSQL puts row values in its
+     * DETAIL line and in some primary messages) is an ordinary failure, with
+     * DBDebug off (the error array) and on (the exception).
+     */
+    #[DataProvider('drivers')]
+    public function testOnlyTheGuardItselfIsAGuardFailure(string $driver): void
+    {
+        [$this->database, $db] = UowSchema::create($driver);
+        $db->query('CREATE TABLE uw_unique (v TEXT NOT NULL UNIQUE, n INTEGER NOT NULL CHECK (n > 0))');
+        $forged = 'null value in column "ok" of relation "' . 'uow_guard' . '" violates not-null constraint';
+        $db->query('INSERT INTO uw_unique (v, n) VALUES (?, ?)', ['uow_guard', 1]);
+        $db->query('INSERT INTO uw_unique (v, n) VALUES (?, ?)', [$forged, 1]);
+        $cases = [
+            'the guard' => ['INSERT INTO uow_guard (ok) SELECT NULL', [], BatchExecutor::GUARD_FAILED],
+            'the guard, bound' => ['INSERT INTO uow_guard (ok) SELECT CASE WHEN ? = 1 THEN 1 END', [0], BatchExecutor::GUARD_FAILED],
+            'a unique value naming the table' => ['INSERT INTO uw_unique (v, n) VALUES (?, ?)', ['uow_guard', 2], 0],
+            'a unique value spelling the message' => ['INSERT INTO uw_unique (v, n) VALUES (?, ?)', [$forged, 2], 0],
+            'a check with the value' => ['INSERT INTO uw_unique (v, n) VALUES (?, ?)', [$forged . "\n" . $forged, 0], 0],
+            'a cast of the message' => ['SELECT CAST(? AS INTEGER) AS n FROM uw_unique WHERE n = 1 AND v = ? AND CAST(? AS INTEGER) = 1', [$forged, $forged, $forged], $driver === 'pgsql' ? 0 : null],
+            'another not-null column' => ['INSERT INTO uw_parent (name) SELECT NULL', [], 0],
+            'the guard table, another error' => ['INSERT INTO uow_guard (ok) SELECT CAST(? AS INTEGER) WHERE CAST(? AS INTEGER) = 1', [$forged, $forged], $driver === 'pgsql' ? 0 : null],
+        ];
+        foreach ([false, true] as $debug) {
+            (new \ReflectionProperty($db, 'DBDebug'))->setValue($db, $debug);
+            $exec = new ConnectionExecutor($db);
+            foreach ($cases as $name => [$sql, $params, $code]) {
+                try {
+                    $exec->run([['sql' => $sql, 'params' => $params]]);
+                    $this->assertNull($code, $name . ' must fail');
+                } catch (WriteFailed $e) {
+                    $this->assertSame($code, $e->getCode(), $name . ($debug ? ', DBDebug on' : ''));
+                    $this->assertSame('Database write failed: ' . ($code === BatchExecutor::GUARD_FAILED ? 'a guard in the unit' : 'the batch'), $e->getMessage());
+                }
+            }
+        }
+        $this->assertSame(0, (int)$db->transDepth);
+    }
+
+    /** N-1623: a text list with invalid UTF-8 cannot be bound; that is a WriteFailed, not a JsonException. */
+    public function testAListWithInvalidUtf8IsAWriteFailure(): void
+    {
+        $this->assertSame('["a","b"]', Dialect::list(['a', 'b']));
+        try {
+            Dialect::list(['ok', 'bad ' . chr(0xC3) . chr(0x28)]);
+            $this->fail('invalid UTF-8 must not bind');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: a list value is not valid UTF-8', $e->getMessage());
+            $this->assertNull($e->getPrevious(), 'the value is not passed on');
+        }
+    }
+
+    /** N-1623: SQLite older than 3.38 (no built-in json_each) is refused with the versions only. */
+    public function testAnSqliteOlderThan338IsRefused(): void
+    {
+        foreach (['3.38.0', '3.38.5', '3.46.1', '3.100.0', (string)\SQLite3::version()['versionString']] as $ok) {
+            Dialect::requireSqlite($ok);
+        }
+        foreach (['3.37.2', '3.31.1', '3.9.0'] as $old) {
+            try {
+                Dialect::requireSqlite($old);
+                $this->fail($old . ' must be refused');
+            } catch (DatabaseUnavailable $e) {
+                $this->assertSame('SQLite 3.38.0 or newer is required (JSON functions); this PHP has SQLite ' . $old . '.', $e->getMessage());
+            }
+        }
     }
 
     /** One list parameter for 5,000 ids (SearchIndex, Stocktakes, ItemList), on every driver. */

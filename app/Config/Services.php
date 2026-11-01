@@ -86,6 +86,9 @@ class Services extends BaseService
             \Apotheke\Core\Boot\FrameworkWiring::apply($config);
         }
         $dbConfig = $config->database();
+        if (($dbConfig['driver'] ?? '') === 'sqlite') {
+            \Apotheke\Core\Database\Dialect::requireSqlite((string)\SQLite3::version()['versionString']);
+        }
         $translator = new \Apotheke\Core\Config\DsnTranslator();
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, $translator);
         try {
@@ -295,6 +298,16 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Core\Database\ConnectionExecutor($db);
+    }
+
+    /** Units of work on this request's executor, and the registry of the open one. Per request, never persistent. */
+    public static function unitsOfWork(bool $getShared = true): \Apotheke\Core\Database\UnitsOfWork
+    {
+        if ($getShared) {
+            return static::getSharedInstance('unitsOfWork');
+        }
+
+        return \Apotheke\Core\Database\UnitsOfWork::on(static::sqlExecutor(), static::requestCleanup());
     }
 
     /** Served photos and thumbnails: DATA_DIR/images and DATA_DIR/thumbs on local disk. */

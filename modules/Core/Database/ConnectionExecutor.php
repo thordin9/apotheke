@@ -62,8 +62,8 @@ final class ConnectionExecutor implements SqlExecutor
             $error = $e->getMessage();
         }
         if ($result === false) {
-            // The guard's message names the table only; any other message is not passed on (it may hold a value).
-            $guard = str_contains($error, 'uow_guard');
+            // No database message is passed on (it may hold a value).
+            $guard = self::isGuardFailure($error);
             throw new WriteFailed('Database write failed: ' . ($guard ? 'a guard in the unit' : $step), $guard ? self::GUARD_FAILED : 0);
         }
         if (!$result instanceof BaseResult) {
@@ -73,5 +73,22 @@ final class ConnectionExecutor implements SqlExecutor
         $rows = $result->getResultArray();
 
         return $rows;
+    }
+
+    /**
+     * A guard failed: the error is the NOT NULL violation of uow_guard.ok,
+     * matched on the whole primary message (SQLite's own text, PostgreSQL's
+     * first line), so the table and column identifiers decide, never a row
+     * value: those only appear in PostgreSQL's DETAIL line or inside another
+     * error's text, which does not match. The CodeIgniter drivers expose no
+     * SQLSTATE for PostgreSQL; its text is the server's English message, and
+     * any other text is an ordinary failure, never a guard.
+     */
+    private static function isGuardFailure(string $error): bool
+    {
+        $first = rtrim((string)strtok($error, "\n"));
+
+        return preg_match('/^(?:(?:[A-Za-z ]+: )?NOT NULL constraint failed: uow_guard\.ok'
+            . '|(?:ERROR:\s+)?null value in column "ok" of relation "uow_guard" violates not-null constraint)$/', $first) === 1;
     }
 }
