@@ -380,16 +380,27 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   order, each exactly the chunk size but the last, within the declared size and `RESTORE_MAX_MB`; the size and an
   optional SHA-256 are checked before the zip is handed to `Restorer`, which stays the only code that checks and
   applies a restore. An upload is its owner's (`user:<id>`, `local` with sign-in off; guests none): anyone else gets
-  the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Finished,
-  cancelled and refused uploads are removed; idle for an hour, swept on each request and by
-  `spark apotheke:restore-sweep`. Tests: `tests/Modules/Backup/RestoreUploadsTest.php`. Open for QA's full gate.
-- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2, stacked on #205): `Backup\Controllers\Api\RestoresController`, the
+  the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Idle for
+  an hour, swept on each request and by `spark apotheke:restore-sweep`. Tests:
+  `tests/Modules/Backup/RestoreUploadsTest.php`. Merged (v3.11.0).
+- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2): `Backup\Controllers\Api\RestoresController`, the
   `/api/v1/restores` endpoints (backup permission): create, GET, chunks (multipart `chunk`, so the API CSRF rules
   are unchanged), finish (the dry run, `Restorer::open()`), confirm (`Restorer::restore()`, the settings only with
-  the settings permission, 409 keeps the upload), DELETE. OpenAPI and docs/api.md. Tests: `Ci4ApiRestoresTest`
-  (a 64 KiB-chunk restore gives the same tables as the one-shot page restore; caps, order, SHA-256, idle sweep,
-  cross-user 404 equal to an unknown id, guest, viewer, signed out, CSRF, the backup's settings only with the
-  settings permission), SQLite and PostgreSQL. Open.
+  the settings permission, 409 keeps the upload), DELETE. OpenAPI and docs/api.md. Tests: `Ci4ApiRestoresTest`,
+  SQLite and PostgreSQL. Merged (v3.12.0).
+- [#211](https://github.com/thordin9/apotheke/pull/211) (chunked restore upload limits; L-1580, L-1581, N-1582, N-1583, N-1586, N-1587, N-1588):
+  starts are serialised by `create.lock` (`Restorer::openLock(wait: true)`), with `RESTORE_MAX_UPLOADS` (default 8,
+  1–64; 503 `restore.busy`) and a free-disk check (size + 64 MiB; 507 `storage.insufficient`). The sweep and removals
+  take the manifest lock, check again under it, and rename a folder aside before emptying it; in-use uploads are
+  skipped. The chunk size is `RestoreUploads::effectiveChunk()`: `RESTORE_CHUNK_KB`, at most `upload_max_filesize`
+  and `post_max_size` less 64 KiB (2 MiB on cPanel defaults). finish and confirm get 300 s and run on without the
+  client; after confirm the manifest keeps the outcome (`restored` + `result`, or `failed`), readable by GET and a
+  second confirm, which never restores twice (a background job is ADR P4-4, N-1589). There is no chunked uploader in
+  the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
+  (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
+  outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Open for QA's full gate.
+- Open PRs: this one, and the P4-2 stack [#209](https://github.com/thordin9/apotheke/pull/209) (SQL executor) with
+  [#210](https://github.com/thordin9/apotheke/pull/210) stacked on it (retarget #210 to main before #209 merges).
 
 ## Lanes
 
@@ -466,7 +477,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #195 is
-  merged. The chunked restore is open in two stacked PRs for QA's full gate: #205 (the store), then #206 (the API).
+  merged. The chunked restore is merged (#205, v3.11.0; #206, v3.12.0); its upload-limit hardening
+  (#211) is open for QA's full gate, with the P4-2 stack #209 and #210.
   P4-1, the design ([ADR-002](adr/002-edge-storage.md)), is merged (#203). Next: P4-2 (unit of work and executor adapter,
   PDO first with no behaviour change, `json_each` in `SearchIndex` and `Stocktakes`), then P4-3 to P4-5 as in the
   ADR. DevOps prepares the bindings and the flip checklist behind `EDGE_STORAGE_READY`; N-1442 follows with P4.

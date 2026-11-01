@@ -13,9 +13,11 @@ use Closure;
  * SHA-256, bytes received), data.part while it is sent, and backup.zip once finish() has checked it. Only this class
  * writes there; nothing is followed through a link. Chunks come in order, every one but the last exactly
  * $chunkBytes long. The zip itself is checked and restored by Restorer, as a one-shot upload is. An upload is its
- * owner's only (another account's id is not found), and one idle for IDLE seconds is removed by sweep().
+ * owner's only (another account's id is not found), and one idle for IDLE seconds is removed by sweep(). Starts are
+ * serialised by create.lock (one upload per account, at most $maxOpen in all). A confirmed upload keeps only its
+ * manifest with the outcome (status restored or failed, `result`), so a client that lost the answer reads it.
  *
- * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string}
+ * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,result?:array<string,mixed>}
  */
 final class RestoreUploads
 {
@@ -34,13 +36,58 @@ final class RestoreUploads
 
     private const ZIP = 'backup.zip';
 
-    /** @param Closure():?string $owner this request's account key ("user:<id>", "local" with sign-in off), null for a guest */
+    private const CREATE_LOCK = 'create.lock';
+
+    /** Free disk a new upload needs beyond its declared size. */
+    public const DISK_MARGIN = 67108864;
+
+    /** Room left in post_max_size for the multipart framing around a chunk. */
+    public const MULTIPART_MARGIN = 65536;
+
+    /** @var Closure(string):?float */
+    private readonly Closure $freeBytes;
+
+    /**
+     * @param Closure():?string $owner this request's account key ("user:<id>", "local" with sign-in off), null for a guest
+     * @param int $maxOpen most uploads not yet confirmed, all accounts together
+     * @param ?Closure(string):?float $freeBytes free bytes on the folder's disk, null when unknown (disk_free_space())
+     */
     public function __construct(
         private readonly string $dataDir,
         private readonly int $chunkBytes,
         private readonly int $maxBytes,
         private readonly Closure $owner,
+        private readonly int $maxOpen = 8,
+        ?Closure $freeBytes = null,
     ) {
+        $this->freeBytes = $freeBytes ?? static fn (string $dir): ?float => is_float($f = @disk_free_space($dir)) ? $f : null;
+    }
+
+    /**
+     * The chunk size to use: $configured, but no more than PHP takes in one request (upload_max_filesize, and
+     * post_max_size less MULTIPART_MARGIN), in whole KiB and at least 1 KiB. A limit of 0 or less is none.
+     */
+    public static function effectiveChunk(int $configured, string|false $uploadMax, string|false $postMax): int
+    {
+        $limits = [$configured];
+        if (($u = self::iniBytes($uploadMax)) > 0) {
+            $limits[] = $u;
+        }
+        if (($p = self::iniBytes($postMax)) > 0) {
+            $limits[] = $p - self::MULTIPART_MARGIN;
+        }
+
+        return max(1024, intdiv(min($limits), 1024) * 1024);
+    }
+
+    /** A php.ini size ("2M", "1G", "512K", "100") in bytes; 0 for none, unset or not a size. */
+    public static function iniBytes(string|false $value): int
+    {
+        if ($value === false || preg_match('/^\s*(\d+)\s*([kmg]?)\s*$/iD', $value, $m) !== 1) {
+            return 0;
+        }
+
+        return (int)$m[1] * [''  => 1, 'k' => 1024, 'm' => 1048576, 'g' => 1073741824][strtolower($m[2])];
     }
 
     public function chunkBytes(): int
@@ -50,7 +97,8 @@ final class RestoreUploads
 
     /**
      * Start an upload of $size bytes ($sha256: the client's hex digest of the whole file, or null). Your earlier
-     * unfinished upload is removed first: one at a time per account.
+     * upload is removed first (409 while a request uses it): one at a time per account. Refused when $maxOpen uploads
+     * are open (503) or the disk has less free space than $size plus DISK_MARGIN (507).
      *
      * @return array{0:string,1:Manifest}
      */
@@ -67,19 +115,38 @@ final class RestoreUploads
             throw new UserError('sha256 must be 64 lowercase hex digits.', 422);
         }
         $root = $this->sweep();
-        foreach ($this->ids($root) as $old) {
-            if (($m = self::read($root . '/' . $old)) !== null && hash_equals($m['owner'], $owner)) {
-                self::remove($root . '/' . $old);
+        $lock = Restorer::openLock($root . '/' . self::CREATE_LOCK, wait: true);   // L-1581: one start at a time
+        try {
+            $open = 0;
+            foreach ($this->ids($root) as $old) {
+                $m = self::read($root . '/' . $old);
+                if ($m !== null && hash_equals($m['owner'], $owner)) {
+                    if (!self::removeFree($root, $old, static fn (): bool => true)) {
+                        throw new UserError('Your earlier restore upload is in use. Try again when it has finished.', 409);
+                    }
+                } elseif ($m === null || !in_array($m['status'], ['restored', 'failed'], true)) {
+                    $open++;
+                }
             }
-        }
-        $id = bin2hex(random_bytes(16));
-        if (!@mkdir($root . '/' . $id, 0770)) {
-            throw new UserError('The upload could not be stored.', 500);
-        }
-        $m = ['owner' => $owner, 'size' => $size, 'sha256' => $sha256, 'chunk_size' => $this->chunkBytes, 'received' => 0, 'next' => 0, 'status' => 'uploading'];
-        if (@file_put_contents($root . '/' . $id . '/' . self::MANIFEST, json_encode($m), LOCK_EX) === false) {
-            self::remove($root . '/' . $id);
-            throw new UserError('The upload could not be stored.', 500);
+            if ($open >= $this->maxOpen) {
+                throw new UserError('Too many restore uploads are open. Try again later.', 503);
+            }
+            $free = ($this->freeBytes)($root);
+            if ($free !== null && $free < $size + self::DISK_MARGIN) {
+                throw new UserError('There is not enough free disk space for this backup.', 507);
+            }
+            $id = bin2hex(random_bytes(16));
+            if (!@mkdir($root . '/' . $id, 0770)) {
+                throw new UserError('The upload could not be stored.', 500);
+            }
+            $m = ['owner' => $owner, 'size' => $size, 'sha256' => $sha256, 'chunk_size' => $this->chunkBytes, 'received' => 0, 'next' => 0, 'status' => 'uploading'];
+            if (@file_put_contents($root . '/' . $id . '/' . self::MANIFEST, json_encode($m), LOCK_EX) === false) {
+                self::remove($root . '/' . $id);
+                throw new UserError('The upload could not be stored.', 500);
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
 
         return [$id, $m];
@@ -136,6 +203,7 @@ final class RestoreUploads
     /**
      * Check the whole upload (size, then the SHA-256 if one was given) and make it the zip to restore. The caller
      * opens it with Restorer::open(). A checksum that does not match, or a zip $open refuses, removes the upload.
+     * Again on a checked upload: the dry run again. After confirm: 409.
      *
      * @param Closure(string, Manifest):array<string,mixed> $open runs on the zip's path while the upload is locked
      * @return array<string,mixed> what $open returned
@@ -143,6 +211,9 @@ final class RestoreUploads
     public function finish(string $id, Closure $open): array
     {
         return $this->locked($id, function (string $dir, array $m, $fh) use ($open): array {
+            if ($m['status'] !== 'uploading' && $m['status'] !== 'ready') {
+                throw new UserError('This upload was confirmed already.', 409);
+            }
             if ($m['status'] === 'uploading') {
                 $part = $dir . '/' . self::PART;
                 clearstatcache(true, $part);
@@ -170,16 +241,20 @@ final class RestoreUploads
     }
 
     /**
-     * Run $restore on the checked zip of upload $id, while it is locked. The upload is removed afterwards, unless
-     * $restore throws a 409 (another restore is running), so it can be confirmed again.
+     * Run $restore on the checked zip of upload $id, while it is locked. A 409 from $restore (another restore is
+     * running) keeps the upload to confirm again. Otherwise the zip is removed and the outcome kept in the manifest
+     * (status restored with $restore's answer as `result`, or failed with {"error"}), so the answer can be read again
+     * (N-1588: GET, or confirm again, which never restores twice).
      *
-     * @template T
-     * @param Closure(string):T $restore
-     * @return T
+     * @param Closure(string):array<string,mixed> $restore
+     * @return array<string,mixed> $restore's answer
      */
-    public function confirm(string $id, Closure $restore): mixed
+    public function confirm(string $id, Closure $restore): array
     {
-        return $this->locked($id, function (string $dir, array $m) use ($restore): mixed {
+        return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore): array {
+            if ($m['status'] === 'restored' || $m['status'] === 'failed') {
+                return $m['status'] === 'restored' ? ($m['result'] ?? []) : throw new UserError((string)($m['result']['error'] ?? 'The restore failed.'));
+            }
             if ($m['status'] !== 'ready') {
                 throw new UserError('Finish the upload first.', 409);
             }
@@ -187,11 +262,13 @@ final class RestoreUploads
                 $out = $restore($dir . '/' . self::ZIP);
             } catch (\Throwable $e) {
                 if ($e->getCode() !== 409) {
-                    self::remove($dir);
+                    @unlink($dir . '/' . self::ZIP);
+                    self::write($fh, ['status' => 'failed', 'result' => ['error' => $e instanceof UserError ? $e->getMessage() : 'The restore failed.']] + $m);
                 }
                 throw $e;
             }
-            self::remove($dir);
+            @unlink($dir . '/' . self::ZIP);
+            self::write($fh, ['status' => 'restored', 'result' => $out] + $m);
 
             return $out;
         });
@@ -207,15 +284,20 @@ final class RestoreUploads
         });
     }
 
-    /** Remove every upload idle for IDLE seconds or more; returns the checked root folder ($create: make it if missing). */
+    /**
+     * Remove every upload idle for IDLE seconds or more, unless a request holds it (N-1583), and what a removal
+     * left behind; returns the checked root folder ($create: make it if missing).
+     */
     public function sweep(?int $now = null, bool $create = true): string
     {
         $root = $this->root($create);
         $limit = ($now ?? time()) - self::IDLE;
         foreach ($this->ids($root) as $id) {
-            $named = @lstat($root . '/' . $id . '/' . self::MANIFEST) ?: @lstat($root . '/' . $id);
-            if ($named !== false && $named['mtime'] <= $limit) {
-                self::remove($root . '/' . $id);
+            self::removeFree($root, $id, static fn (array $st): bool => $st['mtime'] <= $limit);
+        }
+        foreach (@scandir($root) ?: [] as $n) {
+            if (preg_match('/^\.removing-[a-f0-9]{16}$/D', $n) === 1) {
+                self::clear($root . '/' . $n);
             }
         }
 
@@ -240,8 +322,8 @@ final class RestoreUploads
     }
 
     /**
-     * DATA_DIR/uploads/restore, made if missing (0770) when $create (the command line, which may run as root, never
-     * makes it). A link or anything but a folder at either name, or a real path elsewhere, is refused.
+     * DATA_DIR/uploads/restore, made if missing (0770) when $create (the command line, run as the data directory's
+     * owner, never makes it). A link or anything but a folder at either name, or a real path elsewhere, is refused.
      */
     private function root(bool $create = true): string
     {
@@ -311,6 +393,14 @@ final class RestoreUploads
             if (!flock($fh, LOCK_EX | LOCK_NB)) {
                 throw new UserError('Another request is using this upload. Try again when it has finished.', 409);
             }
+            // N-1582: checked again under the lock: still the plain manifest of a real folder under the root
+            clearstatcache(true, $dir);
+            clearstatcache(true, $file);
+            $now = @lstat($dir);
+            if ($now === false || ($now['mode'] & 0170000) !== 0040000 || !Restorer::sameFile(fstat($fh), @lstat($file))
+                || realpath($dir) !== realpath($root) . '/' . $id) {
+                throw new UserError(self::NOT_FOUND, 404);
+            }
             rewind($fh);
             $m = self::decode((string)stream_get_contents($fh)) ?? throw new UserError(self::NOT_FOUND, 404);
             @touch($file);   // a request keeps the upload from the idle sweep
@@ -337,13 +427,14 @@ final class RestoreUploads
     {
         $m = json_decode($json, true);
         $ints = ['size', 'chunk_size', 'received', 'next'];
-        if (!is_array($m) || !is_string($m['owner'] ?? null) || !in_array($m['status'] ?? null, ['uploading', 'ready'], true)
-            || array_filter($ints, static fn (string $k): bool => !is_int($m[$k] ?? null)) !== [] || !(($m['sha256'] ?? null) === null || is_string($m['sha256']))) {
+        if (!is_array($m) || !is_string($m['owner'] ?? null) || !in_array($m['status'] ?? null, ['uploading', 'ready', 'restored', 'failed'], true)
+            || array_filter($ints, static fn (string $k): bool => !is_int($m[$k] ?? null)) !== [] || !(($m['sha256'] ?? null) === null || is_string($m['sha256']))
+            || !(($m['result'] ?? null) === null || is_array($m['result']))) {
             return null;
         }
 
         return ['owner' => $m['owner'], 'size' => $m['size'], 'sha256' => $m['sha256'] ?? null, 'chunk_size' => $m['chunk_size'],
-            'received' => $m['received'], 'next' => $m['next'], 'status' => $m['status']];
+            'received' => $m['received'], 'next' => $m['next'], 'status' => $m['status']] + (is_array($m['result'] ?? null) ? ['result' => $m['result']] : []);
     }
 
     /**
@@ -369,14 +460,75 @@ final class RestoreUploads
         return $st === false || Restorer::plainFile($st);
     }
 
-    /** Remove an upload folder: its entries (a link itself, never what it points at), then the folder. */
-    private static function remove(string $dir): void
+    /**
+     * N-1582, N-1583: remove upload $id only when no request holds its manifest lock and $still(lstat of the
+     * manifest, or of the folder when it has none) holds, checked again under the lock. False when it was kept.
+     *
+     * @param Closure(array<int|string,int>):bool $still
+     */
+    private static function removeFree(string $root, string $id, Closure $still): bool
     {
-        foreach (@scandir($dir) ?: [] as $n) {
-            if ($n !== '.' && $n !== '..' && ($st = @lstat($dir . '/' . $n)) !== false && ($st['mode'] & 0170000) !== 0040000) {
-                @unlink($dir . '/' . $n);
+        $dir = $root . '/' . $id;
+        $file = $dir . '/' . self::MANIFEST;
+        clearstatcache(true, $file);
+        $named = @lstat($file);
+        if ($named === false || !Restorer::plainFile($named)) {   // no manifest (yet): judged by the folder
+            clearstatcache(true, $dir);
+            $st = @lstat($dir);
+
+            return $st !== false && ($st['mode'] & 0170000) === 0040000 && $still($st) && self::remove($dir);
+        }
+        $fh = @fopen($file, 'r');
+        if ($fh === false) {
+            return false;
+        }
+        try {
+            if (!flock($fh, LOCK_EX | LOCK_NB)) {
+                return false;   // in use
+            }
+            clearstatcache(true, $dir);
+            clearstatcache(true, $file);
+            $st = @lstat($dir);
+            $now = @lstat($file);
+
+            return $st !== false && ($st['mode'] & 0170000) === 0040000 && Restorer::sameFile(fstat($fh), $now) && $now !== false && $still($now)
+                && self::remove($dir);
+        } finally {
+            flock($fh, LOCK_UN);
+            fclose($fh);
+        }
+    }
+
+    /**
+     * Remove an upload folder. It is first renamed to a name only this call knows (a rename moves a link itself,
+     * never what it points at), then its entries and the folder are removed from there.
+     */
+    private static function remove(string $dir): bool
+    {
+        $gone = dirname($dir) . '/.removing-' . bin2hex(random_bytes(8));
+        if (!@rename($dir, $gone)) {
+            return false;
+        }
+        self::clear($gone);
+
+        return true;
+    }
+
+    /** Remove $path: a link or file itself, or a real folder's entries (never a folder's) and then the folder. */
+    private static function clear(string $path): void
+    {
+        clearstatcache(true, $path);
+        $st = @lstat($path);
+        if ($st === false || ($st['mode'] & 0170000) !== 0040000) {
+            @unlink($path);
+
+            return;
+        }
+        foreach (@scandir($path) ?: [] as $n) {
+            if ($n !== '.' && $n !== '..' && ($e = @lstat($path . '/' . $n)) !== false && ($e['mode'] & 0170000) !== 0040000) {
+                @unlink($path . '/' . $n);
             }
         }
-        @rmdir($dir);
+        @rmdir($path);
     }
 }

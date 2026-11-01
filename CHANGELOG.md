@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** the chunked restore API now uses a chunk size PHP accepts: `RESTORE_CHUNK_KB`, but never more than `upload_max_filesize` or `post_max_size` less 64 KiB (2 MiB on a plain PHP or cPanel install with the default 2M; the Docker images are unchanged at 8 MiB). Clients must use the `chunk_size` the start answers. A new setting, `RESTORE_MAX_UPLOADS` (default 8), caps the chunked uploads open at once, and a start needs the backup's size plus 64 MiB of free disk. After `confirm`, the upload's record stays (status `restored` or `failed`) until deleted or idle for an hour, so a client that lost the answer to a proxy timeout can read it with `GET`.
+
 ## [3.12.0] - 2026-11-01
 
 **Note:** a backup can now be restored in chunks through the API (`/api/v1/restores`, Backup permission, see docs/api.md), for hosts that cap the size of a request. It is checked and restored exactly as an upload on the restore page.

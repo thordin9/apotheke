@@ -39,6 +39,7 @@ final class ApothekeConfig
         'IMAGE_THUMB_MAX' => 'uploads.thumb_max',
         'RESTORE_CHUNK_KB' => 'uploads.restore_chunk_kb',
         'RESTORE_MAX_MB' => 'uploads.restore_max_mb',
+        'RESTORE_MAX_UPLOADS' => 'uploads.restore_max_uploads',
         'PAGE_SIZE' => 'page_size',
         'PUBLIC_URL' => 'public_url',
         'ALLOWED_HOSTS' => 'allowed_hosts',
@@ -92,6 +93,7 @@ final class ApothekeConfig
         // Chunked restore: 64 KiB to 16 MiB per chunk (under PHP's 20 MB upload limit), 1 MB to 4 GB in all (Restorer::MAX_UNPACKED).
         $cfg['uploads']['restore_chunk_kb'] = min(16384, max(64, (int)($cfg['uploads']['restore_chunk_kb'] ?? 8192)));
         $cfg['uploads']['restore_max_mb'] = min(4096, max(1, (int)($cfg['uploads']['restore_max_mb'] ?? 520)));
+        $cfg['uploads']['restore_max_uploads'] = min(64, max(1, (int)($cfg['uploads']['restore_max_uploads'] ?? 8)));
         $cfg['page_size'] = max(1, (int)$cfg['page_size']);
         $cfg['public_url'] = rtrim((string)$cfg['public_url'], '/');
         $cfg['allowed_hosts'] = trim((string)($cfg['allowed_hosts'] ?? ''));
@@ -230,6 +232,7 @@ final class ApothekeConfig
                 'thumb_max' => 480,
                 'restore_chunk_kb' => 8192,
                 'restore_max_mb' => 520,
+                'restore_max_uploads' => 8,
             ],
             'page_size' => 60,
             'currency' => 'EUR',
