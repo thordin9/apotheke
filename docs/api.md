@@ -75,7 +75,10 @@ guest gets `403`. Each account has one upload at a time (a new one replaces it, 
 one), and an upload without a request for an hour (`idle_seconds`) is removed. At most `RESTORE_MAX_UPLOADS` uploads
 (default 8, all accounts) are open at once. When that many are open, another account's upload that is not confirmed
 and has had no request for 10 minutes is removed to make room; if none is, the answer is `503 restore.busy` with
-`Retry-After`. The disk must have the declared size plus 64 MiB free beyond what the other open uploads still expect,
+`Retry-After`. This includes a fully sent upload that waits for `confirm`: confirm within 10 minutes of `finish`, or
+the upload may have to be sent again (`404` on confirm) while the cap is reached. Operators can raise
+`RESTORE_MAX_UPLOADS` ([Configuration](configuration.md)). When the signed-in account cannot be read (a database
+error), the answer is the generic `500 server_error`, not `403`. The disk must have the declared size plus 64 MiB free beyond what the other open uploads still expect,
 else `507 storage.insufficient`. See [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
 ## Requests
