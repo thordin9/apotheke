@@ -199,16 +199,24 @@ final class SqlExecutorTest extends CIUnitTestCase
                 'trigger, then a commit' => $trigger . 'SELECT 1; END; COMMIT', 'trigger body with a commit' => $trigger . 'SELECT 1; COMMIT; END',
                 'trigger without a body' => $trigger . 'END; COMMIT', 'trigger, empty body statement' => $trigger . 'SELECT 1;; END',
                 'not a trigger' => 'CREATE TABLE uw_x (a INT); COMMIT', 'trigger named begin' => 'CREATE TRIGGER "begin" AFTER INSERT ON uw_parent COMMIT; END',
+                'a form feed before begin' => "\fBEGIN", 'a vertical tab before commit' => "\vCOMMIT", 'a form feed before a pragma' => "\f/**/PRAGMA journal_mode",
+                'set' => 'SET standard_conforming_strings = off', 'do' => 'DO $$BEGIN END$$', 'call' => 'CALL uw_none()', 'lock' => 'LOCK TABLE uw_parent',
+                'copy' => 'COPY uw_parent TO STDOUT', 'truncate' => 'TRUNCATE uw_parent', 'explain' => 'EXPLAIN SELECT 1',
+                'set_config' => "SELECT set_config('standard_conforming_strings', 'off', false)", 'set_config, quoted' => 'SELECT pg_catalog."set_config"(?, ?, false)',
+                'pragma optimize with a mask' => 'PRAGMA optimize(65534)', 'pragma optimize = mask' => 'PRAGMA optimize = 2',
             ],
             'sqlite' => [
                 'a quote in a [ name' => "SELECT 1 AS [a'b]; COMMIT", 'bracketed sqlite function' => 'SELECT [sqlite_version]()',
                 'backtick sqlite function' => 'SELECT `sqlite_version`()', 'a semicolon in a backtick name' => 'SELECT 1 AS `a;b`; COMMIT',
                 'unclosed [ name' => 'SELECT 1 AS [a', 'unclosed backtick name' => 'SELECT 1 AS `a',
+                'trigger not ending in END' => $trigger . 'SELECT 1; SELECT 2', 'a [ name, then a later ]' => 'SELECT 1 AS [a]; COMMIT; SELECT 1 AS [b]',
             ],
             'pgsql' => [
                 'an escaped quote in an E literal' => "SELECT E'\\'', 1; COMMIT; SELECT ''", 'a quote in a dollar quote' => 'SELECT $$\'$$; COMMIT; SELECT $$\'$$',
                 'a quote in a tagged dollar quote' => 'SELECT $t$\'$t$; COMMIT; SELECT $t$\'$t$', 'unclosed dollar quote' => 'SELECT $$a',
                 'a backtick' => 'SELECT 1 AS `a`', 'names with dollar signs' => 'SELECT 1 AS a$x$; COMMIT; SELECT 1 AS b$x$', 'unclosed E literal' => "SELECT E'a\\'",
+                'a name ending in e before a literal' => "SELECT 1 AS note, note'\\'; COMMIT; SELECT '", 'a dollar tag starting with a digit' => 'SELECT 1 AS a, $1$; COMMIT; SELECT $1$',
+                'a trigger body' => $trigger . 'SELECT 1; END',
             ],
         ];
         $allowed = [
@@ -223,12 +231,16 @@ final class SqlExecutorTest extends CIUnitTestCase
                 'a semicolon in a comment' => ["SELECT name FROM uw_parent /* ; */ WHERE name = 'end' -- ;", []],
                 'a quoted name' => ['SELECT name AS "begin;end" FROM uw_parent', []],
                 '100 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 100, '?')) . ' AS n', array_fill(0, 100, 1)],
+                'form feeds around a select' => ["\f\nSELECT 1 AS a\f;\f", []], 'with' => ['WITH x AS (SELECT 1 AS a) SELECT a FROM x', []], 'values' => ['VALUES (1)', []],
+                'create' => ['CREATE TABLE IF NOT EXISTS uw_ddl (a INT)', []],
+                'drop' => ['DROP TABLE IF EXISTS uw_none', []],
             ],
             'sqlite' => [
                 'bracket and backtick names' => ['SELECT 1 AS [a;b], 2 AS `c;``d`', []], 'no nested comments' => ['SELECT 1 /* a /* b */ AS a', []],
                 'pragma foreign_keys' => ['PRAGMA foreign_keys', []], 'pragma defer_foreign_keys' => ['PRAGMA defer_foreign_keys = on', []],
                 'pragma table_info' => ["PRAGMA table_info('uw_parent')", []], 'pragma table_info, quoted' => ['PRAGMA main.table_info("uw_parent")', []],
-                'pragma optimize' => ['PRAGMA optimize', []],
+                'pragma optimize' => ['PRAGMA optimize', []], 'a comment between PRAGMA and its name' => ['PRAGMA/* c */foreign_keys', []],
+                'pragma as D1 writes it' => ['PRAGMA foreign_keys=off', []],
                 'a write to sqlite_sequence' => ["UPDATE sqlite_sequence SET seq = seq WHERE name = 'uw_seq'", []],
                 'an insert into sqlite_sequence' => ["INSERT INTO sqlite_sequence(name, seq) SELECT 'uw_none', 0 WHERE 0", []],
                 'a trigger' => [$trigger . "UPDATE uw_parent SET note = 'a;b' WHERE id = NEW.id; DELETE FROM uw_child WHERE 0; END;", []],
@@ -254,10 +266,12 @@ final class SqlExecutorTest extends CIUnitTestCase
     }
 
     /**
-     * L-1637, L-1643, N-1644, N-1646: LocalBatchExecutor reads a statement
-     * with each dialect's quoting and comments, so a comment or quote hides
-     * no refused word or second statement, a literal is only a value, an
-     * unreadable statement is refused, and what D1 documents is let through.
+     * L-1637, L-1643, N-1644, N-1646, L-1647 to N-1650: LocalBatchExecutor
+     * reads a statement with each dialect's quoting and comments, so a
+     * comment, quote or whitespace hides no refused word or second
+     * statement, a literal is only a value, an unreadable statement is
+     * refused, only allow-listed statements start a step, and what D1
+     * documents is let through.
      *
      * @param list<scalar|null> $params
      */
