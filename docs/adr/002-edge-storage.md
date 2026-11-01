@@ -80,7 +80,9 @@ The same image has to serve three cases:
 - Guards make the whole batch fail: an insert into the `NOT NULL` column `uow_guard.ok` that only happens when
   `changes()` is not what was expected, or when an asserted condition is false. After the rollback the failed
   guard is identified by reading again, so the caller's own error (for example a `UserError`) is thrown.
-- A unit started inside another one on the same connection joins it: one batch, one commit, all or nothing.
+- A unit started inside another one on the same connection joins it: one batch, one commit, all or nothing. On PDO
+  a unit inside a plain transaction runs under a `SAVEPOINT`, so it is kept whole or not at all; on D1 a unit never
+  nests in a plain transaction.
 
 ### 3. Installation identity comes from the Worker side only
 

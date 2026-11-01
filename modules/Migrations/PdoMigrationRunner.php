@@ -10,6 +10,7 @@ use Apotheke\Core\Config\PdoSchemaSession;
 use Apotheke\Core\Config\PgsqlSchema;
 use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Exceptions\DatabaseUnavailable;
+use Closure;
 use PDO;
 use PDOException;
 use RuntimeException;
@@ -26,7 +27,13 @@ final class PdoMigrationRunner
     public const CREDENTIALS_DIFFER = 'DB_DSN sets a user or password that differs from DB_USER / DB_PASSWORD. '
         . 'DB_USER and DB_PASSWORD are used, as the legacy app does on PHP 8.3.';
 
-    public function __construct(private string $migrationsDir)
+    /**
+     * @param bool $checkSqliteVersion N-1629: refuse an SQLite older than Dialect::SQLITE_MIN before the database
+     *        file is opened. A runner on a backend that refuses sqlite_version() (D1, the P4-3 edge runner) passes false.
+     * @param (Closure():string)|null $sqliteVersion the SQLite library version; by default pdo_sqlite's, read on an
+     *        in-memory database so a refused migrate leaves no file behind (a test injects an old one)
+     */
+    public function __construct(private string $migrationsDir, private bool $checkSqliteVersion = true, private ?Closure $sqliteVersion = null)
     {
         // config.php defines cfg(). The shim fills in only what is still missing.
         self::loadConfig();
@@ -73,6 +80,10 @@ final class PdoMigrationRunner
             }
         }
         unset($db['password']);
+        if ($driver === 'sqlite' && $this->checkSqliteVersion) {
+            // before new PDO(), which creates the database file
+            Dialect::requireSqlite($this->sqliteVersion !== null ? ($this->sqliteVersion)() : (string)(new PDO('sqlite::memory:'))->query('SELECT sqlite_version()')->fetchColumn());
+        }
         try {
             $options = [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -92,7 +103,6 @@ final class PdoMigrationRunner
             self::warnCredentialsDiffer();
         }
         if ($driver === 'sqlite') {
-            Dialect::requireSqlite((string)$pdo->query('SELECT sqlite_version()')->fetchColumn());
             $pdo->exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
         } else {
             $pdo->exec("SET TIME ZONE 'UTC'");

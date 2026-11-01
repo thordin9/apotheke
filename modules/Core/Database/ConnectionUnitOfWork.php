@@ -23,13 +23,14 @@ final class ConnectionUnitOfWork extends QueuedUnitOfWork
 
     public function hold(string $sql, array $binds, string $step): void
     {
+        $this->refuseIfClosed();
         Writes::check($this->db->query($sql, $binds), $step);
     }
 
-    /** Run the queued steps (inside the caller's transaction) and empty the queue. */
+    /** Run the queued steps (inside the caller's transaction) and close the unit: it runs once. */
     public function flush(): void
     {
-        $this->refuseIfJoinedFailed();
+        $this->closeForFlush();
         $queue = $this->queue;
         $this->queue = [];
         foreach ($queue as $s) {
