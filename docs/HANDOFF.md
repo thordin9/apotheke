@@ -401,8 +401,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   not persistent). Long id lists are one list parameter (`Dialect::inList()`: `json_each` on SQLite,
   `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
   `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
-  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Passed QA's full gate, awaiting merge.
-- [#210](https://github.com/thordin9/apotheke/pull/210) (P4-2a, part 2 of 3, includes #209 until it merges): the unit of work on a connection. `UnitOfWork` (`hold`,
+  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Merged (08aebbc).
+- [#210](https://github.com/thordin9/apotheke/pull/210) (P4-2a, part 2 of 3): the unit of work on a connection. `UnitOfWork` (`hold`,
   `insert` with a `Ref`, `update`, `write` with `expect`, `assert`), `ConnectionUnitOfWork` (a real transaction,
   the queue run in order at the end), and `UnitsOfWork`, the per-request registry of the open unit
   (`Services::unitsOfWork()`): nested units join the outer one, a failed joined unit fails it, and a unit left open
@@ -487,7 +487,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
-  (#211) is merged (v3.12.1); #209 passed QA and awaits merge; #210 is next. P4-1
+  (#211) is merged (v3.12.1); #209 is merged (08aebbc); #210 is next. P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
   (#209), then the unit of work (#210, now based on `main`), then the batch path and parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
