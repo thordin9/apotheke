@@ -158,8 +158,10 @@ final class UnitOfWorkSitesTest extends CIUnitTestCase
         $ids[] = $takes->start($shed);
         $ids[] = $takes->start($shelf);
         $out = ['ids' => $ids, 'errors' => $errors];
-        foreach (['saved_filters' => 'id', 'recent_views' => 'scope, item_id', 'roles' => 'role_key', 'users' => 'id', 'stocktakes' => 'id', 'stocktake_lines' => 'id', 'uow_refs' => '1', 'uow_guard' => '1'] as $t => $order) {
-            $out[$t] = array_map(static fn (array $r): array => array_map(static fn (mixed $v): ?string => $v === null ? null : (string)$v, $r), Writes::rows($db, "SELECT * FROM $t ORDER BY $order"));
+        // The built-in roles are seeded with the real time by the migration: their created_at is not compared.
+        foreach (['saved_filters' => '*', 'recent_views' => '*', 'roles' => 'id, role_key, name, perms, builtin', 'users' => '*', 'stocktakes' => '*', 'stocktake_lines' => '*', 'uow_refs' => '*', 'uow_guard' => '*'] as $t => $cols) {
+            $order = ['recent_views' => 'scope, item_id', 'roles' => 'role_key', 'uow_refs' => '1', 'uow_guard' => '1'][$t] ?? 'id';
+            $out[$t] = array_map(static fn (array $r): array => array_map(static fn (mixed $v): ?string => $v === null ? null : (string)$v, $r), Writes::rows($db, "SELECT $cols FROM $t ORDER BY $order"));
         }
         $this->assertSame([1, 2, 3, 1, 1, 2], $ids, 'a second start returns the open stocktake');
         $this->assertSame([['1', 'Lamp', 'Shed › Shelf'], ['1', 'Saw', 'Shed'], ['1', 'Box', 'Shed › Shelf'], ['2', 'Lamp', 'Shed › Shelf'], ['2', 'Box', 'Shed › Shelf']],
