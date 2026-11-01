@@ -1201,8 +1201,9 @@ class Services extends BaseService
     }
 
     /**
-     * Chunked restore uploads under DATA_DIR/uploads/restore (Backup), each its account's own: "user:<id>", or
-     * "local" for the admin with sign-in off; a guest has none. Sizes from uploads.restore_chunk_kb and restore_max_mb;
+     * Chunked restore uploads under DATA_DIR/uploads/restore (Backup), each its account's own: "user:<id>:<sha256 of
+     * the account's created_at>" (N-1594: the id and when that account was made, so an upload never matches another
+     * account that has the same id later), or "local" for the admin with sign-in off; a guest has none. Sizes from uploads.restore_chunk_kb and restore_max_mb;
      * the chunk size no larger than this PHP takes in one request (N-1587), at most uploads.restore_max_uploads open.
      */
     public static function restoreUploads(bool $getShared = true): \Apotheke\Backup\RestoreUploads
@@ -1221,7 +1222,14 @@ class Services extends BaseService
                 return null;
             }
 
-            return $user['id'] !== null ? 'user:' . $user['id'] : 'local';
+            if ($user['id'] === null) {
+                return 'local';
+            }
+            /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+            $db = static::apothekeDb();
+            $made = (new \Apotheke\Auth\UserRepository($db))->createdAt((int)$user['id']);
+
+            return $made === null ? null : 'user:' . $user['id'] . ':' . hash('sha256', $made);
         }, (int)$uploads['restore_max_uploads']);
     }
 

@@ -302,7 +302,7 @@ try { $u->create(3, null); echo "ok"; } catch (Throwable $e) { echo $e->getMessa
         $this->me = 'user:4';
         $this->assertRefused(fn () => $tight->create(100, null), 507, 'not enough free disk');
         $this->assertSame(2, $u->count(), 'nothing made');
-        $this->assertSame(99, $tight->create(99, null)[1]['size'], 'the size plus the margin fits');
+        $this->assertSame(93, $tight->create(93, null)[1]['size'], 'the size plus the margin fits beside the 6 bytes the others expect');
     }
 
     /** N-1583: the sweep skips an upload while a request holds its manifest lock. */
@@ -321,6 +321,188 @@ try { $u->create(3, null); echo "ok"; } catch (Throwable $e) { echo $e->getMessa
         }
         $this->uploads()->sweep();
         $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'swept once free');
+    }
+
+    /**
+     * N-1594: a confirm that stops after the restore but before its outcome is written (here the process is killed)
+     * leaves status applying with the backup's SHA-256; the next request finds it interrupted and never restores again.
+     */
+    public function testAConfirmThatStopsIsInterruptedNotRestoredAgain(): void
+    {
+        $u = $this->uploads();
+        [$id] = $u->create(3, null);
+        $u->append($id, 0, $this->chunk('abc'), 3);
+        $u->finish($id, static fn (): array => []);
+        $applied = $this->data . '/applied';
+        $script = $this->data . '/confirm.php';
+        file_put_contents($script, '<?php require ' . var_export(dirname(__DIR__, 3) . '/vendor/autoload.php', true) . ';
+$u = new Apotheke\Backup\RestoreUploads($argv[1], 4, 100, static fn (): string => "user:1");
+$u->confirm($argv[2], static function (string $zip) use ($argv): array {
+    file_put_contents($argv[3], file_get_contents($zip), FILE_APPEND);   // the restore is in
+    posix_kill(getmypid(), SIGKILL);   // and the process ends before the outcome is written
+    return [];
+});');
+        $p = proc_open([PHP_BINARY, $script, $this->data, $id, $applied], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        $this->assertIsResource($p);
+        $err = stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
+        proc_close($p);
+        $this->assertSame('abc', @file_get_contents($applied), 'applied once: ' . $err);
+        $raw = json_decode((string)file_get_contents($this->root() . '/' . $id . '/manifest.json'), true);
+        $this->assertSame(['applying', hash('sha256', 'abc')], [$raw['status'] ?? null, $raw['fingerprint'] ?? null], 'the marker was on disk first');
+
+        $m = $u->get($id);
+        $this->assertSame(['interrupted', ['error' => RestoreUploads::INTERRUPTED, 'sha256' => hash('sha256', 'abc')]], [$m['status'], $m['result'] ?? null]);
+        $this->assertSame(['manifest.json'], $this->files($id), 'the backup is not kept');
+        $calls = 0;
+        $this->assertRefused(fn () => $u->confirm($id, static function () use (&$calls): array {
+            $calls++;
+
+            return [];
+        }), 409, 'confirm again', RestoreUploads::INTERRUPTED);
+        $this->assertSame([0, 'abc'], [$calls, file_get_contents($applied)], 'never restored again');
+        $this->assertRefused(fn () => $u->finish($id, static fn (): array => []), 409, 'finish after it');
+        $u->delete($id);
+        $this->assertDirectoryDoesNotExist($this->root() . '/' . $id);
+    }
+
+    /** N-1594: an upload's owner key is the account's identity; another account with the same id has another key. */
+    public function testAnotherAccountWithTheSameIdIsNotTheOwner(): void
+    {
+        $this->me = 'user:1:' . hash('sha256', '2026-01-01 00:00:00');
+        [$id] = $this->uploads()->create(3, null);
+        $this->me = 'user:1:' . hash('sha256', '2026-02-02 00:00:00');
+        $this->assertRefused(fn () => $this->uploads()->get($id), 404, 'same id, another account', RestoreUploads::NOT_FOUND);
+        $this->assertRefused(fn () => $this->uploads()->delete($id), 404, 'nor deleted');
+        $this->me = 'user:1:' . hash('sha256', '2026-01-01 00:00:00');
+        $this->assertSame('uploading', $this->uploads()->get($id)['status']);
+    }
+
+    /** N-1591: a create.lock that is a link is refused as a server fault, without its path. */
+    public function testALinkedCreateLockIsAServerFault(): void
+    {
+        $root = $this->uploads()->sweep();
+        file_put_contents($this->data . '/target', 'keep');
+        symlink($this->data . '/target', $root . '/create.lock');
+        $this->assertRefused(fn () => $this->uploads()->create(3, null), 500, 'linked lock', RestoreUploads::LOCK_UNUSABLE);
+        $this->assertStringNotContainsString('lock', strtolower(RestoreUploads::LOCK_UNUSABLE));
+        $this->assertSame('keep', file_get_contents($this->data . '/target'), 'nothing written through it');
+        $this->assertSame(0, $this->uploads()->count());
+    }
+
+    /** N-1592: while the cap is reached, another account's unconfirmed upload idle for IDLE_FULL gives way. */
+    public function testAFullCapRemovesUploadsIdleForTheShorterTime(): void
+    {
+        $u = new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me, 3, static fn (): float => 1e12);
+        $ids = [];
+        foreach (['user:1', 'user:2', 'user:5'] as $who) {
+            $this->me = $who;
+            $ids[$who] = $u->create(3, null)[0];
+        }
+        $stopped = $this->root() . '/' . $ids['user:5'] . '/manifest.json';
+        file_put_contents($stopped, (string)json_encode(['status' => 'applying'] + (array)json_decode((string)file_get_contents($stopped), true)));
+        foreach (['user:2' => -5, 'user:5' => -5, 'user:1' => 60] as $who => $by) {
+            touch($this->root() . '/' . $ids[$who] . '/manifest.json', time() - RestoreUploads::IDLE_FULL + $by);
+        }
+        $this->me = 'user:3';
+        $u->create(3, null);
+        $this->assertDirectoryDoesNotExist($this->root() . '/' . $ids['user:2'], 'idle while the cap is full');
+        $this->assertDirectoryExists($this->root() . '/' . $ids['user:1'], 'not idle long enough');
+        $this->assertDirectoryExists($this->root() . '/' . $ids['user:5'], 'a stopped restore keeps its record');
+        $this->me = 'user:4';
+        $this->assertRefused(fn () => $u->create(3, null), 503, 'still full');
+    }
+
+    /** N-1593: the free disk must hold what the other open uploads still expect, besides the new one. */
+    public function testTheFreeDiskCountsWhatOpenUploadsStillExpect(): void
+    {
+        $u = new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me, 8, static fn (): float => (float)(RestoreUploads::DISK_MARGIN + 150));
+        [$id] = $u->create(100, null);
+        $u->append($id, 0, $this->chunk('abcd'), 4);
+        $this->me = 'user:2';
+        $this->assertRefused(fn () => $u->create(55, null), 507, '96 still expected, 150 free');
+        $this->assertSame(54, $u->create(54, null)[1]['size'], 'what fits beside it');
+        $this->me = 'user:3';
+        $this->assertRefused(fn () => $u->create(1, null), 507, 'both reserved');
+        $this->me = 'user:2';
+        $this->assertSame(54, $u->create(54, null)[1]['size'], 'your own earlier upload is not counted');
+    }
+
+    /** N-1595: confirmed outcome records (restored, failed, interrupted) never count toward the cap. */
+    public function testOutcomeRecordsDoNotCountTowardTheCap(): void
+    {
+        $u = new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me, 1, static fn (): float => 1e12);
+        foreach (['restored' => static fn (): array => [], 'failed' => static fn (): never => throw new UserError('no'), 'interrupted' => null] as $status => $restore) {
+            $this->me = 'user:' . $status;
+            [$id] = $u->create(3, null);
+            $u->append($id, 0, $this->chunk('abc'), 3);
+            $u->finish($id, static fn (): array => []);
+            if ($restore === null) {
+                $file = $this->root() . '/' . $id . '/manifest.json';
+                file_put_contents($file, (string)json_encode(['status' => 'applying', 'fingerprint' => null] + (array)json_decode((string)file_get_contents($file), true)));
+                $u->get($id);
+            } else {
+                try {
+                    $u->confirm($id, $restore);
+                } catch (UserError) {
+                }
+            }
+            $this->assertSame($status, $u->get($id)['status']);
+        }
+        $this->me = 'user:new';
+        $u->create(3, null);
+        $this->assertSame(4, $u->count());
+        $this->me = 'user:other';
+        $this->assertRefused(fn () => $u->create(3, null), 503, 'one open upload fills a cap of 1');
+    }
+
+    /** N-1595: a start does not remove your earlier upload while a request uses it. */
+    public function testYourEarlierUploadInUseIsNotReplaced(): void
+    {
+        [$old] = $this->uploads()->create(3, null);
+        $fh = fopen($this->root() . '/' . $old . '/manifest.json', 'r');
+        $this->assertNotFalse($fh);
+        flock($fh, LOCK_EX);
+        try {
+            $this->assertRefused(fn () => $this->uploads()->create(3, null), 409, 'in use');
+        } finally {
+            fclose($fh);
+        }
+        $this->assertSame([$old], $this->ids(), 'kept, and nothing new');
+    }
+
+    /** N-1595: a manifest swapped between its open and its lock is not used (a request) or removed (the sweep). */
+    public function testAManifestSwappedBeforeItsLockIsNotUsed(): void
+    {
+        [$id] = $this->uploads()->create(3, null);
+        $file = $this->root() . '/' . $id . '/manifest.json';
+        $swap = static function (string $path) use ($file): void {
+            if ($path === $file) {
+                copy($file, $file . '.new');
+                touch($file . '.new', (int)filemtime($file));
+                rename($file . '.new', $file);   // the same bytes and time, another file
+            }
+        };
+        $swapping = new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me, 8, null, $swap);
+        $this->assertRefused(fn () => $swapping->get($id), 404, 'swapped under a request', RestoreUploads::NOT_FOUND);
+        touch($file, time() - RestoreUploads::IDLE - 5);
+        $swapping->sweep();
+        $this->assertDirectoryExists($this->root() . '/' . $id, 'not removed by the sweep');
+        touch($file, time() - RestoreUploads::IDLE - 5);
+        $this->uploads()->sweep();
+        $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'removed once it holds still');
+    }
+
+    /** N-1595: the sweep removes what an interrupted removal left (.removing-<16 hex>), and nothing else. */
+    public function testTheSweepClearsRemovalLeftovers(): void
+    {
+        $root = $this->uploads()->sweep();
+        $left = $root . '/.removing-' . bin2hex(random_bytes(8));
+        mkdir($left);
+        file_put_contents($left . '/data.part', 'x');
+        mkdir($root . '/.removing-short');
+        $this->uploads()->sweep();
+        $this->assertDirectoryDoesNotExist($left);
+        $this->assertDirectoryExists($root . '/.removing-short', 'only the exact name');
     }
 
     /** N-1587: the chunk size follows PHP's upload_max_filesize and post_max_size (less room for the multipart framing). */
@@ -346,6 +528,12 @@ try { $u->create(3, null); echo "ok"; } catch (Throwable $e) { echo $e->getMessa
     private function files(string $id): array
     {
         return array_values(array_diff(scandir($this->root() . '/' . $id) ?: [], ['.', '..']));
+    }
+
+    /** @return list<string> the upload folders */
+    private function ids(): array
+    {
+        return array_values(preg_grep('/^[a-f0-9]{32}$/D', scandir($this->root()) ?: []) ?: []);
     }
 
     private function root(): string

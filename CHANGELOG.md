@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** chunked restore uploads (`/api/v1/restores`): a confirm that stopped before its outcome was kept now reads as status `interrupted` (it may have been applied; check the data) and is never applied again. A linked restore upload lock answers 500 with a generic message. When `RESTORE_MAX_UPLOADS` is reached, another account's unconfirmed upload idle for 10 minutes makes room, and the free-disk check counts what the open uploads still expect. An upload started before this update is not found after it; start it again.
+
 ## [3.14.0] - 2026-11-01
 
 **Upgrade note:** installs without Docker need SQLite 3.38 or newer (the JSON functions the app now uses for long id lists); the app and `php spark apotheke:migrate` stop with a clear message on an older one. The Docker images already ship a newer SQLite.

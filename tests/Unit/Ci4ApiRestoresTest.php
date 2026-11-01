@@ -224,6 +224,78 @@ final class Ci4ApiRestoresTest extends TestCase
         $this->assertSame([], $this->uploadDirs(), 'swept');
     }
 
+    /** N-1595: a full cap is 503 restore.busy with Retry-After; too little disk beside what open uploads expect (N-1593) is 507. */
+    public function testAFullCapOrDiskIsRefusedWithItsCode(): void
+    {
+        $admin = $this->signedIn('admin');
+        for ($i = 0; $i < 8; $i++) {
+            $this->plant('user:999:' . $i, ['size' => 3]);
+        }
+        $busy = $this->send($admin, 'POST', '/api/v1/restores', ['size' => 3]);
+        $this->assertSame([503, 'restore.busy', '60'], [...$this->code($busy), $busy['headers']['retry-after'] ?? null], $busy['body']);
+        ApiContract::assertMatches('POST', '/api/v1/restores', $busy);
+        foreach ($this->uploadDirs() as $d) {
+            rrmdir(self::$dir . '/uploads/restore/' . $d);
+        }
+        $this->plant('user:999:big', ['size' => PHP_INT_MAX >> 1]);   // more than any disk, still expected
+        $full = $this->send($admin, 'POST', '/api/v1/restores', ['size' => 3]);
+        $this->assertSame([507, 'storage.insufficient', null], [...$this->code($full), $full['headers']['retry-after'] ?? null], $full['body']);
+        ApiContract::assertMatches('POST', '/api/v1/restores', $full);
+        $this->assertCount(1, $this->uploadDirs(), 'nothing made');
+    }
+
+    /** N-1591: a create.lock that is a link is the API's fixed 500, without the lock's path. */
+    public function testALinkedCreateLockIsAServerError(): void
+    {
+        $admin = $this->signedIn('admin');
+        $lock = self::$dir . '/uploads/restore/create.lock';
+        $this->assertSame(201, $this->send($admin, 'POST', '/api/v1/restores', ['size' => 3])['status']);
+        rename($lock, $lock . '.real');
+        symlink($lock . '.real', $lock);
+        try {
+            $r = $this->send($admin, 'POST', '/api/v1/restores', ['size' => 3]);
+            $this->assertSame([500, 'server_error'], $this->code($r), $r['body']);
+            $this->assertStringNotContainsString('lock', $r['body']);
+            $this->assertStringNotContainsString('DATA_DIR', $r['body']);
+        } finally {
+            unlink($lock);
+            rename($lock . '.real', $lock);
+        }
+    }
+
+    /** N-1594: an upload is the account's, not only its id's: the same id with another creation time is not the owner. */
+    public function testTheOwnerIsTheAccountNotOnlyItsId(): void
+    {
+        $kim = $this->signedIn('kim');
+        $id = $this->send($kim, 'POST', '/api/v1/restores', ['size' => 3])['json']['id'];
+        $pdo = testdb(self::$dir);
+        $pdo->exec("UPDATE users SET created_at = '2026-02-02 00:00:00' WHERE username = 'kim'");
+        try {
+            $this->assertSame([404, 'not_found'], $this->code($kim->rest('GET', '/api/v1/restores/' . $id)), 'another account with the same id');
+            $this->assertSame([404, 'not_found'], $this->code($this->send($kim, 'DELETE', '/api/v1/restores/' . $id, null)));
+        } finally {
+            $pdo->exec("UPDATE users SET created_at = '2026-01-01 00:00:00' WHERE username = 'kim'");
+        }
+        $this->assertSame(200, $kim->rest('GET', '/api/v1/restores/' . $id)['status'], 'its own account again');
+        $this->assertSame(204, $this->send($kim, 'DELETE', '/api/v1/restores/' . $id, null)['status']);
+    }
+
+    /** N-1594: a confirm that stopped while applying (status applying, nobody on it) reads as interrupted and is not restored again. */
+    public function testAStoppedConfirmReadsAsInterrupted(): void
+    {
+        $admin = $this->signedIn('admin');
+        $id = $this->plant($this->owner('admin'), ['size' => 3, 'received' => 3, 'next' => 1, 'status' => 'applying', 'fingerprint' => str_repeat('a', 64)]);
+        file_put_contents(self::$dir . '/uploads/restore/' . $id . '/backup.zip', 'abc');
+        $r = $admin->rest('GET', '/api/v1/restores/' . $id);
+        $this->assertSame([200, 'interrupted', str_repeat('a', 64)], [$r['status'], $r['json']['status'] ?? null, $r['json']['result']['sha256'] ?? null], $r['body']);
+        ApiContract::assertMatches('GET', '/api/v1/restores/' . $id, $r);
+        $again = $this->send($admin, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => true]);
+        $this->assertSame([409, 'restore.conflict'], $this->code($again), $again['body']);
+        ApiContract::assertMatches('POST', "/api/v1/restores/$id/confirm", $again);
+        $this->assertFileDoesNotExist(self::$dir . '/uploads/restore/' . $id . '/backup.zip');
+        $this->assertSame(204, $this->send($admin, 'DELETE', '/api/v1/restores/' . $id, null)['status']);
+    }
+
     public function testTheBackupsSettingsNeedTheSettingsPermission(): void
     {
         $pdo = testdb(self::$dir);
@@ -282,6 +354,31 @@ final class Ci4ApiRestoresTest extends TestCase
 
         return $c->req('POST', "/api/v1/restores/$id/chunks/$n", [], ['chunk' => ['name' => 'chunk', 'type' => 'application/octet-stream', 'data' => $bytes]],
             ['Origin: ' . $c->base, 'Sec-Fetch-Site: same-origin', 'Accept: application/json', 'X-CSRF-Token: ' . $token]);
+    }
+
+    /**
+     * An upload folder with this manifest, as another request would leave it.
+     *
+     * @param array<string,mixed> $m
+     */
+    private function plant(string $owner, array $m): string
+    {
+        $id = bin2hex(random_bytes(16));
+        @mkdir(self::$dir . '/uploads/restore', 0770, true);
+        mkdir(self::$dir . '/uploads/restore/' . $id, 0770);
+        file_put_contents(self::$dir . '/uploads/restore/' . $id . '/manifest.json', (string)json_encode($m + ['owner' => $owner, 'size' => 3, 'sha256' => null,
+            'chunk_size' => 65536, 'received' => 0, 'next' => 0, 'status' => 'uploading']));
+
+        return $id;
+    }
+
+    /** the owner key of account $name, as Services::restoreUploads() makes it */
+    private function owner(string $name): string
+    {
+        $row = testdb(self::$dir)->query('SELECT id, created_at FROM users WHERE username = ' . testdb(self::$dir)->quote($name))->fetch(PDO::FETCH_ASSOC);
+        $this->assertIsArray($row);
+
+        return 'user:' . $row['id'] . ':' . hash('sha256', (string)$row['created_at']);
     }
 
     /** @return list<string> */
