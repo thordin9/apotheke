@@ -436,7 +436,9 @@ Entries of deleted items are kept. With sign-in on, every entry also names the a
   files is often larger than the usual 22 MB upload limit. The browser then answers 413. The Docker image allows
   520 MB on the restore page only. Otherwise raise PHP `upload_max_filesize` and `post_max_size` and the web server's
   `client_max_body_size` together, or restore from the command line with `php bin/restore.php` (see
-  [Deployment and operations](deployment-and-operations.md#backup-and-restore)).
+  [Deployment and operations](deployment-and-operations.md#backup-and-restore)). Where even that is too small (a
+  host that caps every request), a script can send the backup in chunks through the
+  [API](api.md#chunked-restore); it is checked and restored the same way.
 
 ☰ → *Export CSV* (also in the footer) downloads the whole catalogue as UTF-8 CSV with these columns:
 `id, name, location, category, quantity, notes, image, created_at, updated_at, tags, value, currency, purchase_date,

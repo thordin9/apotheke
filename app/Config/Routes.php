@@ -212,6 +212,14 @@ $routes->post('api/v1/imports', $apiImports . '::create', ['permission' => 'impo
 $routes->get('api/v1/imports/([0-9]+)', $apiImports . '::show/$1', ['permission' => 'import']);
 $routes->get('api/v1/imports/([0-9]+)/preview', $apiImports . '::preview/$1', ['permission' => 'import']);
 $routes->post('api/v1/imports/([0-9]+)/commit', $apiImports . '::commit/$1', ['permission' => 'import']);
+// Chunked restore (Backup): the backup permission, as /backup/restore; each upload is its owner's only.
+$apiRestores = '\\Apotheke\\Backup\\Controllers\\Api\\RestoresController';
+$routes->post('api/v1/restores', $apiRestores . '::create', ['permission' => 'backup']);
+$routes->get('api/v1/restores/([^/]+)', $apiRestores . '::show/$1', ['permission' => 'backup']);
+$routes->delete('api/v1/restores/([^/]+)', $apiRestores . '::delete/$1', ['permission' => 'backup']);
+$routes->post('api/v1/restores/([^/]+)/chunks/([0-9]+)', $apiRestores . '::chunk/$1/$2', ['permission' => 'backup']);
+$routes->post('api/v1/restores/([^/]+)/finish', $apiRestores . '::finish/$1', ['permission' => 'backup']);
+$routes->post('api/v1/restores/([^/]+)/confirm', $apiRestores . '::confirm/$1', ['permission' => 'backup']);
 $routes->get('api/v1/jobs/([0-9]+)', '\\Apotheke\\Auth\\Controllers\\Api\\JobsController::show/$1', ['permission' => 'view']);
 $web::every($routes, 'api', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);
 $web::every($routes, 'api/(.*)', '\\Apotheke\\Core\\Controllers\\ApiController::notFound', $public);

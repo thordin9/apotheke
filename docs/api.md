@@ -25,6 +25,12 @@ answer against it.
 | `GET /api/v1/imports/{id}` | Import, and the user who uploaded it or an admin | The import: status, columns with the guessed field, the first five rows, the fields to map to. |
 | `GET /api/v1/imports/{id}/preview` | Import, and the user who uploaded it or an admin | A dry run: what each row would do (`new`, `update`, `same` or `error`) and the summary. Query `map` (the field per column, comma-separated), `create`, `skip_errors`, `page`, `per_page` (up to 200). Writes nothing, the mapping included. |
 | `POST /api/v1/imports/{id}/commit` | Import, and the user who uploaded it or an admin | Import the file as a background job, with an optional `{"map": […], "create": …, "skip_errors": …}`. `202` with the job and a `Location` header; `422` when rows have errors and `skip_errors` is off. Rows are committed one by one, so they show up while the job runs; a stopped or failed job resumes when the import is committed again. |
+| `POST /api/v1/restores` | Backup, signed in | Start a [chunked restore](#chunked-restore) with `{"size": <bytes>, "sha256": <hex, optional>}`; `201` with the upload and a `Location` header. |
+| `GET /api/v1/restores/{id}` | Backup, your own upload | `status` (`uploading` or `ready`), `size`, `chunk_size`, `received`, `next_chunk`, `idle_seconds`. |
+| `POST /api/v1/restores/{id}/chunks/{n}` | Backup, your own upload | Chunk `n` (from 0) as the `multipart/form-data` field `chunk`. |
+| `POST /api/v1/restores/{id}/finish` | Backup, your own upload | Check the upload and the backup: the dry run, under `backup`. Nothing is changed. |
+| `POST /api/v1/restores/{id}/confirm` | Backup, your own upload | `{"confirm": true}`: replace the catalog with the backup. |
+| `DELETE /api/v1/restores/{id}` | Backup, your own upload | Cancel it (`204`); its files are removed. |
 | `GET /api/v1/jobs/{id}` | the job type's permission, and the user who started it or an admin | `status` (`queued`, `running`, `done`, `failed`), `progress` (`done` and `total` rows), `result` and `error`. Anyone else gets `404`, as for an id that is not there. |
 
 A job that the worker stops cleanly (SIGTERM, with pcntl) is released and resumes at once. A worker that is killed
@@ -38,6 +44,21 @@ is not there. Cell values in an import's `sample` and the preview's `name` are r
 starts with `=`, `+`, `-`, `@`, a tab or CR is listed in `sample_formula` (per sample row) and in each preview row's
 `formula` (column indexes): a spreadsheet runs such a cell as a formula, so a client that writes these values to a CSV
 must neutralise them, as the export does with a leading apostrophe.
+
+## Chunked restore
+
+For a backup larger than the host lets one request carry. Start an upload with the zip's size in bytes (at most
+`RESTORE_MAX_MB`) and, if you can, its SHA-256. Send it in order, chunk 0 first, each chunk exactly `chunk_size`
+bytes (`RESTORE_CHUNK_KB`) except the last. A chunk out of order is `409 restore.conflict`, one over `chunk_size` or
+past the declared size `413 upload.too_large`, a short one before the end `422`; a refused chunk changes nothing,
+and `GET` says which chunk is next, so a client can resume. `finish` checks the size and the SHA-256, then the backup
+exactly as the Backup page checks an upload, and answers what it holds. `confirm` restores it as the page does (the
+backup's settings only for a user who may change settings). While another restore runs it is `409` and the upload is
+kept; a restore, any other failure, a SHA-256 that does not match or a file that is not a backup removes it.
+
+An upload belongs to the account that started it: anyone else gets the same `404` as for an id that is not there. A
+guest gets `403`. Each account has one upload at a time (a new one replaces it), and an upload without a request for
+an hour (`idle_seconds`) is removed. See [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
 ## Requests
 
@@ -77,7 +98,7 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 ```
 
 `code` is stable: `auth.required` (401), `auth.invalid_credentials` (401), `auth.pending_approval` (403),
-`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `import.gone` (410), `not_found` (404), `permission.denied` (403),
+`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `restore.conflict` (409), `import.gone` (410), `not_found` (404), `permission.denied` (403),
 `rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
 (413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
 problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's
