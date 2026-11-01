@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Apotheke\Core\Database;
 
 use Apotheke\Core\Http\RequestCleanup;
+use CodeIgniter\Database\BaseConnection;
+use LogicException;
 use Throwable;
 
 /**
@@ -42,6 +44,28 @@ final class UnitsOfWork
     public static function on(SqlExecutor $executor, ?RequestCleanup $cleanup = null): self
     {
         return new self($executor, $cleanup);
+    }
+
+    /**
+     * The units a write site uses (P4-2b): the request's ($units, from
+     * Config\Services::unitsOfWork()), or its own on $db when the site is
+     * built without one (tests and command-line tools). A registry on
+     * another connection than $db is a wiring error: its writes would land
+     * elsewhere than the site's reads.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     */
+    public static function forSite(BaseConnection $db, ?self $units): self
+    {
+        if ($units === null) {
+            return self::on(new ConnectionExecutor($db));
+        }
+        $on = $units->executor()->connection();
+        if ($on !== null && $on !== $db) {
+            throw new LogicException('A write site and its units of work must use the same connection.');
+        }
+
+        return $units;
     }
 
     public function executor(): SqlExecutor
