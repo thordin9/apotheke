@@ -459,7 +459,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#219](https://github.com/thordin9/apotheke/pull/219), follow-up to #217 with QA items L-1660, L-1661, N-1662 and N-1663: a unit on PostgreSQL
   takes a transaction advisory lock on its table (and key) before it reads, as SQLite's write lock does, so
   concurrent saved filters get the same 409/422 on every path; recently viewed locks per list. No schema change
-  (2.6.x shares the tables). Tests for the prune across lists, the refresh, the sweep and the lines' home. Merged (2d0bdcb).
+  (2.6.x shares the tables). Tests for the prune across lists, the refresh, the sweep and the lines' home. Merged (2d0bdcb, v3.15.4).
 - [#220](https://github.com/thordin9/apotheke/pull/220), follow-up to #218 with QA items L-1647 to N-1651: a batch
   step must start with an allow-listed keyword (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, `WITH`,
   `VALUES`, `CREATE`, `DROP`, `ALTER`, a documented PRAGMA), whitespace is matched with `\s`, the trigger-body
