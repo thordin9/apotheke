@@ -85,6 +85,47 @@ final class SqlExecutorTest extends CIUnitTestCase
         $this->assertSame(0, (int)$db->transDepth);
     }
 
+    /**
+     * N-1621: only the guard's own NOT NULL violation is GUARD_FAILED. A
+     * stored value that names the guard table, or even spells out the
+     * guard's message, in another error (PostgreSQL puts row values in its
+     * DETAIL line and in some primary messages) is an ordinary failure, with
+     * DBDebug off (the error array) and on (the exception).
+     */
+    #[DataProvider('drivers')]
+    public function testOnlyTheGuardItselfIsAGuardFailure(string $driver): void
+    {
+        [$this->database, $db] = UowSchema::create($driver);
+        $db->query('CREATE TABLE uw_unique (v TEXT NOT NULL UNIQUE, n INTEGER NOT NULL CHECK (n > 0))');
+        $forged = 'null value in column "ok" of relation "' . 'uow_guard' . '" violates not-null constraint';
+        $db->query('INSERT INTO uw_unique (v, n) VALUES (?, ?)', ['uow_guard', 1]);
+        $db->query('INSERT INTO uw_unique (v, n) VALUES (?, ?)', [$forged, 1]);
+        $cases = [
+            'the guard' => ['INSERT INTO uow_guard (ok) SELECT NULL', [], BatchExecutor::GUARD_FAILED],
+            'the guard, bound' => ['INSERT INTO uow_guard (ok) SELECT CASE WHEN ? = 1 THEN 1 END', [0], BatchExecutor::GUARD_FAILED],
+            'a unique value naming the table' => ['INSERT INTO uw_unique (v, n) VALUES (?, ?)', ['uow_guard', 2], 0],
+            'a unique value spelling the message' => ['INSERT INTO uw_unique (v, n) VALUES (?, ?)', [$forged, 2], 0],
+            'a check with the value' => ['INSERT INTO uw_unique (v, n) VALUES (?, ?)', [$forged . "\n" . $forged, 0], 0],
+            'a cast of the message' => ['SELECT CAST(? AS INTEGER) AS n FROM uw_unique WHERE n = 1 AND v = ? AND CAST(? AS INTEGER) = 1', [$forged, $forged, $forged], $driver === 'pgsql' ? 0 : null],
+            'another not-null column' => ['INSERT INTO uw_parent (name) SELECT NULL', [], 0],
+            'the guard table, another error' => ['INSERT INTO uow_guard (ok) SELECT CAST(? AS INTEGER) WHERE CAST(? AS INTEGER) = 1', [$forged, $forged], $driver === 'pgsql' ? 0 : null],
+        ];
+        foreach ([false, true] as $debug) {
+            (new \ReflectionProperty($db, 'DBDebug'))->setValue($db, $debug);
+            $exec = new ConnectionExecutor($db);
+            foreach ($cases as $name => [$sql, $params, $code]) {
+                try {
+                    $exec->run([['sql' => $sql, 'params' => $params]]);
+                    $this->assertNull($code, $name . ' must fail');
+                } catch (WriteFailed $e) {
+                    $this->assertSame($code, $e->getCode(), $name . ($debug ? ', DBDebug on' : ''));
+                    $this->assertSame('Database write failed: ' . ($code === BatchExecutor::GUARD_FAILED ? 'a guard in the unit' : 'the batch'), $e->getMessage());
+                }
+            }
+        }
+        $this->assertSame(0, (int)$db->transDepth);
+    }
+
     /** One list parameter for 5,000 ids (SearchIndex, Stocktakes, ItemList), on every driver. */
     #[DataProvider('drivers')]
     public function testAnInListTakesThousandsOfIdsInOneParameter(string $driver): void
