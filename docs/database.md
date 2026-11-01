@@ -230,6 +230,7 @@ Notes:
 | 0029 | `0029_jobs.php` | `jobs` (background jobs for `php spark jobs:work`) + index on `(status, run_after, id)`. CI4 only (3.2.0 and later): 2.6.x ignores the table, a backup does not carry it or name the migration |
 | 0030 | `0030_import_rows.php` | `import_rows` (the CSV import job's lines, so a stopped job resumes). CI4 only, as 0029 |
 | 0031 | `0031_unit_of_work.php` | `uow_guard` and `uow_refs`, the batch unit of work's guard and id tables (ADR-002), empty outside a batch. CI4 only, as 0029 |
+| 0032 | `0032_restore_marker.php` | `restore_marker`, the run id and SHA-256 of the last staged restore swap (restore on the edge, below). CI4 only, as 0029; a rollback leaves it behind |
 
 ## PostgreSQL schema and roles
 
