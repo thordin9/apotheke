@@ -6,6 +6,8 @@ namespace Apotheke\Favourites;
 
 use Apotheke\Catalog\ItemList;
 use Apotheke\Catalog\RecentItems;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -29,9 +31,12 @@ final class Favourites implements RecentItems
     /** A device id this request created (legacy writes it into $_COOKIE). */
     private ?string $created = null;
 
+    private readonly UnitsOfWork $units;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param mixed $deviceCookie the request's apo_dev cookie
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -39,7 +44,9 @@ final class Favourites implements RecentItems
         private readonly string $scopeSetting,
         private readonly int $limit,
         private readonly mixed $deviceCookie,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** Star or unstar an item; updated_at stays, so the list order stays put. */
@@ -93,14 +100,20 @@ final class Favourites implements RecentItems
                 'secure' => false, 'httponly' => true, 'samesite' => Cookie::SAMESITE_LAX, 'raw' => false]);
         }
         $clock = new Clock();
-        Writes::transaction($this->db, function () use ($id, $scope, $clock): void {
+        // One unit of work (ADR-002, batch): the sequence and the prune are subqueries, so no write needs a read.
+        // The row ends as before: seq is the scope's highest before this view, plus one.
+        $this->units->run('recent_views', function (UnitOfWork $uow) use ($id, $scope, $clock): void {
+            $now = $clock->now();
+            $max = '(SELECT COALESCE(MAX(seq), 0) FROM recent_views WHERE scope = ?)';
+            $uow->write('UPDATE recent_views SET seq = ' . $max . ' + 1, viewed_at = ? WHERE scope = ? AND item_id = ?', [$scope, $now, $scope, $id], 'recent');
+            $uow->write('INSERT INTO recent_views (scope, item_id, seq, viewed_at) SELECT ?, ?, m.s + 1, ? FROM (SELECT COALESCE(MAX(seq), 0) AS s FROM recent_views WHERE scope = ?) m'
+                . ' WHERE NOT EXISTS (SELECT 1 FROM recent_views WHERE scope = ? AND item_id = ?)', [$scope, $id, $now, $scope, $scope, $id], 'recent');
+            $uow->write('DELETE FROM recent_views WHERE scope = ? AND seq <= ' . $max . ' - ?', [$scope, $scope, $this->limit], 'recent');
+            // The occasional sweep of old views, when the sequence read here reaches a multiple of 50 (as before).
             $seq = (int)(Writes::rows($this->db, 'SELECT COALESCE(MAX(seq), 0) AS s FROM recent_views WHERE scope = ?', [$scope])[0]['s'] ?? 0) + 1;
-            Writes::check($this->db->table('recent_views')->where('scope', $scope)->where('item_id', $id)->delete(), 'recent');
-            Writes::check($this->db->table('recent_views')->insert(['scope' => $scope, 'item_id' => $id, 'seq' => $seq, 'viewed_at' => $clock->now()]), 'recent');
-            Writes::check($this->db->table('recent_views')->where('scope', $scope)->where('seq <=', $seq - $this->limit)->delete(), 'recent');
             if ($seq % 50 === 0) {
-                $cut = (int)strtotime($clock->now() . ' UTC') - self::MAX_AGE_DAYS * 86400;
-                Writes::check($this->db->table('recent_views')->where('viewed_at <', gmdate('Y-m-d H:i:s', $cut))->delete(), 'recent');
+                $cut = (int)strtotime($now . ' UTC') - self::MAX_AGE_DAYS * 86400;
+                $uow->write('DELETE FROM recent_views WHERE viewed_at < ?', [gmdate('Y-m-d H:i:s', $cut)], 'recent');
             }
         });
 

@@ -189,7 +189,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Auth\RoleRepository($db);
+        return new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork());
     }
 
     /**
@@ -627,7 +627,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Catalog\SavedFilters($db, new \Apotheke\Core\Libraries\Clock(), (int)static::settings()->get('saved_filters_max'));
+        return new \Apotheke\Catalog\SavedFilters($db, new \Apotheke\Core\Libraries\Clock(), (int)static::settings()->get('saved_filters_max'), static::unitsOfWork());
     }
 
     /** Tags in use (Taxonomy). */
@@ -652,7 +652,7 @@ class Services extends BaseService
         $db = static::apothekeDb();
         $s = static::settings();
 
-        return new \Apotheke\Favourites\Favourites($db, static::itemList(), (string)$s->get('recent_scope'), (int)$s->get('recent_limit'), $_COOKIE[\Apotheke\Favourites\Favourites::COOKIE] ?? null);
+        return new \Apotheke\Favourites\Favourites($db, static::itemList(), (string)$s->get('recent_scope'), (int)$s->get('recent_limit'), $_COOKIE[\Apotheke\Favourites\Favourites::COOKIE] ?? null, static::unitsOfWork());
     }
 
     /** The list's "Recently viewed" row (Catalog's RecentItems, implemented by Favourites). */
@@ -919,7 +919,7 @@ class Services extends BaseService
         $db = static::apothekeDb();
         $settings = static::settings(false, new \Apotheke\Core\Security\CommandLine());
         $users = new \Apotheke\Auth\UserRepository($db);
-        $roles = new \Apotheke\Auth\RoleRepository($db);
+        $roles = new \Apotheke\Auth\RoleRepository($db, static::unitsOfWork());
         $clock = new \Apotheke\Core\Libraries\Clock();
         $accounts = new \Apotheke\Auth\Accounts($users, $roles, $clock);
         $password = static::apothekeConfig()->values()['app_password'] ?? '';
@@ -1114,7 +1114,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Stocktake\Stocktakes($db, new \Apotheke\Core\Libraries\Clock(), static::taxonomy(), static::itemRepository(), static::itemHistory(), static::barcode());
+        return new \Apotheke\Stocktake\Stocktakes($db, new \Apotheke\Core\Libraries\Clock(), static::taxonomy(), static::itemRepository(), static::itemHistory(), static::barcode(), static::unitsOfWork());
     }
 
     /** The stocktake pages (Stocktake). */

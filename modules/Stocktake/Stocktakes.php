@@ -8,6 +8,9 @@ use Apotheke\Catalog\Barcode;
 use Apotheke\Catalog\Items\ItemInput;
 use Apotheke\Catalog\Items\ItemRepository;
 use Apotheke\Core\Database\Dialect;
+use Apotheke\Core\Database\Ref;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -28,7 +31,12 @@ use CodeIgniter\Database\BaseConnection;
  */
 final class Stocktakes
 {
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly Clock $clock,
@@ -36,7 +44,9 @@ final class Stocktakes
         private readonly ItemRepository $items,
         private readonly ItemHistory $history,
         private readonly Barcode $barcode,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** @return Take|null */
@@ -68,20 +78,20 @@ final class Stocktakes
             return (int)$open['id'];
         }
 
-        return Writes::transaction($this->db, function () use ($locationId): int {
+        // One unit of work (ADR-002, Ref): the lines refer to the stocktake before it has its id.
+        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($locationId): Ref {
             $byId = $this->taxonomy->locationsById();
-            Writes::check($this->db->query('INSERT INTO stocktakes (location_id, location_name, status, started_at, summary) VALUES (?,?,?,?,?)',
-                [$locationId, (string)($byId[$locationId]['path'] ?? ''), 'open', $this->clock->now(), '{}']), 'start stocktake');
-            $id = (int)$this->db->insertID();
+            $id = $uow->insert('stocktakes', ['location_id' => $locationId, 'location_name' => (string)($byId[$locationId]['path'] ?? ''), 'status' => 'open',
+                'started_at' => $this->clock->now(), 'summary' => '{}'], 'start stocktake');
             $ids = $this->taxonomy->subtreeIds($locationId);
             $rows = Writes::rows($this->db, 'SELECT id, name, location_id FROM items WHERE location_id IN ' . Dialect::of($this->db)->inList() . ' ORDER BY sort_key, id', [Dialect::list($ids)]);
             foreach ($rows as $it) {
-                Writes::check($this->db->query('INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location) VALUES (?,?,?,1,?,?)',
-                    [$id, (int)$it['id'], (string)$it['name'], (int)$it['location_id'], (string)($byId[(int)$it['location_id']]['path'] ?? '')]), 'stocktake line');
+                $uow->write('INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location) VALUES (?,?,?,1,?,?)',
+                    [$id, (int)$it['id'], (string)$it['name'], (int)$it['location_id'], (string)($byId[(int)$it['location_id']]['path'] ?? '')], 'stocktake line');
             }
 
             return $id;
-        });
+        })->id();
     }
 
     /** @return list<Line> */
