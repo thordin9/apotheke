@@ -375,7 +375,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   endpoints (backup permission): create, GET, chunks (multipart `chunk`), finish (the dry run, `Restorer::open()`),
   confirm (`Restorer::restore()`; settings only with the settings permission), DELETE. OpenAPI and docs/api.md.
   Tests: `Ci4ApiRestoresTest`, SQLite and PostgreSQL. Merged, released as v3.12.0. The fix(backup) hardening
-  follow-up (L-1580, L-1581, N-1582 to N-1588) is being opened.
+  follow-up is [#211](https://github.com/thordin9/apotheke/pull/211): passed QA's full gate, awaiting merge.
 - docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
   for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
   PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
@@ -385,19 +385,21 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
   as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
   Docs only. Merged (#203). QA's nits N-1560 to N-1562, and N-1584 (the chunked restore store goes behind `Core\Storage` in P4-4), are in P4-2a part 1, with N-1589 (restore confirm likely becomes a background job on D1 and the DO, P4-4).
-- feat/p4-executor (P4-2a, part 1 of 3): the SQL executor adapter. `Core\Database\SqlExecutor` (`run()` one atomic
+- [#209](https://github.com/thordin9/apotheke/pull/209) (P4-2a, part 1 of 3): the SQL executor adapter. `Core\Database\SqlExecutor` (`run()` one atomic
   batch, `query()`, `dialect()`, `connection()`), its default `ConnectionExecutor` (the request's CodeIgniter
   connection; no behaviour change on SQLite or PostgreSQL), `Dialect`, and `Services::sqlExecutor()` (per request,
   not persistent). Long id lists are one list parameter (`Dialect::inList()`: `json_each` on SQLite,
   `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
   `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
-  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Open for QA's full gate.
-- feat/p4-unit-of-work (P4-2a, part 2 of 3, on part 1): the unit of work on a connection. `UnitOfWork` (`hold`,
+  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Passed QA's full gate, awaiting merge.
+- [#210](https://github.com/thordin9/apotheke/pull/210) (P4-2a, part 2 of 3, includes #209 until it merges): the unit of work on a connection. `UnitOfWork` (`hold`,
   `insert` with a `Ref`, `update`, `write` with `expect`, `assert`), `ConnectionUnitOfWork` (a real transaction,
   the queue run in order at the end), and `UnitsOfWork`, the per-request registry of the open unit
   (`Services::unitsOfWork()`): nested units join the outer one, a failed joined unit fails it, and a unit left open
   is discarded by `RequestCleanup`. No call site uses it yet. Tests: `UnitOfWorkTest` (SQLite and PostgreSQL) and
-  `DatabaseStateTest` (empty registry after a failure; two worker requests in one process). Open for QA's full gate.
+  `DatabaseStateTest` (empty registry after a failure; two worker requests in one process). Also #209's QA items
+  L-1620 and N-1621 to N-1623: SQLite 3.38 or newer is required (checked at connect and by the migration runner).
+  Next for QA's full gate.
 
 ## Lanes
 
@@ -475,9 +477,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the fix(backup) hardening follow-up
-  (L-1580, L-1581, N-1582 to N-1588) is being opened and comes before more P4-2 work. P4-1
+  (#211) and #209 passed QA and await merge; #210 is next. P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
-  (#209), then the unit of work (#210, retargeted to `main` before #209 merges), then the batch path and parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  (#209), then the unit of work (#210, now based on `main`), then the batch path and parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
