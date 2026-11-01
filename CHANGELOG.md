@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.15.0] - 2026-11-01
+
+### Added
+
+- **core:** add the batch unit of work (P4-2a, 3/3) ([#214](https://github.com/thordin9/apotheke/pull/214))
+
 ## [3.14.2] - 2026-11-01
 
 **Note:** chunked restore uploads (`/api/v1/restores`): a confirm that stopped before its outcome was kept now reads as status `interrupted` (it may have been applied; check the data) and is never applied again. A linked restore upload lock answers 500 with a generic message. When `RESTORE_MAX_UPLOADS` is reached, another account's unconfirmed upload idle for 10 minutes makes room, and the free-disk check counts what the open uploads still expect. An upload started before this update is not found after it; start it again.
@@ -1177,7 +1183,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.14.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.0...HEAD
+[3.15.0]: https://github.com/thordin9/apotheke/compare/v3.14.2...v3.15.0
 [3.14.2]: https://github.com/thordin9/apotheke/compare/v3.14.1...v3.14.2
 [3.14.1]: https://github.com/thordin9/apotheke/compare/v3.14.0...v3.14.1
 [3.14.0]: https://github.com/thordin9/apotheke/compare/v3.13.0...v3.14.0
