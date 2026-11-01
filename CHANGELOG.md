@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.15.2] - 2026-11-01
+
+### Fixed
+
+- **core:** refuse unsupported batch statements and unknown refs ([#216](https://github.com/thordin9/apotheke/pull/216))
+
 ## [3.15.1] - 2026-11-01
 
 **Note:** chunked restore uploads (`/api/v1/restores`): when the signed-in account cannot be read because of a database error, the answer is now `500 server_error` instead of `403 permission.denied`. The docs now spell out that at the `RESTORE_MAX_UPLOADS` cap a fully sent upload left unconfirmed for 10 minutes can be removed by another account's start, and how to raise the cap.
@@ -1191,7 +1197,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.2...HEAD
+[3.15.2]: https://github.com/thordin9/apotheke/compare/v3.15.1...v3.15.2
 [3.15.1]: https://github.com/thordin9/apotheke/compare/v3.15.0...v3.15.1
 [3.15.0]: https://github.com/thordin9/apotheke/compare/v3.14.2...v3.15.0
 [3.14.2]: https://github.com/thordin9/apotheke/compare/v3.14.1...v3.14.2
