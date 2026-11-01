@@ -274,7 +274,9 @@ rollback from 3.0.x to 2.6.x never meets an unknown schema (PLAN §3.4, PM L-2).
 
 ## How the app runs SQL
 
-All SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md), decision 2):
+New SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md), decision 2). The existing call
+sites still use the connection through `Writes` and move onto the executor and units of work in the later P4-2
+parts (P4-2b); until then only the list binding below (`SearchIndex`, `Stocktakes::start()`, `ItemList`) is in use.
 
 - `Core\Database\SqlExecutor` is the adapter: `run(statements)` sends a list of statements as one atomic batch,
   `query(sql, params)` reads, `dialect()` names the SQL dialect, and `connection()` is the CodeIgniter connection
@@ -287,7 +289,8 @@ All SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md
 - A failed statement throws `WriteFailed` without the database's message (it can hold a value): code 0 for a plain
   failure, `BatchExecutor::GUARD_FAILED` when a unit-of-work guard aborted the batch.
 
-Writes that belong together run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn)`): `$fn` reads
+Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn)`; no call
+site uses it yet, P4-2b converts them): `$fn` reads
 as usual and queues its writes on the `UnitOfWork` it is given (`hold()`, `insert()` returning a `Ref`, `update()`,
 `write(…, $expect, $fail)` and `assert($condition, …, $fail)`). The writes run in order when `$fn` returns, as one
 atomic unit; they are not visible to `$fn`'s own reads.
