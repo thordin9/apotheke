@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Catalog;
 
+use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Search\SearchIndex;
 use CodeIgniter\Database\BaseConnection;
@@ -46,7 +47,12 @@ final class ItemList
         if (SearchIndex::tokens($q) !== []) {
             // every word must match name, notes, tags, custom fields, category or location path
             $match = $this->search->match($q);
-            $where[] = $match['ids'] !== [] ? 'i.id IN (' . implode(',', $match['ids']) . ')' : '1 = 0';
+            if ($match['ids'] === []) {
+                $where[] = '1 = 0';
+            } else {
+                $where[] = 'i.id IN ' . Dialect::of($this->db)->inList();
+                $args[] = Dialect::list($match['ids']);
+            }
         }
         foreach (['loc' => 'i.location_id', 'cat' => 'i.category_id'] as $k => $col) {
             $v = $f[$k] ?? '';
@@ -55,8 +61,8 @@ final class ItemList
             } elseif ($v !== '' && ctype_digit($v)) {
                 // a location filter includes everything stored in its sub-locations
                 $ids = $k === 'loc' ? $this->subtree((int)$v) : [(int)$v];
-                $where[] = "$col IN (" . implode(',', array_fill(0, count($ids), '?')) . ')';
-                array_push($args, ...$ids);
+                $where[] = "$col IN " . Dialect::of($this->db)->inList();
+                $args[] = Dialect::list($ids);
             }
         }
         if (ctype_digit($f['tag'] ?? '')) {
