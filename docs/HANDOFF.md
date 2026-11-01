@@ -373,7 +373,17 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   2026-10-29 and 2026-10-31 decisions; plan B is Postgres through Hyperdrive), M-1541 (`Installation` ids from the EU
   jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
   as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
-  Docs only. Open for QA's full gate.
+  Docs only. Merged (#203).
+- [#205](https://github.com/thordin9/apotheke/pull/205) (chunked restore, part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
+  `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Random ids,
+  strict id pattern, nothing followed through a link (root, folder, manifest, data), the real path checked. Chunks in
+  order, each exactly the chunk size but the last, within the declared size and `RESTORE_MAX_MB`; the size and an
+  optional SHA-256 are checked before the zip is handed to `Restorer`, which stays the only code that checks and
+  applies a restore. An upload is its owner's (`user:<id>`, `local` with sign-in off; guests none): anyone else gets
+  the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Finished,
+  cancelled and refused uploads are removed; idle for an hour, swept on each request and by
+  `spark apotheke:restore-sweep`. Tests: `tests/Modules/Backup/RestoreUploadsTest.php`. Open for QA's full gate.
+- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2, stacked on #205): the `/api/v1/restores` endpoints. Open.
 
 ## Lanes
 
@@ -450,8 +460,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 ## Next steps
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #195 is
-  merged. The chunked restore is in progress (Coder2, PR to follow). P4-1, the design
-  ([ADR-002](adr/002-edge-storage.md)), is open for QA's full gate. Next: P4-2 (unit of work and executor adapter,
+  merged. The chunked restore is open in two stacked PRs for QA's full gate: #205 (the store), then #206 (the API).
+  P4-1, the design ([ADR-002](adr/002-edge-storage.md)), is merged (#203). Next: P4-2 (unit of work and executor adapter,
   PDO first with no behaviour change, `json_each` in `SearchIndex` and `Stocktakes`), then P4-3 to P4-5 as in the
   ADR. DevOps prepares the bindings and the flip checklist behind `EDGE_STORAGE_READY`; N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
