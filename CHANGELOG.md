@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.12.1] - 2026-11-01
+
 **Note:** the chunked restore API now uses a chunk size PHP accepts: `RESTORE_CHUNK_KB`, but never more than `upload_max_filesize` or `post_max_size` less 64 KiB (2 MiB on a plain PHP or cPanel install with the default 2M; the Docker images are unchanged at 8 MiB). Clients must use the `chunk_size` the start answers. A new setting, `RESTORE_MAX_UPLOADS` (default 8), caps the chunked uploads open at once, and a start needs the backup's size plus 64 MiB of free disk. After `confirm`, the upload's record stays (status `restored` or `failed`) until deleted or idle for an hour, so a client that lost the answer to a proxy timeout can read it with `GET`.
+
+### Fixed
+
+- **backup:** harden the chunked restore upload limits ([#211](https://github.com/thordin9/apotheke/pull/211))
 
 ## [3.12.0] - 2026-11-01
 
@@ -1141,7 +1147,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.12.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.12.1...HEAD
+[3.12.1]: https://github.com/thordin9/apotheke/compare/v3.12.0...v3.12.1
 [3.12.0]: https://github.com/thordin9/apotheke/compare/v3.11.0...v3.12.0
 [3.11.0]: https://github.com/thordin9/apotheke/compare/v3.10.0...v3.11.0
 [3.10.0]: https://github.com/thordin9/apotheke/compare/v3.9.2...v3.10.0
