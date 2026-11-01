@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** on PostgreSQL, a change that has to wait more than 5 seconds for another one on the same item or list now answers "The database is busy. Try again in a moment." (503) instead of waiting. Adding or removing an attachment and deleting an item now write their history through the unit of work (P4-2b, part 2); nothing else changes for users.
+
 ## [3.15.4] - 2026-11-01
 
 **Note:** on PostgreSQL, two saved filters saved at the same moment now get the same "already exists" or "limit reached" message as on SQLite, instead of an error or one filter over the limit; views of the same "Recently viewed" list no longer fail when they happen at once.
