@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Database;
 
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\RequestCleanup;
 use CodeIgniter\Database\BaseConnection;
 use LogicException;
@@ -35,15 +36,18 @@ final class UnitsOfWork
 {
     private const CLEANUP_KEY = 'unit-of-work';
 
+    /** How long a unit waits for its PostgreSQL lock before it answers 503 (N-1665). */
+    public const LOCK_WAIT_MS = 5000;
+
     private ?QueuedUnitOfWork $open = null;
 
-    private function __construct(private readonly SqlExecutor $executor, private readonly ?RequestCleanup $cleanup)
+    private function __construct(private readonly SqlExecutor $executor, private readonly ?RequestCleanup $cleanup, private readonly int $lockWaitMs)
     {
     }
 
-    public static function on(SqlExecutor $executor, ?RequestCleanup $cleanup = null): self
+    public static function on(SqlExecutor $executor, ?RequestCleanup $cleanup = null, int $lockWaitMs = self::LOCK_WAIT_MS): self
     {
-        return new self($executor, $cleanup);
+        return new self($executor, $cleanup, $lockWaitMs);
     }
 
     /**
@@ -84,6 +88,17 @@ final class UnitsOfWork
      * (a device's list) do not wait for each other. On a batch executor the
      * unit's guards hold the checks instead.
      *
+     * PostgreSQL lock rules (N-1665):
+     * - Pass $key where a row or a list is the real scope (an item's id, a
+     *   device's list); without one every unit on $table waits for the other.
+     * - The lock is a transaction lock, released at commit or rollback; a unit
+     *   joined to a caller's transaction keeps it until the outer commit.
+     * - A unit waits at most LOCK_WAIT_MS for it, then answers 503 (UserError).
+     * - Lock order: a caller that locks rows in its own transaction and then
+     *   opens a unit takes the rows first, then the unit's lock. Every path
+     *   that takes both takes them in that order (rows, then unit), and a unit
+     *   never opens a second unit on another table while it waits.
+     *
      * @template T
      * @param callable(UnitOfWork):T $fn
      * @return T
@@ -109,7 +124,7 @@ final class UnitsOfWork
                 if ($db->DBDriver === 'SQLite3') {
                     Writes::check($db->query('DELETE FROM ' . $db->escapeIdentifiers($table) . ' WHERE 0 = 1'), 'write lock');
                 } elseif ($db->DBDriver === 'Postgre') {
-                    Writes::check($db->query('SELECT pg_advisory_xact_lock(?, ?)', self::lockKeys($table, $key)), 'write lock');
+                    $this->lockPostgre($db, self::lockKeys($table, $key));
                 }
 
                 return $this->once(new ConnectionUnitOfWork($db), $fn);
@@ -117,6 +132,27 @@ final class UnitsOfWork
 
             return $joined ? Writes::savepoint($db, $unit) : $unit();
         });
+    }
+
+    /**
+     * Take the unit's transaction advisory lock, waiting at most lockWaitMs:
+     * a try-lock with a short back-off, so a busy key answers 503 without
+     * changing the transaction's lock_timeout or aborting it.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param array{0:int,1:int} $keys
+     */
+    private function lockPostgre(BaseConnection $db, array $keys): void
+    {
+        $deadline = hrtime(true) + $this->lockWaitMs * 1_000_000;
+        $pause = 2_000;
+        while (!in_array(Writes::rows($db, 'SELECT pg_try_advisory_xact_lock(?, ?) AS ok', $keys)[0]['ok'] ?? null, [true, 't', 1, '1'], true)) {
+            if (hrtime(true) >= $deadline) {
+                throw new UserError('The database is busy. Try again in a moment.', 503);
+            }
+            usleep($pause);
+            $pause = min($pause * 2, 50_000);
+        }
     }
 
     /**
