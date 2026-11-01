@@ -99,13 +99,50 @@ final class Ci4ApiRestoresTest extends TestCase
         $this->assertSame([200, 'ready', null, 20], [$dry['status'], $dry['json']['status'], $dry['json']['next_chunk'], $dry['json']['backup']['tables']['items'] ?? null], $dry['body']);
         ApiContract::assertMatches('POST', "/api/v1/restores/$id/finish", $dry);
         $this->assertSame([422, 'validation.failed'], $this->code($this->send($admin, 'POST', "/api/v1/restores/$id/confirm", [])), 'no confirm flag');
+        foreach ([1, 'true', 'yes', [true]] as $loose) {   // N-1586: only the JSON true counts
+            $this->assertSame([422, 'validation.failed'], $this->code($this->send($admin, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => $loose])), (string)json_encode($loose));
+        }
         $this->assertSame('Changed again', $pdo->query('SELECT name FROM items ORDER BY id LIMIT 1')->fetchColumn(), 'the dry run changed nothing');
         $done = $this->send($admin, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => true]);
         $this->assertSame([200, true, 20], [$done['status'], $done['json']['restored'] ?? null, $done['json']['tables']['items'] ?? null], $done['body']);
         ApiContract::assertMatches('POST', "/api/v1/restores/$id/confirm", $done);
         $this->assertSame($oneShot, $this->dump(), 'the same catalog as the one-shot restore');
+        $this->assertSame([$id], $this->uploadDirs());
+        $this->assertSame(['manifest.json'], array_values(array_diff(scandir(self::$dir . '/uploads/restore/' . $id) ?: [], ['.', '..'])), 'only the outcome is kept');
+        // N-1588: a client that lost the answer (a proxy timeout) reads it again; a second confirm does not restore again.
+        $seen = $admin->rest('GET', '/api/v1/restores/' . $id);
+        $this->assertSame([200, 'restored', 20], [$seen['status'], $seen['json']['status'] ?? null, $seen['json']['result']['tables']['items'] ?? null], $seen['body']);
+        ApiContract::assertMatches('GET', '/api/v1/restores/' . $id, $seen);
+        $pdo->exec("UPDATE items SET name = 'After the restore'");
+        $again = $this->send($admin, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => true]);
+        $this->assertSame([$done['status'], $done['json']], [$again['status'], $again['json']], 'the same answer');
+        $this->assertSame('After the restore', $pdo->query('SELECT name FROM items ORDER BY id LIMIT 1')->fetchColumn(), 'not restored twice');
+        $this->assertSame([409, 'restore.conflict'], $this->code($this->send($admin, 'POST', "/api/v1/restores/$id/finish", [])), 'finish after confirm');
+        $this->assertSame(204, $this->send($admin, 'DELETE', '/api/v1/restores/' . $id, null)['status']);
         $this->assertSame([], $this->uploadDirs(), 'no files left');
         $this->assertSame([404, 'not_found'], $this->code($admin->rest('GET', '/api/v1/restores/' . $id)));
+    }
+
+    /** N-1587: the chunk size follows PHP's upload limits (here the plain PHP and cPanel defaults, 2M and 8M). */
+    public function testTheChunkSizeFollowsThePhpUploadLimits(): void
+    {
+        $dir = tmpdir('api-restores-2m');
+        $server = new Server($dir, ['APP_PASSWORD' => self::PASSWORD], 'ci4', null, ['upload_max_filesize' => '2M', 'post_max_size' => '8M']);
+        try {
+            $c = $server->client();
+            $token = $c->rest('GET', '/api/v1/session')['json']['csrf_token'];
+            $this->assertSame(200, $c->rest('POST', '/api/v1/session', ['username' => 'admin', 'password' => self::PASSWORD], ['X-CSRF-Token: ' . $token])['status']);
+            $new = $this->send($c, 'POST', '/api/v1/restores', ['size' => 2097152 + 10]);
+            $this->assertSame([201, 2097152], [$new['status'], $new['json']['chunk_size'] ?? null], $new['body']);
+            $id = $new['json']['id'];
+            $r = $this->chunk($c, $id, 0, str_repeat('x', 2097152));
+            $this->assertSame([200, 2097152], [$r['status'], $r['json']['received'] ?? null], $r['body']);
+        } finally {
+            $server->stop();
+            testdb_drop($dir);
+            rrmdir($dir);
+            @unlink($dir . '.server.log');
+        }
     }
 
     public function testSignedOutViewerAndGuestAreRefused(): void
@@ -221,8 +258,10 @@ final class Ci4ApiRestoresTest extends TestCase
             $this->assertSame(200, $this->chunk($c, $id, $n, $bytes)['status']);
         }
         $this->assertSame(200, $this->send($c, 'POST', "/api/v1/restores/$id/finish", [])['status']);
+        $done = $this->send($c, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => true]);
+        $this->assertSame(204, $this->send($c, 'DELETE', '/api/v1/restores/' . $id, null)['status']);
 
-        return $this->send($c, 'POST', "/api/v1/restores/$id/confirm", ['confirm' => true]);
+        return $done;
     }
 
     /** @return array{0:int,1:?string} */
@@ -248,7 +287,7 @@ final class Ci4ApiRestoresTest extends TestCase
     /** @return list<string> */
     private function uploadDirs(): array
     {
-        return array_values(array_diff(@scandir(self::$dir . '/uploads/restore') ?: [], ['.', '..']));
+        return array_values(preg_grep('/^[a-f0-9]{32}$/D', @scandir(self::$dir . '/uploads/restore') ?: []) ?: []);
     }
 
     /** @return array<string,list<array<string,mixed>>> */
