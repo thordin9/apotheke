@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.14.1] - 2026-11-01
+
 **Note:** on PostgreSQL, run the server with English messages (`lc_messages` set to `C` or an English locale, the default of the official `postgres` image); see the PostgreSQL role section of docs/deployment-and-operations.md. A migrate refused for an old SQLite no longer leaves an empty database file behind.
+
+### Fixed
+
+- **core:** keep units of work whole inside transactions ([#212](https://github.com/thordin9/apotheke/pull/212))
 
 ## [3.14.0] - 2026-11-01
 
@@ -1163,7 +1169,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.14.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.14.1...HEAD
+[3.14.1]: https://github.com/thordin9/apotheke/compare/v3.14.0...v3.14.1
 [3.14.0]: https://github.com/thordin9/apotheke/compare/v3.13.0...v3.14.0
 [3.13.0]: https://github.com/thordin9/apotheke/compare/v3.12.1...v3.13.0
 [3.12.1]: https://github.com/thordin9/apotheke/compare/v3.12.0...v3.12.1
