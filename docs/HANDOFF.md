@@ -386,6 +386,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
   (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
   outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29), released as v3.12.1.
+- [#215](https://github.com/thordin9/apotheke/pull/215), follow-up to #213 with QA items N-1634 to N-1636: `UserRepository::createdAt()` throws
+  `WriteFailed` on a database error (null only for an account that is not there), and `RestoreUploads` turns that
+  into a 500 (`OWNER_UNREADABLE`; the API's fixed `server_error`) instead of the guest 403. The docs state the
+  first-come cap trade-off for a fully sent upload and how to raise `RESTORE_MAX_UPLOADS`. Tests: `RestoreUploadsTest`
+  (eviction only at the cap, unreadable account), `SignInAccountsTest` and `Ci4ApiRestoresTest` (500), SQLite and
+  PostgreSQL. No schema change. Merged (bf3f18f), released as v3.15.1.
 - [#213](https://github.com/thordin9/apotheke/pull/213) (restore upload bookkeeping; N-1591 to N-1595, N-1594 first): the owner key is
   `user:<id>:<sha256 of created_at>` (`UserRepository::createdAt()`), so it is the account, not only its id.
   confirm writes status `applying` with the backup's SHA-256 (`fingerprint`, fsynced) before `Restorer::restore()`;
@@ -514,10 +520,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
   (#211) is merged (v3.12.1); #209, #210 and #212 are merged (v3.13.0, v3.14.0, v3.14.1), and the restore notes
-  batch N-1591 to N-1595 (#213) is merged (v3.14.2). P4-1
+  batch N-1591 to N-1595 (#213) is merged (v3.14.2), and its follow-up N-1634 to N-1636 (#215) too (v3.15.1). P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is done: the executor adapter (#209), the unit of
   work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0). Its follow-up #216
-  (L-1637, L-1638, N-1639) is with QA and goes in before P4-2b; N-1640 waits for P4-3. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  (L-1637, L-1638, N-1639, with #215's N-1641 and N-1642) is with QA and goes in before P4-2b; N-1640 waits for P4-3. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
