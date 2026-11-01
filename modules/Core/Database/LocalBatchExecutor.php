@@ -22,8 +22,8 @@ use LogicException;
  * - no transaction statement (BEGIN, START TRANSACTION, COMMIT, END, ROLLBACK,
  *   ABORT, SAVEPOINT, RELEASE), and no ATTACH, DETACH, VACUUM, ANALYZE or
  *   REINDEX;
- * - a PRAGMA only from the list D1 documents (PRAGMAS), with no argument
- *   for optimize;
+ * - a PRAGMA only from the list D1 documents (PRAGMAS), and a plain value
+ *   (no `optimize(-1)`);
  * - no sqlite_*() function call (the sqlite_sequence table is not one);
  * - at most 100 bound parameters (a list is one json_each() parameter).
  *
@@ -112,16 +112,14 @@ final class LocalBatchExecutor implements SqlExecutor
         }
     }
 
-    /** `PRAGMA [schema.]name`, `= value` or `(value)`, with a name from PRAGMAS (optimize without a value). */
+    /** `PRAGMA [schema.]name`, `= value` or `(value)`, with a name from PRAGMAS (so no `optimize(-1)`, as on D1). */
     private static function documentedPragma(string $code): bool
     {
         $value = '(?:\w+|\'\'|"\w*")';
-        if (preg_match('/^PRAGMA\s+(?:\w+\s*\.\s*)?(\w+)\s*(=\s*' . $value . '|\(\s*' . $value . '\s*\))?$/i', $code, $m) !== 1) {
+        if (preg_match('/^PRAGMA\s+(?:\w+\s*\.\s*)?(\w+)\s*(?:=\s*' . $value . '|\(\s*' . $value . '\s*\))?$/i', $code, $m) !== 1) {
             return false;
         }
-        $name = strtolower($m[1]);
-
-        return in_array($name, self::PRAGMAS, true) && ($name !== 'optimize' || ($m[2] ?? '') === '');
+        return in_array(strtolower($m[1]), self::PRAGMAS, true);
     }
 
     /**
@@ -135,7 +133,7 @@ final class LocalBatchExecutor implements SqlExecutor
     private static function triggerBody(array $segments): bool
     {
         $body = '(?:INSERT|UPDATE|DELETE|REPLACE|SELECT)\b';
-        if (preg_match('/^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b.*?(?<!")\bBEGIN\s+' . $body . '/is', $segments[0]) !== 1
+        if (preg_match('/^\s*CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b.*?\bBEGIN\s+' . $body . '/is', $segments[0]) !== 1
             || preg_match('/^\s*END\s*$/i', (string)array_pop($segments)) !== 1) {
             return false;
         }

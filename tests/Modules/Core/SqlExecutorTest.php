@@ -208,7 +208,7 @@ final class SqlExecutorTest extends CIUnitTestCase
             'pgsql' => [
                 'an escaped quote in an E literal' => "SELECT E'\\'', 1; COMMIT; SELECT ''", 'a quote in a dollar quote' => 'SELECT $$\'$$; COMMIT; SELECT $$\'$$',
                 'a quote in a tagged dollar quote' => 'SELECT $t$\'$t$; COMMIT; SELECT $t$\'$t$', 'unclosed dollar quote' => 'SELECT $$a',
-                'a backtick' => 'SELECT 1 AS `a`', 'unclosed E literal' => "SELECT E'a\\'",
+                'a backtick' => 'SELECT 1 AS `a`', 'names with dollar signs' => 'SELECT 1 AS a$x$; COMMIT; SELECT 1 AS b$x$', 'unclosed E literal' => "SELECT E'a\\'",
             ],
         ];
         $allowed = [
@@ -225,7 +225,7 @@ final class SqlExecutorTest extends CIUnitTestCase
                 '100 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 100, '?')) . ' AS n', array_fill(0, 100, 1)],
             ],
             'sqlite' => [
-                'bracket and backtick names' => ['SELECT 1 AS [a;b], 2 AS `c;``d`', []],
+                'bracket and backtick names' => ['SELECT 1 AS [a;b], 2 AS `c;``d`', []], 'no nested comments' => ['SELECT 1 /* a /* b */ AS a', []],
                 'pragma foreign_keys' => ['PRAGMA foreign_keys', []], 'pragma defer_foreign_keys' => ['PRAGMA defer_foreign_keys = on', []],
                 'pragma table_info' => ["PRAGMA table_info('uw_parent')", []], 'pragma table_info, quoted' => ['PRAGMA main.table_info("uw_parent")', []],
                 'pragma optimize' => ['PRAGMA optimize', []],
@@ -237,7 +237,7 @@ final class SqlExecutorTest extends CIUnitTestCase
             'pgsql' => [
                 'an escaped quote in an E literal' => ["SELECT E'it\\'s; ATTACH' AS a, e'\\\\' AS b", []],
                 'dollar quotes' => ['SELECT $$a; COMMIT$$ AS a, $t$ $$ ; $t$ AS b', []],
-                'a nested comment' => ['SELECT 1 /* a /* ; */ b */ AS a', []],
+                'a nested comment' => ['SELECT 1 /* a /* b */ ; */ AS a', []],
             ],
         ];
         foreach (TestDatabase::drivers() as $driver) {
