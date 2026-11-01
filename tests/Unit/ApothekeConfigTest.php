@@ -38,8 +38,8 @@ final class ApothekeConfigTest extends TestCase
             unset($ours[$key]);
         }
         // The chunked restore sizes (CI4 only).
-        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520, 'restore_max_uploads' => 8], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0, 'restore_max_uploads' => 0]));
-        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb'], $ours['uploads']['restore_max_uploads']);
+        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520, 'restore_max_uploads' => 8, 'restore_db_max_mb' => 0], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0, 'restore_max_uploads' => 0, 'restore_db_max_mb' => 0]));
+        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb'], $ours['uploads']['restore_max_uploads'], $ours['uploads']['restore_db_max_mb']);
         $this->assertSame($legacy, $ours);
         $this->assertSame(dirname(__DIR__, 2) . '/camera', ApothekeConfig::load($root, $file, $env)->originalsDir());
     }
@@ -68,6 +68,15 @@ final class ApothekeConfigTest extends TestCase
         foreach (['' => 8, '0' => 1, '1' => 1, '20' => 20, '64' => 64, '999' => 64, 'abc' => 1] as $raw => $want) {
             $env = $raw === '' ? [] : ['RESTORE_MAX_UPLOADS' => (string)$raw];
             $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['uploads']['restore_max_uploads'], (string)$raw);
+        }
+    }
+
+    /** RESTORE_DB_MAX_MB (a staged restore's database size limit) is clamped to 0–1048576, default 0 (none). */
+    public function testTheRestoreDatabaseLimitIsClamped(): void
+    {
+        foreach (['' => 0, '-5' => 0, '10240' => 10240, '9999999' => 1048576, 'abc' => 0] as $raw => $want) {
+            $env = $raw === '' ? [] : ['RESTORE_DB_MAX_MB' => (string)$raw];
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['uploads']['restore_db_max_mb'], (string)$raw);
         }
     }
 
