@@ -8,6 +8,7 @@ use Apotheke\Core\Database\BatchExecutor;
 use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -124,6 +125,35 @@ final class SqlExecutorTest extends CIUnitTestCase
             }
         }
         $this->assertSame(0, (int)$db->transDepth);
+    }
+
+    /** N-1623: a text list with invalid UTF-8 cannot be bound; that is a WriteFailed, not a JsonException. */
+    public function testAListWithInvalidUtf8IsAWriteFailure(): void
+    {
+        $this->assertSame('["a","b"]', Dialect::list(['a', 'b']));
+        try {
+            Dialect::list(['ok', 'bad ' . chr(0xC3) . chr(0x28)]);
+            $this->fail('invalid UTF-8 must not bind');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: a list value is not valid UTF-8', $e->getMessage());
+            $this->assertNull($e->getPrevious(), 'the value is not passed on');
+        }
+    }
+
+    /** N-1623: SQLite older than 3.38 (no built-in json_each) is refused with the versions only. */
+    public function testAnSqliteOlderThan338IsRefused(): void
+    {
+        foreach (['3.38.0', '3.38.5', '3.46.1', '3.100.0', (string)\SQLite3::version()['versionString']] as $ok) {
+            Dialect::requireSqlite($ok);
+        }
+        foreach (['3.37.2', '3.31.1', '3.9.0'] as $old) {
+            try {
+                Dialect::requireSqlite($old);
+                $this->fail($old . ' must be refused');
+            } catch (DatabaseUnavailable $e) {
+                $this->assertSame('SQLite 3.38.0 or newer is required (JSON functions); this PHP has SQLite ' . $old . '.', $e->getMessage());
+            }
+        }
     }
 
     /** One list parameter for 5,000 ids (SearchIndex, Stocktakes, ItemList), on every driver. */

@@ -8,6 +8,7 @@ use Apotheke\Core\Config\DsnException;
 use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Config\PdoSchemaSession;
 use Apotheke\Core\Config\PgsqlSchema;
+use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use PDO;
 use PDOException;
@@ -17,6 +18,7 @@ use Throwable;
 require_once __DIR__ . '/../Core/Config/PgsqlSchema.php';
 require_once __DIR__ . '/../Core/Config/DsnTranslator.php';
 require_once __DIR__ . '/../Core/Exceptions/DatabaseUnavailable.php';
+require_once __DIR__ . '/../Core/Database/Dialect.php';
 
 /** Port of migrate(): one transaction, the legacy lock, and the v1–v3 adopt path. */
 final class PdoMigrationRunner
@@ -90,6 +92,7 @@ final class PdoMigrationRunner
             self::warnCredentialsDiffer();
         }
         if ($driver === 'sqlite') {
+            Dialect::requireSqlite((string)$pdo->query('SELECT sqlite_version()')->fetchColumn());
             $pdo->exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;');
         } else {
             $pdo->exec("SET TIME ZONE 'UTC'");

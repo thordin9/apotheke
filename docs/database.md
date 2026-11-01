@@ -311,7 +311,9 @@ Rules for new SQL, so it also runs on D1:
 
 - At most 100 bound parameters per statement. A list of ids is one parameter:
   `'… WHERE id IN ' . Dialect::of($db)->inList()` with `Dialect::list($ids)` as its bind (`json_each(?)` on SQLite,
-  `json_array_elements_text(?::json)` on PostgreSQL; `inList('text')` for strings).
+  `json_array_elements_text(?::json)` on PostgreSQL; `inList('text')` for strings). SQLite must be 3.38 or newer for `json_each`: the
+  connection and the migration runner refuse an older one (`Dialect::requireSqlite()`). A value that is not valid
+  UTF-8 throws `WriteFailed`.
 - No `BEGIN`, `COMMIT` or `SAVEPOINT` of your own, and no `sqlite_*()` functions.
 
 ## Writing a migration

@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Upgrade note:** installs without Docker need SQLite 3.38 or newer (the JSON functions the app now uses for long id lists); the app and `php spark apotheke:migrate` stop with a clear message on an older one. The Docker images already ship a newer SQLite.
+
 ## [3.12.0] - 2026-11-01
 
 **Note:** a backup can now be restored in chunks through the API (`/api/v1/restores`, Backup permission, see docs/api.md), for hosts that cap the size of a request. It is checked and restored exactly as an upload on the restore page.

@@ -86,6 +86,9 @@ class Services extends BaseService
             \Apotheke\Core\Boot\FrameworkWiring::apply($config);
         }
         $dbConfig = $config->database();
+        if (($dbConfig['driver'] ?? '') === 'sqlite') {
+            \Apotheke\Core\Database\Dialect::requireSqlite((string)\SQLite3::version()['versionString']);
+        }
         $translator = new \Apotheke\Core\Config\DsnTranslator();
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, $translator);
         try {

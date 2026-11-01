@@ -14,7 +14,7 @@
 A small, fast, self-hosted web app for cataloguing your belongings: snap a photo on your phone, name the item, pick
 where it lives ("box 1023") and what it is ("Tools"), set a quantity, done. Then find anything again with instant search.
 
-PHP 8.4 and **CodeIgniter 4** (pinned Composer dependencies) with PDO (SQLite or PostgreSQL) and GD, plus Imagick in
+PHP 8.4 and **CodeIgniter 4** (pinned Composer dependencies) with PDO (SQLite 3.38+ or PostgreSQL) and GD, plus Imagick in
 the Docker image for HEIC photos. No JavaScript build step and no CDNs: it works fully offline on your LAN.
 
 **3.0.0** is the CodeIgniter 4 app on `main`: no schema change, Docker-only, and one re-login at upgrade
