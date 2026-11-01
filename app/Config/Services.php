@@ -265,6 +265,8 @@ class Services extends BaseService
                 => new \Apotheke\Backup\Commands\BackupCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err)),
             \Apotheke\Backup\Commands\RestoreCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Backup\Commands\RestoreCommand($logger, $commands, static fn (mixed $in, mixed $out, mixed $err): \Apotheke\Backup\Commands\BackupCli => static::backupCli($in, $out, $err), static fn (): string => static::apothekeConfig()->dataDir()),
+            \Apotheke\Backup\Commands\RestoreSweepCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
+                => new \Apotheke\Backup\Commands\RestoreSweepCommand($logger, $commands, static fn (): \Apotheke\Backup\RestoreUploads => static::restoreUploads(false)),
             \Apotheke\Core\Commands\JobsCommand::class => static fn (\Psr\Log\LoggerInterface $logger, \CodeIgniter\CLI\Commands $commands): \CodeIgniter\CLI\BaseCommand
                 => new \Apotheke\Core\Commands\JobsCommand($logger, $commands, static fn (mixed $out, mixed $err): \Apotheke\Core\Commands\JobsCli => static::jobsCli($out, $err)),
         ]);
@@ -1193,6 +1195,28 @@ class Services extends BaseService
         return new \Apotheke\Backup\Restorer($db, static::backups(false, $settings), $settings, static::undoTokens(), static function (): array {
             return array_keys((new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->available());
         }, new \Apotheke\Core\Storage\LocalStorage($config->dataDir()), new \Apotheke\Core\Storage\LocalStorage($config->originalsDir(), 0640), (int)$settings->get('image_thumb_max'), static::requestCleanup());
+    }
+
+    /**
+     * Chunked restore uploads under DATA_DIR/uploads/restore (Backup), each its account's own: "user:<id>", or
+     * "local" for the admin with sign-in off; a guest has none. Sizes from uploads.restore_chunk_kb and restore_max_mb.
+     */
+    public static function restoreUploads(bool $getShared = true): \Apotheke\Backup\RestoreUploads
+    {
+        if ($getShared) {
+            return static::getSharedInstance('restoreUploads');
+        }
+        $config = static::apothekeConfig();
+        $uploads = $config->values()['uploads'];
+
+        return new \Apotheke\Backup\RestoreUploads($config->dataDir(), (int)$uploads['restore_chunk_kb'] * 1024, (int)$uploads['restore_max_mb'] * 1048576, static function (): ?string {
+            $user = PHP_SAPI === 'cli' ? null : static::currentUser()->resolve();
+            if ($user === null || $user['anon']) {
+                return null;
+            }
+
+            return $user['id'] !== null ? 'user:' . $user['id'] : 'local';
+        });
     }
 
     /** The Backup & restore page (Backup). */

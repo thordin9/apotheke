@@ -37,8 +37,14 @@ final class OpenApiTest extends CIUnitTestCase
         $documented = [];
         $doc = json_decode((string)file_get_contents(ApiController::SPEC), true, 64, JSON_THROW_ON_ERROR);
         foreach ($doc['paths'] as $path => $operations) {
-            foreach (array_keys($operations) as $method) {
-                $documented[] = $method . ' ' . preg_replace('/\{[a-z_]+\}/', '([0-9]+)', $path);   // every path parameter is an id
+            foreach ($operations as $method => $op) {
+                // A path parameter is an integer id ([0-9]+), or a string the controller checks itself ([^/]+).
+                $types = [];
+                foreach ($op['parameters'] ?? [] as $param) {
+                    $param = isset($param['$ref']) ? $doc['components']['parameters'][substr($param['$ref'], strlen('#/components/parameters/'))] : $param;
+                    $types[$param['name']] = $param['schema']['type'] ?? 'integer';
+                }
+                $documented[] = $method . ' ' . preg_replace_callback('/\{([a-z_]+)\}/', static fn (array $m): string => ($types[$m[1]] ?? 'integer') === 'string' ? '([^/]+)' : '([0-9]+)', $path);
             }
         }
         sort($routed);

@@ -37,6 +37,9 @@ final class ApothekeConfigTest extends TestCase
             $this->assertSame($default, $ours[$key], $key);
             unset($ours[$key]);
         }
+        // The chunked restore sizes (CI4 only).
+        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0]));
+        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb']);
         $this->assertSame($legacy, $ours);
         $this->assertSame(dirname(__DIR__, 2) . '/camera', ApothekeConfig::load($root, $file, $env)->originalsDir());
     }
@@ -47,6 +50,16 @@ final class ApothekeConfigTest extends TestCase
         $config = ApothekeConfig::load($root, null, ['DATA_DIR' => '/tmp/apo-data']);
         $this->assertSame('/tmp/apo-data/originals', $config->originalsDir());
         $this->assertSame('/tmp/apo-data/catalog.sqlite', $config->database()['sqlite_path']);
+    }
+
+    /** RESTORE_CHUNK_KB is clamped to 64–16384 (under PHP's 20 MB upload limit), RESTORE_MAX_MB to 1–4096. */
+    public function testTheChunkedRestoreSizesAreClamped(): void
+    {
+        foreach ([[[], 8192, 520], [['RESTORE_CHUNK_KB' => '1', 'RESTORE_MAX_MB' => '0'], 64, 1], [['RESTORE_CHUNK_KB' => '64', 'RESTORE_MAX_MB' => '1'], 64, 1],
+            [['RESTORE_CHUNK_KB' => '16384', 'RESTORE_MAX_MB' => '4096'], 16384, 4096], [['RESTORE_CHUNK_KB' => '99999', 'RESTORE_MAX_MB' => '99999'], 16384, 4096]] as [$env, $chunk, $max]) {
+            $u = ApothekeConfig::load('/repo', null, $env)->values()['uploads'];
+            $this->assertSame([$chunk, $max], [$u['restore_chunk_kb'], $u['restore_max_mb']], (string)json_encode($env));
+        }
     }
 
     /** SIGN_IN_FAIL_MS maps to sign_in_fail_ms, clamped to 400–10000 as on legacy ('abc' reads as 0, so 400). */
