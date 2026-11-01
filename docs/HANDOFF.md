@@ -373,7 +373,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   2026-10-29 and 2026-10-31 decisions; plan B is Postgres through Hyperdrive), M-1541 (`Installation` ids from the EU
   jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
   as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
-  Docs only. Open for QA's full gate.
+  Docs only. Merged (#203). QA's nits N-1560 to N-1562 are fixed in P4-2a part 1.
+- feat/p4-executor (P4-2a, part 1 of 3): the SQL executor adapter. `Core\Database\SqlExecutor` (`run()` one atomic
+  batch, `query()`, `dialect()`, `connection()`), its default `ConnectionExecutor` (the request's CodeIgniter
+  connection; no behaviour change on SQLite or PostgreSQL), `Dialect`, and `Services::sqlExecutor()` (per request,
+  not persistent). Long id lists are one list parameter (`Dialect::inList()`: `json_each` on SQLite,
+  `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
+  `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
+  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Open for QA's full gate.
 
 ## Lanes
 
@@ -449,11 +456,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #195 is
-  merged. The chunked restore is in progress (Coder2, PR to follow). P4-1, the design
-  ([ADR-002](adr/002-edge-storage.md)), is open for QA's full gate. Next: P4-2 (unit of work and executor adapter,
-  PDO first with no behaviour change, `json_each` in `SearchIndex` and `Stocktakes`), then P4-3 to P4-5 as in the
-  ADR. DevOps prepares the bindings and the flip checklist behind `EDGE_STORAGE_READY`; N-1442 follows with P4.
+- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. The chunked
+  restore is with QA (#205, and #206 stacked on it). P4-1 ([ADR-002](adr/002-edge-storage.md)) is merged (#203).
+  P4-2a is three stacked PRs with QA: the executor adapter, then the unit of work, then the batch path and parity
+  test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the large
+  paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
+  `EDGE_STORAGE_READY` (#204 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`

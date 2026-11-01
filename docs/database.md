@@ -272,6 +272,28 @@ The migration files are shared and stay byte-identical. The globals they call (`
 after the cutover. For 90 days after 3.0.0, a new migration lands only if it is also backported to 2.6.x (branch `old`), so a
 rollback from 3.0.x to 2.6.x never meets an unknown schema (PLAN §3.4, PM L-2).
 
+## How the app runs SQL
+
+All SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md), decision 2):
+
+- `Core\Database\SqlExecutor` is the adapter: `run(statements)` sends a list of statements as one atomic batch,
+  `query(sql, params)` reads, `dialect()` names the SQL dialect, and `connection()` is the CodeIgniter connection
+  when the backend has interactive transactions (null on a batch-only backend).
+- `ConnectionExecutor` is the default and the only one on self-hosted SQLite and PostgreSQL: the request's
+  connection, with a batch run inside `Writes::transaction()`. Nothing changes for Docker installs. The D1 and
+  Durable Object executors come with P4-3.
+- `Config\Services::sqlExecutor()` builds it per request. It is never a persistent service in worker mode, and no
+  class in `Core\Database` has static state (`DatabaseStateTest`).
+- A failed statement throws `WriteFailed` without the database's message (it can hold a value): code 0 for a plain
+  failure, `BatchExecutor::GUARD_FAILED` when a unit-of-work guard aborted the batch.
+
+Rules for new SQL, so it also runs on D1:
+
+- At most 100 bound parameters per statement. A list of ids is one parameter:
+  `'… WHERE id IN ' . Dialect::of($db)->inList()` with `Dialect::list($ids)` as its bind (`json_each(?)` on SQLite,
+  `json_array_elements_text(?::json)` on PostgreSQL; `inList('text')` for strings).
+- No `BEGIN`, `COMMIT` or `SAVEPOINT` of your own, and no `sqlite_*()` functions.
+
 ## Writing a migration
 
 1. Add `migrations/NNNN_short_name.php` with the next free number (the runner sorts by the four digits).
