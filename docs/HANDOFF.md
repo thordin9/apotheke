@@ -381,6 +381,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
   `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
   static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Open for QA's full gate.
+- feat/p4-unit-of-work (P4-2a, part 2 of 3, on part 1): the unit of work on a connection. `UnitOfWork` (`hold`,
+  `insert` with a `Ref`, `update`, `write` with `expect`, `assert`), `ConnectionUnitOfWork` (a real transaction,
+  the queue run in order at the end), and `UnitsOfWork`, the per-request registry of the open unit
+  (`Services::unitsOfWork()`): nested units join the outer one, a failed joined unit fails it, and a unit left open
+  is discarded by `RequestCleanup`. No call site uses it yet. Tests: `UnitOfWorkTest` (SQLite and PostgreSQL) and
+  `DatabaseStateTest` (empty registry after a failure; two worker requests in one process). Open for QA's full gate.
 
 ## Lanes
 

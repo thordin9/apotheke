@@ -111,7 +111,8 @@ import, export, stocktake, labels, settings, users, backup; `self` for /account,
 * The activity log entry is written in the same transaction as the change it records.
 * SQL runs through one executor per request, `Core\Database\SqlExecutor` (`Services::sqlExecutor()`); on Docker that
   is `ConnectionExecutor`, the request's connection. Long id lists are bound as one list parameter
-  (`Dialect::inList()`). See [How the app runs SQL](database.md#how-the-app-runs-sql).
+  (`Dialect::inList()`). Writes that belong together run as a unit of work (`Services::unitsOfWork()`). See
+  [How the app runs SQL](database.md#how-the-app-runs-sql).
 * On Cloudflare (P4, in progress) writes become units of work that run as one batch on D1 or a Durable Object's
   SQLite, and files move to R2 behind `Core\Storage`; Docker keeps PDO and `DATA_DIR` unchanged
   ([ADR-002](adr/002-edge-storage.md)).

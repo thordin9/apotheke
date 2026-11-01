@@ -287,6 +287,23 @@ All SQL goes through one executor per request ([ADR-002](adr/002-edge-storage.md
 - A failed statement throws `WriteFailed` without the database's message (it can hold a value): code 0 for a plain
   failure, `BatchExecutor::GUARD_FAILED` when a unit-of-work guard aborted the batch.
 
+Writes that belong together run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn)`): `$fn` reads
+as usual and queues its writes on the `UnitOfWork` it is given (`hold()`, `insert()` returning a `Ref`, `update()`,
+`write(…, $expect, $fail)` and `assert($condition, …, $fail)`). The writes run in order when `$fn` returns, as one
+atomic unit; they are not visible to `$fn`'s own reads.
+
+- On SQLite and PostgreSQL the unit is a real transaction (`Writes::transaction()`, so it joins one already open). A
+  hold runs at once, so reads after it happen under its lock; on SQLite a no-op write on `$table` takes the write
+  lock first.
+- `insert()` gives a `Ref`: later steps of the same unit can bind it before the row exists, and `$ref->id()` is the
+  new id once the unit has run. Do not use `insertID()` inside a unit.
+- A guard that does not hold (`write()` changing another number of rows than `$expect`, an `assert()` whose
+  condition is false) fails the whole unit and throws `$fail()`, or `WriteFailed` naming the step.
+- A unit started inside another one joins it: one commit, all or nothing. A failure inside the joined unit fails the
+  outer one even if the outer callback catches it.
+- `UnitsOfWork` is the registry of the open unit: per request, no static state, empty again when `run()` returns or
+  throws. A unit a fatal error left open is discarded by the request's `RequestCleanup`, never run.
+
 Rules for new SQL, so it also runs on D1:
 
 - At most 100 bound parameters per statement. A list of ids is one parameter:
