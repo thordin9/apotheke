@@ -328,6 +328,23 @@ try { $u->create(3, null); echo "ok"; } catch (Throwable $e) { echo $e->getMessa
         $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'swept once free');
     }
 
+    /** N-1651: a sweep takes no lock on a fresh upload, so its owner replacing it meanwhile is not told it is in use. */
+    public function testASweepLeavesAFreshUploadUnlocked(): void
+    {
+        $this->uploads()->create(3, null);
+        $during = [];
+        $sweeper = new RestoreUploads($this->data, 4, 100, static fn (): string => 'user:2', 8, null, function () use (&$during): void {
+            try {
+                $during[] = $this->uploads()->create(3, null)[1]['status'];
+            } catch (UserError $e) {
+                $during[] = $e->getMessage();
+            }
+        });
+        $sweeper->sweep();
+        $this->assertSame([], $during, 'no lock taken on a fresh upload');
+        $this->assertSame(1, $this->uploads()->count());
+    }
+
     /**
      * N-1594: a confirm that stops after the restore but before its outcome is written (here the process is killed)
      * leaves status applying with the backup's SHA-256; the next request finds it interrupted and never restores again.
