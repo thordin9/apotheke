@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** chunked restore uploads (`/api/v1/restores`): when the signed-in account cannot be read because of a database error, the answer is now `500 server_error` instead of `403 permission.denied`. The docs now spell out that at the `RESTORE_MAX_UPLOADS` cap a fully sent upload left unconfirmed for 10 minutes can be removed by another account's start, and how to raise the cap.
+
 ## [3.15.0] - 2026-11-01
 
 ### Added

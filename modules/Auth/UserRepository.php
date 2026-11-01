@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Auth;
 
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
 use CodeIgniter\Database\Exceptions\DatabaseException;
@@ -46,17 +47,20 @@ final class UserRepository
         return is_array($row) ? self::row($row) : null;
     }
 
-    /** When account $id was made, or null: with the id, an identity no later account shares (N-1594). */
+    /**
+     * When account $id was made, or null when there is no such account: with the id, an identity no later account
+     * shares (N-1594). A failed read throws (WriteFailed, N-1636): a database error is not "no account".
+     */
     public function createdAt(int $id): ?string
     {
         try {
-            $result = $this->db->table('users')->select('created_at')->where('id', $id)->get();
-        } catch (DatabaseException|PDOException) {
-            return null;
+            $rows = Writes::rows($this->db, 'SELECT created_at FROM users WHERE id = ?', [$id]);
+        } catch (DatabaseException|PDOException $e) {
+            throw new WriteFailed('Database read failed', 0, $e);
         }
-        $row = $result instanceof BaseResult ? $result->getRowArray() : null;
+        $made = $rows[0]['created_at'] ?? null;
 
-        return is_array($row) && is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : null;
+        return is_scalar($made) ? (string)$made : null;
     }
 
     /**

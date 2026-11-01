@@ -1205,7 +1205,8 @@ class Services extends BaseService
     /**
      * Chunked restore uploads under DATA_DIR/uploads/restore (Backup), each its account's own: "user:<id>:<sha256 of
      * the account's created_at>" (N-1594: the id and when that account was made, so an upload never matches another
-     * account that has the same id later), or "local" for the admin with sign-in off; a guest has none. Sizes from uploads.restore_chunk_kb and restore_max_mb;
+     * account that has the same id later), or "local" for the admin with sign-in off; a guest, or an account no longer
+     * there, has none, and an account that cannot be read is a 500 (N-1636). Sizes from uploads.restore_chunk_kb and restore_max_mb;
      * the chunk size no larger than this PHP takes in one request (N-1587), at most uploads.restore_max_uploads open.
      */
     public static function restoreUploads(bool $getShared = true): \Apotheke\Backup\RestoreUploads

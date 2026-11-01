@@ -280,6 +280,23 @@ final class Ci4ApiRestoresTest extends TestCase
         $this->assertSame(204, $this->send($kim, 'DELETE', '/api/v1/restores/' . $id, null)['status']);
     }
 
+    /** N-1636: when the account's created_at cannot be read (a database error) the answer is the API's fixed 500, not 403. */
+    public function testAnUnreadableAccountIsAServerError(): void
+    {
+        $kim = $this->signedIn('kim');
+        $pdo = testdb(self::$dir);
+        $pdo->exec('ALTER TABLE users RENAME COLUMN created_at TO made_at');
+        try {
+            $r = $this->send($kim, 'POST', '/api/v1/restores', ['size' => 3]);
+            $this->assertSame([500, 'server_error', 'Something went wrong on the server.'], [...$this->code($r), $r['json']['detail'] ?? null], $r['body']);
+            $this->assertSame([500, 'server_error'], $this->code($kim->rest('GET', '/api/v1/restores/' . str_repeat('a', 32))));
+        } finally {
+            $pdo->exec('ALTER TABLE users RENAME COLUMN made_at TO created_at');
+        }
+        $this->assertSame([], $this->uploadDirs(), 'nothing stored');
+        $this->assertSame(201, $this->send($kim, 'POST', '/api/v1/restores', ['size' => 3])['status'], 'readable again');
+    }
+
     /** N-1594: a confirm that stopped while applying (status applying, nobody on it) reads as interrupted and is not restored again. */
     public function testAStoppedConfirmReadsAsInterrupted(): void
     {

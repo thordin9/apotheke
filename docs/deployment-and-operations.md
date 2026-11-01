@@ -43,7 +43,10 @@ confirmation and press *Restore* is **all data replaced**, in one transaction. U
 through a link) holding `manifest.json` and the data, at most `RESTORE_MAX_MB` in chunks of `RESTORE_CHUNK_KB`
 ([Configuration](configuration.md)), at most `RESTORE_MAX_UPLOADS` open at once (when that is reached, another
 account's unconfirmed upload idle for 10 minutes makes room; free disk is checked against what the open uploads still
-expect). The chunk size follows PHP's own
+expect). That room is first come, first served: at the cap, a fully sent upload whose owner waits more than 10 minutes
+before `confirm` can be removed by another account's start, and that owner has to upload again. An upload in use or
+being confirmed is never removed. If several accounts restore at the same time, raise `RESTORE_MAX_UPLOADS` (1–64,
+then restart). The chunk size follows PHP's own
 limits: never more than `upload_max_filesize`, or `post_max_size` less 64 KiB, so a cPanel or plain PHP install with
 the default 2M works without changes (2 MiB chunks); the Docker images allow 20M (8 MiB chunks). `finish` and
 `confirm` run to the end even when a proxy times out first (the image's nginx gives the API 75 seconds, the restore

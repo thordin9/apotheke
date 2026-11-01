@@ -6,6 +6,7 @@ namespace Tests\Backup;
 
 use Apotheke\Backup\RestoreUploads;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Test\CIUnitTestCase;
 
 /**
@@ -410,6 +411,40 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
         $this->assertDirectoryExists($this->root() . '/' . $ids['user:5'], 'a stopped restore keeps its record');
         $this->me = 'user:4';
         $this->assertRefused(fn () => $u->create(3, null), 503, 'still full');
+    }
+
+    /** N-1634: other accounts' idle uploads give way only once the cap is reached, never on every start. */
+    public function testIdleUploadsAreKeptBelowTheCap(): void
+    {
+        $u = new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me, 3, static fn (): float => 1e12);
+        $ids = [];
+        foreach (['user:1', 'user:2'] as $who) {
+            $this->me = $who;
+            $ids[$who] = $u->create(3, null)[0];
+            touch($this->root() . '/' . $ids[$who] . '/manifest.json', time() - RestoreUploads::IDLE_FULL - 60);
+        }
+        $this->me = 'user:3';
+        $u->create(3, null);
+        foreach ($ids as $who => $id) {
+            $this->assertDirectoryExists($this->root() . '/' . $id, $who . ': idle, but the cap of 3 is not reached');
+        }
+        $this->me = 'user:4';
+        $u->create(3, null);
+        foreach ($ids as $who => $id) {
+            $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, $who . ': the cap reached, idle ones give way');
+        }
+        $this->assertSame(2, $u->count());
+    }
+
+    /** N-1636, N-1634: an account that cannot be read is a server fault (500), not a guest (403); nothing is stored. */
+    public function testAnUnreadableAccountIsAServerFaultNotAGuest(): void
+    {
+        $u = new RestoreUploads($this->data, 4, 100, static fn (): never => throw new WriteFailed('Database read failed'));
+        $this->assertRefused(fn () => $u->create(3, null), 500, 'unreadable account', RestoreUploads::OWNER_UNREADABLE);
+        $this->assertRefused(fn () => $u->get(str_repeat('a', 32)), 500, 'unreadable account, get', RestoreUploads::OWNER_UNREADABLE);
+        $this->me = null;
+        $this->assertRefused(fn () => $this->uploads()->create(3, null), 403, 'no account', RestoreUploads::GUEST);
+        $this->assertSame([], is_dir($this->root()) ? $this->ids() : [], 'nothing stored');
     }
 
     /** N-1593: the free disk must hold what the other open uploads still expect, besides the new one. */
