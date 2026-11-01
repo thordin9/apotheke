@@ -8,12 +8,15 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.10.0] - 2026-11-01
+
 ### Added
 
 - **frontend:** count page views on getapotheke.com with Counterscale, cookieless and only after Accept; a Cookie settings button in the footer withdraws consent in one click, and the privacy page describes what is recorded ([#200](https://github.com/thordin9/apotheke/pull/200))
 
 ### Maintenance
 
+- **adr:** docs: add the P4 edge storage design ([#203](https://github.com/thordin9/apotheke/pull/203))
 - **deploy:** prepare P4 edge storage for apotheke-api, off by default: D1 `DB` and R2 `STORAGE` in the EU jurisdiction and the `INSTALLATION` Durable Object, merged in only behind `EDGE_STORAGE_READY` with host-only cookies, a validated fragment, a bounded smoke check and a flip checklist that requires the ADR-002 gate criteria ([#204](https://github.com/thordin9/apotheke/pull/204))
 
 ## [3.9.2] - 2026-10-31
@@ -1115,7 +1118,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.9.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.10.0...HEAD
+[3.10.0]: https://github.com/thordin9/apotheke/compare/v3.9.2...v3.10.0
 [3.9.2]: https://github.com/thordin9/apotheke/compare/v3.9.1...v3.9.2
 [3.9.1]: https://github.com/thordin9/apotheke/compare/v3.9.0...v3.9.1
 [3.9.0]: https://github.com/thordin9/apotheke/compare/v3.8.0...v3.9.0
