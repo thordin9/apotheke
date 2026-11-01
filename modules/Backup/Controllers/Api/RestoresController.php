@@ -24,7 +24,8 @@ use CodeIgniter\HTTP\ResponseInterface;
 final class RestoresController extends Controller
 {
     /** HTTP status of a refusal => its problem code */
-    private const CODES = [403 => 'permission.denied', 404 => 'not_found', 409 => 'restore.conflict', 413 => 'upload.too_large', 422 => 'validation.failed'];
+    private const CODES = [403 => 'permission.denied', 404 => 'not_found', 409 => 'restore.conflict', 413 => 'upload.too_large', 422 => 'validation.failed',
+        503 => 'restore.busy', 507 => 'storage.insufficient'];
 
     /** POST /api/v1/restores */
     public function create(): ResponseInterface
@@ -68,6 +69,7 @@ final class RestoresController extends Controller
     public function finish(string $id): ResponseInterface
     {
         return $this->answer(function () use ($id): ResponseInterface {
+            @set_time_limit(300);   // N-1588: as the page's upload step; a retry gives the dry run again
             $restorer = $this->restorer();
             $dry = $this->uploads()->finish($id, static function (string $zip) use ($restorer): array {
                 $b = $restorer->open($zip);
@@ -95,6 +97,9 @@ final class RestoresController extends Controller
             if (($body['confirm'] ?? null) !== true) {
                 throw new UserError('Set "confirm": true to replace the catalog with this backup.', 422);
             }
+            // N-1588: a restore may outlast a proxy's timeout. It runs to the end without the client, and the outcome
+            // stays readable with GET (status restored or failed) or a second confirm, which never restores twice.
+            @ignore_user_abort(true);
             @set_time_limit(300);
             $restorer = $this->restorer();
             $settings = $this->may('settings');   // N-443: the backup's settings only for a user who may change them
@@ -125,23 +130,25 @@ final class RestoresController extends Controller
             return $run();
         } catch (UserError $e) {
             $status = $e->getCode();
-            if ($status >= 500) {
+            if ($status >= 500 && !isset(self::CODES[$status])) {
                 throw $e;   // the API's fixed 500 server_error
             }
             $status = isset(self::CODES[$status]) ? $status : 422;   // the backup's own refusals (Restorer) are 422, as on the page
 
-            return ApiResponse::problem($this->response, $status, self::CODES[$status], $e->getMessage(), $status === 422 ? [$backup ? 'backup' : 'upload' => $e->getMessage()] : []);
+            return ApiResponse::problem($this->response, $status, self::CODES[$status], $e->getMessage(), $status === 422 ? [$backup ? 'backup' : 'upload' => $e->getMessage()] : [],
+                $status === 503 ? 60 : null);
         }
     }
 
     /**
-     * @param array{size:int,chunk_size:int,received:int,next:int,status:string} $m
+     * @param array{size:int,chunk_size:int,received:int,next:int,status:string,result?:array<string,mixed>} $m
      * @param array<string,mixed> $extra
      */
     private function view(string $id, array $m, int $status = 200, array $extra = []): ResponseInterface
     {
         return ApiResponse::json($this->response, ['id' => $id, 'status' => $m['status'], 'size' => $m['size'], 'chunk_size' => $m['chunk_size'],
-            'received' => $m['received'], 'next_chunk' => $m['status'] === 'uploading' ? $m['next'] : null, 'idle_seconds' => RestoreUploads::IDLE] + $extra, $status);
+            'received' => $m['received'], 'next_chunk' => $m['status'] === 'uploading' ? $m['next'] : null, 'idle_seconds' => RestoreUploads::IDLE]
+            + (isset($m['result']) ? ['result' => (object)$m['result']] : []) + $extra, $status);
     }
 
     /** @return array<string,mixed>|null the JSON object body ([] for none), null when it is not JSON */

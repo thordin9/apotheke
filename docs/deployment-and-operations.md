@@ -41,7 +41,11 @@ confirmation and press *Restore* is **all data replaced**, in one transaction. U
 **In chunks:** where a request body is capped (an edge host), a backup can be sent in pieces instead (see
 [API](api.md#chunked-restore)). Each upload is a folder `DATA_DIR/uploads/restore/<32 hex>/` (0770, never followed
 through a link) holding `manifest.json` and the data, at most `RESTORE_MAX_MB` in chunks of `RESTORE_CHUNK_KB`
-([Configuration](configuration.md)). The zip is checked and restored by the same code as an upload on the page. An
+([Configuration](configuration.md)), at most `RESTORE_MAX_UPLOADS` open at once. The chunk size follows PHP's own
+limits: never more than `upload_max_filesize`, or `post_max_size` less 64 KiB, so a cPanel or plain PHP install with
+the default 2M works without changes (2 MiB chunks); the Docker images allow 20M (8 MiB chunks). `finish` and
+`confirm` run to the end even when a proxy times out first (the image's nginx gives the API 75 seconds, the restore
+page 300); the client reads the outcome again (see [API](api.md#chunked-restore)). The zip is checked and restored by the same code as an upload on the page. An
 account has one upload at a time. A finished, cancelled or refused upload is removed at once, and one without a
 request for an hour is removed by the next restore request or by `php spark apotheke:restore-sweep`, which you can
 run from cron (as the data directory's owner, `www-data` in the image; it creates no folder).

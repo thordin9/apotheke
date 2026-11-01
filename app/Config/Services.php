@@ -1202,7 +1202,8 @@ class Services extends BaseService
 
     /**
      * Chunked restore uploads under DATA_DIR/uploads/restore (Backup), each its account's own: "user:<id>", or
-     * "local" for the admin with sign-in off; a guest has none. Sizes from uploads.restore_chunk_kb and restore_max_mb.
+     * "local" for the admin with sign-in off; a guest has none. Sizes from uploads.restore_chunk_kb and restore_max_mb;
+     * the chunk size no larger than this PHP takes in one request (N-1587), at most uploads.restore_max_uploads open.
      */
     public static function restoreUploads(bool $getShared = true): \Apotheke\Backup\RestoreUploads
     {
@@ -1212,14 +1213,16 @@ class Services extends BaseService
         $config = static::apothekeConfig();
         $uploads = $config->values()['uploads'];
 
-        return new \Apotheke\Backup\RestoreUploads($config->dataDir(), (int)$uploads['restore_chunk_kb'] * 1024, (int)$uploads['restore_max_mb'] * 1048576, static function (): ?string {
+        $chunk = \Apotheke\Backup\RestoreUploads::effectiveChunk((int)$uploads['restore_chunk_kb'] * 1024, ini_get('upload_max_filesize'), ini_get('post_max_size'));
+
+        return new \Apotheke\Backup\RestoreUploads($config->dataDir(), $chunk, (int)$uploads['restore_max_mb'] * 1048576, static function (): ?string {
             $user = PHP_SAPI === 'cli' ? null : static::currentUser()->resolve();
             if ($user === null || $user['anon']) {
                 return null;
             }
 
             return $user['id'] !== null ? 'user:' . $user['id'] : 'local';
-        });
+        }, (int)$uploads['restore_max_uploads']);
     }
 
     /** The Backup & restore page (Backup). */
