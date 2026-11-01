@@ -292,6 +292,10 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
 4. **P4-4: storage interface.** `Core\Storage` with a local-disk and an R2 implementation for photos, attachments,
    uploads and backups, moving the remaining direct filesystem users behind it. The Worker-side handler adds the
    installation prefix.
+   This includes the chunked restore upload store (#205 and #206, module Backup, `DATA_DIR/uploads/restore/`;
+   QA's N-1584). It writes its chunks and manifest to the local filesystem directly today. In P4-4 it goes through
+   `Core\Storage`, and its manifest lock moves to the Durable Object (`transactionSync`) or to R2 conditional
+   writes.
 5. **P4-5: hosted wiring.** Durable Object SQLite per installation, host-only cookies in hosted mode, the
    `edge-local` run green with storage, the P4(b) guard cases run again on a preview D1, and the runbook.
 
