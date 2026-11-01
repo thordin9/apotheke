@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** on PostgreSQL, two saved filters saved at the same moment now get the same "already exists" or "limit reached" message as on SQLite, instead of an error or one filter over the limit; views of the same "Recently viewed" list no longer fail when they happen at once.
+
 **Note:** starting a restore upload no longer fails now and then with "in use" while another request is checking old uploads.
 
 ## [3.15.3] - 2026-11-01

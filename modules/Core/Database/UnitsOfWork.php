@@ -76,15 +76,19 @@ final class UnitsOfWork
     /**
      * Run $fn with a unit of work: $fn reads as usual and queues its writes
      * on the unit, which runs them as one atomic unit when $fn returns.
-     * Queued writes are not visible to $fn's own reads. On SQLite a no-op
-     * write on $table first takes the database's write lock, so $fn reads
-     * under it (the legacy "write first" order).
+     * Queued writes are not visible to $fn's own reads. On a connection
+     * $fn reads under a lock, so two units on $table cannot both pass the
+     * same check (the legacy "write first" order): on SQLite a no-op write
+     * on $table takes the database's write lock; on PostgreSQL a transaction
+     * advisory lock on $table and $key (L-1660), so units with another $key
+     * (a device's list) do not wait for each other. On a batch executor the
+     * unit's guards hold the checks instead.
      *
      * @template T
      * @param callable(UnitOfWork):T $fn
      * @return T
      */
-    public function run(string $table, callable $fn): mixed
+    public function run(string $table, callable $fn, string $key = ''): mixed
     {
         if ($this->open !== null) {
             try {
@@ -100,10 +104,12 @@ final class UnitsOfWork
         }
         $joined = (int)$db->transDepth > 0;
 
-        return Writes::transaction($db, function () use ($db, $table, $fn, $joined): mixed {
-            $unit = function () use ($db, $table, $fn): mixed {
+        return Writes::transaction($db, function () use ($db, $table, $fn, $joined, $key): mixed {
+            $unit = function () use ($db, $table, $fn, $key): mixed {
                 if ($db->DBDriver === 'SQLite3') {
                     Writes::check($db->query('DELETE FROM ' . $db->escapeIdentifiers($table) . ' WHERE 0 = 1'), 'write lock');
+                } elseif ($db->DBDriver === 'Postgre') {
+                    Writes::check($db->query('SELECT pg_advisory_xact_lock(?, ?)', self::lockKeys($table, $key)), 'write lock');
                 }
 
                 return $this->once(new ConnectionUnitOfWork($db), $fn);
@@ -111,6 +117,19 @@ final class UnitsOfWork
 
             return $joined ? Writes::savepoint($db, $unit) : $unit();
         });
+    }
+
+    /**
+     * The two int4 keys of a unit's PostgreSQL advisory lock (its own key
+     * space: the migration runner's lock is a single bigint key).
+     *
+     * @return array{0:int,1:int}
+     */
+    public static function lockKeys(string $table, string $key = ''): array
+    {
+        $int4 = static fn (string $s): int => (int)unpack('l', pack('L', crc32($s)))[1];
+
+        return [$int4('apotheke_uow:' . $table), $int4($key)];
     }
 
     /**

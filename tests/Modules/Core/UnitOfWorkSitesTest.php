@@ -83,7 +83,7 @@ final class UnitOfWorkSitesTest extends CIUnitTestCase
     #[DataProvider('drivers')]
     public function testTheSavedFilterGuardsCatchAConcurrentSave(string $driver): void
     {
-        foreach ([[2, 'Mine', 422, 'You can keep up to 2 saved filters. Delete one first.'], [5, 'Theirs', 409, 'A saved filter called “Theirs” already exists.']] as [$max, $name, $code, $message]) {
+        foreach ([[2, 'Mine', 422, 'You can keep up to 2 saved filters. Delete one first.'], [5, 'Theirs', 409, 'A saved filter called “Theirs” already exists.'], [5, 'THEIRS', 409, 'A saved filter called “Theirs” already exists.']] as [$max, $name, $code, $message]) {
             $db = $this->fresh($driver);
             $db->query("INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES ('First', 'first', 'q=1', 'first', '2026-06-15 09:00:00')");
             $racing = new RacingExecutor(new LocalBatchExecutor($db), "INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES ('Theirs', 'theirs', 'q=2', 'theirs', '2026-06-15 09:00:00')");
@@ -95,6 +95,108 @@ final class UnitOfWorkSitesTest extends CIUnitTestCase
             }
             $this->assertSame(['First', 'Theirs'], array_column(Writes::rows($db, 'SELECT name FROM saved_filters ORDER BY id'), 'name'));
         }
+    }
+
+    /**
+     * L-1660: two clients saving at once on a connection. The other client
+     * holds the unit's lock (BEGIN IMMEDIATE on SQLite, the unit's advisory
+     * lock on PostgreSQL) while it saves; this save waits, then reads its
+     * row: the same 409 and 422 as the batch path, never a 500 or limit + 1.
+     */
+    #[DataProvider('drivers')]
+    public function testConcurrentSavesOnAConnectionGetTheSameAnswers(string $driver): void
+    {
+        foreach ([[5, 'theirs ', 409, 'A saved filter called “Theirs” already exists.'], [2, 'Mine', 422, 'You can keep up to 2 saved filters. Delete one first.']] as [$max, $name, $code, $message]) {
+            $db = $this->fresh($driver);
+            $db->query("INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES ('First', 'first', 'q=1', 'first', '2026-06-15 09:00:00')");
+            $this->assertNotNull($this->database);
+            $lock = $driver === 'pgsql' ? [['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('saved_filters')]] : [];
+            $wait = $this->database->holdInAnotherClient([...$lock,
+                ["INSERT INTO saved_filters (name, name_key, query, sort_key, created_at) VALUES ('Theirs', 'theirs', 'q=2', 'theirs', '2026-06-15 09:00:00')", []]], 400);
+            try {
+                (new SavedFilters($db, new Clock(), $max))->create($name, 'q=3');
+                $this->fail('the second save must be refused');
+            } catch (UserError $e) {
+                $this->assertSame([$code, $message], [$e->getCode(), $e->getMessage()]);
+            } finally {
+                $this->assertStringContainsString('committed', $wait());
+            }
+            $this->assertSame(['First', 'Theirs'], array_column(Writes::rows($db, 'SELECT name FROM saved_filters ORDER BY id'), 'name'));
+        }
+    }
+
+    /** N-1663: a first view of an item while another client records the same one waits and moves it up, never a 500 or a shared seq. */
+    #[DataProvider('drivers')]
+    public function testConcurrentViewsOfOneListOnAConnection(string $driver): void
+    {
+        $db = $this->fresh($driver);
+        $db->query("INSERT INTO items (name, created_at, updated_at) VALUES ('Lamp', '2026-06-15 09:00:00', '2026-06-15 09:00:00')");
+        $this->assertNotNull($this->database);
+        $lock = $driver === 'pgsql' ? [['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('recent_views', '*')]] : [];
+        $wait = $this->database->holdInAnotherClient([...$lock,
+            ["INSERT INTO recent_views (scope, item_id, seq, viewed_at) VALUES ('*', 1, 1, '2026-06-15 09:00:00')", []]], 400);
+        /** @var ItemList $list */
+        $list = (new ReflectionClass(ItemList::class))->newInstanceWithoutConstructor();
+        try {
+            (new Favourites($db, $list, 'install', 8, null))->record(1);
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertSame([['1', '2']], array_map(static fn (array $r): array => [(string)$r['item_id'], (string)$r['seq']], Writes::rows($db, 'SELECT item_id, seq FROM recent_views')));
+    }
+
+    /** N-1663: on PostgreSQL the views of one list are locked per scope, so another device's list does not wait for it. */
+    public function testTheRecentViewsLockIsPerScope(): void
+    {
+        $this->assertNotSame(UnitsOfWork::lockKeys('recent_views', 'd:a'), UnitsOfWork::lockKeys('recent_views', 'd:b'));
+        $this->assertSame(UnitsOfWork::lockKeys('recent_views', 'd:a'), UnitsOfWork::lockKeys('recent_views', 'd:a'));
+        $this->assertNotSame(UnitsOfWork::lockKeys('saved_filters')[0], UnitsOfWork::lockKeys('recent_views')[0]);
+        foreach (UnitsOfWork::lockKeys('recent_views', 'd:' . str_repeat('f', 32)) as $k) {
+            $this->assertGreaterThanOrEqual(-2147483648, $k);
+            $this->assertLessThanOrEqual(2147483647, $k);
+        }
+    }
+
+    /**
+     * L-1661: recently viewed in each mode. The prune keeps other devices'
+     * lists, a repeat view refreshes viewed_at, and the sweep of views older
+     * than 90 days runs when the sequence reaches 50, not before.
+     */
+    #[DataProvider('modes')]
+    public function testRecentViewsPruneOneListRefreshAndSweep(string $driver, bool $batch): void
+    {
+        $db = $this->fresh($driver);
+        $units = UnitsOfWork::on($batch ? new LocalBatchExecutor($db) : new ConnectionExecutor($db));
+        foreach (['Lamp', 'Saw', 'Box', 'Tent'] as $name) {
+            $db->query("INSERT INTO items (name, created_at, updated_at) VALUES (?, '2026-06-15 09:00:00', '2026-06-15 09:00:00')", [$name]);
+        }
+        /** @var ItemList $list */
+        $list = (new ReflectionClass(ItemList::class))->newInstanceWithoutConstructor();
+        [$a, $b] = [str_repeat('a', 32), str_repeat('b', 32)];
+        $mine = new Favourites($db, $list, 'device', 2, $a, $units);
+        $theirs = new Favourites($db, $list, 'device', 2, $b, $units);
+        $mine->record(1);
+        $mine->record(2);
+        $theirs->record(3);
+        $theirs->record(4);
+        $theirs->record(1);
+        $rows = fn (): array => array_map(static fn (array $r): array => [(string)$r['scope'], (int)$r['item_id'], (int)$r['seq'], (string)$r['viewed_at']],
+            Writes::rows($db, 'SELECT scope, item_id, seq, viewed_at FROM recent_views ORDER BY scope, seq'));
+        $this->assertSame([['d:' . $a, 1, 1, '2026-06-15 09:00:00'], ['d:' . $a, 2, 2, '2026-06-15 09:00:00'],
+            ['d:' . $b, 4, 2, '2026-06-15 09:00:00'], ['d:' . $b, 1, 3, '2026-06-15 09:00:00']], $rows(), 'the prune keeps the other list');
+        putenv('APOTHEKE_CLOCK=2026-06-15 10:30:00');
+        $mine->record(1);
+        $this->assertSame([['d:' . $a, 2, 2, '2026-06-15 09:00:00'], ['d:' . $a, 1, 3, '2026-06-15 10:30:00']], array_slice($rows(), 0, 2), 'a repeat view moves up and is refreshed');
+        $db->query("INSERT INTO recent_views (scope, item_id, seq, viewed_at) VALUES ('*', 3, 1, '2026-03-01 09:00:00'), ('*', 4, 2, '2026-06-01 09:00:00')");
+        for ($seq = 4; $seq < 50; $seq++) {
+            $mine->record(2 + $seq % 2);
+        }
+        $this->assertContains(['*', 3, 1, '2026-03-01 09:00:00'], $rows(), 'no sweep before the sequence reaches 50');
+        $mine->record(1);
+        $left = $rows();
+        $this->assertNotContains(['*', 3, 1, '2026-03-01 09:00:00'], $left, 'the sweep at 50 removes views older than 90 days');
+        $this->assertContains(['*', 4, 2, '2026-06-01 09:00:00'], $left, 'and keeps newer ones');
+        $this->assertSame([50], array_values(array_filter(array_map(static fn (array $r): int => $r[2], $left), static fn (int $s): bool => $s === 50)));
     }
 
     public function testASiteRefusesUnitsOfWorkOnAnotherConnection(): void
@@ -164,8 +266,9 @@ final class UnitOfWorkSitesTest extends CIUnitTestCase
             $out[$t] = array_map(static fn (array $r): array => array_map(static fn (mixed $v): ?string => $v === null ? null : (string)$v, $r), Writes::rows($db, "SELECT $cols FROM $t ORDER BY $order"));
         }
         $this->assertSame([1, 2, 3, 1, 1, 2], $ids, 'a second start returns the open stocktake');
-        $this->assertSame([['1', 'Lamp', 'Shed › Shelf'], ['1', 'Saw', 'Shed'], ['1', 'Box', 'Shed › Shelf'], ['2', 'Lamp', 'Shed › Shelf'], ['2', 'Box', 'Shed › Shelf']],
-            array_map(static fn (array $r): array => [$r['stocktake_id'], $r['item_name'], $r['home_location']], $out['stocktake_lines']));
+        $this->assertSame([['1', 'Lamp', 'Shed › Shelf', (string)$shelf], ['1', 'Saw', 'Shed', (string)$shed], ['1', 'Box', 'Shed › Shelf', (string)$shelf],
+            ['2', 'Lamp', 'Shed › Shelf', (string)$shelf], ['2', 'Box', 'Shed › Shelf', (string)$shelf]],
+            array_map(static fn (array $r): array => [$r['stocktake_id'], $r['item_name'], $r['home_location'], $r['home_location_id']], $out['stocktake_lines']), 'each line has its item\'s home');
         $this->assertSame(['Shed', 'Shed › Shelf'], array_column($out['stocktakes'], 'location_name'));
         $this->assertSame([409, 422], $errors, 'a taken name, then the limit');
         $this->assertSame([['3', '6'], ['4', '5']], array_map(static fn (array $r): array => [$r['item_id'], $r['seq']], $out['recent_views']), 'the last two, sequence as before');

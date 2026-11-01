@@ -62,7 +62,7 @@ final class SavedFilters
             }
             $uow->assert('(SELECT COUNT(*) FROM saved_filters) < ?', [$this->max], 'saved filter limit', $full);
             $uow->assert('NOT EXISTS (SELECT 1 FROM saved_filters WHERE name_key = ?)', [Text::fold($name)], 'saved filter name',
-                static fn (): UserError => new UserError('A saved filter called “' . $name . '” already exists.', 409));
+                fn (): UserError => new UserError('A saved filter called “' . $this->storedName($name) . '” already exists.', 409));
 
             return $uow->insert('saved_filters', ['name' => $name, 'name_key' => Text::fold($name), 'query' => $query, 'sort_key' => Text::natkey($name), 'created_at' => $this->clock->now()], 'save filter');
         })->id();
@@ -83,6 +83,12 @@ final class SavedFilters
             throw new UserError('Saved filter not found.', 404);
         }
         Writes::check($this->db->table('saved_filters')->where('id', $id)->delete(), 'delete filter');
+    }
+
+    /** The name as stored under $name's key (N-1662: as the early check names it), else $name. */
+    private function storedName(string $name): string
+    {
+        return (string)(Writes::rows($this->db, 'SELECT name FROM saved_filters WHERE name_key = ?', [Text::fold($name)])[0]['name'] ?? $name);
     }
 
     private function name(string $name, ?int $except = null): string
