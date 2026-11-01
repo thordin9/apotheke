@@ -388,7 +388,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   are unchanged), finish (the dry run, `Restorer::open()`), confirm (`Restorer::restore()`, the settings only with
   the settings permission, 409 keeps the upload), DELETE. OpenAPI and docs/api.md. Tests: `Ci4ApiRestoresTest`,
   SQLite and PostgreSQL. Merged (v3.12.0).
-- fix/restore-hardening (chunked restore upload limits; L-1580, L-1581, N-1582, N-1583, N-1586, N-1587, N-1588):
+- [#211](https://github.com/thordin9/apotheke/pull/211) (chunked restore upload limits; L-1580, L-1581, N-1582, N-1583, N-1586, N-1587, N-1588):
   starts are serialised by `create.lock` (`Restorer::openLock(wait: true)`), with `RESTORE_MAX_UPLOADS` (default 8,
   1–64; 503 `restore.busy`) and a free-disk check (size + 64 MiB; 507 `storage.insufficient`). The sweep and removals
   take the manifest lock, check again under it, and rename a folder aside before emptying it; in-use uploads are
@@ -478,7 +478,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #195 is
   merged. The chunked restore is merged (#205, v3.11.0; #206, v3.12.0); its upload-limit hardening
-  (fix/restore-hardening) is open for QA's full gate, with the P4-2 stack #209 and #210.
+  (#211) is open for QA's full gate, with the P4-2 stack #209 and #210.
   P4-1, the design ([ADR-002](adr/002-edge-storage.md)), is merged (#203). Next: P4-2 (unit of work and executor adapter,
   PDO first with no behaviour change, `json_each` in `SearchIndex` and `Stocktakes`), then P4-3 to P4-5 as in the
   ADR. DevOps prepares the bindings and the flip checklist behind `EDGE_STORAGE_READY`; N-1442 follows with P4.
