@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Core;
 
+use Apotheke\Activity\ActivityLogger;
+use Apotheke\Catalog\Barcode;
 use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
+use Apotheke\Core\Libraries\Clock;
+use Apotheke\Stocktake\Stocktakes;
+use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Test\CIUnitTestCase;
 use RuntimeException;
@@ -98,6 +103,32 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             $this->assertStringContainsString('committed', $wait());
         }
         $this->assertSame(1, $this->units()->run('recent_views', static fn (UnitOfWork $uow): int => 1, 'd:a'), 'free again once the other client committed');
+    }
+
+    /** N-1665: a stocktake start locks its location only. */
+    public function testAStocktakeStartLocksItsLocationOnly(): void
+    {
+        $db = $this->db();
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $taxonomy = new TaxonomyRepository($db, $clock, $history);
+        [$shed, $attic] = [$taxonomy->create('location', 'Shed')['id'], $taxonomy->create('location', 'Attic')['id']];
+        $this->assertNotNull($this->database);
+        $takes = new Stocktakes($db, $clock, $taxonomy, $this->database->items($db), $history, new Barcode($db), UnitsOfWork::on(new ConnectionExecutor($db), null, 150));
+        $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('stocktakes', (string)$shed)]], 1500);
+        try {
+            $t = hrtime(true);
+            $this->assertGreaterThan(0, $takes->start($attic));
+            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'another location does not wait');
+            try {
+                $takes->start($shed);
+                $this->fail('a busy location must answer 503');
+            } catch (UserError $e) {
+                $this->assertSame(503, $e->getCode());
+            }
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
     }
 
     private function otherGets(string $table, string $key = ''): bool
