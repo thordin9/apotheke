@@ -49,16 +49,29 @@ must neutralise them, as the export does with a leading apostrophe.
 
 For a backup larger than the host lets one request carry. Start an upload with the zip's size in bytes (at most
 `RESTORE_MAX_MB`) and, if you can, its SHA-256. Send it in order, chunk 0 first, each chunk exactly `chunk_size`
-bytes (`RESTORE_CHUNK_KB`) except the last. A chunk out of order is `409 restore.conflict`, one over `chunk_size` or
+bytes except the last. Always use the `chunk_size` the start answers: it is `RESTORE_CHUNK_KB`, but never more than
+this server's PHP takes in one request (`upload_max_filesize`, and `post_max_size` less 64 KiB), so on a host with
+PHP's default 2M limit (plain PHP, cPanel) it is 2 MiB. A chunk the server still refuses as too large is
+`413 upload.too_large`; start again with a smaller file or ask the host to raise the PHP limits. A chunk out of order is `409 restore.conflict`, one over `chunk_size` or
 past the declared size `413 upload.too_large`, a short one before the end `422`; a refused chunk changes nothing,
 and `GET` says which chunk is next, so a client can resume. `finish` checks the size and the SHA-256, then the backup
 exactly as the Backup page checks an upload, and answers what it holds. `confirm` restores it as the page does (the
 backup's settings only for a user who may change settings). While another restore runs it is `409` and the upload is
-kept; a restore, any other failure, a SHA-256 that does not match or a file that is not a backup removes it.
+kept; a SHA-256 that does not match or a file that is not a backup removes it at `finish`.
+
+`finish` and `confirm` can take a while on a large backup, and a proxy may give up first (75 seconds in the Docker
+image's nginx for the API, 300 for the restore page). Both run to the end anyway. `finish` again gives the dry run
+again. After `confirm` only the upload's record is kept (the backup itself is removed): `GET` answers status
+`restored` with the confirm answer in `result`, or `failed` with `result.error`, and `confirm` again gives the same
+answer without restoring again. While it still runs, `GET` and `confirm` answer `409`; poll `GET` until it does not.
+Status `ready` after a lost answer means it did not restore (the time limit, for example), and you can confirm again.
+`DELETE` removes the record; otherwise it goes after an hour like any upload.
 
 An upload belongs to the account that started it: anyone else gets the same `404` as for an id that is not there. A
-guest gets `403`. Each account has one upload at a time (a new one replaces it), and an upload without a request for
-an hour (`idle_seconds`) is removed. See [Deployment and operations](deployment-and-operations.md#backup-and-restore).
+guest gets `403`. Each account has one upload at a time (a new one replaces it, `409` while a request uses the old
+one), and an upload without a request for an hour (`idle_seconds`) is removed. At most `RESTORE_MAX_UPLOADS` uploads
+(default 8, all accounts) are open at once, else `503 restore.busy` with `Retry-After`; and the disk must have the
+declared size plus 64 MiB free, else `507 storage.insufficient`. See [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
 ## Requests
 
@@ -98,7 +111,7 @@ JSON is `application/json; charset=utf-8`. Errors are [RFC 9457](https://www.rfc
 ```
 
 `code` is stable: `auth.required` (401), `auth.invalid_credentials` (401), `auth.pending_approval` (403),
-`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `restore.conflict` (409), `import.gone` (410), `not_found` (404), `permission.denied` (403),
+`auth.sign_in_off` (409), `bad_request` (400), `csrf.invalid` (403), `import.done` (409), `restore.conflict` (409), `restore.busy` (503, with `Retry-After`), `storage.insufficient` (507), `import.gone` (410), `not_found` (404), `permission.denied` (403),
 `rate_limited` (429, with `Retry-After`), `server_error` (500), `unsupported_media_type` (415), `upload.too_large`
 (413) and `validation.failed` (422, with an `errors` map of field to message). An unexpected error under `/api` is
 problem+json too: `500 server_error` with the fixed detail `Something went wrong on the server.`, never the error's
