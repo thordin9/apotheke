@@ -144,4 +144,56 @@ final class Writes
             throw $e;
         }
     }
+
+    /**
+     * Run $fn under a SAVEPOINT of the open transaction: when $fn throws, its
+     * statements are rolled back and the outer transaction carries on as it
+     * was. Used by a unit of work that joins a plain transaction (L-1625) and
+     * by the local batch executor. Both databases behave the same:
+     *
+     * - An outer transaction whose statement already failed takes no
+     *   savepoint (PostgreSQL refuses one there): this throws, and the
+     *   outer failure stands (L-1630).
+     * - A statement that failed inside $fn fails it even when $fn caught the
+     *   error (SQLite would carry on, PostgreSQL would not): checked before
+     *   RELEASE, so the savepoint is rolled back instead (L-1631).
+     * - On success the savepoint is released, so none pile up (N-1632).
+     *
+     * @template T
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param callable():T $fn
+     * @return T
+     */
+    public static function savepoint(BaseConnection $db, callable $fn): mixed
+    {
+        if (self::failed($db)) {
+            throw new WriteFailed('Database write failed: a statement in the transaction');
+        }
+        self::check($db->query('SAVEPOINT apotheke_uow'), 'savepoint');
+        try {
+            $r = $fn();
+            if (self::failed($db)) {
+                throw new WriteFailed('Database write failed: a statement in the unit of work');
+            }
+        } catch (Throwable $e) {
+            if ($db->query('ROLLBACK TO SAVEPOINT apotheke_uow') !== false && $db->query('RELEASE SAVEPOINT apotheke_uow') !== false) {
+                $db->resetTransStatus();
+            }
+            throw $e;
+        }
+        self::check($db->query('RELEASE SAVEPOINT apotheke_uow'), 'savepoint');
+
+        return $r;
+    }
+
+    /**
+     * Whether a statement of the open transaction failed (read anew each time: the flag changes with every statement).
+     *
+     * @phpstan-impure
+     * @param BaseConnection<object|resource, object|resource> $db
+     */
+    private static function failed(BaseConnection $db): bool
+    {
+        return !$db->transStatus();
+    }
 }

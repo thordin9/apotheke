@@ -54,6 +54,9 @@ final class ConnectionExecutor implements SqlExecutor
      */
     private function execute(string $sql, array $params, string $step): array
     {
+        // Replacing the connection's last SQLite result finalizes its statement, which clears the error of a statement
+        // that failed just before (so a guard would read as "not an error"): release it first.
+        $this->db->resultID = false;
         try {
             $result = $this->db->query($sql, $params);
             $error = $result === false ? (string)($this->db->error()['message'] ?? '') : '';
