@@ -8,7 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.15.3] - 2026-11-01
+
 **Note:** saving a filter, recording a viewed item, deleting a role, resetting the built-in roles and starting a stocktake now write through the unit of work (P4-2b, part 1). Nothing changes for users.
+
+### Fixed
+
+- **core:** match D1 in the local batch statement filter ([#218](https://github.com/thordin9/apotheke/pull/218))
+
+### Changed
+
+- **core:** move write paths onto the unit of work (P4-2b, 1/N) ([#217](https://github.com/thordin9/apotheke/pull/217))
 
 ## [3.15.2] - 2026-11-01
 
@@ -1199,7 +1209,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.3...HEAD
+[3.15.3]: https://github.com/thordin9/apotheke/compare/v3.15.2...v3.15.3
 [3.15.2]: https://github.com/thordin9/apotheke/compare/v3.15.1...v3.15.2
 [3.15.1]: https://github.com/thordin9/apotheke/compare/v3.15.0...v3.15.1
 [3.15.0]: https://github.com/thordin9/apotheke/compare/v3.14.2...v3.15.0
