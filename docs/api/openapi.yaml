@@ -209,7 +209,7 @@
       "post": {
         "operationId": "createRestore",
         "summary": "Start a chunked restore upload (backup permission)",
-        "description": "For a backup too large for one request. Declare its size in bytes (at most RESTORE_MAX_MB) and, optionally, its SHA-256; then send it in chunks of `chunk_size` bytes. Your earlier unfinished upload is removed: one at a time per account. A guest gets 403 permission.denied. An upload idle for `idle_seconds` is removed.",
+        "description": "For a backup too large for one request. Declare its size in bytes (at most RESTORE_MAX_MB) and, optionally, its SHA-256; then send it in chunks of `chunk_size` bytes (RESTORE_CHUNK_KB, but never more than this server's PHP takes in one request). Your earlier upload is removed (409 while a request uses it): one at a time per account. A guest gets 403 permission.denied. An upload idle for `idle_seconds` is removed. 503 restore.busy (with Retry-After) when RESTORE_MAX_UPLOADS uploads are open, 507 storage.insufficient when the disk lacks the size plus a margin.",
         "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["size"], "properties": {"size": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "nullable": true}}}}}},
         "responses": {
@@ -217,9 +217,12 @@
           "400": {"$ref": "#/components/responses/Problem"},
           "401": {"$ref": "#/components/responses/Problem"},
           "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {"$ref": "#/components/responses/Problem"},
           "413": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
-          "422": {"$ref": "#/components/responses/Problem"}
+          "422": {"$ref": "#/components/responses/Problem"},
+          "503": {"$ref": "#/components/responses/Problem"},
+          "507": {"$ref": "#/components/responses/Problem"}
         }
       }
     },
@@ -273,7 +276,7 @@
       "post": {
         "operationId": "finishRestore",
         "summary": "Check a complete upload and the backup in it: a dry run (backup permission)",
-        "description": "The size and the SHA-256 (when given) must match, then the backup is checked as the Backup page checks an upload; nothing is changed. A SHA-256 that does not match, or a file that is not a backup that can be restored, removes the upload (422). Incomplete: 409.",
+        "description": "The size and the SHA-256 (when given) must match, then the backup is checked as the Backup page checks an upload; nothing is changed. A SHA-256 that does not match, or a file that is not a backup that can be restored, removes the upload (422). Incomplete, or confirmed already: 409. Again on a checked upload: the dry run again.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
         "responses": {
           "200": {"description": "The upload and what the backup holds", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RestoreUpload"}}}},
@@ -290,7 +293,7 @@
       "post": {
         "operationId": "confirmRestore",
         "summary": "Replace the catalog with the checked backup (backup permission)",
-        "description": "Needs `{\"confirm\": true}` after finish. The backup's settings are restored only for a user who may change settings. While another restore runs the answer is 409 and the upload is kept; any other failure removes it, and so does a restore.",
+        "description": "Needs `{\"confirm\": true}` after finish. The backup's settings are restored only for a user who may change settings. While another restore runs the answer is 409 and the upload is kept. Otherwise the backup is removed and the outcome kept: GET answers status restored (with `result`, this answer) or failed (`result.error`), and confirm again gives the same answer without restoring again, for a client that lost the answer to a timeout.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["confirm"], "properties": {"confirm": {"type": "boolean"}}}}}},
         "responses": {
@@ -401,7 +404,7 @@
           "title": {"type": "string"},
           "status": {"type": "integer"},
           "detail": {"type": "string"},
-          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, import.done, import.gone, consent_required"},
+          "code": {"type": "string", "description": "A stable machine code: auth.required, auth.invalid_credentials, auth.pending_approval, auth.sign_in_off, bad_request, csrf.invalid, not_found, permission.denied, rate_limited, unsupported_media_type, upload.too_large, validation.failed, import.done, import.gone, restore.conflict, restore.busy, storage.insufficient, consent_required"},
           "error": {"type": "string", "enum": ["consent_required"], "description": "Only on 403 consent_required: the same code"},
           "errors": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Field => message, for 422"}
         }
@@ -548,12 +551,13 @@
         "required": ["id", "status", "size", "chunk_size", "received", "next_chunk", "idle_seconds"],
         "properties": {
           "id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
-          "status": {"type": "string", "enum": ["uploading", "ready"], "description": "ready: finished and checked, waiting for confirm"},
+          "status": {"type": "string", "enum": ["uploading", "ready", "restored", "failed"], "description": "ready: finished and checked, waiting for confirm; restored or failed: confirmed"},
           "size": {"type": "integer"},
           "chunk_size": {"type": "integer"},
           "received": {"type": "integer"},
           "next_chunk": {"type": "integer", "nullable": true, "description": "The chunk to send next; null once finished"},
           "idle_seconds": {"type": "integer", "description": "An upload without a request for this long is removed"},
+          "result": {"type": "object", "description": "restored: the confirm answer; failed: {\"error\"}"},
           "backup": {"type": "object", "additionalProperties": false, "description": "finish only: what the backup holds", "required": ["created_at", "driver", "tables", "photos", "warnings"],
             "properties": {"created_at": {"type": "string"}, "driver": {"type": "string"}, "tables": {"type": "object", "additionalProperties": {"type": "integer"}}, "photos": {"type": "integer"}, "warnings": {"type": "array", "items": {"type": "string"}}}}
         }

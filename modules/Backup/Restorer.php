@@ -207,12 +207,13 @@ final class Restorer
      * between the check of the name and the open, where another process
      * could swap the file (a test seam for N-458). $hardLink stands in for
      * link() (a test seam for a file system without hard links, N-520).
+     * $wait: wait for the lock instead of BUSY (a short section, as RestoreUploads::create()).
      *
      * @param ?Closure():void $afterCheck
      * @param ?Closure(string, string):bool $hardLink
      * @return resource
      */
-    public static function openLock(string $path, ?Closure $afterCheck = null, ?Closure $hardLink = null)
+    public static function openLock(string $path, ?Closure $afterCheck = null, ?Closure $hardLink = null, bool $wait = false)
     {
         // N-456, N-459: never through a link or anything but a plain file, and say why.
         $named = @lstat($path);
@@ -242,7 +243,7 @@ final class Restorer
             fclose($fh);
             throw new UserError(self::LOCK_REFUSED);
         }
-        if (!flock($fh, LOCK_EX | LOCK_NB)) {
+        if (!flock($fh, $wait ? LOCK_EX : LOCK_EX | LOCK_NB)) {
             fclose($fh);
             throw new UserError(self::BUSY, 409);
         }

@@ -38,8 +38,8 @@ final class ApothekeConfigTest extends TestCase
             unset($ours[$key]);
         }
         // The chunked restore sizes (CI4 only).
-        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0]));
-        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb']);
+        $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520, 'restore_max_uploads' => 8], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0, 'restore_max_uploads' => 0]));
+        unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb'], $ours['uploads']['restore_max_uploads']);
         $this->assertSame($legacy, $ours);
         $this->assertSame(dirname(__DIR__, 2) . '/camera', ApothekeConfig::load($root, $file, $env)->originalsDir());
     }
@@ -59,6 +59,15 @@ final class ApothekeConfigTest extends TestCase
             [['RESTORE_CHUNK_KB' => '16384', 'RESTORE_MAX_MB' => '4096'], 16384, 4096], [['RESTORE_CHUNK_KB' => '99999', 'RESTORE_MAX_MB' => '99999'], 16384, 4096]] as [$env, $chunk, $max]) {
             $u = ApothekeConfig::load('/repo', null, $env)->values()['uploads'];
             $this->assertSame([$chunk, $max], [$u['restore_chunk_kb'], $u['restore_max_mb']], (string)json_encode($env));
+        }
+    }
+
+    /** RESTORE_MAX_UPLOADS (open chunked restore uploads, all accounts) is clamped to 1–64, default 8. */
+    public function testTheOpenRestoreUploadCapIsClamped(): void
+    {
+        foreach (['' => 8, '0' => 1, '1' => 1, '20' => 20, '64' => 64, '999' => 64, 'abc' => 1] as $raw => $want) {
+            $env = $raw === '' ? [] : ['RESTORE_MAX_UPLOADS' => (string)$raw];
+            $this->assertSame($want, ApothekeConfig::load('/repo', null, $env)->values()['uploads']['restore_max_uploads'], (string)$raw);
         }
     }
 
