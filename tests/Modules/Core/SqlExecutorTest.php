@@ -176,6 +176,63 @@ final class SqlExecutorTest extends CIUnitTestCase
         $this->assertSame(['outer', 'batch'], array_column(Writes::rows($db, 'SELECT name FROM uw_parent ORDER BY id'), 'name'));
     }
 
+    /** @return iterable<string,array{0:string,1:list<scalar|null>,2:bool}> statement, params, refused */
+    public static function batchStatements(): iterable
+    {
+        $insert = 'INSERT INTO uw_parent (name) VALUES (?)';
+        foreach ([
+            'begin' => 'BEGIN', 'begin after a line comment' => "-- note\nBEGIN", 'commit after a block comment' => '/* note */ COMMIT',
+            'rollback after both comments' => "/* a */ -- b\n  ROLLBACK", 'end' => 'END', 'savepoint' => ' savepoint x', 'release' => 'RELEASE x',
+            'start transaction' => 'START TRANSACTION', 'abort' => 'ABORT', 'pragma' => 'PRAGMA foreign_keys',
+            'pragma after a comment' => '/**/PRAGMA journal_mode', 'attach' => "ATTACH DATABASE ':memory:' AS x",
+            'detach' => 'DETACH DATABASE x', 'vacuum' => 'VACUUM', 'analyze' => 'ANALYZE', 'reindex' => 'REINDEX',
+            'sqlite function' => 'SELECT sqlite_version()', 'sqlite function, space' => "SELECT sqlite_version \n()",
+            'sqlite function, comment' => 'SELECT sqlite_version/* x */()', 'sqlite function, quoted' => 'SELECT "sqlite_version"()',
+            'second statement' => 'SELECT 1; SELECT 2', 'second statement after a literal' => "SELECT 'a;b'; BEGIN",
+            'two trailing semicolons' => 'SELECT 1;;', 'only a comment' => '-- nothing', 'empty' => '',
+        ] as $name => $sql) {
+            yield 'refused: ' . $name => [$sql, [], true];
+        }
+        yield 'refused: 101 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 101, '?')) . ' AS n', array_fill(0, 101, 1), true];
+        foreach ([
+            'an insert' => [$insert, ['a']],
+            'one trailing semicolon' => [$insert . ';', ['a']],
+            'a trailing semicolon and comment' => [$insert . " ; -- done; really\n", ['a']],
+            'a literal holding refused words' => ["INSERT INTO uw_parent (name) VALUES ('BEGIN; VACUUM; sqlite_version() -- /*')", []],
+            'a doubled quote' => ["INSERT INTO uw_parent (name) VALUES ('it''s; ATTACH')", []],
+            'a leading comment' => ["/* why */ -- and\n" . $insert, ['a']],
+            'a semicolon in a comment' => ["SELECT name FROM uw_parent /* ; */ WHERE name = 'end' -- ;", []],
+            'a quoted name' => ['SELECT name AS "begin;end" FROM uw_parent', []],
+            '100 parameters' => ['SELECT ' . implode(' + ', array_fill(0, 100, '?')) . ' AS n', array_fill(0, 100, 1)],
+        ] as $name => [$sql, $params]) {
+            yield 'allowed: ' . $name => [$sql, $params, false];
+        }
+    }
+
+    /**
+     * L-1637: LocalBatchExecutor matches a statement with its comments taken
+     * out and its literals emptied, so a comment hides no refused word, a
+     * second statement is refused, and a literal is only a value.
+     *
+     * @param list<scalar|null> $params
+     */
+    #[DataProvider('batchStatements')]
+    public function testTheLocalBatchExecutorRefusesWhatD1Refuses(string $sql, array $params, bool $refused): void
+    {
+        [$this->database, $db] = UowSchema::create('sqlite');
+        $exec = new LocalBatchExecutor($db);
+        foreach (['run' => static fn () => $exec->run([['sql' => $sql, 'params' => $params]]), 'query' => static fn () => $exec->query($sql, $params)] as $call => $f) {
+            try {
+                $f();
+                $this->assertFalse($refused, $call . ' must refuse it');
+            } catch (LogicException $e) {
+                $this->assertTrue($refused, $call . ' refused an allowed statement: ' . $e->getMessage());
+                $this->assertStringStartsWith('D1 ', $e->getMessage());
+            }
+        }
+        $this->assertSame(0, (int)$db->transDepth);
+    }
+
     /** N-1623: a text list with invalid UTF-8 cannot be bound; that is a WriteFailed, not a JsonException. */
     public function testAListWithInvalidUtf8IsAWriteFailure(): void
     {

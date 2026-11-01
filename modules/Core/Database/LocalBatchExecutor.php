@@ -14,9 +14,18 @@ use LogicException;
  * BatchUnitOfWork, and every statement is held to D1's limits before any
  * runs. A refused statement is a programming error (LogicException):
  *
- * - no BEGIN, COMMIT, END, ROLLBACK, SAVEPOINT or RELEASE, and no PRAGMA;
+ * - one statement: a `;` outside quotes and comments only as its last character;
+ * - no transaction statement (BEGIN, START TRANSACTION, COMMIT, END, ROLLBACK,
+ *   ABORT, SAVEPOINT, RELEASE), no PRAGMA, and no ATTACH, DETACH, VACUUM,
+ *   ANALYZE or REINDEX;
  * - no sqlite_*() function;
  * - at most 100 bound parameters (a list is one json_each() parameter).
+ *
+ * The statement is matched with its comments (`--`, `/* *\/`) taken out and
+ * its string literals emptied, so a comment cannot hide a refused word and a
+ * literal holding one is still a value. Quoting is SQLite's ('' and "" doubled
+ * inside); PostgreSQL's E'' escapes and dollar quotes are not parsed, so a `;`
+ * inside them is refused, never let through.
  *
  * The batch itself is atomic as on D1: its own transaction, or a SAVEPOINT
  * when a plain transaction is open (D1 never has one), so a failed batch
@@ -64,14 +73,44 @@ final class LocalBatchExecutor implements SqlExecutor
 
     private static function refuse(string $sql, int $params): void
     {
-        if (preg_match('/^\s*(?:BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE|PRAGMA)\b/i', $sql) === 1) {
-            throw new LogicException('D1 refuses transaction statements and pragmas in a batch.');
+        $code = rtrim(self::code($sql));
+        if (str_ends_with($code, ';')) {
+            $code = rtrim(substr($code, 0, -1));
         }
-        if (preg_match('/\bsqlite_\w+\s*\(/i', $sql) === 1) {
+        if ($code === '' || str_contains($code, ';')) {
+            throw new LogicException('D1 runs one statement per batch step.');
+        }
+        if (preg_match('/^\s*(?:BEGIN|START|COMMIT|END|ROLLBACK|ABORT|SAVEPOINT|RELEASE|PRAGMA|ATTACH|DETACH|VACUUM|ANALYZE|REINDEX)\b/i', $code) === 1) {
+            throw new LogicException('D1 refuses transaction statements, pragmas and database maintenance in a batch.');
+        }
+        if (preg_match('/\bsqlite_\w+["`]?\s*\(/i', $code) === 1) {
             throw new LogicException('D1 refuses sqlite_*() functions.');
         }
         if ($params > self::MAX_PARAMS) {
             throw new LogicException('D1 allows ' . self::MAX_PARAMS . ' bound parameters per statement; bind a list as one (Dialect::inList()).');
         }
+    }
+
+    /**
+     * The statement as it is matched: each comment becomes a space and each
+     * string literal '' (an unterminated comment or literal runs to the end,
+     * as in SQLite); a quoted name keeps its text, a `;` in it is no end.
+     */
+    private static function code(string $sql): string
+    {
+        $parts = preg_split('/(--[^\n]*+|\/\*.*?(?:\*\/|\z)|\'(?:[^\']++|\'\')*+(?:\'|\z)|"(?:[^"]++|"")*+(?:"|\z)|`(?:[^`]++|``)*+(?:`|\z))/s', $sql, -1, PREG_SPLIT_DELIM_CAPTURE);
+        if ($parts === false) {
+            throw new LogicException('A batch statement could not be read.');
+        }
+        $out = '';
+        foreach ($parts as $i => $part) {
+            $out .= $i % 2 === 0 ? $part : match ($part[0]) {
+                "'" => "''",
+                '"', '`' => str_replace(';', ' ', $part),
+                default => ' ',
+            };
+        }
+
+        return $out;
     }
 }
