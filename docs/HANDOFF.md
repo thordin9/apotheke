@@ -396,7 +396,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   subtracts what open uploads still expect. A constructor seam (`$afterLock`) tests the re-checks under the lock.
   Tests: `RestoreUploadsTest` (a killed confirm, owner key, linked lock, cap expiry, disk reservation, outcome
   records and the cap, in-use 409, swapped manifest, `.removing-*`), `Ci4ApiRestoresTest` (503 with Retry-After,
-  507, linked lock 500, owner key, interrupted). Open for QA's full gate.
+  507, linked lock 500, owner key, interrupted). Merged (b11bdd5), released as v3.14.2.
 - docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
   for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
   PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
@@ -425,6 +425,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   under a SAVEPOINT (all or nothing, as a D1 batch), a unit refuses writes once its `run()` ended, a second ranking
   test layout, the PostgreSQL `lc_messages` note, and the SQLite version check before the file is opened (with
   `checkSqliteVersion: false` for the edge runner). Tests on SQLite and PostgreSQL. Merged (4b77e04), released as v3.14.1.
+- feat/p4-batch-path (P4-2a, part 3 of 3): the batch path. `BatchUnitOfWork` sends a unit's steps as one batch
+  (holds first, no `BEGIN` or `SAVEPOINT`, guards as `uow_guard` inserts, `Ref`s through `uow_refs`, the failed step
+  found by replaying prefixes), on any executor without a connection. `LocalBatchExecutor` runs it on SQLite and
+  PostgreSQL with D1's limits. Migration 0031 adds `uow_guard` and `uow_refs` (CI4 only, not in backups).
+  `Writes::savepoint()` is shared by both paths. Also #212's QA items L-1630, L-1631, N-1632 and N-1633. Tests:
+  `UnitOfWorkTest` (every case in transaction and batch mode, parity, 150 Refs), `SqlExecutorTest` (D1 limits),
+  SQLite and PostgreSQL. Open for QA's full gate.
 
 ## Lanes
 
@@ -502,10 +509,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
-  (#211) is merged (v3.12.1); #209 and #210 are merged (v3.13.0, v3.14.0); #212 (the fix(core) follow-up) is merged
-  (v3.14.1), and the restore notes batch N-1591 to N-1595 (#213) is open. P4-1
+  (#211) is merged (v3.12.1); #209, #210 and #212 are merged (v3.13.0, v3.14.0, v3.14.1), and the restore notes
+  batch N-1591 to N-1595 (#213) is merged (v3.14.2). P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
-  (#209), then the unit of work (#210), then part 3/3, the batch path and parity test, now that #212 is in. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  (#209), then the unit of work (#210), then part 3/3, the batch path and parity cases (feat/p4-batch-path, with
+  QA). Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.

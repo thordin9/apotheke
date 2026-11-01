@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Apotheke\Core\Database;
 
 use Apotheke\Core\Http\RequestCleanup;
-use CodeIgniter\Database\BaseConnection;
-use LogicException;
 use Throwable;
 
 /**
@@ -22,8 +20,9 @@ use Throwable;
  *   at the end. Inside a plain transaction that is already open, the unit
  *   runs under a SAVEPOINT, so it stays all or nothing even when the outer
  *   caller catches its error and commits (L-1625).
- * - The batch path (D1, P4-3) is the next part of P4-2a; until then an
- *   executor without a connection is refused.
+ * - On an executor without a connection (D1, a Durable Object, or
+ *   LocalBatchExecutor for tests) the unit is a BatchUnitOfWork: its steps
+ *   go out as one batch when the callback returns, holds first.
  * - A unit started while one is open joins it: the inner callback gets the
  *   outer unit, so everything commits (or not) as one. A failure inside a
  *   joined unit fails the outer one even if the outer callback catches it.
@@ -71,57 +70,42 @@ final class UnitsOfWork
                 throw $e;
             }
         }
-        $db = $this->executor->connection() ?? throw new LogicException('A unit of work needs a connection until the batch path is in.');
+        $db = $this->executor->connection();
+        if ($db === null) {
+            return $this->once(new BatchUnitOfWork($this->executor), $fn);
+        }
         $joined = (int)$db->transDepth > 0;
 
         return Writes::transaction($db, function () use ($db, $table, $fn, $joined): mixed {
             $unit = function () use ($db, $table, $fn): mixed {
-                $uow = new ConnectionUnitOfWork($db);
-                try {
-                    if ($db->DBDriver === 'SQLite3') {
-                        Writes::check($db->query('DELETE FROM ' . $db->escapeIdentifiers($table) . ' WHERE 0 = 1'), 'write lock');
-                    }
-                    $r = $this->scoped($uow, $fn);
-                    $uow->flush();
-
-                    return $r;
-                } finally {
-                    $uow->close();
+                if ($db->DBDriver === 'SQLite3') {
+                    Writes::check($db->query('DELETE FROM ' . $db->escapeIdentifiers($table) . ' WHERE 0 = 1'), 'write lock');
                 }
+
+                return $this->once(new ConnectionUnitOfWork($db), $fn);
             };
 
-            return $joined ? self::underSavepoint($db, $unit) : $unit();
+            return $joined ? Writes::savepoint($db, $unit) : $unit();
         });
     }
 
     /**
-     * L-1625: a unit that joins a plain transaction runs under a SAVEPOINT,
-     * so a failure rolls back the whole unit (its holds included) even when
-     * the outer caller catches the error and commits: all or nothing, as a
-     * D1 batch. The outer transaction carries on as it was; a statement that
-     * failed inside the unit no longer counts against it once rolled back.
-     * D1 has no SAVEPOINT and never nests: there a unit is one batch.
+     * Run $fn on $uow, then flush it; the unit is closed either way.
      *
      * @template T
-     * @param BaseConnection<object|resource, object|resource> $db
-     * @param callable():T $unit
+     * @param callable(UnitOfWork):T $fn
      * @return T
      */
-    private static function underSavepoint(BaseConnection $db, callable $unit): mixed
+    private function once(ConnectionUnitOfWork|BatchUnitOfWork $uow, callable $fn): mixed
     {
-        $status = $db->transStatus();
-        Writes::check($db->query('SAVEPOINT apotheke_uow'), 'savepoint');
         try {
-            $r = $unit();
-        } catch (Throwable $e) {
-            if ($db->query('ROLLBACK TO SAVEPOINT apotheke_uow') !== false && $db->query('RELEASE SAVEPOINT apotheke_uow') !== false && $status) {
-                $db->resetTransStatus();
-            }
-            throw $e;
-        }
-        Writes::check($db->query('RELEASE SAVEPOINT apotheke_uow'), 'savepoint');
+            $r = $this->scoped($uow, $fn);
+            $uow->flush();
 
-        return $r;
+            return $r;
+        } finally {
+            $uow->close();
+        }
     }
 
     /** Whether a unit is open now (inside run()). */

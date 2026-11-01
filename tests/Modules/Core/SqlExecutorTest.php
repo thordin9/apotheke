@@ -7,11 +7,13 @@ namespace Tests\Core;
 use Apotheke\Core\Database\BatchExecutor;
 use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\Dialect;
+use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Migrations\PdoMigrationRunner;
 use CodeIgniter\Test\CIUnitTestCase;
+use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 use Tests\Support\UowSchema;
@@ -126,6 +128,52 @@ final class SqlExecutorTest extends CIUnitTestCase
             }
         }
         $this->assertSame(0, (int)$db->transDepth);
+    }
+
+    /**
+     * LocalBatchExecutor holds every statement to D1's limits before any
+     * runs (no transaction statement, pragma or sqlite_*() function, at most
+     * 100 parameters), has no connection, and keeps a failed batch out of an
+     * open transaction, which carries on.
+     */
+    #[DataProvider('drivers')]
+    public function testTheLocalBatchExecutorKeepsToD1sLimits(string $driver): void
+    {
+        [$this->database, $db] = UowSchema::create($driver);
+        $exec = new LocalBatchExecutor($db);
+        $this->assertNull($exec->connection());
+        $this->assertSame($driver, $exec->dialect()->name);
+        $ok = ['sql' => 'INSERT INTO uw_parent (name) VALUES (?)', 'params' => ['kept?']];
+        $refused = [
+            ['BEGIN', []], [' savepoint x', []], ['RELEASE x', []], ['ROLLBACK', []], ['COMMIT', []], ['END', []],
+            ['PRAGMA foreign_keys', []], ['SELECT sqlite_version()', []],
+            ['SELECT ' . implode(' + ', array_fill(0, 101, '?')) . ' AS n', array_fill(0, 101, 1)],
+        ];
+        foreach ($refused as [$sql, $params]) {
+            try {
+                $exec->run([$ok, ['sql' => $sql, 'params' => $params]]);
+                $this->fail($sql . ' must be refused');
+            } catch (LogicException) {
+            }
+        }
+        try {
+            $exec->query('PRAGMA journal_mode');
+            $this->fail('a pragma read must be refused');
+        } catch (LogicException) {
+        }
+        $this->assertSame([['n' => 100]], array_map(static fn (array $r): array => ['n' => (int)$r['n']], $exec->run([['sql' => 'SELECT ' . implode(' + ', array_fill(0, 100, '?')) . ' AS n', 'params' => array_fill(0, 100, 1)]])[0]));
+        Writes::transaction($db, function () use ($db, $exec, $ok): void {
+            $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['outer']);
+            $this->assertCount(1, Writes::rows($db, 'SELECT name FROM uw_parent'), 'a read just before the guard (its result is released first)');
+            try {
+                $exec->run([$ok, ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL', 'params' => []]]);
+                $this->fail('the guard must fail the batch');
+            } catch (WriteFailed $e) {
+                $this->assertSame(BatchExecutor::GUARD_FAILED, $e->getCode());
+            }
+            $exec->run([['sql' => 'INSERT INTO uw_parent (name) VALUES (?)', 'params' => ['batch']]]);
+        });
+        $this->assertSame(['outer', 'batch'], array_column(Writes::rows($db, 'SELECT name FROM uw_parent ORDER BY id'), 'name'));
     }
 
     /** N-1623: a text list with invalid UTF-8 cannot be bound; that is a WriteFailed, not a JsonException. */
