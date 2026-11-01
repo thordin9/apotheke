@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Catalog\Items;
 
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
@@ -26,7 +28,12 @@ final class ItemRepository
 
     private const FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly Clock $clock,
@@ -36,7 +43,9 @@ final class ItemRepository
         private readonly ImageStore $images,
         private readonly Storage $files,
         private readonly PhotoRepository $photoRows,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** @var list<string> files a save inside atomically() gives up; removed once the outer transaction has committed (N-126) */
@@ -212,11 +221,12 @@ final class ItemRepository
         $id = (int)$item['id'];
         $files = array_column($this->photos($id), 'file');
         $att = array_column($this->attachments($id), 'file');
-        Writes::transaction($this->db, function () use ($item, $id): void {
-            $this->history->log($id, (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], static fn ($v): bool => $v !== ''));
-            Writes::check($this->db->table('items')->where('id', $id)->delete(), 'delete item');
-            Writes::check($this->db->query('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)'), 'drop unused tags');
-        });
+        // One unit of work per item (ADR-002, batch): the history row, the item (its rows cascade) and unused tags.
+        $this->units->run('items', function (UnitOfWork $uow) use ($item, $id): void {
+            $this->history->queue($uow, $id, (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], static fn ($v): bool => $v !== ''));
+            $uow->write('DELETE FROM items WHERE id = ?', [$id], 'delete item');
+            $uow->write('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)', [], 'drop unused tags');
+        }, (string)$id);
         if ($keepFiles) {
             return;
         }
