@@ -15,6 +15,7 @@ use Apotheke\Core\Libraries\Clock;
 use CodeIgniter\Database\BaseBuilder;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
+use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
@@ -718,6 +719,26 @@ final class SignInAccountsTest extends CIUnitTestCase
         $this->db()->query('ALTER TABLE users RENAME COLUMN created_at TO made_at');
         $this->expectException(WriteFailed::class);
         $this->users()->createdAt($id);
+    }
+
+    /** N-1642: a driver exception inside createdAt() (not only a broken query) is a WriteFailed too, never "no account". */
+    public function testCreatedAtTurnsADriverExceptionIntoAWriteFailure(): void
+    {
+        foreach ([new DatabaseException('driver'), new \PDOException('driver')] as $thrown) {
+            $broken = $this->createMock(BaseConnection::class);
+            $broken->method('query')->willThrowException($thrown);
+            try {
+                (new UserRepository($broken))->createdAt(1);
+                $this->fail($thrown::class . ' must not read as no account');
+            } catch (WriteFailed $e) {
+                $this->assertSame('Database read failed', $e->getMessage());
+                $this->assertSame($thrown, $e->getPrevious());
+            }
+        }
+        $bug = $this->createMock(BaseConnection::class);
+        $bug->method('query')->willThrowException(new \LogicException('a bug'));
+        $this->expectException(\LogicException::class);
+        (new UserRepository($bug))->createdAt(1);
     }
 
     private function assertLimited(callable $hit, string $message): void

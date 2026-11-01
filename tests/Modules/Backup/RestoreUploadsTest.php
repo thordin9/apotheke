@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Backup;
 
+use Apotheke\Auth\UserRepository;
 use Apotheke\Backup\RestoreUploads;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Test\CIUnitTestCase;
+use Config\Services;
+use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\TestDatabase;
 
 /**
  * Chunked restore uploads: everything stays in DATA_DIR/uploads/restore/<id>/, ids are strict and never followed
@@ -445,6 +449,43 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
         $this->me = null;
         $this->assertRefused(fn () => $this->uploads()->create(3, null), 403, 'no account', RestoreUploads::GUEST);
         $this->assertSame([], is_dir($this->root()) ? $this->ids() : [], 'nothing stored');
+    }
+
+    /**
+     * N-1642: the owner lookup of an account deleted after the request signed in reads as no account, so the upload
+     * is refused as for a guest (403), not stored under a key; a guest, and the admin with sign-in off, read nothing.
+     */
+    #[DataProvider('drivers')]
+    public function testAnAccountDeletedMidRequestIsRefusedAsAGuest(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $users = new UserRepository($database->db);
+            $id = $users->create('kim', password_hash('x', PASSWORD_BCRYPT, ['cost' => 4]), 'admin', 'active', '2026-01-01 00:00:00');
+            $user = ['id' => $id, 'anon' => false];
+            $owner = static fn (): ?string => Services::restoreOwner($user, $users->createdAt(...));
+            $this->assertSame('user:' . $id . ':' . hash('sha256', '2026-01-01 00:00:00'), $owner());
+            $unread = static fn (int $id): never => throw new \LogicException('not read');
+            $this->assertNull(Services::restoreOwner(null, $unread), 'a guest');
+            $this->assertNull(Services::restoreOwner(['id' => 1, 'anon' => true], $unread), 'anonymous');
+            $this->assertSame('local', Services::restoreOwner(['id' => null, 'anon' => false], $unread), 'sign-in off');
+            $database->db->query('DELETE FROM users WHERE id = ?', [$id]);
+            $this->assertNull($owner(), 'deleted after sign-in');
+            $u = new RestoreUploads($this->data, 4, 100, $owner);
+            $this->assertRefused(fn () => $u->create(3, null), 403, 'a deleted account', RestoreUploads::GUEST);
+            $this->assertRefused(fn () => $u->get(str_repeat('a', 32)), 403, 'a deleted account, get', RestoreUploads::GUEST);
+            $this->assertSame([], is_dir($this->root()) ? $this->ids() : [], 'nothing stored');
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function drivers(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield $driver => [$driver];
+        }
     }
 
     /** N-1593: the free disk must hold what the other open uploads still expect, besides the new one. */
