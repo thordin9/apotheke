@@ -289,7 +289,7 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    and the `json_each` fixes), the unit of work on a connection (`UnitsOfWork`, the per-request registry), and the
    batch path (`BatchUnitOfWork`, migration 0031 with `uow_guard` and `uow_refs`, and the parity cases).
    `LocalBatchExecutor` runs the batch path on SQLite and PostgreSQL with D1's limits (no transaction statement,
-   pragma or `sqlite_*()` function, 100 parameters), so every unit-of-work test runs in both modes. P4-2b converts
+   undocumented PRAGMA or `sqlite_*()` call, 100 parameters), so every unit-of-work test runs in both modes. P4-2b converts
    the sites; until then no call site uses the executor's batch or a unit of work.
    **PostgreSQL parity gate:** every P4-2 part keeps the full PHPUnit suites (root and module) green on SQLite and
    PostgreSQL 17. A parity test also runs each converted site through the unit of work on PDO and through the batch
