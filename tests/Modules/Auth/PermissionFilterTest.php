@@ -306,6 +306,7 @@ final class PermissionFilterTest extends CIUnitTestCase
         }
         ksort($seen);
         $this->assertSame([
+            'DELETE /api/v1/restores/([^/]+)' => 'backup',
             'DELETE /api/v1/session' => Permissions::PUBLIC,
             'GET /api/v1/branding' => Permissions::PUBLIC,
             'GET /api/v1/imports/([0-9]+)' => 'import',
@@ -313,6 +314,7 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/jobs/([0-9]+)' => 'view',   // and the job type's permission, checked by JobsController
             'GET /api/v1/me' => Permissions::SELF,
             'GET /api/v1/openapi.json' => Permissions::PUBLIC,
+            'GET /api/v1/restores/([^/]+)' => 'backup',
             'GET /api/v1/roles' => 'users',
             'GET /api/v1/security' => 'users',
             'GET /api/v1/session' => Permissions::PUBLIC,
@@ -330,6 +332,10 @@ final class PermissionFilterTest extends CIUnitTestCase
             'GET /api/v1/users' => 'users',
             'POST /api/v1/imports' => 'import',
             'POST /api/v1/imports/([0-9]+)/commit' => 'import',
+            'POST /api/v1/restores' => 'backup',
+            'POST /api/v1/restores/([^/]+)/chunks/([0-9]+)' => 'backup',
+            'POST /api/v1/restores/([^/]+)/confirm' => 'backup',
+            'POST /api/v1/restores/([^/]+)/finish' => 'backup',
             'POST /api/v1/session' => Permissions::PUBLIC,
         ], $seen, 'a new /api route: add it here with the permission of the UI route it replaces');
     }

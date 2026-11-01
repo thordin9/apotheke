@@ -383,7 +383,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the unknown id's 404. One upload per account; the manifest lock refuses a second request at once (409). Finished,
   cancelled and refused uploads are removed; idle for an hour, swept on each request and by
   `spark apotheke:restore-sweep`. Tests: `tests/Modules/Backup/RestoreUploadsTest.php`. Open for QA's full gate.
-- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2, stacked on #205): the `/api/v1/restores` endpoints. Open.
+- [#206](https://github.com/thordin9/apotheke/pull/206) (part 2, stacked on #205): `Backup\Controllers\Api\RestoresController`, the
+  `/api/v1/restores` endpoints (backup permission): create, GET, chunks (multipart `chunk`, so the API CSRF rules
+  are unchanged), finish (the dry run, `Restorer::open()`), confirm (`Restorer::restore()`, the settings only with
+  the settings permission, 409 keeps the upload), DELETE. OpenAPI and docs/api.md. Tests: `Ci4ApiRestoresTest`
+  (a 64 KiB-chunk restore gives the same tables as the one-shot page restore; caps, order, SHA-256, idle sweep,
+  cross-user 404 equal to an unknown id, guest, viewer, signed out, CSRF, the backup's settings only with the
+  settings permission), SQLite and PostgreSQL. Open.
 
 ## Lanes
 

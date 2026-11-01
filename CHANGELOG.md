@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** a backup can now be restored in chunks through the API (`/api/v1/restores`, Backup permission, see docs/api.md), for hosts that cap the size of a request. It is checked and restored exactly as an upload on the restore page.
+
 ## [3.11.0] - 2026-11-01
 
 **Note:** groundwork for restoring a backup in chunks, for hosts that cap the size of a request. Chunked uploads will wait in the new folder `DATA_DIR/uploads/restore` (created on first use; give it as much free disk as your largest backup). Two new settings, `RESTORE_CHUNK_KB` (default 8192) and `RESTORE_MAX_MB` (default 520), set the chunk size and the largest backup. An upload without a request for an hour is removed; `php spark apotheke:restore-sweep` removes them from cron too. Nothing changes for the restore page or `bin/restore.php`.

@@ -3,7 +3,7 @@
   "info": {
     "title": "Apotheke API",
     "version": "1.0.0-p1",
-    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings, users, roles, the sign-in policy and the branding; P3: CSV imports). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`. Cookie consent: the server sets no cookie at all (no session, no CSRF token) until the request carries the cookie apotheke_consent=v1, which the banner script sets when the user clicks Accept (only the name and the exact value count; any other value is no consent). Without it, reads still answer (GET /api/v1/session with an empty csrf_token), and every POST, PUT, PATCH and DELETE is 403 with code consent_required and error consent_required."
+    "description": "Apotheke's JSON API, version 1 (P1: the session, your account and this document; P2: reading the settings, users, roles, the sign-in policy and the branding; P3: CSV imports; chunked restore uploads). Sign-in is a cookie session: the session cookie is __Host-apothekesid on HTTPS and apothekesid on plain HTTP. Every POST, PUT, PATCH and DELETE needs Origin (this server's own origin or one in CORS_ALLOWED_ORIGINS), a JSON or multipart body or none, and the session's CSRF token from GET /api/v1/session in the X-CSRF-Token header. Errors are RFC 9457 application/problem+json with a stable `code`. Cookie consent: the server sets no cookie at all (no session, no CSRF token) until the request carries the cookie apotheke_consent=v1, which the banner script sets when the user clicks Accept (only the name and the exact value count; any other value is no consent). Without it, reads still answer (GET /api/v1/session with an empty csrf_token), and every POST, PUT, PATCH and DELETE is 403 with code consent_required and error consent_required."
   },
   "paths": {
     "/api/v1/session": {
@@ -205,6 +205,106 @@
         }
       }
     },
+    "/api/v1/restores": {
+      "post": {
+        "operationId": "createRestore",
+        "summary": "Start a chunked restore upload (backup permission)",
+        "description": "For a backup too large for one request. Declare its size in bytes (at most RESTORE_MAX_MB) and, optionally, its SHA-256; then send it in chunks of `chunk_size` bytes. Your earlier unfinished upload is removed: one at a time per account. A guest gets 403 permission.denied. An upload idle for `idle_seconds` is removed.",
+        "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["size"], "properties": {"size": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "nullable": true}}}}}},
+        "responses": {
+          "201": {"description": "The upload", "headers": {"Location": {"description": "The upload", "schema": {"type": "string"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RestoreUpload"}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/restores/{id}": {
+      "get": {
+        "operationId": "getRestore",
+        "summary": "How far a restore upload is (backup permission)",
+        "description": "Your own upload only: anyone else gets the same 404 as for an unknown id. Resume by sending `next_chunk`.",
+        "parameters": [{"$ref": "#/components/parameters/RestoreId"}],
+        "responses": {
+          "200": {"description": "The upload", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RestoreUpload"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"}
+        }
+      },
+      "delete": {
+        "operationId": "deleteRestore",
+        "summary": "Cancel a restore upload; its files are removed (backup permission)",
+        "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
+        "responses": {
+          "204": {"description": "Removed"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/restores/{id}/chunks/{n}": {
+      "post": {
+        "operationId": "sendRestoreChunk",
+        "summary": "Send chunk n of a restore upload (backup permission)",
+        "description": "Chunks go in order from 0; every one but the last is exactly `chunk_size` bytes. A chunk out of order (409 restore.conflict), larger than `chunk_size` or past the declared size (413), or short before the end (422) changes nothing.",
+        "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"name": "n", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 0}}, {"$ref": "#/components/parameters/CsrfToken"}],
+        "requestBody": {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["chunk"], "properties": {"chunk": {"type": "string", "format": "binary"}}}}}},
+        "responses": {
+          "200": {"description": "The upload", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RestoreUpload"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "413": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/restores/{id}/finish": {
+      "post": {
+        "operationId": "finishRestore",
+        "summary": "Check a complete upload and the backup in it: a dry run (backup permission)",
+        "description": "The size and the SHA-256 (when given) must match, then the backup is checked as the Backup page checks an upload; nothing is changed. A SHA-256 that does not match, or a file that is not a backup that can be restored, removes the upload (422). Incomplete: 409.",
+        "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
+        "responses": {
+          "200": {"description": "The upload and what the backup holds", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RestoreUpload"}}}},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
+    "/api/v1/restores/{id}/confirm": {
+      "post": {
+        "operationId": "confirmRestore",
+        "summary": "Replace the catalog with the checked backup (backup permission)",
+        "description": "Needs `{\"confirm\": true}` after finish. The backup's settings are restored only for a user who may change settings. While another restore runs the answer is 409 and the upload is kept; any other failure removes it, and so does a restore.",
+        "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["confirm"], "properties": {"confirm": {"type": "boolean"}}}}}},
+        "responses": {
+          "200": {"description": "Restored", "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["restored", "tables", "photos", "warnings", "token_cleared"], "properties": {"restored": {"type": "boolean"}, "tables": {"type": "object", "additionalProperties": {"type": "integer"}}, "photos": {"type": "integer"}, "warnings": {"type": "array", "items": {"type": "string"}}, "token_cleared": {"type": "boolean", "description": "The AI autofill token was cleared because the service address changed"}}}}}},
+          "400": {"$ref": "#/components/responses/Problem"},
+          "401": {"$ref": "#/components/responses/Problem"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/Problem"},
+          "409": {"$ref": "#/components/responses/Problem"},
+          "415": {"$ref": "#/components/responses/Problem"},
+          "422": {"$ref": "#/components/responses/Problem"}
+        }
+      }
+    },
     "/api/v1/jobs/{id}": {
       "get": {
         "operationId": "getJob",
@@ -268,6 +368,7 @@
     "parameters": {
       "CsrfToken": {"name": "X-CSRF-Token", "in": "header", "required": true, "description": "The csrf_token from GET /api/v1/session", "schema": {"type": "string"}},
       "IfNoneMatch": {"name": "If-None-Match", "in": "header", "required": false, "description": "An ETag from an earlier answer: 304 when it is still current", "schema": {"type": "string"}},
+      "RestoreId": {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}, "description": "32 lowercase hex digits, from POST /api/v1/restores"},
       "ImportId": {"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "minimum": 1}},
       "Page": {"name": "page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "default": 1}},
       "PerPage": {"name": "per_page", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50}}
@@ -440,6 +541,22 @@
         "additionalProperties": false,
         "required": ["page", "per_page", "total"],
         "properties": {"page": {"type": "integer"}, "per_page": {"type": "integer"}, "total": {"type": "integer"}}
+      },
+      "RestoreUpload": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "size", "chunk_size", "received", "next_chunk", "idle_seconds"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+          "status": {"type": "string", "enum": ["uploading", "ready"], "description": "ready: finished and checked, waiting for confirm"},
+          "size": {"type": "integer"},
+          "chunk_size": {"type": "integer"},
+          "received": {"type": "integer"},
+          "next_chunk": {"type": "integer", "nullable": true, "description": "The chunk to send next; null once finished"},
+          "idle_seconds": {"type": "integer", "description": "An upload without a request for this long is removed"},
+          "backup": {"type": "object", "additionalProperties": false, "description": "finish only: what the backup holds", "required": ["created_at", "driver", "tables", "photos", "warnings"],
+            "properties": {"created_at": {"type": "string"}, "driver": {"type": "string"}, "tables": {"type": "object", "additionalProperties": {"type": "integer"}}, "photos": {"type": "integer"}, "warnings": {"type": "array", "items": {"type": "string"}}}}
+        }
       },
       "Job": {
         "type": "object",
