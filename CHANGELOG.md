@@ -8,7 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.11.0] - 2026-11-01
+
 **Note:** groundwork for restoring a backup in chunks, for hosts that cap the size of a request. Chunked uploads will wait in the new folder `DATA_DIR/uploads/restore` (created on first use; give it as much free disk as your largest backup). Two new settings, `RESTORE_CHUNK_KB` (default 8192) and `RESTORE_MAX_MB` (default 520), set the chunk size and the largest backup. An upload without a request for an hour is removed; `php spark apotheke:restore-sweep` removes them from cron too. Nothing changes for the restore page or `bin/restore.php`.
+
+### Added
+
+- **backup:** add the chunked restore upload store ([#205](https://github.com/thordin9/apotheke/pull/205))
+
+### Maintenance
+
+- **deploy:** ci: scope the edge deploy token and tighten the storage merge ([#208](https://github.com/thordin9/apotheke/pull/208))
 
 ## [3.10.0] - 2026-11-01
 
@@ -1121,7 +1131,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.10.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.11.0...HEAD
+[3.11.0]: https://github.com/thordin9/apotheke/compare/v3.10.0...v3.11.0
 [3.10.0]: https://github.com/thordin9/apotheke/compare/v3.9.2...v3.10.0
 [3.9.2]: https://github.com/thordin9/apotheke/compare/v3.9.1...v3.9.2
 [3.9.1]: https://github.com/thordin9/apotheke/compare/v3.9.0...v3.9.1
