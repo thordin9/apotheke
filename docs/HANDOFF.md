@@ -386,7 +386,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
   (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
   outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29), released as v3.12.1.
-- fix/restore-owner-errors, follow-up to #213 with QA items N-1634 to N-1636: `UserRepository::createdAt()` throws
+- [#215](https://github.com/thordin9/apotheke/pull/215), follow-up to #213 with QA items N-1634 to N-1636: `UserRepository::createdAt()` throws
   `WriteFailed` on a database error (null only for an account that is not there), and `RestoreUploads` turns that
   into a 500 (`OWNER_UNREADABLE`; the API's fixed `server_error`) instead of the guest 403. The docs state the
   first-come cap trade-off for a fully sent upload and how to raise `RESTORE_MAX_UPLOADS`. Tests: `RestoreUploadsTest`
