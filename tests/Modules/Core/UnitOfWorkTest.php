@@ -407,11 +407,16 @@ final class UnitOfWorkTest extends CIUnitTestCase
         $this->assertSame($out['transaction'], $out['batch']);
     }
 
-    /** D1 has 100 parameters per statement and no last row id to trust: 150 Refs resolve through one list parameter. */
+    /**
+     * D1 has 100 parameters per statement and no last row id to trust: 300
+     * Refs in two tables whose ids differ resolve through one list parameter.
+     */
     #[DataProvider('drivers')]
     public function testABatchResolves150Refs(string $driver): void
     {
         [$db, $units] = $this->wire($driver, true);
+        $db->query("INSERT INTO uw_parent (name) VALUES ('seed')");
+        $db->query("INSERT INTO uw_child (parent_id, name) SELECT id, 'seed' FROM uw_parent CROSS JOIN (SELECT 1 AS n UNION ALL SELECT 2) t");
         $refs = $units->run('uw_parent', static function (UnitOfWork $uow): array {
             $refs = [];
             for ($i = 0; $i < 150; $i++) {
@@ -422,14 +427,14 @@ final class UnitOfWorkTest extends CIUnitTestCase
             return $refs;
         });
         $ids = array_column($this->parents($db), 'id', 'name');
-        foreach ($db->query('SELECT id, name FROM uw_child')->getResultArray() as $row) {
+        foreach ($db->query("SELECT id, name FROM uw_child WHERE name <> 'seed'")->getResultArray() as $row) {
             $ids[(string)$row['name']] = (int)$row['id'];
         }
         $this->assertCount(300, $refs);
         foreach ($refs as $name => $ref) {
             $this->assertSame($ids[$name], $ref->id(), $name);
         }
-        $children = $db->query('SELECT c.name AS c, p.name AS p FROM uw_child c JOIN uw_parent p ON p.id = c.parent_id ORDER BY c.id')->getResultArray();
+        $children = $db->query("SELECT c.name AS c, p.name AS p FROM uw_child c JOIN uw_parent p ON p.id = c.parent_id WHERE c.name <> 'seed' ORDER BY c.id")->getResultArray();
         $this->assertCount(150, $children);
         foreach ($children as $row) {
             $this->assertSame(substr((string)$row['c'], 1), substr((string)$row['p'], 1));
