@@ -440,8 +440,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   SQLite and PostgreSQL. Merged (ed9dd8a), released as v3.15.0.
 - [#216](https://github.com/thordin9/apotheke/pull/216), follow-up to #214 with QA items L-1637, L-1638 and N-1639: `LocalBatchExecutor` matches
   statements without comments or literal text and refuses everything its docblock lists; a hold refuses a `Ref`
-  not written yet, and a statement needs one bind per placeholder, in both modes. Tests: `SqlExecutorTest`,
-  `UnitOfWorkTest`, SQLite and PostgreSQL. No schema change. Open for QA's full gate.
+  not written yet, and a statement needs one bind per placeholder, in both modes. Also #215's N-1641 (the 500 on
+  every restore operation in the OpenAPI document) and N-1642 (`Services::restoreOwner()`). Tests: `SqlExecutorTest`,
+  `UnitOfWorkTest`, `SignInAccountsTest`, `RestoreUploadsTest`, SQLite and PostgreSQL. No schema change. Open for
+  QA's full gate.
 
 ## Lanes
 
