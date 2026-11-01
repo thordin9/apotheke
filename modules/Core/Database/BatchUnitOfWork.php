@@ -41,7 +41,7 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
 
     public function hold(string $sql, array $binds, string $step): void
     {
-        $this->refuseIfClosed();
+        $this->checkHold($sql, $binds);
         $this->queue[] = new Statement(Statement::KIND_HOLD, $step, $sql, $binds);
     }
 
