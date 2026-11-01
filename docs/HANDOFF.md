@@ -386,7 +386,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
   (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
   outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29), released as v3.12.1.
-- fix/restore-followups (restore upload bookkeeping; N-1591 to N-1595, N-1594 first): the owner key is
+- [#213](https://github.com/thordin9/apotheke/pull/213) (restore upload bookkeeping; N-1591 to N-1595, N-1594 first): the owner key is
   `user:<id>:<sha256 of created_at>` (`UserRepository::createdAt()`), so it is the account, not only its id.
   confirm writes status `applying` with the backup's SHA-256 (`fingerprint`, fsynced) before `Restorer::restore()`;
   a request that later finds `applying` holds the lock, so that confirm has stopped: it becomes `interrupted`
@@ -499,7 +499,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
   (#211) is merged (v3.12.1); #209 and #210 are merged (v3.13.0, v3.14.0); #212 (the fix(core) follow-up) is in
-  review, and the restore notes batch N-1591 to N-1595 (fix/restore-followups) is open. P4-1
+  review, and the restore notes batch N-1591 to N-1595 (#213) is open. P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
   (#209), then the unit of work (#210), then part 3/3, the batch path and parity test, after #212. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
