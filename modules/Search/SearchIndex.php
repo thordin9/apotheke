@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Search;
 
+use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Text;
 use Apotheke\Taxonomy\TaxonomyRepository;
@@ -315,7 +316,8 @@ final class SearchIndex
         // rank: field weights in PHP (same on both databases) plus the engine's own score
         $score = array_fill_keys($ids, 0.0);
         foreach (array_chunk($ids, 500) as $chunk) {
-            foreach ($this->rows('SELECT item_id, name_f, tags_f, other_f FROM search_docs WHERE item_id IN (' . implode(',', array_fill(0, count($chunk), '?')) . ')', $chunk) as $r) {
+            // One list parameter (D1 allows 100 bound parameters per statement).
+            foreach ($this->rows('SELECT item_id, name_f, tags_f, other_f FROM search_docs WHERE item_id IN ' . Dialect::of($this->db)->inList(), [Dialect::list($chunk)]) as $r) {
                 [$n, $t, $o] = [(string)$r['name_f'], (string)$r['tags_f'], (string)$r['other_f']];
                 $s = 0.0;
                 foreach ($tokens as $tok) {

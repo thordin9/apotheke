@@ -282,6 +282,21 @@ class Services extends BaseService
         return new \Apotheke\Core\Http\RequestCleanup();
     }
 
+    /**
+     * The SQL executor adapter (ADR-002): this request's connection. Per
+     * request, never persistent in worker mode (WorkerMode::$persistentServices).
+     */
+    public static function sqlExecutor(bool $getShared = true): \Apotheke\Core\Database\SqlExecutor
+    {
+        if ($getShared) {
+            return static::getSharedInstance('sqlExecutor');
+        }
+        /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+        $db = static::apothekeDb();
+
+        return new \Apotheke\Core\Database\ConnectionExecutor($db);
+    }
+
     /** Served photos and thumbnails: DATA_DIR/images and DATA_DIR/thumbs on local disk. */
     public static function servedImages(bool $getShared = true): \Apotheke\Media\Storage\ServedImageWriter
     {

@@ -373,7 +373,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   2026-10-29 and 2026-10-31 decisions; plan B is Postgres through Hyperdrive), M-1541 (`Installation` ids from the EU
   jurisdiction namespace), L-1542 (34 transaction sites; a PostgreSQL parity gate for P4-2), N-1543 (binding names
   as in DevOps's #204: `DB`, `STORAGE`, `INSTALLATION`) and N-1544 (classic FrankenPHP; per-request state) fixed.
-  Docs only. Merged (#203).
+  Docs only. Merged (#203). QA's nits N-1560 to N-1562, and N-1584 (the chunked restore store goes behind `Core\Storage` in P4-4), are in P4-2a part 1, with N-1589 (restore confirm likely becomes a background job on D1 and the DO, P4-4).
+- feat/p4-executor (P4-2a, part 1 of 3): the SQL executor adapter. `Core\Database\SqlExecutor` (`run()` one atomic
+  batch, `query()`, `dialect()`, `connection()`), its default `ConnectionExecutor` (the request's CodeIgniter
+  connection; no behaviour change on SQLite or PostgreSQL), `Dialect`, and `Services::sqlExecutor()` (per request,
+  not persistent). Long id lists are one list parameter (`Dialect::inList()`: `json_each` on SQLite,
+  `json_array_elements_text` on PostgreSQL) in `SearchIndex`, `Stocktakes::start()` and `ItemList`. Tests:
+  `SqlExecutorTest` (batch, failure codes without the database's message, 5,000 ids) and `DatabaseStateTest` (no
+  static state in `Core\Database`), SQLite and PostgreSQL. No schema change. Open for QA's full gate.
 - [#205](https://github.com/thordin9/apotheke/pull/205) (chunked restore, part 1 of 2, the store): `Backup\RestoreUploads` keeps a chunked restore upload in
   `DATA_DIR/uploads/restore/<32 hex>/` (`manifest.json`, `data.part`, then `backup.zip`); no table. Random ids,
   strict id pattern, nothing followed through a link (root, folder, manifest, data), the real path checked. Chunks in
@@ -398,8 +405,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   second confirm, which never restores twice (a background job is ADR P4-4, N-1589). There is no chunked uploader in
   the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
   (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
-  outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Open for QA's full gate.
-- Open PRs: this one, and the P4-2 stack [#209](https://github.com/thordin9/apotheke/pull/209) (SQL executor) with
+  outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29).
+- Open PRs: the P4-2 stack [#209](https://github.com/thordin9/apotheke/pull/209) (SQL executor) with
   [#210](https://github.com/thordin9/apotheke/pull/210) stacked on it (retarget #210 to main before #209 merges).
 
 ## Lanes
@@ -476,12 +483,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 ## Next steps
 
-- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #195 is
-  merged. The chunked restore is merged (#205, v3.11.0; #206, v3.12.0); its upload-limit hardening
-  (#211) is open for QA's full gate, with the P4-2 stack #209 and #210.
-  P4-1, the design ([ADR-002](adr/002-edge-storage.md)), is merged (#203). Next: P4-2 (unit of work and executor adapter,
-  PDO first with no behaviour change, `json_each` in `SearchIndex` and `Stocktakes`), then P4-3 to P4-5 as in the
-  ADR. DevOps prepares the bindings and the flip checklist behind `EDGE_STORAGE_READY`; N-1442 follows with P4.
+- Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
+  chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0), and so is their upload-limit hardening
+  (#211). P4-1 ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
+  (#209), then the unit of work (#210, retargeted to `main` before #209 merges), then the batch path and parity test. Next: P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
+  `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too
    (N-431). #135 is merged into `main` (e8cf10d, v2.6.23). #136 (streaming restore) is merged (0173924). #141 (`main`

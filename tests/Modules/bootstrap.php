@@ -44,3 +44,4 @@ define('CONFIGPATH', $home . 'app' . DIRECTORY_SEPARATOR . 'Config' . DIRECTORY_
 define('PUBLICPATH', $home . 'public' . DIRECTORY_SEPARATOR);
 require $home . 'vendor/codeigniter4/framework/system/Test/bootstrap.php';
 require_once __DIR__ . '/_support/TestDatabase.php';
+require_once __DIR__ . '/_support/UowSchema.php';

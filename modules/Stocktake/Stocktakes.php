@@ -7,6 +7,7 @@ namespace Apotheke\Stocktake;
 use Apotheke\Catalog\Barcode;
 use Apotheke\Catalog\Items\ItemInput;
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -73,7 +74,7 @@ final class Stocktakes
                 [$locationId, (string)($byId[$locationId]['path'] ?? ''), 'open', $this->clock->now(), '{}']), 'start stocktake');
             $id = (int)$this->db->insertID();
             $ids = $this->taxonomy->subtreeIds($locationId);
-            $rows = Writes::rows($this->db, 'SELECT id, name, location_id FROM items WHERE location_id IN (' . implode(',', array_fill(0, count($ids), '?')) . ') ORDER BY sort_key, id', $ids);
+            $rows = Writes::rows($this->db, 'SELECT id, name, location_id FROM items WHERE location_id IN ' . Dialect::of($this->db)->inList() . ' ORDER BY sort_key, id', [Dialect::list($ids)]);
             foreach ($rows as $it) {
                 Writes::check($this->db->query('INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location) VALUES (?,?,?,1,?,?)',
                     [$id, (int)$it['id'], (string)$it['name'], (int)$it['location_id'], (string)($byId[(int)$it['location_id']]['path'] ?? '')]), 'stocktake line');

@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted. This is the design for P4 (storage and database adapters). The PM recorded the acceptance in the decision
-record M-1540:
+Accepted. This is the design for P4 (storage and database adapters). It follows the project owner's own decisions
+(QA's finding M-1540 on #203 asked for them to be cited here):
 
 - **2026-10-29:** the project owner chose edge storage (D1 or Durable Object SQLite, plus R2), with Docker
   self-hosting kept.
@@ -33,12 +33,12 @@ The app talks to its database through CodeIgniter's connection and `Core\Databas
 
 The phase was first planned with Postgres through Hyperdrive (the 2026-10-22 decision). The P4(a) spike
 (2026-10-29) found that Hyperdrive can't be used from inside a Container. This is unsupported, with no date given,
-and is tracked upstream in [cloudflare/containers#97](https://github.com/cloudflare/containers/issues/97) and
-[workers-sdk#10320](https://github.com/cloudflare/workers-sdk/issues/10320). Hyperdrive can still be bound to the
+and is tracked upstream in the open issue [cloudflare/containers#97](https://github.com/cloudflare/containers/issues/97).
+Hyperdrive can still be bound to the
 Worker and relayed to the container through an outbound handler, the same way as `d1.internal`. In that setup each
 statement of an interactive transaction costs one relayed round trip while it holds its locks. The spike also
 showed that 26 of the 29 write sites it counted fit D1's atomic batches with guards. On that basis the owner chose
-the direction recorded in the Status section (decision record M-1540).
+the direction in the Status section (the owner's decisions of 2026-10-29 and 2026-10-31).
 
 The same image has to serve three cases:
 
@@ -127,7 +127,9 @@ use.
 
 Plan B is a Container with PostgreSQL through Hyperdrive, plus R2. Because Hyperdrive can't be reached from inside a
 Container, it is bound to the Worker and relayed to the container through an outbound handler, so the container
-never holds database credentials. The app needs a driver for that relay but no SQL change, because PostgreSQL
+never holds database credentials. The PostgreSQL connection an interactive transaction holds lives in that Worker
+relay (its Hyperdrive client), never in the container, and the relay releases it at the end of each request: a
+request's transaction never outlives the request. The app needs a driver for that relay but no SQL change, because PostgreSQL
 already works on PDO. Plan B applies only if the project owner decides so, for example if:
 
 - the guard cases fail on remote D1 or Durable Object SQLite and can't be fixed in the executor;
@@ -236,8 +238,9 @@ The storage code is written for worker mode now, so that turning it on later cha
 - **Installation context:** PHP holds none (decision 3). The only installation context is in the Worker and the
   Durable Object, which are per installation by construction. Nothing in PHP caches an installation id, a prefix or
   a database handle.
-- **Unit of work:** opened and closed inside one request. The registry of open units is keyed by connection (a
-  `WeakMap`) and must be empty at the end of every request. A unit still open then is an error: it is discarded,
+- **Unit of work:** opened and closed inside one request. The registry of the open unit is `Core\Database\UnitsOfWork`,
+  one per executor and so per connection (`Config\Services::unitsOfWork()`, per request, with no static state), and
+  must be empty at the end of every request. A unit still open then is an error: it is discarded,
   never flushed.
 - **Tests:** a state test in the style of ADR-001's filter rules
   (`FilterStateTest`) checks that `Core\Database` and the storage adapters declare no static mutable state. A worker
@@ -277,6 +280,9 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
 2. **P4-2: unit of work and executor adapter.** `UnitOfWork`, `Ref`, `BatchExecutor`, the PDO executor first with no
    change in behaviour, `uow_guard` and `uow_refs`, and the `json_each` fixes in `SearchIndex` and `Stocktakes`.
    Then the sites are converted in follow-up parts: batch and Ref first, then guards, then the large paths.
+   P4-2a is three stacked parts: the executor adapter (`SqlExecutor`, its default `ConnectionExecutor`, `Dialect`
+   and the `json_each` fixes), the unit of work on a connection (`UnitsOfWork`, the per-request registry), and the
+   batch path (`BatchUnitOfWork`, `uow_guard` and `uow_refs`, the parity test). P4-2b converts the sites.
    **PostgreSQL parity gate:** every P4-2 part keeps the full PHPUnit suites (root and module) green on SQLite and
    PostgreSQL 17. A parity test also runs each converted site through the unit of work on PDO and through the batch
    executor, and checks that both give the same rows and the same ids on SQLite and on PostgreSQL.
@@ -286,6 +292,11 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
 4. **P4-4: storage interface.** `Core\Storage` with a local-disk and an R2 implementation for photos, attachments,
    uploads and backups, moving the remaining direct filesystem users behind it. The Worker-side handler adds the
    installation prefix.
+   This includes the chunked restore upload store (#205 and #206, module Backup, `DATA_DIR/uploads/restore/`;
+   QA's N-1584). It writes its chunks and manifest to the local filesystem directly today. In P4-4 it goes through
+   `Core\Storage`, and its manifest lock moves to the Durable Object (`transactionSync`) or to R2 conditional
+   writes. Restore confirm runs synchronously in the request today. On D1 and the Durable Object it will likely
+   become a background job on the jobs worker, with progress read from `GET /api/v1/jobs/{id}` (QA's N-1589).
 5. **P4-5: hosted wiring.** Durable Object SQLite per installation, host-only cookies in hosted mode, the
    `edge-local` run green with storage, the P4(b) guard cases run again on a preview D1, and the runbook.
 
