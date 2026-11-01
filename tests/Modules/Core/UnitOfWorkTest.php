@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core;
 
 use Apotheke\Core\Database\ConnectionExecutor;
+use Apotheke\Core\Database\ConnectionUnitOfWork;
 use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
@@ -13,6 +14,7 @@ use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Test\CIUnitTestCase;
+use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Tests\Support\TestDatabase;
@@ -158,6 +160,123 @@ final class UnitOfWorkTest extends CIUnitTestCase
         } catch (RuntimeException) {
         }
         $this->assertSame([], $this->parents($db));
+    }
+
+    /**
+     * L-1625: a unit inside a plain transaction is all or nothing, as a D1
+     * batch: when its guard fails and the outer caller catches the error and
+     * commits, nothing of the unit is kept, its hold included.
+     */
+    #[DataProvider('modes')]
+    public function testAUnitInsideAPlainTransactionKeepsNothingWhenTheCallerCatches(string $driver, bool $batch): void
+    {
+        [$db, $units] = $this->wire($driver, $batch);
+        Writes::transaction($db, function () use ($db, $units): void {
+            $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['outer']);
+            try {
+                $units->run('uw_parent', static function (UnitOfWork $uow): void {
+                    $uow->hold('INSERT INTO uw_parent (name) VALUES (?)', ['held'], 'hold');
+                    $uow->insert('uw_parent', ['name' => 'inner'], 'parent');
+                    $uow->write('UPDATE uw_parent SET name = ? WHERE name = ?', ['x', 'nobody'], 'stale write', 1, static fn (): UserError => new UserError('Changed meanwhile.', 409));
+                });
+                $this->fail('the guard must fail the unit');
+            } catch (UserError $e) {
+                $this->assertSame(409, $e->getCode());
+            }
+            $this->assertSame(1, (int)$db->transDepth, 'the outer transaction carries on');
+            $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['after']);
+        });
+        $this->assertSame(['outer', 'after'], array_column($this->parents($db), 'name'));
+        $this->assertSame(0, (int)$db->transDepth);
+    }
+
+    /** L-1625: a failed statement inside a joined unit is rolled back with the unit; the outer transaction still commits. */
+    #[DataProvider('modes')]
+    public function testAFailedStatementInAJoinedUnitLeavesTheOuterTransactionUsable(string $driver, bool $batch): void
+    {
+        [$db, $units] = $this->wire($driver, $batch);
+        Writes::transaction($db, function () use ($db, $units): void {
+            $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['outer']);
+            try {
+                $units->run('uw_parent', static function (UnitOfWork $uow): void {
+                    $uow->insert('uw_parent', ['name' => 'inner'], 'parent');
+                    $uow->write('INSERT INTO uw_parent (name) VALUES (?)', [null], 'no name');
+                });
+                $this->fail('the statement must fail the unit');
+            } catch (WriteFailed $e) {
+                $this->assertSame('Database write failed: no name', $e->getMessage());
+            }
+            $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['after']);
+        });
+        $this->assertSame(['outer', 'after'], array_column($this->parents($db), 'name'));
+    }
+
+    /** L-1626: a unit kept past its run() refuses every further call instead of dropping the write. */
+    #[DataProvider('modes')]
+    public function testAUnitRefusesWritesAfterItsRunEnded(string $driver, bool $batch): void
+    {
+        [$db, $units] = $this->wire($driver, $batch);
+        $ran = $units->run('uw_parent', static function (UnitOfWork $uow): UnitOfWork {
+            $uow->insert('uw_parent', ['name' => 'one'], 'parent');
+
+            return $uow;
+        });
+        $threw = null;
+        try {
+            $units->run('uw_parent', static function (UnitOfWork $uow) use (&$threw): void {
+                $threw = $uow;
+                throw new RuntimeException('refused');
+            });
+        } catch (RuntimeException) {
+        }
+        $this->assertInstanceOf(UnitOfWork::class, $threw);
+        $late = [
+            'hold' => static fn (UnitOfWork $u) => $u->hold('INSERT INTO uw_parent (name) VALUES (?)', ['late'], 'late'),
+            'insert' => static fn (UnitOfWork $u) => $u->insert('uw_parent', ['name' => 'late'], 'late'),
+            'update' => static fn (UnitOfWork $u) => $u->update('uw_parent', ['name' => 'late'], ['name' => 'one'], 'late'),
+            'write' => static fn (UnitOfWork $u) => $u->write('INSERT INTO uw_parent (name) VALUES (?)', ['late'], 'late'),
+            'assert' => static fn (UnitOfWork $u) => $u->assert('1 = 1', [], 'late'),
+            'flush' => static fn (ConnectionUnitOfWork $u) => $u->flush(),
+        ];
+        foreach (['after run' => $ran, 'after a throw' => $threw] as $when => $uow) {
+            foreach ($late as $call => $f) {
+                try {
+                    $f($uow);
+                    $this->fail($call . ' ' . $when . ' must throw');
+                } catch (LogicException $e) {
+                    $this->assertSame('The unit of work has already run: queue its writes inside its run() callback.', $e->getMessage());
+                }
+            }
+        }
+        $this->assertSame(['one'], array_column($this->parents($db), 'name'));
+    }
+
+    /** L-1626: a flushed unit runs once, and a discarded one refuses further writes too. */
+    public function testAFlushedUnitRunsOnceAndADiscardedOneRefuses(): void
+    {
+        [$db] = $this->wire('sqlite', false);
+        $ran = new ConnectionUnitOfWork($db);
+        $ran->insert('uw_parent', ['name' => 'once'], 'once');
+        $ran->flush();
+        $discarded = new ConnectionUnitOfWork($db);
+        $discarded->insert('uw_parent', ['name' => 'x'], 'x');
+        $discarded->discard();
+        $refusals = [
+            [$ran, LogicException::class, 'The unit of work has already run: queue its writes inside its run() callback.'],
+            [$discarded, WriteFailed::class, 'Database write failed: the unit of work was discarded'],
+        ];
+        foreach ($refusals as [$uow, $class, $message]) {
+            foreach ([static fn () => $uow->insert('uw_parent', ['name' => 'late'], 'late'), static fn () => $uow->flush()] as $f) {
+                try {
+                    $f();
+                    $this->fail('a closed unit must refuse');
+                } catch (LogicException|WriteFailed $e) {
+                    $this->assertInstanceOf($class, $e);
+                    $this->assertSame($message, $e->getMessage());
+                }
+            }
+        }
+        $this->assertSame(['once'], array_column($this->parents($db), 'name'));
     }
 
     /** A unit started inside an open one joins it: one commit, Refs resolve with the outer unit. */

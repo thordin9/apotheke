@@ -779,6 +779,12 @@ Then set `DB_USER=apotheke_app` and `DB_SCHEMA=apotheke`. If the schema is missi
 it, startup fails. The message is in the PHP log (`[apotheke] …`) and on the CLI. It names the schema and does
 not include the password or the DSN. The browser shows the generic error page.
 
+Run the server with English error messages: `lc_messages` set to `C` or an English locale, the default of the
+official `postgres` image. Apotheke recognises a failed write guard by the server's message. With translated
+messages a guard failure is reported as an ordinary failure (an error instead of a conflict answer); the write is
+still rolled back. `lc_messages` can only be set by a superuser, for example
+`ALTER DATABASE apotheke SET lc_messages = 'C';` or in `postgresql.conf`.
+
 When the database refuses the connection, `bin/migrate.php`, `bin/seed.php`, `bin/backup.php`, `bin/restore.php`
 and `bin/settings.php` exit 1 with `Could not connect to the database` and only the driver, host, port, dbname and
 `DB_SCHEMA` (SQLite: the file path); `/healthz` logs the same line. While the database is down every route returns

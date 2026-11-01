@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core;
 
+use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use Apotheke\Migrations\BootMigration;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
@@ -65,6 +66,22 @@ final class ApothekeDbServiceTest extends CIUnitTestCase
         $this->newRequest();
         $db = Services::apothekeDb(false);
         $this->assertFalse(BootMigration::ensure(Services::apothekeConfig(), $db));
+    }
+
+    /** N-1623, N-1629: the app checks SQLite before it connects, so an old one opens no database file. */
+    public function testAnOldSqliteIsRefusedBeforeConnecting(): void
+    {
+        mkdir($this->dir);
+        $this->useDataDir($this->dir);
+        $this->newRequest();
+        try {
+            Services::apothekeDb(false, '3.37.2');
+            $this->fail('an old SQLite must be refused');
+        } catch (DatabaseUnavailable $e) {
+            $this->assertSame('SQLite 3.38.0 or newer is required (JSON functions); this PHP has SQLite 3.37.2.', $e->getMessage());
+        }
+        $this->assertFileDoesNotExist($this->dir . '/catalog.sqlite');
+        $this->assertFalse(BootMigration::done(Services::apothekeConfig()));
     }
 
     private function newRequest(): void

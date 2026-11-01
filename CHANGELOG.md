@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** on PostgreSQL, run the server with English messages (`lc_messages` set to `C` or an English locale, the default of the official `postgres` image); see the PostgreSQL role section of docs/deployment-and-operations.md. A migrate refused for an old SQLite no longer leaves an empty database file behind.
+
 ## [3.14.0] - 2026-11-01
 
 **Upgrade note:** installs without Docker need SQLite 3.38 or newer (the JSON functions the app now uses for long id lists); the app and `php spark apotheke:migrate` stop with a clear message on an older one. The Docker images already ship a newer SQLite.
