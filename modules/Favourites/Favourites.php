@@ -102,6 +102,7 @@ final class Favourites implements RecentItems
         $clock = new Clock();
         // One unit of work (ADR-002, batch): the sequence and the prune are subqueries, so no write needs a read.
         // The row ends as before: seq is the scope's highest before this view, plus one.
+        // Locked per scope (N-1663): views of one list run one after the other, other devices do not wait.
         $this->units->run('recent_views', function (UnitOfWork $uow) use ($id, $scope, $clock): void {
             $now = $clock->now();
             $max = '(SELECT COALESCE(MAX(seq), 0) FROM recent_views WHERE scope = ?)';
@@ -115,7 +116,7 @@ final class Favourites implements RecentItems
                 $cut = (int)strtotime($now . ' UTC') - self::MAX_AGE_DAYS * 86400;
                 $uow->write('DELETE FROM recent_views WHERE viewed_at < ?', [gmdate('Y-m-d H:i:s', $cut)], 'recent');
             }
-        });
+        }, $scope);
 
         return $cookie;
     }
