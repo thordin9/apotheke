@@ -386,6 +386,17 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   the frontend yet (the Backup page uploads in one request), so no fallback there. Tests: `RestoreUploadsTest`
   (links, anchors, 8 parallel creates, cap, disk, locked sweep, ini sizes), `Ci4ApiRestoresTest` (strict confirm,
   outcome after confirm, 2M/8M server), `ApothekeConfigTest`. Merged (35c3e29), released as v3.12.1.
+- [#213](https://github.com/thordin9/apotheke/pull/213) (restore upload bookkeeping; N-1591 to N-1595, N-1594 first): the owner key is
+  `user:<id>:<sha256 of created_at>` (`UserRepository::createdAt()`), so it is the account, not only its id.
+  confirm writes status `applying` with the backup's SHA-256 (`fingerprint`, fsynced) before `Restorer::restore()`;
+  a request that later finds `applying` holds the lock, so that confirm has stopped: it becomes `interrupted`
+  (`result.error`, `result.sha256`), the zip goes, and confirm answers 409 without restoring. A Restorer 409 makes it
+  `ready` again. A linked `create.lock` is 500 with `RestoreUploads::LOCK_UNUSABLE` (no path). With the cap reached,
+  other accounts' `uploading`/`ready` uploads idle for `IDLE_FULL` (600 s) are removed first; the free-disk check
+  subtracts what open uploads still expect. A constructor seam (`$afterLock`) tests the re-checks under the lock.
+  Tests: `RestoreUploadsTest` (a killed confirm, owner key, linked lock, cap expiry, disk reservation, outcome
+  records and the cap, in-use 409, swapped manifest, `.removing-*`), `Ci4ApiRestoresTest` (503 with Retry-After,
+  507, linked lock 500, owner key, interrupted). Merged (b11bdd5), released as v3.14.2.
 - docs/p4-edge-storage-adr (P4-1): [ADR-002](adr/002-edge-storage.md), the P4 edge storage design: EU jurisdiction
   for D1 and R2 from the start; all SQL behind a unit of work and batch executor (D1 or a Durable Object's SQLite;
   PDO unchanged on Docker); installation identity and the R2 key prefix on the Worker side only; host-only cookies
@@ -498,10 +509,11 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
-  (#211) is merged (v3.12.1); #209, #210 and #212 are merged (v3.13.0, v3.14.0, v3.14.1). P4-1
+  (#211) is merged (v3.12.1); #209, #210 and #212 are merged (v3.13.0, v3.14.0, v3.14.1), and the restore notes
+  batch N-1591 to N-1595 (#213) is merged (v3.14.2). P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
   (#209), then the unit of work (#210), then part 3/3, the batch path and parity cases (feat/p4-batch-path, with
-  QA). The restore notes batch N-1591 to N-1595 (N-1594 first) is #213, with QA. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  QA). Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.

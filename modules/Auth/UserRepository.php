@@ -46,6 +46,19 @@ final class UserRepository
         return is_array($row) ? self::row($row) : null;
     }
 
+    /** When account $id was made, or null: with the id, an identity no later account shares (N-1594). */
+    public function createdAt(int $id): ?string
+    {
+        try {
+            $result = $this->db->table('users')->select('created_at')->where('id', $id)->get();
+        } catch (DatabaseException|PDOException) {
+            return null;
+        }
+        $row = $result instanceof BaseResult ? $result->getRowArray() : null;
+
+        return is_array($row) && is_scalar($row['created_at'] ?? null) ? (string)$row['created_at'] : null;
+    }
+
     /**
      * The account with this name (legacy user_by_name(): the trimmed,
      * lower-cased key), or null. A failed read throws (WriteFailed): sign-in

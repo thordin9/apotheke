@@ -41,7 +41,9 @@ confirmation and press *Restore* is **all data replaced**, in one transaction. U
 **In chunks:** where a request body is capped (an edge host), a backup can be sent in pieces instead (see
 [API](api.md#chunked-restore)). Each upload is a folder `DATA_DIR/uploads/restore/<32 hex>/` (0770, never followed
 through a link) holding `manifest.json` and the data, at most `RESTORE_MAX_MB` in chunks of `RESTORE_CHUNK_KB`
-([Configuration](configuration.md)), at most `RESTORE_MAX_UPLOADS` open at once. The chunk size follows PHP's own
+([Configuration](configuration.md)), at most `RESTORE_MAX_UPLOADS` open at once (when that is reached, another
+account's unconfirmed upload idle for 10 minutes makes room; free disk is checked against what the open uploads still
+expect). The chunk size follows PHP's own
 limits: never more than `upload_max_filesize`, or `post_max_size` less 64 KiB, so a cPanel or plain PHP install with
 the default 2M works without changes (2 MiB chunks); the Docker images allow 20M (8 MiB chunks). `finish` and
 `confirm` run to the end even when a proxy times out first (the image's nginx gives the API 75 seconds, the restore
