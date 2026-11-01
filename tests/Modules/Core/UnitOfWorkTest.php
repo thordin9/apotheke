@@ -557,6 +557,67 @@ final class UnitOfWorkTest extends CIUnitTestCase
         }
     }
 
+    /** L-1638: a hold runs before the unit's inserts, so binding a Ref of the unit is refused in both modes; a known id binds. */
+    #[DataProvider('modes')]
+    public function testAHoldRefusesARefOfARowNotWrittenYet(string $driver, bool $batch): void
+    {
+        [$db, $units] = $this->wire($driver, $batch);
+        $known = $units->run('uw_parent', static fn (UnitOfWork $uow): Ref => $uow->insert('uw_parent', ['name' => 'known'], 'parent'));
+        try {
+            $units->run('uw_parent', static function (UnitOfWork $uow): void {
+                $ref = $uow->insert('uw_parent', ['name' => 'new'], 'parent');
+                $uow->hold('UPDATE uw_parent SET note = ? WHERE id = ?', ['held', $ref], 'hold');
+            });
+            $this->fail('the hold must be refused');
+        } catch (LogicException $e) {
+            $this->assertSame('A hold runs before the inserts of its unit: it cannot bind the id of a uw_parent row the unit has not written yet.', $e->getMessage());
+        }
+        $this->assertSame([['id' => $known->id(), 'name' => 'known']], $this->parents($db), 'nothing of the refused unit is kept');
+        $units->run('uw_parent', static function (UnitOfWork $uow) use ($known): void {
+            $uow->hold('UPDATE uw_parent SET name = ? WHERE id = ?', ['held', $known], 'hold');
+        });
+        $this->assertSame([['id' => $known->id(), 'name' => 'held']], $this->parents($db));
+    }
+
+    /** @return iterable<string,array{0:string,1:bool,2:string,3:string}> */
+    public static function bindMismatches(): iterable
+    {
+        foreach (self::modes() as $mode => [$driver, $batch]) {
+            foreach (['hold', 'write', 'assert'] as $call) {
+                yield $mode . ' ' . $call . ', more binds' => [$driver, $batch, $call, 'A statement has more binds than placeholders.'];
+                yield $mode . ' ' . $call . ', fewer binds' => [$driver, $batch, $call, 'A statement has more placeholders than binds.'];
+            }
+        }
+    }
+
+    /** N-1639: a statement whose binds do not match its placeholders (outside quotes) is refused before anything runs, in both modes. */
+    #[DataProvider('bindMismatches')]
+    public function testAStatementNeedsOneBindPerPlaceholder(string $driver, bool $batch, string $call, string $message): void
+    {
+        [$db, $units] = $this->wire($driver, $batch);
+        $binds = str_contains($message, 'more binds') ? ['a', 'b'] : [];
+        $sql = [
+            'hold' => "INSERT INTO uw_parent (name) VALUES (?) -- '?'",
+            'write' => "INSERT INTO uw_parent (name, note) VALUES (?, 'why?')",
+            'assert' => "(SELECT COUNT(*) FROM uw_parent WHERE name = ? OR name = '?') = 0",
+        ][$call];
+        try {
+            $units->run('uw_parent', static function (UnitOfWork $uow) use ($call, $sql, $binds): void {
+                $uow->insert('uw_parent', ['name' => 'queued'], 'parent');
+                match ($call) {
+                    'hold' => $uow->hold($sql, $binds, 'hold'),
+                    'write' => $uow->write($sql, $binds, 'write'),
+                    'assert' => $uow->assert($sql, $binds, 'assert'),
+                };
+            });
+            $this->fail($call . ' must be refused');
+        } catch (LogicException $e) {
+            $this->assertSame($message, $e->getMessage());
+        }
+        $this->assertSame([], $this->parents($db));
+        $this->assertSame(0, (int)$db->transDepth);
+    }
+
     public function testARefIsResolvedOnce(): void
     {
         $ref = new Ref('items');

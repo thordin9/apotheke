@@ -96,13 +96,51 @@ abstract class QueuedUnitOfWork implements UnitOfWork
     public function write(string $sql, array $binds, string $step, ?int $expect = null, ?Closure $fail = null): void
     {
         $this->refuseIfClosed();
+        self::checkBinds($sql, $binds);
         $this->queue[] = new Statement(Statement::KIND_WRITE, $step, $sql, $binds, expect: $expect, fail: $fail);
     }
 
     public function assert(string $condition, array $binds, string $step, ?Closure $fail = null): void
     {
         $this->refuseIfClosed();
+        self::checkBinds($condition, $binds);
         $this->queue[] = new Statement(Statement::KIND_ASSERT, $step, $condition, $binds, fail: $fail);
+    }
+
+    /**
+     * The checks every hold makes before it is run or queued: the unit is
+     * open, there is one bind per placeholder, and no bind is the Ref of a
+     * row not written yet (L-1638): a hold runs before the unit's inserts in
+     * both modes, so that id cannot exist yet.
+     *
+     * @param list<scalar|Ref|null> $binds
+     */
+    protected function checkHold(string $sql, array $binds): void
+    {
+        $this->refuseIfClosed();
+        self::checkBinds($sql, $binds);
+        foreach ($binds as $bind) {
+            if ($bind instanceof Ref && !$bind->resolved()) {
+                throw new LogicException('A hold runs before the inserts of its unit: it cannot bind the id of a ' . $bind->table . ' row the unit has not written yet.');
+            }
+        }
+    }
+
+    /**
+     * N-1639: one bind per `?` placeholder (outside quotes), refused the same
+     * way in both modes before anything runs.
+     *
+     * @param list<scalar|Ref|null> $binds
+     */
+    protected static function checkBinds(string $sql, array $binds): void
+    {
+        $placeholders = substr_count(preg_replace('/\'(?:[^\']++|\'\')*+\'|"(?:[^"]++|"")*+"/', '', $sql) ?? $sql, '?');
+        if ($placeholders < count($binds)) {
+            throw new LogicException('A statement has more binds than placeholders.');
+        }
+        if ($placeholders > count($binds)) {
+            throw new LogicException('A statement has more placeholders than binds.');
+        }
     }
 
     public function statements(): array

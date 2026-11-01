@@ -317,8 +317,12 @@ atomic unit; they are not visible to `$fn`'s own reads.
   unit is a `BatchUnitOfWork`: nothing runs while `$fn` reads, and at the end every step goes out as one batch,
   holds first, with no `BEGIN` or `SAVEPOINT`. Guards are batch statements on `uow_guard`, `Ref`s go through
   `uow_refs` (migration 0031), and a failed batch is replayed in prefixes to throw the failed step's own error.
-  `LocalBatchExecutor` refuses what D1 refuses (transaction statements, pragmas, `sqlite_*()` functions, more than
-  100 parameters), so the unit-of-work tests run every case in both modes on SQLite and PostgreSQL.
+  `LocalBatchExecutor` refuses what D1 refuses (more than one statement, transaction statements, pragmas, `ATTACH`,
+  `DETACH`, `VACUUM`, `ANALYZE`, `REINDEX`, `sqlite_*()` functions, more than 100 parameters), matched with comments
+  taken out and string literals emptied, so the unit-of-work tests run every case in both modes on SQLite and
+  PostgreSQL.
+- A hold, write or assert needs one bind per `?` placeholder (outside quotes), and a hold cannot bind the `Ref` of a
+  row its unit has not inserted yet (holds run first). Both are refused with a `LogicException` in both modes.
 - A unit takes writes only inside its `run()` callback. Once it ran or threw, any further call throws a
   `LogicException` (a discarded unit: `WriteFailed`) instead of queueing a write that would never run.
 

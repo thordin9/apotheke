@@ -1220,20 +1220,33 @@ class Services extends BaseService
         $chunk = \Apotheke\Backup\RestoreUploads::effectiveChunk((int)$uploads['restore_chunk_kb'] * 1024, ini_get('upload_max_filesize'), ini_get('post_max_size'));
 
         return new \Apotheke\Backup\RestoreUploads($config->dataDir(), $chunk, (int)$uploads['restore_max_mb'] * 1048576, static function (): ?string {
-            $user = PHP_SAPI === 'cli' ? null : static::currentUser()->resolve();
-            if ($user === null || $user['anon']) {
-                return null;
-            }
+            return static::restoreOwner(PHP_SAPI === 'cli' ? null : static::currentUser()->resolve(), static function (int $id): ?string {
+                /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+                $db = static::apothekeDb();
 
-            if ($user['id'] === null) {
-                return 'local';
-            }
-            /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
-            $db = static::apothekeDb();
-            $made = (new \Apotheke\Auth\UserRepository($db))->createdAt((int)$user['id']);
-
-            return $made === null ? null : 'user:' . $user['id'] . ':' . hash('sha256', $made);
+                return (new \Apotheke\Auth\UserRepository($db))->createdAt($id);
+            });
         }, (int)$uploads['restore_max_uploads']);
+    }
+
+    /**
+     * The restore owner key of a resolved user (restoreUploads()): null for a guest, or for an account no longer
+     * there, even when it was deleted after this request signed in (N-1642), so the upload is refused as for a guest.
+     *
+     * @param array{id:?int,anon:bool}|null $user
+     * @param \Closure(int): ?string $createdAt the account's created_at (UserRepository::createdAt()), read only for an account
+     */
+    public static function restoreOwner(?array $user, \Closure $createdAt): ?string
+    {
+        if ($user === null || $user['anon']) {
+            return null;
+        }
+        if ($user['id'] === null) {
+            return 'local';
+        }
+        $made = $createdAt($user['id']);
+
+        return $made === null ? null : 'user:' . $user['id'] . ':' . hash('sha256', $made);
     }
 
     /** The Backup & restore page (Backup). */

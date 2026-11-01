@@ -221,6 +221,7 @@
           "413": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
           "422": {"$ref": "#/components/responses/Problem"},
+          "500": {"$ref": "#/components/responses/ServerError"},
           "503": {"$ref": "#/components/responses/Problem"},
           "507": {"$ref": "#/components/responses/Problem"}
         }
@@ -237,7 +238,8 @@
           "401": {"$ref": "#/components/responses/Problem"},
           "403": {"$ref": "#/components/responses/Forbidden"},
           "404": {"$ref": "#/components/responses/Problem"},
-          "409": {"$ref": "#/components/responses/Problem"}
+          "409": {"$ref": "#/components/responses/Problem"},
+          "500": {"$ref": "#/components/responses/ServerError"}
         }
       },
       "delete": {
@@ -249,7 +251,8 @@
           "401": {"$ref": "#/components/responses/Problem"},
           "403": {"$ref": "#/components/responses/Forbidden"},
           "404": {"$ref": "#/components/responses/Problem"},
-          "409": {"$ref": "#/components/responses/Problem"}
+          "409": {"$ref": "#/components/responses/Problem"},
+          "500": {"$ref": "#/components/responses/ServerError"}
         }
       }
     },
@@ -268,7 +271,8 @@
           "409": {"$ref": "#/components/responses/Problem"},
           "413": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
-          "422": {"$ref": "#/components/responses/Problem"}
+          "422": {"$ref": "#/components/responses/Problem"},
+          "500": {"$ref": "#/components/responses/ServerError"}
         }
       }
     },
@@ -285,7 +289,8 @@
           "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
-          "422": {"$ref": "#/components/responses/Problem"}
+          "422": {"$ref": "#/components/responses/Problem"},
+          "500": {"$ref": "#/components/responses/ServerError"}
         }
       }
     },
@@ -304,7 +309,8 @@
           "404": {"$ref": "#/components/responses/Problem"},
           "409": {"$ref": "#/components/responses/Problem"},
           "415": {"$ref": "#/components/responses/Problem"},
-          "422": {"$ref": "#/components/responses/Problem"}
+          "422": {"$ref": "#/components/responses/Problem"},
+          "500": {"$ref": "#/components/responses/ServerError"}
         }
       }
     },
@@ -378,6 +384,7 @@
     },
     "responses": {
       "Problem": {"description": "An error", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
+      "ServerError": {"description": "server_error with the fixed detail: a server fault, such as a signed-in account that cannot be read (a database error)", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
       "Forbidden": {"description": "Refused: csrf.invalid (Origin, body type or token), permission.denied, or consent_required when the request carries no apotheke_consent=v1 cookie (then the body also has error: consent_required and no cookie is set)", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}},
       "RateLimited": {
         "description": "Too many attempts",
