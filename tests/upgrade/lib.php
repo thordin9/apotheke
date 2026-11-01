@@ -49,7 +49,7 @@ function upg_carried_tables(): array
  */
 function upg_ci4_only(): array
 {
-    $map = ['0029' => ['jobs'], '0030' => ['import_rows']];
+    $map = ['0029' => ['jobs'], '0030' => ['import_rows'], '0031' => ['uow_guard', 'uow_refs']];
     return ['map' => $map, 'versions' => array_map('strval', array_keys($map)), 'tables' => array_merge(...array_values($map))];
 }
 

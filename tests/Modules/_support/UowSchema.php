@@ -7,8 +7,8 @@ namespace Tests\Support;
 use CodeIgniter\Database\BaseConnection;
 
 /**
- * A bare test database with the unit-of-work tables (`uow_guard`, `uow_refs`; their migration is planned for the
- * batch path, P4-2a part 3) and two test tables.
+ * A bare test database with the unit-of-work tables (`uow_guard`, `uow_refs`, from migration 0031) and two test
+ * tables.
  */
 final class UowSchema
 {
@@ -18,8 +18,8 @@ final class UowSchema
         $database = TestDatabase::create($driver, false);
         $db = $database->db;
         $pk = $driver === 'pgsql' ? 'SERIAL PRIMARY KEY' : 'INTEGER PRIMARY KEY';
-        foreach (['CREATE TABLE uow_guard (ok INTEGER NOT NULL)', 'CREATE TABLE uow_refs (ulid TEXT PRIMARY KEY, id BIGINT NOT NULL)',
-            "CREATE TABLE uw_parent (id $pk, name TEXT NOT NULL)",
+        $uow = require dirname(__DIR__, 3) . '/migrations/0031_unit_of_work.php';
+        foreach ([...explode(";\n", $uow[$driver]), "CREATE TABLE uw_parent (id $pk, name TEXT NOT NULL, note TEXT)",
             "CREATE TABLE uw_child (id $pk, parent_id INTEGER NOT NULL REFERENCES uw_parent (id), name TEXT NOT NULL)"] as $sql) {
             $db->query($sql);
         }
