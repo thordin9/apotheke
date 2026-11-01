@@ -72,17 +72,33 @@ final class CatalogTest extends CIUnitTestCase
     }
 
     /**
-     * L-1620: the ranking query binds every id of each 500-id chunk as one
-     * list. An exact name "Bolt" sits inside each chunk, never at a chunk's
-     * first id, and "Hex bolt" repeats the word in its notes, so the
-     * engine's own score (FTS5 or ts_rank) alone would not put both "Bolt"s
-     * first: only the field weights, applied to every id of every chunk, do.
+     * The ranking layouts: where the two exact "Bolt"s and the two "Hex
+     * bolt"s sit among 600 hits (500-id chunks start at hits 1 and 501).
+     *
+     * @return iterable<string,array{0:string,1:array<int,string>}>
      */
-    #[DataProvider('drivers')]
-    public function testRankingScoresEveryIdOfEachChunk(string $driver): void
+    public static function rankingLayouts(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield $driver . ' inside chunks' => [$driver, [250 => 'Bolt', 300 => 'Hex bolt', 550 => 'Bolt', 580 => 'Hex bolt']];
+            yield $driver . ' at chunk starts' => [$driver, [1 => 'Bolt', 300 => 'Hex bolt', 501 => 'Bolt', 580 => 'Hex bolt']];
+        }
+    }
+
+    /**
+     * L-1620, N-1627: the ranking query binds every id of each 500-id chunk
+     * as one list. In the first layout an exact name "Bolt" sits inside each
+     * chunk, in the second at each chunk's first id, and "Hex bolt" repeats
+     * the word in its notes, so the engine's own score (FTS5 or ts_rank)
+     * alone would not put both "Bolt"s first: only the field weights,
+     * applied to every id of every chunk, do.
+     *
+     * @param array<int,string> $special
+     */
+    #[DataProvider('rankingLayouts')]
+    public function testRankingScoresEveryIdOfEachChunk(string $driver, array $special): void
     {
         $this->seed($driver);
-        $special = [250 => 'Bolt', 300 => 'Hex bolt', 550 => 'Bolt', 580 => 'Hex bolt'];
         $rows = [];
         for ($i = 1; $i <= 600; $i++) {
             $name = $special[$i] ?? sprintf('Part %03d', $i);

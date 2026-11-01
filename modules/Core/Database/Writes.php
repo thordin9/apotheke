@@ -100,7 +100,9 @@ final class Writes
      * nothing by itself. A caller that catches an inner UserError (or any
      * exception that is not a failed statement) and carries on commits the
      * inner statements with its own. A failed statement inside still fails
-     * the whole outer transaction through transStatus().
+     * the whole outer transaction through transStatus(). A unit of work is
+     * the exception: UnitsOfWork::run() inside an open transaction runs the
+     * unit under a SAVEPOINT, so it is kept whole or not at all.
      *
      * A commit the database refuses (a deferred constraint) throws
      * WriteFailed whether the driver returns false or raises its own error.

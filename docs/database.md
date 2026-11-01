@@ -287,7 +287,10 @@ parts (P4-2b); until then only the list binding below (`SearchIndex`, `Stocktake
 - `Config\Services::sqlExecutor()` builds it per request. It is never a persistent service in worker mode, and no
   class in `Core\Database` has static state (`DatabaseStateTest`).
 - A failed statement throws `WriteFailed` without the database's message (it can hold a value): code 0 for a plain
-  failure, `BatchExecutor::GUARD_FAILED` when a unit-of-work guard aborted the batch.
+  failure, `BatchExecutor::GUARD_FAILED` when a unit-of-work guard aborted the batch. The guard is recognised by
+  the server's English error message, so run PostgreSQL with `lc_messages` set to `C` or an English locale (see
+  [PostgreSQL role](deployment-and-operations.md#postgresql-role)). On a server with translated messages a guard
+  failure is an ordinary failure (code 0); it still rolls back the whole unit.
 
 Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn)`; no call
 site uses it yet, P4-2b converts them): `$fn` reads
@@ -295,9 +298,11 @@ as usual and queues its writes on the `UnitOfWork` it is given (`hold()`, `inser
 `write(…, $expect, $fail)` and `assert($condition, …, $fail)`). The writes run in order when `$fn` returns, as one
 atomic unit; they are not visible to `$fn`'s own reads.
 
-- On SQLite and PostgreSQL the unit is a real transaction (`Writes::transaction()`, so it joins one already open). A
-  hold runs at once, so reads after it happen under its lock; on SQLite a no-op write on `$table` takes the write
-  lock first.
+- On SQLite and PostgreSQL the unit is a real transaction (`Writes::transaction()`). A hold runs at once, so reads
+  after it happen under its lock; on SQLite a no-op write on `$table` takes the write lock first.
+- Inside a plain transaction that is already open, the unit runs under a `SAVEPOINT`. A failure rolls back the
+  whole unit, its holds included, even when the outer caller catches the error and commits; the outer transaction
+  carries on. On D1 there is no `SAVEPOINT` and a unit never nests in a plain transaction: it is one batch.
 - `insert()` gives a `Ref`: later steps of the same unit can bind it before the row exists, and `$ref->id()` is the
   new id once the unit has run. Do not use `insertID()` inside a unit.
 - A guard that does not hold (`write()` changing another number of rows than `$expect`, an `assert()` whose
@@ -306,14 +311,17 @@ atomic unit; they are not visible to `$fn`'s own reads.
   outer one even if the outer callback catches it.
 - `UnitsOfWork` is the registry of the open unit: per request, no static state, empty again when `run()` returns or
   throws. A unit a fatal error left open is discarded by the request's `RequestCleanup`, never run.
+- A unit takes writes only inside its `run()` callback. Once it ran or threw, any further call throws a
+  `LogicException` (a discarded unit: `WriteFailed`) instead of queueing a write that would never run.
 
 Rules for new SQL, so it also runs on D1:
 
 - At most 100 bound parameters per statement. A list of ids is one parameter:
   `'… WHERE id IN ' . Dialect::of($db)->inList()` with `Dialect::list($ids)` as its bind (`json_each(?)` on SQLite,
   `json_array_elements_text(?::json)` on PostgreSQL; `inList('text')` for strings). SQLite must be 3.38 or newer for `json_each`: the
-  connection and the migration runner refuse an older one (`Dialect::requireSqlite()`). A value that is not valid
-  UTF-8 throws `WriteFailed`.
+  connection and the migration runner refuse an older one (`Dialect::requireSqlite()`), before the database file is
+  opened. A runner on a backend that does not allow `sqlite_version()` (D1, the P4-3 edge runner) passes
+  `checkSqliteVersion: false` to `PdoMigrationRunner`. A value that is not valid UTF-8 throws `WriteFailed`.
 - No `BEGIN`, `COMMIT` or `SAVEPOINT` of your own, and no `sqlite_*()` functions.
 
 ## Writing a migration

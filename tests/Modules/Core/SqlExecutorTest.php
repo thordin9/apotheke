@@ -10,6 +10,7 @@ use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\DatabaseUnavailable;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Migrations\PdoMigrationRunner;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
@@ -153,6 +154,34 @@ final class SqlExecutorTest extends CIUnitTestCase
             } catch (DatabaseUnavailable $e) {
                 $this->assertSame('SQLite 3.38.0 or newer is required (JSON functions); this PHP has SQLite ' . $old . '.', $e->getMessage());
             }
+        }
+    }
+
+    /**
+     * N-1629: the migration runner checks SQLite before it opens the file, so
+     * a refused migrate leaves no empty database behind, and a runner that
+     * cannot ask for the version (D1) turns the check off.
+     */
+    public function testTheMigrationRunnerChecksSqliteBeforeCreatingTheFile(): void
+    {
+        $dir = PdoMigrationRunner::repoRoot() . '/migrations';
+        $path = sys_get_temp_dir() . '/apotheke-sqlite-min-' . bin2hex(random_bytes(4)) . '.sqlite';
+        $db = ['driver' => 'sqlite', 'sqlite_path' => $path];
+        $old = static fn (): string => '3.37.2';
+        try {
+            (new PdoMigrationRunner($dir, sqliteVersion: $old))->connect($db);
+            $this->fail('an old SQLite must be refused');
+        } catch (DatabaseUnavailable $e) {
+            $this->assertSame('SQLite 3.38.0 or newer is required (JSON functions); this PHP has SQLite 3.37.2.', $e->getMessage());
+        }
+        $this->assertFileDoesNotExist($path, 'a refused migrate creates no database file');
+        try {
+            $pdo = (new PdoMigrationRunner($dir, false, $old))->connect($db);
+            $this->assertSame('1', (string)$pdo->query('SELECT 1')->fetchColumn(), 'with the check off the runner connects');
+            unset($pdo);
+            (new PdoMigrationRunner($dir))->connect($db);
+        } finally {
+            array_map('unlink', glob($path . '*') ?: []);
         }
     }
 

@@ -421,6 +421,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `DatabaseStateTest` (empty registry after a failure; two worker requests in one process). Also #209's QA items
   L-1620 and N-1621 to N-1623: SQLite 3.38 or newer is required (checked at connect and by the migration runner).
   Merged (1f492e5), released as v3.14.0.
+- [#212](https://github.com/thordin9/apotheke/pull/212), follow-up to #210 with QA items L-1625, L-1626 and N-1627 to N-1629: a unit inside a plain transaction runs
+  under a SAVEPOINT (all or nothing, as a D1 batch), a unit refuses writes once its `run()` ended, a second ranking
+  test layout, the PostgreSQL `lc_messages` note, and the SQLite version check before the file is opened (with
+  `checkSqliteVersion: false` for the edge runner). Tests on SQLite and PostgreSQL. Merged (4b77e04), released as v3.14.1.
 
 ## Lanes
 
@@ -498,10 +502,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 
 - Now: P4 (edge storage) is the top priority; the backlog (L-1520, N-1502, N-1503, N-1482) is on hold. #205 (the
   chunked restore store) and #206 (the API) are merged (v3.11.0, v3.12.0); the upload-limit hardening
-  (#211) is merged (v3.12.1); #209 and #210 are merged (v3.13.0, v3.14.0); #212 (the fix(core) follow-up) is in
-  review, and the restore notes batch N-1591 to N-1595 (#213) is open. P4-1
+  (#211) is merged (v3.12.1); #209 and #210 are merged (v3.13.0, v3.14.0); #212 (the fix(core) follow-up) is merged
+  (v3.14.1), and the restore notes batch N-1591 to N-1595 (#213) is open. P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is three stacked PRs with QA: the executor adapter
-  (#209), then the unit of work (#210), then part 3/3, the batch path and parity test, after #212. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
+  (#209), then the unit of work (#210), then part 3/3, the batch path and parity test, now that #212 is in. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
   large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.

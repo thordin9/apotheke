@@ -10,6 +10,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 **Note:** chunked restore uploads (`/api/v1/restores`): a confirm that stopped before its outcome was kept now reads as status `interrupted` (it may have been applied; check the data) and is never applied again. A linked restore upload lock answers 500 with a generic message. When `RESTORE_MAX_UPLOADS` is reached, another account's unconfirmed upload idle for 10 minutes makes room, and the free-disk check counts what the open uploads still expect. An upload started before this update is not found after it; start it again.
 
+## [3.14.1] - 2026-11-01
+
+**Note:** on PostgreSQL, run the server with English messages (`lc_messages` set to `C` or an English locale, the default of the official `postgres` image); see the PostgreSQL role section of docs/deployment-and-operations.md. A migrate refused for an old SQLite no longer leaves an empty database file behind.
+
+### Fixed
+
+- **core:** keep units of work whole inside transactions ([#212](https://github.com/thordin9/apotheke/pull/212))
+
 ## [3.14.0] - 2026-11-01
 
 **Upgrade note:** installs without Docker need SQLite 3.38 or newer (the JSON functions the app now uses for long id lists); the app and `php spark apotheke:migrate` stop with a clear message on an older one. The Docker images already ship a newer SQLite.
@@ -1163,7 +1171,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.14.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.14.1...HEAD
+[3.14.1]: https://github.com/thordin9/apotheke/compare/v3.14.0...v3.14.1
 [3.14.0]: https://github.com/thordin9/apotheke/compare/v3.13.0...v3.14.0
 [3.13.0]: https://github.com/thordin9/apotheke/compare/v3.12.1...v3.13.0
 [3.12.1]: https://github.com/thordin9/apotheke/compare/v3.12.0...v3.12.1

@@ -73,9 +73,11 @@ class Services extends BaseService
      * The CI4 connection: one database login per request. BootMigration checks
      * the schema on it once per process (not on every request in a worker) and
      * opens the migration runner's own connection only when a migration is
-     * missing; apotheke:migrate is the explicit way.
+     * missing; apotheke:migrate is the explicit way. $sqliteVersion stands in
+     * for this PHP's SQLite3 library version, checked before connecting
+     * (N-1623; a test passes an old one).
      */
-    public static function apothekeDb(bool $getShared = true): object
+    public static function apothekeDb(bool $getShared = true, ?string $sqliteVersion = null): object
     {
         if ($getShared) {
             return static::getSharedInstance('apothekeDb');
@@ -87,7 +89,7 @@ class Services extends BaseService
         }
         $dbConfig = $config->database();
         if (($dbConfig['driver'] ?? '') === 'sqlite') {
-            \Apotheke\Core\Database\Dialect::requireSqlite((string)\SQLite3::version()['versionString']);
+            \Apotheke\Core\Database\Dialect::requireSqlite($sqliteVersion ?? (string)\SQLite3::version()['versionString']);
         }
         $translator = new \Apotheke\Core\Config\DsnTranslator();
         $factory = new \Apotheke\Core\Config\DatabaseFactory($config, $translator);
