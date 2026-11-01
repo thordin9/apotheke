@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** chunked restore uploads (`/api/v1/restores`): a confirm that stopped before its outcome was kept now reads as status `interrupted` (it may have been applied; check the data) and is never applied again. A linked restore upload lock answers 500 with a generic message. When `RESTORE_MAX_UPLOADS` is reached, another account's unconfirmed upload idle for 10 minutes makes room, and the free-disk check counts what the open uploads still expect. An upload started before this update is not found after it; start it again.
+
 ## [3.14.1] - 2026-11-01
 
 **Note:** on PostgreSQL, run the server with English messages (`lc_messages` set to `C` or an English locale, the default of the official `postgres` image); see the PostgreSQL role section of docs/deployment-and-operations.md. A migrate refused for an old SQLite no longer leaves an empty database file behind.

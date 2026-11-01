@@ -64,14 +64,19 @@ image's nginx for the API, 300 for the restore page). Both run to the end anyway
 again. After `confirm` only the upload's record is kept (the backup itself is removed): `GET` answers status
 `restored` with the confirm answer in `result`, or `failed` with `result.error`, and `confirm` again gives the same
 answer without restoring again. While it still runs, `GET` and `confirm` answer `409`; poll `GET` until it does not.
-Status `ready` after a lost answer means it did not restore (the time limit, for example), and you can confirm again.
+Status `ready` after a lost answer means it did not restore, and you can confirm again. Status `interrupted` means the
+confirm stopped before its outcome was kept (the time limit or a server restart, for example): the backup may have been
+applied, so check the data; `result.error` says so and `result.sha256` is the backup's SHA-256. `confirm` again then
+answers `409` and never restores it again; to restore after checking, start a new upload.
 `DELETE` removes the record; otherwise it goes after an hour like any upload.
 
 An upload belongs to the account that started it: anyone else gets the same `404` as for an id that is not there. A
 guest gets `403`. Each account has one upload at a time (a new one replaces it, `409` while a request uses the old
 one), and an upload without a request for an hour (`idle_seconds`) is removed. At most `RESTORE_MAX_UPLOADS` uploads
-(default 8, all accounts) are open at once, else `503 restore.busy` with `Retry-After`; and the disk must have the
-declared size plus 64 MiB free, else `507 storage.insufficient`. See [Deployment and operations](deployment-and-operations.md#backup-and-restore).
+(default 8, all accounts) are open at once. When that many are open, another account's upload that is not confirmed
+and has had no request for 10 minutes is removed to make room; if none is, the answer is `503 restore.busy` with
+`Retry-After`. The disk must have the declared size plus 64 MiB free beyond what the other open uploads still expect,
+else `507 storage.insufficient`. See [Deployment and operations](deployment-and-operations.md#backup-and-restore).
 
 ## Requests
 

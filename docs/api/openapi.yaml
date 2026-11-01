@@ -209,7 +209,7 @@
       "post": {
         "operationId": "createRestore",
         "summary": "Start a chunked restore upload (backup permission)",
-        "description": "For a backup too large for one request. Declare its size in bytes (at most RESTORE_MAX_MB) and, optionally, its SHA-256; then send it in chunks of `chunk_size` bytes (RESTORE_CHUNK_KB, but never more than this server's PHP takes in one request). Your earlier upload is removed (409 while a request uses it): one at a time per account. A guest gets 403 permission.denied. An upload idle for `idle_seconds` is removed. 503 restore.busy (with Retry-After) when RESTORE_MAX_UPLOADS uploads are open, 507 storage.insufficient when the disk lacks the size plus a margin.",
+        "description": "For a backup too large for one request. Declare its size in bytes (at most RESTORE_MAX_MB) and, optionally, its SHA-256; then send it in chunks of `chunk_size` bytes (RESTORE_CHUNK_KB, but never more than this server's PHP takes in one request). Your earlier upload is removed (409 while a request uses it): one at a time per account. A guest gets 403 permission.denied. An upload idle for `idle_seconds` is removed. When RESTORE_MAX_UPLOADS uploads are open, other accounts' unconfirmed uploads idle for 10 minutes are removed first; still full: 503 restore.busy (with Retry-After). 507 storage.insufficient when the disk lacks the size plus a margin beyond what the other open uploads still expect.",
         "parameters": [{"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["size"], "properties": {"size": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "nullable": true}}}}}},
         "responses": {
@@ -293,7 +293,7 @@
       "post": {
         "operationId": "confirmRestore",
         "summary": "Replace the catalog with the checked backup (backup permission)",
-        "description": "Needs `{\"confirm\": true}` after finish. The backup's settings are restored only for a user who may change settings. While another restore runs the answer is 409 and the upload is kept. Otherwise the backup is removed and the outcome kept: GET answers status restored (with `result`, this answer) or failed (`result.error`), and confirm again gives the same answer without restoring again, for a client that lost the answer to a timeout.",
+        "description": "Needs `{\"confirm\": true}` after finish. The backup's settings are restored only for a user who may change settings. While another restore runs the answer is 409 and the upload is kept. Otherwise the backup is removed and the outcome kept: GET answers status restored (with `result`, this answer) or failed (`result.error`), and confirm again gives the same answer without restoring again, for a client that lost the answer to a timeout. A confirm that stopped before its outcome was kept (the server ended it) reads as status interrupted: it may have been applied, so check the data; confirm again answers 409 and never restores it again.",
         "parameters": [{"$ref": "#/components/parameters/RestoreId"}, {"$ref": "#/components/parameters/CsrfToken"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["confirm"], "properties": {"confirm": {"type": "boolean"}}}}}},
         "responses": {
@@ -551,13 +551,13 @@
         "required": ["id", "status", "size", "chunk_size", "received", "next_chunk", "idle_seconds"],
         "properties": {
           "id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
-          "status": {"type": "string", "enum": ["uploading", "ready", "restored", "failed"], "description": "ready: finished and checked, waiting for confirm; restored or failed: confirmed"},
+          "status": {"type": "string", "enum": ["uploading", "ready", "restored", "failed", "interrupted"], "description": "ready: finished and checked, waiting for confirm; restored or failed: confirmed; interrupted: a confirm stopped before its outcome was kept and may have been applied (check the data)"},
           "size": {"type": "integer"},
           "chunk_size": {"type": "integer"},
           "received": {"type": "integer"},
           "next_chunk": {"type": "integer", "nullable": true, "description": "The chunk to send next; null once finished"},
           "idle_seconds": {"type": "integer", "description": "An upload without a request for this long is removed"},
-          "result": {"type": "object", "description": "restored: the confirm answer; failed: {\"error\"}"},
+          "result": {"type": "object", "description": "restored: the confirm answer; failed: {\"error\"}; interrupted: {\"error\", \"sha256\"} (the backup's SHA-256)"},
           "backup": {"type": "object", "additionalProperties": false, "description": "finish only: what the backup holds", "required": ["created_at", "driver", "tables", "photos", "warnings"],
             "properties": {"created_at": {"type": "string"}, "driver": {"type": "string"}, "tables": {"type": "object", "additionalProperties": {"type": "integer"}}, "photos": {"type": "integer"}, "warnings": {"type": "array", "items": {"type": "string"}}}}
         }
