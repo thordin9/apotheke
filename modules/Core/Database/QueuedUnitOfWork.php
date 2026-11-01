@@ -128,13 +128,18 @@ abstract class QueuedUnitOfWork implements UnitOfWork
 
     /**
      * N-1639: one bind per `?` placeholder (outside quotes), refused the same
-     * way in both modes before anything runs.
+     * way in both modes before anything runs. N-1645: the count must agree
+     * with CI4's binder, which skips a `?` only inside a '' literal, so a `?`
+     * or a `'` inside a "" name is refused rather than bound differently.
      *
      * @param list<scalar|Ref|null> $binds
      */
     protected static function checkBinds(string $sql, array $binds): void
     {
         $placeholders = substr_count(preg_replace('/\'(?:[^\']++|\'\')*+\'|"(?:[^"]++|"")*+"/', '', $sql) ?? $sql, '?');
+        if ($placeholders !== substr_count(preg_replace("/'[^']*'/", '', $sql) ?? $sql, '?')) {
+            throw new LogicException('A statement has a ? or a quote inside a quoted name.');
+        }
         if ($placeholders < count($binds)) {
             throw new LogicException('A statement has more binds than placeholders.');
         }

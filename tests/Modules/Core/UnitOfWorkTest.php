@@ -618,6 +618,40 @@ final class UnitOfWorkTest extends CIUnitTestCase
         $this->assertSame(0, (int)$db->transDepth);
     }
 
+    /** @return iterable<string,array{0:string,1:bool,2:string,3:list<string>}> */
+    public static function quotedNamePlaceholders(): iterable
+    {
+        foreach (self::modes() as $mode => [$driver, $batch]) {
+            yield $mode . ', ? in a quoted name' => [$driver, $batch, 'INSERT INTO uw_parent (name) SELECT ? AS "why?"', ['a']];
+            yield $mode . ', quotes in quoted names' => [$driver, $batch, 'INSERT INTO uw_parent (name, note) SELECT ? AS "it\'s", ? AS "o\'k"', ['a', 'b']];
+        }
+    }
+
+    /**
+     * N-1645, N-1646: CI4's binder counts a `?` inside a "" name (it skips
+     * only '' literals), so a `?` or a `'` inside one is refused in both
+     * modes rather than bound differently; a `?` in a literal is no bind.
+     *
+     * @param list<string> $binds
+     */
+    #[DataProvider('quotedNamePlaceholders')]
+    public function testAQuotedNameCannotHoldAPlaceholder(string $driver, bool $batch, string $sql, array $binds): void
+    {
+        [$db, $units] = $this->wire($driver, $batch);
+        try {
+            $units->run('uw_parent', static function (UnitOfWork $uow) use ($sql, $binds): void {
+                $uow->write($sql, $binds, 'write');
+            });
+            $this->fail('the write must be refused');
+        } catch (LogicException $e) {
+            $this->assertSame('A statement has a ? or a quote inside a quoted name.', $e->getMessage());
+        }
+        $units->run('uw_parent', static function (UnitOfWork $uow): void {
+            $uow->write("INSERT INTO uw_parent (name, note) SELECT ? AS \"why\", 'why?'", ['kept'], 'write');
+        });
+        $this->assertSame(['kept'], array_column($this->parents($db), 'name'));
+    }
+
     public function testARefIsResolvedOnce(): void
     {
         $ref = new Ref('items');
