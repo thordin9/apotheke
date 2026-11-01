@@ -442,7 +442,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   statements without comments or literal text and refuses everything its docblock lists; a hold refuses a `Ref`
   not written yet, and a statement needs one bind per placeholder, in both modes. Also #215's N-1641 (the 500 on
   every restore operation in the OpenAPI document) and N-1642 (`Services::restoreOwner()`). Tests: `SqlExecutorTest`,
-  `UnitOfWorkTest`, `SignInAccountsTest`, `RestoreUploadsTest`, SQLite and PostgreSQL. No schema change. Open for
+  `UnitOfWorkTest`, `SignInAccountsTest`, `RestoreUploadsTest`, SQLite and PostgreSQL. No schema change. Merged
+  (42d6e11), released as v3.15.2.
+- [#217](https://github.com/thordin9/apotheke/pull/217) (P4-2b, part 1): the first sites on the unit of work, in both
+  modes: `SavedFilters::create()` (Ref, limit and name guarded at write time), `Favourites::record()` (batch),
+  `RoleRepository::delete()` and `resetBuiltin()` (batch), `Stocktakes::start()` (Ref). `UnitsOfWork::forSite()`
+  gives a site the request's units (or its own on its connection) and refuses units on another connection.
+  Part 2: the sites that write item history or join a caller's transaction, then the guards and the large paths;
+  restore and backup only after N-1644. Tests: `UnitOfWorkSitesTest` (parity), SQLite and PostgreSQL. Open for
   QA's full gate.
 
 ## Lanes
@@ -524,9 +531,10 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   (#211) is merged (v3.12.1); #209, #210 and #212 are merged (v3.13.0, v3.14.0, v3.14.1), and the restore notes
   batch N-1591 to N-1595 (#213) is merged (v3.14.2), and its follow-up N-1634 to N-1636 (#215) too (v3.15.1). P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is done: the executor adapter (#209), the unit of
-  work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0). Its follow-up #216
-  (L-1637, L-1638, N-1639, with #215's N-1641 and N-1642) is with QA and goes in before P4-2b; N-1640 waits for P4-3. Then P4-2b (the transaction sites onto the unit of work: batch and Ref first, then guards, then the
-  large paths), then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
+  work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0); its follow-up #216 is merged (v3.15.2);
+  N-1640 waits for P4-3, and N-1644 (the batch filter) goes in before restore moves onto the batch path. P4-2b (the
+  transaction sites onto the unit of work: batch and Ref first, then guards, then the large paths) part 1 is #217,
+  then P4-3 (D1 driver and bridge) to P4-5. DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
 1. #133 (step 14's backup and restore) is merged (31de273); the docker scripts run their restore checks on CI4 too

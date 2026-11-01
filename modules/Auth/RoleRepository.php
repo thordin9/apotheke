@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
@@ -20,9 +22,15 @@ use PDOException;
  */
 final class RoleRepository
 {
-    /** @param BaseConnection<object|resource, object|resource> $db */
-    public function __construct(private readonly BaseConnection $db)
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
+    public function __construct(private readonly BaseConnection $db, ?UnitsOfWork $units = null)
     {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** @return array<string,array{name:string,perms:list<string>}> role key => name and permissions, built-in first */
@@ -98,21 +106,21 @@ final class RoleRepository
         Writes::check($this->db->query('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key]), 'roles update');
     }
 
-    /** Legacy role_delete(): its accounts move to $moveTo and the role goes, in one transaction. */
+    /** Legacy role_delete(): its accounts move to $moveTo and the role goes, as one unit of work (ADR-002, batch). */
     public function delete(string $key, string $moveTo): void
     {
-        Writes::transaction($this->db, function () use ($key, $moveTo): void {
-            Writes::check($this->db->query('UPDATE users SET role = ? WHERE role = ?', [$moveTo, $key]), 'users role move');
-            Writes::check($this->db->query('DELETE FROM roles WHERE role_key = ?', [$key]), 'roles delete');
+        $this->units->run('roles', function (UnitOfWork $uow) use ($key, $moveTo): void {
+            $uow->write('UPDATE users SET role = ? WHERE role = ?', [$moveTo, $key], 'users role move');
+            $uow->write('DELETE FROM roles WHERE role_key = ?', [$key], 'roles delete');
         });
     }
 
-    /** Legacy roles_reset_builtin(): the built-in roles' names and permissions back to the defaults (custom roles stay). */
+    /** Legacy roles_reset_builtin(): the built-in roles' names and permissions back to the defaults (custom roles stay), as one batch. */
     public function resetBuiltin(): void
     {
-        Writes::transaction($this->db, function (): void {
+        $this->units->run('roles', function (UnitOfWork $uow): void {
             foreach (Permissions::ROLE_DEFAULTS as $key => [$name, $perms]) {
-                Writes::check($this->db->query('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key]), 'roles reset');
+                $uow->write('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key], 'roles reset');
             }
         });
     }
