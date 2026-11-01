@@ -72,10 +72,16 @@ abstract class QueuedUnitOfWork implements UnitOfWork
     public function insert(string $table, array $row, string $step): Ref
     {
         $this->refuseIfClosed();
-        $ref = new Ref($table);
+        $ref = $this->newRef($table);
         $this->queue[] = new Statement(Statement::KIND_INSERT, $step, table: $table, row: $row, ref: $ref);
 
         return $ref;
+    }
+
+    /** The Ref an insert hands out: the batch path gives it a ULID. */
+    protected function newRef(string $table): Ref
+    {
+        return new Ref($table);
     }
 
     public function update(string $table, array $set, array $where, string $step): void

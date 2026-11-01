@@ -431,6 +431,13 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   under a SAVEPOINT (all or nothing, as a D1 batch), a unit refuses writes once its `run()` ended, a second ranking
   test layout, the PostgreSQL `lc_messages` note, and the SQLite version check before the file is opened (with
   `checkSqliteVersion: false` for the edge runner). Tests on SQLite and PostgreSQL. Merged (4b77e04), released as v3.14.1.
+- feat/p4-batch-path (P4-2a, part 3 of 3): the batch path. `BatchUnitOfWork` sends a unit's steps as one batch
+  (holds first, no `BEGIN` or `SAVEPOINT`, guards as `uow_guard` inserts, `Ref`s through `uow_refs`, the failed step
+  found by replaying prefixes), on any executor without a connection. `LocalBatchExecutor` runs it on SQLite and
+  PostgreSQL with D1's limits. Migration 0031 adds `uow_guard` and `uow_refs` (CI4 only, not in backups).
+  `Writes::savepoint()` is shared by both paths. Also #212's QA items L-1630, L-1631, N-1632 and N-1633. Tests:
+  `UnitOfWorkTest` (every case in transaction and batch mode, parity, 150 Refs), `SqlExecutorTest` (D1 limits),
+  SQLite and PostgreSQL. Open for QA's full gate.
 
 ## Lanes
 

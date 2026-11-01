@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /*
- * The CI4-only additions (upg_ci4_only(): migrations 0029 and 0030, the jobs and import_rows
+ * The CI4-only additions (upg_ci4_only(): migrations 0029 to 0031, the jobs, import_rows, uow_guard and uow_refs
  * tables) on a real install, for the
  * upgrade/rollback job. The snapshots leave them out, so this checks them on their own.
  *   php tests/upgrade/ci4-only.php seed          after CI4 migrated: adds two jobs rows (one done, one queued) and
