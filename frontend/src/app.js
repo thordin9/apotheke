@@ -1,6 +1,7 @@
 // In-app routes for /app/. Plain modules; the Svelte app replaces this in step S1.
 // Navigation uses the History API only. No localStorage, sessionStorage, IndexedDB or Cache storage.
 import { bindSignIn, enableLogin, hasConsent } from './consent.js';
+import { trackPageview } from './analytics.js';
 
 // The build writes APOTHEKE_SPA_BASE in here (default /app/). The page also carries
 // data-spa-base for the shell and the fallback server. The router does not read
@@ -135,6 +136,9 @@ function render() {
     if (name === 'home') renderHome(root);
     else if (name === 'sign-in') renderSignIn(root);
     else renderMissing(root);
+    // One page view per route render (first load, link navigation, back and forward).
+    // trackPageview() does nothing without consent.
+    trackPageview();
 }
 
 function onClick(event) {

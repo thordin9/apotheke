@@ -129,6 +129,7 @@ follow-up lands:
 | `frontend/index.html`, `frontend/app/index.html`, `frontend/privacy/index.html`, `frontend/public/robots.txt`, `frontend/public/sitemap.xml` | canonical, Open Graph, JSON-LD `url` and sitemap URLs of getapotheke.com | your front-end URL (they only matter for search engines and link previews) |
 | `frontend/privacy/index.html` | the project's own privacy notice for getapotheke.com (its description, the cookie's `Domain`) | **replace it with your own notice, or remove the page** (and its entry in `sitemap.xml`): it describes the project's site, not yours |
 | `frontend/404.html` | the description *This page is not on getapotheke.com.* | your site's name |
+| `frontend/src/analytics.js`, the same three CSP files | the project's page-view counter: `ANALYTICS_REPORTER_URL` and `ANALYTICS_SITE_ID`, and its host `https://analytics.services.webapp.gr` in `connect-src` | your own Counterscale (`https://analytics.example.com/collect`, see [analytics.md](analytics.md)), or make `trackPageview()` return early and drop the host from `connect-src` so nothing is counted |
 | `frontend/src/consent.js` | `CONSENT_PARENT`: the banner sets `Domain=` only for the project's domain | your registrable domain, if the front end and the API are on different hosts and should share the consent |
 | `edge/src/index.ts` | `TZ: "Europe/Athens"` for the container | your time zone |
 
