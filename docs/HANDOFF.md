@@ -478,7 +478,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   guards, sequences, `restore_marker` from migration 0032, CI4 only); `RESTORE_DB_MAX_MB` pre-flight. Tests:
   `RestoreStageTest` (both modes, SQLite and PostgreSQL, 100k rows on the D1 stand-in). Part 2 wires it into the
   restore API and the sweep. Merged, released as v3.16.0.
-- PRNUM (P4-2b, restore on the edge, part 2): `Restorer` stages every restore through `RestoreStage` when the
+- [#227](https://github.com/thordin9/apotheke/pull/227) (P4-2b, restore on the edge, part 2): `Restorer` stages every restore through `RestoreStage` when the
   executor has no connection (batch-only backends; self-hosted keeps one transaction), with the size pre-flight on
   that path. One staged restore at a time (a lock row in `restore_marker`, checked by each batch). A stopped upload
   confirm is resolved from the marker; the upload sweep drops leftover copies. ADR-002 updated to design B. Tests:
@@ -567,7 +567,7 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0); its follow-up #216 is merged (v3.15.2);
   N-1640 waits for P4-3. #218 (the batch filter) is merged (v3.15.3); its follow-up #220 (batch allow-list and
   sweep fix) is merged (v3.15.5). P4-2b part 1 (#217), #219 and part 2 (#221, the item-history sites) are
-  merged. Restore staging PR 1 (#223) is merged (v3.16.0); PR 2 (PRNUM, the wiring) is in QA. Next: part 2b
+  merged. Restore staging PR 1 (#223) is merged (v3.16.0); PR 2 ([#227](https://github.com/thordin9/apotheke/pull/227), the wiring) is in QA. Next: part 2b
   (the 2.6.26 staged round trip in the upgrade gate, N-1704), the L-1666/L-1667 fixes; then the guarded sites, item save with tags and taxonomy create, the large paths, and P4-3
   (D1 driver and bridge) to P4-5.
   DevOps owns the bindings and the flip checklist behind
