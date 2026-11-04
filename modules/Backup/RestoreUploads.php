@@ -522,7 +522,8 @@ final class RestoreUploads
 
     /**
      * N-1582, N-1583: remove upload $id only when no request holds its manifest lock and $still(lstat of the
-     * manifest, or of the folder when it has none) holds, checked again under the lock. False when it was kept.
+     * manifest, or of the folder when it has none) holds, checked before the lock is taken and again under it
+     * (N-1651). False when it was kept.
      *
      * @param Closure(array<int|string,int>):bool $still
      */
@@ -537,6 +538,9 @@ final class RestoreUploads
             $st = @lstat($dir);
 
             return $st !== false && ($st['mode'] & 0170000) === 0040000 && $still($st) && self::remove($dir);
+        }
+        if (!$still($named)) {
+            return false;   // N-1651: kept without taking its lock, so a sweep never makes a fresh upload look in use
         }
         $fh = @fopen($file, 'r');
         if ($fh === false) {

@@ -10,8 +10,23 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 **Note:** a new setting, `RESTORE_DB_MAX_MB` (default 0, no limit), and migration 0032 (`restore_marker`, CI4 only) prepare restores on the edge. Nothing changes for self-hosted restores yet.
 
+## [3.15.5] - 2026-11-04
+
+**Note:** on PostgreSQL, a change that has to wait more than 5 seconds for another one on the same item or list now answers "The database is busy. Try again in a moment." (503) instead of waiting. Adding or removing an attachment and deleting an item now write their history through the unit of work (P4-2b, part 2); nothing else changes for users. Also, starting a restore upload no longer fails now and then with "in use" while another request is checking old uploads.
+
+### Fixed
+
+- **core:** allow-list batch statements; sweep skips fresh uploads ([#220](https://github.com/thordin9/apotheke/pull/220))
+
+### Changed
+
+- **core:** move item history writes onto the unit of work (P4-2b) ([#221](https://github.com/thordin9/apotheke/pull/221))
+
 ### Maintenance
 
+- **edge:** ci: storage merge and flip checklist follow-ups ([#222](https://github.com/thordin9/apotheke/pull/222))
+- **frontend:** ci: run npm ci with --ignore-scripts --no-audit --no-fund ([#224](https://github.com/thordin9/apotheke/pull/224))
+- **deps:** build: bump symfony/yaml 8.1.10 to 8.1.11 ([#226](https://github.com/thordin9/apotheke/pull/226))
 - **ci:** the edge storage merge refuses empty fragment Durable Object migrations and bindings whose class no fragment migration creates; the flip checklist notes the token for new Durable Object migrations and names token permissions consistently ([#222](https://github.com/thordin9/apotheke/pull/222))
 
 ## [3.15.4] - 2026-11-01
@@ -1223,7 +1238,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.4...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.15.5...HEAD
+[3.15.5]: https://github.com/thordin9/apotheke/compare/v3.15.4...v3.15.5
 [3.15.4]: https://github.com/thordin9/apotheke/compare/v3.15.3...v3.15.4
 [3.15.3]: https://github.com/thordin9/apotheke/compare/v3.15.2...v3.15.3
 [3.15.2]: https://github.com/thordin9/apotheke/compare/v3.15.1...v3.15.2
