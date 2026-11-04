@@ -11,6 +11,9 @@ declare(strict_types=1);
  *   php tests/upgrade/staged-restore.php MODE applied RUN       RUN's swap committed (else exit 1)
  *   php tests/upgrade/staged-restore.php MODE sweep             the leftover sweep once the lock expired: no copy and
  *                                                               no lock row are left (else exit 1)
+ *   php tests/upgrade/staged-restore.php MODE parity            the restored ids: every id sequence is past the highest
+ *                                                               id (items: and past activity.item_id), and a location's
+ *                                                               parent_id names a later row (else exit 1)
  */
 
 use Apotheke\Backup\RestoreStage;
@@ -23,8 +26,8 @@ use Config\Services;
 
 if (PHP_SAPI !== 'cli') exit(2);
 [, $mode, $step] = $argv + [null, '', ''];
-if (!in_array($mode, ['transaction', 'batch'], true) || !in_array($step, ['restore', 'before', 'after', 'applied', 'sweep'], true)) {
-    fwrite(STDERR, "usage: staged-restore.php transaction|batch restore|before|after ZIP RUN | applied RUN | sweep\n");
+if (!in_array($mode, ['transaction', 'batch'], true) || !in_array($step, ['restore', 'before', 'after', 'applied', 'sweep', 'parity'], true)) {
+    fwrite(STDERR, "usage: staged-restore.php transaction|batch restore|before|after ZIP RUN | applied RUN | sweep | parity\n");
     exit(2);
 }
 $root = dirname(__DIR__, 2);
@@ -55,6 +58,29 @@ if ($step === 'sweep') {
     $ok = $dropped && $left === [] && !$locked;
     echo ($ok ? 'ok' : 'FAIL') . " $label: " . ($dropped ? 'swept' : 'lock still held') . ', ' . count($left) . ' copies left' . ($locked ? ', lock row left' : '') . "\n";
     exit($ok ? 0 : 1);
+}
+if ($step === 'parity') {
+    $pg = $db->DBDriver === 'Postgre';
+    $bad = [];
+    $one = static fn (string $sql, array $p = []): int => (int)($db->query($sql, $p)->getRowArray()['n'] ?? 0);
+    $backups = Services::backups(false);
+    foreach (Apotheke\Backup\Backups::tables() as $t) {
+        if (!in_array('id', $backups->columns($t), true)) continue;
+        $max = $one("SELECT COALESCE(MAX(id), 0) AS n FROM $t");
+        if ($t === 'items') $max = max($max, $one('SELECT COALESCE(MAX(item_id), 0) AS n FROM activity'));
+        if ($pg) {
+            $seq = (string)($db->query("SELECT pg_get_serial_sequence('$t', 'id') AS s")->getRowArray()['s'] ?? '');
+            $row = $seq === '' ? null : $db->query("SELECT last_value, is_called FROM $seq")->getRowArray();
+            $next = $row === null ? 0 : (int)$row['last_value'] + (in_array($row['is_called'], [true, 't', 1, '1'], true) ? 1 : 0);
+        } else {
+            $next = $one('SELECT CAST(seq AS INTEGER) + 1 AS n FROM sqlite_sequence WHERE name = ?', [$t]);
+        }
+        if ($next <= $max) $bad[] = "$t's next id $next is not past $max";
+    }
+    if ($one('SELECT COUNT(*) AS n FROM locations WHERE parent_id > id') === 0) $bad[] = 'no location has a parent that comes after it';
+    foreach ($bad as $b) echo "FAIL $label: $b\n";
+    if ($bad === []) echo "ok $label: every id sequence is past the restored ids, a later parent_id kept\n";
+    exit($bad === [] ? 0 : 1);
 }
 
 // The process ends at the swap batch (before or after it runs), as a crash would: no finally, no cleanup.

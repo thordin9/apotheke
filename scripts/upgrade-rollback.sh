@@ -208,7 +208,8 @@ check 'legacy backup restored on CI4@8.4' seeded-backup restored-ci4
 
 # 5b. P4-2b: the legacy backup through the staged restore path (Backup\RestoreStage) into fresh installs, in both
 # modes: stopped just before the swap batch (nothing changed, not marked), swept once its lock expired, stopped just
-# after it (the backup's rows, marked applied), swept again, then restored to the end (rows and files).
+# after it (the backup's rows, marked applied, ids and sequences as restored), swept again, then restored to the end
+# (rows, files, sequences).
 staged() { "$PHP84" "$ROOT/tests/upgrade/staged-restore.php" "$@"; }
 for mode in transaction batch; do
   install_env "staged-$mode" "upg_${RUN}_staged_$mode"
@@ -224,10 +225,12 @@ for mode in transaction batch; do
     else
       check "staged $mode: stopped after the swap has the backup's rows" seeded-rows "staged-$mode-after"
       staged "$mode" applied gate-after || fail=1
+      staged "$mode" parity || fail=1
     fi
     staged "$mode" sweep || fail=1
   done
   staged "$mode" restore "$WORK/legacy.zip" gate-full || fail=1
+  staged "$mode" parity || fail=1
   snap backup "staged-$mode"
   check "legacy backup restored through the staged path ($mode)" seeded-backup "staged-$mode"
 done
