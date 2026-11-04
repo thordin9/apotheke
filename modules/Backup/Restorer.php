@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Backup;
 
 use Apotheke\Catalog\Items\Attachments;
+use Apotheke\Core\Database\SqlExecutor;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
@@ -54,8 +55,13 @@ use ZipArchive;
  * only within Media's decode limits. The backup's settings are restored only
  * for a user who may change settings (N-443, the command line may).
  *
+ * On a batch-only database ($staged, P4-2b) the rows go through RestoreStage
+ * instead of one transaction: the pre-flight on the staged size
+ * (RESTORE_DB_MAX_MB, N-1703), then the copies staged under the stage's lock
+ * and swapped in by one batch marked with the run id, then the copies dropped.
+ *
  * @phpstan-type Opened array{zip:ZipArchive,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>}
- * @phpstan-type Inspected array{zip:ZipArchive,json:string,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>,photoFiles:list<string>,attachmentFiles:list<string>,settings:mixed,offsets:array<string,int>}
+ * @phpstan-type Inspected array{zip:ZipArchive,json:string,tables:array<string,int>,photos:int,created_at:string,driver:string,warnings:list<string>,photoFiles:list<string>,attachmentFiles:list<string>,settings:mixed,offsets:array<string,int>,columns:array<string,list<string>>}
  */
 final class Restorer
 {
@@ -118,6 +124,8 @@ final class Restorer
      * @param Storage $data rooted at DATA_DIR (images/, thumbs/, files/)
      * @param Storage $originals rooted at ORIGINALS_DIR
      * @param RequestCleanup $cleanup removes the files of a restore stopped by a fatal error
+     * @param ?SqlExecutor $staged the executor of a staged restore (batch-only databases), null for one transaction
+     * @param int $dbMaxBytes a staged restore's database size limit (0: none)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -129,6 +137,8 @@ final class Restorer
         private readonly Storage $originals,
         private readonly int $thumbMax,
         private readonly RequestCleanup $cleanup,
+        private readonly ?SqlExecutor $staged = null,
+        private readonly int $dbMaxBytes = 0,
     ) {
     }
 
@@ -175,16 +185,17 @@ final class Restorer
     /**
      * Replace all catalog data with the backup's (legacy backup_restore()).
      * $settings: may the backup's settings be restored too (the user may
-     * change settings, or the command line)?
+     * change settings, or the command line)? $run: a staged restore's run id
+     * (the upload's id; RestoreStage::applied()), random when null.
      *
      * @return array{tables:array<string,int>,photos:int,warnings:list<string>,token_cleared:bool}
      */
-    public function restore(string $zipPath, bool $settings): array
+    public function restore(string $zipPath, bool $settings, ?string $run = null): array
     {
         // L-450: one restore at a time, files and rows alike (web and CLI); a second one is refused at once.
         $lock = $this->lock();
         try {
-            return $this->restoreLocked($zipPath, $settings);
+            return $this->restoreLocked($zipPath, $settings, $run ?? bin2hex(random_bytes(16)));
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
@@ -298,7 +309,7 @@ final class Restorer
     /**
      * @return array{tables:array<string,int>,photos:int,warnings:list<string>,token_cleared:bool}
      */
-    private function restoreLocked(string $zipPath, bool $settings): array
+    private function restoreLocked(string $zipPath, bool $settings, string $run): array
     {
         // N-611: a fatal error while the backup is read leaves no temp copy in tmp/.
         $this->parts = [];
@@ -337,7 +348,11 @@ final class Restorer
             } finally {
                 $zip->close();
             }
-            $this->restoreRows($b['json'], $b['offsets']);
+            if ($this->staged === null) {
+                $this->restoreRows($b['json'], $b['offsets']);
+            } else {
+                $this->restoreStaged($this->staged, $b['json'], $b['offsets'], $b['columns'], $run, (string)hash_file('sha256', $zipPath));
+            }
             $this->cleanup->drop(self::CLEANUP);
         } catch (Throwable $e) {
             $this->discard($created);
@@ -522,7 +537,7 @@ final class Restorer
      * table's rows before its columns, and true or false as a value (N-448)
      * are refused.
      *
-     * @return array{tables:array<string,int>,created_at:string,driver:string,photoFiles:list<string>,attachmentFiles:list<string>,settings:mixed,offsets:array<string,int>}
+     * @return array{tables:array<string,int>,created_at:string,driver:string,photoFiles:list<string>,attachmentFiles:list<string>,settings:mixed,offsets:array<string,int>,columns:array<string,list<string>>}
      */
     private function scan(string $path): array
     {
@@ -531,7 +546,7 @@ final class Restorer
             throw new UserError(self::FAILED);
         }
         $top = [];
-        $scan = ['counts' => [], 'offsets' => [], 'files' => [], 'error' => null, 'twice' => false];
+        $scan = ['counts' => [], 'offsets' => [], 'files' => [], 'error' => null, 'twice' => false, 'columns' => []];
         $tables = false;
         try {
             $r = new JsonReader($fh, self::DEPTH, self::CHUNK, self::guard());
@@ -589,7 +604,7 @@ final class Restorer
         ksort($photos, SORT_STRING);
         ksort($attachments, SORT_STRING);
 
-        return ['tables' => $scan['counts'], 'offsets' => $scan['offsets'],
+        return ['tables' => $scan['counts'], 'offsets' => $scan['offsets'], 'columns' => $scan['columns'],
             'photoFiles' => array_map('strval', array_keys($photos)), 'attachmentFiles' => array_map('strval', array_keys($attachments)),
             'settings' => $top['settings'] ?? null,
             'created_at' => is_scalar($top['created_at'] ?? null) ? (string)$top['created_at'] : '', 'driver' => is_scalar($top['driver'] ?? null) ? (string)$top['driver'] : '?'];
@@ -600,7 +615,7 @@ final class Restorer
      * the file names they refer to collected, where its value starts noted
      * (for the rows pass). The first problem is kept in $scan['error'].
      *
-     * @param array{counts:array<string,int>,offsets:array<string,int>,files:array<string,array<string,true>>,error:?string,twice:bool} $scan
+     * @param array{counts:array<string,int>,offsets:array<string,int>,files:array<string,array<string,true>>,error:?string,twice:bool,columns:array<string,list<string>>} $scan
      */
     private function scanTables(JsonReader $r, array &$scan): void
     {
@@ -623,7 +638,7 @@ final class Restorer
     }
 
     /**
-     * @param array{counts:array<string,int>,offsets:array<string,int>,files:array<string,array<string,true>>,error:?string,twice:bool} $scan
+     * @param array{counts:array<string,int>,offsets:array<string,int>,files:array<string,array<string,true>>,error:?string,twice:bool,columns:array<string,list<string>>} $scan
      * @return ?string the table's first problem
      */
     private function scanTable(JsonReader $r, string $t, array &$scan): ?string
@@ -693,6 +708,7 @@ final class Restorer
             return $malformed;
         }
         $scan['counts'][$t] = $rows;
+        $scan['columns'][$t] = array_values(array_map('strval', $columns));
 
         return $error;
     }
@@ -1082,6 +1098,77 @@ final class Restorer
             }
         } finally {
             fclose($fh);
+        }
+    }
+
+    /**
+     * The rows through RestoreStage (batch-only databases): measured, checked
+     * against the size limit before anything is written, staged under the
+     * stage's lock and swapped in as one batch marked $run. The copies are
+     * dropped and the lock given up however it ends.
+     *
+     * @param array<string,int> $offsets
+     * @param array<string,list<string>> $columns
+     */
+    private function restoreStaged(SqlExecutor $exec, string $json, array $offsets, array $columns, string $run, string $sha256): void
+    {
+        $tables = array_values(array_filter(Backups::tables(), fn (string $t): bool => $this->backups->tableExists($t)));
+        $restored = array_values(array_filter($tables, static fn (string $t): bool => ($offsets[$t] ?? -1) >= 0 && isset($columns[$t])));
+        $stage = new RestoreStage($exec);
+        $fh = @fopen($json, 'rb');
+        if ($fh === false) {
+            throw new UserError(self::FAILED);
+        }
+        try {
+            $bytes = 0;
+            foreach ($restored as $t) {
+                $bytes += $stage->bytes($columns[$t], $this->tableRows($fh, $t, $offsets[$t]));
+            }
+            RestoreStage::preflight($stage->liveBytes(), $bytes, $this->dbMaxBytes);
+            try {
+                $stage->begin($restored);
+                $staged = [];
+                foreach ($restored as $t) {
+                    $staged[$t] = ['columns' => $columns[$t], 'rows' => $stage->stage($t, $columns[$t], $this->tableRows($fh, $t, $offsets[$t]))];
+                }
+                $withId = array_values(array_filter($tables, fn (string $t): bool => in_array('id', $this->backups->columns($t), true)));
+                $stage->swap($tables, $staged, $withId, $run, $sha256, gmdate('Y-m-d H:i:s'));
+            } finally {
+                try {
+                    $stage->finish();
+                } catch (Throwable) {
+                    // the sweep drops the copies, and the lock expires (RestoreStage::LEASE)
+                }
+            }
+        } catch (WriteFailed $e) {
+            throw new UserError(self::FAILED, 0, $e);
+        } catch (LengthException) {
+            throw new UserError(self::TOO_LARGE);
+        } finally {
+            fclose($fh);
+        }
+    }
+
+    /**
+     * One table's rows (a list of values each), read from backup.json where its value starts.
+     *
+     * @param resource $fh
+     * @return \Generator<int, list<scalar|null>>
+     */
+    private function tableRows($fh, string $t, int $offset): \Generator
+    {
+        if (fseek($fh, $offset) !== 0) {
+            throw new WriteFailed('Database write failed: read ' . $t);
+        }
+        $r = new JsonReader($fh, self::DEPTH - 2, self::CHUNK, self::guard(), $offset);
+        foreach ($r->entries() as $k) {
+            if ($k === 'rows') {
+                foreach ($r->entries() as $_) {
+                    /** @var list<scalar|null> $row */
+                    $row = array_values((array)$r->value());
+                    yield $row;
+                }
+            }
         }
     }
 

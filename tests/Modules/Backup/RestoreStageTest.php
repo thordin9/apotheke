@@ -146,7 +146,7 @@ final class RestoreStageTest extends CIUnitTestCase
             }
         }
         $db = $this->target($driver);
-        $this->assertGreaterThan(0, RestoreStage::liveBytes($db));
+        $this->assertGreaterThan(0, (new RestoreStage(new LocalBatchExecutor($db)))->liveBytes());
     }
 
     /** The copies' prefix names no real table, and only carried tables and plain column names are staged. */
