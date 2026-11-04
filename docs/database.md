@@ -294,14 +294,22 @@ parts (P4-2b); until then only the list binding below (`SearchIndex`, `Stocktake
   [PostgreSQL role](deployment-and-operations.md#postgresql-role)). On a server with translated messages a guard
   failure is an ordinary failure (code 0); it still rolls back the whole unit.
 
-Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn)`; no call
-site uses it yet, P4-2b converts them): `$fn` reads
+Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn, $key)`; P4-2b
+converts the call sites): `$fn` reads
 as usual and queues its writes on the `UnitOfWork` it is given (`hold()`, `insert()` returning a `Ref`, `update()`,
 `write(…, $expect, $fail)` and `assert($condition, …, $fail)`). The writes run in order when `$fn` returns, as one
 atomic unit; they are not visible to `$fn`'s own reads.
 
 - On SQLite and PostgreSQL the unit is a real transaction (`Writes::transaction()`). A hold runs at once, so reads
-  after it happen under its lock; on SQLite a no-op write on `$table` takes the write lock first.
+  after it happen under its lock; on SQLite a no-op write on `$table` takes the write lock first. On PostgreSQL the
+  unit takes a transaction advisory lock on `$table` and `run()`'s optional `$key` before `$fn` reads:
+  - pass a `$key` where a row or a list is the real scope (an item id, a device's list); without one, every unit
+    on `$table` waits for the others;
+  - the lock is released at commit or rollback; a unit joined to a caller's transaction keeps it until the outer
+    commit;
+  - a unit waits at most `UnitsOfWork::LOCK_WAIT_MS` (5 s) for it, then answers 503;
+  - lock order: a caller that locks rows in its own transaction and then opens a unit takes the rows first and the
+    unit's lock second, on every path that takes both.
 - Inside a plain transaction that is already open, the unit runs under a `SAVEPOINT`. A failure rolls back the
   whole unit, its holds included, even when the outer caller catches the error and commits; the outer transaction
   carries on. On D1 there is no `SAVEPOINT` and a unit never nests in a plain transaction: it is one batch.
