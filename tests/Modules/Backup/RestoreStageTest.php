@@ -127,7 +127,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $this->assertSame([RestoreStage::copy('items')], $this->copies($dst));
         $this->assertSame([], $dst->query('SELECT * FROM ' . RestoreStage::copy('items'))->getResultArray());
         $stage->swap(['items'], ['items' => ['columns' => ['id', 'name', 'created_at', 'updated_at'], 'rows' => 0]], ['items'], 'run-2', str_repeat('b', 64), '2026-11-01 18:05:00');
-        $this->assertSame([false, true], [$stage->applied('run-1'), $stage->applied('run-2')], 'only the last swap is marked');
+        $this->assertSame([true, true, RestoreStage::REPLACED, RestoreStage::APPLIED], [$stage->applied('run-1'), $stage->applied('run-2'), $stage->outcome('run-1'), $stage->outcome('run-2')], 'L-1707: both kept, the first one replaced');
         $stage->drop();
         $this->assertSame([], $this->copies($dst));
     }
@@ -179,6 +179,100 @@ final class RestoreStageTest extends CIUnitTestCase
         $b->finish();
         $this->assertSame([], $this->copies($dst));
         $this->assertSame([['run' => 'run-b']], $dst->query('SELECT run FROM restore_marker')->getResultArray());
+    }
+
+    /**
+     * L-1708: each staged chunk renews the lock, so staging that runs well past LEASE keeps it; it is taken over
+     * only once LEASE has passed since the last chunk, and then the stopped stage can no longer write.
+     */
+    #[DataProvider('modes')]
+    public function testEachChunkRenewsTheLockUntilItIsReallyStale(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $at = time();
+        $clock = static function () use (&$at): int {
+            return $at;
+        };
+        $a = new RestoreStage(self::exec($db, $batch), $clock);
+        $b = new RestoreStage(self::exec($db, $batch), $clock);
+        $a->begin(['items']);
+        $cols = ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'];
+        for ($i = 1; $i <= 4; $i++) {   // one chunk each, LEASE - 10 seconds apart: 4 x that is well past LEASE
+            $at += RestoreStage::LEASE - 10;
+            $this->assertRefusedBusy($b);
+            $this->assertSame(1, $a->stage('items', $cols, [[$i, 'Row ' . $i, 1, '', 'row', '2026-01-02 08:00:00', '2026-01-02 08:00:00']]));
+        }
+        $at += RestoreStage::LEASE - 1;
+        $this->assertRefusedBusy($b);
+        $at += 2;
+        $b->claim();
+        try {
+            $a->stage('items', $cols, [[9, 'Late', 1, '', 'late', '2026-01-02 08:00:00', '2026-01-02 08:00:00']]);
+            $this->fail('a stage whose lock went stale and was taken over');
+        } catch (WriteFailed $e) {
+            $this->assertSame(BatchExecutor::GUARD_FAILED, $e->getCode());
+        }
+        $b->finish();
+    }
+
+    /**
+     * N-1711: without a test clock the lease is on the database's clock; N-1710: the sweep only reads when there is
+     * nothing to clear or the lock is held, and clears a stale lock with its copies.
+     */
+    #[DataProvider('modes')]
+    public function testTheLeaseUsesTheDatabaseClockAndTheSweepReadsFirst(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $runs = 0;
+        $exec = new class (self::exec($db, $batch), $runs) implements SqlExecutor {
+            public function __construct(private readonly SqlExecutor $inner, private int &$runs)
+            {
+            }
+
+            public function run(array $statements): array
+            {
+                $this->runs++;
+
+                return $this->inner->run($statements);
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                return $this->inner->query($sql, $params);
+            }
+
+            public function dialect(): Dialect
+            {
+                return $this->inner->dialect();
+            }
+
+            public function connection(): ?BaseConnection
+            {
+                return $this->inner->connection();
+            }
+        };
+        $this->assertTrue((new RestoreStage($exec))->sweep());
+        $this->assertSame(0, $runs, 'nothing to clear: no write');
+        $a = new RestoreStage(self::exec($db, $batch));
+        $a->begin(['items']);
+        $until = strtotime((string)$db->query("SELECT applied_at FROM restore_marker WHERE run = 'lock'")->getRowArray()['applied_at'] . ' UTC');
+        $this->assertEqualsWithDelta(time() + RestoreStage::LEASE, $until, 60);
+        $this->assertFalse((new RestoreStage($exec))->sweep());
+        $this->assertSame(0, $runs, 'a held lock: no write');
+        $db->query("UPDATE restore_marker SET applied_at = '2000-01-01 00:00:00' WHERE run = 'lock'");
+        $this->assertTrue((new RestoreStage($exec))->sweep());
+        $this->assertSame([], $this->copies($db));
+        $this->assertSame([], $db->query('SELECT run FROM restore_marker')->getResultArray());
+    }
+
+    private function assertRefusedBusy(RestoreStage $stage): void
+    {
+        try {
+            $stage->claim();
+            $this->fail('the lock is still held');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+        }
     }
 
     /** L-1701: the swap is one batch: every live table's delete and insert, the sequences and the marker in one run(). */

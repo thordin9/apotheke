@@ -483,7 +483,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   that path. One staged restore at a time (a lock row in `restore_marker`, checked by each batch). A stopped upload
   confirm is resolved from the marker; the upload sweep drops leftover copies. ADR-002 updated to design B. Tests:
   `StagedRestoreTest`, `RestoreStageTest` (both modes, SQLite and PostgreSQL). Open, in QA. Part 2b
-  (`feat/restore-staged-upgrade`, stacked): the 2.6.26 backup through the staged path in the upgrade gate, N-1704.
+  (`feat/restore-staged-upgrade`, stacked): the 2.6.26 backup through the staged path in the upgrade gate, N-1704, L-1707,
+  L-1708, N-1710, N-1711.
 
 ## Lanes
 

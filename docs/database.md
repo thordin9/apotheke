@@ -230,7 +230,7 @@ Notes:
 | 0029 | `0029_jobs.php` | `jobs` (background jobs for `php spark jobs:work`) + index on `(status, run_after, id)`. CI4 only (3.2.0 and later): 2.6.x ignores the table, a backup does not carry it or name the migration |
 | 0030 | `0030_import_rows.php` | `import_rows` (the CSV import job's lines, so a stopped job resumes). CI4 only, as 0029 |
 | 0031 | `0031_unit_of_work.php` | `uow_guard` and `uow_refs`, the batch unit of work's guard and id tables (ADR-002), empty outside a batch. CI4 only, as 0029 |
-| 0032 | `0032_restore_marker.php` | `restore_marker`, the run id and SHA-256 of the last staged restore swap (restore on the edge, below). CI4 only, as 0029; a rollback leaves it behind |
+| 0032 | `0032_restore_marker.php` | `restore_marker`, the run id and SHA-256 of the last 20 staged restore swaps (restore on the edge, below). CI4 only, as 0029; a rollback leaves it behind |
 
 ## PostgreSQL schema and roles
 
@@ -374,15 +374,16 @@ batch-only backend), and then every restore (web, API and command line) is stage
 
 One staged restore at a time: the lock is the `restore_marker` row with run `lock` (the holder's random token and
 an expiry). Every batch of the restore starts with a guard that it still holds it; each staged batch renews it,
-and a stopped restore's lock expires after `RestoreStage::LEASE` (5 minutes). A second restore meanwhile gets
-`409`. No shared table or index is changed for it.
+and a stopped restore's lock expires after `RestoreStage::LEASE` (2 minutes) on the database's clock, so every
+instance agrees on it. A second restore meanwhile gets `409`. No shared table or index is changed for it.
 
 Crash safety: before the swap nothing live has changed (the copies are leftovers); after it the restore is
-applied, and `applied(run)` reads that from `restore_marker`. A chunked upload found stopped while applying
+applied, and `applied(run)` reads that from `restore_marker`, which keeps the last 20 runs. A chunked upload found stopped while applying
 (`interrupted`) is resolved from the marker, with the upload's id as the run: `restored` (the rows are in; the
-camera links and settings steps after them did not run, which its warning says) or `failed` (nothing changed).
-The upload sweep (every restore API request, and `apotheke:restore-sweep`) drops leftover copies once no restore
-holds the lock. The upgrade gate (`scripts/upgrade-rollback.sh`, step 5b) restores a 2.6.26 backup through this
+camera links and settings steps after them did not run, which its warning says, and also when a later restore
+has replaced them since), `failed` (nothing changed), or `interrupted` (may have been applied) when its run is
+older than the runs kept. The upload sweep (every restore API request, and `apotheke:restore-sweep`) drops leftover
+copies once no restore holds the lock; it only reads unless there are copies or a stale lock to clear. The upgrade gate (`scripts/upgrade-rollback.sh`, step 5b) restores a 2.6.26 backup through this
 path in both modes, stopped before and after the swap, and checks rows, ids, sequences and `parent_id`.
 
 ## Writing a migration
