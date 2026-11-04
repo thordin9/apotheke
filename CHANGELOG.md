@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** restores on a batch-only database (the edge) are staged and swapped in at once, one at a time. Nothing changes for self-hosted restores.
+
 ## [3.16.0] - 2026-11-04
 
 **Note:** a new setting, `RESTORE_DB_MAX_MB` (default 0, no limit), and migration 0032 (`restore_marker`, CI4 only) prepare restores on the edge. Nothing changes for self-hosted restores yet.
