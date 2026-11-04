@@ -230,6 +230,7 @@ Notes:
 | 0029 | `0029_jobs.php` | `jobs` (background jobs for `php spark jobs:work`) + index on `(status, run_after, id)`. CI4 only (3.2.0 and later): 2.6.x ignores the table, a backup does not carry it or name the migration |
 | 0030 | `0030_import_rows.php` | `import_rows` (the CSV import job's lines, so a stopped job resumes). CI4 only, as 0029 |
 | 0031 | `0031_unit_of_work.php` | `uow_guard` and `uow_refs`, the batch unit of work's guard and id tables (ADR-002), empty outside a batch. CI4 only, as 0029 |
+| 0032 | `0032_restore_marker.php` | `restore_marker`, the run id and SHA-256 of the last staged restore swap (restore on the edge, below). CI4 only, as 0029; a rollback leaves it behind |
 
 ## PostgreSQL schema and roles
 
@@ -294,14 +295,22 @@ parts (P4-2b); until then only the list binding below (`SearchIndex`, `Stocktake
   [PostgreSQL role](deployment-and-operations.md#postgresql-role)). On a server with translated messages a guard
   failure is an ordinary failure (code 0); it still rolls back the whole unit.
 
-Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn)`; no call
-site uses it yet, P4-2b converts them): `$fn` reads
+Writes that belong together will run as a **unit of work** (`Services::unitsOfWork()->run($table, $fn, $key)`; P4-2b
+converts the call sites): `$fn` reads
 as usual and queues its writes on the `UnitOfWork` it is given (`hold()`, `insert()` returning a `Ref`, `update()`,
 `write(…, $expect, $fail)` and `assert($condition, …, $fail)`). The writes run in order when `$fn` returns, as one
 atomic unit; they are not visible to `$fn`'s own reads.
 
 - On SQLite and PostgreSQL the unit is a real transaction (`Writes::transaction()`). A hold runs at once, so reads
-  after it happen under its lock; on SQLite a no-op write on `$table` takes the write lock first.
+  after it happen under its lock; on SQLite a no-op write on `$table` takes the write lock first. On PostgreSQL the
+  unit takes a transaction advisory lock on `$table` and `run()`'s optional `$key` before `$fn` reads:
+  - pass a `$key` where a row or a list is the real scope (an item id, a device's list); without one, every unit
+    on `$table` waits for the others;
+  - the lock is released at commit or rollback; a unit joined to a caller's transaction keeps it until the outer
+    commit;
+  - a unit waits at most `UnitsOfWork::LOCK_WAIT_MS` (5 s) for it, then answers 503;
+  - lock order: a caller that locks rows in its own transaction and then opens a unit takes the rows first and the
+    unit's lock second, on every path that takes both.
 - Inside a plain transaction that is already open, the unit runs under a `SAVEPOINT`. A failure rolls back the
   whole unit, its holds included, even when the outer caller catches the error and commits; the outer transaction
   carries on. On D1 there is no `SAVEPOINT` and a unit never nests in a plain transaction: it is one batch.
@@ -317,10 +326,12 @@ atomic unit; they are not visible to `$fn`'s own reads.
   unit is a `BatchUnitOfWork`: nothing runs while `$fn` reads, and at the end every step goes out as one batch,
   holds first, with no `BEGIN` or `SAVEPOINT`. Guards are batch statements on `uow_guard`, `Ref`s go through
   `uow_refs` (migration 0031), and a failed batch is replayed in prefixes to throw the failed step's own error.
-  `LocalBatchExecutor` models D1's statement rules: it refuses more than one statement (a `CREATE TRIGGER` body
-  aside), transaction statements, PRAGMAs D1 does not document, `ATTACH`, `DETACH`, `VACUUM`, `ANALYZE`, `REINDEX`,
-  `sqlite_*()` calls and more than 100 parameters, and lets through what D1 documents (its PRAGMA list, writes to
-  `sqlite_sequence`). Statements are read with each dialect's quoting and comments; one it cannot read is refused.
+  `LocalBatchExecutor` models D1's statement rules: a step is one statement (a `CREATE TRIGGER` body aside, on
+  SQLite only) that starts with `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, `WITH`, `VALUES`, `CREATE`,
+  `DROP`, `ALTER` or a PRAGMA D1 documents (`optimize` without a value); anything else (transaction statements,
+  `ATTACH`, `VACUUM`, `SET`, `DO`, `COPY`, ...) is refused, as are `sqlite_*()` and `set_config()` calls and more
+  than 100 parameters. Writes to `sqlite_sequence` pass. Statements are read with each dialect's quoting, comments
+  and whitespace; one it cannot read is refused.
   The unit-of-work tests run every case in both modes on SQLite and PostgreSQL.
 - A hold, write or assert needs one bind per `?` placeholder (outside quotes; a `?` or `'` inside a quoted name is
   refused, as CI4's binder would read it differently), and a hold cannot bind the `Ref` of a
@@ -337,6 +348,28 @@ Rules for new SQL, so it also runs on D1:
   opened. A runner on a backend that does not allow `sqlite_version()` (D1, the P4-3 edge runner) passes
   `checkSqliteVersion: false` to `PdoMigrationRunner`. A value that is not valid UTF-8 throws `WriteFailed`.
 - No `BEGIN`, `COMMIT` or `SAVEPOINT` of your own, and no `sqlite_*()` functions.
+
+### Restore on the edge
+
+A batch-only backend (D1, Durable Object SQLite) cannot run a whole restore as one transaction, so
+`Backup\RestoreStage` stages it and swaps it in with one batch (ADR-002, P4-2b). Self-hosted installs keep
+`Restorer`'s streaming path; the restore API uses the stage from P4-2b part 2.
+
+1. Pre-flight: with `RESTORE_DB_MAX_MB` set, the current data and the staged copies must fit together
+   (max(live, staged) + staged), or the restore is refused before anything is written (`413`).
+2. `begin()` drops any leftover copies and creates an empty `apotheke_stage_<table>` copy of each carried table.
+   No carried, CI4-only or SQLite/D1 table uses that prefix, and a backup never carries the copies.
+3. `stage()` fills a copy in statements of one bind each (at most 512 KB of JSON, read with `json_each` or
+   `json_populate_recordset`), so no statement passes D1's parameter or size limits.
+4. `swap()` is one batch: deferred foreign keys, a guard per copy that it holds every staged row, the live tables
+   emptied (children first) and filled from the copies (parents first, so a `parent_id` to a later row is fine),
+   the sequences moved past the restored ids and the history, and the `restore_marker` row with the run id and
+   SHA-256 (migration 0032).
+5. `drop()` removes the copies.
+
+Crash safety: before the swap nothing live has changed (the copies are leftovers, dropped by the next restore);
+after it the restore is applied, and `applied(run)` reads that from `restore_marker`, so a restore found
+`interrupted` can be told apart from one that never swapped.
 
 ## Writing a migration
 

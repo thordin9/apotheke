@@ -10,6 +10,7 @@ use Apotheke\Catalog\Items\PhotoRepository;
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Config\DatabaseFactory;
 use Apotheke\Core\Config\DsnTranslator;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
@@ -150,7 +151,7 @@ final class TestDatabase
      *
      * @param BaseConnection<object|resource, object|resource>|null $db
      */
-    public function items(?BaseConnection $db = null): ItemRepository
+    public function items(?BaseConnection $db = null, ?UnitsOfWork $units = null): ItemRepository
     {
         $db ??= $this->db;
         $clock = new Clock();
@@ -165,7 +166,7 @@ final class TestDatabase
         });
 
         return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history), new TagRepository($db, $clock),
-            $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo));
+            $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo), $units);
     }
 
     /** A raw PDO on the same database, for test fixtures. */

@@ -7,7 +7,7 @@
 #   directory and database. After every step the normalised DB dump and the sha256 of images/, thumbs/, originals/
 #   (map/ included) and files/ must equal the seeded state, originals must be 0750/0640 and files/ 0750
 #   (tests/upgrade/). Last, mutation checks prove that an emptied or dropped table, a changed or missing attachment
-#   and a wrong mode (an original, files/) fail. The CI4-only additions (0029 jobs, 0030 import_rows and 0031 uow_guard, uow_refs, with rows seeded after the
+#   and a wrong mode (an original, files/) fail. The CI4-only additions (0029 jobs, 0030 import_rows, 0031 uow_guard, uow_refs and 0032 restore_marker, with rows seeded after the
 #   upgrade) must stay through the rollback and both in-place restores, and the CI4 backup must not name them.
 # Env: DB_DRIVER=sqlite|pgsql (pgsql: TEST_PG_HOST, TEST_PG_PORT, TEST_PG_DB, TEST_PG_USER, TEST_PG_PASSWORD),
 #      PHP83 and PHP84 (default php8.3, php8.4), UPGRADE_WORK (a path that must not exist yet; default: a new
@@ -86,7 +86,7 @@ export UPGRADE_FILES_MODE
 
 snap() { "$PHP84" "$ROOT/tests/upgrade/snapshot.php" --scope="$1" > "$WORK/$2.json"; }
 check() { "$PHP84" "$ROOT/tests/upgrade/compare.php" "$1" "$WORK/$2.json" "$WORK/$3.json" || fail=1; }
-# The CI4-only additions (0029 jobs, 0030 import_rows, 0031 uow_guard and uow_refs), which the snapshots leave out: seeded once after CI4 migrated, then checked
+# The CI4-only additions (0029 jobs, 0030 import_rows, 0031 uow_guard and uow_refs, 0032 restore_marker), which the snapshots leave out: seeded once after CI4 migrated, then checked
 # after every step that keeps the install (tests/upgrade/ci4-only.php).
 ci4only() { "$PHP84" "$ROOT/tests/upgrade/ci4-only.php" "$@" || fail=1; }
 # A mutation must make the check fail with a DIFF or FAIL line that names what it mutated (the table, or the file
@@ -163,7 +163,7 @@ serve_check legacy "$PHP83"
 snap all legacy-served
 check 'legacy@8.3 served' seeded legacy-served
 
-# 2. Upgrade: CI4@8.4 on the same data directory and database. Its own migrations (0029 to 0031) run first, as
+# 2. Upgrade: CI4@8.4 on the same data directory and database. Its own migrations (0029 to 0032) run first, as
 # on a deploy or the first request; they only add what 2.6.x ignores (tests/upgrade/lib.php upg_ci4_only()).
 "$PHP84" "$ROOT/bin/migrate.php" > "$WORK/migrate-ci4.txt" 2>&1 || { cat "$WORK/migrate-ci4.txt"; echo "FAIL ci4: bin/migrate.php"; fail=1; }
 status_check ci4 "$PHP84"

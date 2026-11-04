@@ -459,8 +459,25 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#219](https://github.com/thordin9/apotheke/pull/219), follow-up to #217 with QA items L-1660, L-1661, N-1662 and N-1663: a unit on PostgreSQL
   takes a transaction advisory lock on its table (and key) before it reads, as SQLite's write lock does, so
   concurrent saved filters get the same 409/422 on every path; recently viewed locks per list. No schema change
-  (2.6.x shares the tables). Tests for the prune across lists, the refresh, the sweep and the lines' home. Open
-  for QA's full gate.
+  (2.6.x shares the tables). Tests for the prune across lists, the refresh, the sweep and the lines' home. Merged
+  (2d0bdcb), released as v3.15.4.
+- [#221](https://github.com/thordin9/apotheke/pull/221) (P4-2b, part 2): the item-history sites. `ItemHistory::queue()` writes
+  history through a unit (a `Ref` for a new item); attachments add and delete and the item delete run as one unit
+  per item, in both modes. First #219's L-1664 and N-1665: the PostgreSQL lock waits at most 5 s, then 503; units
+  key their lock by row or list; the lock order is in `docs/database.md`. Left with reasons in the PR: tags and
+  taxonomy create (they join item save, merge, undo and the import rows, which stay savepoint-free), first admin
+  (with the guarded user sites). Tests: `UnitOfWorkHistorySitesTest`, `UnitOfWorkLockTest`. Merged (8dccef2).
+- [#220](https://github.com/thordin9/apotheke/pull/220), follow-up to #218 with QA items L-1647 to N-1651: a batch
+  step must start with an allow-listed keyword (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REPLACE`, `WITH`,
+  `VALUES`, `CREATE`, `DROP`, `ALTER`, a documented PRAGMA), whitespace is matched with `\s`, the trigger-body
+  exception is SQLite-only and `PRAGMA optimize` takes no value. The restore upload sweep checks an upload's age
+  before taking its lock, so a create replacing the same account's upload is no longer answered 409 (N-1651).
+  Tests: `SqlExecutorTest`, `RestoreUploadsTest`, SQLite and PostgreSQL. Merged, released as v3.15.5.
+- [#223](https://github.com/thordin9/apotheke/pull/223) (P4-2b, restore on the edge, part 1): `RestoreStage` stages a restore into
+  `apotheke_stage_*` copies in one-bind chunks and swaps them in with one batch (deferred foreign keys, row-count
+  guards, sequences, `restore_marker` from migration 0032, CI4 only); `RESTORE_DB_MAX_MB` pre-flight. Tests:
+  `RestoreStageTest` (both modes, SQLite and PostgreSQL, 100k rows on the D1 stand-in). Part 2 wires it into the
+  restore API and the sweep. Passed QA; open, awaiting merge.
 
 ## Lanes
 
@@ -542,9 +559,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   batch N-1591 to N-1595 (#213) is merged (v3.14.2), and its follow-up N-1634 to N-1636 (#215) too (v3.15.1). P4-1
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is done: the executor adapter (#209), the unit of
   work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0); its follow-up #216 is merged (v3.15.2);
-  N-1640 waits for P4-3. #218 (L-1643, N-1644 to N-1646, the batch filter) is merged (v3.15.3). P4-2b (the
-  transaction sites onto the unit of work: batch and Ref first, then guards, then the large paths) part 1 (#217) is
-  merged; its follow-up #219 is with QA, then part 2, then P4-3 (D1 driver and bridge) to P4-5.
+  N-1640 waits for P4-3. #218 (the batch filter) is merged (v3.15.3); its follow-up #220 (batch allow-list and
+  sweep fix) is merged (v3.15.5). P4-2b part 1 (#217), #219 and part 2 (#221, the item-history sites) are
+  merged. Restore staging PR 1 (#223) is open, awaiting merge. Next: restore PR 2 (design B wiring, sweep of leftover stage copies,
+  the 2.6.26 round trip, one staged restore at a time, a single-batch swap test, ADR-002, preflight wiring) and the
+  L-1666/L-1667 fixes; then the guarded sites, item save with tags and taxonomy create, the large paths, and P4-3
+  (D1 driver and bridge) to P4-5.
   DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.
