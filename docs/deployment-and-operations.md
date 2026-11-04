@@ -642,9 +642,10 @@ Flip in this order. Every step except the last two is additive; nothing is delet
 
    The ADR's item 5 (the one-time steps) is the rest of this checklist.
 2. **Token for creating the resources** (the operator's own, from a trusted machine, not CI; separate from the CI
-   token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Write*, on this account only,
+   token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Edit*, on this account only,
    with a TTL and ideally an IP filter ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)).
-   Setting the Worker secrets in step 6 needs *Editor* on the Worker (or *Workers Scripts > Edit*). In the environment only:
+   Setting the Worker secrets in step 6 needs *Individual Workers > Editor* on the Worker (or
+   *Account > Workers Scripts > Edit*). In the environment only:
    `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
 3. **Create D1 and R2 in the EU jurisdiction.** The jurisdiction can't be changed after creation, for either. With a
    jurisdiction, a D1 location hint (`--location weur`) is ignored, so don't pass one. In `edge/` (the pinned wrangler):
