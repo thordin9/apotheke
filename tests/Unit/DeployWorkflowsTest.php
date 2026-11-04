@@ -297,12 +297,13 @@ final class DeployWorkflowsTest extends TestCase
         yield 'frontend' => ['deploy-frontend.yml'];
         yield 'edge' => ['deploy-edge.yml'];
         yield 'edge-local' => ['edge-local.yml'];
+        yield 'frontend-pr' => ['frontend.yml'];
     }
 
     #[DataProvider('npmWorkflows')]
     public function testEveryNpmCiSkipsInstallScripts(string $file): void
     {
-        // N-1436 (deploy) and N-1462 (PR and test jobs): the same install everywhere, so a dependency that needs an
+        // N-1436 (deploy), N-1462 (PR and test jobs) and N-1489 (frontend.yml): the same install everywhere, so a dependency that needs an
         // install script fails on the pull request, not at release time.
         $yml = $this->workflow($file);
         $all = preg_match_all('/run: [^\n]*npm ci\b/', $yml);
