@@ -13,19 +13,19 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   notes are in the [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-1 and P4-2a are merged; P4-2b part 1
   (#217), #219, part 2 (#221, item-history sites), #220 (batch allow-list, v3.15.5) and restore staging PR 1 (#223,
-  v3.16.0) are merged.
+  v3.16.0) and part 2a (#227, unreleased) are merged.
 
 ## Open pull requests
 
-- #227 (`feat/restore-staged-wiring`): restore part 2a, the staged restore wired into the restore path. In QA.
+- None from Coder2's restore lane: #227 (restore part 2a, the staged restore wired into the restore path) is merged
+  (unreleased). Part 2b is in progress.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Restore part 2 (design B): Restorer wiring, sweep of leftover stage copies, the 2.6.26 round trip, one staged
-   restore at a time (a lock, not a shared schema change), a single-batch swap test, ADR-002 update, preflight on
-   the call path; plus the L-1666/L-1667 fixes.
+1. Restore part 2b (in progress): the 2.6.26 staged round trip in the upgrade gate, N-1704, L-1707, L-1708,
+   N-1710, N-1711; plus the L-1666/L-1667 fixes.
 2. P4-2b remaining sites: guarded sites, item save with tags and taxonomy create, the large paths.
 3. P4-3 (D1 driver and bridge, with N-1640) to P4-5. DevOps owns the bindings and the `EDGE_STORAGE_READY` flip
    checklist (#204, #208); N-1442 follows with P4.

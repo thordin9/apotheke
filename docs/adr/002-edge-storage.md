@@ -219,11 +219,24 @@ fail on every backend.
 
 **The large paths** run differently by mode:
 
-- **Hosted (Durable Object SQLite):** the restore, the search rebuild and very large bulk actions run inside a
-  Durable Object transaction (`transactionSync`). The object owns its storage, so they stay all-or-nothing.
+- **Restore, on D1 and Durable Object SQLite (design B, P4-2b):** staged, then swapped in by one batch
+  (`Backup\RestoreStage`, [Restore on the edge](../database.md#restore-on-the-edge)). This replaces the earlier
+  plan of a Time Travel bookmark with chunked batches. It needs no Cloudflare API from PHP, and no state outside
+  the database.
+  - A pre-flight on the staged size (`RESTORE_DB_MAX_MB`) refuses a backup that would not fit next to the current
+    data, before anything is written.
+  - The rows go into `apotheke_stage_<table>` copies in small batches, one bind of JSON each. The live tables
+    are not touched.
+  - One batch then swaps them in: deferred foreign keys, guards, the live tables replaced, the sequences moved,
+    and the run marked in `restore_marker` (migration 0032, CI4 only). A restore stopped before the swap changed
+    nothing; one stopped after it is applied, and the marker says so (`interrupted` uploads are resolved from it).
+  - One staged restore at a time: a lock row in `restore_marker` with an expiry, checked by every batch of the
+    restore, so one that lost the lock can neither stage nor swap. No shared table changes (the backport rule).
+  - The restore sweep drops a stopped restore's leftover copies once its lock expired.
+  - Self-hosted Docker keeps `Restorer`'s single-transaction streaming path.
+- **Hosted (Durable Object SQLite):** the search rebuild and very large bulk actions run inside a Durable Object
+  transaction (`transactionSync`). The object owns its storage, so they stay all-or-nothing.
 - **Self-hosted on D1:** they run as chunked compensating work.
-  - The restore runs behind a maintenance flag, with a Time Travel bookmark taken first and about 1,000 rows per
-    batch with `defer_foreign_keys`. On failure, the database goes back to the bookmark.
   - The search rebuild is derived data. It is rebuilt in chunks, and the fingerprint is written last, so a stopped
     rebuild just starts again.
   - Bulk actions keep per-item atomicity, and the undo token is idempotent.
@@ -353,7 +366,8 @@ A change that touches the other side's files is agreed first and reviewed by tha
   `sqlite_*()` functions, and no dropped parent tables in migrations.
 - Ids from `lastInsertId` are never used for writes inside a unit. Callers that need an id at once can't run as a
   joined unit.
-- On plain D1 the large paths lose single-transaction atomicity and rely on the bookmark, idempotent rebuilds and
-  resume tests. In hosted mode they keep it.
+- On plain D1 the search rebuild and large bulk actions lose single-transaction atomicity and rely on idempotent
+  rebuilds and resume tests; in hosted mode they keep it. The restore stays all-or-nothing on both through its
+  one swap batch, at the cost of room for a second copy of the data (the pre-flight).
 - Installation identity and the R2 prefix live only in `edge/src`. A PHP change can't reach another installation's
   data, because PHP has no say in which data it gets.

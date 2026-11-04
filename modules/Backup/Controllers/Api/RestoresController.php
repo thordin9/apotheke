@@ -103,7 +103,7 @@ final class RestoresController extends Controller
             @set_time_limit(300);
             $restorer = $this->restorer();
             $settings = $this->may('settings');   // N-443: the backup's settings only for a user who may change them
-            $done = $this->uploads()->confirm($id, static fn (string $zip): array => $restorer->restore($zip, $settings));
+            $done = $this->uploads()->confirm($id, static fn (string $zip): array => $restorer->restore($zip, $settings, $id));
 
             return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
                 'warnings' => $done['warnings'], 'token_cleared' => $done['token_cleared']]);

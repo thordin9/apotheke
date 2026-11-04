@@ -1199,7 +1199,16 @@ class Services extends BaseService
 
         return new \Apotheke\Backup\Restorer($db, static::backups(false, $settings), $settings, static::undoTokens(), static function (): array {
             return array_keys((new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->available());
-        }, new \Apotheke\Core\Storage\LocalStorage($config->dataDir()), new \Apotheke\Core\Storage\LocalStorage($config->originalsDir(), 0640), (int)$settings->get('image_thumb_max'), static::requestCleanup());
+        }, new \Apotheke\Core\Storage\LocalStorage($config->dataDir()), new \Apotheke\Core\Storage\LocalStorage($config->originalsDir(), 0640), (int)$settings->get('image_thumb_max'), static::requestCleanup(),
+            static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576);
+    }
+
+    /** A batch-only database's executor (D1, Durable Object SQLite): restores there are staged (P4-2b). Else null. */
+    public static function stagedExecutor(): ?\Apotheke\Core\Database\SqlExecutor
+    {
+        $exec = static::sqlExecutor();
+
+        return $exec->connection() === null ? $exec : null;
     }
 
     /**
@@ -1226,7 +1235,11 @@ class Services extends BaseService
 
                 return (new \Apotheke\Auth\UserRepository($db))->createdAt($id);
             });
-        }, (int)$uploads['restore_max_uploads']);
+        }, (int)$uploads['restore_max_uploads'], null, null, static function (): ?\Apotheke\Backup\RestoreStage {
+            $staged = static::stagedExecutor();
+
+            return $staged === null ? null : new \Apotheke\Backup\RestoreStage($staged);
+        });
     }
 
     /**

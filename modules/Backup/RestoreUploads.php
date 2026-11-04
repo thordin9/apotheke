@@ -19,6 +19,9 @@ use Closure;
  * uploads idle for IDLE_FULL seconds give way). A confirmed upload keeps only its manifest with the outcome (status restored, failed or interrupted, `result`), so a
  * client that lost the answer reads it. Confirm writes status applying (with the backup's SHA-256, `fingerprint`)
  * before the restore; found again with nobody holding the lock, the restore stopped and it becomes interrupted.
+ * On a batch-only database ($stage gives a RestoreStage) a staged restore's marker tells instead: restored when its swap committed
+ * (RestoreStage::applied() with the upload's id as the run), else failed with nothing changed; and the sweep also
+ * drops a stopped restore's leftover copies (N-1705).
  *
  * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>}
  */
@@ -39,6 +42,12 @@ final class RestoreUploads
 
     /** N-1591: create.lock cannot be used (no path in the message). */
     public const LOCK_UNUSABLE = 'Restore uploads cannot be started on this server right now. Ask the administrator to check the data folder.';
+
+    /** A staged restore that stopped after its swap: the rows are in, the steps after them did not run. */
+    public const APPLIED_AFTER_STOP = 'The restore was interrupted after the catalog data was replaced. Check the photos, camera files and settings.';
+
+    /** A staged restore that stopped before its swap. */
+    public const NOT_APPLIED = 'The restore was interrupted before the catalog data was replaced. Nothing was changed. Start the upload again.';
 
     /** N-1592: idle seconds after which another account's unconfirmed upload gives way while the cap is reached. */
     public const IDLE_FULL = 600;
@@ -73,6 +82,8 @@ final class RestoreUploads
      * @param int $maxOpen most uploads not yet confirmed, all accounts together
      * @param ?Closure(string):?float $freeBytes free bytes on the folder's disk, null when unknown (disk_free_space())
      * @param ?Closure(string):void $afterLock a test seam: runs on the manifest's path once it is locked, before the checks again
+     * @param ?Closure():?RestoreStage $stage a batch-only database's restore stage (staged restores), else null; asked
+     *                                     only when needed, so the sweep needs no database elsewhere
      */
     public function __construct(
         private readonly string $dataDir,
@@ -82,6 +93,7 @@ final class RestoreUploads
         private readonly int $maxOpen = 8,
         ?Closure $freeBytes = null,
         ?Closure $afterLock = null,
+        private readonly ?Closure $stage = null,
     ) {
         $this->freeBytes = $freeBytes ?? static fn (string $dir): ?float => is_float($f = @disk_free_space($dir)) ? $f : null;
         $this->afterLock = $afterLock ?? static function (string $file): void {
@@ -349,6 +361,7 @@ final class RestoreUploads
                 self::clear($root . '/' . $n);
             }
         }
+        $this->stage()?->sweep();
 
         return $root;
     }
@@ -459,7 +472,7 @@ final class RestoreUploads
             $m = self::decode((string)stream_get_contents($fh)) ?? throw new UserError(self::NOT_FOUND, 404);
             if ($m['status'] === 'applying') {   // N-1594: nobody holds the lock, so that restore has stopped
                 @unlink($dir . '/' . self::ZIP);
-                $m = self::write($fh, ['status' => 'interrupted', 'result' => ['error' => self::INTERRUPTED, 'sha256' => $m['fingerprint'] ?? null]] + $m, true);
+                $m = self::write($fh, $this->stopped($id, $m), true);
             }
             @touch($file);   // a request keeps the upload from the idle sweep
 
@@ -470,6 +483,32 @@ final class RestoreUploads
                 fclose($fh);
             }
         }
+    }
+
+    /**
+     * The outcome of a restore found stopped: interrupted, or with a staged restore what its marker says.
+     *
+     * @param Manifest $m
+     * @return Manifest
+     */
+    private function stopped(string $id, array $m): array
+    {
+        try {
+            $applied = $this->stage()?->applied($id);
+        } catch (\Throwable) {
+            $applied = null;   // unreadable: may have been applied
+        }
+
+        return match ($applied) {
+            true => ['status' => 'restored', 'result' => ['tables' => [], 'photos' => 0, 'warnings' => [self::APPLIED_AFTER_STOP], 'token_cleared' => false]] + $m,
+            false => ['status' => 'failed', 'result' => ['error' => self::NOT_APPLIED]] + $m,
+            null => ['status' => 'interrupted', 'result' => ['error' => self::INTERRUPTED, 'sha256' => $m['fingerprint'] ?? null]] + $m,
+        };
+    }
+
+    private function stage(): ?RestoreStage
+    {
+        return $this->stage === null ? null : ($this->stage)();
     }
 
     /** @return Manifest|null */
