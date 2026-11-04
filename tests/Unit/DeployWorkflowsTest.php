@@ -298,6 +298,9 @@ final class DeployWorkflowsTest extends TestCase
         yield 'edge' => ['deploy-edge.yml'];
         yield 'edge-local' => ['edge-local.yml'];
         yield 'frontend-pr' => ['frontend.yml'];
+        yield 'ci' => ['ci.yml'];
+        yield 'snapshots' => ['snapshots.yml'];
+        yield 'update-snapshots' => ['../../scripts/update-snapshots.sh'];
     }
 
     #[DataProvider('npmWorkflows')]
@@ -305,10 +308,15 @@ final class DeployWorkflowsTest extends TestCase
     {
         // N-1436 (deploy), N-1462 (PR and test jobs) and N-1489 (frontend.yml): the same install everywhere, so a dependency that needs an
         // install script fails on the pull request, not at release time.
-        $yml = $this->workflow($file);
-        $all = preg_match_all('/run: [^\n]*npm ci\b/', $yml);
+        // N-1549/N-1550: every npm ci, npm install or npm i anywhere (run: | blocks and scripts too), skipping comments and step names.
+        $yml = preg_replace('/^\s*(#|-? *name:).*$/m', '', $this->workflow($file));
+        $all = preg_match_all('/\bnpm (ci|install|i)\b[^\n&;|\'"]*/', $yml, $m);
         $this->assertGreaterThan(0, $all);
-        $this->assertSame($all, substr_count($yml, 'npm ci --ignore-scripts --no-audit --no-fund'));
+        foreach ($m[0] as $call) {
+            foreach (['ci', '--ignore-scripts', '--no-audit', '--no-fund'] as $flag) {
+                $this->assertMatchesRegularExpression('/ ' . preg_quote($flag, '/') . '( |$)/', $call, "$file: $call");
+            }
+        }
     }
 
     #[DataProvider('deploys')]

@@ -165,7 +165,7 @@ jobs:
       - name: PHPUnit with coverage (module and root suites and their php -S requests, Playwright test counts)
         if: matrix.db == 'sqlite'
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           PHPUNIT_ARGS="--log-junit $RUNNER_TEMP/junit.xml" bash scripts/coverage.sh --no-readme
           php scripts/coverage-readme.php coverage --print >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage report (clover XML + HTML; used by the release workflow)
@@ -205,7 +205,7 @@ jobs:
           cache: npm
           cache-dependency-path: tests/e2e/package-lock.json
       - name: Install puppeteer-core
-        run: npm ci --prefix tests/e2e
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix tests/e2e
       - name: Start app and seed demo data
         run: |
           mkdir -p /tmp/e2e-data
@@ -250,7 +250,7 @@ jobs:
       - name: Install PHP ${{ matrix.php }}
         run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
-        run: npm ci --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       # Specs that need an unported page skip (CI4_UNPORTED in tests/visual/fixtures.ts, listed in docs/HANDOFF.md).
       - name: Install the runtime (intl, Composer, vendor)
         run: |
@@ -506,7 +506,7 @@ jobs:
           E2E_DOCKER_IMAGE: apotheke:ci
           CI: '1'
         run: |
-          npm ci --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund
           npx playwright install --with-deps chromium
           npx playwright test --project=docker-smoke
       - name: Upload Playwright report
