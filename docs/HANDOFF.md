@@ -459,8 +459,14 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
 - [#219](https://github.com/thordin9/apotheke/pull/219), follow-up to #217 with QA items L-1660, L-1661, N-1662 and N-1663: a unit on PostgreSQL
   takes a transaction advisory lock on its table (and key) before it reads, as SQLite's write lock does, so
   concurrent saved filters get the same 409/422 on every path; recently viewed locks per list. No schema change
-  (2.6.x shares the tables). Tests for the prune across lists, the refresh, the sweep and the lines' home. Open
-  for QA's full gate.
+  (2.6.x shares the tables). Tests for the prune across lists, the refresh, the sweep and the lines' home. Merged
+  (2d0bdcb), released as v3.15.4.
+- [#221](https://github.com/thordin9/apotheke/pull/221) (P4-2b, part 2): the item-history sites. `ItemHistory::queue()` writes
+  history through a unit (a `Ref` for a new item); attachments add and delete and the item delete run as one unit
+  per item, in both modes. First #219's L-1664 and N-1665: the PostgreSQL lock waits at most 5 s, then 503; units
+  key their lock by row or list; the lock order is in `docs/database.md`. Left with reasons in the PR: tags and
+  taxonomy create (they join item save, merge, undo and the import rows, which stay savepoint-free), first admin
+  (with the guarded user sites). Tests: `UnitOfWorkHistorySitesTest`, `UnitOfWorkLockTest`. Open for QA's full gate.
 
 ## Lanes
 
@@ -544,7 +550,9 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0); its follow-up #216 is merged (v3.15.2);
   N-1640 waits for P4-3. #218 (L-1643, N-1644 to N-1646, the batch filter) is merged (v3.15.3). P4-2b (the
   transaction sites onto the unit of work: batch and Ref first, then guards, then the large paths) part 1 (#217) is
-  merged; its follow-up #219 is with QA, then part 2, then P4-3 (D1 driver and bridge) to P4-5.
+  and its follow-up #219 are merged; part 2 (#221, the item-history sites) is with QA. Next, as the PM decided, the
+  restore on the batch path: staged copies plus an atomic swap in batch mode, in two PRs. Then the guarded sites,
+  item save with tags and taxonomy create, the large paths, and P4-3 (D1 driver and bridge) to P4-5.
   DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
 0. #168 (historical branch wording) goes through QA's light gate, then the PM merges it.

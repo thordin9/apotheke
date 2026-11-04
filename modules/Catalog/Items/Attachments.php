@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Catalog\Items;
 
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -28,7 +30,12 @@ final class Attachments
         'webp' => ['image/webp', 'WebP'],
     ];
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly Clock $clock,
@@ -38,7 +45,9 @@ final class Attachments
         private readonly string $types,
         private readonly int $maxMb,
         private readonly int $maxPerItem,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     public static function validName(?string $n): bool
@@ -143,13 +152,14 @@ final class Attachments
                 $this->files->write('files/' . $file, $bytes);
                 $stored[] = [$file, self::displayName($f['name'], $ext), self::TYPES[$ext][0], $size];
             }
-            Writes::transaction($this->db, function () use ($itemId, $it, $stored): void {
+            // One unit of work per item (ADR-002, batch): the rows, their history and the item's updated_at.
+            $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $it, $stored): void {
                 foreach ($stored as [$file, $name, $mime, $size]) {
-                    Writes::check($this->db->table('item_attachments')->insert(['item_id' => $itemId, 'file' => $file, 'name' => $name, 'mime' => $mime, 'size' => $size, 'created_at' => $this->clock->now()]), 'add attachment');
-                    $this->history->log($itemId, (string)$it['name'], 'attachment', ['change' => 'added', 'file' => $name]);
+                    $uow->insert('item_attachments', ['item_id' => $itemId, 'file' => $file, 'name' => $name, 'mime' => $mime, 'size' => $size, 'created_at' => $this->clock->now()], 'add attachment');
+                    $this->history->queue($uow, $itemId, (string)$it['name'], 'attachment', ['change' => 'added', 'file' => $name]);
                 }
-                Writes::check($this->db->table('items')->where('id', $itemId)->update(['updated_at' => $this->clock->now()]), 'touch item');
-            });
+                $uow->update('items', ['updated_at' => $this->clock->now()], ['id' => $itemId], 'touch item');
+            }, (string)$itemId);
         } catch (Throwable $e) {
             foreach ($stored as [$file]) {
                 $this->files->delete('files/' . $file);
@@ -168,10 +178,10 @@ final class Attachments
             throw new UserError('Attachment not found.', 404);
         }
         $it = $this->items->get($itemId);
-        Writes::transaction($this->db, function () use ($a, $it): void {
-            Writes::check($this->db->table('item_attachments')->where('id', $a['id'])->delete(), 'delete attachment');
-            $this->history->log($a['item_id'], (string)($it['name'] ?? ''), 'attachment', ['change' => 'removed', 'file' => $a['name']]);
-        });
+        $this->units->run('items', function (UnitOfWork $uow) use ($a, $it): void {
+            $uow->write('DELETE FROM item_attachments WHERE id = ?', [$a['id']], 'delete attachment');
+            $this->history->queue($uow, $a['item_id'], (string)($it['name'] ?? ''), 'attachment', ['change' => 'removed', 'file' => $a['name']]);
+        }, (string)$a['item_id']);
         $this->items->deleteAttachmentFile($a['file']);
     }
 }

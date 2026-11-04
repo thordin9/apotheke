@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** on PostgreSQL, a change that has to wait more than 5 seconds for another one on the same item or list now answers "The database is busy. Try again in a moment." (503) instead of waiting. Adding or removing an attachment and deleting an item now write their history through the unit of work (P4-2b, part 2); nothing else changes for users.
+
 ### Maintenance
 
 - **ci:** the edge storage merge refuses empty fragment Durable Object migrations and bindings whose class no fragment migration creates; the flip checklist notes the token for new Durable Object migrations and names token permissions consistently ([#222](https://github.com/thordin9/apotheke/pull/222))

@@ -73,13 +73,13 @@ final class Stocktakes
         if ($this->taxonomy->get('location', $locationId) === null) {
             throw new UserError('That location no longer exists.', 404);
         }
-        $open = Writes::rows($this->db, "SELECT id FROM stocktakes WHERE status = 'open' AND location_id = ? ORDER BY id DESC LIMIT 1", [$locationId])[0] ?? null;
-        if ($open !== null) {
-            return (int)$open['id'];
-        }
-
-        // One unit of work (ADR-002, Ref): the lines refer to the stocktake before it has its id.
-        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($locationId): Ref {
+        // One unit of work (ADR-002, Ref), locked per location (N-1665): the lines refer to the stocktake before it has
+        // its id, and the open stocktake is read under the lock, so two starts at once give one stocktake.
+        $r = $this->units->run('stocktakes', function (UnitOfWork $uow) use ($locationId): int|Ref {
+            $open = Writes::rows($this->db, "SELECT id FROM stocktakes WHERE status = 'open' AND location_id = ? ORDER BY id DESC LIMIT 1", [$locationId])[0] ?? null;
+            if ($open !== null) {
+                return (int)$open['id'];
+            }
             $byId = $this->taxonomy->locationsById();
             $id = $uow->insert('stocktakes', ['location_id' => $locationId, 'location_name' => (string)($byId[$locationId]['path'] ?? ''), 'status' => 'open',
                 'started_at' => $this->clock->now(), 'summary' => '{}'], 'start stocktake');
@@ -91,7 +91,9 @@ final class Stocktakes
             }
 
             return $id;
-        })->id();
+        }, (string)$locationId);
+
+        return $r instanceof Ref ? $r->id() : $r;
     }
 
     /** @return list<Line> */
