@@ -13,7 +13,8 @@ use Psr\Log\LoggerInterface;
 
 /**
  * apotheke:restore-sweep: remove the chunked restore uploads (DATA_DIR/uploads/restore) idle for an hour or more.
- * The API also sweeps them on every request; this is for a cron job. Needs no database and creates no folder.
+ * The API also sweeps them on every request; this is for a cron job. Creates no folder, and needs no database except
+ * on a batch-only backend, where it also drops a stopped staged restore's leftover copies.
  */
 final class RestoreSweepCommand extends BaseCommand
 {

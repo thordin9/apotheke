@@ -353,11 +353,14 @@ Rules for new SQL, so it also runs on D1:
 
 A batch-only backend (D1, Durable Object SQLite) cannot run a whole restore as one transaction, so
 `Backup\RestoreStage` stages it and swaps it in with one batch (ADR-002, P4-2b). Self-hosted installs keep
-`Restorer`'s streaming path; the restore API uses the stage from P4-2b part 2.
+`Restorer`'s streaming path. `Config\Services` hands `Restorer` the executor when it has no connection (a
+batch-only backend), and then every restore (web, API and command line) is staged.
 
 1. Pre-flight: with `RESTORE_DB_MAX_MB` set, the current data and the staged copies must fit together
-   (max(live, staged) + staged), or the restore is refused before anything is written (`413`).
-2. `begin()` drops any leftover copies and creates an empty `apotheke_stage_<table>` copy of each carried table.
+   (max(live, staged) + staged, the staged size measured as the JSON the copies are filled with), or the restore
+   is refused before anything is written (`413`).
+2. `begin()` takes the lock (below), drops any leftover copies and creates an empty `apotheke_stage_<table>` copy
+   of each table the backup holds.
    No carried, CI4-only or SQLite/D1 table uses that prefix, and a backup never carries the copies.
 3. `stage()` fills a copy in statements of one bind each (at most 512 KB of JSON, read with `json_each` or
    `json_populate_recordset`), so no statement passes D1's parameter or size limits.
@@ -365,11 +368,19 @@ A batch-only backend (D1, Durable Object SQLite) cannot run a whole restore as o
    emptied (children first) and filled from the copies (parents first, so a `parent_id` to a later row is fine),
    the sequences moved past the restored ids and the history, and the `restore_marker` row with the run id and
    SHA-256 (migration 0032).
-5. `drop()` removes the copies.
+5. `finish()` removes the copies and gives the lock up.
 
-Crash safety: before the swap nothing live has changed (the copies are leftovers, dropped by the next restore);
-after it the restore is applied, and `applied(run)` reads that from `restore_marker`, so a restore found
-`interrupted` can be told apart from one that never swapped.
+One staged restore at a time: the lock is the `restore_marker` row with run `lock` (the holder's random token and
+an expiry). Every batch of the restore starts with a guard that it still holds it; each staged batch renews it,
+and a stopped restore's lock expires after `RestoreStage::LEASE` (5 minutes). A second restore meanwhile gets
+`409`. No shared table or index is changed for it.
+
+Crash safety: before the swap nothing live has changed (the copies are leftovers); after it the restore is
+applied, and `applied(run)` reads that from `restore_marker`. A chunked upload found stopped while applying
+(`interrupted`) is resolved from the marker, with the upload's id as the run: `restored` (the rows are in; the
+camera links and settings steps after them did not run, which its warning says) or `failed` (nothing changed).
+The upload sweep (every restore API request, and `apotheke:restore-sweep`) drops leftover copies once no restore
+holds the lock.
 
 ## Writing a migration
 
