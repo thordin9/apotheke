@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **ci:** the edge storage merge refuses empty fragment Durable Object migrations and bindings whose class no fragment migration creates; the flip checklist notes the token for new Durable Object migrations and names token permissions consistently ([#222](https://github.com/thordin9/apotheke/pull/222))
+
 ## [3.15.4] - 2026-11-01
 
 **Note:** on PostgreSQL, two saved filters saved at the same moment now get the same "already exists" or "limit reached" message as on SQLite, instead of an error or one filter over the limit; views of the same "Recently viewed" list no longer fail when they happen at once.
