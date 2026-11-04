@@ -667,6 +667,9 @@ Flip in this order. Every step except the last two is additive; nothing is delet
    - A per-Worker role can only name a Worker that already exists, so the **very first** deploy of `apotheke-api`
      needs a one-time *Account > Workers Scripts > Edit* (or *Workers Admin*) token; replace it with the per-Worker
      token right after.
+   - A deploy that carries a new Durable Object migration (a new class, such as `v2` for `Installation`) may need
+     more than *Editor* on the Worker, which may not cover creating resources. Run that deploy with the one-time
+     *Account > Workers Scripts > Edit* token, or check it on a preview first.
    - Resource creation (step 2) uses its own short-lived token, never this one.
    - Only a future control-plane `wrangler d1 migrations apply` (see above) would need a separate *D1 > Edit*
      token, kept out of the `deploy-edge` environment.
