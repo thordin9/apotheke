@@ -17,14 +17,17 @@ use LogicException;
  * refused statement is a programming error (LogicException):
  *
  * - one statement: a `;` outside quotes and comments only as its last
- *   character, except between the BEGIN and END of a CREATE TRIGGER body
- *   (INSERT, UPDATE, DELETE, REPLACE or SELECT statements only);
- * - no transaction statement (BEGIN, START TRANSACTION, COMMIT, END, ROLLBACK,
- *   ABORT, SAVEPOINT, RELEASE), and no ATTACH, DETACH, VACUUM, ANALYZE or
- *   REINDEX;
- * - a PRAGMA only from the list D1 documents (PRAGMAS), and a plain value
- *   (no `optimize(-1)`);
- * - no sqlite_*() function call (the sqlite_sequence table is not one);
+ *   character, except, on SQLite only, between the BEGIN and END of a
+ *   CREATE TRIGGER body (INSERT, UPDATE, DELETE, REPLACE or SELECT
+ *   statements only);
+ * - it starts with SELECT, INSERT, UPDATE, DELETE, REPLACE, WITH, VALUES,
+ *   CREATE, DROP, ALTER or PRAGMA (an allow-list: transaction statements,
+ *   ATTACH, VACUUM, SET, DO, CALL, COPY and the rest are refused), after
+ *   any whitespace \s matches;
+ * - a PRAGMA only from the list D1 documents (PRAGMAS), with a plain value,
+ *   and `optimize` with none;
+ * - no sqlite_*() or set_config() call (the sqlite_sequence table is not
+ *   one);
  * - at most 100 bound parameters (a list is one json_each() parameter).
  *
  * The statement is read with its comments taken out, its literals emptied
@@ -51,6 +54,11 @@ final class LocalBatchExecutor implements SqlExecutor
         'legacy_alter_table', 'recursive_triggers', 'reverse_unordered_selects', 'foreign_keys',
         'defer_foreign_keys', 'optimize',
     ];
+
+    /** L-1648: the statements a batch step may start with; anything else (SET, DO, CALL, COPY, ...) is refused. */
+    private const LEADING = '/^(?:SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH|VALUES|CREATE|DROP|ALTER|PRAGMA)\b/i';
+
+    private const LEADING_NAMES = 'SELECT, INSERT, UPDATE, DELETE, REPLACE, WITH, VALUES, CREATE, DROP, ALTER or a documented PRAGMA';
 
     private readonly ConnectionExecutor $inner;
 
@@ -89,37 +97,41 @@ final class LocalBatchExecutor implements SqlExecutor
 
     private function refuse(string $sql, int $params): void
     {
-        $code = self::code($sql, $this->dialect()->name === Dialect::POSTGRES);
+        $pg = $this->dialect()->name === Dialect::POSTGRES;
+        $code = self::code($sql, $pg);
         $segments = explode(';', $code);
-        if (count($segments) > 1 && trim($segments[count($segments) - 1]) === '') {
+        if (count($segments) > 1 && preg_match('/^\s*$/D', $segments[count($segments) - 1]) === 1) {
             array_pop($segments);
         }
-        $first = trim($segments[0]);
-        if ($first === '' || (count($segments) > 1 && !self::triggerBody($segments))) {
+        // L-1647: \s throughout (a form feed or vertical tab is whitespace to both databases, not to trim())
+        $first = (string)preg_replace('/^\s+|\s+$/D', '', $segments[0]);
+        if ($first === '' || (count($segments) > 1 && ($pg || !self::triggerBody($segments)))) {
             throw new LogicException('D1 runs one statement per batch step.');
         }
-        if (preg_match('/^(?:BEGIN|START|COMMIT|END|ROLLBACK|ABORT|SAVEPOINT|RELEASE|ATTACH|DETACH|VACUUM|ANALYZE|REINDEX)\b/i', $first) === 1) {
-            throw new LogicException('D1 refuses transaction statements and database maintenance in a batch.');
+        if (preg_match(self::LEADING, $first) !== 1) {
+            throw new LogicException('D1 batch steps start with ' . self::LEADING_NAMES . '.');
         }
         if (preg_match('/^PRAGMA\b/i', $first) === 1 && !self::documentedPragma($first)) {
             throw new LogicException('D1 runs only the PRAGMAs it documents.');
         }
-        if (preg_match('/\bsqlite_(?!sequence\b)\w*"?\s*\(/i', $code) === 1) {
-            throw new LogicException('D1 refuses sqlite_*() functions.');
+        if (preg_match('/\b(?:sqlite_(?!sequence\b)\w*|set_config)"?\s*\(/i', $code) === 1) {
+            throw new LogicException('D1 refuses sqlite_*() and set_config() calls.');
         }
         if ($params > self::MAX_PARAMS) {
             throw new LogicException('D1 allows ' . self::MAX_PARAMS . ' bound parameters per statement; bind a list as one (Dialect::inList()).');
         }
     }
 
-    /** `PRAGMA [schema.]name`, `= value` or `(value)`, with a name from PRAGMAS (so no `optimize(-1)`, as on D1). */
+    /** `PRAGMA [schema.]name`, `= value` or `(value)`, with a name from PRAGMAS; optimize takes no value (D1 documents none). */
     private static function documentedPragma(string $code): bool
     {
         $value = '(?:\w+|\'\'|"\w*")';
-        if (preg_match('/^PRAGMA\s+(?:\w+\s*\.\s*)?(\w+)\s*(?:=\s*' . $value . '|\(\s*' . $value . '\s*\))?$/i', $code, $m) !== 1) {
+        if (preg_match('/^PRAGMA\s+(?:\w+\s*\.\s*)?(\w+)\s*(?:(=\s*' . $value . '|\(\s*' . $value . '\s*\)))?$/iD', $code, $m) !== 1) {
             return false;
         }
-        return in_array(strtolower($m[1]), self::PRAGMAS, true);
+        $name = strtolower($m[1]);
+
+        return in_array($name, self::PRAGMAS, true) && !($name === 'optimize' && ($m[2] ?? '') !== '');
     }
 
     /**
