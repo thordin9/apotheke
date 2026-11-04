@@ -158,7 +158,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $this->assertContains('items', $names);
         $this->assertSame([], array_values(array_filter($names, static fn (string $n): bool => str_starts_with($n, RestoreStage::PREFIX))));
         $stage = new RestoreStage(new LocalBatchExecutor($db));
-        foreach ([static fn () => $stage->begin(['restore_marker']), static fn () => RestoreStage::copy('jobs'), static fn () => $stage->stage('items', ['name; DROP'], [['x']]), static fn () => $stage->stage('items', ['name'], [['x', 'y']])] as $i => $f) {
+        foreach ([static fn () => $stage->begin(['restore_marker']), static fn () => RestoreStage::copy('jobs'), static fn () => $stage->stage('items', ['name; DROP'], [['x']]), static fn () => $stage->stage('items', ['Name'], [['x']]), static fn () => $stage->stage('items', ['name'], [['x', 'y']])] as $i => $f) {
             try {
                 $f();
                 $this->fail('case ' . $i . ' must be refused');
