@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** a new setting, `RESTORE_DB_MAX_MB` (default 0, no limit), and migration 0032 (`restore_marker`, CI4 only) prepare restores on the edge. Nothing changes for self-hosted restores yet.
+
 ## [3.15.5] - 2026-11-04
 
 **Note:** on PostgreSQL, a change that has to wait more than 5 seconds for another one on the same item or list now answers "The database is busy. Try again in a moment." (503) instead of waiting. Adding or removing an attachment and deleting an item now write their history through the unit of work (P4-2b, part 2); nothing else changes for users. Also, starting a restore upload no longer fails now and then with "in use" while another request is checking old uploads.

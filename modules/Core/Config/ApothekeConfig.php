@@ -40,6 +40,7 @@ final class ApothekeConfig
         'RESTORE_CHUNK_KB' => 'uploads.restore_chunk_kb',
         'RESTORE_MAX_MB' => 'uploads.restore_max_mb',
         'RESTORE_MAX_UPLOADS' => 'uploads.restore_max_uploads',
+        'RESTORE_DB_MAX_MB' => 'uploads.restore_db_max_mb',
         'PAGE_SIZE' => 'page_size',
         'PUBLIC_URL' => 'public_url',
         'ALLOWED_HOSTS' => 'allowed_hosts',
@@ -94,6 +95,8 @@ final class ApothekeConfig
         $cfg['uploads']['restore_chunk_kb'] = min(16384, max(64, (int)($cfg['uploads']['restore_chunk_kb'] ?? 8192)));
         $cfg['uploads']['restore_max_mb'] = min(4096, max(1, (int)($cfg['uploads']['restore_max_mb'] ?? 520)));
         $cfg['uploads']['restore_max_uploads'] = min(64, max(1, (int)($cfg['uploads']['restore_max_uploads'] ?? 8)));
+        // A staged restore's size limit for the whole database (D1 and Durable Object SQLite have one); 0 is none.
+        $cfg['uploads']['restore_db_max_mb'] = min(1048576, max(0, (int)($cfg['uploads']['restore_db_max_mb'] ?? 0)));
         $cfg['page_size'] = max(1, (int)$cfg['page_size']);
         $cfg['public_url'] = rtrim((string)$cfg['public_url'], '/');
         $cfg['allowed_hosts'] = trim((string)($cfg['allowed_hosts'] ?? ''));
@@ -233,6 +236,7 @@ final class ApothekeConfig
                 'restore_chunk_kb' => 8192,
                 'restore_max_mb' => 520,
                 'restore_max_uploads' => 8,
+                'restore_db_max_mb' => 0,
             ],
             'page_size' => 60,
             'currency' => 'EUR',

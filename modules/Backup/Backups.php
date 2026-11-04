@@ -34,10 +34,10 @@ use ZipArchive;
 final class Backups
 {
     /**
-     * Migrations that only add tables a backup does not carry (CI4 only: 0029 jobs, 0030 import_rows, 0031 uow_guard and uow_refs). They are left out of the
+     * Migrations that only add tables a backup does not carry (CI4 only: 0029 jobs, 0030 import_rows, 0031 uow_guard and uow_refs, 0032 restore_marker). They are left out of the
      * backup's "schema", which names what its rows need, so 2.6.x still restores a backup made by 3.2 and later.
      */
-    public const UNCARRIED_MIGRATIONS = ['0029', '0030', '0031'];
+    public const UNCARRIED_MIGRATIONS = ['0029', '0030', '0031', '0032'];
 
     public const FORMAT = 'apotheke-backup';
 

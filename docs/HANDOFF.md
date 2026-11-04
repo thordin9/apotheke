@@ -472,7 +472,12 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   `VALUES`, `CREATE`, `DROP`, `ALTER`, a documented PRAGMA), whitespace is matched with `\s`, the trigger-body
   exception is SQLite-only and `PRAGMA optimize` takes no value. The restore upload sweep checks an upload's age
   before taking its lock, so a create replacing the same account's upload is no longer answered 409 (N-1651).
-  Tests: `SqlExecutorTest`, `RestoreUploadsTest`, SQLite and PostgreSQL. Passed QA; awaiting merge.
+  Tests: `SqlExecutorTest`, `RestoreUploadsTest`, SQLite and PostgreSQL. Merged, released as v3.15.5.
+- [#223](https://github.com/thordin9/apotheke/pull/223) (P4-2b, restore on the edge, part 1): `RestoreStage` stages a restore into
+  `apotheke_stage_*` copies in one-bind chunks and swaps them in with one batch (deferred foreign keys, row-count
+  guards, sequences, `restore_marker` from migration 0032, CI4 only); `RESTORE_DB_MAX_MB` pre-flight. Tests:
+  `RestoreStageTest` (both modes, SQLite and PostgreSQL, 100k rows on the D1 stand-in). Part 2 wires it into the
+  restore API and the sweep. Passed QA; open, awaiting merge.
 
 ## Lanes
 
@@ -555,8 +560,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   ([ADR-002](adr/002-edge-storage.md)) is merged (#203). P4-2a is done: the executor adapter (#209), the unit of
   work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0); its follow-up #216 is merged (v3.15.2);
   N-1640 waits for P4-3. #218 (the batch filter) is merged (v3.15.3); its follow-up #220 (batch allow-list and
-  sweep fix) passed QA and awaits merge. P4-2b part 1 (#217), #219 and part 2 (#221, the item-history sites) are
-  merged. Restore staging PR 1 (#223) is open. Next: restore PR 2 (design B wiring, sweep of leftover stage copies,
+  sweep fix) is merged (v3.15.5). P4-2b part 1 (#217), #219 and part 2 (#221, the item-history sites) are
+  merged. Restore staging PR 1 (#223) is open, awaiting merge. Next: restore PR 2 (design B wiring, sweep of leftover stage copies,
   the 2.6.26 round trip, one staged restore at a time, a single-batch swap test, ADR-002, preflight wiring) and the
   L-1666/L-1667 fixes; then the guarded sites, item save with tags and taxonomy create, the large paths, and P4-3
   (D1 driver and bridge) to P4-5.
