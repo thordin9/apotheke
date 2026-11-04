@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** a new setting, `RESTORE_DB_MAX_MB` (default 0, no limit), and migration 0032 (`restore_marker`, CI4 only) prepare restores on the edge. Nothing changes for self-hosted restores yet.
+
 ## [3.15.4] - 2026-11-01
 
 **Note:** on PostgreSQL, two saved filters saved at the same moment now get the same "already exists" or "limit reached" message as on SQLite, instead of an error or one filter over the limit; views of the same "Recently viewed" list no longer fail when they happen at once.

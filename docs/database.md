@@ -339,6 +339,28 @@ Rules for new SQL, so it also runs on D1:
   `checkSqliteVersion: false` to `PdoMigrationRunner`. A value that is not valid UTF-8 throws `WriteFailed`.
 - No `BEGIN`, `COMMIT` or `SAVEPOINT` of your own, and no `sqlite_*()` functions.
 
+### Restore on the edge
+
+A batch-only backend (D1, Durable Object SQLite) cannot run a whole restore as one transaction, so
+`Backup\RestoreStage` stages it and swaps it in with one batch (ADR-002, P4-2b). Self-hosted installs keep
+`Restorer`'s streaming path; the restore API uses the stage from P4-2b part 2.
+
+1. Pre-flight: with `RESTORE_DB_MAX_MB` set, the current data and the staged copies must fit together
+   (max(live, staged) + staged), or the restore is refused before anything is written (`413`).
+2. `begin()` drops any leftover copies and creates an empty `apotheke_stage_<table>` copy of each carried table.
+   No carried, CI4-only or SQLite/D1 table uses that prefix, and a backup never carries the copies.
+3. `stage()` fills a copy in statements of one bind each (at most 512 KB of JSON, read with `json_each` or
+   `json_populate_recordset`), so no statement passes D1's parameter or size limits.
+4. `swap()` is one batch: deferred foreign keys, a guard per copy that it holds every staged row, the live tables
+   emptied (children first) and filled from the copies (parents first, so a `parent_id` to a later row is fine),
+   the sequences moved past the restored ids and the history, and the `restore_marker` row with the run id and
+   SHA-256 (migration 0032).
+5. `drop()` removes the copies.
+
+Crash safety: before the swap nothing live has changed (the copies are leftovers, dropped by the next restore);
+after it the restore is applied, and `applied(run)` reads that from `restore_marker`, so a restore found
+`interrupted` can be told apart from one that never swapped.
+
 ## Writing a migration
 
 1. Add `migrations/NNNN_short_name.php` with the next free number (the runner sorts by the four digits).
