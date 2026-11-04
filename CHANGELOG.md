@@ -8,7 +8,17 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.17.0] - 2026-11-04
+
 **Note:** restores on a batch-only database (the edge) are staged and swapped in at once, one at a time. Nothing changes for self-hosted restores.
+
+### Added
+
+- **backup:** wire staged restores into Restorer (P4-2b) ([#227](https://github.com/thordin9/apotheke/pull/227))
+
+### Maintenance
+
+- **workflows:** ci: skip install scripts in every npm ci and widen the test ([#225](https://github.com/thordin9/apotheke/pull/225))
 
 ## [3.16.0] - 2026-11-04
 
@@ -1246,7 +1256,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.16.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.17.0...HEAD
+[3.17.0]: https://github.com/thordin9/apotheke/compare/v3.16.0...v3.17.0
 [3.16.0]: https://github.com/thordin9/apotheke/compare/v3.15.5...v3.16.0
 [3.15.5]: https://github.com/thordin9/apotheke/compare/v3.15.4...v3.15.5
 [3.15.4]: https://github.com/thordin9/apotheke/compare/v3.15.3...v3.15.4
