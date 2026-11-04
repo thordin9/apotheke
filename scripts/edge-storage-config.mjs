@@ -56,6 +56,8 @@ for (const m of storage.migrations ?? []) {
 	if (typeof m.tag !== "string" || !Array.isArray(m.new_sqlite_classes)) {
 		fail(`${storagePath}: each fragment migration needs a string tag and a new_sqlite_classes list`);
 	}
+	// N-1547: an empty migration creates nothing and only burns a tag.
+	if (m.new_sqlite_classes.length === 0) fail(`${storagePath}: migration "${m.tag}" has an empty new_sqlite_classes list`);
 }
 // drop_vars: only allowlisted names, each present in the base vars; never the Host check (ALLOWED_HOSTS).
 const DROPPABLE = new Set(["COOKIE_DOMAIN"]);
@@ -69,6 +71,13 @@ const migrated = new Set((config.migrations ?? []).flatMap((m) => [...(m.new_sql
 for (const c of (storage.migrations ?? []).flatMap((m) => m.new_sqlite_classes ?? [])) {
 	if (migrated.has(c)) fail(`${storagePath}: the Durable Object class "${c}" is already created by a migration`);
 	migrated.add(c);
+}
+// N-1547: every Durable Object binding in the fragment needs its class created by a fragment migration.
+const fragmentClasses = new Set((storage.migrations ?? []).flatMap((m) => m.new_sqlite_classes));
+for (const b of storage.durable_objects?.bindings ?? []) {
+	if (!fragmentClasses.has(b.class_name)) {
+		fail(`${storagePath}: the Durable Object class "${b.class_name}" is not created by a fragment migration`);
+	}
 }
 for (const key of ["d1_databases", "r2_buckets"]) {
 	if (key in config) fail(`${configPath} already has "${key}"; the storage bindings come only from ${storagePath}`);

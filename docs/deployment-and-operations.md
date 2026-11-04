@@ -642,9 +642,10 @@ Flip in this order. Every step except the last two is additive; nothing is delet
 
    The ADR's item 5 (the one-time steps) is the rest of this checklist.
 2. **Token for creating the resources** (the operator's own, from a trusted machine, not CI; separate from the CI
-   token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Write*, on this account only,
+   token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Edit*, on this account only,
    with a TTL and ideally an IP filter ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)).
-   Setting the Worker secrets in step 6 needs *Editor* on the Worker (or *Workers Scripts > Edit*). In the environment only:
+   Setting the Worker secrets in step 6 needs *Specified Workers > Editor* on the Worker (or
+   *Account > Workers Scripts > Edit*). In the environment only:
    `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
 3. **Create D1 and R2 in the EU jurisdiction.** The jurisdiction can't be changed after creation, for either. With a
    jurisdiction, a D1 location hint (`--location weur`) is ignored, so don't pass one. In `edge/` (the pinned wrangler):
@@ -660,13 +661,16 @@ Flip in this order. Every step except the last two is additive; nothing is delet
 4. **Repository variable** (Settings > Secrets and variables > Actions > Variables, or
    `gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>`). It is an identifier, not a secret; the deploy
    job fails before wrangler if it is missing or not a UUID.
-5. **`deploy-edge` token** (the environment's `CLOUDFLARE_API_TOKEN`): *Individual Workers > Editor* on `apotheke-api`
+5. **`deploy-edge` token** (the environment's `CLOUDFLARE_API_TOKEN`): *Specified Workers > Editor* on `apotheke-api`
    plus *Account > Containers > Edit*. It needs no D1 or R2 permission: deploying a Worker with D1, R2 or Durable
    Object bindings needs only *Editor* on that Worker
    ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)).
    - A per-Worker role can only name a Worker that already exists, so the **very first** deploy of `apotheke-api`
      needs a one-time *Account > Workers Scripts > Edit* (or *Workers Admin*) token; replace it with the per-Worker
      token right after.
+   - A deploy that carries a new Durable Object migration (a new class, such as `v2` for `Installation`) may need
+     more than *Editor* on the Worker, which may not cover creating resources. Run that deploy with the one-time
+     *Account > Workers Scripts > Edit* token, or check it on a preview first.
    - Resource creation (step 2) uses its own short-lived token, never this one.
    - Only a future control-plane `wrangler d1 migrations apply` (see above) would need a separate *D1 > Edit*
      token, kept out of the `deploy-edge` environment.
