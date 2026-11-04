@@ -482,8 +482,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   executor has no connection (batch-only backends; self-hosted keeps one transaction), with the size pre-flight on
   that path. One staged restore at a time (a lock row in `restore_marker`, checked by each batch). A stopped upload
   confirm is resolved from the marker; the upload sweep drops leftover copies. ADR-002 updated to design B. Tests:
-  `StagedRestoreTest`, `RestoreStageTest` (both modes, SQLite and PostgreSQL) and the 2.6.26 backup through the staged
-  path in the upgrade gate. Open, in QA.
+  `StagedRestoreTest`, `RestoreStageTest` (both modes, SQLite and PostgreSQL). Open, in QA. Part 2b: the 2.6.26
+  backup through the staged path in the upgrade gate (stops before and after the swap, both modes).
 
 ## Lanes
 
@@ -567,8 +567,8 @@ rules: [PLAN.md](plans/feature12-ci4/PLAN.md), [ADR 001](adr/001-codeigniter4.md
   work (#210) and part 3/3, the batch path and parity cases (#214, v3.15.0); its follow-up #216 is merged (v3.15.2);
   N-1640 waits for P4-3. #218 (the batch filter) is merged (v3.15.3); its follow-up #220 (batch allow-list and
   sweep fix) is merged (v3.15.5). P4-2b part 1 (#217), #219 and part 2 (#221, the item-history sites) are
-  merged. Restore staging PR 1 (#223) is merged (v3.16.0); PR 2 (PRNUM, the wiring) is in QA. Next: the
-  L-1666/L-1667 fixes and N-1704; then the guarded sites, item save with tags and taxonomy create, the large paths, and P4-3
+  merged. Restore staging PR 1 (#223) is merged (v3.16.0); PR 2 (PRNUM, the wiring) is in QA. Next: part 2b
+  (the 2.6.26 staged round trip in the upgrade gate, N-1704), the L-1666/L-1667 fixes; then the guarded sites, item save with tags and taxonomy create, the large paths, and P4-3
   (D1 driver and bridge) to P4-5.
   DevOps owns the bindings and the flip checklist behind
   `EDGE_STORAGE_READY` (#204, #208 merged); N-1442 follows with P4.
