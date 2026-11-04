@@ -7,18 +7,18 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.16.0). The 2.6.x security line ships from the branch
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.17.0). The 2.6.x security line ships from the branch
   `old` for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported and byte-identical to legacy where legacy has the page (parity gate, step 16 done); module
   notes are in the [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-1 and P4-2a are merged; P4-2b part 1
   (#217), #219, part 2 (#221, item-history sites), #220 (batch allow-list, v3.15.5) and restore staging PR 1 (#223,
-  v3.16.0) and part 2a (#227, unreleased) are merged.
+  v3.16.0) and part 2a (#227, v3.17.0) are merged.
 
 ## Open pull requests
 
 - None from Coder2's restore lane: #227 (restore part 2a, the staged restore wired into the restore path) is merged
-  (unreleased). Part 2b is in progress.
+  (v3.17.0). Part 2b is in progress.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
