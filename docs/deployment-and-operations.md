@@ -644,7 +644,7 @@ Flip in this order. Every step except the last two is additive; nothing is delet
 2. **Token for creating the resources** (the operator's own, from a trusted machine, not CI; separate from the CI
    token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Edit*, on this account only,
    with a TTL and ideally an IP filter ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)).
-   Setting the Worker secrets in step 6 needs *Individual Workers > Editor* on the Worker (or
+   Setting the Worker secrets in step 6 needs *Specified Workers > Editor* on the Worker (or
    *Account > Workers Scripts > Edit*). In the environment only:
    `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
 3. **Create D1 and R2 in the EU jurisdiction.** The jurisdiction can't be changed after creation, for either. With a
@@ -661,7 +661,7 @@ Flip in this order. Every step except the last two is additive; nothing is delet
 4. **Repository variable** (Settings > Secrets and variables > Actions > Variables, or
    `gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>`). It is an identifier, not a secret; the deploy
    job fails before wrangler if it is missing or not a UUID.
-5. **`deploy-edge` token** (the environment's `CLOUDFLARE_API_TOKEN`): *Individual Workers > Editor* on `apotheke-api`
+5. **`deploy-edge` token** (the environment's `CLOUDFLARE_API_TOKEN`): *Specified Workers > Editor* on `apotheke-api`
    plus *Account > Containers > Edit*. It needs no D1 or R2 permission: deploying a Worker with D1, R2 or Durable
    Object bindings needs only *Editor* on that Worker
    ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)).
