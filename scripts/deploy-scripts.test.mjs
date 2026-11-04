@@ -501,6 +501,19 @@ test("edge-storage-config: fragment migrations with any field besides tag and ne
 	refused(UUID, { storage }, /needs a string tag and a new_sqlite_classes list/);
 });
 
+// N-1547: fragment migrations create at least one class, and every fragment binding's class is created by one.
+test("edge-storage-config: empty fragment migrations and binding classes no fragment migration creates are refused", () => {
+	let storage = STORAGE();
+	storage.migrations = [{ tag: "v2", new_sqlite_classes: [] }];
+	refused(UUID, { storage }, /migration "v2" has an empty new_sqlite_classes list/);
+	storage = STORAGE();
+	storage.durable_objects = { bindings: [{ name: "INSTALLATION", class_name: "Other" }] };
+	refused(UUID, { storage }, /class "Other" is not created by a fragment migration/);
+	storage = STORAGE();
+	storage.migrations = [];
+	refused(UUID, { storage }, /class "Installation" is not created by a fragment migration/);
+});
+
 // N-1545: drop_vars is limited to COOKIE_DOMAIN, which must be in the base vars; ALLOWED_HOSTS is never dropped.
 test("edge-storage-config: drop_vars allows only COOKIE_DOMAIN, present in the base vars, and never ALLOWED_HOSTS", () => {
 	refused(UUID, { storage: { ...STORAGE(), drop_vars: ["COOKIE_DOMAIN", "ALLOWED_HOSTS"] } }, /may never drop ALLOWED_HOSTS/);
