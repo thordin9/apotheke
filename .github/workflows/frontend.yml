@@ -46,7 +46,7 @@ jobs:
           package-manager-cache: false
       - name: Install and build
         working-directory: frontend
-        run: npm ci && npm run build
+        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
       - name: Contrast
         run: node frontend/scripts/contrast.mjs
       - name: Consent cookie, app fallback and dist rules
@@ -54,6 +54,6 @@ jobs:
       - name: Dist layout, headers and links
         run: node frontend/scripts/check-dist.mjs
       - name: Install the end-to-end runner
-        run: npm ci
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Frontend end-to-end
         run: npx playwright install --with-deps chromium && npx playwright test -c tests/e2e/playwright.config.ts
