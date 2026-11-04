@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Changed
 
-- **ci:** the edge storage merge refuses empty fragment Durable Object migrations and bindings whose class no fragment migration creates; the flip checklist notes the token for new Durable Object migrations and names token permissions consistently
+- **ci:** the edge storage merge refuses empty fragment Durable Object migrations and bindings whose class no fragment migration creates; the flip checklist notes the token for new Durable Object migrations and names token permissions consistently ([#222](https://github.com/thordin9/apotheke/pull/222))
 
 ## [3.15.4] - 2026-11-01
 
