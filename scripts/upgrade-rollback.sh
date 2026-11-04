@@ -51,7 +51,7 @@ else
   WORK=$(mktemp -d "${TMPDIR:-/tmp}/upgrade-rollback.XXXXXX")
 fi
 RUN=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
-SCHEMAS=("upg_${RUN}_main" "upg_${RUN}_restore_legacy" "upg_${RUN}_restore_ci4")
+SCHEMAS=("upg_${RUN}_main" "upg_${RUN}_restore_legacy" "upg_${RUN}_restore_ci4" "upg_${RUN}_staged_transaction" "upg_${RUN}_staged_batch")
 
 # The legacy side: a released 2.x checkout, outside this tree.
 if [ -n "${UPGRADE_LEGACY_ROOT:-}" ]; then
@@ -157,6 +157,7 @@ install_env data "${SCHEMAS[0]}"
 "$PHP83" "$ROOT/tests/upgrade/seed-extra.php"
 snap all seeded
 snap backup seeded-backup
+snap rows seeded-rows
 "$PHP84" "$ROOT/tests/upgrade/compare.php" --guard 'seed' "$WORK/seeded.json" || { echo "upgrade/rollback: the seed is too thin"; exit 1; }
 "$PHP83" "$LEGACY/bin/backup.php" "$WORK/legacy.zip"
 serve_check legacy "$PHP83"
@@ -204,6 +205,32 @@ install_env restore-ci4 "${SCHEMAS[2]}"
 "$PHP84" "$ROOT/bin/restore.php" "$WORK/legacy.zip" --yes
 snap backup restored-ci4
 check 'legacy backup restored on CI4@8.4' seeded-backup restored-ci4
+
+# 5b. P4-2b: the legacy backup through the staged restore path (Backup\RestoreStage) into fresh installs, in both
+# modes: stopped just before the swap batch (nothing changed, not marked), swept once its lock expired, stopped just
+# after it (the backup's rows, marked applied), swept again, then restored to the end (rows and files).
+staged() { "$PHP84" "$ROOT/tests/upgrade/staged-restore.php" "$@"; }
+for mode in transaction batch; do
+  install_env "staged-$mode" "upg_${RUN}_staged_$mode"
+  "$PHP84" "$ROOT/bin/migrate.php" > "$WORK/migrate-staged-$mode.txt" 2>&1 || { cat "$WORK/migrate-staged-$mode.txt"; echo "FAIL staged $mode: bin/migrate.php"; fail=1; }
+  snap rows "staged-$mode-empty"
+  for stop in before after; do
+    code=0; staged "$mode" "$stop" "$WORK/legacy.zip" "gate-$stop" || code=$?
+    [ "$code" = 3 ] || { echo "FAIL staged $mode: the stop $stop the swap exited $code, not 3"; fail=1; }
+    snap rows "staged-$mode-$stop"
+    if [ "$stop" = before ]; then
+      check "staged $mode: stopped before the swap changes nothing" "staged-$mode-empty" "staged-$mode-before"
+      if staged "$mode" applied gate-before > /dev/null; then echo "FAIL staged $mode: a run stopped before its swap is marked applied"; fail=1; fi
+    else
+      check "staged $mode: stopped after the swap has the backup's rows" seeded-rows "staged-$mode-after"
+      staged "$mode" applied gate-after || fail=1
+    fi
+    staged "$mode" sweep || fail=1
+  done
+  staged "$mode" restore "$WORK/legacy.zip" gate-full || fail=1
+  snap backup "staged-$mode"
+  check "legacy backup restored through the staged path ($mode)" seeded-backup "staged-$mode"
+done
 
 # 6. Mutation checks on that disposable install: each must fail against the clean m0 and is undone before the next
 # one (N-642). The emptied table is undone by restoring the legacy backup again; the dropped table comes last.
