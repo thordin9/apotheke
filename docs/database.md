@@ -363,7 +363,9 @@ batch-only backend), and then every restore (web, API and command line) is stage
    of each table the backup holds.
    No carried, CI4-only or SQLite/D1 table uses that prefix, and a backup never carries the copies.
 3. `stage()` fills a copy in statements of one bind each (at most 512 KB of JSON, read with `json_each` or
-   `json_populate_recordset`), so no statement passes D1's parameter or size limits.
+   `json_populate_recordset`), so no statement passes D1's parameter or size limits. Only columns the live table
+   has are taken, each once, and values as `Restorer` binds them (a boolean as 1 or 0); a backup that names a
+   column twice is refused on every path.
 4. `swap()` is one batch: deferred foreign keys, a guard per copy that it holds every staged row, the live tables
    emptied (children first) and filled from the copies (parents first, so a `parent_id` to a later row is fine),
    the sequences moved past the restored ids and the history, and the `restore_marker` row with the run id and
@@ -380,7 +382,8 @@ applied, and `applied(run)` reads that from `restore_marker`. A chunked upload f
 (`interrupted`) is resolved from the marker, with the upload's id as the run: `restored` (the rows are in; the
 camera links and settings steps after them did not run, which its warning says) or `failed` (nothing changed).
 The upload sweep (every restore API request, and `apotheke:restore-sweep`) drops leftover copies once no restore
-holds the lock.
+holds the lock. The upgrade gate (`scripts/upgrade-rollback.sh`, step 5b) restores a 2.6.26 backup through this
+path in both modes, stopped before and after the swap, and checks rows, ids, sequences and `parent_id`.
 
 ## Writing a migration
 

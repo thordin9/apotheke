@@ -33,6 +33,9 @@ use LogicException;
  * stage's random token, applied_at when it expires). Every later batch (stage, swap, drop) first checks that this
  * stage still holds it, so a restore whose lock was taken over can neither touch the copies nor swap them in.
  * Each staged chunk renews it; a stopped restore's lock expires LEASE seconds after its last chunk.
+ *
+ * N-1704: stage() takes only columns the live table has, each once, and values as Restorer binds them: a boolean
+ * as 1 or 0 (so PostgreSQL's integer columns take it as SQLite does), anything but a plain value refused.
  */
 final class RestoreStage
 {
@@ -41,6 +44,8 @@ final class RestoreStage
 
     /** JSON per staged insert, one bind (D1 allows 2 MB per value; a larger row goes alone). */
     public const CHUNK_BYTES = 512 * 1024;
+
+    public const UNKNOWN_COLUMN = 'The backup names a column the table does not have, or one column twice. Nothing was changed.';
 
     public const TOO_LARGE = 'This backup does not fit next to the current data within the database size limit. Nothing was changed.';
 
@@ -99,7 +104,8 @@ final class RestoreStage
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         $n = 0;
         foreach ($rows as $row) {
-            $n += strlen(self::json($pg ? array_combine($columns, $row) : $row)) + 1;
+            $row = self::values($row);
+            $n += strlen(self::json($pg && count($row) === count($columns) ? array_combine($columns, $row) : $row)) + 1;
         }
 
         return $n;
@@ -172,6 +178,7 @@ final class RestoreStage
     {
         $copy = self::copy($table);
         $cols = implode(', ', array_map(self::column(...), $columns));
+        $this->checkColumns($table, $columns);
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         $sql = $pg
             ? "INSERT INTO $copy ($cols) SELECT $cols FROM json_populate_recordset(NULL::$copy, ?::json)"
@@ -183,6 +190,7 @@ final class RestoreStage
             if (count($row) !== count($columns)) {
                 throw new LogicException('A staged row must have one value per column.');
             }
+            $row = self::values($row);
             $json = self::json($pg ? array_combine($columns, $row) : $row);
             if ($chunk !== [] && $bytes + strlen($json) + 1 > self::CHUNK_BYTES) {
                 $this->insert($sql, $chunk);
@@ -197,6 +205,42 @@ final class RestoreStage
         }
 
         return $n;
+    }
+
+    /**
+     * N-1704: every column one the live table has, and none twice (SQLite would take `id, id`).
+     *
+     * @param list<string> $columns
+     * @throws UserError UNKNOWN_COLUMN
+     */
+    private function checkColumns(string $table, array $columns): void
+    {
+        $sql = $this->exec->dialect()->name === Dialect::POSTGRES
+            ? 'SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?'
+            : 'SELECT name FROM pragma_table_info(?)';
+        $live = array_column($this->exec->query($sql, [self::table($table)]), 'name');
+        if ($columns === [] || count(array_unique($columns)) !== count($columns) || array_diff($columns, $live) !== []) {
+            throw new UserError(self::UNKNOWN_COLUMN);
+        }
+    }
+
+    /**
+     * N-1704: a row's values as Restorer binds them: a boolean as 1 or 0; an array or object is not a plain value.
+     *
+     * @param array<array-key,mixed> $row
+     * @return list<scalar|null>
+     */
+    private static function values(array $row): array
+    {
+        $out = [];
+        foreach ($row as $v) {
+            if (!is_scalar($v) && $v !== null) {
+                throw new UserError(Restorer::FAILED);
+            }
+            $out[] = is_bool($v) ? (int)$v : $v;
+        }
+
+        return $out;
     }
 
     /** @param list<string> $chunk one chunk of JSON rows, while the lock is held, which it renews */

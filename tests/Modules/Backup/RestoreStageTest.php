@@ -238,6 +238,43 @@ final class RestoreStageTest extends CIUnitTestCase
         }
     }
 
+    /**
+     * N-1704: stage() takes only the live table's columns, each once (SQLite alone would take `id, id`), and values
+     * as Restorer binds them: a boolean as 1 or 0 on both drivers, an array refused. Nothing is staged when refused.
+     */
+    #[DataProvider('modes')]
+    public function testStagedColumnsAndValuesAreCheckedAsRestorerDoes(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $stage = new RestoreStage(self::exec($db, $batch));
+        $stage->begin(['items']);
+        $cols = ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'];
+        $row = static fn (int $id, mixed $qty): array => [$id, 'Item ' . $id, $qty, '', 'item', '2026-01-02 08:00:00', '2026-01-02 08:00:00'];
+        foreach ([[['id', 'id'], [[1, 2]]], [['id', 'nope'], [[1, 2]]], [[], [[]]]] as $i => [$c, $rows]) {
+            try {
+                $stage->stage('items', $c, $rows);
+                $this->fail('columns ' . $i . ' must be refused');
+            } catch (UserError $e) {
+                $this->assertSame(RestoreStage::UNKNOWN_COLUMN, $e->getMessage());
+            }
+        }
+        try {
+            $stage->stage('items', $cols, [$row(7, ['x'])]);
+            $this->fail('an array is not a plain value');
+        } catch (UserError $e) {
+            $this->assertSame(\Apotheke\Backup\Restorer::FAILED, $e->getMessage());
+        }
+        $copy = RestoreStage::copy('items');
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) AS n FROM $copy")->getRowArray()['n'], 'nothing staged');
+        $this->assertSame(2, $stage->stage('items', $cols, [$row(7, true), $row(8, false)]));
+        $got = $db->query("SELECT id, quantity FROM $copy ORDER BY id")->getResultArray();
+        $this->assertSame([['7', '1'], ['8', '0']], array_map(static fn (array $r): array => [(string)$r['id'], (string)$r['quantity']], $got));
+        if ($driver === 'sqlite') {
+            $this->assertSame(['integer', 'integer'], array_column($db->query("SELECT typeof(quantity) AS t FROM $copy ORDER BY id")->getResultArray(), 't'));
+        }
+        $stage->drop();
+    }
+
     /** Leftover copies of a stopped restore are not carried: a backup made next to them neither names nor holds them. */
     #[DataProvider('drivers')]
     public function testABackupLeavesTheCopiesOut(string $driver): void

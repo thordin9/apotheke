@@ -175,6 +175,33 @@ final class StagedRestoreTest extends CIUnitTestCase
         }
     }
 
+    /** N-1704: a backup naming a column twice is refused by the staged path and the one-transaction path alike. */
+    #[DataProvider('modes')]
+    public function testAColumnNamedTwiceIsRefusedOnEveryPath(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $before = $this->dump($db);
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($this->zip) === true);
+        $b = json_decode((string)$zip->getFromName('backup.json'), true, 64, JSON_THROW_ON_ERROR);
+        $b['tables']['items']['columns'][] = 'id';
+        foreach ($b['tables']['items']['rows'] as $i => $row) {
+            $b['tables']['items']['rows'][$i][] = $row[0] + 100;
+        }
+        $zip->addFromString('backup.json', (string)json_encode($b));
+        $zip->close();
+        foreach ([self::exec($db, $batch), null] as $exec) {
+            try {
+                $this->restorer($db, $exec)->restore($this->zip, false, 'run-twice');
+                $this->fail('a column named twice must be refused');
+            } catch (UserError $e) {
+                $this->assertSame('Column items.id is named twice in backup.', $e->getMessage());
+            }
+            $this->assertSame($before, $this->dump($db));
+            $this->assertSame([], $this->copies($db));
+        }
+    }
+
     /**
      * The target, with other rows, and $this->zip: a backup of a source where location 2 is a child of location 5
      * (a parent with a higher id) and the history names item 40, past the last item. The source is dropped first
@@ -218,7 +245,7 @@ final class StagedRestoreTest extends CIUnitTestCase
     }
 
     /** @param BaseConnection<object|resource, object|resource> $db */
-    private function restorer(BaseConnection $db, SqlExecutor $exec, int $maxBytes = 0): Restorer
+    private function restorer(BaseConnection $db, ?SqlExecutor $exec, int $maxBytes = 0): Restorer
     {
         $d = $this->database ?? throw new RuntimeException('no target');
         $undo = new UndoTokens($db, new Clock(), 600, static function (string $f): void {
