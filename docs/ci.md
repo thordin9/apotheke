@@ -101,9 +101,9 @@ end-to-end files (`tests/e2e/consent.spec.ts`, `tests/e2e/app.spec.ts`, `tests/e
 
 The **Build** job (20 minutes) does not push. It checks out with `persist-credentials: false`, then uses
 `actions/setup-node` pinned to `949feb2413d6458794dcd2491c4babbbce0c15c1` (v7.1.0) with Node 22 and
-`package-manager-cache: false`. From `frontend/` it runs `npm ci && npm run build`, then
+`package-manager-cache: false`. From `frontend/` it runs `npm ci --ignore-scripts --no-audit --no-fund && npm run build`, then
 `node frontend/scripts/contrast.mjs`, `node --test` on `consent.test.mjs`, `app-fallback.test.mjs` and
-`check-dist.test.mjs`, and `node frontend/scripts/check-dist.mjs`. It then runs a root `npm ci` and Playwright
+`check-dist.test.mjs`, and `node frontend/scripts/check-dist.mjs`. It then runs a root `npm ci --ignore-scripts --no-audit --no-fund` and Playwright
 (`tests/e2e/playwright.config.ts`) on Chromium against `http://127.0.0.1:4175`.
 
 This workflow does not deploy. Publishing a release from `main` (or starting
