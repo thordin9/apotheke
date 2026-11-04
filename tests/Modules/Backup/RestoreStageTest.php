@@ -13,11 +13,18 @@ use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\SqlExecutor;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Security\CommandLine;
+use Apotheke\Settings\LocalBrandStore;
+use Apotheke\Settings\SettingsRepository;
+use Apotheke\Settings\SettingsSchema;
+use Apotheke\Settings\SettingsService;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Test\CIUnitTestCase;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
+use ZipArchive;
 
 /**
  * RestoreStage (restore on the edge, P4-2b): staged copies swapped in by one batch, in transaction mode
@@ -158,6 +165,28 @@ final class RestoreStageTest extends CIUnitTestCase
             } catch (LogicException) {
             }
         }
+    }
+
+    /** Leftover copies of a stopped restore are not carried: a backup made next to them neither names nor holds them. */
+    #[DataProvider('drivers')]
+    public function testABackupLeavesTheCopiesOut(string $driver): void
+    {
+        $d = TestDatabase::create($driver);
+        $this->databases[] = $d;
+        (new RestoreStage(new LocalBatchExecutor($d->db)))->begin(Backups::tables());
+        $d->db->query('INSERT INTO ' . RestoreStage::copy('items') . " (id, name, quantity, notes, search, created_at, updated_at) VALUES (7, 'Staged', 1, '', 'staged', '2026-01-02 08:00:00', '2026-01-02 08:00:00')");
+        $clock = new Clock();
+        $settings = new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore($d->dataDir() . '/brand'), $clock, $d->config->values(), static fn (string $m): null => null, new CommandLine());
+        $zipPath = $d->dataDir() . '/backup.zip';
+        (new Backups($d->db, $clock, $settings, $d->dataDir(), $d->config->originalsDir()))->create($zipPath);
+        $zip = new ZipArchive();
+        $this->assertTrue($zip->open($zipPath) === true);
+        $json = (string)$zip->getFromName('backup.json');
+        $zip->close();
+        $this->assertStringContainsString('"items"', $json);
+        $this->assertStringNotContainsString(RestoreStage::PREFIX, $json);
+        $this->assertStringNotContainsString('Staged', $json);
+        $this->assertStringNotContainsString('restore_marker', $json);
     }
 
     /**
