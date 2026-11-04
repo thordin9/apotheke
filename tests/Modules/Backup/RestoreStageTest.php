@@ -132,6 +132,77 @@ final class RestoreStageTest extends CIUnitTestCase
         $this->assertSame([], $this->copies($dst));
     }
 
+    /**
+     * L-1700: two staged restores never swap each other's rows. While A holds the lock, B is refused (409); once A's
+     * lock expired and B took it over, A can neither stage, swap nor drop, and B swaps in its own rows.
+     */
+    #[DataProvider('modes')]
+    public function testTwoStagedRestoresCannotSwapEachOthersRows(string $driver, bool $batch): void
+    {
+        $src = $this->source($driver);
+        $dst = $this->target($driver);
+        $before = $this->dump($dst);
+        $at = time();
+        $a = new RestoreStage(self::exec($dst, $batch), static function () use (&$at): int {
+            return $at;
+        });
+        $b = new RestoreStage(self::exec($dst, $batch), static function () use (&$at): int {
+            return $at;
+        });
+        [$tables, $staged, $withId] = $this->stageAll($a, $src);
+        try {
+            $b->begin($tables);
+            $this->fail('a second staged restore while the first holds the lock');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+        }
+        $at += RestoreStage::LEASE + 1;
+        $b->begin(['items']);
+        $mine = [[77, 'B only', 1, '', 'b only', '2026-11-01 18:00:00', '2026-11-01 18:00:00']];
+        $this->assertSame(1, $b->stage('items', ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], $mine));
+        foreach ([static fn () => $a->stage('items', ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], [[78, 'A late', 1, '', 'a', '2026-11-01 18:00:00', '2026-11-01 18:00:00']]),
+            static fn () => $a->swap(['items'], ['items' => ['columns' => ['id'], 'rows' => 1]], ['items'], 'run-a', str_repeat('a', 64), '2026-11-01 18:00:00'),
+            static fn () => $a->swap($tables, $staged, $withId, 'run-a', str_repeat('a', 64), '2026-11-01 18:00:00'),
+            static fn () => $a->drop()] as $i => $f) {
+            try {
+                $f();
+                $this->fail('step ' . $i . ' of the restore that lost the lock');
+            } catch (WriteFailed $e) {
+                $this->assertSame(BatchExecutor::GUARD_FAILED, $e->getCode());
+            }
+        }
+        $this->assertSame($before, $this->dump($dst));
+        $this->assertFalse($a->applied('run-a'));
+        $a->release();   // not A's any more: B keeps it
+        $b->swap(['items'], ['items' => ['columns' => ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], 'rows' => 1]], ['items'], 'run-b', str_repeat('b', 64), '2026-11-01 18:00:00');
+        $this->assertSame([['id' => '77', 'name' => 'B only']], array_map(static fn (array $r): array => array_map('strval', $r), $dst->query('SELECT id, name FROM items')->getResultArray()));
+        $b->finish();
+        $this->assertSame([], $this->copies($dst));
+        $this->assertSame([['run' => 'run-b']], $dst->query('SELECT run FROM restore_marker')->getResultArray());
+    }
+
+    /** L-1701: the swap is one batch: every live table's delete and insert, the sequences and the marker in one run(). */
+    #[DataProvider('modes')]
+    public function testTheSwapIsOneBatch(string $driver, bool $batch): void
+    {
+        $src = $this->source($driver);
+        $dst = $this->target($driver);
+        $exec = self::recording(self::exec($dst, $batch));
+        $stage = new RestoreStage($exec);
+        [$tables, $staged, $withId] = $this->stageAll($stage, $src);
+        $exec->runs = [];
+        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64), '2026-11-01 18:00:00');
+        $this->assertCount(1, $exec->runs, 'one batch');
+        $sql = array_column($exec->runs[0], 'sql');
+        foreach ($tables as $t) {
+            $this->assertContains('DELETE FROM ' . $t, $sql);
+        }
+        $this->assertCount(count($tables), preg_grep('/^INSERT INTO (?!uow_guard|restore_marker|sqlite_sequence)\w+ \(.*\) SELECT .* FROM ' . RestoreStage::PREFIX . '/', $sql) ?: []);
+        $this->assertCount(count($withId), preg_grep('/^(SELECT setval|INSERT INTO sqlite_sequence)/', $sql) ?: []);
+        $this->assertSame('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', end($sql));
+        $this->assertSame($src['dump'], $this->dump($dst));
+    }
+
     /** Refused before staging when the current data and the copies would pass the limit (0 is none). */
     #[DataProvider('drivers')]
     public function testThePreflightRefusesWhatDoesNotFit(string $driver): void
@@ -359,6 +430,41 @@ final class RestoreStageTest extends CIUnitTestCase
     private static function columns(BaseConnection $db, string $table): array
     {
         return $db->query("SELECT * FROM $table WHERE 1 = 0")->getFieldNames();
+    }
+
+    /** @return SqlExecutor&object{runs:list<list<array{sql:string,params:list<scalar|null>}>>} $inner, noting each run() */
+    private static function recording(SqlExecutor $inner): SqlExecutor
+    {
+        return new class ($inner) implements SqlExecutor {
+            /** @var list<list<array{sql:string,params:list<scalar|null>}>> */
+            public array $runs = [];
+
+            public function __construct(private readonly SqlExecutor $inner)
+            {
+            }
+
+            public function run(array $statements): array
+            {
+                $this->runs[] = $statements;
+
+                return $this->inner->run($statements);
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                return $this->inner->query($sql, $params);
+            }
+
+            public function dialect(): Dialect
+            {
+                return $this->inner->dialect();
+            }
+
+            public function connection(): ?BaseConnection
+            {
+                return $this->inner->connection();
+            }
+        };
     }
 
     /** @param BaseConnection<object|resource, object|resource> $db */
