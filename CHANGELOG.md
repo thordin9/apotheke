@@ -8,9 +8,19 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** an item's attachment limit and an item delete are now checked inside their unit of work, and staged restore runs are ordered by the database (L-1666, L-1667, L-1713).
+
+## [3.18.0] - 2026-11-05
+
 **Note:** on the edge, a backup that names a column twice is now refused, and a stopped restore found after a later one is no longer reported as unchanged. Nothing changes for self-hosted restores, except that a backup naming a column twice is refused there too.
 
-**Note:** an item's attachment limit and an item delete are now checked inside their unit of work (L-1666, L-1667).
+### Added
+
+- **backup:** staged restore follow-ups and 2.6.26 parity (P4-2b) ([#229](https://github.com/thordin9/apotheke/pull/229))
+
+### Maintenance
+
+- **handoff:** docs: trim to one screen, move detail to log ([#228](https://github.com/thordin9/apotheke/pull/228))
 
 ## [3.17.0] - 2026-11-04
 
@@ -1260,7 +1270,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.17.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.18.0...HEAD
+[3.18.0]: https://github.com/thordin9/apotheke/compare/v3.17.0...v3.18.0
 [3.17.0]: https://github.com/thordin9/apotheke/compare/v3.16.0...v3.17.0
 [3.16.0]: https://github.com/thordin9/apotheke/compare/v3.15.5...v3.16.0
 [3.15.5]: https://github.com/thordin9/apotheke/compare/v3.15.4...v3.15.5
