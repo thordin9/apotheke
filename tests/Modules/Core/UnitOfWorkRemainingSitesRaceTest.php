@@ -9,6 +9,14 @@ use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Auth\UserRepository;
+use Apotheke\Auth\SessionEpoch;
+use Apotheke\BulkMerge\MergeService;
+use Apotheke\Catalog\ItemList;
+use Apotheke\Search\SearchIndex;
+use Apotheke\Stocktake\Stocktakes;
+use Apotheke\Catalog\Barcode;
+use Apotheke\Taxonomy\TagRepository;
 use Apotheke\Taxonomy\TaxonomyRepository;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
@@ -16,7 +24,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
- * Real parallel races for the remaining sites (M-1752, L-1753, N-1754): several
+ * Real parallel races for the remaining sites (M-1752, L-1753, N-1754, M-1764, M-1765, M-1771): several
  * processes share one database in batch mode and must leave a correct final
  * quantity, history, and lend state.
  */
@@ -164,7 +172,368 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $this->assertSame($parent['id'], (int)Writes::rows($db, 'SELECT parent_id FROM locations WHERE name = ?', ['Shelf'])[0]['parent_id']);
     }
 
+
     /**
+     * Parallel setDefault(true) on two locations: table-wide unit lock leaves
+     * exactly one default (clear-then-set must not race on PostgreSQL).
+     */
+    #[DataProvider('drivers')]
+    public function testParallelSetDefaultLeavesOneDefault(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $tax = new TaxonomyRepository($db, new Clock(), new ActivityLogger($db, new Clock(), static fn (): ?string => null), $units);
+        $a = $tax->create('location', 'Alpha');
+        $b = $tax->create('location', 'Beta');
+        $answers = $this->parallel([
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $a['id'], 'on' => true],
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $b['id'], 'on' => true],
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $a['id'], 'on' => true],
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $b['id'], 'on' => true],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $row): bool => ($row['ok'] ?? false) === true));
+        $this->assertCount(4, $ok, json_encode($answers));
+        $defaults = Writes::rows($db, 'SELECT id FROM locations WHERE is_default = 1');
+        $this->assertCount(1, $defaults, json_encode($defaults));
+        $this->assertContains((int)$defaults[0]['id'], [$a['id'], $b['id']]);
+    }
+
+
+    /**
+     * M-1764: parallel demotions of the last two admins in batch and connection
+     * mode leave exactly one active admin.
+     *
+     * @return iterable<string,array{0:string,1:bool}>
+     */
+    public static function adminRaceModes(): iterable
+    {
+        foreach (self::drivers() as $driver => [$d]) {
+            yield $driver . '-batch' => [$d, true];
+            yield $driver . '-conn' => [$d, false];
+        }
+    }
+
+    #[DataProvider('adminRaceModes')]
+    public function testParallelDemoteLastTwoAdminsLeavesOne(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $users = new UserRepository($db, new SessionEpoch(), $units);
+        $a = $users->create('ada', password_hash('x', PASSWORD_BCRYPT, ['cost' => 4]), 'admin', 'active', '2026-01-01 00:00:00');
+        $b = $users->create('bea', password_hash('x', PASSWORD_BCRYPT, ['cost' => 4]), 'admin', 'active', '2026-01-01 00:00:00');
+        $answers = $this->parallel([
+            ['op' => 'setRole', 'batch' => $batch, 'id' => $a, 'role' => 'viewer'],
+            ['op' => 'setRole', 'batch' => $batch, 'id' => $b, 'role' => 'viewer'],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $fail = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) !== true));
+        $this->assertCount(1, $ok, json_encode($answers));
+        $this->assertCount(1, $fail, json_encode($answers));
+        $this->assertSame(409, (int)$fail[0]['code']);
+        $this->assertSame(1, (int)Writes::rows($db, "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'")[0]['n']);
+    }
+
+    #[DataProvider('adminRaceModes')]
+    public function testParallelDeleteLastTwoAdminsLeavesOne(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $users = new UserRepository($db, new SessionEpoch(), $units);
+        $a = $users->create('ada', password_hash('x', PASSWORD_BCRYPT, ['cost' => 4]), 'admin', 'active', '2026-01-01 00:00:00');
+        $b = $users->create('bea', password_hash('x', PASSWORD_BCRYPT, ['cost' => 4]), 'admin', 'active', '2026-01-01 00:00:00');
+        $answers = $this->parallel([
+            ['op' => 'deleteUser', 'batch' => $batch, 'id' => $a],
+            ['op' => 'deleteUser', 'batch' => $batch, 'id' => $b],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $fail = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) !== true));
+        $this->assertCount(1, $ok, json_encode($answers));
+        $this->assertCount(1, $fail, json_encode($answers));
+        $this->assertSame(409, (int)$fail[0]['code']);
+        $this->assertSame(1, (int)Writes::rows($db, "SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'")[0]['n']);
+    }
+
+    /**
+     * M-1765: two crossing setParent moves must not create a cycle.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelCrossingSetParentDoesNotCycle(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $tax = new TaxonomyRepository($db, new Clock(), new ActivityLogger($db, new Clock(), static fn (): ?string => null), $units);
+        $a = $tax->create('location', 'A');
+        $b = $tax->createUnder('location', 'B', $a['id']);
+        $c = $tax->create('location', 'C');
+        $d = $tax->createUnder('location', 'D', $c['id']);
+        // Cross: put B under D, and D under B.
+        $answers = $this->parallel([
+            ['op' => 'setParent', 'batch' => $batch, 'id' => $b['id'], 'parent' => $d['id']],
+            ['op' => 'setParent', 'batch' => $batch, 'id' => $d['id'], 'parent' => $b['id']],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $this->assertGreaterThanOrEqual(1, count($ok), json_encode($answers));
+        $this->assertLessThanOrEqual(1, count($ok), 'at most one crossing move may succeed: ' . json_encode($answers));
+        // No cycle: walk parents from B and D with a cap.
+        foreach ([$b['id'], $d['id']] as $start) {
+            $seen = [];
+            $cur = $start;
+            for ($i = 0; $i < 20; $i++) {
+                $this->assertArrayNotHasKey($cur, $seen, 'cycle at ' . $cur);
+                $seen[$cur] = true;
+                $row = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$cur])[0] ?? null;
+                if ($row === null || $row['parent_id'] === null) {
+                    break;
+                }
+                $cur = (int)$row['parent_id'];
+            }
+        }
+    }
+
+    /**
+     * M-1765: parallel nestings cannot push a tree past MAX_DEPTH.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelSetParentRespectsMaxDepth(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $tax = new TaxonomyRepository($db, new Clock(), new ActivityLogger($db, new Clock(), static fn (): ?string => null), $units);
+        $ids = [];
+        $parent = null;
+        for ($i = 0; $i < 7; $i++) {
+            $r = $parent === null
+                ? $tax->create('location', 'L' . $i)
+                : $tax->createUnder('location', 'L' . $i, $parent);
+            $ids[] = $r['id'];
+            $parent = $r['id'];
+        }
+        // Tip is at depth 6 (= MAX_DEPTH). Nesting under it would be depth 7.
+        $leafA = $tax->create('location', 'ExtraA');
+        $leafB = $tax->create('location', 'ExtraB');
+        $tip = $ids[6];
+        $answers = $this->parallel([
+            ['op' => 'setParent', 'batch' => $batch, 'id' => $leafA['id'], 'parent' => $tip],
+            ['op' => 'setParent', 'batch' => $batch, 'id' => $leafB['id'], 'parent' => $tip],
+        ]);
+        foreach ($answers as $a) {
+            $this->assertFalse($a['ok'] ?? true, json_encode($answers));
+            $this->assertSame(422, (int)$a['code']);
+        }
+        $this->assertNull(Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$leafA['id']])[0]['parent_id']);
+        $this->assertNull(Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$leafB['id']])[0]['parent_id']);
+    }
+
+    /** L-1766: parallel deletes of one location write history once per item. */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelDeleteLocationHistoryOnce(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $tax = new TaxonomyRepository($db, new Clock(), new ActivityLogger($db, new Clock(), static fn (): ?string => null), $units);
+        $loc = $tax->create('location', 'Shed');
+        $other = $tax->create('location', 'Yard');
+        $db->query(
+            "INSERT INTO items (name, quantity, location_id, notes, search, created_at, updated_at) VALUES ('Box', 1, ?, '', 'box', '2026-01-01 00:00:00', '2026-01-01 00:00:00')",
+            [$loc['id']],
+        );
+        $answers = $this->parallel([
+            ['op' => 'deleteTaxonomy', 'batch' => $batch, 'kind' => 'location', 'id' => $loc['id'], 'moveTo' => $other['id']],
+            ['op' => 'deleteTaxonomy', 'batch' => $batch, 'kind' => 'location', 'id' => $loc['id'], 'moveTo' => $other['id']],
+        ]);
+        $moved = array_sum(array_map(static fn (array $r): int => (int)($r['moved'] ?? 0), $answers));
+        $this->assertSame(1, $moved, json_encode($answers));
+        $this->assertSame(0, (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM locations WHERE id = ?', [$loc['id']])[0]['n']);
+        $this->assertSame(1, (int)Writes::rows($db, "SELECT COUNT(*) AS n FROM activity WHERE action = 'moved'")[0]['n']);
+    }
+
+    /** L-1767: two merges of the same source — one wins. */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelMergeSameSourceOneWins(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $items = $this->database->items($db, $units, $history);
+        $src = $items->save(null, ['name' => 'A', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+        $t1 = $items->save(null, ['name' => 'B', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+        $t2 = $items->save(null, ['name' => 'C', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+        $answers = $this->parallel([
+            ['op' => 'merge', 'batch' => $batch, 'source' => $src, 'target' => $t1],
+            ['op' => 'merge', 'batch' => $batch, 'source' => $src, 'target' => $t2],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $this->assertCount(1, $ok, json_encode($answers));
+        $this->assertNull($items->get($src));
+        $alive = array_filter([$items->get($t1), $items->get($t2)]);
+        $this->assertCount(2, $alive);
+    }
+
+    /** N-1768: parallel ticks of the same unexpected item succeed. */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelUnexpectedStocktakeTicksSucceed(string $driver, bool $batch): void
+    {
+        putenv('APOTHEKE_CLOCK=2026-06-15 09:00:00');
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $tax = new TaxonomyRepository($db, $clock, $history, $units);
+        $loc = $tax->create('location', 'Room');
+        $items = $this->database->items($db, $units, $history);
+        $item = $items->save(null, ['name' => 'Stray', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+        $takes = new Stocktakes($db, $clock, $tax, $items, $history, new Barcode($db), $units);
+        $sid = $takes->start($loc['id']);
+        $answers = $this->parallel([
+            ['op' => 'stocktakeCheck', 'batch' => $batch, 'stocktake' => $sid, 'item' => $item],
+            ['op' => 'stocktakeCheck', 'batch' => $batch, 'stocktake' => $sid, 'item' => $item],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $this->assertCount(2, $ok, json_encode($answers));
+        $this->assertSame(1, (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM stocktake_lines WHERE stocktake_id = ? AND item_id = ?', [$sid, $item])[0]['n']);
+    }
+
+    /**
+     * M-1771: merge + 4 parallel +1 on the target ends at 9 (both keys serialize).
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testMergePlusParallelAdjustsKeepQuantity(string $driver, bool $batch): void
+    {
+        for ($run = 0; $run < 6; $run++) {
+            $this->database?->drop();
+            $this->database = TestDatabase::create($driver);
+            $db = $this->database->db;
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+            $clock = new Clock();
+            $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+            $items = $this->database->items($db, $units, $history);
+            $target = $items->save(null, ['name' => 'T', 'location_id' => null, 'category_id' => null, 'quantity' => 5, 'notes' => '', 'tags' => []], null, false);
+            $source = $items->save(null, ['name' => 'S', 'location_id' => null, 'category_id' => null, 'quantity' => 0, 'notes' => '', 'tags' => []], null, false);
+            $jobs = [
+                ['op' => 'merge', 'batch' => $batch, 'source' => $source, 'target' => $target],
+            ];
+            for ($i = 0; $i < 4; $i++) {
+                $jobs[] = ['op' => 'adjust', 'batch' => $batch, 'id' => $target, 'delta' => 1];
+            }
+            $answers = $this->parallel($jobs);
+            $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+            $this->assertGreaterThanOrEqual(5, count($ok), "run $run: " . json_encode($answers));
+            $qty = (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = ?', [$target])[0]['quantity'];
+            $this->assertSame(9, $qty, "run $run answers=" . json_encode($answers));
+            $this->assertNull($items->get($source));
+        }
+    }
+
+    /**
+     * M-1771 / L-1772: crossing/chained merges keep total 10; failures are 404/409.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testCrossingMergesConserveTotal(string $driver, bool $batch): void
+    {
+        for ($run = 0; $run < 6; $run++) {
+            $this->database?->drop();
+            $this->database = TestDatabase::create($driver);
+            $db = $this->database->db;
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+            $clock = new Clock();
+            $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+            $items = $this->database->items($db, $units, $history);
+            $a = $items->save(null, ['name' => 'A', 'location_id' => null, 'category_id' => null, 'quantity' => 4, 'notes' => '', 'tags' => []], null, false);
+            $b = $items->save(null, ['name' => 'B', 'location_id' => null, 'category_id' => null, 'quantity' => 3, 'notes' => '', 'tags' => []], null, false);
+            $c = $items->save(null, ['name' => 'C', 'location_id' => null, 'category_id' => null, 'quantity' => 3, 'notes' => '', 'tags' => []], null, false);
+            $answers = $this->parallel([
+                ['op' => 'merge', 'batch' => $batch, 'source' => $a, 'target' => $b],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $a, 'target' => $c],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $b, 'target' => $a],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $c, 'target' => $b],
+            ]);
+            foreach ($answers as $r) {
+                if (($r['ok'] ?? false) === true) {
+                    continue;
+                }
+                $this->assertContains((int)($r['code'] ?? 0), [404, 409], "run $run: " . json_encode($answers));
+            }
+            $alive = Writes::rows($db, 'SELECT id, quantity FROM items WHERE id IN (?, ?, ?)', [$a, $b, $c]);
+            $total = array_sum(array_map(static fn (array $r): int => (int)$r['quantity'], $alive));
+            $this->assertSame(10, $total, "run $run answers=" . json_encode($answers) . ' alive=' . json_encode($alive));
+        }
+    }
+
+    /**
+     * L-1773: parallel photo uploads get distinct positions 0,1,2.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelPhotoAddsGetDistinctPositions(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $items = $this->database->items($db, $units, $history);
+        $item = $items->save(null, ['name' => 'Cam', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+        $files = [
+            str_repeat('a', 32) . '.jpg',
+            str_repeat('b', 32) . '.jpg',
+            str_repeat('c', 32) . '.jpg',
+        ];
+        $answers = $this->parallel([
+            ['op' => 'photoAdd', 'batch' => $batch, 'item' => $item, 'file' => $files[0]],
+            ['op' => 'photoAdd', 'batch' => $batch, 'item' => $item, 'file' => $files[1]],
+            ['op' => 'photoAdd', 'batch' => $batch, 'item' => $item, 'file' => $files[2]],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $this->assertCount(3, $ok, json_encode($answers));
+        $positions = array_map(
+            static fn (array $r): int => (int)$r['position'],
+            Writes::rows($db, 'SELECT position FROM item_photos WHERE item_id = ? ORDER BY position, id', [$item]),
+        );
+        $this->assertSame([0, 1, 2], $positions, json_encode($answers));
+        $cover = Writes::rows($db, 'SELECT image FROM items WHERE id = ?', [$item])[0]['image'] ?? null;
+        $first = Writes::rows($db, 'SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id LIMIT 1', [$item])[0]['file'] ?? null;
+        $this->assertSame($first, $cover);
+    }
+
+    /**
+     * N-1774: setParent's recursive CTE terminates on a seeded cycle.
+     */
+    public function testSetParentTerminatesOnSeededCycle(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $tax = new TaxonomyRepository($db, $clock, $history, $units);
+        $a = $tax->create('location', 'CycleA');
+        $b = $tax->create('location', 'CycleB');
+        // Seed a cycle A→B→A by bypassing guards.
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$b['id'], $a['id']]), 'seed');
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$a['id'], $b['id']]), 'seed');
+        $c = $tax->create('location', 'CycleC');
+        $started = hrtime(true);
+        try {
+            $tax->setParent($c['id'], $a['id']);
+        } catch (\Throwable) {
+            // may reject on depth/cycle once the walk hits the bound
+        }
+        $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        $this->assertLessThan(2000, $elapsedMs, 'seeded cycle must terminate quickly');
+        // Tree under A must not grow forever; C may or may not attach.
+        $n = (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM locations')[0]['n'];
+        $this->assertSame(3, $n);
+    }
+
+        /**
      * N-1755: ItemRepository and TagRepository from Services share one UnitsOfWork.
      */
     public function testItemAndTagServicesShareUnitsOfWork(): void

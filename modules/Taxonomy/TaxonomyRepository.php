@@ -229,12 +229,13 @@ final class TaxonomyRepository
     public function setDefault(string $kind, int $id, bool $on): void
     {
         $tb = Kind::get($kind)['table'];
-        $this->tx(function () use ($tb, $id, $on): void {
+        // Table-wide unit (empty key): clear-then-set must not race another default (PostgreSQL).
+        $this->units->run($tb, function (UnitOfWork $uow) use ($tb, $id, $on): void {
             if ($on) {
-                Writes::check($this->db->table($tb)->where('is_default', 1)->update(['is_default' => 0]), 'clear default');
-                Writes::check($this->db->table($tb)->where('id', $id)->update(['is_default' => 1]), 'set default');
+                $uow->write('UPDATE ' . $tb . ' SET is_default = 0 WHERE is_default = 1', [], 'clear default');
+                $uow->write('UPDATE ' . $tb . ' SET is_default = 1 WHERE id = ?', [$id], 'set default');
             } else {
-                Writes::check($this->db->table($tb)->where('id', $id)->update(['is_default' => 0]), 'clear default');
+                $uow->write('UPDATE ' . $tb . ' SET is_default = 0 WHERE id = ?', [$id], 'clear default');
             }
         });
     }
@@ -244,23 +245,40 @@ final class TaxonomyRepository
     {
         $t = Kind::get($kind);
 
-        return $this->tx(function () use ($t, $kind, $id, $moveTo): int {
-            $from = (string)($this->get($kind, $id)['name'] ?? '');
+        return $this->units->run($t['table'], function (UnitOfWork $uow) use ($t, $kind, $id, $moveTo): int {
+            $row = $this->get($kind, $id);
+            if ($row === null) {
+                return 0;
+            }
+            $from = (string)$row['name'];
             $to = $moveTo !== null ? (string)($this->get($kind, $moveTo)['name'] ?? '') : '';
+            $now = $this->clock->now();
+            // Re-read under the unit: N-1770 returns this count (rows still on the entry).
             $items = $this->rows("SELECT id, name FROM items WHERE {$t['col']} = ?", [$id]);
+            $n = count($items);
+            // L-1766: history queued with the unit; expect-1 on delete rolls back a loser.
             foreach ($items as $it) {
                 $kind === 'location'
-                    ? $this->activity->log((int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
-                    : $this->activity->log((int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
+                    ? $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
+                    : $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
             }
-            Writes::check($this->db->table('items')->where($t['col'], $id)->update([$t['col'] => $moveTo, 'updated_at' => $this->clock->now()]), 'move items');
-            $n = $this->db->affectedRows();
+            $uow->write(
+                'UPDATE items SET ' . $t['col'] . ' = ?, updated_at = ? WHERE ' . $t['col'] . ' = ?'
+                . ' AND EXISTS (SELECT 1 FROM ' . $t['table'] . ' WHERE id = ?)',
+                [$moveTo, $now, $id, $id],
+                'move items',
+            );
             if ($kind === 'location') {
-                // sub-locations move up one level instead of disappearing from the tree
                 $up = $this->rows('SELECT parent_id FROM locations WHERE id = ?', [$id])[0]['parent_id'] ?? null;
-                Writes::check($this->db->table('locations')->where('parent_id', $id)->update(['parent_id' => $up === null ? null : (int)$up]), 'move sub-locations');
+                $uow->write('UPDATE locations SET parent_id = ? WHERE parent_id = ?', [$up === null ? null : (int)$up, $id], 'move sub-locations');
             }
-            Writes::check($this->db->table($t['table'])->where('id', $id)->delete(), 'delete');
+            $uow->write(
+                'DELETE FROM ' . $t['table'] . ' WHERE id = ?',
+                [$id],
+                'delete',
+                1,
+                static fn (): UserError => new UserError(Kind::get($kind)['One'] . ' not found.', 404),
+            );
 
             return $n;
         });
@@ -269,34 +287,91 @@ final class TaxonomyRepository
     /** Put location $id inside $parent (null = top level). Rejects cycles and trees deeper than MAX_DEPTH. True when it changed. */
     public function setParent(int $id, ?int $parent): bool
     {
-        return $this->tx(function () use ($id, $parent): bool {
-            $byId = $this->locationsById();
-            if (!isset($byId[$id])) {
+        return $this->units->run('locations', function (UnitOfWork $uow) use ($id, $parent): bool {
+            $row = $this->rows('SELECT id, parent_id FROM locations WHERE id = ?', [$id])[0] ?? null;
+            if ($row === null) {
                 throw new UserError('Location not found.', 404);
             }
-            if ($byId[$id]['parent_id'] === $parent) {
+            $current = $row['parent_id'] === null ? null : (int)$row['parent_id'];
+            if ($current === $parent) {
                 return false;
             }
-            if ($parent !== null) {
-                if (!isset($byId[$parent])) {
-                    throw new UserError('That parent location no longer exists.', 422);
-                }
-                $sub = $this->subtreeIds($id);
-                if (in_array($parent, $sub, true)) {
-                    throw new UserError('A location cannot be put inside itself or one of its own sub-locations.', 422);
-                }
-                // depth of the new position + height of the moved subtree must stay within the limit
-                $height = 0;
-                foreach ($sub as $s) {
-                    if (isset($byId[$s])) {
-                        $height = max($height, $byId[$s]['depth'] - $byId[$id]['depth']);
-                    }
-                }
-                if ($byId[$parent]['depth'] + 1 + $height > LocationTree::MAX_DEPTH) {
-                    throw new UserError('Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.', 422);
-                }
+            if ($parent === null) {
+                $uow->write(
+                    'UPDATE locations SET parent_id = NULL WHERE id = ? AND parent_id IS NOT NULL',
+                    [$id],
+                    'move',
+                    1,
+                    static fn (): UserError => new UserError('Location not found.', 404),
+                );
+
+                return true;
             }
-            Writes::check($this->db->table('locations')->where('id', $id)->update(['parent_id' => $parent]), 'move');
+            $uow->assert(
+                'EXISTS (SELECT 1 FROM locations WHERE id = ?)',
+                [$parent],
+                'parent exists',
+                static fn (): UserError => new UserError('That parent location no longer exists.', 422),
+            );
+            // M-1765: parent is not this node or a descendant (cycle guard in-batch).
+            $uow->assert(
+                'NOT EXISTS ('
+                . ' WITH RECURSIVE sub(id, n) AS ('
+                . '   SELECT ? AS id, 0'
+                . '   UNION ALL SELECT l.id, sub.n + 1 FROM locations l JOIN sub ON l.parent_id = sub.id WHERE sub.n < 50'
+                . ' ) SELECT 1 FROM sub WHERE id = ?'
+                . ')',
+                [$id, $parent],
+                'not a descendant',
+                static fn (): UserError => new UserError(
+                    'A location cannot be put inside itself or one of its own sub-locations.',
+                    422,
+                ),
+            );
+            // Depth of parent + 1 + height of moved subtree <= MAX_DEPTH.
+            $uow->assert(
+                '('
+                . ' (SELECT COUNT(*) FROM ('
+                . '   WITH RECURSIVE chain(id, parent_id, n) AS ('
+                . '     SELECT id, parent_id, 0 FROM locations WHERE id = ?'
+                . '     UNION ALL SELECT l.id, l.parent_id, chain.n + 1 FROM locations l'
+                . '     JOIN chain ON chain.parent_id = l.id WHERE chain.n < 50'
+                . '   ) SELECT 1 FROM chain'
+                . ' ) AS d)'
+                . ' + 1'
+                . ' + COALESCE((SELECT MAX(n) FROM ('
+                . '   WITH RECURSIVE sub(id, n) AS ('
+                . '     SELECT id, 0 FROM locations WHERE id = ?'
+                . '     UNION ALL SELECT l.id, sub.n + 1 FROM locations l'
+                . '     JOIN sub ON l.parent_id = sub.id WHERE sub.n < 50'
+                . '   ) SELECT n FROM sub'
+                . ' ) AS h), 0)'
+                . ') <= ?',
+                [$parent, $id, LocationTree::MAX_DEPTH],
+                'parent depth',
+                static fn (): UserError => new UserError(
+                    'Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.',
+                    422,
+                ),
+            );
+            // Conditional write: same guards in the WHERE so a raced batch cannot land a cycle.
+            $uow->write(
+                'UPDATE locations SET parent_id = ? WHERE id = ?'
+                . ' AND EXISTS (SELECT 1 FROM locations WHERE id = ?)'
+                . ' AND NOT EXISTS ('
+                . '   WITH RECURSIVE sub(id, n) AS ('
+                . '     SELECT ? AS id, 0'
+                . '     UNION ALL SELECT l.id, sub.n + 1 FROM locations l JOIN sub ON l.parent_id = sub.id WHERE sub.n < 50'
+                . '   ) SELECT 1 FROM sub WHERE id = ?'
+                . ' )',
+                [$parent, $id, $parent, $id, $parent],
+                'move',
+                1,
+                static fn (): UserError => new UserError(
+                    'A location cannot be put inside itself or one of its own sub-locations.',
+                    422,
+                ),
+            );
 
             return true;
         });
@@ -333,17 +408,6 @@ final class TaxonomyRepository
         return $name;
     }
 
-    /**
-     * Run $fn in a transaction (joins an open one); a failed statement rolls back and throws.
-     *
-     * @template T
-     * @param callable():T $fn
-     * @return T
-     */
-    private function tx(callable $fn): mixed
-    {
-        return Writes::transaction($this->db, $fn);
-    }
 
     /**
      * A SELECT's rows; a failed statement throws.

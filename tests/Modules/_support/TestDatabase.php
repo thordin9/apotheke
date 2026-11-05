@@ -187,7 +187,29 @@ final class TestDatabase
         });
 
         return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history, $units), new TagRepository($db, $clock, $units),
-            $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo), $units);
+            $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo, $units), $units);
+    }
+
+    /**
+     * Photo repository on this database (race workers and photo races).
+     *
+     * @param BaseConnection<object|resource, object|resource>|null $db
+     */
+    public function photos(?BaseConnection $db = null, ?UnitsOfWork $units = null, ?ItemHistory $history = null): PhotoRepository
+    {
+        $db ??= $this->db;
+        $clock = new Clock();
+        $history ??= new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
+            $this->config->values(), static fn (string $m): null => null, new CommandLine());
+        $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->config->originalsDir(), 0640)),
+            new ServedImageWriter(new LocalStorage($this->dir)), new ImagickDecoder(), new RequestCleanup(static function (): void {
+            }));
+        $undo = new UndoTokens($db, $clock, 600, static function (string $f): void {
+        }, static function (): void {
+        });
+
+        return new PhotoRepository($db, $clock, $history, $images, $undo, $units);
     }
 
     /** A raw PDO on the same database, for test fixtures. */

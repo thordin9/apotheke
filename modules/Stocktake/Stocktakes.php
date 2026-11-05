@@ -23,7 +23,7 @@ use CodeIgniter\Database\BaseConnection;
  * everything inside it, tick or scan what you find, then finish with a
  * report of what was found, what is missing and what turned up although it
  * belongs elsewhere (misplaced). Misplaced items can be moved to the checked
- * location when finishing. Every change is one transaction.
+ * location when finishing. Every change is one unit of work (ADR-002).
  *
  * @phpstan-type Take array{id:int,location_id:?int,location_name:string,status:string,started_at:string,finished_at:?string,moves_applied:int,summary:array<string,mixed>}
  * @phpstan-type Line array{id:int,item_id:?int,item_name:string,expected:bool,home_location_id:?int,home_location:string,found:bool,found_at:?string,moved:bool,image:?string}
@@ -136,22 +136,19 @@ final class Stocktakes
     /**
      * Tick ($found) or untick an item. An item that was not expected here is
      * added as misplaced; unticking a misplaced item removes it again. The
-     * transaction writes first (stillOpen()), so it holds the write lock
-     * before its first read: on SQLite a tick during another client's write
+     * unit holds first, so it holds the write lock
+     * under the unit's lock: on SQLite a tick during another client's write
      * waits for it instead of failing on a read lock it cannot upgrade.
      *
      * @return array{state:string,name:string,home:string} state: found, misplaced, missing or none
      */
     public function check(int $stocktakeId, int $itemId, bool $found = true): array
     {
-        $s = $this->get($stocktakeId) ?? throw new UserError('Stocktake not found.', 404);
-        if ($s['status'] !== 'open') {
-            throw new UserError('This stocktake is finished.', 409);
-        }
-        $it = $this->items->get($itemId) ?? throw new UserError('Item not found.', 404);
-
-        return Writes::transaction($this->db, function () use ($stocktakeId, $it, $found): array {
-            $this->stillOpen($stocktakeId);
+        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($stocktakeId, $itemId, $found): array {
+            // Re-check under the unit (legacy stillOpen): a tick that lost to a finish fails the unit.
+            $uow->write("UPDATE stocktakes SET status = status WHERE id = ? AND status = 'open'", [$stocktakeId], 'check stocktake', 1,
+                static fn (): UserError => new UserError('This stocktake is finished.', 409));
+            $it = $this->items->get($itemId) ?? throw new UserError('Item not found.', 404);
             $id = (int)$it['id'];
             $name = (string)$it['name'];
             $loc = is_int($it['location_id']) ? $it['location_id'] : null;
@@ -162,24 +159,30 @@ final class Stocktakes
                 if (!$found) {
                     return ['state' => 'none'] + $r;
                 }
-                Writes::check($this->db->query('INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location, found, found_at) VALUES (?,?,?,0,?,?,1,?)',
-                    [$stocktakeId, $id, $name, $loc, $home, $this->clock->now()]), 'misplaced line');
+                // N-1768: parallel ticks of the same unexpected item — ON CONFLICT succeeds cleanly.
+                $uow->write(
+                    'INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location, found, found_at)'
+                    . ' VALUES (?,?,?,0,?,?,1,?)'
+                    . ' ON CONFLICT (stocktake_id, item_id) DO UPDATE SET found = 1, found_at = excluded.found_at',
+                    [$stocktakeId, $id, $name, $loc, $home, $this->clock->now()],
+                    'misplaced line',
+                );
 
                 return ['state' => 'misplaced'] + $r;
             }
             if ((int)$line['expected'] === 0) {
                 if (!$found) {
-                    Writes::check($this->db->query('DELETE FROM stocktake_lines WHERE id = ?', [(int)$line['id']]), 'remove line');
+                    $uow->write('DELETE FROM stocktake_lines WHERE id = ?', [(int)$line['id']], 'remove line');
 
                     return ['state' => 'none'] + $r;
                 }
 
                 return ['state' => 'misplaced'] + $r;
             }
-            Writes::check($this->db->query('UPDATE stocktake_lines SET found = ?, found_at = ? WHERE id = ?', [$found ? 1 : 0, $found ? $this->clock->now() : null, (int)$line['id']]), 'tick line');
+            $uow->write('UPDATE stocktake_lines SET found = ?, found_at = ? WHERE id = ?', [$found ? 1 : 0, $found ? $this->clock->now() : null, (int)$line['id']], 'tick line');
 
             return ['state' => $found ? 'found' : 'missing'] + $r;
-        });
+        }, (string)$stocktakeId);
     }
 
     /** @return Report */
@@ -208,18 +211,17 @@ final class Stocktakes
     /** Finish: store the counts and, with $applyMoves, move every misplaced item into the checked location. Returns the number moved. */
     public function finish(int $stocktakeId, bool $applyMoves): int
     {
-        $s = $this->get($stocktakeId) ?? throw new UserError('Stocktake not found.', 404);
-        if ($s['status'] !== 'open') {
-            throw new UserError('This stocktake is already finished.', 409);
-        }
-        $to = $s['location_id'];
-        if ($applyMoves && ($to === null || $this->taxonomy->get('location', $to) === null)) {
-            throw new UserError('The location was deleted – misplaced items cannot be moved there.', 409);
-        }
-
-        return Writes::transaction($this->db, function () use ($s, $to, $applyMoves): int {
-            $this->close($s['id'], 'done');
-            $rep = $this->report($s['id']);
+        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($stocktakeId, $applyMoves): int {
+            // Close first (legacy close): only one finish gets the open stocktake.
+            $uow->write("UPDATE stocktakes SET status = 'done', finished_at = ? WHERE id = ? AND status = 'open'",
+                [$this->clock->now(), $stocktakeId], 'finish stocktake', 1,
+                static fn (): UserError => new UserError('This stocktake is already finished.', 409));
+            $s = $this->get($stocktakeId) ?? throw new UserError('Stocktake not found.', 404);
+            $to = $s['location_id'];
+            if ($applyMoves && ($to === null || $this->taxonomy->get('location', $to) === null)) {
+                throw new UserError('The location was deleted – misplaced items cannot be moved there.', 409);
+            }
+            $rep = $this->report($stocktakeId);
             $moved = 0;
             if ($applyMoves) {
                 $path = $this->taxonomy->locationPath($to);
@@ -228,18 +230,18 @@ final class Stocktakes
                     if ($it === null || (int)$it['location_id'] === $to) {
                         continue;
                     }
-                    Writes::check($this->db->query('UPDATE items SET location_id = ?, updated_at = ? WHERE id = ?', [$to, $this->clock->now(), (int)$it['id']]), 'move item');
-                    Writes::check($this->db->query('UPDATE stocktake_lines SET moved = 1 WHERE id = ?', [$l['id']]), 'mark moved');
-                    $this->history->log((int)$it['id'], (string)$it['name'], 'moved', ['from' => $this->taxonomy->locationPath(is_int($it['location_id']) ? $it['location_id'] : null), 'to' => $path, 'reason' => 'stocktake']);
+                    $uow->write('UPDATE items SET location_id = ?, updated_at = ? WHERE id = ?', [$to, $this->clock->now(), (int)$it['id']], 'move item');
+                    $uow->write('UPDATE stocktake_lines SET moved = 1 WHERE id = ?', [$l['id']], 'mark moved');
+                    $this->history->queue($uow, (int)$it['id'], (string)$it['name'], 'moved', ['from' => $this->taxonomy->locationPath(is_int($it['location_id']) ? $it['location_id'] : null), 'to' => $path, 'reason' => 'stocktake']);
                     $moved++;
                 }
             }
             $sum = ['expected' => $rep['expected'], 'found' => count($rep['found']), 'missing' => count($rep['missing']), 'misplaced' => count($rep['misplaced']), 'moved' => $moved];
-            Writes::check($this->db->query('UPDATE stocktakes SET moves_applied = ?, summary = ? WHERE id = ?',
-                [$moved, (string)json_encode($sum), $s['id']]), 'finish stocktake');
+            $uow->write('UPDATE stocktakes SET moves_applied = ?, summary = ? WHERE id = ?',
+                [$moved, (string)json_encode($sum), $stocktakeId], 'finish stocktake');
 
             return $moved;
-        });
+        }, (string)$stocktakeId);
     }
 
     public function cancel(int $stocktakeId): void
@@ -266,19 +268,6 @@ final class Stocktakes
         }
     }
 
-    /**
-     * The first write of a tick's transaction: it goes on only while the
-     * stocktake is still open. A tick that read it as open before a finish
-     * or cancel closed it answers as a finished stocktake (409) and adds or
-     * changes no line (on PostgreSQL it waits for the closing row lock first).
-     */
-    private function stillOpen(int $stocktakeId): void
-    {
-        Writes::check($this->db->query("UPDATE stocktakes SET status = status WHERE id = ? AND status = 'open'", [$stocktakeId]), 'check stocktake');
-        if ($this->db->affectedRows() !== 1) {
-            throw new UserError('This stocktake is finished.', 409);
-        }
-    }
 
     /**
      * @param array<string,mixed> $r

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\Text;
@@ -15,9 +16,9 @@ use Apotheke\Settings\SettingsService;
  * and cannot change; built-in roles cannot be deleted; the guest role never
  * gets users, settings or backup; and no change may leave the install
  * without an active account that can manage users. Checks run in legacy's
- * order. An update or delete checks and writes in one transaction that holds
- * the active admin rows, so it runs one after a concurrent admin change
- * (L-110). Holds no state.
+ * order. An update or delete checks and writes under the active-admins unit
+ * lock, so it runs one after a concurrent admin change (L-110, no row lock).
+ * Holds no state.
  */
 final class RoleAdmin
 {
@@ -121,8 +122,7 @@ final class RoleAdmin
      */
     public function update(string $key, ?string $name, array $perms): void
     {
-        $this->users->atomically(function () use ($key, $name, $perms): void {
-            $this->users->holdActiveAdmins();
+        $this->users->underActiveAdminGuard(function (UnitOfWork $_uow) use ($key, $name, $perms): void {
             $this->updateLocked($key, $name, $perms);
         });
     }
@@ -157,9 +157,7 @@ final class RoleAdmin
     /** Legacy role_delete(): a custom role; its accounts move to $moveTo. */
     public function delete(string $key, string $moveTo = 'viewer'): void
     {
-        $register = $this->users->atomically(function () use ($key, $moveTo): mixed {
-            $this->users->holdActiveAdmins();
-
+        $register = $this->users->underActiveAdminGuard(function (UnitOfWork $_uow) use ($key, $moveTo): mixed {
             return $this->deleteLocked($key, $moveTo);
         });
         // After the commit, as legacy.

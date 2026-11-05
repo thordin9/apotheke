@@ -104,10 +104,12 @@ final class UnitsOfWork
      *
      * @template T
      * @param callable(UnitOfWork):T $fn
+     * @param string|list<string|int> $key one scope key, or several taken in sorted order (M-1771)
      * @return T
      */
-    public function run(string $table, callable $fn, string $key = ''): mixed
+    public function run(string $table, callable $fn, string|array $key = ''): mixed
     {
+        $keys = self::normalizeKeys($key);
         if ($this->open !== null) {
             try {
                 return $fn($this->open);
@@ -118,16 +120,16 @@ final class UnitsOfWork
         }
         $db = $this->executor->connection();
         if ($db === null) {
-            return $this->once(new BatchUnitOfWork($this->executor, $this->batchLock($table, $key)), $fn);
+            return $this->once(new BatchUnitOfWork($this->executor, $this->batchLock($table, $keys)), $fn);
         }
         $joined = (int)$db->transDepth > 0;
 
-        return Writes::transaction($db, function () use ($db, $table, $fn, $joined, $key): mixed {
-            $unit = function () use ($db, $table, $fn, $key): mixed {
+        return Writes::transaction($db, function () use ($db, $table, $fn, $joined, $keys): mixed {
+            $unit = function () use ($db, $table, $fn, $keys): mixed {
                 if ($db->DBDriver === 'SQLite3') {
                     Writes::check($db->query('DELETE FROM ' . $db->escapeIdentifiers($table) . ' WHERE 0 = 1'), 'write lock');
                 } elseif ($db->DBDriver === 'Postgre') {
-                    $this->lockPostgre($db, self::lockKeys($table, $key));
+                    $this->lockPostgreKeys($db, $table, $keys);
                 }
 
                 return $this->once(new ConnectionUnitOfWork($db), $fn);
@@ -143,18 +145,18 @@ final class UnitsOfWork
      * locks come first, and the lock is kept until its commit). Null, the
      * batch as it is, on any other executor (D1 has no BEGIN or SAVEPOINT).
      *
+     * @param list<string> $keys
      * @return (\Closure(callable():list<list<array<string,mixed>>>):list<list<array<string,mixed>>>)|null
      */
-    private function batchLock(string $table, string $key): ?\Closure
+    private function batchLock(string $table, array $keys): ?\Closure
     {
         $db = $this->executor instanceof LocalBatchExecutor ? $this->executor->local() : null;
         if ($db === null || $db->DBDriver !== 'Postgre') {
             return null;
         }
-        $keys = self::lockKeys($table, $key);
 
-        return fn (callable $batch): array => Writes::transaction($db, function () use ($db, $keys, $batch): array {
-            $this->lockPostgre($db, $keys);
+        return fn (callable $batch): array => Writes::transaction($db, function () use ($db, $table, $keys, $batch): array {
+            $this->lockPostgreKeys($db, $table, $keys);
 
             return $batch();
         });
@@ -179,6 +181,38 @@ final class UnitsOfWork
             usleep($pause);
             $pause = min($pause * 2, 50_000);
         }
+    }
+
+    /**
+     * Take each scope key's advisory lock in sorted order (M-1771), same wait/503 as one key.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param list<string> $keys
+     */
+    private function lockPostgreKeys(BaseConnection $db, string $table, array $keys): void
+    {
+        foreach ($keys as $key) {
+            $this->lockPostgre($db, self::lockKeys($table, $key));
+        }
+    }
+
+    /**
+     * Unique scope keys in sorted order so multi-key units never deadlock.
+     *
+     * @param string|list<string|int> $key
+     * @return list<string>
+     */
+    public static function normalizeKeys(string|array $key): array
+    {
+        $list = is_array($key) ? $key : [$key];
+        $out = [];
+        foreach ($list as $k) {
+            $out[(string)$k] = (string)$k;
+        }
+        $out = array_values($out);
+        sort($out, SORT_STRING);
+
+        return $out !== [] ? $out : [''];
     }
 
     /**

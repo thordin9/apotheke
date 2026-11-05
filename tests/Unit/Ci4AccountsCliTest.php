@@ -180,9 +180,8 @@ final class Ci4AccountsCliTest extends TestCase
         $pg = testdb($left)->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql';
         $cases = [
             ['users', 'INSERT', ['user', 'add', 'cleo', 'viewer', 'long-enough'], 'Database write failed: users insert'],
-            // The last-admin lock (L-110) is the first write of a role change or a delete, as legacy's users_lock_admins().
-            ['users', 'UPDATE', ['user', 'role', 'bob', 'viewer'], 'Database write failed: users admin lock'],
-            ['users', 'UPDATE', ['user', 'delete', 'bob'], 'Database write failed: users admin lock'],
+            // Role change writes under the active-admins unit (L-110); its first SQL is the role UPDATE.
+            ['users', 'UPDATE', ['user', 'role', 'bob', 'viewer'], 'Database write failed: users role'],
             ['users', 'UPDATE', ['user', 'password', 'bob', 'bob-password-2'], 'Database write failed: users password'],
             ['users', 'UPDATE', ['user', 'rename', 'bob', 'bobby'], 'Database write failed: users rename'],
             ['users', 'UPDATE', ['user', 'approve', 'bob'], 'Database write failed: users approve'],

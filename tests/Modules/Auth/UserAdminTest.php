@@ -11,6 +11,7 @@ use Apotheke\Auth\RoleRepository;
 use Apotheke\Auth\SignInSwitch;
 use Apotheke\Auth\UserAdmin;
 use Apotheke\Auth\UserRepository;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Libraries\Clock;
@@ -118,9 +119,9 @@ final class UserAdminTest extends CIUnitTestCase
     }
 
     /**
-     * The last-admin check reads the account again under the admin lock: a
-     * change committed between the first read and the lock (here a trigger
-     * on the lock's own write makes ada the only admin) is what it checks.
+     * The last-admin check re-reads under the active-admins unit lock: a
+     * change committed while that lock was held (another client swaps ada
+     * to the only admin) is what it checks when it runs.
      */
     #[DataProvider('drivers')]
     public function testTheLastAdminCheckReadsTheAccountUnderTheLock(string $driver): void
@@ -128,25 +129,25 @@ final class UserAdminTest extends CIUnitTestCase
         $this->database = TestDatabase::create($driver);
         $ada = $this->account('ada', 'editor');
         $bea = $this->account('bea', 'admin');
-        $db = $this->db();
-        $db->query('CREATE TABLE lock_hook (armed INTEGER)');
-        $swap = "UPDATE users SET role = 'admin' WHERE username = 'ada'; UPDATE users SET role = 'editor' WHERE username = 'bea';";
-        if ($driver === 'pgsql') {
-            $db->query("CREATE FUNCTION lock_hook() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN IF NOT EXISTS (SELECT 1 FROM lock_hook) THEN RETURN NULL; END IF; DELETE FROM lock_hook; "
-                . str_replace("'", "''", $swap) . " RETURN NULL; END'");
-            $db->query('CREATE TRIGGER lock_hook AFTER UPDATE ON users FOR EACH ROW EXECUTE FUNCTION lock_hook()');
-        } else {
-            $db->query('CREATE TRIGGER lock_hook AFTER UPDATE ON users WHEN EXISTS (SELECT 1 FROM lock_hook) BEGIN DELETE FROM lock_hook; ' . $swap . ' END');
-        }
         $users = $this->users();
+        $keys = UnitsOfWork::lockKeys('users', 'active-admins');
         foreach (['demote' => [fn () => $users->setRole($ada, 'viewer'), '“ada” is the only admin – make someone else an admin first.'],
             'delete' => [fn () => $users->delete($ada), '“ada” is the only admin and cannot be deleted.']] as $what => [$change, $message]) {
-            $db->query('DELETE FROM lock_hook');   // a rolled-back change keeps it armed
-            $this->repo()->setRole($ada, 'editor');
+            // Promote bea first: UserRepository refuses demoting the last active admin (M-1764).
             $this->repo()->setRole($bea, 'admin');
-            $db->query('INSERT INTO lock_hook (armed) VALUES (1)');
+            $this->repo()->setRole($ada, 'editor');
+            // Hold the unit lock, swap roles, then commit: the waiting change re-reads ada as the only admin.
+            $hold = $driver === 'pgsql'
+                ? [['SELECT pg_advisory_xact_lock(?, ?)', $keys]]
+                : [['UPDATE users SET role = role WHERE role = ?', ['admin']]];
+            $wait = $this->database->holdInAnotherClient([
+                ...$hold,
+                ["UPDATE users SET role = 'admin' WHERE username = ?", ['ada']],
+                ["UPDATE users SET role = 'editor' WHERE username = ?", ['bea']],
+            ], 400);
             $this->assertUserError(409, $message, $change, $what);
-            $this->assertSame(['editor', 'admin'], [$this->repo()->find($ada)['role'] ?? null, $this->repo()->find($bea)['role'] ?? null], $what . ': rolled back');
+            $this->assertStringEndsWith("committed\n", $wait());
+            $this->assertSame(['admin', 'editor'], [$this->repo()->find($ada)['role'] ?? null, $this->repo()->find($bea)['role'] ?? null], $what . ': swap kept');
         }
     }
 
@@ -322,11 +323,10 @@ final class UserAdminTest extends CIUnitTestCase
     }
 
     /**
-     * L-110 on PostgreSQL: while one change to an admin holds the admin lock
-     * (its transaction still open), a second client's admin change, role
-     * change or role edit waits for it instead of counting the admins too
-     * early; here it gives up after a short lock_timeout. The lock and the
-     * write are one transaction (the same txid).
+     * L-110 on PostgreSQL: while one change to an admin holds the active-admins
+     * unit lock (its transaction still open), a second client's admin change
+     * or role edit waits and answers 503 when the wait is short. The unit and
+     * its write are one transaction (the same txid).
      */
     public function testTheAdminLockMakesAdminChangesWaitOnPostgres(): void
     {
@@ -339,20 +339,19 @@ final class UserAdminTest extends CIUnitTestCase
         $bea = $this->account('bea', 'admin');
         $other = $this->database->connectAgain();
         try {
-            $other->query("SET lock_timeout = '300ms'");
-            $otherRepo = new UserRepository($other);
-            $otherRoles = new RoleRepository($other);
+            $otherRepo = new UserRepository($other, new \Apotheke\Auth\SessionEpoch(), \Apotheke\Core\Database\UnitsOfWork::on(new \Apotheke\Core\Database\ConnectionExecutor($other), null, 150));
+            $otherRoles = new RoleRepository($other, \Apotheke\Core\Database\UnitsOfWork::on(new \Apotheke\Core\Database\ConnectionExecutor($other), null, 150));
             $otherUsers = new UserAdmin($otherRepo, $otherRoles, new Accounts($otherRepo, $otherRoles, new Clock()), new AdminGuard($this->actor()), new Clock());
             $otherRoleAdmin = new RoleAdmin($otherRoles, $otherRepo, $this->settings(), new Clock());
             $this->assertTrue($this->db()->transBegin());
-            $this->users()->setRole($bea, 'editor');   // inside the open transaction: the admin rows stay locked
+            $this->users()->setRole($bea, 'editor');   // inside the open transaction: the unit lock stays held
             foreach (['demote' => fn () => $otherUsers->setRole($ada, 'editor'), 'delete' => fn () => $otherUsers->delete($ada),
                 'role edit' => fn () => $otherRoleAdmin->update('editor', null, ['view'])] as $what => $change) {
                 try {
                     $change();
-                    $this->fail($what . ' did not wait for the admin lock');
-                } catch (WriteFailed) {
-                    $this->assertTrue(true);
+                    $this->fail($what . ' did not wait for the admin unit lock');
+                } catch (UserError $e) {
+                    $this->assertSame(503, $e->getCode(), $what);
                 }
             }
             $this->assertTrue($this->db()->transCommit());
@@ -365,9 +364,9 @@ final class UserAdminTest extends CIUnitTestCase
             $this->users()->delete($bea);
             try {
                 $otherUsers->delete($ada);
-                $this->fail('the second delete did not wait for the admin lock');
-            } catch (WriteFailed) {
-                $this->assertTrue(true);
+                $this->fail('the second delete did not wait for the admin unit lock');
+            } catch (UserError $e) {
+                $this->assertSame(503, $e->getCode());
             }
             $this->assertTrue($this->db()->transCommit());
             $this->assertUserError(409, '“ada” is the only admin and cannot be deleted.', fn () => $otherUsers->delete($ada));
@@ -376,15 +375,15 @@ final class UserAdminTest extends CIUnitTestCase
             $other->close();
         }
 
-        // One transaction: every users write of a role change has the same txid.
+        // One transaction: the role write of a change has one txid (unit lock is advisory, not a users UPDATE).
         $this->repo()->setRole($bea, 'admin');
         $pdo = $this->database->pdo();
         $pdo->exec('CREATE TABLE txids (txid bigint)');
         $pdo->exec("CREATE FUNCTION note_txid() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN INSERT INTO txids VALUES (txid_current()); RETURN NEW; END'");
         $pdo->exec('CREATE TRIGGER note_txid BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION note_txid()');
         $this->users()->setRole($bea, 'editor');
-        $this->assertSame(1, count(array_unique($this->db()->query('SELECT txid FROM txids')->getResultArray(), SORT_REGULAR)), 'the lock and the write in one transaction');
-        $this->assertGreaterThanOrEqual(3, (int)($this->db()->query('SELECT COUNT(*) AS n FROM txids')->getRowArray()['n'] ?? 0), 'two admin rows locked, then the role written');
+        $this->assertSame(1, count(array_unique($this->db()->query('SELECT txid FROM txids')->getResultArray(), SORT_REGULAR)), 'the write in one transaction');
+        $this->assertSame(1, (int)($this->db()->query('SELECT COUNT(*) AS n FROM txids')->getRowArray()['n'] ?? 0), 'one role write');
     }
 
     private function users(): UserAdmin

@@ -5,19 +5,32 @@ declare(strict_types=1);
 /*
  * One parallel client for UnitOfWorkRemainingSitesRaceTest: connects with the
  * test database's clientEnv (JSON in argv[1]) and runs argv[2] (JSON job:
- * {op, batch, id?, delta?, to?, at?, due?, kind?, name?, parent?}).
+ * {op, batch, id?, delta?, to?, at?, due?, kind?, name?, parent?, on?, role?,
+ *  source?, target?, stocktake?, item?, file?, max?}).
  * Prints one JSON line and exits 0; stderr carries unexpected errors.
  */
 
 use Apotheke\Activity\ActivityLogger;
+use Apotheke\Auth\Accounts;
+use Apotheke\Auth\AdminGuard;
+use Apotheke\Auth\RoleRepository;
+use Apotheke\Auth\UserAdmin;
+use Apotheke\Auth\UserRepository;
+use Apotheke\BulkMerge\MergeService;
 use Apotheke\BulkMerge\QuantityAdjust;
+use Apotheke\Catalog\Barcode;
 use Apotheke\Catalog\Calendar;
+use Apotheke\Catalog\ItemList;
 use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Security\CommandLine;
 use Apotheke\Lending\Loans;
+use Apotheke\Search\SearchIndex;
+use Apotheke\Stocktake\Stocktakes;
+use Apotheke\Taxonomy\TagRepository;
 use Apotheke\Taxonomy\TaxonomyRepository;
 use Tests\Support\TestDatabase;
 
@@ -80,6 +93,64 @@ try {
                 ->create((string)$job['kind'], (string)$job['name']);
 
             return ['ok' => true, 'id' => $r['id'], 'created' => $r['created']];
+        })(),
+        'setDefault' => (static function () use ($db, $clock, $history, $units, $job): array {
+            (new TaxonomyRepository($db, $clock, $history, $units))
+                ->setDefault((string)$job['kind'], (int)$job['id'], (bool)$job['on']);
+
+            return ['ok' => true, 'id' => (int)$job['id']];
+        })(),
+        'setParent' => (static function () use ($db, $clock, $history, $units, $job): array {
+            $changed = (new TaxonomyRepository($db, $clock, $history, $units))
+                ->setParent((int)$job['id'], array_key_exists('parent', $job) && $job['parent'] !== null ? (int)$job['parent'] : null);
+
+            return ['ok' => true, 'changed' => $changed];
+        })(),
+        'deleteTaxonomy' => (static function () use ($db, $clock, $history, $units, $job): array {
+            $n = (new TaxonomyRepository($db, $clock, $history, $units))
+                ->delete((string)$job['kind'], (int)$job['id'], isset($job['moveTo']) ? (int)$job['moveTo'] : null);
+
+            return ['ok' => true, 'moved' => $n];
+        })(),
+        'setRole' => (static function () use ($db, $units, $clock, $job): array {
+            $users = new UserRepository($db, new \Apotheke\Auth\SessionEpoch(), $units);
+            $roles = new RoleRepository($db, $units);
+            $admin = new UserAdmin($users, $roles, new Accounts($users, $roles, $clock), new AdminGuard(new CommandLine()), $clock);
+            $admin->setRole((int)$job['id'], (string)$job['role']);
+
+            return ['ok' => true];
+        })(),
+        'deleteUser' => (static function () use ($db, $units, $clock, $job): array {
+            $users = new UserRepository($db, new \Apotheke\Auth\SessionEpoch(), $units);
+            $roles = new RoleRepository($db, $units);
+            $admin = new UserAdmin($users, $roles, new Accounts($users, $roles, $clock), new AdminGuard(new CommandLine()), $clock);
+            $admin->delete((int)$job['id']);
+
+            return ['ok' => true];
+        })(),
+        'merge' => (static function () use ($database, $db, $clock, $history, $units, $job): array {
+            $tax = new TaxonomyRepository($db, $clock, $history, $units);
+            $items = $database->items($db, $units, $history);
+            $tags = new TagRepository($db, $clock, $units);
+            $list = new ItemList($db, new SearchIndex($db, $tax, false), new Calendar($clock, 'UTC', 7));
+            (new MergeService($db, $clock, $history, $items, $tags, $list, 'asc', $units))
+                ->merge((int)$job['source'], (int)$job['target']);
+
+            return ['ok' => true];
+        })(),
+
+        'stocktakeCheck' => (static function () use ($database, $db, $clock, $history, $units, $job): array {
+            $tax = new TaxonomyRepository($db, $clock, $history, $units);
+            $items = $database->items($db, $units, $history);
+            $takes = new Stocktakes($db, $clock, $tax, $items, $history, new Barcode($db), $units);
+            $r = $takes->check((int)$job['stocktake'], (int)$job['item'], true);
+
+            return ['ok' => true, 'state' => $r['state']];
+        })(),
+        'photoAdd' => (static function () use ($database, $db, $units, $history, $job): array {
+            $id = $database->photos($db, $units, $history)->add((int)$job['item'], (string)$job['file'], (int)($job['max'] ?? 6));
+
+            return ['ok' => true, 'id' => $id];
         })(),
         default => throw new InvalidArgumentException('unknown op ' . $job['op']),
     };

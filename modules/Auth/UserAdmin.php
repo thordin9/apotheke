@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 
@@ -13,8 +14,8 @@ use Apotheke\Core\Libraries\Clock;
  * user_delete()). Every change to an admin account, and granting the admin
  * role, needs an admin (AdminGuard, SEC-M1); the install always keeps one
  * active admin. Checks run in legacy's order, so the same request gets the
- * same message. Writes go through UserRepository (Core\Database\Writes).
- * Holds no state.
+ * same message. Admin changes take the active-admins unit lock (L-110, no
+ * row lock). Holds no state.
  */
 final class UserAdmin
 {
@@ -92,12 +93,26 @@ final class UserAdmin
         $role = $this->roleValid($role);
         $this->guard->target($user);
         $this->guard->grant($role);
-        $this->users->atomically(function () use ($id, $role): void {
-            $user = $this->lockAdmins($id);
-            if ($user['role'] === 'admin' && $user['status'] === 'active' && $role !== 'admin' && $this->activeAdmins() <= 1) {
-                throw new UserError('“' . $user['username'] . '” is the only admin – make someone else an admin first.', 409);
-            }
-            $this->users->setRole($id, $role);
+        // Unit lock first (active-admins). The write itself guards the last admin
+        // (M-1764): a batch cannot demote the last two admins in parallel.
+        $this->users->underActiveAdminGuard(function (UnitOfWork $uow) use ($id, $role): void {
+            $user = $this->get($id);
+            $name = $user['username'];
+            $last = static fn (): UserError => new UserError(
+                '“' . $name . '” is the only admin – make someone else an admin first.',
+                409,
+            );
+            // Conditional SQL: change the row only when another active admin remains
+            // (or this account was not an active admin / the new role is admin).
+            $uow->write(
+                "UPDATE users SET role = ? WHERE id = ? AND ("
+                . " ? = 'admin' OR role <> 'admin' OR status <> 'active'"
+                . " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+                [$role, $id, $role, $id],
+                'users role',
+                1,
+                $last,
+            );
         });
     }
 
@@ -129,12 +144,22 @@ final class UserAdmin
     {
         $user = $this->get($id);
         $this->guard->target($user);
-        $this->users->atomically(function () use ($id): void {
-            $user = $this->lockAdmins($id);
-            if ($user['role'] === 'admin' && $user['status'] === 'active' && $this->activeAdmins() <= 1) {
-                throw new UserError('“' . $user['username'] . '” is the only admin and cannot be deleted.', 409);
-            }
-            $this->users->delete($id);
+        $this->users->underActiveAdminGuard(function (UnitOfWork $uow) use ($id): void {
+            $user = $this->get($id);
+            $name = $user['username'];
+            $last = static fn (): UserError => new UserError(
+                '“' . $name . '” is the only admin and cannot be deleted.',
+                409,
+            );
+            $uow->write(
+                "DELETE FROM users WHERE id = ? AND ("
+                . " role <> 'admin' OR status <> 'active'"
+                . " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+                [$id, $id],
+                'users delete',
+                1,
+                $last,
+            );
         });
     }
 
@@ -144,18 +169,6 @@ final class UserAdmin
         return array_filter($this->roles->all(), static fn (string $key): bool => $key !== 'guest', ARRAY_FILTER_USE_KEY);
     }
 
-    /**
-     * Legacy users_lock_admins(), inside the transaction: lock the active
-     * admins, then read the account again.
-     *
-     * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}
-     */
-    private function lockAdmins(int $id): array
-    {
-        $this->users->lockActiveAdmins();
-
-        return $this->get($id);
-    }
 
     /** @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string} */
     private function get(int $id): array

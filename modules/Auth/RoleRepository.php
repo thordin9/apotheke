@@ -92,8 +92,10 @@ final class RoleRepository
      */
     public function create(string $key, string $name, array $perms, string $now): void
     {
-        Writes::check($this->db->query('INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES (?,?,?,0,?)',
-            [$key, $name, (string)json_encode($perms), $now]), 'roles insert');
+        $this->units->run('roles', function (UnitOfWork $uow) use ($key, $name, $perms, $now): void {
+            $uow->write('INSERT INTO roles (role_key, name, perms, builtin, created_at) VALUES (?,?,?,0,?)',
+                [$key, $name, (string)json_encode($perms), $now], 'roles insert');
+        }, $key);
     }
 
     /**
@@ -103,7 +105,9 @@ final class RoleRepository
      */
     public function update(string $key, string $name, array $perms): void
     {
-        Writes::check($this->db->query('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key]), 'roles update');
+        $this->units->run('roles', function (UnitOfWork $uow) use ($key, $name, $perms): void {
+            $uow->write('UPDATE roles SET name = ?, perms = ? WHERE role_key = ?', [$name, (string)json_encode($perms), $key], 'roles update');
+        }, $key);
     }
 
     /** Legacy role_delete(): its accounts move to $moveTo and the role goes, as one unit of work (ADR-002, batch). */

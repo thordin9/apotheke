@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Apotheke\Catalog\Items;
 
+use Apotheke\Core\Database\Ref;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -17,21 +20,28 @@ use Throwable;
  * An item's photos (legacy photos_for(), photo_insert(), photos_renumber(),
  * photo_add(), photo_find(), photo_action(), photo_reorder() and
  * photo_edit()). Position 0 is the cover, mirrored into items.image. Every
- * write runs in one checked transaction with its history; a file is removed
- * only after the commit, and a new one stays held for cleanup until then.
+ * change is one unit of work with its history (ADR-002); a file is removed
+ * only after the unit runs, and a new one stays held for cleanup until then.
  */
 final class PhotoRepository
 {
     public const ROTATIONS = [0, 90, 180, 270];
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly Clock $clock,
         private readonly ItemHistory $history,
         private readonly ImageStore $images,
         private readonly UndoTokens $undo,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** @return list<array{id:int,file:string,position:int}> cover first */
@@ -77,64 +87,90 @@ final class PhotoRepository
         Writes::check($this->db->table('items')->where('id', $itemId)->update(['image' => $this->list($itemId)[0]['file'] ?? null]), 'cover photo');
     }
 
-    /** Legacy photo_add(): a stored photo joins the item; released from cleanup once committed. */
+    /** Legacy photo_add(): a stored photo joins the item; released from cleanup once the unit ran. */
     public function add(int $itemId, string $file, int $max): int
     {
         $this->images->hold($file);
-        $pid = Writes::transaction($this->db, function () use ($itemId, $file, $max): int {
-            // Write first: it locks the item (PostgreSQL) or takes the write lock (SQLite), so two adds at
-            // once count one after the other and cannot pass the limit together (P6).
-            $this->touch($itemId);
-            if (count($this->list($itemId)) >= $max) {
-                throw new UserError('An item can have at most ' . $max . ' photos.');
-            }
-            $pid = $this->insert($itemId, $file);
-            $this->history->log($itemId, $this->name($itemId), 'photo', ['change' => 'added', 'count' => count($this->list($itemId))]);
-
-            return $pid;
-        });
+        // L-1773: position from COALESCE(MAX)+1 inside the write so parallel batch adds get 0,1,2.
+        $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $file, $max): void {
+            // Unit lock first (no row lock): the guard re-checks the count so two adds at once
+            // cannot pass the limit together (P6).
+            $uow->assert('(SELECT COUNT(*) FROM item_photos WHERE item_id = ?) < ?', [$itemId, $max], 'photo limit',
+                static fn (): UserError => new UserError('An item can have at most ' . $max . ' photos.', 422));
+            $now = $this->clock->now();
+            $before = (int)(Writes::rows($this->db, 'SELECT COUNT(*) AS n FROM item_photos WHERE item_id = ?', [$itemId])[0]['n'] ?? 0);
+            $uow->write(
+                'INSERT INTO item_photos (item_id, file, position, created_at)'
+                . ' SELECT ?, ?, COALESCE((SELECT MAX(position) FROM item_photos WHERE item_id = ?), -1) + 1, ?',
+                [$itemId, $file, $itemId, $now],
+                'add photo',
+                1,
+            );
+            $uow->write(
+                'UPDATE items SET image = (SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id LIMIT 1),'
+                . ' updated_at = ? WHERE id = ?',
+                [$itemId, $now, $itemId],
+                'cover photo',
+            );
+            $this->history->queue($uow, $itemId, $this->name($itemId), 'photo', ['change' => 'added', 'count' => $before + 1]);
+        }, (string)$itemId);
         $this->images->release($file);
 
-        return $pid;
+        return (int)(Writes::rows($this->db, 'SELECT id FROM item_photos WHERE item_id = ? AND file = ? ORDER BY id DESC', [$itemId, $file])[0]['id'] ?? 0);
     }
 
     /** Legacy photo_action(): cover, left, right or delete. Returns the photo's new index (-1 when deleted). */
     public function action(int $itemId, int $photoId, string $action): int
     {
         $drop = null;
-        $new = Writes::transaction($this->db, function () use ($itemId, $photoId, $action, &$drop): int {
-            $p = $this->find($itemId, $photoId);
-            $ids = array_column($this->list($itemId), 'id');
+        $new = $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $photoId, $action, &$drop): int {
+            $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
+            $list = $this->list($itemId);
+            $p = null;
+            foreach ($list as $i => $row) {
+                if ($row['id'] === $photoId) {
+                    $p = $row + ['index' => $i];
+                    break;
+                }
+            }
+            if ($p === null) {
+                throw new UserError('Photo not found.', 404);
+            }
+            $ids = array_column($list, 'id');
+            $files = array_column($list, 'file');
             $i = $p['index'];
             switch ($action) {
                 case 'cover':
                     array_splice($ids, $i, 1);
                     array_unshift($ids, $photoId);
+                    array_splice($files, $i, 1);
+                    array_unshift($files, $p['file']);
                     $new = 0;
                     break;
                 case 'left':
                 case 'right':
                     $new = $action === 'left' ? max(0, $i - 1) : min(count($ids) - 1, $i + 1);
                     [$ids[$i], $ids[$new]] = [$ids[$new], $ids[$i]];
+                    [$files[$i], $files[$new]] = [$files[$new], $files[$i]];
                     break;
                 case 'delete':
-                    Writes::check($this->db->table('item_photos')->where('id', $photoId)->delete(), 'delete photo');
+                    $uow->write('DELETE FROM item_photos WHERE id = ?', [$photoId], 'delete photo');
                     array_splice($ids, $i, 1);
+                    array_splice($files, $i, 1);
                     $drop = $p['file'];
                     $new = -1;
                     break;
                 default:
                     throw new UserError('Unknown photo action.', 404);
             }
-            $this->renumber($itemId, $ids);
-            $this->touch($itemId);
+            $this->queueRenumber($uow, $itemId, $ids, $files);
             if ($new !== $i || $action === 'delete') {
-                $this->history->log($itemId, $this->name($itemId), 'photo',
+                $this->history->queue($uow, $itemId, $this->name($itemId), 'photo',
                     ['change' => ['cover' => 'cover', 'left' => 'reordered', 'right' => 'reordered', 'delete' => 'deleted'][$action], 'count' => count($ids)]);
             }
 
             return $new;
-        });
+        }, (string)$itemId);
         if ($drop !== null) {
             $this->images->delete($drop);
         }
@@ -150,8 +186,14 @@ final class PhotoRepository
      */
     public function reorder(int $itemId, array $ids): void
     {
-        Writes::transaction($this->db, function () use ($itemId, $ids): void {
-            $have = array_column($this->list($itemId), 'id');
+        $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $ids): void {
+            $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
+            $list = $this->list($itemId);
+            $have = array_column($list, 'id');
+            $byId = [];
+            foreach ($list as $row) {
+                $byId[$row['id']] = $row['file'];
+            }
             $ids = array_values(array_map('intval', $ids));
             $a = $ids;
             sort($a);
@@ -163,10 +205,10 @@ final class PhotoRepository
             if ($ids === $have) {
                 return;
             }
-            $this->renumber($itemId, $ids);
-            $this->touch($itemId);
-            $this->history->log($itemId, $this->name($itemId), 'photo', ['change' => $ids[0] !== $have[0] ? 'cover' : 'reordered', 'count' => count($ids)]);
-        });
+            $files = array_map(static fn (int $id): string => $byId[$id], $ids);
+            $this->queueRenumber($uow, $itemId, $ids, $files);
+            $this->history->queue($uow, $itemId, $this->name($itemId), 'photo', ['change' => $ids[0] !== $have[0] ? 'cover' : 'reordered', 'count' => count($ids)]);
+        }, (string)$itemId);
     }
 
     /**
@@ -208,22 +250,38 @@ final class PhotoRepository
         }
         $name = $new['name'];
         try {
-            $version = Writes::transaction($this->db, function () use ($itemId, $photoId, $name, $old, $rotate, $new): int {
+            $version = $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $photoId, $name, $old, $rotate, $new): int {
                 $now = $this->clock->now();
-                // Compare-and-swap (M-90): only the request that read the current file replaces it. The other
-                // one of a double submit changes nothing and drops its own new files below.
-                Writes::check($this->db->query('UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ? AND file = ?', [$name, $now, $photoId, $itemId, $old]), 'edit photo');
-                if ($this->db->affectedRows() !== 1) {
+                $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$now, $itemId], 'item updated');
+                $list = $this->list($itemId);
+                $cur = null;
+                foreach ($list as $row) {
+                    if ($row['id'] === $photoId) {
+                        $cur = $row;
+                        break;
+                    }
+                }
+                if ($cur === null || $cur['file'] !== $old) {
                     $this->stillCurrent($itemId, $photoId, $old);
                     throw new UserError('Could not read that photo.', 500);
                 }
-                $this->renumber($itemId);
-                $this->touch($itemId);
-                $this->history->log($itemId, $this->name($itemId), 'photo',
+                $before = (int)(Writes::rows($this->db, 'SELECT version FROM item_photos WHERE id = ?', [$photoId])[0]['version'] ?? 0);
+                // Compare-and-swap (M-90): only the request that read the current file replaces it. The other
+                // one of a double submit changes nothing and drops its own new files below.
+                $uow->write(
+                    'UPDATE item_photos SET file = ?, version = version + 1, edited_at = ? WHERE id = ? AND item_id = ? AND file = ?',
+                    [$name, $now, $photoId, $itemId, $old],
+                    'edit photo',
+                    1,
+                    static fn (): UserError => new UserError('Could not read that photo.', 500),
+                );
+                $files = array_map(static fn (array $r): string => $r['id'] === $photoId ? $name : $r['file'], $list);
+                $this->queueRenumber($uow, $itemId, array_column($list, 'id'), $files);
+                $this->history->queue($uow, $itemId, $this->name($itemId), 'photo',
                     array_filter(['change' => 'edited', 'rotate' => $rotate ?: null, 'size' => $new['width'] . '×' . $new['height']]));
 
-                return (int)(Writes::rows($this->db, 'SELECT version FROM item_photos WHERE id = ?', [$photoId])[0]['version'] ?? 0);
-            });
+                return $before + 1;
+            }, (string)$itemId);
         } catch (Throwable $e) {
             $this->images->delete($name);
             $this->images->release($name);
@@ -250,9 +308,19 @@ final class PhotoRepository
         }
     }
 
-    private function touch(int $itemId): void
+    /**
+     * Queue position 0..n-1 and the cover mirrored into items.image. $ids may
+     * hold Refs for a photo inserted in this unit; $files is the same length.
+     *
+     * @param list<int|Ref> $ids
+     * @param list<string> $files
+     */
+    private function queueRenumber(UnitOfWork $uow, int $itemId, array $ids, array $files): void
     {
-        Writes::check($this->db->table('items')->where('id', $itemId)->update(['updated_at' => $this->clock->now()]), 'item updated');
+        foreach ($ids as $i => $pid) {
+            $uow->write('UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?', [$i, $pid, $itemId], 'photo order');
+        }
+        $uow->write('UPDATE items SET image = ? WHERE id = ?', [$files[0] ?? null, $itemId], 'cover photo');
     }
 
     private function name(int $itemId): string
