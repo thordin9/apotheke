@@ -310,15 +310,10 @@ final class PhotoRepository
      */
     private function queueRenumber(UnitOfWork $uow, int $itemId, array $ids, array $files): void
     {
-        foreach (array_values($ids) as $i => $pid) {
+        foreach ($ids as $i => $pid) {
             $uow->write('UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?', [$i, $pid, $itemId], 'photo order');
         }
         $uow->write('UPDATE items SET image = ? WHERE id = ?', [$files[0] ?? null, $itemId], 'cover photo');
-    }
-
-    private function touch(int $itemId): void
-    {
-        Writes::check($this->db->table('items')->where('id', $itemId)->update(['updated_at' => $this->clock->now()]), 'item updated');
     }
 
     private function name(int $itemId): string
