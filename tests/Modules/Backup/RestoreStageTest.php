@@ -72,7 +72,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $dst = $this->target($driver);
         $stage = new RestoreStage(self::exec($dst, $batch));
         [$tables, $staged, $withId] = $this->stageAll($stage, $src);
-        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64), '2026-11-01 18:00:00');
+        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64));
         $this->assertSame($src['dump'], $this->dump($dst));
         $this->assertTrue($stage->applied('run-1'));
         $this->assertFalse($stage->applied('run-0'));
@@ -101,7 +101,7 @@ final class RestoreStageTest extends CIUnitTestCase
         // staging stopped part way (a copy holds fewer rows than staged): the swap's guard refuses it
         $dst->query('DELETE FROM ' . RestoreStage::copy('items') . ' WHERE id = 9');
         try {
-            $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64), '2026-11-01 18:00:00');
+            $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64));
             $this->fail('a short copy must not be swapped in');
         } catch (WriteFailed $e) {
             $this->assertSame(BatchExecutor::GUARD_FAILED, $e->getCode());
@@ -120,13 +120,13 @@ final class RestoreStageTest extends CIUnitTestCase
         $dst = $this->target($driver);
         $stage = new RestoreStage(self::exec($dst, $batch));
         [$tables, $staged, $withId] = $this->stageAll($stage, $src);
-        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64), '2026-11-01 18:00:00');
+        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64));
         $this->assertTrue($stage->applied('run-1'));
         $this->assertCount(count(Backups::tables()), $this->copies($dst));
         $stage->begin(['items']);
         $this->assertSame([RestoreStage::copy('items')], $this->copies($dst));
         $this->assertSame([], $dst->query('SELECT * FROM ' . RestoreStage::copy('items'))->getResultArray());
-        $stage->swap(['items'], ['items' => ['columns' => ['id', 'name', 'created_at', 'updated_at'], 'rows' => 0]], ['items'], 'run-2', str_repeat('b', 64), '2026-11-01 18:05:00');
+        $stage->swap(['items'], ['items' => ['columns' => ['id', 'name', 'created_at', 'updated_at'], 'rows' => 0]], ['items'], 'run-2', str_repeat('b', 64));
         $this->assertSame([true, true, RestoreStage::REPLACED, RestoreStage::APPLIED], [$stage->applied('run-1'), $stage->applied('run-2'), $stage->outcome('run-1'), $stage->outcome('run-2')], 'L-1707: both kept, the first one replaced');
         $stage->drop();
         $this->assertSame([], $this->copies($dst));
@@ -161,8 +161,8 @@ final class RestoreStageTest extends CIUnitTestCase
         $mine = [[77, 'B only', 1, '', 'b only', '2026-11-01 18:00:00', '2026-11-01 18:00:00']];
         $this->assertSame(1, $b->stage('items', ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], $mine));
         foreach ([static fn () => $a->stage('items', ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], [[78, 'A late', 1, '', 'a', '2026-11-01 18:00:00', '2026-11-01 18:00:00']]),
-            static fn () => $a->swap(['items'], ['items' => ['columns' => ['id'], 'rows' => 1]], ['items'], 'run-a', str_repeat('a', 64), '2026-11-01 18:00:00'),
-            static fn () => $a->swap($tables, $staged, $withId, 'run-a', str_repeat('a', 64), '2026-11-01 18:00:00'),
+            static fn () => $a->swap(['items'], ['items' => ['columns' => ['id'], 'rows' => 1]], ['items'], 'run-a', str_repeat('a', 64)),
+            static fn () => $a->swap($tables, $staged, $withId, 'run-a', str_repeat('a', 64)),
             static fn () => $a->drop()] as $i => $f) {
             try {
                 $f();
@@ -174,7 +174,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $this->assertSame($before, $this->dump($dst));
         $this->assertFalse($a->applied('run-a'));
         $a->release();   // not A's any more: B keeps it
-        $b->swap(['items'], ['items' => ['columns' => ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], 'rows' => 1]], ['items'], 'run-b', str_repeat('b', 64), '2026-11-01 18:00:00');
+        $b->swap(['items'], ['items' => ['columns' => ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'], 'rows' => 1]], ['items'], 'run-b', str_repeat('b', 64));
         $this->assertSame([['id' => '77', 'name' => 'B only']], array_map(static fn (array $r): array => array_map('strval', $r), $dst->query('SELECT id, name FROM items')->getResultArray()));
         $b->finish();
         $this->assertSame([], $this->copies($dst));
@@ -275,6 +275,63 @@ final class RestoreStageTest extends CIUnitTestCase
         }
     }
 
+    /**
+     * L-1712: the lease is 120 seconds, on the test clock and on the database's: a lock is held 119 seconds after
+     * its last write and free at 121, so a much shorter or longer lease fails here.
+     */
+    #[DataProvider('modes')]
+    public function testTheLeaseIsTwoMinutes(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $at = time();
+        $clock = static function () use (&$at): int {
+            return $at;
+        };
+        $a = new RestoreStage(self::exec($db, $batch), $clock);
+        $b = new RestoreStage(self::exec($db, $batch), $clock);
+        $a->begin(['items']);
+        $at += 119;
+        $this->assertRefusedBusy($b);
+        $at += 2;
+        $b->claim();
+        $b->finish();
+        (new RestoreStage(self::exec($db, $batch)))->begin(['items']);
+        $lock = $db->query("SELECT applied_at FROM restore_marker WHERE run = 'lock'")->getRowArray();
+        $this->assertEqualsWithDelta(time() + 120, strtotime((string)$lock['applied_at'] . ' UTC'), 5, 'on the database clock');
+    }
+
+    /**
+     * L-1713: runs are ordered by the database, not by applied_at (whole seconds): of two runs swapped in the same
+     * second the later one is applied and the earlier replaced, and the pruning keeps the newest KEEP. applied_at is
+     * the database's time.
+     */
+    #[DataProvider('modes')]
+    public function testRunsInTheSameSecondKeepTheirOrder(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $at = strtotime('2026-11-01 18:00:00 UTC');
+        $stage = new RestoreStage(self::exec($db, $batch), static fn (): int => $at);
+        $swap = static function (RestoreStage $stage, string $run): void {
+            $stage->begin(['items']);
+            $stage->swap(['items'], ['items' => ['columns' => ['id', 'name', 'created_at', 'updated_at'], 'rows' => 0]], ['items'], $run, str_repeat('a', 64));
+            $stage->finish();
+        };
+        $runs = array_map(static fn (int $i): string => sprintf('run-%02d', $i), range(1, RestoreStage::KEEP + 2));
+        $swap($stage, $runs[0]);
+        $swap($stage, $runs[1]);
+        $this->assertSame([RestoreStage::REPLACED, RestoreStage::APPLIED], [$stage->outcome($runs[0]), $stage->outcome($runs[1])]);
+        foreach (array_slice($runs, 2) as $run) {
+            $swap($stage, $run);
+        }
+        $kept = array_column($db->query("SELECT run FROM restore_marker WHERE run <> 'lock' ORDER BY run")->getResultArray(), 'run');
+        $this->assertSame(array_slice($runs, 2), $kept, 'the newest KEEP runs are kept');
+        $this->assertSame([null, RestoreStage::REPLACED, RestoreStage::APPLIED], [$stage->outcome($runs[1]), $stage->outcome($runs[2]), $stage->outcome(end($runs))]);
+        $this->assertSame(['2026-11-01 18:00:00'], array_values(array_unique(array_column($db->query('SELECT applied_at FROM restore_marker')->getResultArray(), 'applied_at'))));
+        $swap(new RestoreStage(self::exec($db, $batch)), 'run-db');
+        $marked = $db->query("SELECT applied_at FROM restore_marker WHERE run = 'run-db'")->getRowArray();
+        $this->assertEqualsWithDelta(time(), strtotime((string)$marked['applied_at'] . ' UTC'), 5, 'on the database clock');
+    }
+
     /** L-1701: the swap is one batch: every live table's delete and insert, the sequences and the marker in one run(). */
     #[DataProvider('modes')]
     public function testTheSwapIsOneBatch(string $driver, bool $batch): void
@@ -285,7 +342,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $stage = new RestoreStage($exec);
         [$tables, $staged, $withId] = $this->stageAll($stage, $src);
         $exec->runs = [];
-        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64), '2026-11-01 18:00:00');
+        $stage->swap($tables, $staged, $withId, 'run-1', str_repeat('a', 64));
         $this->assertCount(1, $exec->runs, 'one batch');
         $sql = array_column($exec->runs[0], 'sql');
         foreach ($tables as $t) {
@@ -293,7 +350,7 @@ final class RestoreStageTest extends CIUnitTestCase
         }
         $this->assertCount(count($tables), preg_grep('/^INSERT INTO (?!uow_guard|restore_marker|sqlite_sequence)\w+ \(.*\) SELECT .* FROM ' . RestoreStage::PREFIX . '/', $sql) ?: []);
         $this->assertCount(count($withId), preg_grep('/^(SELECT setval|INSERT INTO sqlite_sequence)/', $sql) ?: []);
-        $this->assertSame('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', end($sql));
+        $this->assertStringStartsWith('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ', (string)end($sql));
         $this->assertSame($src['dump'], $this->dump($dst));
     }
 
@@ -446,7 +503,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $chunks = count($exec->runs) - 2;
         $this->assertGreaterThanOrEqual(15, $chunks, 'staged in many statements');
         $this->assertLessThanOrEqual(RestoreStage::CHUNK_BYTES + 2, $exec->largest);
-        $stage->swap(Backups::tables(), ['activity' => ['columns' => $cols, 'rows' => 100_000]], ['activity'], 'run-big', str_repeat('c', 64), '2026-11-01 18:00:00');
+        $stage->swap(Backups::tables(), ['activity' => ['columns' => $cols, 'rows' => 100_000]], ['activity'], 'run-big', str_repeat('c', 64));
         $this->assertSame(['n' => 100_000, 'm' => 100_000], array_map('intval', $db->query('SELECT COUNT(*) AS n, MAX(id) AS m FROM activity')->getRowArray()));
         $stage->drop();
     }

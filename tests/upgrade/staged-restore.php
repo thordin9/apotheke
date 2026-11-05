@@ -92,7 +92,7 @@ if ($step !== 'restore') {
 
         public function run(array $statements): array
         {
-            $swap = in_array('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', array_column($statements, 'sql'), true);
+            $swap = preg_grep('/^INSERT INTO restore_marker \(run, sha256, applied_at\) VALUES/', array_column($statements, 'sql')) !== [];
             if ($swap && $this->step === 'before') {
                 exit(3);
             }

@@ -239,8 +239,8 @@ final class ItemController extends CatalogController
         $it = $this->repo()->get((int)$id) ?? throw new UserError('Item not found.', 404);
         $undo = $this->undo();
         $snap = $undo->enabled() ? $undo->snapshot([(int)$it['id']]) : [];
-        $this->repo()->delete($it, $snap !== []);
-        $token = $undo->create('delete', 'Deleted “' . $it['name'] . '”', $snap, [], UndoTokens::files($snap));
+        // Deleted already by a concurrent request (L-1667): that one owns the undo token.
+        $token = $this->repo()->delete($it, $snap !== []) ? $undo->create('delete', 'Deleted “' . $it['name'] . '”', $snap, [], UndoTokens::files($snap)) : null;
 
         return $this->redirectTo('/?deleted=1' . ($token !== null ? '&undo=' . $token : ''));
     }

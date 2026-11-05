@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** an item's attachment limit and an item delete are now checked inside their unit of work, and staged restore runs are ordered by the database (L-1666, L-1667, L-1713).
+
 ## [3.18.0] - 2026-11-05
 
 **Note:** on the edge, a backup that names a column twice is now refused, and a stopped restore found after a later one is no longer reported as unchanged. Nothing changes for self-hosted restores, except that a backup naming a column twice is refused there too.

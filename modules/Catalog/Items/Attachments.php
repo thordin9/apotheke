@@ -153,7 +153,11 @@ final class Attachments
                 $stored[] = [$file, self::displayName($f['name'], $ext), self::TYPES[$ext][0], $size];
             }
             // One unit of work per item (ADR-002, batch): the rows, their history and the item's updated_at.
+            // L-1666: the limit is checked again in the unit (under its lock, or as a guard of the batch),
+            // so concurrent uploads cannot pass it together.
             $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $it, $stored): void {
+                $uow->assert('(SELECT COUNT(*) FROM item_attachments WHERE item_id = ?) + ? <= ?', [$itemId, count($stored), $this->maxPerItem], 'attachment limit',
+                    fn (): UserError => new UserError('An item can have at most ' . $this->maxPerItem . ' attachments.', 422));
                 foreach ($stored as [$file, $name, $mime, $size]) {
                     $uow->insert('item_attachments', ['item_id' => $itemId, 'file' => $file, 'name' => $name, 'mime' => $mime, 'size' => $size, 'created_at' => $this->clock->now()], 'add attachment');
                     $this->history->queue($uow, $itemId, (string)$it['name'], 'attachment', ['change' => 'added', 'file' => $name]);
