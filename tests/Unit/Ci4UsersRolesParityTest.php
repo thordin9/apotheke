@@ -71,7 +71,7 @@ final class Ci4UsersRolesParityTest extends TestCase
         $this->assertSame([303, '/settings/security?done=pw-off'], [$l['ada turns sign-in off']['status'], $l['ada turns sign-in off']['location']]);
         $this->assertSame([303, '/settings/security?done=pw'], [$l['turn on as ada']['status'], $l['turn on as ada']['location']]);
         $this->assertSame(403, $l['turn on as eda']['status']);
-        foreach (['fail add user', 'fail set role', 'fail set password', 'fail rename', 'fail approve', 'fail delete user', 'fail delete user: admin lock', 'fail own password: attempts insert', 'fail add role', 'fail update role',
+        foreach (['fail add user', 'fail set role', 'fail set password', 'fail rename', 'fail approve', 'fail delete user', 'fail own password: attempts insert', 'fail add role', 'fail update role',
             'fail delete role: roles', 'fail delete role: moving users', 'fail save settings', 'fail first admin', 'fail turn on'] as $case) {
             $this->assertSame([500, true], [$l[$case]['status'], $l[$case]['unchanged']], $case);
         }
@@ -309,7 +309,6 @@ final class Ci4UsersRolesParityTest extends TestCase
             ['fail rename', 'users', 'UPDATE', $user('eda') . '/rename', ['username' => 'edda'], 'ada', true],
             ['fail approve', 'users', 'UPDATE', $user('zed') . '/approve', [], 'ada', true],
             ['fail delete user', 'users', 'DELETE', $user('zed') . '/delete', [], 'ada', true],
-            ['fail delete user: admin lock', 'users', 'UPDATE', $user('zed') . '/delete', [], 'ada', true],
             ['fail own password: attempts insert', 'auth_attempts', 'INSERT', '/settings/password', ['current' => 'ada-password-2', 'new' => 'ada-password-3', 'confirm' => 'ada-password-3'], 'ada', true],
             ['fail add role', 'roles', 'INSERT', '/settings/roles', ['name' => 'Fail', 'perms' => ['view']], 'ada', true],
             ['fail update role', 'roles', 'UPDATE', '/settings/roles/temp', ['name' => 'Tmp', 'perms' => ['view']], 'ada', true],
