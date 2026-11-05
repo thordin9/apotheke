@@ -13,22 +13,25 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   notes are in the [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-1 and P4-2a are merged; P4-2b part 1
   (#217), #219, part 2 (#221, item-history sites), #220 (batch allow-list, v3.15.5), restore staging (#223 / #227 /
-  #229) and the attach/delete and PG batch lock fixes (#230, #231, v3.18.2) are merged. Part 2b of restore is done.
+  #229), the attach/delete and PG batch lock fixes (#230, #231, v3.18.2) and the remaining write sites (#232) are
+  merged. Part 2b of restore is done.
 
 ## Open pull requests
 
-- P4-2b remaining sites part 2 (`feat/uow-remaining-sites-2`, stacked on #232): PhotoRepository, taxonomy
-  default/delete/move, Stocktake tick/finish, Settings rewrite, MergeService, RoleAdmin/UserAdmin (via the
-  role and user repositories; active-admins unit lock, no row lock). CsvExport stays a read-only snapshot (not a unit). Left for a later PR:
-  BulkService, SearchIndex, Imports. N-1747..N-1751 stay in the backlog.
+- P4-2b remaining sites part 2 (`feat/uow-remaining-sites-2`): PhotoRepository, taxonomy default/delete/move,
+  Stocktake tick/finish, Settings rewrite, MergeService, RoleAdmin/UserAdmin (via the role and user repositories;
+  active-admins unit lock, no row lock). CsvExport stays a read-only snapshot (not a unit). Left for a later PR:
+  BulkService, SearchIndex, Imports. N-1747..N-1751 and N-1758, N-1761..N-1763 stay in the backlog; N-1759/N-1760
+  go with P4-3.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Merge #232, then this part-2 sites PR (full gate); then BulkService, SearchIndex and Imports.
-2. P4-3 (D1 driver and bridge, with N-1640) to P4-5. DevOps owns the bindings and the `EDGE_STORAGE_READY` flip
-   checklist (#204, #208); N-1442 follows with P4. D1 100k-row timing is approved; DevOps owns the throwaway DB.
+1. Finish this part-2 sites PR (full gate); then BulkService, SearchIndex and Imports (with N-1758).
+2. P4-3 (D1 driver and bridge, with N-1640; N-1759 items CHUNK_BYTES/row cap and N-1760 FTS5 shadow-table skip
+   in the D1 migrator) to P4-5 (R2). DevOps owns the bindings and the `EDGE_STORAGE_READY` flip checklist
+   (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Older numbered items:
    [log, Next steps](history/handoff-log.md#next-steps).
 

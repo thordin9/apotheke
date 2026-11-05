@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Apotheke\Taxonomy;
 
-use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
@@ -101,7 +100,8 @@ final class TaxonomyRepository
     /**
      * Create an entry, or return the existing one with the same name.
      * One unit of work (ADR-002): a race on the name still returns the
-     * stored row (ON CONFLICT DO NOTHING, then read by name_key).
+     * stored row (ON CONFLICT DO NOTHING, then read by name_key). created
+     * is true only when this call inserted the row (N-1757).
      *
      * @return array{id:int,name:string,created:bool}
      */
@@ -114,21 +114,15 @@ final class TaxonomyRepository
         }
         $table = Kind::get($kind)['table'];
         $key = Text::fold($name);
-        $this->units->run($table, function (UnitOfWork $uow) use ($table, $name, $key): void {
-            $uow->write(
-                'INSERT INTO ' . $table . ' (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
-                [$name, $key, Text::natkey($name), $this->clock->now()],
-                'add',
-            );
-        });
-        $ex = $this->find($kind, $name) ?? throw new UserError(Kind::get($kind)['One'] . ' could not be created.', 500);
+        $created = $this->insertName($table, $name, $key);
 
-        return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => true];
+        return $this->createdRow($kind, $name, $created);
     }
 
     /**
      * Create (or find) an entry and, for a location, put it under $parent, in
-     * one unit of work (joins a caller's, as the item form does).
+     * one unit of work (joins a caller's, as the item form does). A name race
+     * returns the stored row (N-1756); the depth check runs inside the unit.
      *
      * @return array{id:int,name:string,created:bool}
      */
@@ -142,37 +136,82 @@ final class TaxonomyRepository
         $table = Kind::get($kind)['table'];
         $fold = Text::fold($name);
         if ($kind !== 'location' || $parent === null) {
-            $this->units->run($table, function (UnitOfWork $uow) use ($table, $name, $fold): void {
+            return $this->createdRow($kind, $name, $this->insertName($table, $name, $fold));
+        }
+        $created = true;
+        try {
+            $this->units->run($table, function (UnitOfWork $uow) use ($name, $fold, $parent): void {
+                $uow->assert('EXISTS (SELECT 1 FROM locations WHERE id = ?)', [$parent], 'parent exists',
+                    static fn (): UserError => new UserError('That parent location no longer exists.', 422));
+                // Depth of the parent inside the unit (N-1756): reject when a
+                // child would sit past MAX_DEPTH (parent chain length > MAX).
+                $uow->assert(
+                    '(SELECT COUNT(*) FROM (WITH RECURSIVE chain(id, parent_id, n) AS ('
+                    . ' SELECT id, parent_id, 0 FROM locations WHERE id = ?'
+                    . ' UNION ALL SELECT l.id, l.parent_id, chain.n + 1 FROM locations l'
+                    . ' JOIN chain ON chain.parent_id = l.id WHERE chain.n < 50'
+                    . ') SELECT 1 FROM chain) AS d) <= ?',
+                    [$parent, LocationTree::MAX_DEPTH],
+                    'parent depth',
+                    static fn (): UserError => new UserError(
+                        'Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.',
+                        422,
+                    ),
+                );
                 $uow->write(
-                    'INSERT INTO ' . $table . ' (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
-                    [$name, $fold, Text::natkey($name), $this->clock->now()],
+                    'INSERT INTO locations (name, name_key, sort_key, created_at, parent_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
+                    [$name, $fold, Text::natkey($name), $this->clock->now(), $parent],
                     'add',
+                    1,
+                    static fn (): UserError => new UserError('name conflict', 409),
                 );
             });
-            $ex = $this->find($kind, $name) ?? throw new UserError(Kind::get($kind)['One'] . ' could not be created.', 500);
+        } catch (UserError $e) {
+            if ($e->getCode() !== 409) {
+                throw $e;
+            }
+            $created = false;
+        }
 
-            return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => true];
-        }
-        $byId = $this->locationsById();
-        if (!isset($byId[$parent])) {
-            throw new UserError('That parent location no longer exists.', 422);
-        }
-        if ($byId[$parent]['depth'] + 1 > LocationTree::MAX_DEPTH) {
-            throw new UserError('Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.', 422);
-        }
-        $ref = $this->units->run($table, function (UnitOfWork $uow) use ($name, $fold, $parent): Ref {
-            $uow->assert('EXISTS (SELECT 1 FROM locations WHERE id = ?)', [$parent], 'parent exists',
-                static fn (): UserError => new UserError('That parent location no longer exists.', 422));
-            return $uow->insert('locations', [
-                'name' => $name,
-                'name_key' => $fold,
-                'sort_key' => Text::natkey($name),
-                'created_at' => $this->clock->now(),
-                'parent_id' => $parent,
-            ], 'add');
-        });
+        return $this->createdRow($kind, $name, $created);
+    }
 
-        return ['id' => $ref->id(), 'name' => $name, 'created' => true];
+    /**
+     * Insert a top-level name, or report a name race (expect 1 on ON CONFLICT DO NOTHING).
+     *
+     * @return bool true when this call inserted the row
+     */
+    private function insertName(string $table, string $name, string $key): bool
+    {
+        try {
+            $this->units->run($table, function (UnitOfWork $uow) use ($table, $name, $key): void {
+                $uow->write(
+                    'INSERT INTO ' . $table . ' (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
+                    [$name, $key, Text::natkey($name), $this->clock->now()],
+                    'add',
+                    1,
+                    static fn (): UserError => new UserError('name conflict', 409),
+                );
+            });
+
+            return true;
+        } catch (UserError $e) {
+            if ($e->getCode() !== 409) {
+                throw $e;
+            }
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array{id:int,name:string,created:bool}
+     */
+    private function createdRow(string $kind, string $name, bool $created): array
+    {
+        $ex = $this->find($kind, $name) ?? throw new UserError(Kind::get($kind)['One'] . ' could not be created.', 500);
+
+        return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => $created];
     }
 
     public function rename(string $kind, int $id, string $name): void
@@ -190,6 +229,7 @@ final class TaxonomyRepository
     public function setDefault(string $kind, int $id, bool $on): void
     {
         $tb = Kind::get($kind)['table'];
+        // Table-wide unit (empty key): clear-then-set must not race another default (PostgreSQL).
         $this->units->run($tb, function (UnitOfWork $uow) use ($tb, $id, $on): void {
             if ($on) {
                 $uow->write('UPDATE ' . $tb . ' SET is_default = 0 WHERE is_default = 1', [], 'clear default');
@@ -197,7 +237,7 @@ final class TaxonomyRepository
             } else {
                 $uow->write('UPDATE ' . $tb . ' SET is_default = 0 WHERE id = ?', [$id], 'clear default');
             }
-        }, (string)$id);
+        });
     }
 
     /** Delete an entry; its items move to $moveTo or are left unassigned. Returns the number of items moved. */
@@ -228,7 +268,7 @@ final class TaxonomyRepository
             $uow->write('DELETE FROM ' . $t['table'] . ' WHERE id = ?', [$id], 'delete');
 
             return $n;
-        }, (string)$id);
+        });
     }
 
     /** Put location $id inside $parent (null = top level). Rejects cycles and trees deeper than MAX_DEPTH. True when it changed. */
@@ -266,7 +306,7 @@ final class TaxonomyRepository
             $uow->write('UPDATE locations SET parent_id = ? WHERE id = ?', [$parent, $id], 'move', 1);
 
             return true;
-        }, (string)$id);
+        });
     }
 
     /** @return list<int> $id and every location below it */
