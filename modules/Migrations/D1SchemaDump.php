@@ -76,7 +76,7 @@ final class D1SchemaDump
                 continue;
             }
             if ($type === 'index') {
-                if (self::isInternalName($tbl) || self::isShadowOfVirtual($tbl, $virtual) || isset($virtual[$tbl])) {
+                if (self::isShadowOfVirtual($tbl, $virtual) || isset($virtual[$tbl])) {
                     continue;
                 }
                 if (str_starts_with($name, 'sqlite_autoindex_')) {
@@ -86,7 +86,7 @@ final class D1SchemaDump
                 continue;
             }
             if ($type === 'trigger') {
-                if (self::isInternalName($tbl) || self::isShadowOfVirtual($tbl, $virtual)) {
+                if (self::isShadowOfVirtual($tbl, $virtual)) {
                     continue;
                 }
                 $triggers[] = $sql;
@@ -107,7 +107,11 @@ final class D1SchemaDump
         return [...$plain, ...$views, ...$virtualSql, ...$indexes, ...$triggers];
     }
 
-    /** True when $name is an FTS5/FTS shadow of a virtual table already listed. */
+    /**
+     * True when $name is an FTS5/FTS shadow of a virtual table already listed.
+     *
+     * @param list<string> $virtualNames
+     */
     public static function isFtsShadow(string $name, array $virtualNames = []): bool
     {
         $virtual = [];

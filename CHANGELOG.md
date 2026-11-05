@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **core:** D1 HTTP executor, schema dump and restore stage caps (P4-3)
+- **core:** D1 HTTP executor, schema dump and restore stage caps (P4-3) ([#235](https://github.com/thordin9/apotheke/pull/235))
 
 ## [3.18.3] - 2026-11-05
 
