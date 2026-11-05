@@ -86,15 +86,30 @@ final class Loans
     /** Mark a lent item as returned. */
     public function giveBack(int $id): void
     {
-        $this->units->run('items', function (UnitOfWork $uow) use ($id): void {
-            $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
-            if ($it['lent_to'] === null) {
+        try {
+            $this->units->run('items', function (UnitOfWork $uow) use ($id): void {
+                $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
+                if ($it['lent_to'] === null) {
+                    return;
+                }
+                // Conditional on still being out (L-230): a concurrent return
+                // leaves no second history row once the unit lock is the only lock.
+                $uow->write(
+                    'UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL, updated_at = ? WHERE id = ? AND lent_to IS NOT NULL',
+                    [$this->clock->now(), $id],
+                    'return',
+                    1,
+                    static fn (): UserError => new UserError('already returned', 409),
+                );
+                $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable($this->calendar->today()))->format('%a');
+                $this->history->queue($uow, $id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
+            }, (string)$id);
+        } catch (UserError $e) {
+            if ($e->getCode() === 409 && $e->getMessage() === 'already returned') {
                 return;
             }
-            $uow->write('UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL, updated_at = ? WHERE id = ?', [$this->clock->now(), $id], 'return', 1);
-            $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable($this->calendar->today()))->format('%a');
-            $this->history->queue($uow, $id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
-        }, (string)$id);
+            throw $e;
+        }
     }
 
     /**
