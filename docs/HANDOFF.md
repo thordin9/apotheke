@@ -17,7 +17,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-2b remaining sites (`feat/uow-remaining-sites`): item save with tags, taxonomy create, quantity adjust, lending;
+- P4-2b remaining sites (#232, `feat/uow-remaining-sites`): item save with tags, taxonomy create, quantity adjust, lending;
   L-1746 (lock test waits on `pg_locks`). Left for a follow-up: PhotoRepository, MergeService, BulkService,
   SearchIndex, Imports, CsvExport, Settings rewrite, Stocktake tick/finish, RoleAdmin/UserAdmin, taxonomy
   default/delete/move. N-1747..N-1751 stay in the backlog.

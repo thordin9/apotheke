@@ -51,14 +51,14 @@ final class TagRepository
      * uses any more, in one unit of work (joins the item save's). A failed
      * statement rolls back and throws (WriteFailed). New tags use
      * ON CONFLICT (name_key) so the batch path needs no last-insert id
-     * (ADR-002); item_tags rows bind the tag by name_key.
+     * (ADR-002); item_tags rows bind the tag by name_key. Pass the item
+     * save's unit as $uow so a Ref from that unit is flushed in order.
      *
      * @param list<string> $names clean names (Text::tags())
      */
-    public function set(int|Ref $itemId, array $names): void
+    public function set(int|Ref $itemId, array $names, ?UnitOfWork $uow = null): void
     {
-        $key = $itemId instanceof Ref ? $itemId->ulid : (string)$itemId;
-        $this->units->run('tags', function (UnitOfWork $uow) use ($itemId, $names): void {
+        $write = function (UnitOfWork $uow) use ($itemId, $names): void {
             $now = $this->clock->now();
             $keys = [];
             foreach ($names as $n) {
@@ -79,7 +79,14 @@ final class TagRepository
                 );
             }
             $uow->write('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)', [], 'drop unused tags');
-        }, $key);
+        };
+        if ($uow !== null) {
+            $write($uow);
+
+            return;
+        }
+        $key = $itemId instanceof Ref ? ($itemId->ulid !== '' ? $itemId->ulid : 'ref') : (string)$itemId;
+        $this->units->run('tags', $write, $key);
     }
 
     /**

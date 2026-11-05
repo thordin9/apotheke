@@ -112,7 +112,7 @@ final class ItemRepository
         $result = $this->units->run('items', function (UnitOfWork $uow) use ($existing, $in, $newImage, $removeImage, $now, $cols, &$drop): int|Ref {
             if ($existing === null) {
                 $ref = $uow->insert('items', $cols + ['image' => $newImage, 'created_at' => $now, 'updated_at' => $now], 'add item');
-                $this->tags->set($ref, $in['tags']);
+                $this->tags->set($ref, $in['tags'], $uow);
                 if ($newImage !== null) {
                     $uow->insert('item_photos', ['item_id' => $ref, 'file' => $newImage, 'position' => 0, 'created_at' => $now], 'add cover');
                 }
@@ -163,7 +163,7 @@ final class ItemRepository
                 $this->history->queue($uow, $id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
             }
             $uow->update('items', $cols + ['updated_at' => $now], ['id' => $id], 'update item');
-            $this->tags->set($id, $in['tags']);
+            $this->tags->set($id, $in['tags'], $uow);
             if ($newImage !== null || $removeImage) {
                 $cover = $this->photos($id)[0] ?? null;
                 if ($cover !== null) {
