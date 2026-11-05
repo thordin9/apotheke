@@ -18,7 +18,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- Unit-of-work merge-guard follow-ups (`fix/uow-merge-guards`; N-1776..N-1779): source-adjust race, last-admin and
+- Unit-of-work merge-guard follow-ups (`fix/uow-merge-guards`, #234; N-1776..N-1779): source-adjust race, last-admin and
   cycle mutant killers, shared 5 s multi-key wait, merge 409 wording. N-1780 stays in the backlog. Left for a later
   PR: BulkService, SearchIndex, Imports. N-1747..N-1751 and N-1758, N-1761..N-1763 stay in the backlog; N-1759/N-1760
   go with P4-3.

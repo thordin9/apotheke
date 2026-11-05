@@ -8,6 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** tighten merge multi-key races, shared lock wait, and admin/cycle guards ([#234](https://github.com/thordin9/apotheke/pull/234))
 - **core:** move photos, taxonomy guards, stocktake, settings and merge onto the unit of work (P4-2b) ([#233](https://github.com/thordin9/apotheke/pull/233))
 - **core:** unit-of-work remaining sites; qty race and loan lock fixes (P4-2b) ([#232](https://github.com/thordin9/apotheke/pull/232))
 
