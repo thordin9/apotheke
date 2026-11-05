@@ -332,6 +332,9 @@ atomic unit; they are not visible to `$fn`'s own reads.
   `ATTACH`, `VACUUM`, `SET`, `DO`, `COPY`, ...) is refused, as are `sqlite_*()` and `set_config()` calls and more
   than 100 parameters. Writes to `sqlite_sequence` pass. Statements are read with each dialect's quoting, comments
   and whitespace; one it cannot read is refused.
+  On PostgreSQL a `LocalBatchExecutor` batch runs in a transaction that takes the unit's advisory lock first, with
+  the same wait, 503 and lock order as above, so its guards hold between processes. D1 and SQLite batches are sent
+  as they are.
   The unit-of-work tests run every case in both modes on SQLite and PostgreSQL.
 - A hold, write or assert needs one bind per `?` placeholder (outside quotes; a `?` or `'` inside a quoted name is
   refused, as CI4's binder would read it differently), and a hold cannot bind the `Ref` of a
