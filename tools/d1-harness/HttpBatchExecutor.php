@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Apotheke\Core\Database\BatchExecutor;
+use Apotheke\Core\Database\D1Limits;
+use Apotheke\Core\Exceptions\WriteFailed;
 
 /** BatchExecutor over the local harness Worker (env.DB.batch()); local wrangler dev only. */
 final class HttpBatchExecutor implements BatchExecutor
@@ -45,8 +47,14 @@ final class HttpBatchExecutor implements BatchExecutor
             'content' => json_encode($body, JSON_THROW_ON_ERROR), 'ignore_errors' => true, 'timeout' => 60]]);
         $out = file_get_contents($this->base . $path, false, $ctx);
         $r = json_decode((string)$out, true, 512, JSON_THROW_ON_ERROR);
-        if (!($r['ok'] ?? false)) {
-            throw new RuntimeException((string)($r['error'] ?? 'harness error'));
+        // Match production (D1HttpExecutor): only a JSON boolean true is success; never echo handler text.
+        if (($r['ok'] ?? null) !== true) {
+            $error = is_string($r['error'] ?? null) ? $r['error'] : '';
+            $guard = ($r['code'] ?? null) === 'guard_failed' || D1Limits::isGuardFailure($error);
+            throw new WriteFailed(
+                'Database write failed: ' . ($guard ? 'a guard in the unit' : 'the batch'),
+                $guard ? BatchExecutor::GUARD_FAILED : 0,
+            );
         }
 
         return $r;
