@@ -24,7 +24,7 @@ Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pul
 
 ## Next steps
 
-1. fix(core) PR #230 in review: L-1666/L-1667 (attachment limit, item delete in the unit).
+1. fix(core) PR #230 in review: L-1666/L-1667 (attachment limit, item delete in the unit), L-1712, L-1713, N-1714.
 2. P4-2b remaining sites: guarded sites, item save with tags and taxonomy create, the large paths.
 3. P4-3 (D1 driver and bridge, with N-1640) to P4-5. DevOps owns the bindings and the `EDGE_STORAGE_READY` flip
    checklist (#204, #208); N-1442 follows with P4.
