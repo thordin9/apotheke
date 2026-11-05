@@ -18,9 +18,9 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 ## Open pull requests
 
 - P4-2b remaining sites (#232, `feat/uow-remaining-sites`): item save with tags, taxonomy create, quantity adjust, lending;
-  L-1746 (lock test waits on `pg_locks`). Left for a follow-up: PhotoRepository, MergeService, BulkService,
-  SearchIndex, Imports, CsvExport, Settings rewrite, Stocktake tick/finish, RoleAdmin/UserAdmin, taxonomy
-  default/delete/move. N-1747..N-1751 stay in the backlog.
+  L-1746; M-1752 (qty conditional write), L-1753 (drop loan row lock), N-1754..N-1757. Left for a follow-up:
+  PhotoRepository, MergeService, BulkService, SearchIndex, Imports, CsvExport, Settings rewrite, Stocktake
+  tick/finish, RoleAdmin/UserAdmin, taxonomy default/delete/move; N-1747..N-1751 and N-1758 stay in the backlog.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
