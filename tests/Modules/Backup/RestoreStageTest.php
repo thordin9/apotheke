@@ -555,21 +555,39 @@ final class RestoreStageTest extends CIUnitTestCase
         $stage = new RestoreStage($exec);
         $cols = ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'];
         $at = '2026-01-02 08:00:00';
-        // 2501 tiny rows: CHUNK_ROWS=1000 → 3 inserts (1000+1000+501), well under CHUNK_BYTES.
-        $rows = (static function () use ($at): \Generator {
-            for ($i = 1; $i <= 2501; $i++) {
+        $this->assertSame(1000, RestoreStage::CHUNK_ROWS, 'N-1787: pin CHUNK_ROWS so 1001 would split 1001 rows');
+        // 1001 tiny rows: CHUNK_ROWS=1000 → exactly 2 statements (1000+1). A mutant of 1001 stays at 1.
+        $tiny = (static function () use ($at): \Generator {
+            for ($i = 1; $i <= 1001; $i++) {
                 yield [$i, 'n' . $i, 1, '', 's', $at, $at];
             }
         })();
         $stage->begin(['items']);
-        $this->assertSame(2501, $stage->stage('items', $cols, $rows));
-        $jsonChunks = count($exec->paramLens);
-        $this->assertSame(3, $jsonChunks, 'CHUNK_ROWS must split 2501 rows into 3 statements');
-        $itemsCap = RestoreStage::CHUNK_BYTES_FOR['items'];
-        foreach ($exec->paramLens as $len) {
-            $this->assertLessThanOrEqual($itemsCap + 2, $len, 'items chunks stay under the items byte cap');
-        }
+        $this->assertSame(1001, $stage->stage('items', $cols, $tiny));
+        $this->assertSame(2, count($exec->paramLens), '1001 tiny rows must become 2 chunks under CHUNK_ROWS=1000');
         $stage->finish();
+
+        // Wide notes: three rows each ~180 KB. Under the items 256 KB cap they are 3 statements;
+        // under the default 512 KB cap a mutant would pack them into one.
+        $exec->paramLens = [];
+        $wide = str_repeat('w', 180_000);
+        $itemsCap = RestoreStage::CHUNK_BYTES_FOR['items'];
+        $this->assertSame(256 * 1024, $itemsCap, 'N-1787: pin the items byte cap below CHUNK_BYTES');
+        $this->assertLessThan(RestoreStage::CHUNK_BYTES, $itemsCap);
+        $stage2 = new RestoreStage($exec);
+        $wideRows = [
+            [1, 'a', 1, $wide, 's', $at, $at],
+            [2, 'b', 1, $wide, 's', $at, $at],
+            [3, 'c', 1, $wide, 's', $at, $at],
+        ];
+        $stage2->begin(['items']);
+        $this->assertSame(3, $stage2->stage('items', $cols, $wideRows));
+        $this->assertSame(3, count($exec->paramLens), 'three wide items rows must each be their own chunk under the items cap');
+        foreach ($exec->paramLens as $len) {
+            $this->assertLessThanOrEqual($itemsCap + 2, $len);
+            $this->assertGreaterThan(100_000, $len, 'each wide chunk is large enough that two would exceed the items cap');
+        }
+        $stage2->finish();
     }
 
 

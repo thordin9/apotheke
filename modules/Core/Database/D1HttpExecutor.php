@@ -14,7 +14,7 @@ use RuntimeException;
  * `$base/batch`, `/query` and `/exec` the way the container talks to
  * `http://d1.internal`. connection() is null, so a unit of work runs as one
  * batch. Statements are checked by D1Limits first; a guard failure is
- * recognised from D1's error text (N-1640). No secrets: the base URL is a
+ * recognised from D1's error text (N-1640, M-1783). No secrets: the base URL is a
  * loopback or internal name only.
  *
  * The Worker-side handlers that serve these paths land with the edge bridge
@@ -107,8 +107,10 @@ final class D1HttpExecutor implements SqlExecutor
         } catch (JsonException) {
             throw new WriteFailed('Database write failed: the batch');
         }
-        if (!($r['ok'] ?? false)) {
-            $error = (string)($r['error'] ?? $r['cause'] ?? 'the batch');
+        // L-1784: only a JSON boolean true is success (a string "false" must fail closed).
+        if (($r['ok'] ?? null) !== true) {
+            $error = is_string($r['error'] ?? null) ? $r['error']
+                : (is_string($r['cause'] ?? null) ? $r['cause'] : 'the batch');
             $guard = D1Limits::isGuardFailure($error);
             // Never pass the database message on (it may hold a value).
             throw new WriteFailed(
@@ -128,6 +130,7 @@ final class D1HttpExecutor implements SqlExecutor
                 'header' => "content-type: application/json\r\n",
                 'content' => $json,
                 'ignore_errors' => true,
+                'follow_location' => 0, // L-1785: never follow redirects
                 'timeout' => 60,
             ],
         ]);

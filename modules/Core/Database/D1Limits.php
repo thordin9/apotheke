@@ -44,16 +44,23 @@ final class D1Limits
     /**
      * Whether $error is a unit-of-work guard failure (uow_guard.ok NOT NULL).
      * Matches plain SQLite, PostgreSQL, and the D1 / workerd wrappers that
-     * prefix the same message (N-1640).
+     * prefix the same message (N-1640). Workerd appends the result-code name
+     * (and the extended name when it differs): those suffixes are recognised
+     * narrowly so unrelated constraint text stays a plain failure (M-1783).
      */
     public static function isGuardFailure(string $error): bool
     {
         $first = rtrim((string)strtok($error, "\n"));
         // Strip a leading "D1_ERROR: " / "Error: " / driver tag so the SQLite text decides.
         $first = (string)preg_replace('/^(?:(?:D1_ERROR|Error|SQLite|SQLSTATE\[\w+\])\s*:\s*)+/i', '', $first);
+        // Workerd: "...ok: SQLITE_CONSTRAINT" or "...ok: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_NOTNULL)".
+        // Optional " at offset N" sits between the column and the code (dbErrorMessage).
+        $sqlite = '(?:[A-Za-z ]+: )?NOT NULL constraint failed: uow_guard\.ok'
+            . '(?: at offset \d+)?'
+            . '(?:: SQLITE_CONSTRAINT(?: \(extended: SQLITE_CONSTRAINT_NOTNULL\))?)?';
+        $pg = '(?:ERROR:\s+)?null value in column "ok" of relation "uow_guard" violates not-null constraint';
 
-        return preg_match('/^(?:(?:[A-Za-z ]+: )?NOT NULL constraint failed: uow_guard\.ok'
-            . '|(?:ERROR:\s+)?null value in column "ok" of relation "uow_guard" violates not-null constraint)$/', $first) === 1;
+        return preg_match('/^(?:' . $sqlite . '|' . $pg . ')$/', $first) === 1;
     }
 
     /** @throws LogicException */

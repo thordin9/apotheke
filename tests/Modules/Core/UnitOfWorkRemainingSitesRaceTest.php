@@ -597,6 +597,48 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $this->assertSame(3, $n);
     }
 
+    /**
+     * N-1788: moving an outsider under a node that sits in a seeded cycle walks the
+     * ancestor chain through the cycle, so removing chain.n < 50 hangs; the descendant
+     * walk (N-1781) is covered by testSetParentTerminatesOnSeededCycle.
+     */
+    #[DataProvider('drivers')]
+    public function testSetParentAncestorWalkTerminatesOnSeededCycle(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $tax = new TaxonomyRepository($db, $clock, $history, $units);
+        $a = $tax->create('location', 'AncA');
+        $b = $tax->create('location', 'AncB');
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$b['id'], $a['id']]), 'seed');
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$a['id'], $b['id']]), 'seed');
+        $c = $tax->create('location', 'AncC');
+        if ($driver === 'pgsql') {
+            Writes::check($db->query("SET statement_timeout = '1000'"), 'timeout');
+        }
+        $started = hrtime(true);
+        $err = null;
+        try {
+            // Move C under A: ancestor walk of A traverses A→B→A and needs n < 50.
+            $tax->setParent($c['id'], $a['id']);
+        } catch (\Throwable $e) {
+            $err = $e;
+        } finally {
+            if ($driver === 'pgsql') {
+                $db->query('SET statement_timeout = 0');
+            }
+        }
+        $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        $this->assertInstanceOf(\Apotheke\Core\Exceptions\UserError::class, $err);
+        $this->assertSame(422, $err->getCode());
+        $this->assertLessThan(2000, $elapsedMs, 'ancestor cycle walk must terminate quickly');
+        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$c['id']])[0]['parent_id'] ?? null;
+        $this->assertNull($parent, 'C must not attach under a cycled tree');
+    }
+
         /**
      * N-1755: ItemRepository and TagRepository from Services share one UnitsOfWork.
      */

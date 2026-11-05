@@ -13,7 +13,7 @@ use CodeIgniter\Test\CIUnitTestCase;
 use LogicException;
 use RuntimeException;
 
-/** D1HttpExecutor: limits, guard mapping (N-1640), and the HTTP wire shape. */
+/** D1HttpExecutor: limits, guard mapping (N-1640, M-1783), and the HTTP wire shape. */
 final class D1HttpExecutorTest extends CIUnitTestCase
 {
     public function testDialectIsSqliteAndConnectionIsNull(): void
@@ -64,6 +64,22 @@ final class D1HttpExecutorTest extends CIUnitTestCase
         }
     }
 
+    /** M-1783: workerd's result-code / extended-code suffixes map to GUARD_FAILED on the HTTP path. */
+    public function testWorkerdSuffixedGuardMapsToGuardFailedCode(): void
+    {
+        $exec = new D1HttpExecutor('http://127.0.0.1:8799', static fn (): string => json_encode([
+            'ok' => false,
+            'error' => 'D1_ERROR: NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_NOTNULL)',
+        ], JSON_THROW_ON_ERROR));
+        try {
+            $exec->run([['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL', 'params' => []]]);
+            $this->fail('must throw');
+        } catch (WriteFailed $e) {
+            $this->assertSame(BatchExecutor::GUARD_FAILED, $e->getCode());
+            $this->assertSame('Database write failed: a guard in the unit', $e->getMessage());
+        }
+    }
+
     public function testPlainFailureDoesNotLeakDatabaseText(): void
     {
         $exec = new D1HttpExecutor('http://127.0.0.1:8799', static fn (): string => json_encode([
@@ -78,6 +94,26 @@ final class D1HttpExecutorTest extends CIUnitTestCase
             $this->assertSame('Database write failed: the batch', $e->getMessage());
             $this->assertStringNotContainsString('secret-token-value', $e->getMessage());
         }
+    }
+
+    /** L-1784: a string "false" must not be treated as success. */
+    public function testStringFalseOkIsAFailure(): void
+    {
+        $exec = new D1HttpExecutor('http://127.0.0.1:8799', static fn (): string => '{"ok":"false","rows":[{"n":1}]}');
+        try {
+            $exec->query('SELECT 1 AS n');
+            $this->fail('must throw');
+        } catch (WriteFailed $e) {
+            $this->assertSame(0, $e->getCode());
+            $this->assertSame('Database write failed: the batch', $e->getMessage());
+        }
+    }
+
+    /** L-1785: the default transport must disable redirect following. */
+    public function testDefaultTransportDisablesRedirectFollowing(): void
+    {
+        $src = file_get_contents((new \ReflectionClass(D1HttpExecutor::class))->getFileName());
+        $this->assertMatchesRegularExpression("/'follow_location'\\s*=>\\s*0/", $src);
     }
 
     public function testBatchPostsStatementsAndReturnsRows(): void
@@ -121,23 +157,47 @@ final class D1HttpExecutorTest extends CIUnitTestCase
         new D1HttpExecutor('http://user:pass@d1.internal/batch');
     }
 
-    /** @return list<array{0:string,1:bool}> */
+    /**
+     * M-1783 / N-1640: positive forms (incl. workerd suffixes) and negatives that must stay plain failures.
+     *
+     * @return list<array{0:string,1:bool}>
+     */
     public static function guardTexts(): array
     {
         return [
+            // Positive: unsuffixed and prefixed.
             ['NOT NULL constraint failed: uow_guard.ok', true],
             ['D1_ERROR: NOT NULL constraint failed: uow_guard.ok', true],
             ['Error: NOT NULL constraint failed: uow_guard.ok', true],
+            ['SQLite: NOT NULL constraint failed: uow_guard.ok', true],
+            ['SQLSTATE[23000]: NOT NULL constraint failed: uow_guard.ok', true],
+            ['Driver note: NOT NULL constraint failed: uow_guard.ok', true],
+            // Positive: workerd result-code and extended-code suffixes (M-1783).
+            ['NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT', true],
+            ['NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_NOTNULL)', true],
+            ['D1_ERROR: NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_NOTNULL)', true],
+            ['NOT NULL constraint failed: uow_guard.ok at offset 12: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_NOTNULL)', true],
+            // Positive: PostgreSQL.
             ['null value in column "ok" of relation "uow_guard" violates not-null constraint', true],
             ['ERROR: null value in column "ok" of relation "uow_guard" violates not-null constraint', true],
+            // Negatives: must not over-match.
             ['NOT NULL constraint failed: items.name', false],
             ['UNIQUE constraint failed: uow_guard.ok', false],
+            ['UNIQUE constraint failed: uow_guard.ok: SQLITE_CONSTRAINT', false],
+            ['not null constraint failed: uow_guard.ok', false], // lowercase
+            [' NOT NULL constraint failed: uow_guard.ok', false], // leading space
+            ['SQLITE_CONSTRAINT: NOT NULL constraint failed: uow_guard.ok', false], // code-before-text
+            ['D1_EXEC_ERROR: NOT NULL constraint failed: uow_guard.ok', false], // exec prefix
+            ['SQLSTATE[23000]: Integrity constraint violation: 19 NOT NULL constraint failed: uow_guard.ok', false],
+            ['NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT_UNIQUE', false],
+            ['NOT NULL constraint failed: uow_guard.ok: SQLITE_BUSY', false],
+            ["NOT NULL constraint failed: uow_guard.ok\nDETAIL: secret-token-value", true], // second line ignored
         ];
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('guardTexts')]
     public function testIsGuardFailureTexts(string $error, bool $expect): void
     {
-        $this->assertSame($expect, D1Limits::isGuardFailure($error));
+        $this->assertSame($expect, D1Limits::isGuardFailure($error), $error);
     }
 }

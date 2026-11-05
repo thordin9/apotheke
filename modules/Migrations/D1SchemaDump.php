@@ -114,24 +114,50 @@ final class D1SchemaDump
      */
     public static function isFtsShadow(string $name, array $virtualNames = []): bool
     {
-        $virtual = [];
-        foreach ($virtualNames as $v) {
-            $virtual[(string)$v] = true;
+        if ($virtualNames !== []) {
+            $virtual = [];
+            foreach ($virtualNames as $v) {
+                $virtual[(string)$v] = true;
+            }
+
+            return self::isShadowOfVirtual($name, $virtual);
+        }
+        // No virtual parent listed: only the five literal suffixes, case-sensitive as sqlite_master names them.
+        foreach (self::SHADOW_SUFFIXES as $suffix) {
+            if (str_ends_with($name, $suffix) && $name !== ltrim($suffix, '_')) {
+                // Require a non-empty base before the suffix (not the bare word "config").
+                $base = substr($name, 0, -strlen($suffix));
+                if ($base !== '') {
+                    return true;
+                }
+            }
         }
 
-        return self::isShadowOfVirtual($name, $virtual)
-            || preg_match('/_(?:data|idx|content|docsize|config)$/i', $name) === 1;
+        return false;
     }
 
-    /** @param array<string,true> $virtual */
+    /** The five FTS5/FTS shadow-table suffixes SQLite creates for a virtual table. */
+    private const SHADOW_SUFFIXES = ['_data', '_idx', '_content', '_docsize', '_config'];
+
+    /**
+     * True when $name is a known FTS shadow of a listed virtual table (N-1789:
+     * a plain table whose name only shares a prefix, e.g. search_fts_backup, is kept).
+     *
+     * @param array<string,true> $virtual
+     */
     private static function isShadowOfVirtual(string $name, array $virtual): bool
     {
         if (isset($virtual[$name])) {
             return false;
         }
         foreach (array_keys($virtual) as $vt) {
-            if ($vt !== '' && str_starts_with($name, $vt . '_')) {
-                return true;
+            if ($vt === '') {
+                continue;
+            }
+            foreach (self::SHADOW_SUFFIXES as $suffix) {
+                if ($name === $vt . $suffix) {
+                    return true;
+                }
             }
         }
 
