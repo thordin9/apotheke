@@ -110,8 +110,8 @@ final class CsvExport
 
             return;
         }
-        // Not Writes::transaction(): nothing is written, and the snapshot
-        // only has to last while the lines are sent.
+        // Not a unit of work (ADR-002): nothing is written. A read-only
+        // snapshot only has to last while the lines are sent.
         if (!$this->db->transBegin()) {
             throw new WriteFailed('Database read failed');
         }

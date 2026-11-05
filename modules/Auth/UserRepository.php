@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\Ref;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
@@ -13,13 +16,20 @@ use PDOException;
 
 /**
  * The `users` table, as far as the session checks need it. Works on SQLite and
- * PostgreSQL. Holds no state of its own.
+ * PostgreSQL. Holds no state of its own. Writes run as units of work (ADR-002);
+ * RoleAdmin and UserAdmin keep their row locks in atomically() before the unit.
  */
 final class UserRepository
 {
-    /** @param BaseConnection<object|resource, object|resource> $db */
-    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch())
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
+    public function __construct(private readonly BaseConnection $db, private readonly SessionEpoch $epoch = new SessionEpoch(), ?UnitsOfWork $units = null)
     {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /**
@@ -123,7 +133,9 @@ final class UserRepository
     }
 
     /**
-     * $fn in one transaction (Writes::transaction; nesting is flat).
+     * $fn in one transaction (Writes::transaction; nesting is flat). Callers
+     * that lock rows (holdActiveAdmins / lockActiveAdmins) do so inside $fn
+     * before opening a unit, so the lock order is rows then the unit (N-1665).
      *
      * @template T
      * @param callable():T $fn
@@ -165,48 +177,62 @@ final class UserRepository
     /** Legacy user_approve(). */
     public function approve(int $id): void
     {
-        Writes::check($this->db->query("UPDATE users SET status = 'active' WHERE id = ?", [$id]), 'users approve');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id): void {
+            $uow->write("UPDATE users SET status = 'active' WHERE id = ?", [$id], 'users approve');
+        }, (string)$id);
     }
 
     /** Legacy user_set_role(). */
     public function setRole(int $id, string $role): void
     {
-        Writes::check($this->db->query('UPDATE users SET role = ? WHERE id = ?', [$role, $id]), 'users role');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id, $role): void {
+            $uow->write('UPDATE users SET role = ? WHERE id = ?', [$role, $id], 'users role');
+        }, (string)$id);
     }
 
     /** Legacy user_rename(). The caller has validated the name. */
     public function rename(int $id, string $name): void
     {
-        Writes::check($this->db->query('UPDATE users SET username = ?, username_key = ? WHERE id = ?', [$name, self::key($name), $id]), 'users rename');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id, $name): void {
+            $uow->write('UPDATE users SET username = ?, username_key = ? WHERE id = ?', [$name, self::key($name), $id], 'users rename');
+        }, (string)$id);
     }
 
     /** Legacy user_delete(). */
     public function delete(int $id): void
     {
-        Writes::check($this->db->query('DELETE FROM users WHERE id = ?', [$id]), 'users delete');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id): void {
+            $uow->write('DELETE FROM users WHERE id = ?', [$id], 'users delete');
+        }, (string)$id);
     }
 
     /** A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value. */
     public function create(string $name, string $hash, string $role, string $status, string $now): int
     {
-        Writes::check($this->db->table('users')->insert([
-            'username' => $name, 'username_key' => self::key($name), 'password_hash' => $hash,
-            'role' => $role, 'status' => $status, 'created_at' => $now,
-        ]), 'users insert');
+        $ref = $this->units->run('users', function (UnitOfWork $uow) use ($name, $hash, $role, $status, $now): Ref {
+            return $uow->insert('users', [
+                'username' => $name, 'username_key' => self::key($name), 'password_hash' => $hash,
+                'role' => $role, 'status' => $status, 'created_at' => $now,
+            ], 'users insert');
+        });
 
-        return (int)$this->db->insertID();
+        return $ref->id();
     }
 
     /** Legacy login(): the sign-in time. */
     public function touchLastLogin(int $id, string $now): void
     {
-        Writes::check($this->db->table('users')->where('id', $id)->update(['last_login_at' => $now]), 'users last login');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id, $now): void {
+            $uow->update('users', ['last_login_at' => $now], ['id' => $id], 'users last login');
+        }, (string)$id);
     }
 
     /** Legacy user_verify(): a stronger hash for the same password. The session epoch is not renewed (as legacy). */
     public function rehash(int $id, string $hash): void
     {
-        Writes::check($this->db->table('users')->where('id', $id)->update(['password_hash' => $hash]), 'users rehash');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id, $hash): void {
+            $uow->update('users', ['password_hash' => $hash], ['id' => $id], 'users rehash');
+        }, (string)$id);
     }
 
     /**
@@ -233,7 +259,9 @@ final class UserRepository
     public function setPasswordHash(int $id, string $hash): string
     {
         $epoch = $this->epoch->fresh();
-        Writes::check($this->db->table('users')->where('id', $id)->update(['password_hash' => $hash, 'session_epoch' => $epoch]), 'users password');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id, $hash, $epoch): void {
+            $uow->update('users', ['password_hash' => $hash, 'session_epoch' => $epoch], ['id' => $id], 'users password');
+        }, (string)$id);
 
         return $epoch;
     }
@@ -242,7 +270,9 @@ final class UserRepository
     public function renewSessionEpoch(int $id): string
     {
         $epoch = $this->epoch->fresh();
-        Writes::check($this->db->table('users')->where('id', $id)->update(['session_epoch' => $epoch]), 'users session epoch');
+        $this->units->run('users', function (UnitOfWork $uow) use ($id, $epoch): void {
+            $uow->update('users', ['session_epoch' => $epoch], ['id' => $id], 'users session epoch');
+        }, (string)$id);
 
         return $epoch;
     }

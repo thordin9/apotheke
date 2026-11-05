@@ -190,14 +190,14 @@ final class TaxonomyRepository
     public function setDefault(string $kind, int $id, bool $on): void
     {
         $tb = Kind::get($kind)['table'];
-        $this->tx(function () use ($tb, $id, $on): void {
+        $this->units->run($tb, function (UnitOfWork $uow) use ($tb, $id, $on): void {
             if ($on) {
-                Writes::check($this->db->table($tb)->where('is_default', 1)->update(['is_default' => 0]), 'clear default');
-                Writes::check($this->db->table($tb)->where('id', $id)->update(['is_default' => 1]), 'set default');
+                $uow->write('UPDATE ' . $tb . ' SET is_default = 0 WHERE is_default = 1', [], 'clear default');
+                $uow->write('UPDATE ' . $tb . ' SET is_default = 1 WHERE id = ?', [$id], 'set default');
             } else {
-                Writes::check($this->db->table($tb)->where('id', $id)->update(['is_default' => 0]), 'clear default');
+                $uow->write('UPDATE ' . $tb . ' SET is_default = 0 WHERE id = ?', [$id], 'clear default');
             }
-        });
+        }, (string)$id);
     }
 
     /** Delete an entry; its items move to $moveTo or are left unassigned. Returns the number of items moved. */
@@ -205,32 +205,32 @@ final class TaxonomyRepository
     {
         $t = Kind::get($kind);
 
-        return $this->tx(function () use ($t, $kind, $id, $moveTo): int {
+        return $this->units->run($t['table'], function (UnitOfWork $uow) use ($t, $kind, $id, $moveTo): int {
             $from = (string)($this->get($kind, $id)['name'] ?? '');
             $to = $moveTo !== null ? (string)($this->get($kind, $moveTo)['name'] ?? '') : '';
             $items = $this->rows("SELECT id, name FROM items WHERE {$t['col']} = ?", [$id]);
             foreach ($items as $it) {
                 $kind === 'location'
-                    ? $this->activity->log((int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
-                    : $this->activity->log((int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
+                    ? $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
+                    : $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
             }
-            Writes::check($this->db->table('items')->where($t['col'], $id)->update([$t['col'] => $moveTo, 'updated_at' => $this->clock->now()]), 'move items');
-            $n = $this->db->affectedRows();
+            $n = count($items);
+            $uow->write('UPDATE items SET ' . $t['col'] . ' = ?, updated_at = ? WHERE ' . $t['col'] . ' = ?', [$moveTo, $this->clock->now(), $id], 'move items');
             if ($kind === 'location') {
                 // sub-locations move up one level instead of disappearing from the tree
                 $up = $this->rows('SELECT parent_id FROM locations WHERE id = ?', [$id])[0]['parent_id'] ?? null;
-                Writes::check($this->db->table('locations')->where('parent_id', $id)->update(['parent_id' => $up === null ? null : (int)$up]), 'move sub-locations');
+                $uow->write('UPDATE locations SET parent_id = ? WHERE parent_id = ?', [$up === null ? null : (int)$up, $id], 'move sub-locations');
             }
-            Writes::check($this->db->table($t['table'])->where('id', $id)->delete(), 'delete');
+            $uow->write('DELETE FROM ' . $t['table'] . ' WHERE id = ?', [$id], 'delete', 1);
 
             return $n;
-        });
+        }, (string)$id);
     }
 
     /** Put location $id inside $parent (null = top level). Rejects cycles and trees deeper than MAX_DEPTH. True when it changed. */
     public function setParent(int $id, ?int $parent): bool
     {
-        return $this->tx(function () use ($id, $parent): bool {
+        return $this->units->run('locations', function (UnitOfWork $uow) use ($id, $parent): bool {
             $byId = $this->locationsById();
             if (!isset($byId[$id])) {
                 throw new UserError('Location not found.', 404);
@@ -256,11 +256,13 @@ final class TaxonomyRepository
                 if ($byId[$parent]['depth'] + 1 + $height > LocationTree::MAX_DEPTH) {
                     throw new UserError('Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.', 422);
                 }
+                $uow->assert('EXISTS (SELECT 1 FROM locations WHERE id = ?)', [$parent], 'parent exists',
+                    static fn (): UserError => new UserError('That parent location no longer exists.', 422));
             }
-            Writes::check($this->db->table('locations')->where('id', $id)->update(['parent_id' => $parent]), 'move');
+            $uow->write('UPDATE locations SET parent_id = ? WHERE id = ?', [$parent, $id], 'move', 1);
 
             return true;
-        });
+        }, (string)$id);
     }
 
     /** @return list<int> $id and every location below it */
@@ -294,17 +296,6 @@ final class TaxonomyRepository
         return $name;
     }
 
-    /**
-     * Run $fn in a transaction (joins an open one); a failed statement rolls back and throws.
-     *
-     * @template T
-     * @param callable():T $fn
-     * @return T
-     */
-    private function tx(callable $fn): mixed
-    {
-        return Writes::transaction($this->db, $fn);
-    }
 
     /**
      * A SELECT's rows; a failed statement throws.

@@ -6,6 +6,8 @@ namespace Apotheke\BulkMerge;
 
 use Apotheke\Catalog\ItemList;
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -16,8 +18,8 @@ use CodeIgniter\Database\BaseConnection;
 
 /**
  * Merging duplicates (legacy merge.php): everything of the source moves
- * into the target in one transaction, then the source is gone. Its files now
- * belong to the target, so none are removed.
+ * into the target in one unit of work (ADR-002), then the source is gone. Its
+ * files now belong to the target, so none are removed.
  */
 final class MergeService
 {
@@ -28,7 +30,12 @@ final class MergeService
     private const FILLS = ['location_id' => 'Location', 'category_id' => 'Category', 'min_qty' => 'Running low at', 'value_cents' => 'Purchase price',
         'purchase_date' => 'Purchase date', 'expires_on' => 'Expiry / warranty', 'serial' => 'Serial number', 'barcode' => 'Barcode'];
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly Clock $clock,
@@ -37,7 +44,9 @@ final class MergeService
         private readonly TagRepository $tags,
         private readonly ItemList $list,
         private readonly string $defaultSort,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /**
@@ -92,30 +101,32 @@ final class MergeService
      */
     public function merge(int $sourceId, int $targetId): array
     {
-        return Writes::transaction($this->db, function () use ($sourceId, $targetId): array {
+        // One unit on the target (ADR-002): every move and the target update run together; tags join it.
+        return $this->units->run('items', function (UnitOfWork $uow) use ($sourceId, $targetId): array {
             $p = $this->preview($sourceId, $targetId);
             $src = $p['source'];
             $dst = $p['target'];
             $in = $p['result'];
-            $base = (int)(Writes::rows($this->db, 'SELECT COALESCE(MAX(position), -1) AS p FROM item_photos WHERE item_id = ?', [$targetId])[0]['p'] ?? -1) + 1;
-            Writes::check($this->db->query('UPDATE item_photos SET item_id = ?, position = position + ? WHERE item_id = ?', [$targetId, $base, $sourceId]), 'merge photos');
-            Writes::check($this->db->query('UPDATE item_attachments SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId]), 'merge attachments');
-            Writes::check($this->db->query('UPDATE activity SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId]), 'merge history');
-            Writes::check($this->db->query('DELETE FROM recent_views WHERE item_id = ?', [$sourceId]), 'merge recent');
-            Writes::check($this->db->query('DELETE FROM items WHERE id = ?', [$sourceId]), 'merge source');
-            $cover = Writes::rows($this->db, 'SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id LIMIT 1', [$targetId])[0]['file'] ?? null;
+            $targetPhotos = Writes::rows($this->db, 'SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id', [$targetId]);
+            $sourcePhotos = Writes::rows($this->db, 'SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id', [$sourceId]);
+            $base = count($targetPhotos);
+            $cover = ($targetPhotos[0]['file'] ?? null) ?? ($sourcePhotos[0]['file'] ?? null);
+            $uow->write('UPDATE item_photos SET item_id = ?, position = position + ? WHERE item_id = ?', [$targetId, $base, $sourceId], 'merge photos');
+            $uow->write('UPDATE item_attachments SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId], 'merge attachments');
+            $uow->write('UPDATE activity SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId], 'merge history');
+            $uow->write('DELETE FROM recent_views WHERE item_id = ?', [$sourceId], 'merge recent');
+            $uow->write('DELETE FROM items WHERE id = ?', [$sourceId], 'merge source', 1);
             $lend = $p['lending'] === 'copied' ? [$src['lent_to'], $src['lent_at'], $src['lent_due']] : [$dst['lent_to'], $dst['lent_at'], $dst['lent_due']];
             $barcode = (string)$in['barcode'];
             $blob = Text::fold(implode("\n", array_merge([(string)$in['name'], (string)$in['notes'], (string)$in['serial'], $barcode], $in['tags'])));
-            Writes::check($this->db->query('UPDATE items SET location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, expires_on=?, serial=?, barcode=?,
+            $uow->write('UPDATE items SET location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, expires_on=?, serial=?, barcode=?,
                        image=?, lent_to=?, lent_at=?, lent_due=?, favourite=?, search=?, updated_at=? WHERE id=?', [
                 $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['expires_on'],
                 $in['serial'], $barcode === '' ? null : $barcode, $cover === null || $cover === '' ? null : $cover, ...$lend,
                 (int)(!empty($dst['favourite']) || !empty($src['favourite'])), $blob, $this->clock->now(), $targetId,
-            ]), 'merge target');
-            $this->tags->set($targetId, $in['tags']);
-            Writes::check($this->db->query('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)'), 'drop unused tags');
-            $this->history->log($targetId, (string)$dst['name'], 'merged', array_filter([
+            ], 'merge target', 1);
+            $this->tags->set($targetId, $in['tags'], $uow);
+            $this->history->queue($uow, $targetId, (string)$dst['name'], 'merged', array_filter([
                 'from' => (string)$src['name'], 'from_id' => $sourceId,
                 'quantity' => [(int)$dst['quantity'], (int)$in['quantity']],
                 'photos' => $p['photos'] !== 0 ? $p['photos'] : null, 'attachments' => $p['attachments'] !== 0 ? $p['attachments'] : null,
@@ -123,7 +134,7 @@ final class MergeService
             ], static fn ($v): bool => $v !== null));
 
             return $p;
-        });
+        }, (string)$targetId);
     }
 
     /**

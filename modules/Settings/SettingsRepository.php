@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Apotheke\Settings;
 
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
@@ -13,13 +15,20 @@ use Throwable;
 
 /**
  * The `settings` table (name → JSON value) through the Query Builder.
- * Works on SQLite and PostgreSQL. Holds no state of its own.
+ * Works on SQLite and PostgreSQL. Holds no state of its own. Rewrites run
+ * as one unit of work (ADR-002).
  */
 final class SettingsRepository
 {
-    /** @param BaseConnection<object|resource, object|resource> $db */
-    public function __construct(private readonly BaseConnection $db)
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
+    public function __construct(private readonly BaseConnection $db, ?UnitsOfWork $units = null)
     {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /**
@@ -46,7 +55,7 @@ final class SettingsRepository
     }
 
     /**
-     * Replace these rows in one transaction (delete, then insert, like legacy
+     * Replace these rows in one unit of work (delete, then insert, like legacy
      * settings_store()). A failed statement, or a failed commit, rolls back
      * and throws WriteFailed (M-25: the connection has DBDebug off).
      *
@@ -60,19 +69,19 @@ final class SettingsRepository
     }
 
     /**
-     * Read the rows and replace the ones $plan returns, in one transaction
-     * (legacy secret_rotate()). A UserError from $plan rolls back and is
-     * thrown as it is; any other failure is WriteFailed, as replace().
+     * Read the rows and replace the ones $plan returns, in one unit of work
+     * (legacy secret_rotate(), ADR-002). A UserError from $plan fails the unit
+     * and is thrown as it is; any other failure is WriteFailed, as replace().
      *
      * @param \Closure(array<string,string>):array<string,string> $plan raw rows => rows to write
      */
     public function rewrite(\Closure $plan, string $now): void
     {
         try {
-            Writes::transaction($this->db, function () use ($plan, $now): void {
+            $this->units->run('settings', function (UnitOfWork $uow) use ($plan, $now): void {
                 foreach ($plan($this->rows()) as $name => $value) {
-                    Writes::check($this->db->table('settings')->where('name', $name)->delete(), 'settings delete');
-                    Writes::check($this->db->table('settings')->insert(['name' => $name, 'value' => $value, 'updated_at' => $now]), 'settings insert');
+                    $uow->write('DELETE FROM settings WHERE name = ?', [$name], 'settings delete');
+                    $uow->write('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [$name, $value, $now], 'settings insert');
                 }
             });
         } catch (UserError $e) {

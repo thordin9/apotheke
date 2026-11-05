@@ -17,18 +17,18 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-2b remaining sites (#232, `feat/uow-remaining-sites`): item save with tags, taxonomy create, quantity adjust, lending;
-  L-1746 (lock test waits on `pg_locks`). Left for a follow-up: PhotoRepository, MergeService, BulkService,
-  SearchIndex, Imports, CsvExport, Settings rewrite, Stocktake tick/finish, RoleAdmin/UserAdmin, taxonomy
-  default/delete/move. N-1747..N-1751 stay in the backlog.
+- P4-2b remaining sites part 2 (`feat/uow-remaining-sites-2`, stacked on #232): PhotoRepository, taxonomy
+  default/delete/move, Stocktake tick/finish, Settings rewrite, MergeService, RoleAdmin/UserAdmin (via the
+  role and user repositories). CsvExport stays a read-only snapshot (not a unit). Left for a later PR:
+  BulkService, SearchIndex, Imports. N-1747..N-1751 stay in the backlog.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Finish this P4-2b sites PR (full gate), then the follow-up PR for the large paths and the other guard sites.
+1. Merge #232, then this part-2 sites PR (full gate); then BulkService, SearchIndex and Imports.
 2. P4-3 (D1 driver and bridge, with N-1640) to P4-5. DevOps owns the bindings and the `EDGE_STORAGE_READY` flip
-   checklist (#204, #208); N-1442 follows with P4. D1 100k-row timing waits on an approval outside the repo.
+   checklist (#204, #208); N-1442 follows with P4. D1 100k-row timing is approved; DevOps owns the throwaway DB.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Older numbered items:
    [log, Next steps](history/handoff-log.md#next-steps).
 

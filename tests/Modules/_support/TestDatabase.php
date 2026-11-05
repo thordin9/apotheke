@@ -167,7 +167,7 @@ final class TestDatabase
         });
 
         return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history, $units), new TagRepository($db, $clock, $units),
-            $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo), $units);
+            $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo, $units), $units);
     }
 
     /** A raw PDO on the same database, for test fixtures. */
