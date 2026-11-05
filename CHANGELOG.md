@@ -8,9 +8,20 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.18.3] - 2026-11-05
+
 - **core:** tighten merge multi-key races, shared lock wait, and admin/cycle guards ([#234](https://github.com/thordin9/apotheke/pull/234))
 - **core:** move photos, taxonomy guards, stocktake, settings and merge onto the unit of work (P4-2b) ([#233](https://github.com/thordin9/apotheke/pull/233))
 - **core:** unit-of-work remaining sites; qty race and loan lock fixes (P4-2b) ([#232](https://github.com/thordin9/apotheke/pull/232))
+
+### Fixed
+
+- **core:** merge races, shared lock wait, admin/cycle guards ([#234](https://github.com/thordin9/apotheke/pull/234))
+
+### Changed
+
+- **core:** move remaining write sites onto the unit of work (P4-2b) ([#232](https://github.com/thordin9/apotheke/pull/232))
+- **core:** move follow-up write sites onto the unit of work (P4-2b) ([#233](https://github.com/thordin9/apotheke/pull/233))
 
 ## [3.18.2] - 2026-11-05
 
@@ -1288,7 +1299,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.18.2...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.18.3...HEAD
+[3.18.3]: https://github.com/thordin9/apotheke/compare/v3.18.2...v3.18.3
 [3.18.2]: https://github.com/thordin9/apotheke/compare/v3.18.1...v3.18.2
 [3.18.1]: https://github.com/thordin9/apotheke/compare/v3.18.0...v3.18.1
 [3.18.0]: https://github.com/thordin9/apotheke/compare/v3.17.0...v3.18.0
