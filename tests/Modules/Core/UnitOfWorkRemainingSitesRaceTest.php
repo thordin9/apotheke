@@ -550,8 +550,10 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
     }
 
     /**
-     * N-1774 / N-1777: setParent's recursive CTE terminates on a seeded cycle
-     * (n < 50) and refuses the move with a UserError rather than hanging.
+     * N-1774 / N-1777 / N-1781: setParent's recursive CTEs terminate on a seeded
+     * cycle (n < 50) and refuse the move with a UserError rather than hanging.
+     * Moving a node that sits inside the cycle exercises the descendant walk's
+     * bound (N-1781); moving an outsider only covered the ancestor walk.
      */
     #[DataProvider('drivers')]
     public function testSetParentTerminatesOnSeededCycle(string $driver): void
@@ -575,7 +577,9 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $started = hrtime(true);
         $err = null;
         try {
-            $tax->setParent($c['id'], $a['id']);
+            // N-1781: move A (inside the cycle) under C so the descendant walk
+            // from A must traverse A→B→A and hit n < 50.
+            $tax->setParent($a['id'], $c['id']);
         } catch (\Throwable $e) {
             $err = $e;
         } finally {
@@ -587,10 +591,52 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $this->assertInstanceOf(\Apotheke\Core\Exceptions\UserError::class, $err, 'bound cycle walk must surface a UserError, not a driver timeout');
         $this->assertSame(422, $err->getCode());
         $this->assertLessThan(2000, $elapsedMs, 'seeded cycle must terminate quickly');
-        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$c['id']])[0]['parent_id'] ?? null;
-        $this->assertNull($parent, 'C must not attach under a cycled tree');
+        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$a['id']])[0]['parent_id'] ?? null;
+        $this->assertSame((int)$b['id'], (int)$parent, 'A must stay under B (cycle unchanged)');
         $n = (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM locations')[0]['n'];
         $this->assertSame(3, $n);
+    }
+
+    /**
+     * N-1788: moving an outsider under a node that sits in a seeded cycle walks the
+     * ancestor chain through the cycle, so removing chain.n < 50 hangs; the descendant
+     * walk (N-1781) is covered by testSetParentTerminatesOnSeededCycle.
+     */
+    #[DataProvider('drivers')]
+    public function testSetParentAncestorWalkTerminatesOnSeededCycle(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $tax = new TaxonomyRepository($db, $clock, $history, $units);
+        $a = $tax->create('location', 'AncA');
+        $b = $tax->create('location', 'AncB');
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$b['id'], $a['id']]), 'seed');
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$a['id'], $b['id']]), 'seed');
+        $c = $tax->create('location', 'AncC');
+        if ($driver === 'pgsql') {
+            Writes::check($db->query("SET statement_timeout = '1000'"), 'timeout');
+        }
+        $started = hrtime(true);
+        $err = null;
+        try {
+            // Move C under A: ancestor walk of A traverses A→B→A and needs n < 50.
+            $tax->setParent($c['id'], $a['id']);
+        } catch (\Throwable $e) {
+            $err = $e;
+        } finally {
+            if ($driver === 'pgsql') {
+                $db->query('SET statement_timeout = 0');
+            }
+        }
+        $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        $this->assertInstanceOf(\Apotheke\Core\Exceptions\UserError::class, $err);
+        $this->assertSame(422, $err->getCode());
+        $this->assertLessThan(2000, $elapsedMs, 'ancestor cycle walk must terminate quickly');
+        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$c['id']])[0]['parent_id'] ?? null;
+        $this->assertNull($parent, 'C must not attach under a cycled tree');
     }
 
         /**

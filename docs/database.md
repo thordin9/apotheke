@@ -350,6 +350,8 @@ Rules for new SQL, so it also runs on D1:
   connection and the migration runner refuse an older one (`Dialect::requireSqlite()`), before the database file is
   opened. A runner on a backend that does not allow `sqlite_version()` (D1, the P4-3 edge runner) passes
   `checkSqliteVersion: false` to `PdoMigrationRunner`. A value that is not valid UTF-8 throws `WriteFailed`.
+- At most 100 KB of SQL text per statement (`D1Limits::MAX_STATEMENT_BYTES`). Longer statements are refused before
+  they reach the local batch path or the D1 HTTP executor's query and batch calls.
 - No `BEGIN`, `COMMIT` or `SAVEPOINT` of your own, and no `sqlite_*()` functions.
 
 ### Restore on the edge
@@ -365,8 +367,9 @@ batch-only backend), and then every restore (web, API and command line) is stage
 2. `begin()` takes the lock (below), drops any leftover copies and creates an empty `apotheke_stage_<table>` copy
    of each table the backup holds.
    No carried, CI4-only or SQLite/D1 table uses that prefix, and a backup never carries the copies.
-3. `stage()` fills a copy in statements of one bind each (at most 512 KB of JSON, read with `json_each` or
-   `json_populate_recordset`), so no statement passes D1's parameter or size limits. Only columns the live table
+3. `stage()` fills a copy in statements of one bind each (at most 512 KB of JSON, or 256 KB for `items`, and at
+   most 1000 rows; read with `json_each` or `json_populate_recordset`), so no statement passes D1's parameter or
+   size limits. Only columns the live table
    has are taken, each once, and values as `Restorer` binds them (a boolean as 1 or 0); a backup that names a
    column twice is refused on every path.
 4. `swap()` is one batch: deferred foreign keys, a guard per copy that it holds every staged row, the live tables
