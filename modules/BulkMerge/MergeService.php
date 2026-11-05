@@ -130,7 +130,7 @@ final class MergeService
                 $in['serial'], $barcode === '' ? null : $barcode, $cover === null || $cover === '' ? null : $cover, ...$lend,
                 (int)(!empty($dst['favourite']) || !empty($src['favourite'])), $blob, $this->clock->now(), $targetId, $sourceId,
             ], 'merge target', 1,
-                static fn (): UserError => new UserError('Item not found.', 409));
+                static fn (): UserError => new UserError('This item was changed by someone else. Try again.', 409));
             $uow->write('DELETE FROM items WHERE id = ?', [$sourceId], 'merge source', 1,
                 static fn (): UserError => new UserError('Item not found.', 404));
             $this->tags->set($targetId, $in['tags'], $uow);
