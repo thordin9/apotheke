@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.19.0] - 2026-11-05
+
 - **core:** D1 HTTP executor, schema dump and restore stage caps (P4-3) ([#235](https://github.com/thordin9/apotheke/pull/235))
+
+### Added
+
+- **core:** D1 HTTP executor, schema dump and restore caps (P4-3) ([#235](https://github.com/thordin9/apotheke/pull/235))
 
 ## [3.18.3] - 2026-11-05
 
@@ -1301,7 +1307,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.18.3...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.19.0...HEAD
+[3.19.0]: https://github.com/thordin9/apotheke/compare/v3.18.3...v3.19.0
 [3.18.3]: https://github.com/thordin9/apotheke/compare/v3.18.2...v3.18.3
 [3.18.2]: https://github.com/thordin9/apotheke/compare/v3.18.1...v3.18.2
 [3.18.1]: https://github.com/thordin9/apotheke/compare/v3.18.0...v3.18.1
