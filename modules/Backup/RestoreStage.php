@@ -36,7 +36,8 @@ use LogicException;
  * times are the database's clock, so every instance agrees on them (N-1711).
  *
  * L-1707: restore_marker keeps the last KEEP runs, so outcome() can tell a stopped run that was applied and then
- * replaced by a later restore from one that never was, and says unknown once the run is older than that.
+ * replaced by a later restore from one that never was, and says unknown once the run is older than that. L-1713: the
+ * runs are ordered by the row's database-assigned id (seq()), not by applied_at, which has whole seconds only.
  *
  * N-1704: stage() takes only columns the live table has, each once, and values as Restorer binds them: a boolean
  * as 1 or 0 (so PostgreSQL's integer columns take it as SQLite does), anything but a plain value refused.
@@ -281,13 +282,13 @@ final class RestoreStage
     }
 
     /**
-     * Swap the copies in, as one batch, and mark run $run applied.
+     * Swap the copies in, as one batch, and mark run $run applied (at the database's time).
      *
      * @param list<string> $tables every carried table that exists, in Backups::tables() order: all are emptied
      * @param array<string,array{columns:list<string>,rows:int}> $staged per staged table: its columns and row count
      * @param list<string> $withId the tables with an id column (their sequences move past the restored ids)
      */
-    public function swap(array $tables, array $staged, array $withId, string $run, string $sha256, string $at): void
+    public function swap(array $tables, array $staged, array $withId, string $run, string $sha256): void
     {
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         if ($run === self::LOCK) {
@@ -317,9 +318,10 @@ final class RestoreStage
                 $s[] = ['sql' => "INSERT INTO sqlite_sequence (name, seq) SELECT ?, CAST(COALESCE(MAX(m), 0) AS TEXT) FROM ($max) x", 'params' => [$t]];   // text, as legacy binds it
             }
         }
-        // L-1707: the last KEEP runs are kept, this one included
-        $s[] = ['sql' => 'DELETE FROM restore_marker WHERE run <> ? AND run NOT IN (SELECT run FROM (SELECT run FROM restore_marker WHERE run <> ? ORDER BY applied_at DESC, run LIMIT ' . (self::KEEP - 1) . ') k)', 'params' => [self::LOCK, self::LOCK]];
-        $s[] = ['sql' => 'INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', 'params' => [$run, $sha256, $at]];
+        // L-1707: the last KEEP runs are kept, this one included (L-1713: newest by seq())
+        $s[] = ['sql' => 'DELETE FROM restore_marker WHERE run <> ? AND run NOT IN (SELECT run FROM (SELECT run FROM restore_marker WHERE run <> ? ORDER BY ' . $this->seq() . ' DESC LIMIT ' . (self::KEEP - 1) . ') k)', 'params' => [self::LOCK, self::LOCK]];
+        [$now, $p] = $this->at(0);
+        $s[] = ['sql' => "INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, $now)", 'params' => [$run, $sha256, ...$p]];
         $this->exec->run($s);
     }
 
@@ -331,17 +333,17 @@ final class RestoreStage
 
     /**
      * L-1707: what became of run $run: APPLIED (the last swap), REPLACED (swapped in, then another restore after it,
-     * or in the same second), NONE (never swapped in), or null when that cannot be known (older than KEEP runs).
+     * by seq()), NONE (never swapped in), or null when that cannot be known (older than KEEP runs).
      */
     public function outcome(string $run): ?string
     {
-        $rows = $this->exec->query('SELECT run, applied_at FROM restore_marker WHERE run <> ?', [self::LOCK]);
+        $rows = $this->exec->query('SELECT run, ' . $this->seq() . ' AS seq FROM restore_marker WHERE run <> ?', [self::LOCK]);
         $mine = array_values(array_filter($rows, static fn (array $r): bool => $r['run'] === $run));
         if ($run === self::LOCK || $mine === []) {
             return $run !== self::LOCK && count($rows) >= self::KEEP ? null : self::NONE;
         }
         foreach ($rows as $r) {
-            if ($r['run'] !== $run && (string)$r['applied_at'] >= (string)$mine[0]['applied_at']) {
+            if ($r['run'] !== $run && (int)$r['seq'] > (int)$mine[0]['seq']) {
                 return self::REPLACED;
             }
         }
@@ -365,6 +367,16 @@ final class RestoreStage
     private function held(): array
     {
         return ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE NOT EXISTS (SELECT 1 FROM restore_marker WHERE run = ? AND sha256 = ?)', 'params' => [self::LOCK, $this->token]];
+    }
+
+    /**
+     * L-1713: a marker row's order, assigned by the database as the row is inserted (a later row is higher):
+     * SQLite's and D1's rowid (restore_marker has no INTEGER PRIMARY KEY, so a new row gets one past the highest,
+     * and the newest run is never pruned); PostgreSQL's inserting transaction, as minus its age (wrap-safe).
+     */
+    private function seq(): string
+    {
+        return $this->exec->dialect()->name === Dialect::POSTGRES ? '(0 - age(xmin))' : 'rowid';
     }
 
     /**

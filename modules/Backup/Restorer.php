@@ -1139,7 +1139,7 @@ final class Restorer
                     $staged[$t] = ['columns' => $columns[$t], 'rows' => $stage->stage($t, $columns[$t], $this->tableRows($fh, $t, $offsets[$t]))];
                 }
                 $withId = array_values(array_filter($tables, fn (string $t): bool => in_array('id', $this->backups->columns($t), true)));
-                $stage->swap($tables, $staged, $withId, $run, $sha256, gmdate('Y-m-d H:i:s'));
+                $stage->swap($tables, $staged, $withId, $run, $sha256);
             } finally {
                 try {
                     $stage->finish();
