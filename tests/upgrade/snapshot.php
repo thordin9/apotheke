@@ -10,7 +10,8 @@ declare(strict_types=1);
  * the carried tables (what a backup zip holds: backup_tables() of both apps, plus the settings rows).
  * What only CI4 adds (upg_ci4_only(): the jobs table and its migration's row) is left out of every snapshot.
  * --scope=backup keeps only the carried tables; a restore writes each setting again, so `settings.updated_at` is
- * the one value left out there.
+ * the one value left out there. --scope=rows keeps only the rows of the tables a backup carries (no settings, no
+ * files): what a staged restore's swap writes.
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
@@ -39,7 +40,7 @@ $carried = [...upg_carried_tables(), 'settings'];
 $ci4Only = upg_ci4_only();
 $out = ['carried' => $carried, 'schema' => [], 'tables' => [], 'files' => [], 'modes' => []];
 foreach ($tables as $t) {
-    if (!preg_match('/^[a-z0-9_]+$/', (string)$t) || ($scope === 'backup' && !in_array($t, $carried, true)) || in_array($t, $ci4Only['tables'], true)) continue;
+    if (!preg_match('/^[a-z0-9_]+$/', (string)$t) || ($scope !== 'all' && !in_array($t, $scope === 'rows' ? upg_carried_tables() : $carried, true)) || in_array($t, $ci4Only['tables'], true)) continue;
     $out['schema'][$t] = $columns($t);
     $rows = array_map(static function (array $r) use ($scope, $t): string {
         ksort($r);
@@ -51,7 +52,7 @@ foreach ($tables as $t) {
     $out['tables'][$t] = $rows;
 }
 foreach (['images' => $dataDir . '/images', 'thumbs' => $dataDir . '/thumbs', 'originals' => $originals, 'files' => $dataDir . '/files'] as $label => $dir) {
-    if (!is_dir($dir)) continue;
+    if (!is_dir($dir) || $scope === 'rows') continue;
     $out['modes'][$label] = sprintf('%04o', fileperms($dir) & 0o7777);
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
     foreach ($it as $f) {

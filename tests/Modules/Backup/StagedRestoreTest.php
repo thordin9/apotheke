@@ -176,6 +176,65 @@ final class StagedRestoreTest extends CIUnitTestCase
     }
 
     /**
+     * L-1707: a stopped confirm whose rows were swapped in and then replaced by a later restore says so, and one
+     * whose run is older than the runs kept is "may have been applied", never "Nothing was changed".
+     */
+    #[DataProvider('modes')]
+    public function testAStoppedConfirmIsNeverMisreportedAfterALaterRestore(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $uploads = new RestoreUploads($this->database->dataDir(), 4, 100, static fn (): string => 'user:1', 8, null, null,
+            static fn (): RestoreStage => new RestoreStage(self::exec($db, $batch)));
+        $mark = static function (string $run, string $at) use ($db): void {
+            $db->query('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', [$run, str_repeat('a', 64), $at]);
+        };
+        foreach (['replaced', 'unknown'] as $case) {
+            [$id] = $uploads->create(3, null);
+            $file = $this->database->dataDir() . '/uploads/restore/' . $id . '/manifest.json';
+            file_put_contents($file, (string)json_encode(['status' => 'applying', 'fingerprint' => null] + (array)json_decode((string)file_get_contents($file), true)));
+            if ($case === 'replaced') {
+                $mark($id, '2026-11-01 18:00:00');
+                $mark('later-run', '2026-11-01 18:05:00');
+            } else {
+                for ($i = 0; $i < RestoreStage::KEEP; $i++) {
+                    $mark('other-' . $i, '2026-11-02 18:00:' . sprintf('%02d', $i));
+                }
+            }
+            $m = $uploads->get($id);
+            $this->assertSame($case === 'replaced' ? ['restored', [RestoreUploads::APPLIED_AFTER_STOP, RestoreUploads::REPLACED_SINCE]] : ['interrupted', RestoreUploads::INTERRUPTED],
+                [$m['status'], $case === 'replaced' ? ($m['result']['warnings'] ?? null) : ($m['result']['error'] ?? null)], $case);
+            $db->query('DELETE FROM restore_marker');
+        }
+    }
+
+    /** N-1704: a backup naming a column twice is refused by the staged path and the one-transaction path alike. */
+    #[DataProvider('modes')]
+    public function testAColumnNamedTwiceIsRefusedOnEveryPath(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $before = $this->dump($db);
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($this->zip) === true);
+        $b = json_decode((string)$zip->getFromName('backup.json'), true, 64, JSON_THROW_ON_ERROR);
+        $b['tables']['items']['columns'][] = 'id';
+        foreach ($b['tables']['items']['rows'] as $i => $row) {
+            $b['tables']['items']['rows'][$i][] = $row[0] + 100;
+        }
+        $zip->addFromString('backup.json', (string)json_encode($b));
+        $zip->close();
+        foreach ([self::exec($db, $batch), null] as $exec) {
+            try {
+                $this->restorer($db, $exec)->restore($this->zip, false, 'run-twice');
+                $this->fail('a column named twice must be refused');
+            } catch (UserError $e) {
+                $this->assertSame('Column items.id is named twice in backup.', $e->getMessage());
+            }
+            $this->assertSame($before, $this->dump($db));
+            $this->assertSame([], $this->copies($db));
+        }
+    }
+
+    /**
      * The target, with other rows, and $this->zip: a backup of a source where location 2 is a child of location 5
      * (a parent with a higher id) and the history names item 40, past the last item. The source is dropped first
      * (two open PostgreSQL test databases would share one link).
@@ -218,7 +277,7 @@ final class StagedRestoreTest extends CIUnitTestCase
     }
 
     /** @param BaseConnection<object|resource, object|resource> $db */
-    private function restorer(BaseConnection $db, SqlExecutor $exec, int $maxBytes = 0): Restorer
+    private function restorer(BaseConnection $db, ?SqlExecutor $exec, int $maxBytes = 0): Restorer
     {
         $d = $this->database ?? throw new RuntimeException('no target');
         $undo = new UndoTokens($db, new Clock(), 600, static function (string $f): void {

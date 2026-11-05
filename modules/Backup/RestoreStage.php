@@ -32,7 +32,14 @@ use LogicException;
  * One staged restore at a time (L-1700): begin() takes the lock row in restore_marker (run LOCK, sha256 this
  * stage's random token, applied_at when it expires). Every later batch (stage, swap, drop) first checks that this
  * stage still holds it, so a restore whose lock was taken over can neither touch the copies nor swap them in.
- * Each staged chunk renews it; a stopped restore's lock expires LEASE seconds after its last chunk.
+ * Each staged chunk renews it; a stopped restore's lock expires LEASE seconds after its last chunk (L-1708). The
+ * times are the database's clock, so every instance agrees on them (N-1711).
+ *
+ * L-1707: restore_marker keeps the last KEEP runs, so outcome() can tell a stopped run that was applied and then
+ * replaced by a later restore from one that never was, and says unknown once the run is older than that.
+ *
+ * N-1704: stage() takes only columns the live table has, each once, and values as Restorer binds them: a boolean
+ * as 1 or 0 (so PostgreSQL's integer columns take it as SQLite does), anything but a plain value refused.
  */
 final class RestoreStage
 {
@@ -42,26 +49,36 @@ final class RestoreStage
     /** JSON per staged insert, one bind (D1 allows 2 MB per value; a larger row goes alone). */
     public const CHUNK_BYTES = 512 * 1024;
 
+    public const UNKNOWN_COLUMN = 'The backup names a column the table does not have, or one column twice. Nothing was changed.';
+
     public const TOO_LARGE = 'This backup does not fit next to the current data within the database size limit. Nothing was changed.';
 
     /** The run of the lock row in restore_marker (a run id is 32 hex digits, never this). */
     public const LOCK = 'lock';
 
-    /** Seconds the lock is held without a staged chunk. */
-    public const LEASE = 300;
+    /** Seconds the lock is held without a staged chunk (each chunk renews it; a crash frees it after this). */
+    public const LEASE = 120;
+
+    /** The runs restore_marker keeps (L-1707). */
+    public const KEEP = 20;
+
+    /** outcome(): the run's swap committed and is the last one. */
+    public const APPLIED = 'applied';
+
+    /** outcome(): the run's swap committed, and a later restore has been swapped in since. */
+    public const REPLACED = 'replaced';
+
+    /** outcome(): the run was never swapped in. */
+    public const NONE = 'none';
 
     private const JSON = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION;
 
     private readonly string $token;
 
-    /** @var Closure():int */
-    private readonly Closure $now;
-
-    /** @param ?Closure():int $now the time (a test seam) */
-    public function __construct(private readonly SqlExecutor $exec, ?Closure $now = null)
+    /** @param ?Closure():int $now the time (a test seam; null: the database's clock) */
+    public function __construct(private readonly SqlExecutor $exec, private readonly ?Closure $now = null)
     {
         $this->token = bin2hex(random_bytes(16));
-        $this->now = $now ?? static fn (): int => time();
     }
 
     /**
@@ -99,7 +116,8 @@ final class RestoreStage
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         $n = 0;
         foreach ($rows as $row) {
-            $n += strlen(self::json($pg ? array_combine($columns, $row) : $row)) + 1;
+            $row = self::values($row);
+            $n += strlen(self::json($pg && count($row) === count($columns) ? array_combine($columns, $row) : $row)) + 1;
         }
 
         return $n;
@@ -121,10 +139,12 @@ final class RestoreStage
     /** Take the lock row, or renew it; another holder's that has not expired: BUSY (409). */
     public function claim(): void
     {
+        [$now, $p] = $this->at(0);
+        [$until, $q] = $this->at(self::LEASE);
         try {
             $this->exec->run([
-                ['sql' => 'DELETE FROM restore_marker WHERE run = ? AND (applied_at < ? OR sha256 = ?)', 'params' => [self::LOCK, $this->at(0), $this->token]],
-                ['sql' => 'INSERT INTO restore_marker (run, sha256, applied_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM restore_marker WHERE run = ?)', 'params' => [self::LOCK, $this->token, $this->at(self::LEASE), self::LOCK]],
+                ['sql' => "DELETE FROM restore_marker WHERE run = ? AND (applied_at < $now OR sha256 = ?)", 'params' => [self::LOCK, ...$p, $this->token]],
+                ['sql' => "INSERT INTO restore_marker (run, sha256, applied_at) SELECT ?, ?, $until WHERE NOT EXISTS (SELECT 1 FROM restore_marker WHERE run = ?)", 'params' => [self::LOCK, $this->token, ...$q, self::LOCK]],
                 $this->held(),
             ]);
         } catch (WriteFailed $e) {
@@ -148,9 +168,24 @@ final class RestoreStage
         }
     }
 
-    /** N-1705: drop a stopped restore's leftover copies, unless a staged restore holds the lock. True when dropped. */
+    /**
+     * N-1705: drop a stopped restore's leftover copies, unless a staged restore holds the lock. True when none are
+     * left. N-1710: read first, so it writes only when there are copies or a stale lock to clear.
+     */
     public function sweep(): bool
     {
+        [$now, $p] = $this->at(0);
+        $lock = $this->exec->query("SELECT CASE WHEN applied_at < $now THEN 1 ELSE 0 END AS stale FROM restore_marker WHERE run = ?", [...$p, self::LOCK]);
+        if ($lock !== [] && (int)$lock[0]['stale'] === 0) {
+            return false;
+        }
+        $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
+        $copies = $this->exec->query($pg
+            ? "SELECT 1 AS ok FROM information_schema.tables WHERE table_schema = current_schema() AND table_name LIKE 'apotheke!_stage!_%' ESCAPE '!'"
+            : "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name LIKE 'apotheke!_stage!_%' ESCAPE '!'");
+        if ($lock === [] && $copies === []) {
+            return true;
+        }
         try {
             $this->claim();
         } catch (UserError) {
@@ -172,6 +207,7 @@ final class RestoreStage
     {
         $copy = self::copy($table);
         $cols = implode(', ', array_map(self::column(...), $columns));
+        $this->checkColumns($table, $columns);
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         $sql = $pg
             ? "INSERT INTO $copy ($cols) SELECT $cols FROM json_populate_recordset(NULL::$copy, ?::json)"
@@ -183,6 +219,7 @@ final class RestoreStage
             if (count($row) !== count($columns)) {
                 throw new LogicException('A staged row must have one value per column.');
             }
+            $row = self::values($row);
             $json = self::json($pg ? array_combine($columns, $row) : $row);
             if ($chunk !== [] && $bytes + strlen($json) + 1 > self::CHUNK_BYTES) {
                 $this->insert($sql, $chunk);
@@ -199,11 +236,48 @@ final class RestoreStage
         return $n;
     }
 
+    /**
+     * N-1704: every column one the live table has, and none twice (SQLite would take `id, id`).
+     *
+     * @param list<string> $columns
+     * @throws UserError UNKNOWN_COLUMN
+     */
+    private function checkColumns(string $table, array $columns): void
+    {
+        $sql = $this->exec->dialect()->name === Dialect::POSTGRES
+            ? 'SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?'
+            : 'SELECT name FROM pragma_table_info(?)';
+        $live = array_column($this->exec->query($sql, [self::table($table)]), 'name');
+        if ($columns === [] || count(array_unique($columns)) !== count($columns) || array_diff($columns, $live) !== []) {
+            throw new UserError(self::UNKNOWN_COLUMN);
+        }
+    }
+
+    /**
+     * N-1704: a row's values as Restorer binds them: a boolean as 1 or 0; an array or object is not a plain value.
+     *
+     * @param array<array-key,mixed> $row
+     * @return list<scalar|null>
+     */
+    private static function values(array $row): array
+    {
+        $out = [];
+        foreach ($row as $v) {
+            if (!is_scalar($v) && $v !== null) {
+                throw new UserError(Restorer::FAILED);
+            }
+            $out[] = is_bool($v) ? (int)$v : $v;
+        }
+
+        return $out;
+    }
+
     /** @param list<string> $chunk one chunk of JSON rows, while the lock is held, which it renews */
     private function insert(string $sql, array $chunk): void
     {
+        [$until, $q] = $this->at(self::LEASE);
         $this->exec->run([$this->held(), ['sql' => $sql, 'params' => ['[' . implode(',', $chunk) . ']']],
-            ['sql' => 'UPDATE restore_marker SET applied_at = ? WHERE run = ? AND sha256 = ?', 'params' => [$this->at(self::LEASE), self::LOCK, $this->token]]]);
+            ['sql' => 'UPDATE restore_marker SET applied_at = ' . $until . ' WHERE run = ? AND sha256 = ?', 'params' => [...$q, self::LOCK, $this->token]]]);
     }
 
     /**
@@ -243,7 +317,8 @@ final class RestoreStage
                 $s[] = ['sql' => "INSERT INTO sqlite_sequence (name, seq) SELECT ?, CAST(COALESCE(MAX(m), 0) AS TEXT) FROM ($max) x", 'params' => [$t]];   // text, as legacy binds it
             }
         }
-        $s[] = ['sql' => 'DELETE FROM restore_marker WHERE run <> ?', 'params' => [self::LOCK]];
+        // L-1707: the last KEEP runs are kept, this one included
+        $s[] = ['sql' => 'DELETE FROM restore_marker WHERE run <> ? AND run NOT IN (SELECT run FROM (SELECT run FROM restore_marker WHERE run <> ? ORDER BY applied_at DESC, run LIMIT ' . (self::KEEP - 1) . ') k)', 'params' => [self::LOCK, self::LOCK]];
         $s[] = ['sql' => 'INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', 'params' => [$run, $sha256, $at]];
         $this->exec->run($s);
     }
@@ -252,6 +327,26 @@ final class RestoreStage
     public function applied(string $run): bool
     {
         return $run !== self::LOCK && $this->exec->query('SELECT 1 AS ok FROM restore_marker WHERE run = ?', [$run]) !== [];
+    }
+
+    /**
+     * L-1707: what became of run $run: APPLIED (the last swap), REPLACED (swapped in, then another restore after it,
+     * or in the same second), NONE (never swapped in), or null when that cannot be known (older than KEEP runs).
+     */
+    public function outcome(string $run): ?string
+    {
+        $rows = $this->exec->query('SELECT run, applied_at FROM restore_marker WHERE run <> ?', [self::LOCK]);
+        $mine = array_values(array_filter($rows, static fn (array $r): bool => $r['run'] === $run));
+        if ($run === self::LOCK || $mine === []) {
+            return $run !== self::LOCK && count($rows) >= self::KEEP ? null : self::NONE;
+        }
+        foreach ($rows as $r) {
+            if ($r['run'] !== $run && (string)$r['applied_at'] >= (string)$mine[0]['applied_at']) {
+                return self::REPLACED;
+            }
+        }
+
+        return self::APPLIED;
     }
 
     /** Drop every staging copy there may be (by name: nothing is read first), while the lock is held. */
@@ -272,10 +367,21 @@ final class RestoreStage
         return ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE NOT EXISTS (SELECT 1 FROM restore_marker WHERE run = ? AND sha256 = ?)', 'params' => [self::LOCK, $this->token]];
     }
 
-    /** The time $seconds from now, as restore_marker keeps it (UTC text, so it compares in order). */
-    private function at(int $seconds): string
+    /**
+     * The time $seconds from now, as restore_marker keeps it (UTC text, so it compares in order): SQL and its
+     * binds, on the database's clock (N-1711; D1 has datetime() too) unless a test clock is given.
+     *
+     * @return array{0:string,1:list<int|string>}
+     */
+    private function at(int $seconds): array
     {
-        return gmdate('Y-m-d H:i:s', ($this->now)() + $seconds);
+        if ($this->now !== null) {
+            return ['?', [gmdate('Y-m-d H:i:s', ($this->now)() + $seconds)]];
+        }
+
+        return $this->exec->dialect()->name === Dialect::POSTGRES
+            ? ["to_char((now() AT TIME ZONE 'UTC') + CAST(? AS integer) * interval '1 second', 'YYYY-MM-DD HH24:MI:SS')", [$seconds]]
+            : ["datetime('now', ?)", [sprintf('%+d seconds', $seconds)]];
     }
 
     public static function copy(string $table): string
