@@ -38,7 +38,7 @@ final class QuantityAdjust
     public function adjust(int $id, int $delta): ?int
     {
         $conflict = static fn (): UserError => new UserError('This item was changed by someone else. Try again.', 409);
-        $last = null;
+        $last = $conflict();
         for ($try = 0; $try < 16; $try++) {
             try {
                 return $this->units->run('items', function (UnitOfWork $uow) use ($id, $delta, $conflict): ?int {
@@ -72,6 +72,6 @@ final class QuantityAdjust
             }
         }
 
-        throw $last ?? $conflict();
+        throw $last;
     }
 }
