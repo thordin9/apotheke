@@ -29,7 +29,7 @@ foreach ($statements as [$sql, $binds]) {
         $deadline = hrtime(true) + (int)($binds[2] ?? 2000) * 1_000_000;
         $wait = $pdo->prepare(
             'SELECT 1 FROM pg_locks WHERE locktype = \'advisory\' AND granted AND pid <> pg_backend_pid()'
-            . ' AND classid = ((?::bigint + 4294967296) % 4294967296) AND objid = ((?::bigint + 4294967296) % 4294967296) AND objsubid = 1'
+            . ' AND classid = ((?::bigint + 4294967296) % 4294967296) AND objid = ((?::bigint + 4294967296) % 4294967296) AND objsubid = 2'
         );
         while (true) {
             $wait->execute([(int)$binds[0], (int)$binds[1]]);

@@ -60,7 +60,7 @@ final class UnitOfWorkRemainingSitesTest extends CIUnitTestCase
         $out = $this->saveScenario($driver, $batch);
         $this->assertSame([], $out['uow_refs']);
         $this->assertSame([], $out['uow_guard']);
-        $this->assertSame(['Lamp', 'garage', 'tools'], [$out['item']['name'], $out['item']['location'], $out['item']['category']]);
+        $this->assertSame(['Lamp', 'Garage', 'Tools'], [$out['item']['name'], $out['item']['location'], $out['item']['category']]);
         $this->assertSame(['metal', 'red'], array_column($out['item']['tags'], 'name'));
     }
 
