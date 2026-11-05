@@ -159,8 +159,14 @@ final class Stocktakes
                 if (!$found) {
                     return ['state' => 'none'] + $r;
                 }
-                $uow->write('INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location, found, found_at) VALUES (?,?,?,0,?,?,1,?)',
-                    [$stocktakeId, $id, $name, $loc, $home, $this->clock->now()], 'misplaced line');
+                // N-1768: parallel ticks of the same unexpected item — ON CONFLICT succeeds cleanly.
+                $uow->write(
+                    'INSERT INTO stocktake_lines (stocktake_id, item_id, item_name, expected, home_location_id, home_location, found, found_at)'
+                    . ' VALUES (?,?,?,0,?,?,1,?)'
+                    . ' ON CONFLICT (stocktake_id, item_id) DO UPDATE SET found = 1, found_at = excluded.found_at',
+                    [$stocktakeId, $id, $name, $loc, $home, $this->clock->now()],
+                    'misplaced line',
+                );
 
                 return ['state' => 'misplaced'] + $r;
             }

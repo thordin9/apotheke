@@ -252,20 +252,52 @@ final class TaxonomyRepository
             }
             $from = (string)$row['name'];
             $to = $moveTo !== null ? (string)($this->get($kind, $moveTo)['name'] ?? '') : '';
-            $items = $this->rows("SELECT id, name FROM items WHERE {$t['col']} = ?", [$id]);
-            foreach ($items as $it) {
-                $kind === 'location'
-                    ? $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
-                    : $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
-            }
-            $n = count($items);
-            $uow->write('UPDATE items SET ' . $t['col'] . ' = ?, updated_at = ? WHERE ' . $t['col'] . ' = ?', [$moveTo, $this->clock->now(), $id], 'move items');
+            $now = $this->clock->now();
+            $planned = (int)($this->rows('SELECT COUNT(*) AS n FROM items WHERE ' . $t['col'] . ' = ?', [$id])[0]['n'] ?? 0);
+            // L-1766: history only for items still on this entry (INSERT…SELECT).
             if ($kind === 'location') {
-                // sub-locations move up one level instead of disappearing from the tree
+                $details = (string)json_encode(
+                    ['from' => $from, 'to' => $to, 'reason' => 'location deleted'],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+                );
+                $uow->write(
+                    'INSERT INTO activity (item_id, item_name, action, details, created_at, actor)'
+                    . ' SELECT id, name, ?, ?, ?, NULL FROM items WHERE location_id = ?'
+                    . ' AND EXISTS (SELECT 1 FROM locations WHERE id = ?)',
+                    ['moved', $details, $now, $id, $id],
+                    'history for moved items',
+                );
+            } else {
+                $details = (string)json_encode(
+                    ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted'],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+                );
+                $uow->write(
+                    'INSERT INTO activity (item_id, item_name, action, details, created_at, actor)'
+                    . ' SELECT id, name, ?, ?, ?, NULL FROM items WHERE category_id = ?'
+                    . ' AND EXISTS (SELECT 1 FROM categories WHERE id = ?)',
+                    ['edited', $details, $now, $id, $id],
+                    'history for moved items',
+                );
+            }
+            $uow->write(
+                'UPDATE items SET ' . $t['col'] . ' = ?, updated_at = ? WHERE ' . $t['col'] . ' = ?',
+                [$moveTo, $now, $id],
+                'move items',
+            );
+            // N-1770: count rows still on this entry at plan time (writes flush after the callback).
+            $n = $planned;
+            if ($kind === 'location') {
                 $up = $this->rows('SELECT parent_id FROM locations WHERE id = ?', [$id])[0]['parent_id'] ?? null;
                 $uow->write('UPDATE locations SET parent_id = ? WHERE parent_id = ?', [$up === null ? null : (int)$up, $id], 'move sub-locations');
             }
-            $uow->write('DELETE FROM ' . $t['table'] . ' WHERE id = ?', [$id], 'delete');
+            $uow->write(
+                'DELETE FROM ' . $t['table'] . ' WHERE id = ?',
+                [$id],
+                'delete',
+                1,
+                static fn (): UserError => new UserError(Kind::get($kind)['One'] . ' not found.', 404),
+            );
 
             return $n;
         });
@@ -275,35 +307,90 @@ final class TaxonomyRepository
     public function setParent(int $id, ?int $parent): bool
     {
         return $this->units->run('locations', function (UnitOfWork $uow) use ($id, $parent): bool {
-            $byId = $this->locationsById();
-            if (!isset($byId[$id])) {
+            $row = $this->rows('SELECT id, parent_id FROM locations WHERE id = ?', [$id])[0] ?? null;
+            if ($row === null) {
                 throw new UserError('Location not found.', 404);
             }
-            if ($byId[$id]['parent_id'] === $parent) {
+            $current = $row['parent_id'] === null ? null : (int)$row['parent_id'];
+            if ($current === $parent) {
                 return false;
             }
-            if ($parent !== null) {
-                if (!isset($byId[$parent])) {
-                    throw new UserError('That parent location no longer exists.', 422);
-                }
-                $sub = $this->subtreeIds($id);
-                if (in_array($parent, $sub, true)) {
-                    throw new UserError('A location cannot be put inside itself or one of its own sub-locations.', 422);
-                }
-                // depth of the new position + height of the moved subtree must stay within the limit
-                $height = 0;
-                foreach ($sub as $s) {
-                    if (isset($byId[$s])) {
-                        $height = max($height, $byId[$s]['depth'] - $byId[$id]['depth']);
-                    }
-                }
-                if ($byId[$parent]['depth'] + 1 + $height > LocationTree::MAX_DEPTH) {
-                    throw new UserError('Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.', 422);
-                }
-                $uow->assert('EXISTS (SELECT 1 FROM locations WHERE id = ?)', [$parent], 'parent exists',
-                    static fn (): UserError => new UserError('That parent location no longer exists.', 422));
+            if ($parent === null) {
+                $uow->write(
+                    'UPDATE locations SET parent_id = NULL WHERE id = ? AND parent_id IS NOT NULL',
+                    [$id],
+                    'move',
+                    1,
+                    static fn (): UserError => new UserError('Location not found.', 404),
+                );
+
+                return true;
             }
-            $uow->write('UPDATE locations SET parent_id = ? WHERE id = ?', [$parent, $id], 'move', 1);
+            $uow->assert(
+                'EXISTS (SELECT 1 FROM locations WHERE id = ?)',
+                [$parent],
+                'parent exists',
+                static fn (): UserError => new UserError('That parent location no longer exists.', 422),
+            );
+            // M-1765: parent is not this node or a descendant (cycle guard in-batch).
+            $uow->assert(
+                'NOT EXISTS ('
+                . ' WITH RECURSIVE sub(id) AS ('
+                . '   SELECT ? AS id'
+                . '   UNION ALL SELECT l.id FROM locations l JOIN sub ON l.parent_id = sub.id'
+                . ' ) SELECT 1 FROM sub WHERE id = ?'
+                . ')',
+                [$id, $parent],
+                'not a descendant',
+                static fn (): UserError => new UserError(
+                    'A location cannot be put inside itself or one of its own sub-locations.',
+                    422,
+                ),
+            );
+            // Depth of parent + 1 + height of moved subtree <= MAX_DEPTH.
+            $uow->assert(
+                '('
+                . ' (SELECT COUNT(*) FROM ('
+                . '   WITH RECURSIVE chain(id, parent_id, n) AS ('
+                . '     SELECT id, parent_id, 0 FROM locations WHERE id = ?'
+                . '     UNION ALL SELECT l.id, l.parent_id, chain.n + 1 FROM locations l'
+                . '     JOIN chain ON chain.parent_id = l.id WHERE chain.n < 50'
+                . '   ) SELECT 1 FROM chain'
+                . ' ) AS d)'
+                . ' + 1'
+                . ' + COALESCE((SELECT MAX(n) FROM ('
+                . '   WITH RECURSIVE sub(id, n) AS ('
+                . '     SELECT id, 0 FROM locations WHERE id = ?'
+                . '     UNION ALL SELECT l.id, sub.n + 1 FROM locations l'
+                . '     JOIN sub ON l.parent_id = sub.id WHERE sub.n < 50'
+                . '   ) SELECT n FROM sub'
+                . ' ) AS h), 0)'
+                . ') <= ?',
+                [$parent, $id, LocationTree::MAX_DEPTH],
+                'parent depth',
+                static fn (): UserError => new UserError(
+                    'Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.',
+                    422,
+                ),
+            );
+            // Conditional write: same guards in the WHERE so a raced batch cannot land a cycle.
+            $uow->write(
+                'UPDATE locations SET parent_id = ? WHERE id = ?'
+                . ' AND EXISTS (SELECT 1 FROM locations WHERE id = ?)'
+                . ' AND NOT EXISTS ('
+                . '   WITH RECURSIVE sub(id) AS ('
+                . '     SELECT ? AS id'
+                . '     UNION ALL SELECT l.id FROM locations l JOIN sub ON l.parent_id = sub.id'
+                . '   ) SELECT 1 FROM sub WHERE id = ?'
+                . ' )',
+                [$parent, $id, $parent, $id, $parent],
+                'move',
+                1,
+                static fn (): UserError => new UserError(
+                    'A location cannot be put inside itself or one of its own sub-locations.',
+                    422,
+                ),
+            );
 
             return true;
         });

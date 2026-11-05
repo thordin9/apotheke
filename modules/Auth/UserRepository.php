@@ -8,6 +8,7 @@ use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
@@ -163,17 +164,27 @@ final class UserRepository
     /** Legacy user_approve(). */
     public function approve(int $id): void
     {
+        // N-1769: same unit key as admin changes so a caller that skips the guard still serialises.
         $this->units->run('users', function (UnitOfWork $uow) use ($id): void {
             $uow->write("UPDATE users SET status = 'active' WHERE id = ?", [$id], 'users approve');
-        }, (string)$id);
+        }, 'active-admins');
     }
 
     /** Legacy user_set_role(). */
     public function setRole(int $id, string $role): void
     {
         $this->units->run('users', function (UnitOfWork $uow) use ($id, $role): void {
-            $uow->write('UPDATE users SET role = ? WHERE id = ?', [$role, $id], 'users role');
-        }, (string)$id);
+            // M-1764 / N-1769: active-admins key; demotion keeps another active admin.
+            $uow->write(
+                "UPDATE users SET role = ? WHERE id = ? AND ("
+                . " ? = 'admin' OR role <> 'admin' OR status <> 'active'"
+                . " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+                [$role, $id, $role, $id],
+                'users role',
+                1,
+                static fn (): UserError => new UserError('That change would leave the install without an admin.', 409),
+            );
+        }, 'active-admins');
     }
 
     /** Legacy user_rename(). The caller has validated the name. */
@@ -188,8 +199,16 @@ final class UserRepository
     public function delete(int $id): void
     {
         $this->units->run('users', function (UnitOfWork $uow) use ($id): void {
-            $uow->write('DELETE FROM users WHERE id = ?', [$id], 'users delete');
-        }, (string)$id);
+            $uow->write(
+                "DELETE FROM users WHERE id = ? AND ("
+                . " role <> 'admin' OR status <> 'active'"
+                . " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+                [$id, $id],
+                'users delete',
+                1,
+                static fn (): UserError => new UserError('That change would leave the install without an admin.', 409),
+            );
+        }, 'active-admins');
     }
 
     /** A new account (legacy user_create()'s INSERT); returns its id. The caller has validated every value. */

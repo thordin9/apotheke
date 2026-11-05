@@ -93,13 +93,26 @@ final class UserAdmin
         $role = $this->roleValid($role);
         $this->guard->target($user);
         $this->guard->grant($role);
-        // Unit lock first (active-admins): the last-admin check re-reads under it (L-110, no row lock).
+        // Unit lock first (active-admins). The write itself guards the last admin
+        // (M-1764): a batch cannot demote the last two admins in parallel.
         $this->users->underActiveAdminGuard(function (UnitOfWork $uow) use ($id, $role): void {
             $user = $this->get($id);
-            if ($user['role'] === 'admin' && $user['status'] === 'active' && $role !== 'admin' && $this->activeAdmins() <= 1) {
-                throw new UserError('“' . $user['username'] . '” is the only admin – make someone else an admin first.', 409);
-            }
-            $uow->write('UPDATE users SET role = ? WHERE id = ?', [$role, $id], 'users role');
+            $name = $user['username'];
+            $last = static fn (): UserError => new UserError(
+                '“' . $name . '” is the only admin – make someone else an admin first.',
+                409,
+            );
+            // Conditional SQL: change the row only when another active admin remains
+            // (or this account was not an active admin / the new role is admin).
+            $uow->write(
+                "UPDATE users SET role = ? WHERE id = ? AND ("
+                . " ? = 'admin' OR role <> 'admin' OR status <> 'active'"
+                . " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+                [$role, $id, $role, $id],
+                'users role',
+                1,
+                $last,
+            );
         });
     }
 
@@ -133,10 +146,20 @@ final class UserAdmin
         $this->guard->target($user);
         $this->users->underActiveAdminGuard(function (UnitOfWork $uow) use ($id): void {
             $user = $this->get($id);
-            if ($user['role'] === 'admin' && $user['status'] === 'active' && $this->activeAdmins() <= 1) {
-                throw new UserError('“' . $user['username'] . '” is the only admin and cannot be deleted.', 409);
-            }
-            $uow->write('DELETE FROM users WHERE id = ?', [$id], 'users delete');
+            $name = $user['username'];
+            $last = static fn (): UserError => new UserError(
+                '“' . $name . '” is the only admin and cannot be deleted.',
+                409,
+            );
+            $uow->write(
+                "DELETE FROM users WHERE id = ? AND ("
+                . " role <> 'admin' OR status <> 'active'"
+                . " OR EXISTS (SELECT 1 FROM users WHERE role = 'admin' AND status = 'active' AND id <> ?))",
+                [$id, $id],
+                'users delete',
+                1,
+                $last,
+            );
         });
     }
 

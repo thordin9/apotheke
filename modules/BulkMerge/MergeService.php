@@ -101,7 +101,10 @@ final class MergeService
      */
     public function merge(int $sourceId, int $targetId): array
     {
-        // One unit on the target (ADR-002): every move and the target update run together; tags join it.
+        // One unit on both items (L-1767): sorted combined key avoids deadlocks; source delete expects 1.
+        $lo = min($sourceId, $targetId);
+        $hi = max($sourceId, $targetId);
+
         return $this->units->run('items', function (UnitOfWork $uow) use ($sourceId, $targetId): array {
             $p = $this->preview($sourceId, $targetId);
             $src = $p['source'];
@@ -115,7 +118,8 @@ final class MergeService
             $uow->write('UPDATE item_attachments SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId], 'merge attachments');
             $uow->write('UPDATE activity SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId], 'merge history');
             $uow->write('DELETE FROM recent_views WHERE item_id = ?', [$sourceId], 'merge recent');
-            $uow->write('DELETE FROM items WHERE id = ?', [$sourceId], 'merge source', 1);
+            $uow->write('DELETE FROM items WHERE id = ?', [$sourceId], 'merge source', 1,
+                static fn (): UserError => new UserError('Item not found.', 404));
             $lend = $p['lending'] === 'copied' ? [$src['lent_to'], $src['lent_at'], $src['lent_due']] : [$dst['lent_to'], $dst['lent_at'], $dst['lent_due']];
             $barcode = (string)$in['barcode'];
             $blob = Text::fold(implode("\n", array_merge([(string)$in['name'], (string)$in['notes'], (string)$in['serial'], $barcode], $in['tags'])));
@@ -134,7 +138,7 @@ final class MergeService
             ], static fn ($v): bool => $v !== null));
 
             return $p;
-        }, (string)$targetId);
+        }, $lo . ':' . $hi);
     }
 
     /**

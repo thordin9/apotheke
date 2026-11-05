@@ -133,8 +133,9 @@ final class UserAdminTest extends CIUnitTestCase
         $keys = UnitsOfWork::lockKeys('users', 'active-admins');
         foreach (['demote' => [fn () => $users->setRole($ada, 'viewer'), '“ada” is the only admin – make someone else an admin first.'],
             'delete' => [fn () => $users->delete($ada), '“ada” is the only admin and cannot be deleted.']] as $what => [$change, $message]) {
-            $this->repo()->setRole($ada, 'editor');
+            // Promote bea first: UserRepository refuses demoting the last active admin (M-1764).
             $this->repo()->setRole($bea, 'admin');
+            $this->repo()->setRole($ada, 'editor');
             // Hold the unit lock, swap roles, then commit: the waiting change re-reads ada as the only admin.
             $hold = $driver === 'pgsql'
                 ? [['SELECT pg_advisory_xact_lock(?, ?)', $keys]]
