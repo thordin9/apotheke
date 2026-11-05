@@ -275,6 +275,31 @@ final class RestoreStageTest extends CIUnitTestCase
         }
     }
 
+    /**
+     * L-1712: the lease is 120 seconds, on the test clock and on the database's: a lock is held 119 seconds after
+     * its last write and free at 121, so a much shorter or longer lease fails here.
+     */
+    #[DataProvider('modes')]
+    public function testTheLeaseIsTwoMinutes(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $at = time();
+        $clock = static function () use (&$at): int {
+            return $at;
+        };
+        $a = new RestoreStage(self::exec($db, $batch), $clock);
+        $b = new RestoreStage(self::exec($db, $batch), $clock);
+        $a->begin(['items']);
+        $at += 119;
+        $this->assertRefusedBusy($b);
+        $at += 2;
+        $b->claim();
+        $b->finish();
+        (new RestoreStage(self::exec($db, $batch)))->begin(['items']);
+        $lock = $db->query("SELECT applied_at FROM restore_marker WHERE run = 'lock'")->getRowArray();
+        $this->assertEqualsWithDelta(time() + 120, strtotime((string)$lock['applied_at'] . ' UTC'), 5, 'on the database clock');
+    }
+
     /** L-1701: the swap is one batch: every live table's delete and insert, the sequences and the marker in one run(). */
     #[DataProvider('modes')]
     public function testTheSwapIsOneBatch(string $driver, bool $batch): void
