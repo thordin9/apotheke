@@ -253,40 +253,21 @@ final class TaxonomyRepository
             $from = (string)$row['name'];
             $to = $moveTo !== null ? (string)($this->get($kind, $moveTo)['name'] ?? '') : '';
             $now = $this->clock->now();
-            $planned = (int)($this->rows('SELECT COUNT(*) AS n FROM items WHERE ' . $t['col'] . ' = ?', [$id])[0]['n'] ?? 0);
-            // L-1766: history only for items still on this entry (INSERT…SELECT).
-            if ($kind === 'location') {
-                $details = (string)json_encode(
-                    ['from' => $from, 'to' => $to, 'reason' => 'location deleted'],
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
-                );
-                $uow->write(
-                    'INSERT INTO activity (item_id, item_name, action, details, created_at, actor)'
-                    . ' SELECT id, name, ?, ?, ?, NULL FROM items WHERE location_id = ?'
-                    . ' AND EXISTS (SELECT 1 FROM locations WHERE id = ?)',
-                    ['moved', $details, $now, $id, $id],
-                    'history for moved items',
-                );
-            } else {
-                $details = (string)json_encode(
-                    ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted'],
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
-                );
-                $uow->write(
-                    'INSERT INTO activity (item_id, item_name, action, details, created_at, actor)'
-                    . ' SELECT id, name, ?, ?, ?, NULL FROM items WHERE category_id = ?'
-                    . ' AND EXISTS (SELECT 1 FROM categories WHERE id = ?)',
-                    ['edited', $details, $now, $id, $id],
-                    'history for moved items',
-                );
+            // Re-read under the unit: N-1770 returns this count (rows still on the entry).
+            $items = $this->rows("SELECT id, name FROM items WHERE {$t['col']} = ?", [$id]);
+            $n = count($items);
+            // L-1766: history queued with the unit; expect-1 on delete rolls back a loser.
+            foreach ($items as $it) {
+                $kind === 'location'
+                    ? $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'moved', ['from' => $from, 'to' => $to, 'reason' => 'location deleted'])
+                    : $this->activity->queue($uow, (int)$it['id'], (string)$it['name'], 'edited', ['changes' => ['category' => [$from, $to]], 'reason' => 'category deleted']);
             }
             $uow->write(
-                'UPDATE items SET ' . $t['col'] . ' = ?, updated_at = ? WHERE ' . $t['col'] . ' = ?',
-                [$moveTo, $now, $id],
+                'UPDATE items SET ' . $t['col'] . ' = ?, updated_at = ? WHERE ' . $t['col'] . ' = ?'
+                . ' AND EXISTS (SELECT 1 FROM ' . $t['table'] . ' WHERE id = ?)',
+                [$moveTo, $now, $id, $id],
                 'move items',
             );
-            // N-1770: count rows still on this entry at plan time (writes flush after the callback).
-            $n = $planned;
             if ($kind === 'location') {
                 $up = $this->rows('SELECT parent_id FROM locations WHERE id = ?', [$id])[0]['parent_id'] ?? null;
                 $uow->write('UPDATE locations SET parent_id = ? WHERE parent_id = ?', [$up === null ? null : (int)$up, $id], 'move sub-locations');
