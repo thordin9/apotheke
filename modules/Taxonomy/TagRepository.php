@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Apotheke\Taxonomy;
 
+use Apotheke\Core\Database\Ref;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\Text;
@@ -16,9 +19,15 @@ use CodeIgniter\Database\BaseConnection;
  */
 final class TagRepository
 {
-    /** @param BaseConnection<object|resource, object|resource> $db */
-    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock)
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
+    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, ?UnitsOfWork $units = null)
     {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** @return list<array{id:int,name:string}> an item's tags, naturally sorted */
@@ -39,33 +48,38 @@ final class TagRepository
 
     /**
      * Replace an item's tags: creates missing tags and drops tags no item
-     * uses any more, in one transaction (joins the item save's). A failed
-     * statement rolls back and throws (WriteFailed).
+     * uses any more, in one unit of work (joins the item save's). A failed
+     * statement rolls back and throws (WriteFailed). New tags use
+     * ON CONFLICT (name_key) so the batch path needs no last-insert id
+     * (ADR-002); item_tags rows bind the tag by name_key.
      *
      * @param list<string> $names clean names (Text::tags())
      */
-    public function set(int $itemId, array $names): void
+    public function set(int|Ref $itemId, array $names): void
     {
-        Writes::transaction($this->db, fn () => $this->replace($itemId, $names));
-    }
-
-    /** @param list<string> $names */
-    private function replace(int $itemId, array $names): void
-    {
-        $ids = [];
-        foreach ($names as $n) {
-            $tid = $this->rows('SELECT id FROM tags WHERE name_key = ?', [Text::fold($n)])[0]['id'] ?? null;
-            if ($tid === null) {
-                Writes::check($this->db->table('tags')->insert(['name' => $n, 'name_key' => Text::fold($n), 'sort_key' => Text::natkey($n), 'created_at' => $this->clock->now()]), 'add tag');
-                $tid = $this->db->insertID();
+        $key = $itemId instanceof Ref ? $itemId->ulid : (string)$itemId;
+        $this->units->run('tags', function (UnitOfWork $uow) use ($itemId, $names): void {
+            $now = $this->clock->now();
+            $keys = [];
+            foreach ($names as $n) {
+                $fold = Text::fold($n);
+                $keys[$fold] = $n;
+                $uow->write(
+                    'INSERT INTO tags (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
+                    [$n, $fold, Text::natkey($n), $now],
+                    'add tag',
+                );
             }
-            $ids[] = (int)$tid;
-        }
-        Writes::check($this->db->table('item_tags')->where('item_id', $itemId)->delete(), 'clear item tags');
-        foreach (array_unique($ids) as $tid) {
-            Writes::check($this->db->table('item_tags')->insert(['item_id' => $itemId, 'tag_id' => $tid]), 'tag item');
-        }
-        Writes::check($this->db->query('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)'), 'drop unused tags');
+            $uow->write('DELETE FROM item_tags WHERE item_id = ?', [$itemId], 'clear item tags');
+            foreach ($keys as $fold => $_n) {
+                $uow->write(
+                    'INSERT INTO item_tags (item_id, tag_id) SELECT ?, id FROM tags WHERE name_key = ?',
+                    [$itemId, $fold],
+                    'tag item',
+                );
+            }
+            $uow->write('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)', [], 'drop unused tags');
+        }, $key);
     }
 
     /**

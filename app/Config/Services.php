@@ -515,7 +515,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
+        return new \Apotheke\Taxonomy\TaxonomyRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::unitsOfWork());
     }
 
     /** Accounts for the sign-in pages (Auth), with the failed sign-in deadline from SIGN_IN_FAIL_MS (sign_in_fail_ms). Stateless. */
@@ -639,7 +639,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Taxonomy\TagRepository($db, new \Apotheke\Core\Libraries\Clock());
+        return new \Apotheke\Taxonomy\TagRepository($db, new \Apotheke\Core\Libraries\Clock(), static::unitsOfWork());
     }
 
     /** Favourites and recently viewed (Favourites), for this request's device cookie. */
@@ -965,7 +965,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\BulkMerge\QuantityAdjust($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory());
+        return new \Apotheke\BulkMerge\QuantityAdjust($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::unitsOfWork());
     }
 
     /** Duplicate an item, with copies of its photos (BulkMerge). */
@@ -1092,7 +1092,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\Lending\Loans($db, new \Apotheke\Core\Libraries\Clock(), static::calendar(), static::itemHistory(), static::itemRepository());
+        return new \Apotheke\Lending\Loans($db, new \Apotheke\Core\Libraries\Clock(), static::calendar(), static::itemHistory(), static::itemRepository(), static::unitsOfWork());
     }
 
     /** The "Lent out" page (Lending). */

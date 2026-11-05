@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** move item save, tags, taxonomy create and two guards onto the unit of work (P4-2b)
+
 ## [3.18.2] - 2026-11-05
 
 **Note:** local PostgreSQL batches of a unit of work now take the unit's lock, as transaction mode does (L-1743).

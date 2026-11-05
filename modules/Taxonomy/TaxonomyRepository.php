@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Apotheke\Taxonomy;
 
+use Apotheke\Core\Database\Ref;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -20,9 +23,15 @@ use CodeIgniter\Database\BaseConnection;
  */
 final class TaxonomyRepository
 {
-    /** @param BaseConnection<object|resource, object|resource> $db */
-    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, private readonly ItemHistory $activity)
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
+    public function __construct(private readonly BaseConnection $db, private readonly Clock $clock, private readonly ItemHistory $activity, ?UnitsOfWork $units = null)
     {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /**
@@ -91,6 +100,8 @@ final class TaxonomyRepository
 
     /**
      * Create an entry, or return the existing one with the same name.
+     * One unit of work (ADR-002): a race on the name still returns the
+     * stored row (ON CONFLICT DO NOTHING, then read by name_key).
      *
      * @return array{id:int,name:string,created:bool}
      */
@@ -101,27 +112,67 @@ final class TaxonomyRepository
         if ($ex !== null) {
             return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => false];
         }
-        Writes::check($this->db->table(Kind::get($kind)['table'])->insert(['name' => $name, 'name_key' => Text::fold($name), 'sort_key' => Text::natkey($name), 'created_at' => $this->clock->now()]), 'add');
+        $table = Kind::get($kind)['table'];
+        $key = Text::fold($name);
+        $this->units->run($table, function (UnitOfWork $uow) use ($table, $name, $key): void {
+            $uow->write(
+                'INSERT INTO ' . $table . ' (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
+                [$name, $key, Text::natkey($name), $this->clock->now()],
+                'add',
+            );
+        });
+        $ex = $this->find($kind, $name) ?? throw new UserError(Kind::get($kind)['One'] . ' could not be created.', 500);
 
-        return ['id' => (int)$this->db->insertID(), 'name' => $name, 'created' => true];
+        return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => true];
     }
 
     /**
      * Create (or find) an entry and, for a location, put it under $parent, in
-     * one transaction like legacy.
+     * one unit of work (joins a caller's, as the item form does).
      *
      * @return array{id:int,name:string,created:bool}
      */
     public function createUnder(string $kind, string $name, ?int $parent): array
     {
-        return $this->tx(function () use ($kind, $name, $parent): array {
-            $r = $this->create($kind, $name);
-            if ($kind === 'location' && $r['created'] && $parent !== null) {
-                $this->setParent($r['id'], $parent);
-            }
+        $name = $this->validName($kind, $name);
+        $ex = $this->find($kind, $name);
+        if ($ex !== null) {
+            return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => false];
+        }
+        $table = Kind::get($kind)['table'];
+        $fold = Text::fold($name);
+        if ($kind !== 'location' || $parent === null) {
+            $this->units->run($table, function (UnitOfWork $uow) use ($table, $name, $fold): void {
+                $uow->write(
+                    'INSERT INTO ' . $table . ' (name, name_key, sort_key, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (name_key) DO NOTHING',
+                    [$name, $fold, Text::natkey($name), $this->clock->now()],
+                    'add',
+                );
+            });
+            $ex = $this->find($kind, $name) ?? throw new UserError(Kind::get($kind)['One'] . ' could not be created.', 500);
 
-            return $r;
+            return ['id' => $ex['id'], 'name' => $ex['name'], 'created' => true];
+        }
+        $byId = $this->locationsById();
+        if (!isset($byId[$parent])) {
+            throw new UserError('That parent location no longer exists.', 422);
+        }
+        if ($byId[$parent]['depth'] + 1 > LocationTree::MAX_DEPTH) {
+            throw new UserError('Locations can be nested at most ' . LocationTree::MAX_DEPTH . ' levels deep.', 422);
+        }
+        $ref = $this->units->run($table, function (UnitOfWork $uow) use ($name, $fold, $parent): Ref {
+            $uow->assert('EXISTS (SELECT 1 FROM locations WHERE id = ?)', [$parent], 'parent exists',
+                static fn (): UserError => new UserError('That parent location no longer exists.', 422));
+            return $uow->insert('locations', [
+                'name' => $name,
+                'name_key' => $fold,
+                'sort_key' => Text::natkey($name),
+                'created_at' => $this->clock->now(),
+                'parent_id' => $parent,
+            ], 'add');
         });
+
+        return ['id' => $ref->id(), 'name' => $name, 'created' => true];
     }
 
     public function rename(string $kind, int $id, string $name): void

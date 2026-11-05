@@ -8,6 +8,10 @@ declare(strict_types=1);
  * [sql, binds]) in one transaction, prints "held", waits argv[2] ms, commits.
  * With argv[3] (statements in the same form) it waits for a line on stdin
  * after "held", runs those, prints "second", then waits and commits.
+ *
+ * A statement whose sql is "__wait_advisory__" polls pg_locks until another
+ * backend holds that two-key advisory lock (binds: key0, key1, timeoutMs),
+ * then continues. Used so a probe can wait for the lock instead of sleeping.
  */
 
 use Apotheke\Core\Config\ApothekeConfig;
@@ -21,6 +25,25 @@ $pdo->exec($pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite' ? 'BEGIN IMMED
 /** @var list<array{0:string,1:list<int|string|null>}> $statements */
 $statements = json_decode($argv[1], true, 8, JSON_THROW_ON_ERROR);
 foreach ($statements as [$sql, $binds]) {
+    if ($sql === '__wait_advisory__') {
+        $deadline = hrtime(true) + (int)($binds[2] ?? 2000) * 1_000_000;
+        $wait = $pdo->prepare(
+            'SELECT 1 FROM pg_locks WHERE locktype = \'advisory\' AND granted AND pid <> pg_backend_pid()'
+            . ' AND classid = ((?::bigint + 4294967296) % 4294967296) AND objid = ((?::bigint + 4294967296) % 4294967296) AND objsubid = 1'
+        );
+        while (true) {
+            $wait->execute([(int)$binds[0], (int)$binds[1]]);
+            if ($wait->fetchColumn() !== false) {
+                break;
+            }
+            if (hrtime(true) >= $deadline) {
+                fwrite(STDERR, "timeout waiting for advisory lock\n");
+                exit(1);
+            }
+            usleep(5_000);
+        }
+        continue;
+    }
     $pdo->prepare($sql)->execute($binds);
 }
 echo "held\n";

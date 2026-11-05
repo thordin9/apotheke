@@ -166,7 +166,7 @@ final class TestDatabase
         }, static function (): void {
         });
 
-        return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history), new TagRepository($db, $clock),
+        return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history, $units), new TagRepository($db, $clock, $units),
             $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo), $units);
     }
 
