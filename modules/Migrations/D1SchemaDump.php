@@ -114,26 +114,17 @@ final class D1SchemaDump
      */
     public static function isFtsShadow(string $name, array $virtualNames = []): bool
     {
-        if ($virtualNames !== []) {
-            $virtual = [];
-            foreach ($virtualNames as $v) {
-                $virtual[(string)$v] = true;
-            }
-
-            return self::isShadowOfVirtual($name, $virtual);
+        // N-1791: without a parent list, refuse to guess (a plain table may end in _config).
+        // The dump always passes the virtual names and matches name = virtual + suffix exactly.
+        if ($virtualNames === []) {
+            return false;
         }
-        // No virtual parent listed: only the five literal suffixes, case-sensitive as sqlite_master names them.
-        foreach (self::SHADOW_SUFFIXES as $suffix) {
-            if (str_ends_with($name, $suffix) && $name !== ltrim($suffix, '_')) {
-                // Require a non-empty base before the suffix (not the bare word "config").
-                $base = substr($name, 0, -strlen($suffix));
-                if ($base !== '') {
-                    return true;
-                }
-            }
+        $virtual = [];
+        foreach ($virtualNames as $v) {
+            $virtual[(string)$v] = true;
         }
 
-        return false;
+        return self::isShadowOfVirtual($name, $virtual);
     }
 
     /** The five FTS5/FTS shadow-table suffixes SQLite creates for a virtual table. */

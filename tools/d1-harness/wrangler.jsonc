@@ -1,0 +1,9 @@
+// Local-only harness for P4-3: never deployed, never --remote. Zero UUID is a local placeholder.
+{
+  "name": "apotheke-d1-harness",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "harness", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ]
+}

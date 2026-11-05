@@ -293,12 +293,25 @@ for (const file of ["deploy-frontend.yml", "deploy-edge.yml"]) {
 	});
 }
 
-// edge/src/index.ts imports cloudflare:workers, which Node lacks: resolve it to a stub DurableObject base class.
-const STUB = "export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }";
+// edge/src/index.ts imports cloudflare:workers, which Node lacks: resolve it to stub DurableObject / WorkerEntrypoint.
+const STUB =
+	"export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }" +
+	"export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }";
 register(
 	"data:text/javascript," +
 		encodeURIComponent(
-			`export async function resolve(s, c, next) { return s === "cloudflare:workers" ? { url: "data:text/javascript,${encodeURIComponent(STUB)}", shortCircuit: true } : next(s, c); }`,
+			`import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+export async function resolve(s, c, next) {
+  if (s === "cloudflare:workers") return { url: "data:text/javascript,${encodeURIComponent(STUB)}", shortCircuit: true };
+  if (s.startsWith("./") && !s.endsWith(".ts") && c.parentURL) {
+    const base = fileURLToPath(new URL(".", c.parentURL));
+    const candidate = base + s.slice(2) + ".ts";
+    if (existsSync(candidate)) return { url: pathToFileURL(candidate).href, shortCircuit: true };
+  }
+  return next(s, c);
+}`,
 		),
 );
 
@@ -309,6 +322,7 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	const { vars } = JSON.parse(text.replace(/,(\s*[}\]])/g, "$1"));
 	assert.equal(vars.CORS_ALLOWED_ORIGINS, "https://getapotheke.com");
 	let started;
+	const intercepted = [];
 	const container = {
 		running: false,
 		start(opts) {
@@ -318,8 +332,17 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 		setInactivityTimeout: async () => {},
 		monitor: () => new Promise(() => {}),
 		getTcpPort: () => ({ fetch: async () => new Response("ok") }),
+		interceptOutboundHttp: async (host, fetcher) => {
+			intercepted.push([host, fetcher]);
+		},
 	};
-	const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f() };
+	const bridge = { fetch: async () => new Response("bridge") };
+	const ctx = {
+		container,
+		waitUntil() {},
+		blockConcurrencyWhile: (f) => f(),
+		exports: { D1Outbound: () => bridge },
+	};
 	const obj = new ApothekeContainer(ctx, { ...vars, APP_PASSWORD: "placeholder", APP_KEY: "placeholder" });
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
 	const { SLEEP_AFTER_MS, ...forwarded } = vars;
@@ -336,6 +359,106 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 		"TZ",
 	]);
 	assert.equal(started.enableInternet, false);
+	assert.deepEqual(
+		intercepted.map(([h]) => h),
+		["d1.internal"],
+		"d1.internal is wired before the container answers",
+	);
+	assert.equal(intercepted[0][1], bridge);
+});
+
+// d1.internal handler (edge/src/d1.ts): same JSON shape as D1HttpExecutor / tools/d1-harness.
+const { handleD1Request, d1UnboundResponse } = await import(join(root, "edge/src/d1.ts"));
+function mockDb({ batch, all, exec } = {}) {
+	const stmt = {
+		bind: (..._p) => stmt,
+		all: all ?? (async () => ({ results: [], meta: { changes: 0, last_row_id: 0 } })),
+	};
+	return {
+		prepare: () => stmt,
+		batch: batch ?? (async (stmts) => stmts.map(() => ({ results: [], meta: { changes: 1, last_row_id: 1 } }))),
+		exec: exec ?? (async () => ({ count: 2 })),
+	};
+}
+const d1Post = (path, body, db) =>
+	handleD1Request(
+		new Request(`http://d1.internal${path}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body),
+		}),
+		db,
+	);
+
+test("d1.internal: query returns rows with ok true", async () => {
+	const db = mockDb({
+		all: async () => ({ results: [{ id: 1, name: "lamp" }], meta: { changes: 0, last_row_id: 0 } }),
+	});
+	const res = await d1Post("/query", { sql: "SELECT 1", params: [] }, db);
+	assert.equal(res.status, 200);
+	assert.deepEqual(await res.json(), {
+		ok: true,
+		rows: [{ id: 1, name: "lamp" }],
+		changes: 0,
+		last_row_id: 0,
+	});
+});
+
+test("d1.internal: batch returns one result per statement", async () => {
+	const db = mockDb({
+		batch: async (stmts) => {
+			assert.equal(stmts.length, 2);
+			return [
+				{ results: [{ n: 1 }], meta: { changes: 0, last_row_id: 0 } },
+				{ results: [], meta: { changes: 1, last_row_id: 9 } },
+			];
+		},
+	});
+	const res = await d1Post(
+		"/batch",
+		[
+			{ sql: "SELECT 1", params: [] },
+			{ sql: "INSERT INTO t DEFAULT VALUES", params: [] },
+		],
+		db,
+	);
+	assert.equal(res.status, 200);
+	assert.deepEqual(await res.json(), {
+		ok: true,
+		results: [
+			{ rows: [{ n: 1 }], changes: 0, last_row_id: 0 },
+			{ rows: [], changes: 1, last_row_id: 9 },
+		],
+	});
+});
+
+test("d1.internal: exec returns count; guard failure keeps error text for the PHP side", async () => {
+	const ok = await d1Post("/exec", { sql: "CREATE TABLE t(id)" }, mockDb({ exec: async () => ({ count: 3 }) }));
+	assert.deepEqual(await ok.json(), { ok: true, count: 3 });
+	const db = mockDb({
+		all: async () => {
+			throw Object.assign(new Error("NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT"), {
+				cause: { message: "inner" },
+			});
+		},
+	});
+	const fail = await d1Post("/query", { sql: "SELECT 1", params: [] }, db);
+	assert.equal(fail.status, 500);
+	const body = await fail.json();
+	assert.equal(body.ok, false);
+	assert.match(body.error, /uow_guard\.ok/);
+	assert.equal(body.cause, "inner");
+});
+
+test("d1.internal: method, path and unbound responses", async () => {
+	const get = await handleD1Request(new Request("http://d1.internal/query"), mockDb());
+	assert.equal(get.status, 405);
+	assert.equal((await get.json()).ok, false);
+	const missing = await d1Post("/nope", { sql: "SELECT 1" }, mockDb());
+	assert.equal(missing.status, 404);
+	const unbound = d1UnboundResponse();
+	assert.equal(unbound.status, 503);
+	assert.deepEqual(await unbound.json(), { ok: false, error: "D1 is not bound" });
 });
 
 // Runs the merge on a copy of edge/wrangler.jsonc (or of `config`, an object) with edge/storage.jsonc (or `storage`).

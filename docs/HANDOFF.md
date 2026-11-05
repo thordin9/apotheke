@@ -7,27 +7,27 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.18.3). The 2.6.x security line ships from the branch
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.19.0). The 2.6.x security line ships from the branch
   `old` for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported and byte-identical to legacy where legacy has the page (parity gate, step 16 done); module
   notes are in the [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-1 and P4-2a/2b are merged through
-  #234 (v3.18.3). P4-3 (D1/DO driver) is in progress.
+  #234 (v3.18.3). P4-3 PR 1 (#235, D1 HTTP executor) is released as v3.19.0; PR 2 (edge handlers) is in flight.
 
 ## Open pull requests
 
-- P4-3 PR 1 (`feat/p4-3-d1-driver`): D1 HTTP executor and shared limits, D1-safe schema dump (no FTS5 shadows),
-  restore stage row/byte caps, and the seeded-cycle descendant-walk coverage. Later P4-3 PRs: edge outbound
-  handlers, D1 migration dialect, stand-in fidelity and stocktake batch open guard. Left for a later PR:
-  BulkService, SearchIndex, Imports. Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
+- P4-3 PR 2 (`feat/p4-3-edge-handlers`): Worker `D1Outbound` for `http://d1.internal/{query,batch,exec}`, wired
+  with `interceptOutboundHttp`, and the in-repo `tools/d1-harness`. Later P4-3 PRs: D1 migration dialect, stand-in
+  fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR: BulkService, SearchIndex, Imports.
+  Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782, N-1786 (deferred with migrations).
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Land P4-3 PR 1; then edge `/query` `/batch` `/exec` handlers, the D1 migration dialect (skip connection
-   PRAGMAs / `user_version` / `VACUUM INTO`; `DB.exec` for multi-statement heredocs), stand-in allow-list
-   fidelity, and the stocktake batch open guard.
+1. Land P4-3 PR 2; then the D1 migration dialect (skip connection PRAGMAs / `user_version` / `VACUUM INTO`;
+   `DB.exec` for multi-statement heredocs; never DROP parent), stand-in allow-list fidelity, the stocktake batch
+   open guard, and the CI wrangler-local d1 cell (remaining N-1640).
 2. P4-4 (R2 / `Core\Storage`) to P4-5 (hosted wiring). DevOps owns the bindings and the `EDGE_STORAGE_READY`
    flip checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Older numbered items:
