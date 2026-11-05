@@ -142,6 +142,29 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
     }
 
     /**
+     * N-1756: two createUnder of the same name; exactly one created:true, never a 500.
+     */
+    #[DataProvider('drivers')]
+    public function testParallelCreateUnderNameRace(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $tax = new TaxonomyRepository($db, new Clock(), new ActivityLogger($db, new Clock(), static fn (): ?string => null), $units);
+        $parent = $tax->create('location', 'Garage');
+        $answers = $this->parallel([
+            ['op' => 'createUnder', 'batch' => true, 'kind' => 'location', 'name' => 'Shelf', 'parent' => $parent['id']],
+            ['op' => 'createUnder', 'batch' => true, 'kind' => 'location', 'name' => 'Shelf', 'parent' => $parent['id']],
+            ['op' => 'createUnder', 'batch' => true, 'kind' => 'location', 'name' => 'Shelf', 'parent' => $parent['id']],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $a): bool => ($a['ok'] ?? false) === true));
+        $this->assertCount(3, $ok, json_encode($answers));
+        $this->assertSame(1, count(array_filter($ok, static fn (array $a): bool => (bool)$a['created'])), json_encode($ok));
+        $this->assertCount(1, array_unique(array_map(static fn (array $a): int => (int)$a['id'], $ok)));
+        $this->assertSame($parent['id'], (int)Writes::rows($db, 'SELECT parent_id FROM locations WHERE name = ?', ['Shelf'])[0]['parent_id']);
+    }
+
+    /**
      * N-1755: ItemRepository and TagRepository from Services share one UnitsOfWork.
      */
     public function testItemAndTagServicesShareUnitsOfWork(): void
