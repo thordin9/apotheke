@@ -550,8 +550,10 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
     }
 
     /**
-     * N-1774 / N-1777: setParent's recursive CTE terminates on a seeded cycle
-     * (n < 50) and refuses the move with a UserError rather than hanging.
+     * N-1774 / N-1777 / N-1781: setParent's recursive CTEs terminate on a seeded
+     * cycle (n < 50) and refuse the move with a UserError rather than hanging.
+     * Moving a node that sits inside the cycle exercises the descendant walk's
+     * bound (N-1781); moving an outsider only covered the ancestor walk.
      */
     #[DataProvider('drivers')]
     public function testSetParentTerminatesOnSeededCycle(string $driver): void
@@ -575,7 +577,9 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $started = hrtime(true);
         $err = null;
         try {
-            $tax->setParent($c['id'], $a['id']);
+            // N-1781: move A (inside the cycle) under C so the descendant walk
+            // from A must traverse A→B→A and hit n < 50.
+            $tax->setParent($a['id'], $c['id']);
         } catch (\Throwable $e) {
             $err = $e;
         } finally {
@@ -587,8 +591,8 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $this->assertInstanceOf(\Apotheke\Core\Exceptions\UserError::class, $err, 'bound cycle walk must surface a UserError, not a driver timeout');
         $this->assertSame(422, $err->getCode());
         $this->assertLessThan(2000, $elapsedMs, 'seeded cycle must terminate quickly');
-        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$c['id']])[0]['parent_id'] ?? null;
-        $this->assertNull($parent, 'C must not attach under a cycled tree');
+        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$a['id']])[0]['parent_id'] ?? null;
+        $this->assertSame((int)$b['id'], (int)$parent, 'A must stay under B (cycle unchanged)');
         $n = (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM locations')[0]['n'];
         $this->assertSame(3, $n);
     }

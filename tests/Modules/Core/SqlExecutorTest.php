@@ -148,6 +148,7 @@ final class SqlExecutorTest extends CIUnitTestCase
             ['BEGIN', []], [' savepoint x', []], ['RELEASE x', []], ['ROLLBACK', []], ['COMMIT', []], ['END', []],
             ['PRAGMA journal_mode', []], ['SELECT sqlite_version()', []],
             ['SELECT ' . implode(' + ', array_fill(0, 101, '?')) . ' AS n', array_fill(0, 101, 1)],
+            ['SELECT ' . str_repeat('1,', 50_001) . '1', []], // N-1640: over 100 KB
         ];
         foreach ($refused as [$sql, $params]) {
             try {

@@ -7,30 +7,29 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.18.2). The 2.6.x security line ships from the branch
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.18.3). The 2.6.x security line ships from the branch
   `old` for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported and byte-identical to legacy where legacy has the page (parity gate, step 16 done); module
   notes are in the [log](history/handoff-log.md#current-state).
-- P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-1 and P4-2a are merged; P4-2b part 1
-  (#217), #219, part 2 (#221, item-history sites), #220 (batch allow-list, v3.15.5), restore staging (#223 / #227 /
-  #229), the attach/delete and PG batch lock fixes (#230, #231, v3.18.2) the remaining write sites (#232), and the part-2 sites (#233) are
-  merged. Part 2b of restore is done.
+- P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-1 and P4-2a/2b are merged through
+  #234 (v3.18.3). P4-3 (D1/DO driver) is in progress.
 
 ## Open pull requests
 
-- Unit-of-work merge-guard follow-ups (`fix/uow-merge-guards`, #234; N-1776..N-1779): source-adjust race, last-admin and
-  cycle mutant killers, shared 5 s multi-key wait, merge 409 wording. N-1780 stays in the backlog. Left for a later
-  PR: BulkService, SearchIndex, Imports. N-1747..N-1751 and N-1758, N-1761..N-1763 stay in the backlog; N-1759/N-1760
-  go with P4-3.
+- P4-3 PR 1 (`feat/p4-3-d1-driver`): D1 HTTP executor and shared limits, D1-safe schema dump (no FTS5 shadows),
+  restore stage row/byte caps, and the seeded-cycle descendant-walk coverage. Later P4-3 PRs: edge outbound
+  handlers, D1 migration dialect, stand-in fidelity and stocktake batch open guard. Left for a later PR:
+  BulkService, SearchIndex, Imports. Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Land the merge-guard follow-ups; then BulkService, SearchIndex and Imports (with N-1758).
-2. P4-3 (D1 driver and bridge, with N-1640; N-1759 items CHUNK_BYTES/row cap and N-1760 FTS5 shadow-table skip
-   in the D1 migrator) to P4-5 (R2). DevOps owns the bindings and the `EDGE_STORAGE_READY` flip checklist
-   (#204, #208); N-1442 follows with P4.
+1. Land P4-3 PR 1; then edge `/query` `/batch` `/exec` handlers, the D1 migration dialect (skip connection
+   PRAGMAs / `user_version` / `VACUUM INTO`; `DB.exec` for multi-statement heredocs), stand-in allow-list
+   fidelity, and the stocktake batch open guard.
+2. P4-4 (R2 / `Core\Storage`) to P4-5 (hosted wiring). DevOps owns the bindings and the `EDGE_STORAGE_READY`
+   flip checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Older numbered items:
    [log, Next steps](history/handoff-log.md#next-steps).
 

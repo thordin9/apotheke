@@ -1,8 +1,8 @@
 # Hand-off log: the CodeIgniter 4 app
 
-The detailed hand-off history moved here from [HANDOFF.md](../HANDOFF.md), text unchanged (relative links adjusted
-for this folder). HANDOFF.md keeps the one-screen status; this log keeps every module note, PR entry, lane, step and
-tracked difference as it stood at the move.
+The detailed hand-off history moved here from [HANDOFF.md](../HANDOFF.md) (relative links adjusted for this
+folder). HANDOFF.md keeps the one-screen status; this log keeps every module note, PR entry, lane, step and tracked
+difference, and is updated when a pull request needs more than the one-screen summary.
 
 A one-screen status of the CodeIgniter 4 port. Every pull request into `main` updates this page. The branch-switch PR
 makes `main` the CI4 branch: `main` is fast-forwarded to `feature/ci4`, the former `main` (the 2.x app, last release

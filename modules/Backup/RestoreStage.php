@@ -18,8 +18,9 @@ use LogicException;
  * swap changes the live tables, so the restore is all or nothing even though it is staged in parts:
  *
  * - begin(): drop any leftover copies and create an empty copy of each carried table (PREFIX + table);
- * - stage(): a table's rows, CHUNK_BYTES of JSON per statement, each one bind (json_each on SQLite and D1,
- *   json_populate_recordset on PostgreSQL), so no statement has more than one parameter;
+ * - stage(): a table's rows, at most CHUNK_BYTES of JSON and CHUNK_ROWS rows per statement (N-1759: items
+ *   use a smaller byte cap), each one bind (json_each on SQLite and D1, json_populate_recordset on
+ *   PostgreSQL), so no statement has more than one parameter;
  * - swap(): one batch: deferred foreign keys, a guard per copy that it holds every row staged, the live tables
  *   emptied (children first) and filled from the copies (parents first), the sequences moved past the restored
  *   ids, and the restore_marker row of this run;
@@ -49,6 +50,19 @@ final class RestoreStage
 
     /** JSON per staged insert, one bind (D1 allows 2 MB per value; a larger row goes alone). */
     public const CHUNK_BYTES = 512 * 1024;
+
+    /** Soft row cap per staged insert (N-1759): keeps a wide table's chunk under D1's 30 s request limit. */
+    public const CHUNK_ROWS = 1000;
+
+    /**
+     * Per-table byte caps under CHUNK_BYTES for tables whose rows are wide (N-1759: items was the tightest
+     * real-D1 stage margin). A missing key uses CHUNK_BYTES.
+     *
+     * @var array<string, int>
+     */
+    public const CHUNK_BYTES_FOR = [
+        'items' => 256 * 1024,
+    ];
 
     public const UNKNOWN_COLUMN = 'The backup names a column the table does not have, or one column twice. Nothing was changed.';
 
@@ -213,6 +227,7 @@ final class RestoreStage
         $sql = $pg
             ? "INSERT INTO $copy ($cols) SELECT $cols FROM json_populate_recordset(NULL::$copy, ?::json)"
             : "INSERT INTO $copy ($cols) SELECT " . implode(', ', array_map(static fn (int $i): string => "value ->> $i", array_keys($columns))) . ' FROM json_each(?)';
+        $maxBytes = self::CHUNK_BYTES_FOR[$table] ?? self::CHUNK_BYTES;
         $n = 0;
         $chunk = [];
         $bytes = 0;
@@ -222,7 +237,7 @@ final class RestoreStage
             }
             $row = self::values($row);
             $json = self::json($pg ? array_combine($columns, $row) : $row);
-            if ($chunk !== [] && $bytes + strlen($json) + 1 > self::CHUNK_BYTES) {
+            if ($chunk !== [] && ($bytes + strlen($json) + 1 > $maxBytes || count($chunk) >= self::CHUNK_ROWS)) {
                 $this->insert($sql, $chunk);
                 [$chunk, $bytes] = [[], 0];
             }

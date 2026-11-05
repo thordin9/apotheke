@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** D1 HTTP executor, schema dump and restore stage caps (P4-3)
+
 ## [3.18.3] - 2026-11-05
 
 - **core:** tighten merge multi-key races, shared lock wait, and admin/cycle guards ([#234](https://github.com/thordin9/apotheke/pull/234))
