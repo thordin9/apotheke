@@ -13,6 +13,7 @@ use Apotheke\Core\Config\DsnTranslator;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Libraries\ItemHistory;
 use Apotheke\Core\Security\CommandLine;
 use Apotheke\Core\Storage\LocalStorage;
 use Apotheke\Media\ImageStore;
@@ -151,11 +152,11 @@ final class TestDatabase
      *
      * @param BaseConnection<object|resource, object|resource>|null $db
      */
-    public function items(?BaseConnection $db = null, ?UnitsOfWork $units = null): ItemRepository
+    public function items(?BaseConnection $db = null, ?UnitsOfWork $units = null, ?ItemHistory $history = null): ItemRepository
     {
         $db ??= $this->db;
         $clock = new Clock();
-        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $history ??= new ActivityLogger($db, $clock, static fn (): ?string => null);
         $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($this->dir . '/brand'), $clock,
             $this->config->values(), static fn (string $m): null => null, new CommandLine());
         $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->config->originalsDir(), 0640)),

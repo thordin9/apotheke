@@ -7,6 +7,7 @@ namespace Apotheke\Catalog\Items;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Libraries\ItemHistory;
 use Apotheke\Core\Libraries\Text;
@@ -212,23 +213,39 @@ final class ItemRepository
 
     /**
      * Delete an item (legacy item_delete()). With $keepFiles its photo and
-     * attachment files stay (an undo token owns them).
+     * attachment files stay (an undo token owns them). False, with nothing
+     * written or removed, when the item is already gone (L-1667: a
+     * concurrent delete of the same item wrote it first).
      *
      * @param array<string,mixed> $item
      */
-    public function delete(array $item, bool $keepFiles = false): void
+    public function delete(array $item, bool $keepFiles = false): bool
     {
         $id = (int)$item['id'];
         $files = array_column($this->photos($id), 'file');
         $att = array_column($this->attachments($id), 'file');
-        // One unit of work per item (ADR-002, batch): the history row, the item (its rows cascade) and unused tags.
-        $this->units->run('items', function (UnitOfWork $uow) use ($item, $id): void {
-            $this->history->queue($uow, $id, (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], static fn ($v): bool => $v !== ''));
-            $uow->write('DELETE FROM items WHERE id = ?', [$id], 'delete item');
-            $uow->write('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)', [], 'drop unused tags');
-        }, (string)$id);
-        if ($keepFiles) {
-            return;
+        $gone = new UserError('Item not found.', 404);
+        try {
+            // One unit of work per item (ADR-002, batch): the history row, the item (its rows cascade) and unused tags.
+            $deleted = $this->units->run('items', function (UnitOfWork $uow) use ($item, $id, $gone): bool {
+                if ($this->rows('SELECT 1 AS ok FROM items WHERE id = ?', [$id]) === []) {
+                    return false;   // re-read under the unit's lock: deleted already
+                }
+                $uow->assert('EXISTS (SELECT 1 FROM items WHERE id = ?)', [$id], 'item still there', static fn (): UserError => $gone);   // the batch's re-check
+                $this->history->queue($uow, $id, (string)$item['name'], 'deleted', array_filter(['location' => (string)($item['location'] ?? ''), 'quantity' => (int)$item['quantity']], static fn ($v): bool => $v !== ''));
+                $uow->write('DELETE FROM items WHERE id = ?', [$id], 'delete item');
+                $uow->write('DELETE FROM tags WHERE id NOT IN (SELECT tag_id FROM item_tags)', [], 'drop unused tags');
+
+                return true;
+            }, (string)$id);
+        } catch (UserError $e) {
+            if ($e !== $gone) {
+                throw $e;
+            }
+            $deleted = false;
+        }
+        if (!$deleted || $keepFiles) {
+            return $deleted;
         }
         foreach (array_unique(array_merge($files, [$item['image']])) as $f) {
             $this->images->delete(is_string($f) ? $f : null);
@@ -236,6 +253,8 @@ final class ItemRepository
         foreach ($att as $f) {
             $this->deleteAttachmentFile($f);
         }
+
+        return true;
     }
 
     /** Legacy attachment_file_delete(): only a stored attachment name. */
