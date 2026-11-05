@@ -185,6 +185,43 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
     }
 
     /**
+     * N-1778: a two-key unit shares one wait budget; blocked on the second
+     * key after spending time on the first, it answers 503 within ~lockWaitMs
+     * total (not lockWaitMs per key).
+     */
+    public function testAMultiKeyUnitSharesOneWaitBudget(): void
+    {
+        $db = $this->db();
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $set = static fn (int $q): \Closure => static function (UnitOfWork $uow) use ($q): int {
+            $uow->write('UPDATE items SET quantity = ? WHERE id = 1', [$q], 'set quantity');
+
+            return $q;
+        };
+        $this->assertNotNull($this->database);
+        // Hold key 1 briefly then release; hold key 2 for longer than the budget.
+        $wait1 = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 350);
+        $wait2 = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '2')]], 2000);
+        try {
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 500);
+            $t = hrtime(true);
+            try {
+                $units->run('items', $set(9), ['1', '2']);
+                $this->fail('a busy second key must answer 503');
+            } catch (UserError $e) {
+                $this->assertSame(503, $e->getCode());
+            }
+            $ms = (hrtime(true) - $t) / 1e6;
+            $this->assertGreaterThanOrEqual(450, $ms, 'uses most of the shared budget');
+            $this->assertLessThan(800, $ms, 'must not wait a fresh budget per key (~1000ms)');
+            $this->assertSame(1, (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = 1')[0]['quantity']);
+        } finally {
+            $this->assertStringContainsString('committed', $wait1());
+            $this->assertStringContainsString('committed', $wait2());
+        }
+    }
+
+    /**
      * L-1743: the lock is held while the batch runs. Another process keeps
      * the item's row locked, so the batch's update waits; a third process
      * that tries the unit's lock meanwhile does not get it.

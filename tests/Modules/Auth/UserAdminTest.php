@@ -105,6 +105,35 @@ final class UserAdminTest extends CIUnitTestCase
         $this->assertSame(1, $users->activeAdmins());
     }
 
+    /**
+     * N-1777: UserRepository's own EXISTS guard refuses demoting or deleting
+     * the last active admin (a caller that skips UserAdmin still cannot).
+     */
+    #[DataProvider('drivers')]
+    public function testUserRepositoryRefusesDemotingOrDeletingTheLastAdmin(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $ada = $this->account('ada', 'admin');
+        $repo = $this->repo();
+        try {
+            $repo->setRole($ada, 'editor');
+            $this->fail('demoting the last admin via UserRepository must 409');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+            $this->assertStringContainsString('without an admin', $e->getMessage());
+        }
+        $this->assertSame(1, $this->users()->activeAdmins());
+        try {
+            $repo->delete($ada);
+            $this->fail('deleting the last admin via UserRepository must 409');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+            $this->assertStringContainsString('without an admin', $e->getMessage());
+        }
+        $this->assertSame(1, $this->users()->activeAdmins());
+        $this->assertNotNull($repo->find($ada));
+    }
+
     /** N-111: a pending admin may be demoted while one active admin remains (legacy counts only active admins). */
     #[DataProvider('drivers')]
     public function testAPendingAdminCanBeDemotedBesideTheOnlyActiveAdmin(string $driver): void

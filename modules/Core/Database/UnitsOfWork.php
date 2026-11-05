@@ -163,16 +163,15 @@ final class UnitsOfWork
     }
 
     /**
-     * Take the unit's transaction advisory lock, waiting at most lockWaitMs:
+     * Take the unit's transaction advisory lock until $deadline (hrtime):
      * a try-lock with a short back-off, so a busy key answers 503 without
      * changing the transaction's lock_timeout or aborting it.
      *
      * @param BaseConnection<object|resource, object|resource> $db
      * @param array{0:int,1:int} $keys
      */
-    private function lockPostgre(BaseConnection $db, array $keys): void
+    private function lockPostgre(BaseConnection $db, array $keys, int $deadline): void
     {
-        $deadline = hrtime(true) + $this->lockWaitMs * 1_000_000;
         $pause = 2_000;
         while (!in_array(Writes::rows($db, 'SELECT pg_try_advisory_xact_lock(?, ?) AS ok', $keys)[0]['ok'] ?? null, [true, 't', 1, '1'], true)) {
             if (hrtime(true) >= $deadline) {
@@ -184,15 +183,17 @@ final class UnitsOfWork
     }
 
     /**
-     * Take each scope key's advisory lock in sorted order (M-1771), same wait/503 as one key.
+     * Take each scope key's advisory lock in sorted order (M-1771).
+     * N-1778: one lockWaitMs budget for the whole set, not per key.
      *
      * @param BaseConnection<object|resource, object|resource> $db
      * @param list<string> $keys
      */
     private function lockPostgreKeys(BaseConnection $db, string $table, array $keys): void
     {
+        $deadline = hrtime(true) + $this->lockWaitMs * 1_000_000;
         foreach ($keys as $key) {
-            $this->lockPostgre($db, self::lockKeys($table, $key));
+            $this->lockPostgre($db, self::lockKeys($table, $key), $deadline);
         }
     }
 

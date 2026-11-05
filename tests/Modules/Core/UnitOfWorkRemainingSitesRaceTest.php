@@ -24,7 +24,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
- * Real parallel races for the remaining sites (M-1752, L-1753, N-1754, M-1764, M-1765, M-1771): several
+ * Real parallel races for the remaining sites (M-1752, L-1753, N-1754, M-1764, M-1765, M-1771, N-1776): several
  * processes share one database in batch mode and must leave a correct final
  * quantity, history, and lend state.
  */
@@ -434,12 +434,13 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
     }
 
     /**
-     * M-1771 / L-1772: crossing/chained merges keep total 10; failures are 404/409.
+     * M-1771 / L-1772 / N-1776 / N-1779: crossing/chained merges keep total 10;
+     * failures are 404 or the merge-conflict 409 message.
      */
     #[DataProvider('adminRaceModes')]
     public function testCrossingMergesConserveTotal(string $driver, bool $batch): void
     {
-        for ($run = 0; $run < 6; $run++) {
+        for ($run = 0; $run < 8; $run++) {
             $this->database?->drop();
             $this->database = TestDatabase::create($driver);
             $db = $this->database->db;
@@ -455,16 +456,61 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
                 ['op' => 'merge', 'batch' => $batch, 'source' => $a, 'target' => $c],
                 ['op' => 'merge', 'batch' => $batch, 'source' => $b, 'target' => $a],
                 ['op' => 'merge', 'batch' => $batch, 'source' => $c, 'target' => $b],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $b, 'target' => $c],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $c, 'target' => $a],
             ]);
             foreach ($answers as $r) {
                 if (($r['ok'] ?? false) === true) {
                     continue;
                 }
-                $this->assertContains((int)($r['code'] ?? 0), [404, 409], "run $run: " . json_encode($answers));
+                $code = (int)($r['code'] ?? 0);
+                $this->assertContains($code, [404, 409], "run $run: " . json_encode($answers));
+                if ($code === 409) {
+                    $this->assertSame(
+                        'This item was changed by someone else. Try again.',
+                        (string)($r['message'] ?? ''),
+                        "run $run: " . json_encode($answers),
+                    );
+                }
             }
             $alive = Writes::rows($db, 'SELECT id, quantity FROM items WHERE id IN (?, ?, ?)', [$a, $b, $c]);
             $total = array_sum(array_map(static fn (array $r): int => (int)$r['quantity'], $alive));
             $this->assertSame(10, $total, "run $run answers=" . json_encode($answers) . ' alive=' . json_encode($alive));
+        }
+    }
+
+    /**
+     * N-1776: +1 on the SOURCE during a merge is kept in the merged total.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testMergePlusParallelSourceAdjustsKeepQuantity(string $driver, bool $batch): void
+    {
+        for ($run = 0; $run < 8; $run++) {
+            $this->database?->drop();
+            $this->database = TestDatabase::create($driver);
+            $db = $this->database->db;
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+            $clock = new Clock();
+            $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+            $items = $this->database->items($db, $units, $history);
+            $target = $items->save(null, ['name' => 'T', 'location_id' => null, 'category_id' => null, 'quantity' => 5, 'notes' => '', 'tags' => []], null, false);
+            $source = $items->save(null, ['name' => 'S', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+            $answers = $this->parallel([
+                ['op' => 'merge', 'batch' => $batch, 'source' => $source, 'target' => $target],
+                ['op' => 'adjust', 'batch' => $batch, 'id' => $source, 'delta' => 1],
+                ['op' => 'adjust', 'batch' => $batch, 'id' => $source, 'delta' => 1],
+            ]);
+            $mergeOk = ($answers[0]['ok'] ?? false) === true;
+            $this->assertTrue($mergeOk, "run $run merge failed: " . json_encode($answers));
+            $sourceAdjusts = 0;
+            foreach (array_slice($answers, 1) as $r) {
+                if (($r['ok'] ?? false) === true && $r['quantity'] !== null) {
+                    $sourceAdjusts++;
+                }
+            }
+            $qty = (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = ?', [$target])[0]['quantity'];
+            $this->assertSame(5 + 1 + $sourceAdjusts, $qty, "run $run answers=" . json_encode($answers));
+            $this->assertNull($items->get($source));
         }
     }
 
@@ -504,11 +550,13 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
     }
 
     /**
-     * N-1774: setParent's recursive CTE terminates on a seeded cycle.
+     * N-1774 / N-1777: setParent's recursive CTE terminates on a seeded cycle
+     * (n < 50) and refuses the move with a UserError rather than hanging.
      */
-    public function testSetParentTerminatesOnSeededCycle(): void
+    #[DataProvider('drivers')]
+    public function testSetParentTerminatesOnSeededCycle(string $driver): void
     {
-        $this->database = TestDatabase::create('sqlite');
+        $this->database = TestDatabase::create($driver);
         $db = $this->database->db;
         $units = UnitsOfWork::on(new LocalBatchExecutor($db));
         $clock = new Clock();
@@ -520,15 +568,27 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$b['id'], $a['id']]), 'seed');
         Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$a['id'], $b['id']]), 'seed');
         $c = $tax->create('location', 'CycleC');
+        // Cap the driver so an unbounded CTE cannot hang the suite (N-1777).
+        if ($driver === 'pgsql') {
+            Writes::check($db->query("SET statement_timeout = '1000'"), 'timeout');
+        }
         $started = hrtime(true);
+        $err = null;
         try {
             $tax->setParent($c['id'], $a['id']);
-        } catch (\Throwable) {
-            // may reject on depth/cycle once the walk hits the bound
+        } catch (\Throwable $e) {
+            $err = $e;
+        } finally {
+            if ($driver === 'pgsql') {
+                $db->query('SET statement_timeout = 0');
+            }
         }
         $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        $this->assertInstanceOf(\Apotheke\Core\Exceptions\UserError::class, $err, 'bound cycle walk must surface a UserError, not a driver timeout');
+        $this->assertSame(422, $err->getCode());
         $this->assertLessThan(2000, $elapsedMs, 'seeded cycle must terminate quickly');
-        // Tree under A must not grow forever; C may or may not attach.
+        $parent = Writes::rows($db, 'SELECT parent_id FROM locations WHERE id = ?', [$c['id']])[0]['parent_id'] ?? null;
+        $this->assertNull($parent, 'C must not attach under a cycled tree');
         $n = (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM locations')[0]['n'];
         $this->assertSame(3, $n);
     }
