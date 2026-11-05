@@ -19,7 +19,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 - P4-2b remaining sites part 2 (`feat/uow-remaining-sites-2`, stacked on #232): PhotoRepository, taxonomy
   default/delete/move, Stocktake tick/finish, Settings rewrite, MergeService, RoleAdmin/UserAdmin (via the
-  role and user repositories). CsvExport stays a read-only snapshot (not a unit). Left for a later PR:
+  role and user repositories; active-admins unit lock, no row lock). CsvExport stays a read-only snapshot (not a unit). Left for a later PR:
   BulkService, SearchIndex, Imports. N-1747..N-1751 stay in the backlog.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).

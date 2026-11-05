@@ -17,7 +17,7 @@ use PDOException;
 /**
  * The `users` table, as far as the session checks need it. Works on SQLite and
  * PostgreSQL. Holds no state of its own. Writes run as units of work (ADR-002);
- * RoleAdmin and UserAdmin keep their row locks in atomically() before the unit.
+ * RoleAdmin and UserAdmin take the active-admins unit lock (no row lock) for L-110.
  */
 final class UserRepository
 {
@@ -133,9 +133,8 @@ final class UserRepository
     }
 
     /**
-     * $fn in one transaction (Writes::transaction; nesting is flat). Callers
-     * that lock rows (holdActiveAdmins / lockActiveAdmins) do so inside $fn
-     * before opening a unit, so the lock order is rows then the unit (N-1665).
+     * $fn in one transaction (Writes::transaction; nesting is flat). Prefer
+     * underActiveAdminGuard() for admin changes (unit lock, no row lock).
      *
      * @template T
      * @param callable():T $fn
@@ -147,32 +146,19 @@ final class UserRepository
     }
 
     /**
-     * Legacy users_lock_admins(), inside a transaction: a no-op write on the
-     * active admin accounts. Two changes that could each remove an admin then
-     * run one after the other (L-110).
+     * Run $fn under the active-admins unit lock (L-110): one unit, no extra
+     * row lock. RoleAdmin and UserAdmin use this so last-admin checks and the
+     * write serialize with each other.
+     *
+     * @template T
+     * @param callable(\Apotheke\Core\Database\UnitOfWork):T $fn
+     * @return T
      */
-    public function lockActiveAdmins(): void
+    public function underActiveAdminGuard(callable $fn): mixed
     {
-        Writes::check($this->db->query("UPDATE users SET role = role WHERE role = 'admin' AND status = 'active'"), 'users admin lock');
+        return $this->units->run('users', $fn, 'active-admins');
     }
 
-    /**
-     * Inside a transaction, before its first read: the active admin rows
-     * locked for this transaction. PostgreSQL locks them without writing
-     * (SELECT … FOR UPDATE). SQLite takes its one write lock with the no-op
-     * write of lockActiveAdmins(), so a concurrent writer waits for it
-     * instead of failing on a read lock it cannot upgrade. For changes
-     * legacy makes without users_lock_admins() (the roles editor).
-     */
-    public function holdActiveAdmins(): void
-    {
-        if ($this->db->DBDriver === 'Postgre') {
-            Writes::rows($this->db, "SELECT id FROM users WHERE role = 'admin' AND status = 'active' FOR UPDATE");
-
-            return;
-        }
-        $this->lockActiveAdmins();
-    }
 
     /** Legacy user_approve(). */
     public function approve(int $id): void

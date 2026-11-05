@@ -206,7 +206,11 @@ final class TaxonomyRepository
         $t = Kind::get($kind);
 
         return $this->units->run($t['table'], function (UnitOfWork $uow) use ($t, $kind, $id, $moveTo): int {
-            $from = (string)($this->get($kind, $id)['name'] ?? '');
+            $row = $this->get($kind, $id);
+            if ($row === null) {
+                return 0;
+            }
+            $from = (string)$row['name'];
             $to = $moveTo !== null ? (string)($this->get($kind, $moveTo)['name'] ?? '') : '';
             $items = $this->rows("SELECT id, name FROM items WHERE {$t['col']} = ?", [$id]);
             foreach ($items as $it) {
@@ -221,7 +225,7 @@ final class TaxonomyRepository
                 $up = $this->rows('SELECT parent_id FROM locations WHERE id = ?', [$id])[0]['parent_id'] ?? null;
                 $uow->write('UPDATE locations SET parent_id = ? WHERE parent_id = ?', [$up === null ? null : (int)$up, $id], 'move sub-locations');
             }
-            $uow->write('DELETE FROM ' . $t['table'] . ' WHERE id = ?', [$id], 'delete', 1);
+            $uow->write('DELETE FROM ' . $t['table'] . ' WHERE id = ?', [$id], 'delete');
 
             return $n;
         }, (string)$id);

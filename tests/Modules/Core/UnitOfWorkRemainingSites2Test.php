@@ -14,6 +14,7 @@ use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\RequestCleanup;
 use Apotheke\Core\Libraries\Clock;
 use Apotheke\Core\Security\CommandLine;
@@ -84,6 +85,39 @@ final class UnitOfWorkRemainingSites2Test extends CIUnitTestCase
         $this->assertSame([$pb], array_column($photos->list($item), 'id'));
         $this->assertSame(['photo', 'photo', 'photo', 'photo'], array_column(Writes::rows($db, 'SELECT action FROM activity WHERE item_id = ? ORDER BY id', [$item]), 'action'));
         $this->assertSame([], Writes::rows($db, 'SELECT * FROM uow_refs'));
+        $this->assertSame([], Writes::rows($db, 'SELECT * FROM uow_guard'));
+    }
+
+    /** P6 / guard: another add that fills the limit while this one runs fails the unit and keeps no row. */
+    #[DataProvider('modes')]
+    public function testPhotoLimitIsCheckedInTheUnit(string $driver, bool $batch): void
+    {
+        putenv('APOTHEKE_CLOCK=2026-06-15 09:00:00');
+        [$db, $units, $images] = $this->wirePhotos($driver, $batch);
+        $photos = $this->photos($db, $units, $images);
+        $db->query("INSERT INTO items (name, quantity, notes, search, created_at, updated_at) VALUES ('Lamp', 1, '', 'lamp', '2026-06-15 09:00:00', '2026-06-15 09:00:00')");
+        $item = (int)$db->insertID();
+        $existing = $this->storeJpeg($images, 'lim0');
+        $photos->add($item, $existing, 2);
+        $pending = $this->storeJpeg($images, 'lim1');
+        $keys = UnitsOfWork::lockKeys('items', (string)$item);
+        $hold = $driver === 'pgsql'
+            ? [['SELECT pg_advisory_xact_lock(?, ?)', $keys]]
+            : [['UPDATE items SET updated_at = updated_at WHERE id = ?', [$item]]];
+        $otherFile = 'other-' . bin2hex(random_bytes(8)) . '.jpg';
+        $wait = $this->database->holdInAnotherClient([
+            ...$hold,
+            ['INSERT INTO item_photos (item_id, file, position, created_at) VALUES (?, ?, 1, ?)', [$item, $otherFile, '2026-06-15 09:00:00']],
+            ['UPDATE items SET image = image WHERE id = ?', [$item]],
+        ], 400);
+        try {
+            $photos->add($item, $pending, 2);
+            $this->fail('a second add must not pass a limit of 2');
+        } catch (UserError $e) {
+            $this->assertSame([422, 'An item can have at most 2 photos.'], [$e->getCode(), $e->getMessage()]);
+        }
+        $this->assertStringEndsWith("committed\n", $wait());
+        $this->assertCount(2, $photos->list($item));
         $this->assertSame([], Writes::rows($db, 'SELECT * FROM uow_guard'));
     }
 

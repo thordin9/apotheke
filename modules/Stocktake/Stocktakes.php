@@ -144,16 +144,11 @@ final class Stocktakes
      */
     public function check(int $stocktakeId, int $itemId, bool $found = true): array
     {
-        $s = $this->get($stocktakeId) ?? throw new UserError('Stocktake not found.', 404);
-        if ($s['status'] !== 'open') {
-            throw new UserError('This stocktake is finished.', 409);
-        }
-        $it = $this->items->get($itemId) ?? throw new UserError('Item not found.', 404);
-
-        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($stocktakeId, $it, $found): array {
+        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($stocktakeId, $itemId, $found): array {
             // Re-check under the unit (legacy stillOpen): a tick that lost to a finish fails the unit.
             $uow->write("UPDATE stocktakes SET status = status WHERE id = ? AND status = 'open'", [$stocktakeId], 'check stocktake', 1,
                 static fn (): UserError => new UserError('This stocktake is finished.', 409));
+            $it = $this->items->get($itemId) ?? throw new UserError('Item not found.', 404);
             $id = (int)$it['id'];
             $name = (string)$it['name'];
             $loc = is_int($it['location_id']) ? $it['location_id'] : null;
@@ -210,21 +205,17 @@ final class Stocktakes
     /** Finish: store the counts and, with $applyMoves, move every misplaced item into the checked location. Returns the number moved. */
     public function finish(int $stocktakeId, bool $applyMoves): int
     {
-        $s = $this->get($stocktakeId) ?? throw new UserError('Stocktake not found.', 404);
-        if ($s['status'] !== 'open') {
-            throw new UserError('This stocktake is already finished.', 409);
-        }
-        $to = $s['location_id'];
-        if ($applyMoves && ($to === null || $this->taxonomy->get('location', $to) === null)) {
-            throw new UserError('The location was deleted – misplaced items cannot be moved there.', 409);
-        }
-
-        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($s, $to, $applyMoves): int {
+        return $this->units->run('stocktakes', function (UnitOfWork $uow) use ($stocktakeId, $applyMoves): int {
             // Close first (legacy close): only one finish gets the open stocktake.
             $uow->write("UPDATE stocktakes SET status = 'done', finished_at = ? WHERE id = ? AND status = 'open'",
-                [$this->clock->now(), $s['id']], 'finish stocktake', 1,
+                [$this->clock->now(), $stocktakeId], 'finish stocktake', 1,
                 static fn (): UserError => new UserError('This stocktake is already finished.', 409));
-            $rep = $this->report($s['id']);
+            $s = $this->get($stocktakeId) ?? throw new UserError('Stocktake not found.', 404);
+            $to = $s['location_id'];
+            if ($applyMoves && ($to === null || $this->taxonomy->get('location', $to) === null)) {
+                throw new UserError('The location was deleted – misplaced items cannot be moved there.', 409);
+            }
+            $rep = $this->report($stocktakeId);
             $moved = 0;
             if ($applyMoves) {
                 $path = $this->taxonomy->locationPath($to);
@@ -241,10 +232,10 @@ final class Stocktakes
             }
             $sum = ['expected' => $rep['expected'], 'found' => count($rep['found']), 'missing' => count($rep['missing']), 'misplaced' => count($rep['misplaced']), 'moved' => $moved];
             $uow->write('UPDATE stocktakes SET moves_applied = ?, summary = ? WHERE id = ?',
-                [$moved, (string)json_encode($sum), $s['id']], 'finish stocktake');
+                [$moved, (string)json_encode($sum), $stocktakeId], 'finish stocktake');
 
             return $moved;
-        }, (string)$s['id']);
+        }, (string)$stocktakeId);
     }
 
     public function cancel(int $stocktakeId): void

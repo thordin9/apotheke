@@ -93,12 +93,12 @@ final class PhotoRepository
         $this->images->hold($file);
         // One unit (ADR-002, guard): positions and the cover come from the read, so the batch path needs no read after the write.
         $ref = $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $file, $max): Ref {
-            // Hold first: locks the item (PostgreSQL) or takes the write lock (SQLite), so two adds at
-            // once count one after the other and cannot pass the limit together (P6).
-            $uow->hold('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
+            // Unit lock first (no row lock): the guard re-checks the count so two adds at once
+            // cannot pass the limit together (P6).
             $uow->assert('(SELECT COUNT(*) FROM item_photos WHERE item_id = ?) < ?', [$itemId, $max], 'photo limit',
-                static fn (): UserError => new UserError('An item can have at most ' . $max . ' photos.'));
+                static fn (): UserError => new UserError('An item can have at most ' . $max . ' photos.', 422));
             $list = $this->list($itemId);
+            $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
             $ref = $uow->insert('item_photos', [
                 'item_id' => $itemId, 'file' => $file, 'position' => count($list), 'created_at' => $this->clock->now(),
             ], 'add photo');
@@ -117,7 +117,7 @@ final class PhotoRepository
     {
         $drop = null;
         $new = $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $photoId, $action, &$drop): int {
-            $uow->hold('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
+            $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
             $list = $this->list($itemId);
             $p = null;
             foreach ($list as $i => $row) {
@@ -180,7 +180,7 @@ final class PhotoRepository
     public function reorder(int $itemId, array $ids): void
     {
         $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $ids): void {
-            $uow->hold('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
+            $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
             $list = $this->list($itemId);
             $have = array_column($list, 'id');
             $byId = [];
@@ -245,7 +245,7 @@ final class PhotoRepository
         try {
             $version = $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $photoId, $name, $old, $rotate, $new): int {
                 $now = $this->clock->now();
-                $uow->hold('UPDATE items SET updated_at = ? WHERE id = ?', [$now, $itemId], 'item updated');
+                $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$now, $itemId], 'item updated');
                 $list = $this->list($itemId);
                 $cur = null;
                 foreach ($list as $row) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Auth;
 
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
 
@@ -13,8 +14,8 @@ use Apotheke\Core\Libraries\Clock;
  * user_delete()). Every change to an admin account, and granting the admin
  * role, needs an admin (AdminGuard, SEC-M1); the install always keeps one
  * active admin. Checks run in legacy's order, so the same request gets the
- * same message. Writes go through UserRepository (Core\Database\Writes).
- * Holds no state.
+ * same message. Admin changes take the active-admins unit lock (L-110, no
+ * row lock). Holds no state.
  */
 final class UserAdmin
 {
@@ -92,12 +93,13 @@ final class UserAdmin
         $role = $this->roleValid($role);
         $this->guard->target($user);
         $this->guard->grant($role);
-        $this->users->atomically(function () use ($id, $role): void {
-            $user = $this->lockAdmins($id);
+        // Unit lock first (active-admins): the last-admin check re-reads under it (L-110, no row lock).
+        $this->users->underActiveAdminGuard(function (UnitOfWork $uow) use ($id, $role): void {
+            $user = $this->get($id);
             if ($user['role'] === 'admin' && $user['status'] === 'active' && $role !== 'admin' && $this->activeAdmins() <= 1) {
                 throw new UserError('“' . $user['username'] . '” is the only admin – make someone else an admin first.', 409);
             }
-            $this->users->setRole($id, $role);
+            $uow->write('UPDATE users SET role = ? WHERE id = ?', [$role, $id], 'users role');
         });
     }
 
@@ -129,12 +131,12 @@ final class UserAdmin
     {
         $user = $this->get($id);
         $this->guard->target($user);
-        $this->users->atomically(function () use ($id): void {
-            $user = $this->lockAdmins($id);
+        $this->users->underActiveAdminGuard(function (UnitOfWork $uow) use ($id): void {
+            $user = $this->get($id);
             if ($user['role'] === 'admin' && $user['status'] === 'active' && $this->activeAdmins() <= 1) {
                 throw new UserError('“' . $user['username'] . '” is the only admin and cannot be deleted.', 409);
             }
-            $this->users->delete($id);
+            $uow->write('DELETE FROM users WHERE id = ?', [$id], 'users delete');
         });
     }
 
@@ -144,18 +146,6 @@ final class UserAdmin
         return array_filter($this->roles->all(), static fn (string $key): bool => $key !== 'guest', ARRAY_FILTER_USE_KEY);
     }
 
-    /**
-     * Legacy users_lock_admins(), inside the transaction: lock the active
-     * admins, then read the account again.
-     *
-     * @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string}
-     */
-    private function lockAdmins(int $id): array
-    {
-        $this->users->lockActiveAdmins();
-
-        return $this->get($id);
-    }
 
     /** @return array{id:int,username:string,role:string,status:string,password_hash:string,session_epoch:string} */
     private function get(int $id): array
