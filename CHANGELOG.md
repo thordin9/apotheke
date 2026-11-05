@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** local PostgreSQL batches of a unit of work now take the unit's lock, as transaction mode does (L-1743).
+
 ## [3.18.1] - 2026-11-05
 
 **Note:** an item's attachment limit and an item delete are now checked inside their unit of work, and staged restore runs are ordered by the database (L-1666, L-1667, L-1713).

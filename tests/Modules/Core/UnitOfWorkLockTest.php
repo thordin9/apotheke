@@ -7,6 +7,7 @@ namespace Tests\Core;
 use Apotheke\Activity\ActivityLogger;
 use Apotheke\Catalog\Barcode;
 use Apotheke\Core\Database\ConnectionExecutor;
+use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
@@ -103,6 +104,89 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
             $this->assertStringContainsString('committed', $wait());
         }
         $this->assertSame(1, $this->units()->run('recent_views', static fn (UnitOfWork $uow): int => 1, 'd:a'), 'free again once the other client committed');
+    }
+
+    /**
+     * L-1743: a local batch on PostgreSQL takes the unit's lock before it
+     * runs. While another process holds the key, the batch waits and then
+     * answers 503 with nothing written; another key does not wait; once the
+     * other process committed, the batch runs, and the lock is free after it.
+     */
+    public function testALocalBatchTakesTheUnitLock(): void
+    {
+        $db = $this->db();
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $set = static fn (int $q): \Closure => static function (UnitOfWork $uow) use ($q): int {
+            $uow->write('UPDATE items SET quantity = ? WHERE id = 1', [$q], 'set quantity');
+
+            return $q;
+        };
+        $quantity = static fn (): int => (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = 1')[0]['quantity'];
+        $this->assertNotNull($this->database);
+        $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 1500);
+        try {
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 150);
+            $t = hrtime(true);
+            $this->assertSame(2, $units->run('items', $set(2), '2'));
+            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'another key does not wait');
+            $t = hrtime(true);
+            try {
+                $units->run('items', $set(3), '1');
+                $this->fail('a busy key must answer 503 in a batch too');
+            } catch (UserError $e) {
+                $this->assertSame([503, 'The database is busy. Try again in a moment.'], [$e->getCode(), $e->getMessage()]);
+            }
+            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6);
+            $this->assertSame(2, $quantity(), 'the refused batch wrote nothing');
+            $this->assertSame(0, (int)$db->transDepth);
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertSame(4, UnitsOfWork::on(new LocalBatchExecutor($db))->run('items', $set(4), '1'));
+        $this->assertSame(4, $quantity());
+        $this->assertTrue($this->otherGets('items', '1'), 'free right after the batch');
+    }
+
+    /**
+     * L-1743: the lock is held while the batch runs. Another process keeps
+     * the item's row locked, so the batch's update waits; a third process
+     * that tries the unit's lock meanwhile does not get it.
+     */
+    public function testALocalBatchHoldsTheLockWhileItRuns(): void
+    {
+        $db = $this->db();
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $db->query('CREATE TABLE lock_probe (got boolean NOT NULL)');
+        $this->assertNotNull($this->database);
+        $row = $this->database->holdInAnotherClient([['UPDATE items SET quantity = 9 WHERE id = 1', []]], 900);
+        $probe = $this->database->holdInAnotherClient([['SELECT pg_sleep(0.3)', []],
+            ['INSERT INTO lock_probe (got) SELECT pg_try_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 0, false);
+        try {
+            UnitsOfWork::on(new LocalBatchExecutor($db))->run('items', static function (UnitOfWork $uow): void {
+                $uow->write('UPDATE items SET quantity = 2 WHERE id = 1', [], 'set quantity');
+            }, '1');
+        } finally {
+            $this->assertStringContainsString('committed', $row());
+            $this->assertStringContainsString('committed', $probe());
+        }
+        $this->assertSame([[false]], array_map(static fn (array $r): array => [in_array($r['got'], [true, 't', 1, '1'], true)], Writes::rows($db, 'SELECT got FROM lock_probe')),
+            'the probe ran while the batch waited, and the batch held the lock');
+        $this->assertSame([['2']], array_map(static fn (array $r): array => [(string)$r['quantity']], Writes::rows($db, 'SELECT quantity FROM items')));
+    }
+
+    /** L-1743: a local batch joined to a caller's transaction keeps the unit's lock until the outer commit. */
+    public function testAJoinedLocalBatchHoldsTheLockUntilTheOuterCommit(): void
+    {
+        $db = $this->db();
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        Writes::transaction($db, function () use ($units): void {
+            $units->run('items', static function (UnitOfWork $uow): void {
+                $uow->write('UPDATE items SET quantity = 2 WHERE id = 1', [], 'set quantity');
+            }, '1');
+            $this->assertFalse($this->otherGets('items', '1'), 'held after the batch, until the outer commit');
+        });
+        $this->assertTrue($this->otherGets('items', '1'));
     }
 
     /** N-1665: a stocktake start locks its location only. */

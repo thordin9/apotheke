@@ -225,6 +225,63 @@ final class UnitOfWorkHistorySitesTest extends CIUnitTestCase
         $this->assertSame([], Writes::rows($db, 'SELECT * FROM uow_guard'));
     }
 
+    /**
+     * L-1743: two processes race the attachment limit in local batch mode on
+     * PostgreSQL. The other process takes the unit's lock, adds two
+     * attachments and commits a moment later; this add of two passed its
+     * first check before that commit. Its batch waits for the lock, so its
+     * guard counts the other rows and refuses: never more than the limit.
+     */
+    public function testParallelBatchAddsOnPostgresKeepTheAttachmentLimit(): void
+    {
+        [$db, $units, $history] = $this->wire('pgsql', true);
+        $this->assertNotNull($this->database);
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $attachments = new Attachments($db, new Clock(), $history, $this->database->items($db, $units), new LocalStorage($this->files), 'pdf_images', 5, 3, $units);
+        $other = [['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]];
+        foreach (['x', 'y'] as $f) {
+            $other[] = ["INSERT INTO item_attachments (item_id, file, name, mime, size, created_at) VALUES (1, ?, 'other.pdf', 'application/pdf', 9, '2026-01-01 08:00:00')", [$f . bin2hex(random_bytes(8)) . '.pdf']];
+        }
+        $wait = $this->database->holdInAnotherClient($other, 400);
+        try {
+            $attachments->add(1, [$this->upload('a.pdf'), $this->upload('b.pdf')], static fn (int $e): string => 'error ' . $e);
+            $this->fail('2 + 2 attachments pass a limit of 3');
+        } catch (UserError $e) {
+            $this->assertSame([422, 'An item can have at most 3 attachments.'], [$e->getCode(), $e->getMessage()]);
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertSame([['2']], array_map(static fn (array $r): array => [(string)$r['n']], Writes::rows($db, 'SELECT COUNT(*) AS n FROM item_attachments')));
+        $this->assertSame([], $this->history($db));
+    }
+
+    /**
+     * L-1743: two processes race the delete of one item in local batch mode
+     * on PostgreSQL. The other process takes the unit's lock and deletes the
+     * item; this delete read it before that commit. Its batch waits for the
+     * lock, its re-check finds the item gone, and it writes nothing.
+     */
+    public function testParallelBatchDeletesOnPostgresWriteNothingTwice(): void
+    {
+        [$db, $units] = $this->wire('pgsql', true);
+        $this->assertNotNull($this->database);
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Saw', 2, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $items = $this->database->items($db, $units);
+        $saw = $items->get(1);
+        $this->assertNotNull($saw);
+        $wait = $this->database->holdInAnotherClient([
+            ['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')],
+            ['DELETE FROM items WHERE id = 1', []],
+        ], 400);
+        try {
+            $this->assertFalse($items->delete($saw), 'the other process deleted it first');
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertSame([], $this->history($db), 'no history row for a delete that did not happen');
+        $this->assertSame([], Writes::rows($db, 'SELECT * FROM uow_guard'));
+    }
+
     /** @return array<string,mixed> */
     private function scenario(string $driver, bool $batch): array
     {
@@ -289,6 +346,9 @@ final class UnitOfWorkHistorySitesTest extends CIUnitTestCase
     /** @return array{0:BaseConnection<object|resource, object|resource>,1:UnitsOfWork,2:ActivityLogger} */
     private function wire(string $driver, bool $batch): array
     {
+        if (!in_array($driver, TestDatabase::drivers(), true)) {
+            $this->markTestSkipped($driver . ' is not configured');
+        }
         putenv('APOTHEKE_CLOCK=2026-06-15 09:00:00');
         $this->database?->drop();
         $this->database = TestDatabase::create($driver);

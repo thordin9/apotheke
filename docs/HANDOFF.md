@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.17.0). The 2.6.x security line ships from the branch
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.18.1). The 2.6.x security line ships from the branch
   `old` for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported and byte-identical to legacy where legacy has the page (parity gate, step 16 done); module
   notes are in the [log](history/handoff-log.md#current-state).
@@ -24,7 +24,8 @@ Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pul
 
 ## Next steps
 
-1. fix(core) PR #230 in review: L-1666/L-1667 (attachment limit, item delete in the unit), L-1712, L-1713, N-1714.
+1. fix(core) PR in review (`fix/pg-batch-unit-lock`): L-1743 (unit lock for local PostgreSQL batches), N-1740,
+   N-1741. #230 is merged (v3.18.1); N-1742, N-1744, N-1745 stay in the backlog.
 2. P4-2b remaining sites: guarded sites, item save with tags and taxonomy create, the large paths.
 3. P4-3 (D1 driver and bridge, with N-1640) to P4-5. DevOps owns the bindings and the `EDGE_STORAGE_READY` flip
    checklist (#204, #208); N-1442 follows with P4.

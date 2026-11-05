@@ -116,13 +116,13 @@ final class TestDatabase
      * Another client in its own process, for lock tests: it runs $statements
      * ([sql, binds] pairs) in one transaction (BEGIN IMMEDIATE on SQLite),
      * keeps it open for $holdMs and then commits. Returns once the
-     * statements ran; the returned closure waits for the commit and gives
-     * the process output.
+     * statements ran (at once with $waitHeld false); the returned closure
+     * waits for the commit and gives the process output.
      *
      * @param list<array{0:string,1:list<int|string|null>}> $statements
      * @return \Closure():string
      */
-    public function holdInAnotherClient(array $statements, int $holdMs): \Closure
+    public function holdInAnotherClient(array $statements, int $holdMs, bool $waitHeld = true): \Closure
     {
         $env = $this->env + ['PATH' => (string)getenv('PATH')];
         $proc = proc_open([PHP_BINARY, __DIR__ . '/hold-transaction.php', (string)json_encode($statements), (string)$holdMs],
@@ -130,7 +130,7 @@ final class TestDatabase
         if (!is_resource($proc)) {
             throw new \RuntimeException('cannot start the other client');
         }
-        $out = (string)fgets($pipes[1]);
+        $out = $waitHeld ? (string)fgets($pipes[1]) : '';
         $wait = static function () use ($proc, $pipes, &$out): string {
             $out .= stream_get_contents($pipes[1]) . stream_get_contents($pipes[2]);
             fclose($pipes[1]);
@@ -139,7 +139,7 @@ final class TestDatabase
 
             return $out;
         };
-        if ($out !== "held\n") {
+        if ($waitHeld && $out !== "held\n") {
             throw new \RuntimeException('the other client failed: ' . $wait());
         }
 

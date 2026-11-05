@@ -78,6 +78,17 @@ final class LocalBatchExecutor implements SqlExecutor
         return null;
     }
 
+    /**
+     * The local connection the batches run on, for the unit's lock of a
+     * PostgreSQL batch (UnitsOfWork, L-1743); never for a unit's writes.
+     *
+     * @return BaseConnection<object|resource, object|resource>
+     */
+    public function local(): BaseConnection
+    {
+        return $this->db;
+    }
+
     public function run(array $statements): array
     {
         foreach ($statements as $s) {
