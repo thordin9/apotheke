@@ -4,7 +4,8 @@ declare(strict_types=1);
 /*
  * PLAN step 16 part 2: after `bin/seed.php --demo` (JPEG photos), fills every table a backup carries: an item
  * with a PNG and a HEIC photo (with their originals), two tags, a PDF attachment under files/, a saved filter and
- * an open stocktake with one line checked. Run with the legacy app (PHP 8.3, UPGRADE_LEGACY_ROOT). Idempotent.
+ * an open stocktake with one line checked, and a location whose parent comes after it (a self-reference to a later
+ * id, which a restore must insert with its foreign keys deferred). Run with the legacy app (PHP 8.3, UPGRADE_LEGACY_ROOT). Idempotent.
  */
 
 if (PHP_SAPI !== 'cli') exit(1);
@@ -48,6 +49,8 @@ try {
 } finally {
     @unlink($tmp);
 }
+$shelf = (int)tax_create('location', 'Shelf 2')['id'];
+location_set_parent($shelf, (int)tax_create('location', 'Loft')['id']) || exit(1);
 saved_filter_create('Winter things', 'q=winter');
 $st = stocktake_start((int)$garage);
 stocktake_check($st, $id, true);

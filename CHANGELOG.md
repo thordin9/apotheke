@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** on the edge, a backup that names a column twice is now refused, and a stopped restore found after a later one is no longer reported as unchanged. Nothing changes for self-hosted restores, except that a backup naming a column twice is refused there too.
+
 ## [3.17.0] - 2026-11-04
 
 **Note:** restores on a batch-only database (the edge) are staged and swapped in at once, one at a time. Nothing changes for self-hosted restores.

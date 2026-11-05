@@ -47,6 +47,9 @@ final class RestoreUploads
     public const APPLIED_AFTER_STOP = 'The restore was interrupted after the catalog data was replaced. Check the photos, camera files and settings.';
 
     /** A staged restore that stopped before its swap. */
+    /** L-1707: a stopped restore that was applied, and a later restore has replaced its data since. */
+    public const REPLACED_SINCE = 'A later restore has replaced this data since.';
+
     public const NOT_APPLIED = 'The restore was interrupted before the catalog data was replaced. Nothing was changed. Start the upload again.';
 
     /** N-1592: idle seconds after which another account's unconfirmed upload gives way while the cap is reached. */
@@ -494,15 +497,18 @@ final class RestoreUploads
     private function stopped(string $id, array $m): array
     {
         try {
-            $applied = $this->stage()?->applied($id);
+            $outcome = $this->stage()?->outcome($id);
         } catch (\Throwable) {
-            $applied = null;   // unreadable: may have been applied
+            $outcome = null;   // unreadable: may have been applied
         }
+        $restored = static fn (array $warnings): array => ['status' => 'restored', 'result' => ['tables' => [], 'photos' => 0, 'warnings' => $warnings, 'token_cleared' => false]];
 
-        return match ($applied) {
-            true => ['status' => 'restored', 'result' => ['tables' => [], 'photos' => 0, 'warnings' => [self::APPLIED_AFTER_STOP], 'token_cleared' => false]] + $m,
-            false => ['status' => 'failed', 'result' => ['error' => self::NOT_APPLIED]] + $m,
-            null => ['status' => 'interrupted', 'result' => ['error' => self::INTERRUPTED, 'sha256' => $m['fingerprint'] ?? null]] + $m,
+        // L-1707: from this run's own marker row; unknown when it is older than the runs kept
+        return match ($outcome) {
+            RestoreStage::APPLIED => $restored([self::APPLIED_AFTER_STOP]) + $m,
+            RestoreStage::REPLACED => $restored([self::APPLIED_AFTER_STOP, self::REPLACED_SINCE]) + $m,
+            RestoreStage::NONE => ['status' => 'failed', 'result' => ['error' => self::NOT_APPLIED]] + $m,
+            default => ['status' => 'interrupted', 'result' => ['error' => self::INTERRUPTED, 'sha256' => $m['fingerprint'] ?? null]] + $m,
         };
     }
 

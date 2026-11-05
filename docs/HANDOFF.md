@@ -18,13 +18,13 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 ## Open pull requests
 
 - None from Coder2's restore lane: #227 (restore part 2a, the staged restore wired into the restore path) is merged
-  (v3.17.0). Part 2b is in progress.
+  (v3.17.0). Part 2b (`feat/restore-staged-upgrade`) is open, with QA.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Restore part 2b (in progress): the 2.6.26 staged round trip in the upgrade gate, N-1704, L-1707, L-1708,
+1. Restore part 2b (open, with QA): the 2.6.26 staged round trip in the upgrade gate, N-1704, L-1707, L-1708,
    N-1710, N-1711; plus the L-1666/L-1667 fixes.
 2. P4-2b remaining sites: guarded sites, item save with tags and taxonomy create, the large paths.
 3. P4-3 (D1 driver and bridge, with N-1640) to P4-5. DevOps owns the bindings and the `EDGE_STORAGE_READY` flip

@@ -666,11 +666,18 @@ final class Restorer
                     continue;
                 }
                 $have = $this->backups->columns($t);
+                $named = [];
                 foreach ($columns as $c) {
                     if (!is_string($c) || !in_array($c, $have, true)) {
                         $error ??= "Unknown column $t." . mb_substr(is_scalar($c) ? (string)$c : 'Array', 0, 40) . ' in backup.';
                         break;
                     }
+                    // N-1704: stricter than legacy, one value per column (SQLite would take `id, id`), on every path
+                    if (isset($named[$c])) {
+                        $error ??= "Column $t.$c is named twice in backup.";
+                        break;
+                    }
+                    $named[$c] = true;
                 }
                 continue;
             }

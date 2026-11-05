@@ -127,7 +127,7 @@ final class RestoreStageTest extends CIUnitTestCase
         $this->assertSame([RestoreStage::copy('items')], $this->copies($dst));
         $this->assertSame([], $dst->query('SELECT * FROM ' . RestoreStage::copy('items'))->getResultArray());
         $stage->swap(['items'], ['items' => ['columns' => ['id', 'name', 'created_at', 'updated_at'], 'rows' => 0]], ['items'], 'run-2', str_repeat('b', 64), '2026-11-01 18:05:00');
-        $this->assertSame([false, true], [$stage->applied('run-1'), $stage->applied('run-2')], 'only the last swap is marked');
+        $this->assertSame([true, true, RestoreStage::REPLACED, RestoreStage::APPLIED], [$stage->applied('run-1'), $stage->applied('run-2'), $stage->outcome('run-1'), $stage->outcome('run-2')], 'L-1707: both kept, the first one replaced');
         $stage->drop();
         $this->assertSame([], $this->copies($dst));
     }
@@ -179,6 +179,100 @@ final class RestoreStageTest extends CIUnitTestCase
         $b->finish();
         $this->assertSame([], $this->copies($dst));
         $this->assertSame([['run' => 'run-b']], $dst->query('SELECT run FROM restore_marker')->getResultArray());
+    }
+
+    /**
+     * L-1708: each staged chunk renews the lock, so staging that runs well past LEASE keeps it; it is taken over
+     * only once LEASE has passed since the last chunk, and then the stopped stage can no longer write.
+     */
+    #[DataProvider('modes')]
+    public function testEachChunkRenewsTheLockUntilItIsReallyStale(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $at = time();
+        $clock = static function () use (&$at): int {
+            return $at;
+        };
+        $a = new RestoreStage(self::exec($db, $batch), $clock);
+        $b = new RestoreStage(self::exec($db, $batch), $clock);
+        $a->begin(['items']);
+        $cols = ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'];
+        for ($i = 1; $i <= 4; $i++) {   // one chunk each, LEASE - 10 seconds apart: 4 x that is well past LEASE
+            $at += RestoreStage::LEASE - 10;
+            $this->assertRefusedBusy($b);
+            $this->assertSame(1, $a->stage('items', $cols, [[$i, 'Row ' . $i, 1, '', 'row', '2026-01-02 08:00:00', '2026-01-02 08:00:00']]));
+        }
+        $at += RestoreStage::LEASE - 1;
+        $this->assertRefusedBusy($b);
+        $at += 2;
+        $b->claim();
+        try {
+            $a->stage('items', $cols, [[9, 'Late', 1, '', 'late', '2026-01-02 08:00:00', '2026-01-02 08:00:00']]);
+            $this->fail('a stage whose lock went stale and was taken over');
+        } catch (WriteFailed $e) {
+            $this->assertSame(BatchExecutor::GUARD_FAILED, $e->getCode());
+        }
+        $b->finish();
+    }
+
+    /**
+     * N-1711: without a test clock the lease is on the database's clock; N-1710: the sweep only reads when there is
+     * nothing to clear or the lock is held, and clears a stale lock with its copies.
+     */
+    #[DataProvider('modes')]
+    public function testTheLeaseUsesTheDatabaseClockAndTheSweepReadsFirst(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $runs = 0;
+        $exec = new class (self::exec($db, $batch), $runs) implements SqlExecutor {
+            public function __construct(private readonly SqlExecutor $inner, private int &$runs)
+            {
+            }
+
+            public function run(array $statements): array
+            {
+                $this->runs++;
+
+                return $this->inner->run($statements);
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                return $this->inner->query($sql, $params);
+            }
+
+            public function dialect(): Dialect
+            {
+                return $this->inner->dialect();
+            }
+
+            public function connection(): ?BaseConnection
+            {
+                return $this->inner->connection();
+            }
+        };
+        $this->assertTrue((new RestoreStage($exec))->sweep());
+        $this->assertSame(0, $runs, 'nothing to clear: no write');
+        $a = new RestoreStage(self::exec($db, $batch));
+        $a->begin(['items']);
+        $until = strtotime((string)$db->query("SELECT applied_at FROM restore_marker WHERE run = 'lock'")->getRowArray()['applied_at'] . ' UTC');
+        $this->assertEqualsWithDelta(time() + RestoreStage::LEASE, $until, 60);
+        $this->assertFalse((new RestoreStage($exec))->sweep());
+        $this->assertSame(0, $runs, 'a held lock: no write');
+        $db->query("UPDATE restore_marker SET applied_at = '2000-01-01 00:00:00' WHERE run = 'lock'");
+        $this->assertTrue((new RestoreStage($exec))->sweep());
+        $this->assertSame([], $this->copies($db));
+        $this->assertSame([], $db->query('SELECT run FROM restore_marker')->getResultArray());
+    }
+
+    private function assertRefusedBusy(RestoreStage $stage): void
+    {
+        try {
+            $stage->claim();
+            $this->fail('the lock is still held');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+        }
     }
 
     /** L-1701: the swap is one batch: every live table's delete and insert, the sequences and the marker in one run(). */
@@ -236,6 +330,43 @@ final class RestoreStageTest extends CIUnitTestCase
             } catch (LogicException) {
             }
         }
+    }
+
+    /**
+     * N-1704: stage() takes only the live table's columns, each once (SQLite alone would take `id, id`), and values
+     * as Restorer binds them: a boolean as 1 or 0 on both drivers, an array refused. Nothing is staged when refused.
+     */
+    #[DataProvider('modes')]
+    public function testStagedColumnsAndValuesAreCheckedAsRestorerDoes(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        $stage = new RestoreStage(self::exec($db, $batch));
+        $stage->begin(['items']);
+        $cols = ['id', 'name', 'quantity', 'notes', 'search', 'created_at', 'updated_at'];
+        $row = static fn (int $id, mixed $qty): array => [$id, 'Item ' . $id, $qty, '', 'item', '2026-01-02 08:00:00', '2026-01-02 08:00:00'];
+        foreach ([[['id', 'id'], [[1, 2]]], [['id', 'nope'], [[1, 2]]], [[], [[]]]] as $i => [$c, $rows]) {
+            try {
+                $stage->stage('items', $c, $rows);
+                $this->fail('columns ' . $i . ' must be refused');
+            } catch (UserError $e) {
+                $this->assertSame(RestoreStage::UNKNOWN_COLUMN, $e->getMessage());
+            }
+        }
+        try {
+            $stage->stage('items', $cols, [$row(7, ['x'])]);
+            $this->fail('an array is not a plain value');
+        } catch (UserError $e) {
+            $this->assertSame(\Apotheke\Backup\Restorer::FAILED, $e->getMessage());
+        }
+        $copy = RestoreStage::copy('items');
+        $this->assertSame(0, (int)$db->query("SELECT COUNT(*) AS n FROM $copy")->getRowArray()['n'], 'nothing staged');
+        $this->assertSame(2, $stage->stage('items', $cols, [$row(7, true), $row(8, false)]));
+        $got = $db->query("SELECT id, quantity FROM $copy ORDER BY id")->getResultArray();
+        $this->assertSame([['7', '1'], ['8', '0']], array_map(static fn (array $r): array => [(string)$r['id'], (string)$r['quantity']], $got));
+        if ($driver === 'sqlite') {
+            $this->assertSame(['integer', 'integer'], array_column($db->query("SELECT typeof(quantity) AS t FROM $copy ORDER BY id")->getResultArray(), 't'));
+        }
+        $stage->drop();
     }
 
     /** Leftover copies of a stopped restore are not carried: a backup made next to them neither names nor holds them. */
