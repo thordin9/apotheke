@@ -16,7 +16,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-3 PR 2 (`feat/p4-3-edge-handlers`): Worker `D1Outbound` for `http://d1.internal/{query,batch,exec}`, wired
+- [#236](https://github.com/thordin9/apotheke/pull/236) (P4-3 PR 2): Worker `D1Outbound` for `http://d1.internal/{query,batch,exec}`, wired
   with `interceptOutboundHttp`, and the in-repo `tools/d1-harness`. Later P4-3 PRs: D1 migration dialect, stand-in
   fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR: BulkService, SearchIndex, Imports.
   Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782, N-1786 (deferred with migrations).

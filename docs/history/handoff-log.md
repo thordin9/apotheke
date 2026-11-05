@@ -138,7 +138,7 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
 
 - [#235](https://github.com/thordin9/apotheke/pull/235) (P4-3 PR 1): D1 HTTP executor and shared limits, D1-safe schema dump
   (no FTS5 shadows), restore stage row/byte caps. Released as v3.19.0.
-- P4-3 PR 2 (`feat/p4-3-edge-handlers`): Worker `D1Outbound` for `http://d1.internal/{query,batch,exec}` via
+- [#236](https://github.com/thordin9/apotheke/pull/236) (P4-3 PR 2): Worker `D1Outbound` for `http://d1.internal/{query,batch,exec}` via
   `interceptOutboundHttp`, and `tools/d1-harness` in-repo. Open.
 
 - [#89](https://github.com/thordin9/apotheke/pull/89): stored-secret encryption for CI4 (S-L5). Merged.
