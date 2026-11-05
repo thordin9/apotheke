@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+**Note:** an item's attachment limit and an item delete are now checked inside their unit of work (L-1666, L-1667).
+
 ## [3.17.0] - 2026-11-04
 
 **Note:** restores on a batch-only database (the edge) are staged and swapped in at once, one at a time. Nothing changes for self-hosted restores.
