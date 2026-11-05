@@ -16,10 +16,10 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- [#236](https://github.com/thordin9/apotheke/pull/236) (P4-3 PR 2): Worker `D1Outbound` for `http://d1.internal/{query,batch,exec}`, wired
-  with `interceptOutboundHttp`, and the in-repo `tools/d1-harness`. Later P4-3 PRs: D1 migration dialect, stand-in
-  fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR: BulkService, SearchIndex, Imports.
-  Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782, N-1786 (deferred with migrations).
+- P4-3 PR 3 (`feat/p4-3-d1-migrations`): the D1 migration dialect (`D1Pdo` adapter + `D1MigrationRunner`; skip
+  connection PRAGMAs / `user_version` / `VACUUM INTO`, `exec()` for multi-statement, never DROP parent).
+  Later P4-3 PRs: stand-in fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR:
+  BulkService, SearchIndex, Imports. Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
