@@ -17,8 +17,9 @@ use RuntimeException;
  * recognised from D1's error text (N-1640, M-1783). No secrets: the base URL is a
  * loopback or internal name only.
  *
- * The Worker-side handlers that serve these paths land with the edge bridge
- * (a later P4-3 PR). Tests use a local stub or the wrangler harness.
+ * The Worker serves these paths on http://d1.internal via D1Outbound
+ * (edge/src); tools/d1-harness mirrors them locally. Tests use a stub transport
+ * or that harness.
  */
 final class D1HttpExecutor implements SqlExecutor
 {

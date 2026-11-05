@@ -1,0 +1,1 @@
+{ "name": "d1-harness", "private": true, "type": "module", "devDependencies": { "wrangler": "4.156.0" } }

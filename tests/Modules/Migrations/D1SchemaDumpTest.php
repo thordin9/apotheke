@@ -55,5 +55,8 @@ final class D1SchemaDumpTest extends CIUnitTestCase
         $this->assertFalse(D1SchemaDump::isFtsShadow('items', ['search_fts']));
         $this->assertFalse(D1SchemaDump::isFtsShadow('search_fts_backup', ['search_fts']), 'N-1789: prefix alone is not a shadow');
         $this->assertFalse(D1SchemaDump::isFtsShadow('search_fts_extra_idx', ['search_fts']), 'only the five literal suffixes');
+        // N-1791: no parent list → never a shadow (even a name that ends in a known suffix).
+        $this->assertFalse(D1SchemaDump::isFtsShadow('orphan_config', []));
+        $this->assertFalse(D1SchemaDump::isFtsShadow('search_fts_config', []));
     }
 }

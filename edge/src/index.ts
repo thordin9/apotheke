@@ -1,27 +1,54 @@
 // Apotheke edge (plan P4 i): the Worker `apotheke-api` forwards every request to one Durable Object, which starts
 // and reuses the Apotheke container (Dockerfile.frankenphp) through the Durable Object Container API.
-// D1 and R2 bindings and their outbound handlers come with the storage adapters (plan P4 c, f).
-import { DurableObject } from "cloudflare:workers";
+// D1 is reached from the container at http://d1.internal via an outbound handler (ADR-002, P4-3); R2 follows in P4-4.
+import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
+import { d1UnboundResponse, handleD1Request, type D1Env } from "./d1";
 
 const PORT = 9091;
 const READY_TIMEOUT_MS = 30_000;
 
-export class ApothekeContainer extends DurableObject<Env> {
+/**
+ * Outbound Worker for the container's http://d1.internal/{query,batch,exec}.
+ * Bound with interceptOutboundHttp so the container never holds a Cloudflare token.
+ * DB is present only after EDGE_STORAGE_READY merges edge/storage.jsonc.
+ */
+export class D1Outbound extends WorkerEntrypoint<Env & D1Env> {
+	async fetch(request: Request): Promise<Response> {
+		const db = this.env.DB;
+		if (!db) return d1UnboundResponse();
+		return handleD1Request(request, db);
+	}
+}
+
+export class ApothekeContainer extends DurableObject<Env & D1Env> {
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
 	}
 
-	constructor(ctx: DurableObjectState, env: Env) {
+	constructor(ctx: DurableObjectState, env: Env & D1Env) {
 		super(ctx, env);
 		const c = ctx.container;
 		// A restarted Durable Object starts without a timeout: set it again when the container is already up.
-		if (c?.running) void ctx.blockConcurrencyWhile(() => c.setInactivityTimeout(this.sleepAfter()));
+		// Re-bind d1.internal so a warm container keeps the outbound handler after a DO eviction.
+		if (c?.running) {
+			void ctx.blockConcurrencyWhile(async () => {
+				await c.setInactivityTimeout(this.sleepAfter());
+				await this.wireD1(c);
+			});
+		}
+	}
+
+	/** Point http://d1.internal at D1Outbound (safe to call while the container is running). */
+	private async wireD1(c: NonNullable<DurableObjectState["container"]>): Promise<void> {
+		const bridge = this.ctx.exports.D1Outbound({ props: {} });
+		await c.interceptOutboundHttp("d1.internal", bridge);
 	}
 
 	/** Starts the container if needed and waits for /healthz. Returns the cold-start time in ms (0 when warm). */
 	private async ensureReady(): Promise<number> {
 		const c = this.ctx.container;
 		if (!c) throw new Error("no container configured");
+		await this.wireD1(c);
 		if (c.running) return 0;
 		const t0 = Date.now();
 		c.start({
