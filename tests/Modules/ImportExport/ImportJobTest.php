@@ -27,7 +27,8 @@ use Tests\Support\TestDatabase;
 
 /**
  * The API's import job (Imports::commitRows, the import.commit job): one transaction per row with its import_rows
- * marker, no savepoint, checkpoints, and a job stopped or crashed half-way that resumes to the state one run gives.
+ * marker (no run-wide BEGIN), checkpoints, and a job stopped or crashed half-way that resumes to the state one run gives.
+ * A unit of work inside a row may use SAVEPOINT apotheke_uow (L-1625); other savepoints must not appear.
  */
 final class ImportJobTest extends CIUnitTestCase
 {
@@ -119,7 +120,9 @@ final class ImportJobTest extends CIUnitTestCase
             Events::removeListener('DBQuery', $listener);
         }
         $this->assertNotSame([], $seen);
-        $this->assertSame([], preg_grep('/\b(SAVEPOINT|BEGIN|COMMIT|ROLLBACK)\b/i', array_column($seen, 0)) ?: []);
+        $control = preg_grep('/\b(SAVEPOINT|BEGIN|COMMIT|ROLLBACK)\b/i', array_column($seen, 0)) ?: [];
+        $control = array_values(array_filter($control, static fn (string $s): bool => preg_match('/\b(?:RELEASE\s+)?SAVEPOINT apotheke_uow\b/i', $s) !== 1));
+        $this->assertSame([], $control, 'a row has no BEGIN/COMMIT/ROLLBACK and no savepoint other than the unit of work');
         $this->assertLessThanOrEqual(100, max(array_column($seen, 1)));
     }
 

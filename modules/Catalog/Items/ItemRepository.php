@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Catalog\Items;
 
+use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
@@ -19,9 +20,9 @@ use CodeIgniter\Database\BaseConnection;
 
 /**
  * One item, its photos and attachments (legacy item_get(), photos_for(),
- * attachments_for(), item_save() and item_delete()). Every write runs in one
- * checked transaction with its history (Writes); files are removed only
- * after the commit.
+ * attachments_for(), item_save() and item_delete()). Writes run in one unit
+ * of work with their history (ADR-002); files are removed only after the
+ * unit commits.
  */
 final class ItemRepository
 {
@@ -106,24 +107,27 @@ final class ItemRepository
             'notes' => $in['notes'], 'value_cents' => $in['value_cents'], 'purchase_date' => $in['purchase_date'], 'expires_on' => $in['expires_on'], 'serial' => $in['serial'],
             'barcode' => $in['barcode'] === '' ? null : $in['barcode'], 'search' => $blob, 'sort_key' => Text::natkey($in['name'])];
         $drop = [];
-        $id = Writes::transaction($this->db, function () use ($existing, $in, $newImage, $removeImage, $now, $cols, &$drop): int {
+        $key = $existing === null ? '' : (string)(int)$existing['id'];
+        // One unit of work (ADR-002, Ref + guards): tags and the cover photo join it; history is queued.
+        $result = $this->units->run('items', function (UnitOfWork $uow) use ($existing, $in, $newImage, $removeImage, $now, $cols, &$drop): int|Ref {
             if ($existing === null) {
-                Writes::check($this->db->table('items')->insert($cols + ['image' => null, 'created_at' => $now, 'updated_at' => $now]), 'add item');
-                $id = (int)$this->db->insertID();
-                $this->tags->set($id, $in['tags']);
+                $ref = $uow->insert('items', $cols + ['image' => $newImage, 'created_at' => $now, 'updated_at' => $now], 'add item');
+                $this->tags->set($ref, $in['tags'], $uow);
                 if ($newImage !== null) {
-                    $this->photoRows->insert($id, $newImage, true);
+                    $uow->insert('item_photos', ['item_id' => $ref, 'file' => $newImage, 'position' => 0, 'created_at' => $now], 'add cover');
                 }
-                $this->history->log($id, $in['name'], 'created', array_filter([
+                $this->history->queue($uow, $ref, $in['name'], 'created', array_filter([
                     'location' => $in['location_id'] !== null ? (string)($this->taxonomy->get('location', $in['location_id'])['name'] ?? '') : null,
                     'category' => $in['category_id'] !== null ? (string)($this->taxonomy->get('category', $in['category_id'])['name'] ?? '') : null,
                     'quantity' => $in['quantity'], 'min_qty' => $in['min_qty'], 'photo' => $newImage !== null ? true : null, 'tags' => $in['tags'] !== [] ? $in['tags'] : null,
                     'copied_from' => $in['copied_from'],
                 ], static fn ($v): bool => $v !== null));
 
-                return $id;
+                return $ref;
             }
             $id = (int)$existing['id'];
+            $uow->assert('EXISTS (SELECT 1 FROM items WHERE id = ?)', [$id], 'item still there',
+                static fn (): UserError => new UserError('Item not found.', 404));
             $old = $this->get($id) ?? $existing;
             $nameOf = fn (string $k, ?int $v): string => $v === null ? '' : (string)($this->taxonomy->get($k, $v)['name'] ?? '');
             $money = static fn (?int $c): string => $c === null ? '' : number_format($c / 100, 2, '.', '');
@@ -147,34 +151,47 @@ final class ItemRepository
             }
             $reason = array_filter(['reason' => $in['reason']]);
             if ($changes !== []) {
-                $this->history->log($id, $in['name'], 'edited', ['changes' => $changes] + $reason);
+                $this->history->queue($uow, $id, $in['name'], 'edited', ['changes' => $changes] + $reason);
             }
             if ((int)$old['location_id'] !== (int)$in['location_id'] || ($old['location_id'] === null) !== ($in['location_id'] === null)) {
-                $this->history->log($id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])] + $reason);
+                $this->history->queue($uow, $id, $in['name'], 'moved', ['from' => (string)$old['location'], 'to' => $nameOf('location', $in['location_id'])] + $reason);
             }
             if ((int)$old['quantity'] !== $in['quantity']) {
-                $this->history->log($id, $in['name'], 'quantity', ['from' => (int)$old['quantity'], 'to' => $in['quantity']]);
+                $this->history->queue($uow, $id, $in['name'], 'quantity', ['from' => (int)$old['quantity'], 'to' => $in['quantity']]);
             }
             if ($newImage !== null || ($removeImage && $old['image'] !== null)) {
-                $this->history->log($id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
+                $this->history->queue($uow, $id, $in['name'], 'photo', ['change' => $newImage !== null ? ($old['image'] !== null ? 'replaced' : 'added') : 'removed']);
             }
-            Writes::check($this->db->table('items')->where('id', $id)->update($cols + ['updated_at' => $now]), 'update item');
-            $this->tags->set($id, $in['tags']);
+            $uow->update('items', $cols + ['updated_at' => $now], ['id' => $id], 'update item');
+            $this->tags->set($id, $in['tags'], $uow);
             if ($newImage !== null || $removeImage) {
                 $cover = $this->photos($id)[0] ?? null;
                 if ($cover !== null) {
-                    Writes::check($this->db->table('item_photos')->where('id', $cover['id'])->delete(), 'remove cover');
+                    $uow->write('DELETE FROM item_photos WHERE id = ?', [$cover['id']], 'remove cover');
                     $drop[] = $cover['file'];
                 }
                 if ($newImage !== null) {
-                    $this->photoRows->insert($id, $newImage, true);
+                    $uow->insert('item_photos', ['item_id' => $id, 'file' => $newImage, 'position' => -1, 'created_at' => $now], 'add cover');
                 }
-                $this->photoRows->renumber($id);
+                // Renumber remaining photos 0..n-1 and mirror the cover into items.image (as PhotoRepository::renumber).
+                $rest = array_values(array_filter($this->photos($id), static fn (array $p): bool => $cover === null || (int)$p['id'] !== (int)$cover['id']));
+                if ($newImage !== null) {
+                    $uow->write('UPDATE item_photos SET position = 0 WHERE item_id = ? AND file = ?', [$id, $newImage], 'cover position');
+                    foreach ($rest as $i => $p) {
+                        $uow->write('UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?', [$i + 1, $p['id'], $id], 'photo order');
+                    }
+                    $uow->update('items', ['image' => $newImage], ['id' => $id], 'cover photo');
+                } else {
+                    foreach ($rest as $i => $p) {
+                        $uow->write('UPDATE item_photos SET position = ? WHERE id = ? AND item_id = ?', [$i, $p['id'], $id], 'photo order');
+                    }
+                    $uow->update('items', ['image' => $rest[0]['file'] ?? null], ['id' => $id], 'cover photo');
+                }
             }
 
             return $id;
-        });
-        if ((int)$this->db->transDepth > 0) {
+        }, $key);
+        if ($this->units->isOpen() || (int)$this->db->transDepth > 0) {
             array_push($this->dropAfterCommit, ...$drop);   // inside atomically(): not before its commit
         } else {
             foreach ($drop as $f) {
@@ -182,12 +199,13 @@ final class ItemRepository
             }
         }
 
-        return $id;
+        return $result instanceof Ref ? $result->id() : $result;
     }
 
     /**
      * Run $fn in one checked transaction (Writes::transaction()), so a
-     * caller can make its own writes part of a save.
+     * caller can make its own writes part of a save. A unit of work opened
+     * inside joins it (ADR-002).
      *
      * @template T
      * @param callable():T $fn

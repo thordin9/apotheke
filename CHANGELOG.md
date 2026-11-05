@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** unit-of-work remaining sites; qty race and loan lock fixes (P4-2b) ([#232](https://github.com/thordin9/apotheke/pull/232))
+
 ## [3.18.2] - 2026-11-05
 
 **Note:** local PostgreSQL batches of a unit of work now take the unit's lock, as transaction mode does (L-1743).

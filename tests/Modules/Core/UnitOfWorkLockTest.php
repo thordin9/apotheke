@@ -159,8 +159,10 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
         $db->query('CREATE TABLE lock_probe (got boolean NOT NULL)');
         $this->assertNotNull($this->database);
         $row = $this->database->holdInAnotherClient([['UPDATE items SET quantity = 9 WHERE id = 1', []]], 900);
-        $probe = $this->database->holdInAnotherClient([['SELECT pg_sleep(0.3)', []],
-            ['INSERT INTO lock_probe (got) SELECT pg_try_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 0, false);
+        // L-1746: wait until the batch holds the unit lock (pg_locks), then probe; a fixed sleep was flaky.
+        $keys = UnitsOfWork::lockKeys('items', '1');
+        $probe = $this->database->holdInAnotherClient([['__wait_advisory__', [$keys[0], $keys[1], 2000]],
+            ['INSERT INTO lock_probe (got) SELECT pg_try_advisory_xact_lock(?, ?)', $keys]], 0, false);
         try {
             UnitsOfWork::on(new LocalBatchExecutor($db))->run('items', static function (UnitOfWork $uow): void {
                 $uow->write('UPDATE items SET quantity = 2 WHERE id = 1', [], 'set quantity');

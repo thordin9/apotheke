@@ -68,6 +68,20 @@ final class TestDatabase
                 'DB_NAME' => getenv('TEST_PG_DB') ?: 'apotheke', 'DB_USER' => getenv('TEST_PG_USER') ?: 'apotheke',
                 'DB_PASSWORD' => getenv('TEST_PG_PASSWORD') !== false ? (string)getenv('TEST_PG_PASSWORD') : 'apotheke', 'DB_SCHEMA' => $schema];
         }
+
+        return self::fromEnv($env, $migrate);
+    }
+
+    /**
+     * Open an already-migrated test database from its clientEnv() (race workers).
+     *
+     * @param array<string,string> $env
+     */
+    public static function fromEnv(array $env, bool $migrate = false): self
+    {
+        $driver = $env['DB_DRIVER'] ?? 'sqlite';
+        $dir = $env['DATA_DIR'] ?? throw new \InvalidArgumentException('DATA_DIR required');
+        $schema = $env['DB_SCHEMA'] ?? '';
         $self = new self($driver, $dir, $schema);
         $self->env = $env;
         $self->config = ApothekeConfig::load(ApothekeConfig::repoRoot(), null, $env);
@@ -79,6 +93,12 @@ final class TestDatabase
         }
         $factory = new DatabaseFactory($self->config, new DsnTranslator());
         $group = array_merge(config(Database::class)->default, $factory->group(), ['schema' => '', 'DBPrefix' => '']);
+        if ($driver === 'pgsql') {
+            $dsn = (string)($group['DSN'] ?? '');
+            if ($dsn !== '') {
+                $group['DSN'] = $dsn . ' application_name=apotheke_race_' . getmypid();
+            }
+        }
         /** @var BaseConnection<object|resource, object|resource> $db */
         $db = Database::connect($group, false);
         $factory->apply($db);
@@ -166,7 +186,7 @@ final class TestDatabase
         }, static function (): void {
         });
 
-        return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history), new TagRepository($db, $clock),
+        return new ItemRepository($db, $clock, $history, new TaxonomyRepository($db, $clock, $history, $units), new TagRepository($db, $clock, $units),
             $images, new LocalStorage($this->dir), new PhotoRepository($db, $clock, $history, $images, $undo), $units);
     }
 
@@ -181,6 +201,17 @@ final class TestDatabase
     public function dataDir(): string
     {
         return $this->dir;
+    }
+
+    /**
+     * The environment used to open this database, for a worker process that
+     * must connect to the same file or schema (race tests).
+     *
+     * @return array<string,string>
+     */
+    public function clientEnv(): array
+    {
+        return $this->env;
     }
 
     public function drop(): void

@@ -6,6 +6,8 @@ namespace Apotheke\Lending;
 
 use Apotheke\Catalog\Calendar;
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\UnitOfWork;
+use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Clock;
@@ -17,7 +19,7 @@ use DateTimeImmutable;
 /**
  * Lending (legacy item_lend(), item_return(), items_lent(),
  * parse_lend_date()): who has an item, since when and until when. Each
- * change and its history entry are one transaction.
+ * change and its history entry are one unit of work (ADR-002).
  */
 final class Loans
 {
@@ -25,14 +27,21 @@ final class Loans
 
     private const FROM = 'FROM items i LEFT JOIN locations l ON l.id = i.location_id LEFT JOIN categories c ON c.id = i.category_id';
 
-    /** @param BaseConnection<object|resource, object|resource> $db */
+    private readonly UnitsOfWork $units;
+
+    /**
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param UnitsOfWork|null $units the request's (Services::unitsOfWork()); its own on $db when null
+     */
     public function __construct(
         private readonly BaseConnection $db,
         private readonly Clock $clock,
         private readonly Calendar $calendar,
         private readonly ItemHistory $history,
         private readonly ItemRepository $items,
+        ?UnitsOfWork $units = null,
     ) {
+        $this->units = UnitsOfWork::forSite($db, $units);
     }
 
     /** A date from the form: YYYY-MM-DD, or null when empty. */
@@ -66,45 +75,41 @@ final class Loans
         if ($due !== null && $due < $at) {
             throw new UserError('The due date cannot be before the lent date.');
         }
-        Writes::transaction($this->db, function () use ($id, $to, $at, $due): void {
-            $this->hold($id);
+        // The unit lock alone serialises this item (L-1753); no separate row lock.
+        $this->units->run('items', function (UnitOfWork $uow) use ($id, $to, $at, $due): void {
             $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
-            Writes::check($this->db->query('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?', [$to, $at, $due, $this->clock->now(), $id]), 'lend');
-            $this->history->log($id, (string)$it['name'], 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $it['lent_to']], static fn (mixed $v): bool => $v !== null));
-        });
+            $uow->write('UPDATE items SET lent_to = ?, lent_at = ?, lent_due = ?, updated_at = ? WHERE id = ?', [$to, $at, $due, $this->clock->now(), $id], 'lend', 1);
+            $this->history->queue($uow, $id, (string)$it['name'], 'lent', array_filter(['to' => $to, 'at' => $at, 'due' => $due, 'before' => $it['lent_to']], static fn (mixed $v): bool => $v !== null));
+        }, (string)$id);
     }
 
     /** Mark a lent item as returned. */
     public function giveBack(int $id): void
     {
-        Writes::transaction($this->db, function () use ($id): void {
-            $this->hold($id);
-            $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
-            if ($it['lent_to'] === null) {
+        try {
+            $this->units->run('items', function (UnitOfWork $uow) use ($id): void {
+                $it = $this->items->get($id) ?? throw new UserError('Item not found.', 404);
+                if ($it['lent_to'] === null) {
+                    return;
+                }
+                // Conditional on still being out (L-230): a concurrent return
+                // leaves no second history row once the unit lock is the only lock.
+                $uow->write(
+                    'UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL, updated_at = ? WHERE id = ? AND lent_to IS NOT NULL',
+                    [$this->clock->now(), $id],
+                    'return',
+                    1,
+                    static fn (): UserError => new UserError('already returned', 409),
+                );
+                $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable($this->calendar->today()))->format('%a');
+                $this->history->queue($uow, $id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
+            }, (string)$id);
+        } catch (UserError $e) {
+            if ($e->getCode() === 409 && $e->getMessage() === 'already returned') {
                 return;
             }
-            Writes::check($this->db->query('UPDATE items SET lent_to = NULL, lent_at = NULL, lent_due = NULL, updated_at = ? WHERE id = ?', [$this->clock->now(), $id]), 'return');
-            $days = (int)(new DateTimeImmutable((string)$it['lent_at']))->diff(new DateTimeImmutable($this->calendar->today()))->format('%a');
-            $this->history->log($id, (string)$it['name'], 'returned', ['from' => $it['lent_to'], 'days' => $days]);
-        });
-    }
-
-    /**
-     * Inside the transaction, before its first read: the item row locked for
-     * it, as UserRepository::holdActiveAdmins() does. PostgreSQL locks it
-     * without writing (SELECT … FOR UPDATE), so a second return waits and
-     * then sees the item back. SQLite takes its one write lock with a no-op
-     * write, so a concurrent lend or return waits for it instead of failing
-     * on a read lock it cannot upgrade.
-     */
-    private function hold(int $id): void
-    {
-        if ($this->db->DBDriver === 'Postgre') {
-            Writes::rows($this->db, 'SELECT id FROM items WHERE id = ? FOR UPDATE', [$id]);
-
-            return;
+            throw $e;
         }
-        Writes::check($this->db->query('UPDATE items SET lent_to = lent_to WHERE id = ?', [$id]), 'lock item');
     }
 
     /**
