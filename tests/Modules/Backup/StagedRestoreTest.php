@@ -155,6 +155,21 @@ final class StagedRestoreTest extends CIUnitTestCase
         $this->assertSame([], $db->query('SELECT run FROM restore_marker')->getResultArray(), 'the lock is free again');
     }
 
+    /** N-1714: copies left with no lock row at all (the lock given up, the drop lost) are dropped by the upload sweep. */
+    #[DataProvider('modes')]
+    public function testTheUploadSweepDropsCopiesWithNoLockRow(string $driver, bool $batch): void
+    {
+        $db = $this->target($driver);
+        (new RestoreStage(self::exec($db, $batch)))->begin(Backups::tables());
+        $db->query("DELETE FROM restore_marker WHERE run = 'lock'");
+        $this->assertCount(count(Backups::tables()), $this->copies($db));
+        $uploads = new RestoreUploads($this->database->dataDir(), 4, 100, static fn (): string => 'user:1', 8, null, null,
+            static fn (): RestoreStage => new RestoreStage(self::exec($db, $batch)));
+        $uploads->sweep();
+        $this->assertSame([], $this->copies($db));
+        $this->assertSame([], $db->query('SELECT run FROM restore_marker')->getResultArray(), 'no lock row is left behind');
+    }
+
     /** A confirm found stopped on a staged backend: restored when its swap committed, else failed with nothing changed. */
     #[DataProvider('modes')]
     public function testAStoppedConfirmIsResolvedFromTheMarker(string $driver, bool $batch): void
