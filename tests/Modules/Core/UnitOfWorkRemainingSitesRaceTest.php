@@ -164,6 +164,33 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         $this->assertSame($parent['id'], (int)Writes::rows($db, 'SELECT parent_id FROM locations WHERE name = ?', ['Shelf'])[0]['parent_id']);
     }
 
+
+    /**
+     * Parallel setDefault(true) on two locations: table-wide unit lock leaves
+     * exactly one default (clear-then-set must not race on PostgreSQL).
+     */
+    #[DataProvider('drivers')]
+    public function testParallelSetDefaultLeavesOneDefault(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $tax = new TaxonomyRepository($db, new Clock(), new ActivityLogger($db, new Clock(), static fn (): ?string => null), $units);
+        $a = $tax->create('location', 'Alpha');
+        $b = $tax->create('location', 'Beta');
+        $answers = $this->parallel([
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $a['id'], 'on' => true],
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $b['id'], 'on' => true],
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $a['id'], 'on' => true],
+            ['op' => 'setDefault', 'batch' => true, 'kind' => 'location', 'id' => $b['id'], 'on' => true],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $row): bool => ($row['ok'] ?? false) === true));
+        $this->assertCount(4, $ok, json_encode($answers));
+        $defaults = Writes::rows($db, 'SELECT id FROM locations WHERE is_default = 1');
+        $this->assertCount(1, $defaults, json_encode($defaults));
+        $this->assertContains((int)$defaults[0]['id'], [$a['id'], $b['id']]);
+    }
+
     /**
      * N-1755: ItemRepository and TagRepository from Services share one UnitsOfWork.
      */

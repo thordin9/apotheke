@@ -8,6 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** move photos, taxonomy guards, stocktake, settings and merge onto the unit of work (P4-2b)
 - **core:** unit-of-work remaining sites; qty race and loan lock fixes (P4-2b) ([#232](https://github.com/thordin9/apotheke/pull/232))
 
 ## [3.18.2] - 2026-11-05

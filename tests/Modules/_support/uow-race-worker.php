@@ -5,7 +5,7 @@ declare(strict_types=1);
 /*
  * One parallel client for UnitOfWorkRemainingSitesRaceTest: connects with the
  * test database's clientEnv (JSON in argv[1]) and runs argv[2] (JSON job:
- * {op, batch, id?, delta?, to?, at?, due?, kind?, name?, parent?}).
+ * {op, batch, id?, delta?, to?, at?, due?, kind?, name?, parent?, on?}).
  * Prints one JSON line and exits 0; stderr carries unexpected errors.
  */
 
@@ -80,6 +80,12 @@ try {
                 ->create((string)$job['kind'], (string)$job['name']);
 
             return ['ok' => true, 'id' => $r['id'], 'created' => $r['created']];
+        })(),
+        'setDefault' => (static function () use ($db, $clock, $history, $units, $job): array {
+            (new TaxonomyRepository($db, $clock, $history, $units))
+                ->setDefault((string)$job['kind'], (int)$job['id'], (bool)$job['on']);
+
+            return ['ok' => true, 'id' => (int)$job['id']];
         })(),
         default => throw new InvalidArgumentException('unknown op ' . $job['op']),
     };
