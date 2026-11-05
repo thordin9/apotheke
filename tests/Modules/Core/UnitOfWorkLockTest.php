@@ -148,6 +148,43 @@ final class UnitOfWorkLockTest extends CIUnitTestCase
     }
 
     /**
+     * M-1771: a multi-key unit takes each key's lock; holding one of them
+     * blocks the unit, and another key alone does not.
+     */
+    public function testAMultiKeyUnitTakesEachKeyLock(): void
+    {
+        $db = $this->db();
+        $db->query("INSERT INTO items (name, quantity, created_at, updated_at) VALUES ('Lamp', 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $this->assertSame(['1', '2'], UnitsOfWork::normalizeKeys(['2', '1', '2']));
+        $set = static fn (int $q): \Closure => static function (UnitOfWork $uow) use ($q): int {
+            $uow->write('UPDATE items SET quantity = ? WHERE id = 1', [$q], 'set quantity');
+
+            return $q;
+        };
+        $this->assertNotNull($this->database);
+        $wait = $this->database->holdInAnotherClient([['SELECT pg_advisory_xact_lock(?, ?)', UnitsOfWork::lockKeys('items', '1')]], 1500);
+        try {
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db), null, 150);
+            $t = hrtime(true);
+            $this->assertSame(7, $units->run('items', $set(7), ['3', '4']));
+            $this->assertLessThan(100, (hrtime(true) - $t) / 1e6, 'unrelated keys do not wait');
+            $t = hrtime(true);
+            try {
+                $units->run('items', $set(8), ['2', '1']);
+                $this->fail('holding one of the keys must answer 503');
+            } catch (UserError $e) {
+                $this->assertSame(503, $e->getCode());
+            }
+            $this->assertGreaterThanOrEqual(150, (hrtime(true) - $t) / 1e6);
+            $this->assertSame(7, (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = 1')[0]['quantity']);
+        } finally {
+            $this->assertStringContainsString('committed', $wait());
+        }
+        $this->assertTrue($this->otherGets('items', '1'));
+        $this->assertTrue($this->otherGets('items', '2'));
+    }
+
+    /**
      * L-1743: the lock is held while the batch runs. Another process keeps
      * the item's row locked, so the batch's update waits; a third process
      * that tries the unit's lock meanwhile does not get it.

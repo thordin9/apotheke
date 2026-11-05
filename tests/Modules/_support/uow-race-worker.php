@@ -6,7 +6,7 @@ declare(strict_types=1);
  * One parallel client for UnitOfWorkRemainingSitesRaceTest: connects with the
  * test database's clientEnv (JSON in argv[1]) and runs argv[2] (JSON job:
  * {op, batch, id?, delta?, to?, at?, due?, kind?, name?, parent?, on?, role?,
- *  source?, target?, stocktake?, item?}).
+ *  source?, target?, stocktake?, item?, file?, max?}).
  * Prints one JSON line and exits 0; stderr carries unexpected errors.
  */
 
@@ -146,6 +146,11 @@ try {
             $r = $takes->check((int)$job['stocktake'], (int)$job['item'], true);
 
             return ['ok' => true, 'state' => $r['state']];
+        })(),
+        'photoAdd' => (static function () use ($database, $db, $units, $history, $job): array {
+            $id = $database->photos($db, $units, $history)->add((int)$job['item'], (string)$job['file'], (int)($job['max'] ?? 6));
+
+            return ['ok' => true, 'id' => $id];
         })(),
         default => throw new InvalidArgumentException('unknown op ' . $job['op']),
     };

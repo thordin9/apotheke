@@ -18,11 +18,11 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-2b remaining sites part 2 (#233, `feat/uow-remaining-sites-2`; QA hold M-1764/M-1765): PhotoRepository, taxonomy default/delete/move,
-  Stocktake tick/finish, Settings rewrite, MergeService, RoleAdmin/UserAdmin (via the role and user repositories;
-  active-admins unit lock, no row lock). CsvExport stays a read-only snapshot (not a unit). Left for a later PR:
-  BulkService, SearchIndex, Imports. N-1747..N-1751 and N-1758, N-1761..N-1763 stay in the backlog; N-1759/N-1760
-  go with P4-3.
+- P4-2b remaining sites part 2 (#233, `feat/uow-remaining-sites-2`; fixing M-1771/L-1772/L-1773/N-1774): PhotoRepository,
+  taxonomy default/delete/move, Stocktake tick/finish, Settings rewrite, MergeService (multi-key unit locks),
+  RoleAdmin/UserAdmin (via the role and user repositories; active-admins unit lock, no row lock). CsvExport stays a
+  read-only snapshot (not a unit). Left for a later PR: BulkService, SearchIndex, Imports. N-1747..N-1751 and N-1758,
+  N-1761..N-1763 stay in the backlog; N-1759/N-1760 go with P4-3.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 

@@ -24,7 +24,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
- * Real parallel races for the remaining sites (M-1752, L-1753, N-1754, M-1764, M-1765): several
+ * Real parallel races for the remaining sites (M-1752, L-1753, N-1754, M-1764, M-1765, M-1771): several
  * processes share one database in batch mode and must leave a correct final
  * quantity, history, and lend state.
  */
@@ -403,6 +403,137 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
     }
 
     /**
+     * M-1771: merge + 4 parallel +1 on the target ends at 9 (both keys serialize).
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testMergePlusParallelAdjustsKeepQuantity(string $driver, bool $batch): void
+    {
+        for ($run = 0; $run < 6; $run++) {
+            $this->database?->drop();
+            $this->database = TestDatabase::create($driver);
+            $db = $this->database->db;
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+            $clock = new Clock();
+            $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+            $items = $this->database->items($db, $units, $history);
+            $target = $items->save(null, ['name' => 'T', 'location_id' => null, 'category_id' => null, 'quantity' => 5, 'notes' => '', 'tags' => []], null, false);
+            $source = $items->save(null, ['name' => 'S', 'location_id' => null, 'category_id' => null, 'quantity' => 0, 'notes' => '', 'tags' => []], null, false);
+            $jobs = [
+                ['op' => 'merge', 'batch' => $batch, 'source' => $source, 'target' => $target],
+            ];
+            for ($i = 0; $i < 4; $i++) {
+                $jobs[] = ['op' => 'adjust', 'batch' => $batch, 'id' => $target, 'delta' => 1];
+            }
+            $answers = $this->parallel($jobs);
+            $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+            $this->assertGreaterThanOrEqual(5, count($ok), "run $run: " . json_encode($answers));
+            $qty = (int)Writes::rows($db, 'SELECT quantity FROM items WHERE id = ?', [$target])[0]['quantity'];
+            $this->assertSame(9, $qty, "run $run answers=" . json_encode($answers));
+            $this->assertNull($items->get($source));
+        }
+    }
+
+    /**
+     * M-1771 / L-1772: crossing/chained merges keep total 10; failures are 404/409.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testCrossingMergesConserveTotal(string $driver, bool $batch): void
+    {
+        for ($run = 0; $run < 6; $run++) {
+            $this->database?->drop();
+            $this->database = TestDatabase::create($driver);
+            $db = $this->database->db;
+            $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+            $clock = new Clock();
+            $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+            $items = $this->database->items($db, $units, $history);
+            $a = $items->save(null, ['name' => 'A', 'location_id' => null, 'category_id' => null, 'quantity' => 4, 'notes' => '', 'tags' => []], null, false);
+            $b = $items->save(null, ['name' => 'B', 'location_id' => null, 'category_id' => null, 'quantity' => 3, 'notes' => '', 'tags' => []], null, false);
+            $c = $items->save(null, ['name' => 'C', 'location_id' => null, 'category_id' => null, 'quantity' => 3, 'notes' => '', 'tags' => []], null, false);
+            $answers = $this->parallel([
+                ['op' => 'merge', 'batch' => $batch, 'source' => $a, 'target' => $b],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $a, 'target' => $c],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $b, 'target' => $a],
+                ['op' => 'merge', 'batch' => $batch, 'source' => $c, 'target' => $b],
+            ]);
+            foreach ($answers as $r) {
+                if (($r['ok'] ?? false) === true) {
+                    continue;
+                }
+                $this->assertContains((int)($r['code'] ?? 0), [404, 409], "run $run: " . json_encode($answers));
+            }
+            $alive = Writes::rows($db, 'SELECT id, quantity FROM items WHERE id IN (?, ?, ?)', [$a, $b, $c]);
+            $total = array_sum(array_map(static fn (array $r): int => (int)$r['quantity'], $alive));
+            $this->assertSame(10, $total, "run $run answers=" . json_encode($answers) . ' alive=' . json_encode($alive));
+        }
+    }
+
+    /**
+     * L-1773: parallel photo uploads get distinct positions 0,1,2.
+     */
+    #[DataProvider('adminRaceModes')]
+    public function testParallelPhotoAddsGetDistinctPositions(string $driver, bool $batch): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $items = $this->database->items($db, $units, $history);
+        $item = $items->save(null, ['name' => 'Cam', 'location_id' => null, 'category_id' => null, 'quantity' => 1, 'notes' => '', 'tags' => []], null, false);
+        $files = [
+            str_repeat('a', 32) . '.jpg',
+            str_repeat('b', 32) . '.jpg',
+            str_repeat('c', 32) . '.jpg',
+        ];
+        $answers = $this->parallel([
+            ['op' => 'photoAdd', 'batch' => $batch, 'item' => $item, 'file' => $files[0]],
+            ['op' => 'photoAdd', 'batch' => $batch, 'item' => $item, 'file' => $files[1]],
+            ['op' => 'photoAdd', 'batch' => $batch, 'item' => $item, 'file' => $files[2]],
+        ]);
+        $ok = array_values(array_filter($answers, static fn (array $r): bool => ($r['ok'] ?? false) === true));
+        $this->assertCount(3, $ok, json_encode($answers));
+        $positions = array_map(
+            static fn (array $r): int => (int)$r['position'],
+            Writes::rows($db, 'SELECT position FROM item_photos WHERE item_id = ? ORDER BY position, id', [$item]),
+        );
+        $this->assertSame([0, 1, 2], $positions, json_encode($answers));
+        $cover = Writes::rows($db, 'SELECT image FROM items WHERE id = ?', [$item])[0]['image'] ?? null;
+        $first = Writes::rows($db, 'SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id LIMIT 1', [$item])[0]['file'] ?? null;
+        $this->assertSame($first, $cover);
+    }
+
+    /**
+     * N-1774: setParent's recursive CTE terminates on a seeded cycle.
+     */
+    public function testSetParentTerminatesOnSeededCycle(): void
+    {
+        $this->database = TestDatabase::create('sqlite');
+        $db = $this->database->db;
+        $units = UnitsOfWork::on(new LocalBatchExecutor($db));
+        $clock = new Clock();
+        $history = new ActivityLogger($db, $clock, static fn (): ?string => null);
+        $tax = new TaxonomyRepository($db, $clock, $history, $units);
+        $a = $tax->create('location', 'CycleA');
+        $b = $tax->create('location', 'CycleB');
+        // Seed a cycle A→B→A by bypassing guards.
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$b['id'], $a['id']]), 'seed');
+        Writes::check($db->query('UPDATE locations SET parent_id = ? WHERE id = ?', [$a['id'], $b['id']]), 'seed');
+        $c = $tax->create('location', 'CycleC');
+        $started = hrtime(true);
+        try {
+            $tax->setParent($c['id'], $a['id']);
+        } catch (\Throwable) {
+            // may reject on depth/cycle once the walk hits the bound
+        }
+        $elapsedMs = (hrtime(true) - $started) / 1_000_000;
+        $this->assertLessThan(2000, $elapsedMs, 'seeded cycle must terminate quickly');
+        // Tree under A must not grow forever; C may or may not attach.
+        $n = (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM locations')[0]['n'];
+        $this->assertSame(3, $n);
+    }
+
+        /**
      * N-1755: ItemRepository and TagRepository from Services share one UnitsOfWork.
      */
     public function testItemAndTagServicesShareUnitsOfWork(): void

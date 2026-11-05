@@ -316,9 +316,9 @@ final class TaxonomyRepository
             // M-1765: parent is not this node or a descendant (cycle guard in-batch).
             $uow->assert(
                 'NOT EXISTS ('
-                . ' WITH RECURSIVE sub(id) AS ('
-                . '   SELECT ? AS id'
-                . '   UNION ALL SELECT l.id FROM locations l JOIN sub ON l.parent_id = sub.id'
+                . ' WITH RECURSIVE sub(id, n) AS ('
+                . '   SELECT ? AS id, 0'
+                . '   UNION ALL SELECT l.id, sub.n + 1 FROM locations l JOIN sub ON l.parent_id = sub.id WHERE sub.n < 50'
                 . ' ) SELECT 1 FROM sub WHERE id = ?'
                 . ')',
                 [$id, $parent],
@@ -359,9 +359,9 @@ final class TaxonomyRepository
                 'UPDATE locations SET parent_id = ? WHERE id = ?'
                 . ' AND EXISTS (SELECT 1 FROM locations WHERE id = ?)'
                 . ' AND NOT EXISTS ('
-                . '   WITH RECURSIVE sub(id) AS ('
-                . '     SELECT ? AS id'
-                . '     UNION ALL SELECT l.id FROM locations l JOIN sub ON l.parent_id = sub.id'
+                . '   WITH RECURSIVE sub(id, n) AS ('
+                . '     SELECT ? AS id, 0'
+                . '     UNION ALL SELECT l.id, sub.n + 1 FROM locations l JOIN sub ON l.parent_id = sub.id WHERE sub.n < 50'
                 . '   ) SELECT 1 FROM sub WHERE id = ?'
                 . ' )',
                 [$parent, $id, $parent, $id, $parent],

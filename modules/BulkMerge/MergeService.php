@@ -101,9 +101,8 @@ final class MergeService
      */
     public function merge(int $sourceId, int $targetId): array
     {
-        // One unit on both items (L-1767): sorted combined key avoids deadlocks; source delete expects 1.
-        $lo = min($sourceId, $targetId);
-        $hi = max($sourceId, $targetId);
+        // M-1771: both single-item keys in sorted order (same keys QuantityAdjust takes).
+        $keys = [(string)min($sourceId, $targetId), (string)max($sourceId, $targetId)];
 
         return $this->units->run('items', function (UnitOfWork $uow) use ($sourceId, $targetId): array {
             $p = $this->preview($sourceId, $targetId);
@@ -118,17 +117,22 @@ final class MergeService
             $uow->write('UPDATE item_attachments SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId], 'merge attachments');
             $uow->write('UPDATE activity SET item_id = ? WHERE item_id = ?', [$targetId, $sourceId], 'merge history');
             $uow->write('DELETE FROM recent_views WHERE item_id = ?', [$sourceId], 'merge recent');
-            $uow->write('DELETE FROM items WHERE id = ?', [$sourceId], 'merge source', 1,
-                static fn (): UserError => new UserError('Item not found.', 404));
             $lend = $p['lending'] === 'copied' ? [$src['lent_to'], $src['lent_at'], $src['lent_due']] : [$dst['lent_to'], $dst['lent_at'], $dst['lent_due']];
             $barcode = (string)$in['barcode'];
             $blob = Text::fold(implode("\n", array_merge([(string)$in['name'], (string)$in['notes'], (string)$in['serial'], $barcode], $in['tags'])));
-            $uow->write('UPDATE items SET location_id=?, category_id=?, quantity=?, min_qty=?, notes=?, value_cents=?, purchase_date=?, expires_on=?, serial=?, barcode=?,
-                       image=?, lent_to=?, lent_at=?, lent_due=?, favourite=?, search=?, updated_at=? WHERE id=?', [
-                $in['location_id'], $in['category_id'], $in['quantity'], $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['expires_on'],
+            // M-1771: add the source's live quantity (not a stale preview absolute) before deleting it.
+            $uow->write('UPDATE items SET location_id=?, category_id=?,'
+                . ' quantity = quantity + COALESCE((SELECT s.quantity FROM items s WHERE s.id = ?), 0),'
+                . ' min_qty=?, notes=?, value_cents=?, purchase_date=?, expires_on=?, serial=?, barcode=?,'
+                . ' image=?, lent_to=?, lent_at=?, lent_due=?, favourite=?, search=?, updated_at=?'
+                . ' WHERE id = ? AND EXISTS (SELECT 1 FROM items WHERE id = ?)', [
+                $in['location_id'], $in['category_id'], $sourceId, $in['min_qty'], $in['notes'], $in['value_cents'], $in['purchase_date'], $in['expires_on'],
                 $in['serial'], $barcode === '' ? null : $barcode, $cover === null || $cover === '' ? null : $cover, ...$lend,
-                (int)(!empty($dst['favourite']) || !empty($src['favourite'])), $blob, $this->clock->now(), $targetId,
-            ], 'merge target', 1);
+                (int)(!empty($dst['favourite']) || !empty($src['favourite'])), $blob, $this->clock->now(), $targetId, $sourceId,
+            ], 'merge target', 1,
+                static fn (): UserError => new UserError('Item not found.', 409));
+            $uow->write('DELETE FROM items WHERE id = ?', [$sourceId], 'merge source', 1,
+                static fn (): UserError => new UserError('Item not found.', 404));
             $this->tags->set($targetId, $in['tags'], $uow);
             $this->history->queue($uow, $targetId, (string)$dst['name'], 'merged', array_filter([
                 'from' => (string)$src['name'], 'from_id' => $sourceId,
@@ -138,7 +142,7 @@ final class MergeService
             ], static fn ($v): bool => $v !== null));
 
             return $p;
-        }, $lo . ':' . $hi);
+        }, $keys);
     }
 
     /**

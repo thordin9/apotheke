@@ -91,25 +91,32 @@ final class PhotoRepository
     public function add(int $itemId, string $file, int $max): int
     {
         $this->images->hold($file);
-        // One unit (ADR-002, guard): positions and the cover come from the read, so the batch path needs no read after the write.
-        $ref = $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $file, $max): Ref {
+        // L-1773: position from COALESCE(MAX)+1 inside the write so parallel batch adds get 0,1,2.
+        $this->units->run('items', function (UnitOfWork $uow) use ($itemId, $file, $max): void {
             // Unit lock first (no row lock): the guard re-checks the count so two adds at once
             // cannot pass the limit together (P6).
             $uow->assert('(SELECT COUNT(*) FROM item_photos WHERE item_id = ?) < ?', [$itemId, $max], 'photo limit',
                 static fn (): UserError => new UserError('An item can have at most ' . $max . ' photos.', 422));
-            $list = $this->list($itemId);
-            $uow->write('UPDATE items SET updated_at = ? WHERE id = ?', [$this->clock->now(), $itemId], 'item updated');
-            $ref = $uow->insert('item_photos', [
-                'item_id' => $itemId, 'file' => $file, 'position' => count($list), 'created_at' => $this->clock->now(),
-            ], 'add photo');
-            $this->queueRenumber($uow, $itemId, array_merge(array_column($list, 'id'), [$ref]), array_merge(array_column($list, 'file'), [$file]));
-            $this->history->queue($uow, $itemId, $this->name($itemId), 'photo', ['change' => 'added', 'count' => count($list) + 1]);
-
-            return $ref;
+            $now = $this->clock->now();
+            $before = (int)(Writes::rows($this->db, 'SELECT COUNT(*) AS n FROM item_photos WHERE item_id = ?', [$itemId])[0]['n'] ?? 0);
+            $uow->write(
+                'INSERT INTO item_photos (item_id, file, position, created_at)'
+                . ' SELECT ?, ?, COALESCE((SELECT MAX(position) FROM item_photos WHERE item_id = ?), -1) + 1, ?',
+                [$itemId, $file, $itemId, $now],
+                'add photo',
+                1,
+            );
+            $uow->write(
+                'UPDATE items SET image = (SELECT file FROM item_photos WHERE item_id = ? ORDER BY position, id LIMIT 1),'
+                . ' updated_at = ? WHERE id = ?',
+                [$itemId, $now, $itemId],
+                'cover photo',
+            );
+            $this->history->queue($uow, $itemId, $this->name($itemId), 'photo', ['change' => 'added', 'count' => $before + 1]);
         }, (string)$itemId);
         $this->images->release($file);
 
-        return $ref->id();
+        return (int)(Writes::rows($this->db, 'SELECT id FROM item_photos WHERE item_id = ? AND file = ? ORDER BY id DESC', [$itemId, $file])[0]['id'] ?? 0);
     }
 
     /** Legacy photo_action(): cover, left, right or delete. Returns the photo's new index (-1 when deleted). */
