@@ -34,7 +34,11 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
 
     private readonly Dialect $dialect;
 
-    public function __construct(private readonly BatchExecutor&SqlExecutor $executor)
+    /**
+     * @param (\Closure(callable():list<list<array<string,mixed>>>):list<list<array<string,mixed>>>)|null $around
+     *        how the batch is sent (a local PostgreSQL batch under the unit's lock, L-1743); null sends it as it is
+     */
+    public function __construct(private readonly BatchExecutor&SqlExecutor $executor, private readonly ?\Closure $around = null)
     {
         $this->dialect = $executor->dialect();
     }
@@ -74,7 +78,8 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
             return;
         }
         try {
-            $out = $this->executor->run($batch);
+            $run = fn (): array => $this->executor->run($batch);
+            $out = $this->around !== null ? ($this->around)($run) : $run();
         } catch (WriteFailed $e) {
             throw $this->failedStep($queue, $steps, $e);
         }

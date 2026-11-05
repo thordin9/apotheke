@@ -25,7 +25,10 @@ use Throwable;
  *   caller catches its error and commits (L-1625).
  * - On an executor without a connection (D1, a Durable Object, or
  *   LocalBatchExecutor for tests) the unit is a BatchUnitOfWork: its steps
- *   go out as one batch when the callback returns, holds first.
+ *   go out as one batch when the callback returns, holds first. A local
+ *   batch on PostgreSQL runs in a transaction that takes the unit's lock
+ *   first (L-1743), so its guards hold under parallel processes as in
+ *   transaction mode; D1 and SQLite batches are sent as they are.
  * - A unit started while one is open joins it: the inner callback gets the
  *   outer unit, so everything commits (or not) as one. A failure inside a
  *   joined unit fails the outer one even if the outer callback catches it.
@@ -115,7 +118,7 @@ final class UnitsOfWork
         }
         $db = $this->executor->connection();
         if ($db === null) {
-            return $this->once(new BatchUnitOfWork($this->executor), $fn);
+            return $this->once(new BatchUnitOfWork($this->executor, $this->batchLock($table, $key)), $fn);
         }
         $joined = (int)$db->transDepth > 0;
 
@@ -131,6 +134,29 @@ final class UnitsOfWork
             };
 
             return $joined ? Writes::savepoint($db, $unit) : $unit();
+        });
+    }
+
+    /**
+     * L-1743: how a local PostgreSQL batch runs, in a transaction that takes
+     * the unit's lock first (a caller's open transaction is joined: its row
+     * locks come first, and the lock is kept until its commit). Null, the
+     * batch as it is, on any other executor (D1 has no BEGIN or SAVEPOINT).
+     *
+     * @return (\Closure(callable():list<list<array<string,mixed>>>):list<list<array<string,mixed>>>)|null
+     */
+    private function batchLock(string $table, string $key): ?\Closure
+    {
+        $db = $this->executor instanceof LocalBatchExecutor ? $this->executor->local() : null;
+        if ($db === null || $db->DBDriver !== 'Postgre') {
+            return null;
+        }
+        $keys = self::lockKeys($table, $key);
+
+        return fn (callable $batch): array => Writes::transaction($db, function () use ($db, $keys, $batch): array {
+            $this->lockPostgre($db, $keys);
+
+            return $batch();
         });
     }
 
