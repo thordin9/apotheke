@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **core:** add opt-in R2 Worker operations with bounded multipart writes (P4-4)
+- **core:** add opt-in R2 Worker operations with bounded multipart writes (P4-4) ([#242](https://github.com/thordin9/apotheke/pull/242))
 
 ## [3.22.0] - 2026-11-06
 
