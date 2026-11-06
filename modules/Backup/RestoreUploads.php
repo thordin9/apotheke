@@ -351,7 +351,7 @@ final class RestoreUploads
         return $this->unit('', function () use ($now, $create): string {
             $root = $this->root($create);
             if (!$create) return $this->sweepOnce($now, false);
-            if ((array)@scandir($root) === ['.', '..']) return $root;
+            if ((array)@scandir($root) === ['.', '..']) { $this->stage()?->sweep(); return $root; }
             return $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, fn (): string => $this->sweepOnce($now));
         });
     }
