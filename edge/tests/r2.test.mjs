@@ -190,6 +190,36 @@ test('a permissive bucket cannot cross multipart keys or reuse finished uploads'
   assert.deepEqual(bucket.completed, ['installations/primary/first.bin']);
 });
 
+test('long printable R2 identifiers survive markers, upload, completion, and abort', async () => {
+  const bucket = new Bucket();
+  const id = 'r2Mpu!$+/:;=@[]{}~'.repeat(40);
+  const etag = 'etag-$+/:;=@[]{}~'.repeat(32);
+  bucket.createMultipartUpload = async () => ({ uploadId: id });
+  const original = Upload.prototype.uploadPart;
+  Upload.prototype.uploadPart = async function (number, body) {
+    const bytes = body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer());
+    this.bucket.partReads.push(bytes.byteLength);
+    this.bucket.parts.set(`${this.uploadId}:${number}`, bytes);
+    const uploaded = { partNumber: number, etag };
+    this.bucket.uploads.set(this.uploadId, [...(this.bucket.uploads.get(this.uploadId) ?? []), uploaded]);
+    return uploaded;
+  };
+  try {
+    const begin = await handleR2Request(request('PUT', 'backup.zip', { action: 'begin' }), bucket);
+    assert.equal(begin.status, 200);
+    assert.deepEqual(await begin.json(), { ok: true, upload_id: id });
+    const part = await handleR2Request(request('PUT', 'backup.zip', { action: 'part', upload_id: id, part: '1', size: '7' }, 'payload'), bucket);
+    assert.equal(part.status, 200);
+    const complete = await handleR2Request(request('PUT', 'backup.zip', { action: 'complete', upload_id: id, parts: JSON.stringify([{ partNumber: 1, etag }]) }), bucket);
+    assert.equal(complete.status, 200);
+  } finally {
+    Upload.prototype.uploadPart = original;
+  }
+  assert.equal((await handleR2Request(request('PUT', 'backup.zip', { action: 'begin' }), bucket)).status, 200);
+  const abort = await handleR2Request(request('DELETE', 'backup.zip', { action: 'abort', upload_id: id }), bucket);
+  assert.equal(abort.status, 200);
+});
+
 test('the reserved multipart marker prefix is unreachable through normal storage', async () => {
   const bucket = new Bucket();
   bucket.objects.set('installations/primary/.mpu/private', new TextEncoder().encode('{"key":"private"}'));

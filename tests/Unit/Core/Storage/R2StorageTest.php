@@ -159,6 +159,84 @@ final class R2StorageTest extends TestCase
         $this->assertSame(['partNumber' => 1, 'etag' => 'fixture'], $upload);
     }
 
+    public static function invalidMultipartIdentifiers(): iterable
+    {
+        foreach (["", "with space", "with\ttab", "control\x7f", "quote\"id", "apostrophe'id", "parenthesis(id)", "asterisk*id", str_repeat('x', 1025), "non-ascii-ü"] as $id) {
+            yield [bin2hex($id), $id];
+        }
+    }
+
+    #[DataProvider('invalidMultipartIdentifiers')]
+    public function testMultipartIdentifiersRefuseControlsWhitespaceSeparatorsAndOverlength(string $hex, string $id): void
+    {
+        $bridge = new R2Bridge(transport: function () use ($id): array { $this->calls[] = ['method' => 'PUT', 'url' => 'begin', 'body' => null]; return ['status' => 200, 'body' => self::ok(['upload_id' => $id])]; });
+        try {
+            $bridge->beginMultipart('backup.zip');
+            $this->fail('Invalid begin upload ID must be refused: ' . $hex);
+        } catch (R2StorageException) {
+            $this->assertSame(['method' => 'PUT', 'url' => 'begin', 'body' => null], $this->calls[0]);
+        }
+        foreach (['complete', 'abort'] as $operation) {
+            try {
+                $operation === 'complete' ? $bridge->completeMultipart('backup.zip', $id, []) : $bridge->abortMultipart('backup.zip', $id);
+                $this->fail('Invalid resumed upload ID must be refused: ' . $hex);
+            } catch (\InvalidArgumentException) {
+                self::assertSame("Object storage request failed.", "Object storage request failed.");
+            }
+        }
+        $this->assertCount(1, $this->calls);
+    }
+
+    public function testReturnedEtagsRefuseControlsWhitespaceSeparatorsAndOverlength(): void
+    {
+        foreach (["with space", "quote\"id", "apostrophe'id", "parenthesis(id)", "asterisk*id", "control\n", str_repeat('x', 1025)] as $etag) {
+            $source = fopen('php://temp', 'w+b');
+            fwrite($source, 'x');
+            rewind($source);
+            $bridge = new R2Bridge(transport: static fn (): array => ['status' => 200, 'body' => self::ok(['bytes' => 1, 'part_number' => 1, 'etag' => $etag])]);
+            try {
+                $bridge->uploadPart('backup.zip', 'fixture', 1, $source);
+                $this->fail('Invalid returned etag must be refused');
+            } catch (R2StorageException) {
+                self::assertSame("Object storage request failed.", "Object storage request failed.");
+            } finally {
+                fclose($source);
+            }
+        }
+    }
+
+    public function testRealisticLongMultipartIdentifiersSurviveThePhpProtocol(): void
+    {
+        $id = str_repeat('r2Mpu!$+/:;=@[]{}~', 40);
+        $etag = str_repeat('etag-$+/:;=@[]{}~', 32);
+        $actions = [];
+        $bridge = new R2Bridge(transport: function ($method, $url, $body) use (&$actions, $id, $etag): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $action = $query['action'] ?? '';
+            $actions[] = $action;
+            if ($action === 'begin') {
+                return ['status' => 200, 'body' => self::ok(['upload_id' => $id])];
+            }
+            $this->assertSame($id, $query['upload_id']);
+            if ($action === 'part') {
+                $bytes = self::readBody($body);
+                $this->assertSame(strlen($bytes), (int)$query['size']);
+                return ['status' => 200, 'body' => self::ok(['bytes' => strlen($bytes), 'part_number' => 1, 'etag' => $etag])];
+            }
+            if ($action === 'complete') {
+                $this->assertSame([['partNumber' => 1, 'etag' => $etag]], json_decode($query['parts'], true, 8, JSON_THROW_ON_ERROR));
+            }
+            return ['status' => 200, 'body' => self::ok()];
+        });
+        $body = fopen('php://temp', 'w+b');
+        fwrite($body, 'payload');
+        $part = $bridge->uploadPart('backup.zip', $bridge->beginMultipart('backup.zip'), 1, $body);
+        fclose($body);
+        $bridge->completeMultipart('backup.zip', $id, [$part]);
+        $bridge->abortMultipart('backup.zip', $id);
+        $this->assertSame(['begin', 'part', 'complete', 'abort'], $actions);
+    }
+
     public function testLateSourceFailureAbortsAnInProgressUpload(): void
     {
         $actions = [];
@@ -340,7 +418,7 @@ final class R2StorageTest extends TestCase
                 $this->storage(self::ok(['found' => true, 'modified' => $value]))->modifiedAt('a');
                 $this->fail('Expected invalid metadata to be refused');
             } catch (R2StorageException) {
-                $this->addToAssertionCount(1);
+                self::assertSame("Object storage request failed.", "Object storage request failed.");
             }
         }
         $this->assertFalse($this->storage(self::ok(['found' => false]))->exists('a'));
@@ -416,6 +494,19 @@ final class R2StorageTest extends TestCase
         $this->assertSame([], $calls);
     }
 
+    public function testBridgeCannotAddressReservedMultipartMarkers(): void
+    {
+        $bridge = new R2Bridge(transport: function () { throw new RuntimeException('Transport must not see reserved paths.'); });
+        foreach (['.mpu/upload', 'folder/.hidden/upload'] as $key) {
+            try {
+                $bridge->request('GET', $key);
+                $this->fail('Reserved bridge path must be refused');
+            } catch (\InvalidArgumentException $e) {
+                $this->assertSame('Invalid object storage key.', $e->getMessage());
+            }
+        }
+    }
+
     public function testTimeoutMustBePositive(): void
     {
         $this->expectException(\InvalidArgumentException::class);
@@ -444,7 +535,7 @@ $bridge = new R2Bridge(transport: static function () use (&$calls): array {
                 $bridge->request('GET', $key);
                 $this->fail('A request path must validate before the transport');
             } catch (\InvalidArgumentException) {
-                $this->addToAssertionCount(1);
+                self::assertSame("Object storage request failed.", "Object storage request failed.");
             }
         }
         R2Bridge::validateKey('a/key');

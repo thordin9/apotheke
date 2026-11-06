@@ -70,7 +70,11 @@ final class R2Bridge
         if (!is_string($id)) {
             throw R2StorageException::failed();
         }
-        self::validateUploadId($id);
+        try {
+            self::validateUploadId($id);
+        } catch (\InvalidArgumentException) {
+            throw R2StorageException::failed();
+        }
 
         return $id;
     }
@@ -134,7 +138,7 @@ final class R2Bridge
     {
         $json = $this->request('PUT', $key, $body, query: ['action' => 'part', 'upload_id' => $id, 'part' => $part, 'size' => $length]);
         if (($json['bytes'] ?? null) !== $length || ($json['part_number'] ?? null) !== $part
-            || !is_string($json['etag'] ?? null) || !preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $json['etag'])
+            || !is_string($json['etag'] ?? null) || !preg_match('/^(?!.*[\x20\x22\x27\x28\x29\x2A])[\x21-\x7E]{1,1024}$/D', $json['etag'])
         ) {
             throw R2StorageException::failed();
         }
@@ -197,7 +201,7 @@ final class R2Bridge
 
     private static function validateUploadId(string $id): void
     {
-        if (!preg_match('/^[A-Za-z0-9_-]{1,200}$/D', $id)) {
+        if (!preg_match('/^(?!.*[\x20\x22\x27\x28\x29\x2A])[\x21-\x7E]{1,1024}$/D', $id)) {
             throw new \InvalidArgumentException('Invalid multipart upload identifier.');
         }
     }
@@ -219,6 +223,9 @@ final class R2Bridge
     private function path(string $key): string
     {
         self::validateKey($key);
+        if (array_any(explode('/', $key), static fn (string $part): bool => str_starts_with($part, '.'))) {
+            throw new \InvalidArgumentException('Invalid object storage key.');
+        }
 
         return '/' . implode('/', array_map(rawurlencode(...), explode('/', $key)));
     }
