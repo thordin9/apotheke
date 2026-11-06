@@ -8,6 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** add a tested R2 storage adapter behind `Core\Storage`, unselected by default (P4-4) ([#241](https://github.com/thordin9/apotheke/pull/241))
 - **core:** prove the D1 batch and migration paths on local workerd in CI (P4-3) ([#240](https://github.com/thordin9/apotheke/pull/240))
 
 ## [3.21.1] - 2026-11-06
