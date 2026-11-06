@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Core\Storage;
 
 /** Application-relative storage through the Worker's installation-scoped R2 bridge. */
-final class R2Storage implements Storage
+final class R2Storage implements Storage, VersionedStorage
 {
     public function __construct(private readonly R2Bridge $bridge, private readonly int $maxBytes = 104857600)
     {
@@ -14,13 +14,18 @@ final class R2Storage implements Storage
         }
     }
 
+    public function forOriginals(): self
+    {
+        return new self($this->bridge->forOriginals(), $this->maxBytes);
+    }
+
     public function read(string $key): ?string
     {
         if (!$this->validKey($key)) {
             return null;
         }
-        $json = $this->bridge->request('GET', $key, allowMissing: true);
-        if ($json === null || !self::found($json)) {
+        $json = $this->bridge->request('GET', $key);
+        if (!self::found($json)) {
             return null;
         }
         $bytes = base64_decode(self::string($json, 'bytes'), true);
@@ -120,6 +125,37 @@ final class R2Storage implements Storage
         }
     }
 
+    /** @return array{0:string,1:string}|null */
+    public function version(string $key): ?array
+    {
+        $this->requireValidKey($key);
+        $json = $this->presence('GET', $key);
+        if (!self::found($json)) return null;
+        $raw = base64_decode(self::string($json, 'bytes'), true);
+        if ($raw === false) throw R2StorageException::failed();
+        $metadata = $this->presence('HEAD', $key);
+        if (!self::found($metadata)) throw R2StorageException::failed();
+        return [$raw, self::string($metadata, 'etag')];
+    }
+
+    public function putIfMissing(string $key, string $bytes): bool
+    {
+        return $this->conditionalCreate($key, $bytes);
+    }
+
+    public function putIfVersion(string $key, string $etag, string $bytes): bool
+    {
+        $this->requireSize(strlen($bytes));
+        $this->requireValidKey($key);
+        $stream = fopen('php://temp', 'w+b');
+        if ($stream === false || !$this->writeAll($stream, $bytes) || !rewind($stream)) throw R2StorageException::failed();
+        try {
+            return $this->bridge->conditionalReplace($key, $etag, $stream);
+        } finally {
+            fclose($stream);
+        }
+    }
+
     /** @return array{objects:list<string>,cursor:?string} */
     public function list(string $prefix = '', string $cursor = '', int $limit = 100): array
     {
@@ -209,6 +245,14 @@ final class R2Storage implements Storage
         } catch (\InvalidArgumentException) {
             return false;
         }
+    }
+
+    /** @return array<string,mixed> */
+    private function presence(string $method, string $key): array
+    {
+        $response = $this->bridge->request($method, $key, allowMissing: true);
+        // A 404 from the real Worker carries no body, so absence is the found flag.
+        return $response ?? ['ok' => true, 'found' => false];
     }
 
     /** @param array<mixed> $json */

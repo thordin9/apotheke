@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **storage:** export backup files from local or explicitly selected R2 storage with guarded manifests and local compatible missing-object handling ([#245](https://github.com/thordin9/apotheke/pull/245))
+
 ## [3.23.1] - 2026-11-06
 
 - **edge:** accept maximum escaped multipart markers without stranding uploads ([#244](https://github.com/thordin9/apotheke/pull/244)).

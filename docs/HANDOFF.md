@@ -14,16 +14,19 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. P4-3 is merged through #240;
   P4-4 PR 1 (#241) added a tested R2 storage with a tested `R2Storage` implementation of the existing `Core\Storage` interface.
   PR 2 (#242) added scoped Worker R2 operations, resumable bounded multipart, conditions, and explicit
-  opt-in construction. A fix for the maximum escaped multipart marker cap is in progress.
+  opt-in construction. The maximum escaped multipart marker-cap fix (#244) is merged.
 - PDO/self-hosting and default `LocalStorage` construction remain unchanged. PR 2 uses simulated R2 bindings only.
-  PR 3 migrates direct filesystem
-  backup/restore callers, with manifest locking/conditional writes and real race tests. PR 4 takes up background restore.
+  PR 3a converts backup export, conditional manifests and original storage; PR 3b converts restores/leases and
+  takes the unit lock before each side effect. PR 4 retains background restore. Remaining R2 object reads stay
+  bounded by the current bridge (they are not yet streaming reads).
 
 
 ## Open pull requests
 
-- P4-4 PR 2 (#242, `feat/p4-4-r2-worker-ops`): Worker operations and opt-in storage only; no readiness or restore cutover.
-- An orphan multipart marker/upload sweep or lifecycle rule is mandatory before hosted wiring; owned by the PM.
+- P4-4 PR3a #245 (`feat/p4-4-restore-storage`): export shares storage and guarded manifests; no readiness or restore cutover. Remote manifest versions use the real Worker metadata response; genuine found-false export misses follow local skip/report parity while read failures fail. Stable local version locks live under `.locks/`, outside object paths.
+- **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule.
+- PR 3b must replace every restore-local lock/state path and prove lock-first races; do not pretend backup export
+  conversion enables hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 

@@ -162,7 +162,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		}
 		if (request.method === "HEAD") {
 			const object = await bucket.head(path);
-			return json({ ok: true, found: Boolean(object), ...(object ? { modified: Math.floor((object.uploaded?.getTime() ?? 0) / 1000) } : {}) });
+			return json({ ok: true, found: Boolean(object), ...(object ? { etag: object.etag, modified: Math.floor((object.uploaded?.getTime() ?? 0) / 1000) } : {}) });
 		}
 		if (request.method === "DELETE") {
 			if (action === "abort") {
@@ -219,7 +219,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) {
 			const onlyIf: R2Conditional = {};
 			if (url.searchParams.get("if_none_match") === "*") onlyIf.etagDoesNotMatch = "*";
-			else if (url.searchParams.get("if_match") === "*") onlyIf.etagMatches = "*";
+			else if (url.searchParams.get("if_match")) onlyIf.etagMatches = url.searchParams.get("if_match")!;
 			else return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const created = await bucket.put(path, body, { onlyIf });
 			return json({ ok: true, created: Boolean(created) }, created ? 200 : 412);
