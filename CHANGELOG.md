@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **core:** align local D1 stand-ins and guard concurrent stocktake starts (P4-3)
+- **core:** align local D1 stand-ins and guard concurrent stocktake starts (P4-3) ([#239](https://github.com/thordin9/apotheke/pull/239))
 
 ## [3.21.0] - 2026-11-06
 
