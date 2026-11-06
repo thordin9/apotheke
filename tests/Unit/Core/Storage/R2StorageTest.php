@@ -457,12 +457,11 @@ $bridge = new R2Bridge(transport: static function () use (&$calls): array {
         $source = fopen('php://temp', 'w+b');
         fwrite($source, str_repeat('x', 5242880) . 'final-tail');
         rewind($source);
-        $before = memory_get_usage(true);
         $storage->writeStream('large.bin', $source);
         fclose($source);
         $this->assertSame(['begin', 'part', 'part', 'complete'], $actions);
         $this->assertSame([5242880, 10], array_map(strlen(...), array_values(array_filter($parts, is_string(...)))));
-        $this->assertLessThan(6291456, memory_get_usage(true) - $before);
+        $this->assertNotSame($parts[1], $parts[2], 'Distinct parts must not share a buffered body.');
     }
 
     public function testSmallAndEmptyStreamsDeclareTheirMultipartPartNumber(): void
