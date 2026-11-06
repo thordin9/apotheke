@@ -158,7 +158,8 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (request.method === "GET") {
 			const object = await bucket.get(path);
 			if (!object) return json({ ok: true, found: false });
-			return json({ ok: true, found: true, bytes: encodeBase64(await object.arrayBuffer()) });
+			const etag = object.etag;
+			return json({ ok: true, found: true, bytes: encodeBase64(await object.arrayBuffer()), etag });
 		}
 		if (request.method === "HEAD") {
 			const object = await bucket.head(path);

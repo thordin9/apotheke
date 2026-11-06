@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **storage:** export backup files from local or explicitly selected R2 storage with guarded manifests and local compatible missing-object handling ([#245](https://github.com/thordin9/apotheke/pull/245))
+- **storage:** export backup files from local or explicitly selected R2 storage with guarded manifests whose bytes and version come from one object read, and local compatible missing-object handling ([#245](https://github.com/thordin9/apotheke/pull/245))
 
 ## [3.23.2] - 2026-11-06
 

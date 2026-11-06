@@ -125,7 +125,11 @@ final class R2Storage implements Storage, VersionedStorage
         }
     }
 
-    /** @return array{0:string,1:string}|null */
+    /**
+     * Bytes and etag come from one object read.
+     *
+     * @return array{0:string,1:string}|null
+     */
     public function version(string $key): ?array
     {
         $this->requireValidKey($key);
@@ -133,9 +137,7 @@ final class R2Storage implements Storage, VersionedStorage
         if (!self::found($json)) return null;
         $raw = base64_decode(self::string($json, 'bytes'), true);
         if ($raw === false) throw R2StorageException::failed();
-        $metadata = $this->presence('HEAD', $key);
-        if (!self::found($metadata)) throw R2StorageException::failed();
-        return [$raw, self::string($metadata, 'etag')];
+        return [$raw, self::string($json, 'etag')];
     }
 
     public function putIfMissing(string $key, string $bytes): bool

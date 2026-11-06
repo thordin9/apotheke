@@ -7,7 +7,10 @@ net.createServer((socket) => {
     let status = 200;
     let body = '';
     if (rawPath === '/stop') { socket.end('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'); process.exit(0); }
-    if (method === 'GET') body = JSON.stringify({ ok: true, found: true, bytes: Buffer.from(state.body).toString('base64') });
+    if (method === 'GET') {
+      const snapshot = { body: state.body, etag: state.etag };
+      body = JSON.stringify({ ok: true, found: true, bytes: Buffer.from(snapshot.body).toString('base64'), etag: snapshot.etag });
+    }
     if (method === 'HEAD') body = JSON.stringify({ ok: true, found: true, modified: 0, etag: state.etag });
     if (method === 'PUT') {
       if (url.searchParams.get('if_match') !== state.etag) status = 412;

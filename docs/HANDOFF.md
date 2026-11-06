@@ -23,7 +23,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-4 PR3a #245 (`feat/p4-4-restore-storage`): export shares storage and guarded manifests; no readiness or restore cutover. Remote manifest versions use the real Worker metadata response; genuine found-false export misses follow local skip/report parity while read failures fail. Stable local version locks live under `.locks/`, outside object paths.
+- P4-4 PR3a #245 (`feat/p4-4-restore-storage`): export shares storage and guarded manifests; no readiness or restore cutover. Remote manifest versions pair bytes and etag from the same Worker object read; genuine found-false export misses follow local skip/report parity while read failures fail. Stable local version locks live under `.locks/`, outside object paths.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule.
 - PR 3b must replace every restore-local lock/state path and prove lock-first races; do not pretend backup export
   conversion enables hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default.
