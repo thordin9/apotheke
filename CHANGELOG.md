@@ -9,6 +9,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ## [Unreleased]
 
 - **storage:** read backup files through shared storage with guarded manifests ([#245](https://github.com/thordin9/apotheke/pull/245))
+- **edge:** accept maximum escaped multipart markers without stranding uploads ([#244](https://github.com/thordin9/apotheke/pull/244)).
 
 ## [3.23.0] - 2026-11-06
 

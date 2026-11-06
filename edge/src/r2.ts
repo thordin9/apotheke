@@ -3,6 +3,10 @@
 const PREFIX = "installations/primary/";
 const PART = 5 * 1024 * 1024;
 const MARKER = ".mpu/";
+// JSON expands a source character by at most six bytes; retain a small margin.
+export const MARKER_BODY_LIMIT = new TextEncoder().encode(JSON.stringify({
+	id: String.fromCharCode(92).repeat(1024), key: PREFIX + "a".repeat(1024),
+})).length + 64;
 const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
 export type R2Env = { STORAGE?: R2Bucket };
 
@@ -39,7 +43,7 @@ async function markerKey(id: string): Promise<string> {
 
 async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promise<boolean> {
 	const marker = await bucket.get(await markerKey(id));
-	if (!marker || marker.size > 2048) return false;
+	if (!marker || marker.size > MARKER_BODY_LIMIT) return false;
 	try {
 		const body: unknown = JSON.parse(await marker.text());
 		return typeof body === "object" && body !== null && !Array.isArray(body)
@@ -178,9 +182,14 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 				try { await upload.abort(); } catch { /* Reject an unusable ID without exposing it. */ }
 				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			}
+			const body = JSON.stringify({ id: upload.uploadId, key: path });
+			if (new TextEncoder().encode(body).length > MARKER_BODY_LIMIT) {
+				try { await upload.abort(); } catch { /* Reject an unrepresentable binding without exposing it. */ }
+				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
+			}
 			let marker: R2Object | null;
 			try {
-				marker = await bucket.put(await markerKey(upload.uploadId), JSON.stringify({ id: upload.uploadId, key: path }), { onlyIf: { etagDoesNotMatch: "*" } });
+				marker = await bucket.put(await markerKey(upload.uploadId), body, { onlyIf: { etagDoesNotMatch: "*" } });
 				if (!marker) throw new Error("multipart marker collision");
 			} catch (error) {
 				try { await upload.abort(); } catch { /* Best effort cleanup before the generic failure. */ }
