@@ -101,8 +101,10 @@ final class R2Bridge
      */
     private function send(string $method, string $key, $body): array
     {
+        // Caller misuse is not a transport failure and must not invoke HTTP.
+        $url = $this->base . $this->path($key);
         try {
-            $response = ($this->transport)($method, $this->base . $this->path($key), $body);
+            $response = ($this->transport)($method, $url, $body);
         } catch (\Throwable $e) {
             throw R2StorageException::failed();
         }

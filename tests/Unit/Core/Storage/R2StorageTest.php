@@ -254,6 +254,19 @@ final class R2StorageTest extends TestCase
             }
         }
         $this->assertSame([], $this->calls);
+$bridge = new R2Bridge(transport: static function () use (&$calls): array {
+            $calls[] = func_get_args();
+
+            return ['status' => 200, 'body' => self::ok()];
+        });
+        foreach (self::invalidKeys() as [$key]) {
+            try {
+                $bridge->request('GET', $key);
+                $this->fail('A request path must validate before the transport');
+            } catch (\InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
         R2Bridge::validateKey('a/key');
         $this->addToAssertionCount(count(iterator_to_array(self::invalidKeys())));
     }
