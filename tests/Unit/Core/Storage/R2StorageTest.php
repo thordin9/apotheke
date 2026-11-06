@@ -183,6 +183,26 @@ final class R2StorageTest extends TestCase
         $this->assertFalse($this->storage(self::ok(['found' => false]))->exists('a'));
     }
 
+    public function testStringWriteRewindsBeforeSending(): void
+    {
+        $position = null;
+        $storage = new R2Storage(new R2Bridge(transport: static function (string $method, string $url, $body) use (&$position): array {
+            $position = ftell($body);
+
+            return ['status' => 200, 'body' => self::ok()];
+        }));
+        $storage->write('rewind.txt', 'contents');
+        $this->assertSame(0, $position);
+    }
+
+    public function testCanonicalResponseCapIncludesTheProtocolEnvelope(): void
+    {
+        $response = base64_encode(str_repeat('x', 50331650));
+        $this->assertGreaterThan(67108865, strlen($response));
+        $this->expectException(R2StorageException::class);
+        $this->storage(self::ok(['found' => true, 'bytes' => $response]))->read('response-limit');
+    }
+
     public function testLargeWriteStreamSpoolsWithoutGrowingPhpMemory(): void
     {
         $transport = function (): array {
@@ -251,6 +271,7 @@ final class R2StorageTest extends TestCase
             fclose($stream);
         }
     }
+
     public function testBridgeReadAlsoValidatesKeyWithoutMaskingTransportMisuse(): void
     {
         $calls = [];
