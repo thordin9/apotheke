@@ -140,6 +140,8 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
   executor) runs the existing migration callables; `D1MigrationRunner` applies array and callable migrations.
   Connection PRAGMAs, user_version and VACUUM INTO are skipped, multi-statement heredocs go to `exec()`, and a
   parent table is never dropped (D1 ignores foreign_keys OFF). Open.
+- Edge hardening: `d1.internal` failure bodies are generic (a stable `code` plus a single allow-listed guard
+  marker), with details logged server-side only; guard recognition is preserved. Harness mirror and client match.
 
 - [#235](https://github.com/thordin9/apotheke/pull/235) (P4-3 PR 1): D1 HTTP executor and shared limits, D1-safe schema dump
   (no FTS5 shadows), restore stage row/byte caps. Released as v3.19.0.

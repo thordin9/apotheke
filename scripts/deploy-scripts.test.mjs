@@ -432,13 +432,14 @@ test("d1.internal: batch returns one result per statement", async () => {
 	});
 });
 
-test("d1.internal: exec returns count; guard failure keeps error text for the PHP side", async () => {
+test("d1.internal: exec returns count; a guard failure returns only the allow-listed marker", async () => {
 	const ok = await d1Post("/exec", { sql: "CREATE TABLE t(id)" }, mockDb({ exec: async () => ({ count: 3 }) }));
 	assert.deepEqual(await ok.json(), { ok: true, count: 3 });
 	const db = mockDb({
 		all: async () => {
-			throw Object.assign(new Error("NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT"), {
-				cause: { message: "inner" },
+			throw Object.assign(new Error("D1_ERROR: NOT NULL constraint failed: uow_guard.ok: SQLITE_CONSTRAINT"), {
+				cause: { message: "secret-cause-detail" },
+				stack: "Error: ...\n at secretFile (/app/secret/path.js:1:1)",
 			});
 		},
 	});
@@ -446,8 +447,16 @@ test("d1.internal: exec returns count; guard failure keeps error text for the PH
 	assert.equal(fail.status, 500);
 	const body = await fail.json();
 	assert.equal(body.ok, false);
-	assert.match(body.error, /uow_guard\.ok/);
-	assert.equal(body.cause, "inner");
+	assert.equal(body.code, "guard_failed");
+	assert.equal(body.error, "NOT NULL constraint failed: uow_guard.ok");
+	// No raw cause, message or stack text in the body.
+	const raw = JSON.stringify(body);
+	assert.ok(!raw.includes("secret-cause-detail"), "no cause text");
+	assert.ok(!raw.includes("SQLITE_CONSTRAINT"), "no driver suffix");
+	assert.ok(!raw.includes("D1_ERROR"), "no driver prefix");
+	assert.ok(!("cause" in body), "no cause field");
+	assert.ok(!("stack" in body), "no stack field");
+	assert.ok(!raw.includes("secret/path.js"), "no stack path");
 });
 
 test("d1.internal: method, path and unbound responses", async () => {
@@ -458,7 +467,56 @@ test("d1.internal: method, path and unbound responses", async () => {
 	assert.equal(missing.status, 404);
 	const unbound = d1UnboundResponse();
 	assert.equal(unbound.status, 503);
-	assert.deepEqual(await unbound.json(), { ok: false, error: "D1 is not bound" });
+	assert.deepEqual(await unbound.json(), { ok: false, code: "unbound", error: "D1 is not bound" });
+});
+
+test("d1.internal: a non-guard failure returns a generic body with no message, cause or stack", async () => {
+	const db = mockDb({
+		all: async () => {
+			throw Object.assign(new Error("SQL logic error: no such table: hidden_table at offset 12"), {
+				cause: { message: "inner-detail" },
+				stack: "Error: no such table\n at prepare (/app/internal/db.js:9:9)",
+			});
+		},
+	});
+	const res = await d1Post("/query", { sql: "SELECT * FROM hidden_table", params: [] }, db);
+	assert.equal(res.status, 500);
+	const body = await res.json();
+	assert.equal(body.ok, false);
+	assert.equal(body.code, "write_failed");
+	assert.equal(body.error, "the batch");
+	const raw = JSON.stringify(body);
+	for (const needle of ["hidden_table", "SQL logic error", "inner-detail", "db.js", "no such table"]) {
+		assert.ok(!raw.includes(needle), `body must not contain ${needle}`);
+	}
+	assert.ok(!("cause" in body) && !("stack" in body) && !("message" in body));
+});
+
+test("d1.internal: guard detection through a nested cause chain returns only the marker", async () => {
+	const db = mockDb({
+		batch: async () => {
+			throw Object.assign(new Error("D1 batch failed"), {
+				cause: { cause: { message: "NOT NULL constraint failed: uow_guard.ok at offset 7" } },
+			});
+		},
+	});
+	const res = await d1Post("/batch", [{ sql: "INSERT INTO t VALUES (NULL)", params: [] }], db);
+	assert.equal(res.status, 500);
+	const body = await res.json();
+	assert.equal(body.code, "guard_failed");
+	assert.equal(body.error, "NOT NULL constraint failed: uow_guard.ok");
+	assert.ok(!JSON.stringify(body).includes("D1 batch failed"));
+	assert.ok(!JSON.stringify(body).includes("offset 7"));
+});
+
+// N-1793: the harness launcher must run wrangler in local mode only (never --remote).
+test("tools/d1-harness: the launcher forces --local and never passes --remote", () => {
+	const sh = readFileSync(join(root, "tools/d1-harness/run.sh"), "utf8");
+	assert.ok(/wrangler\.js dev --local\b/.test(sh), "wrangler dev runs with --local");
+	assert.ok(!sh.includes("--remote"), "the launcher never selects remote mode");
+	assert.ok(/127\.0\.0\.1/.test(sh), "the launcher binds to loopback");
+	const cfg = readFileSync(join(root, "tools/d1-harness/wrangler.jsonc"), "utf8");
+	assert.ok(cfg.includes("00000000-0000-0000-0000-000000000000"), "the database id is the zero placeholder");
 });
 
 // Runs the merge on a copy of edge/wrangler.jsonc (or of `config`, an object) with edge/storage.jsonc (or `storage`).
