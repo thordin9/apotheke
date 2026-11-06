@@ -133,16 +133,30 @@ final class R2StorageTest extends TestCase
 
     public function testMultipartCountsBytesWrittenFromANonSeekableStream(): void
     {
-        $actions = [];
-        $parts = [];
-        $storage = $this->multipartStorage($actions, $parts);
-        $this->assertTrue(stream_wrapper_register('r2nonseek', R2NonSeekableStream::class));
-        $stream = fopen('r2nonseek://source', 'rb');
-        stream_wrapper_unregister('r2nonseek');
-        $storage->writeStream('pipe.bin', $stream);
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
+        $this->assertIsArray($pair);
+        $writer = proc_open(
+            ['php', '-r', 'fwrite(STDOUT, str_repeat("n", 5242880));'],
+            [1 => $pair[1]],
+            $unused,
+        );
+        $this->assertIsResource($writer);
+        fclose($pair[1]);
+        $stream = $pair[0];
+        $this->assertFalse(stream_get_meta_data($stream)['seekable']);
+        $bridge = new R2Bridge(transport: function ($method, $url, $body) use ($stream): array {
+            $this->assertNotSame($stream, $body);
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $bytes = self::readBody($body);
+            $this->assertSame(strlen($bytes), (int)$query['size']);
+            return ['status' => 200, 'body' => self::ok([
+                'bytes' => strlen($bytes), 'part_number' => (int)$query['part'], 'etag' => 'fixture',
+            ])];
+        });
+        $upload = $bridge->uploadPart('pipe.bin', 'upload', 1, $stream);
+        proc_close($writer);
         fclose($stream);
-        $this->assertSame(['begin', 'part', 'complete'], $actions);
-        $this->assertSame(str_repeat('n', 5242880), $parts[1]);
+        $this->assertSame(['partNumber' => 1, 'etag' => 'fixture'], $upload);
     }
 
     public function testLateSourceFailureAbortsAnInProgressUpload(): void
