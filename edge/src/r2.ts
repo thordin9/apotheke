@@ -28,17 +28,19 @@ function key(request: Request): string | undefined {
 	return validateRawPath(new URL(request.url).pathname);
 }
 
-function markerKey(id: string): string {
-	return PREFIX + MARKER + encodeURIComponent(id);
+async function markerKey(id: string): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(id));
+	return PREFIX + MARKER + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promise<boolean> {
-	const marker = await bucket.get(markerKey(id));
+	const marker = await bucket.get(await markerKey(id));
 	if (!marker || marker.size > 2048) return false;
 	try {
 		const body: unknown = JSON.parse(await marker.text());
 		return typeof body === "object" && body !== null && !Array.isArray(body)
-			&& Object.keys(body).join(",") === "key" && (body as { key: unknown }).key === path;
+			&& Object.keys(body).join(",") === "id,key" && (body as { key: unknown; id: unknown }).key === path
+			&& (body as { id: unknown }).id === id;
 	} catch {
 		return false;
 	}
@@ -144,7 +146,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (request.method === "DELETE") {
 			if (action === "abort") {
 				if (!await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-				await bucket.delete(markerKey(id));
+				await bucket.delete(await markerKey(id));
 				await bucket.resumeMultipartUpload(path, id).abort();
 				return json({ ok: true });
 			}
@@ -160,10 +162,13 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 				try { await upload.abort(); } catch { /* Reject an unusable ID without exposing it. */ }
 				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			}
-			const marker = await bucket.put(markerKey(upload.uploadId), JSON.stringify({ key: path }), { onlyIf: { etagDoesNotMatch: "*" } });
-			if (!marker) {
-				try { await upload.abort(); } catch { /* Reject an ID collision without touching another upload. */ }
-				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
+			let marker: R2Object | null;
+			try {
+				marker = await bucket.put(await markerKey(upload.uploadId), JSON.stringify({ id: upload.uploadId, key: path }), { onlyIf: { etagDoesNotMatch: "*" } });
+				if (!marker) throw new Error("multipart marker collision");
+			} catch (error) {
+				try { await upload.abort(); } catch { /* Best effort cleanup before the generic failure. */ }
+				throw error;
 			}
 			return json({ ok: true, upload_id: upload.uploadId });
 		}
@@ -180,7 +185,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (action === "complete") {
 			const parts = completedParts(request);
 			if (!parts || !await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-			await bucket.delete(markerKey(id));
+			await bucket.delete(await markerKey(id));
 			await bucket.resumeMultipartUpload(path, id).complete(parts);
 			return json({ ok: true });
 		}

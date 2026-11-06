@@ -33,11 +33,12 @@ class Upload {
 class Bucket {
   uploads = new Map();
   objects = new Map(); parts = new Map(); sessions = new Map(); prefix = ''; partReads = []; completed = []; aborted = []; failAt = 0;
-  async put(key, value, options = {}) { if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null; this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value)); return { key }; }
-  async get(key) { const data = this.objects.get(key); return data ? { size: data.byteLength, text: async () => new TextDecoder().decode(data), arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) } : null; }
-  async head(key) { const data = this.objects.get(key); return data ? { uploaded: new Date(1740000000000) } : null; }
-  async delete(key) { this.objects.delete(key); }
-  async list({ prefix, limit, cursor }) { this.prefix = prefix; const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort(); const start = cursor ? Number(cursor) : 0; const slice = keys.slice(start, start + limit); return { objects: slice.map((key) => ({ key })), truncated: start + limit < keys.length, cursor: String(start + limit) }; }
+  assertKey(key) { assert.ok(new TextEncoder().encode(key).byteLength <= 1024, 'bucket key exceeds 1024 bytes'); }
+  async put(key, value, options = {}) { this.assertKey(key); if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null; this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value)); return { key }; }
+  async get(key) { this.assertKey(key); const data = this.objects.get(key); return data ? { size: data.byteLength, text: async () => new TextDecoder().decode(data), arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) } : null; }
+  async head(key) { this.assertKey(key); const data = this.objects.get(key); return data ? { uploaded: new Date(1740000000000) } : null; }
+  async delete(key) { this.assertKey(key); this.objects.delete(key); }
+  async list({ prefix, limit, cursor }) { this.assertKey(prefix); this.prefix = prefix; const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort(); const start = cursor ? Number(cursor) : 0; const slice = keys.slice(start, start + limit); return { objects: slice.map((key) => ({ key })), truncated: start + limit < keys.length, cursor: String(start + limit) }; }
   async createMultipartUpload(key) { const id = `upload-${crypto.randomUUID().replaceAll('-', '')}`; this.sessions.set(id, key); return { uploadId: id }; }
   resumeMultipartUpload(key, id) { return new Upload(this, key, id); }
 }
@@ -190,6 +191,27 @@ test('a permissive bucket cannot cross multipart keys or reuse finished uploads'
   assert.deepEqual(bucket.completed, ['installations/primary/first.bin']);
 });
 
+test('a 1024-character upload id survives reserved marker key limits end to end', async () => {
+  const bucket = new Bucket();
+  const id = 'r2Mpu!$+/:;=@[]{}~'.padEnd(1024, 'x');
+  const etag = 'etag-$+/:;=@[]{}~'.repeat(32);
+  bucket.createMultipartUpload = async () => ({ uploadId: id });
+  const begin = await handleR2Request(request('PUT', 'backup.zip', { action: 'begin' }), bucket);
+  assert.equal(begin.status, 200);
+  assert.deepEqual(await begin.json(), { ok: true, upload_id: id });
+  const part = await handleR2Request(request('PUT', 'backup.zip', { action: 'part', upload_id: id, part: '1', size: '7' }, 'payload'), bucket);
+  assert.equal(part.status, 200);
+  const uploaded = await part.json();
+  const marker = [...bucket.objects.keys()].find((key) => key.startsWith('installations/primary/.mpu/'));
+  if (marker === undefined) throw new Error('Expected a marker before completion');
+  assert.match(marker, /^installations\/primary\/\.mpu\/[0-9a-f]{64}$/);
+  const body = JSON.parse(new TextDecoder().decode(bucket.objects.get(marker)));
+  assert.deepEqual(body, { id, key: 'installations/primary/backup.zip' });
+  const complete = await handleR2Request(request('PUT', 'backup.zip', { action: 'complete', upload_id: id, parts: JSON.stringify([{ partNumber: uploaded.part_number, etag: uploaded.etag }]) }), bucket);
+  assert.equal(complete.status, 200);
+  assert.ok(bucket.objects.has('installations/primary/backup.zip'));
+});
+
 test('long printable R2 identifiers survive markers, upload, completion, and abort', async () => {
   const bucket = new Bucket();
   const id = 'r2Mpu!$+/:;=@[]{}~'.repeat(40);
@@ -220,6 +242,26 @@ test('long printable R2 identifiers survive markers, upload, completion, and abo
   assert.equal(abort.status, 200);
 });
 
+test('a marker write rejection or thrown error aborts the new upload', async () => {
+  for (const collision of ['collision', 'throw']) {
+    const bucket = new Bucket();
+    bucket.createMultipartUpload = async () => ({ uploadId: 'r2-long-id', abort: async () => { bucket.aborted.push('r2-long-id'); } });
+    bucket.put = collision === 'collision'
+      ? async () => null
+      : async () => { throw new Error('marker storage unavailable'); };
+    const response = await handleR2Request(request('PUT', 'backup.zip', { action: 'begin' }), bucket);
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), { ok: false, code: 'storage_failed', error: 'Object storage request failed.' });
+    assert.deepEqual(bucket.aborted, ['r2-long-id']);
+    assert.equal(bucket.sessions.size, 0);
+  }
+});
+
+test('the bucket double enforces the R2 object-key byte limit', async () => {
+  const bucket = new Bucket();
+  await assert.rejects(() => bucket.put(`installations/primary/.mpu/${'x'.repeat(1024)}`, new Uint8Array()), Error, /1024/);
+  assert.equal(bucket.objects.size, 0);
+});
 test('the reserved multipart marker prefix is unreachable through normal storage', async () => {
   const bucket = new Bucket();
   bucket.objects.set('installations/primary/.mpu/private', new TextEncoder().encode('{"key":"private"}'));
