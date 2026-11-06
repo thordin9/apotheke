@@ -10,6 +10,9 @@ use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Http\RequestCleanup;
+use Apotheke\Core\Storage\LeaseDenied;
+use Apotheke\Core\Storage\ObjectLease;
+use Apotheke\Core\Storage\R2Storage;
 use Apotheke\Core\Storage\Storage;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Media\ImageStore;
@@ -192,10 +195,22 @@ final class Restorer
      */
     public function restore(string $zipPath, bool $settings, ?string $run = null): array
     {
-        // L-450: one restore at a time, files and rows alike (web and CLI); a second one is refused at once.
+        // One restore at a time, before any file or row changes. On explicit R2 the lease is that same
+        // storage. Local disk keeps the filesystem lock.
+        $runId = $run ?? bin2hex(random_bytes(16));
+        if ($this->data instanceof R2Storage) {
+            try {
+                return (new RestoreUnit(new ObjectLease($this->data)))->run(
+                    fn (): array => $this->restoreLocked($zipPath, $settings, $runId),
+                    time(),
+                );
+            } catch (LeaseDenied $e) {
+                throw new UserError(self::BUSY, 409, $e);
+            }
+        }
         $lock = $this->lock();
         try {
-            return $this->restoreLocked($zipPath, $settings, $run ?? bin2hex(random_bytes(16)));
+            return $this->restoreLocked($zipPath, $settings, $runId);
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);

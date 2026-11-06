@@ -7,26 +7,26 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.23.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.24.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. P4-3 is merged through #240;
   P4-4 PR 1 (#241) added a tested R2 storage with a tested `R2Storage` implementation of the existing `Core\Storage` interface.
   PR 2 (#242) added scoped Worker R2 operations, resumable bounded multipart, conditions, and explicit
-  opt-in construction. The maximum escaped multipart marker-cap fix (#244) is merged.
-- PDO/self-hosting and default `LocalStorage` construction remain unchanged. PR 2 uses simulated R2 bindings only.
-  PR 3a converts backup export, conditional manifests and original storage; PR 3b converts restores/leases and
-  takes the unit lock before each side effect. PR 4 retains background restore. Remaining R2 object reads stay
-  bounded by the current bridge (they are not yet streaming reads).
+  opt-in construction. The maximum escaped multipart marker-cap fix (#244) and the marker escaping fix (#246) are merged.
+  PR 3a (#245) is merged: backup export reads through storage, and a remote manifest's bytes and version come from one object read.
+- PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
+  restore manifest and the lease on that same storage; the lease is taken before a chunk or the catalog restore.
+  Design-B staged restore is unchanged. PR 4 is still the background restore and its progress. Remaining R2 object
+  reads stay bounded by the current bridge (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 
 
 ## Open pull requests
 
-- P4-4 PR3a #245 (`feat/p4-4-restore-storage`): export shares storage and guarded manifests; no readiness or restore cutover. Remote manifest versions pair bytes and etag from the same Worker object read; genuine found-false export misses follow local skip/report parity while read failures fail. Stable local version locks live under `.locks/`, outside object paths.
-- **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule.
-- PR 3b must replace every restore-local lock/state path and prove lock-first races; do not pretend backup export
-  conversion enables hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default.
+- P4-4 PR3b: explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases, and takes that lease before the side effect. Local disk behavior is unchanged. No readiness flip.
+- **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule. This slice does not change the account or add that sweep.
+- Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. A background restore job is still PR 4.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
@@ -34,7 +34,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Finish P4-4 PRs 2–4, with no readiness flip; then P4-5 hosted wiring.
+1. Finish P4-4 PR 4 (background restore and progress), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).
