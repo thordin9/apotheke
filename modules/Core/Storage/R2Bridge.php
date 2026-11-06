@@ -53,7 +53,7 @@ final class R2Bridge
         if ($response['status'] === 404 && $allowMissing) {
             return null;
         }
-        if ($response['status'] === 412 && ($query['if_none_match'] ?? null) === '*') {
+        if ($response['status'] === 412 && (($query['if_none_match'] ?? null) === '*' || isset($query['if_match']))) {
             return null;
         }
         if ($response['status'] < 200 || $response['status'] >= 300 || strlen($response['body']) > self::MAX_RESPONSE_BYTES) {
@@ -168,6 +168,12 @@ final class R2Bridge
     public function conditionalCreate(string $key, $body): bool
     {
         return $this->request('PUT', $key, $body, query: ['if_none_match' => '*']) !== null;
+    }
+
+    /** @param resource $body */
+    public function conditionalReplace(string $key, string $etag, mixed $body): bool
+    {
+        return $this->request('PUT', $key, $body, query: ['if_match' => $etag]) !== null;
     }
 
     /** @return array{objects:list<string>,cursor:?string} */

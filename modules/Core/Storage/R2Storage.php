@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Apotheke\Core\Storage;
 
 /** Application-relative storage through the Worker's installation-scoped R2 bridge. */
-final class R2Storage implements Storage
+final class R2Storage implements Storage, VersionedStorage
 {
     public function __construct(private readonly R2Bridge $bridge, private readonly int $maxBytes = 104857600)
     {
@@ -115,6 +115,35 @@ final class R2Storage implements Storage
         }
         try {
             return $this->bridge->conditionalCreate($key, $stream);
+        } finally {
+            fclose($stream);
+        }
+    }
+
+    /** @return array{0:string,1:string}|null */
+    public function version(string $key): ?array
+    {
+        $this->requireValidKey($key);
+        $json = $this->bridge->request('GET', $key, allowMissing: true);
+        if ($json === null || !self::found($json)) return null;
+        $raw = base64_decode(self::string($json, 'bytes'), true);
+        if ($raw === false) throw R2StorageException::failed();
+        return [$raw, self::string($json, 'etag')];
+    }
+
+    public function putIfMissing(string $key, string $bytes): bool
+    {
+        return $this->conditionalCreate($key, $bytes);
+    }
+
+    public function putIfVersion(string $key, string $etag, string $bytes): bool
+    {
+        $this->requireSize(strlen($bytes));
+        $this->requireValidKey($key);
+        $stream = fopen('php://temp', 'w+b');
+        if ($stream === false || !$this->writeAll($stream, $bytes) || !rewind($stream)) throw R2StorageException::failed();
+        try {
+            return $this->bridge->conditionalReplace($key, $etag, $stream);
         } finally {
             fclose($stream);
         }
