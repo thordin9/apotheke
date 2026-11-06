@@ -348,8 +348,12 @@ final class RestoreUploads
      */
     public function sweep(?int $now = null, bool $create = true): string
     {
-        if (!$create) return $items = $this->sweepOnce($now, false);
-        return $this->unit('', fn (): string => $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, fn (): string => $this->sweepOnce($now)));
+        return $this->unit('', function () use ($now, $create): string {
+            $root = $this->root($create);
+            if (!$create) return $this->sweepOnce($now, false);
+            if ((array)@scandir($root) === ['.', '..']) return $root;
+            return $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, fn (): string => $this->sweepOnce($now));
+        });
     }
 
     private function sweepOnce(?int $now, bool $create = true): string
@@ -444,7 +448,7 @@ final class RestoreUploads
     private function locked(string $id, Closure $fn): mixed
     {
         return $this->unit($id, fn (): mixed => $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, function () use ($id, $fn): mixed {
-            $this->sweepOnce(null);
+            if ($this->count() !== 0) $this->sweepOnce(null);
             if (preg_match(self::ID, $id) !== 1) throw new UserError(self::NOT_FOUND, 404);
             $owner = $this->me();
             $key = 'uploads/restore/' . $id . '/' . self::MANIFEST;

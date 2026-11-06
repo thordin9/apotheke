@@ -225,18 +225,15 @@ final class LocalStorage implements LeaseStorage
     private function lockFile(string $key)
     {
         $path = $this->path($key);
+        if ($path === null) throw new InvalidArgumentException('Invalid storage key.');
         if (!is_dir(dirname($path)) && !@mkdir(dirname($path), $this->dirMode, true) && !is_dir(dirname($path))) {
             throw new RuntimeException('Could not store the file.');
         }
-        $lease = dirname(dirname($path)) . '/.leases/' . rawurlencode(basename(dirname($path)) . '-' . basename($path)) . '.lock';
-        if (!is_dir(dirname($lease)) && !@mkdir(dirname($lease), $this->dirMode) && !is_dir(dirname($lease))) throw new RuntimeException('Could not store the file.');
         if (basename($path) === 'create.lock') {
             $lease = $path;
             clearstatcache(true, $lease);
             $named = @lstat($lease);
             if ($named !== false && ($named['mode'] & 0170000) !== 0100000) throw new RuntimeException('Could not store the file.');
-        }
-        if (basename($path) === 'create.lock') {
             if ($named === false) {
                 $tmp = $lease . '.new-' . bin2hex(random_bytes(8));
                 if (($created = @fopen($tmp, 'xb')) === false) throw new RuntimeException('Could not store the file.');
@@ -253,6 +250,8 @@ final class LocalStorage implements LeaseStorage
             }
             return $lock;
         }
+        $lease = dirname(dirname($path)) . '/.leases/' . rawurlencode(basename(dirname($path)) . '-' . basename($path)) . '.lock';
+        if (!is_dir(dirname($lease)) && !@mkdir(dirname($lease), $this->dirMode) && !is_dir(dirname($lease))) throw new RuntimeException('Could not store the file.');
         $lock = @fopen($lease, 'c+b');
         if ($lock === false) throw new RuntimeException('Could not store the file.');
         return $lock;
