@@ -7,12 +7,12 @@ const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
 export type R2Env = { STORAGE?: R2Bucket };
 
 function internalSegment(segment: string): boolean {
-	return segment === "" || segment.startsWith(".");
+	return segment.startsWith(".");
 }
 
 export function validKey(key: string): boolean {
 	if (key === "" || key.length > 1024 || key.startsWith("/") || key.includes("\\") || /[?#\x00-\x1f\x7f]/.test(key)) return false;
-	return !key.split("/").some(internalSegment);
+	return !key.split("/").some((segment) => segment === "" || internalSegment(segment));
 }
 
 /** @internal Raw-path unit guard; production uses the URL-normalized Request path. */
@@ -148,8 +148,8 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 			const result = await bucket.list(options);
 			if (!result.objects.every((item) => item.key.startsWith(PREFIX))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			const objects = result.objects.map((item) => item.key.slice(PREFIX.length));
-			if (objects.some((item) => item !== "" && !validKey(item) && item.split("/").every((segment) => !internalSegment(segment)))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
-			return json({ ok: true, objects: objects.filter((item) => item.split("/").every((segment) => !internalSegment(segment))), cursor: result.truncated ? result.cursor : null });
+			if (objects.some((item) => item !== "" && !validKey(item) && !item.split("/").some(internalSegment))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
+			return json({ ok: true, objects: objects.filter((item) => !item.split("/").some(internalSegment)), cursor: result.truncated ? result.cursor : null });
 		}
 		if (request.method === "GET") {
 			const object = await bucket.get(path);

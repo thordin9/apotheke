@@ -214,7 +214,7 @@ final class R2Bridge
         ) {
             throw new \InvalidArgumentException('Invalid object storage key.');
         }
-        if (array_any(explode('/', $key), self::internalSegment(...))) {
+        if (in_array('', explode('/', $key), true) || array_any(explode('/', $key), self::internalSegment(...))) {
             throw new \InvalidArgumentException('Invalid object storage key.');
         }
     }
@@ -231,7 +231,7 @@ final class R2Bridge
 
     private static function internalSegment(string $part): bool
     {
-        return $part === '' || str_starts_with($part, '.');
+        return str_starts_with($part, '.');
     }
 
     /**
