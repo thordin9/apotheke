@@ -71,9 +71,11 @@ test('Worker alone prefixes reads, deletes, and scoped listings', async () => {
   assert.deepEqual(await (await handleR2Request(request('DELETE', 'media/a'), bucket)).json(), { ok: true });
 });
 
-test('application listings never expose multipart marker keys', async () => {
+test('application listing filtering uses the shared dot-segment predicate', async () => {
+  const source = readFileSync(new URL('../src/r2.ts', import.meta.url), 'utf8');
+  assert.match(source, /internalSegment\(segment\)/);
   const bucket = new Bucket();
-  bucket.objects.set('installations/primary/.mpu/upload', new TextEncoder().encode('{"key":"secret"}'));
+  for (const key of ['.mpu/upload', '.hidden/id', 'nested/.internal/id', '.dot']) bucket.objects.set(`installations/primary/${key}`, new TextEncoder().encode('{"id":"private","key":"private"}'));
   bucket.objects.set('installations/primary/media/a', new Uint8Array([1]));
   const response = await handleR2Request(request('GET', 'index', { action: 'list' }), bucket);
   assert.equal(response.status, 200);

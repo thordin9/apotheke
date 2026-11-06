@@ -214,8 +214,7 @@ final class R2Bridge
         ) {
             throw new \InvalidArgumentException('Invalid object storage key.');
         }
-        $parts = explode('/', $key);
-        if (in_array('', $parts, true) || in_array('.', $parts, true) || in_array('..', $parts, true)) {
+        if (array_any(explode('/', $key), self::internalSegment(...))) {
             throw new \InvalidArgumentException('Invalid object storage key.');
         }
     }
@@ -223,11 +222,16 @@ final class R2Bridge
     private function path(string $key): string
     {
         self::validateKey($key);
-        if (array_any(explode('/', $key), static fn (string $part): bool => str_starts_with($part, '.'))) {
+        if (array_any(explode('/', $key), self::internalSegment(...))) {
             throw new \InvalidArgumentException('Invalid object storage key.');
         }
 
         return '/' . implode('/', array_map(rawurlencode(...), explode('/', $key)));
+    }
+
+    private static function internalSegment(string $part): bool
+    {
+        return $part === '' || str_starts_with($part, '.');
     }
 
     /**
