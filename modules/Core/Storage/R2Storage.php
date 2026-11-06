@@ -130,11 +130,11 @@ final class R2Storage implements Storage, VersionedStorage
     {
         $this->requireValidKey($key);
         $json = $this->presence('GET', $key);
-        if ($json === null || !self::found($json)) return null;
+        if (!self::found($json)) return null;
         $raw = base64_decode(self::string($json, 'bytes'), true);
         if ($raw === false) throw R2StorageException::failed();
         $metadata = $this->presence('HEAD', $key);
-        if ($metadata === null || !self::found($metadata)) throw R2StorageException::failed();
+        if (!self::found($metadata)) throw R2StorageException::failed();
         return [$raw, self::string($metadata, 'etag')];
     }
 
@@ -247,20 +247,15 @@ final class R2Storage implements Storage, VersionedStorage
         }
     }
 
-    /** @return array<string,mixed>|null */
-    private function presence(string $method, string $key): ?array
+    /** @return array<string,mixed> */
+    private function presence(string $method, string $key): array
     {
         $response = $this->bridge->request($method, $key, allowMissing: true);
         // A 404 from the real Worker carries no body, so absence is the found flag.
         return $response ?? ['ok' => true, 'found' => false];
     }
 
-    public function readOrMissing(string $key): ?string
-    {
-        $json = $this->presence('GET', $key);
-        return self::found($json) ? $this->bridge->readBody($json) : null;
-    }
-
+    /** @param array<mixed> $json */
     private static function string(array $json, string $field): string
     {
         if (!isset($json[$field]) || !is_string($json[$field])) {
