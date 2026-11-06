@@ -22,7 +22,7 @@ final class R2Bridge
     /** @var \Closure(string, string, (resource|null)): mixed */
     private readonly \Closure $transport;
 
-        private readonly string $base;
+    private readonly string $base;
 
     /** @param callable(string, string, (resource|null)): mixed|null $transport */
     public function __construct(string $base = 'http://r2.internal', ?callable $transport = null, private readonly int $timeout = 30)
