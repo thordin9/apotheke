@@ -43,6 +43,21 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
         $this->dialect = $executor->dialect();
     }
 
+    /**
+     * Insert only when its condition holds in the atomic batch (one expected row).
+     *
+     * @param array<string,scalar|Ref|null> $row
+     * @param list<scalar|null> $binds
+     */
+    public function insertIfAbsent(string $table, array $row, string $condition, array $binds, string $step): Ref
+    {
+        self::checkBinds($condition, $binds);
+        $ref = $this->newRef($table);
+        $this->queue[] = new Statement(Statement::KIND_INSERT_IF, $step, $condition, $binds, $table, $row, $ref);
+
+        return $ref;
+    }
+
     public function hold(string $sql, array $binds, string $step): void
     {
         $this->checkHold($sql, $binds);
@@ -136,15 +151,35 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
         $pg = $this->dialect->name === Dialect::POSTGRES;
         switch ($s->kind) {
             case Statement::KIND_INSERT:
+            case Statement::KIND_INSERT_IF:
                 $cols = array_map(self::ident(...), array_keys($s->row));
                 [$values, $params] = $this->values(array_values($s->row));
-                $sql = 'INSERT INTO ' . self::ident($s->table) . ($cols === [] ? ' DEFAULT VALUES' : ' (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $values) . ')');
+                if ($cols === [] && $s->kind === Statement::KIND_INSERT_IF) {
+                    throw new LogicException('A conditional insert must name its columns.');
+                }
+                $sql = 'INSERT INTO ' . self::ident($s->table) . ($cols === [] ? ' DEFAULT VALUES' : ' (' . implode(', ', $cols) . ($s->kind === Statement::KIND_INSERT
+                    ? ') VALUES (' . implode(', ', $values) . ')'
+                    : ') SELECT ' . implode(', ', $values) . ' WHERE (' . $s->sql . ')'));
+                if ($s->kind === Statement::KIND_INSERT_IF) {
+                    [, $guardParams] = $this->values($s->binds);
+                    $params = [...$params, ...$guardParams];
+                }
+
                 $ulid = $s->ref->ulid ?? '';
                 if ($pg) {
+                    if ($s->kind === Statement::KIND_INSERT_IF) {
+                        return [['sql' => 'WITH n AS (' . $sql . ' RETURNING id), r AS (INSERT INTO uow_refs (ulid, id) SELECT ?, id FROM n) '
+                            . 'INSERT INTO uow_guard (ok) SELECT NULL WHERE (SELECT COUNT(*) FROM n) <> 1', 'params' => [...$params, $ulid]]];
+                    }
+
                     return [['sql' => 'WITH n AS (' . $sql . ' RETURNING id) INSERT INTO uow_refs (ulid, id) SELECT ?, id FROM n', 'params' => [...$params, $ulid]]];
                 }
 
-                return [['sql' => $sql, 'params' => $params], ['sql' => 'INSERT INTO uow_refs (ulid, id) VALUES (?, last_insert_rowid())', 'params' => [$ulid]]];
+                return [
+                    ['sql' => $sql, 'params' => $params],
+                    ...($s->kind === Statement::KIND_INSERT ? [] : [['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', 'params' => [1]]]),
+                    ['sql' => 'INSERT INTO uow_refs (ulid, id) VALUES (?, last_insert_rowid())', 'params' => [$ulid]],
+                ];
             case Statement::KIND_UPDATE:
                 [$set, $params] = $this->values(array_values($s->row));
                 $sql = 'UPDATE ' . self::ident($s->table) . ' SET ' . implode(', ', array_map(static fn (string $c, string $v): string => self::ident($c) . ' = ' . $v, array_keys($s->row), $set));
@@ -173,7 +208,7 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
                     return [['sql' => 'WITH w AS (' . rtrim($sql, " ;\n") . ' RETURNING 1) INSERT INTO uow_guard (ok) SELECT NULL WHERE (SELECT COUNT(*) FROM w) <> ?', 'params' => [...$params, $s->expect]]];
                 }
 
-                return [['sql' => $sql, 'params' => $params], ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', 'params' => [$s->expect]]];
+                return [['sql' => $sql, 'params' => $params], ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', 'params' => [1]]];
         }
     }
 

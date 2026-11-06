@@ -7,29 +7,28 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.20.0). The 2.6.x security line ships from the branch
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.21.0). The 2.6.x security line ships from the branch
   `old` for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported and byte-identical to legacy where legacy has the page (parity gate, step 16 done); module
   notes are in the [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-3 PR 1 (#235, D1 HTTP executor) and
-  PR 2 (#236, edge handlers) are merged; v3.20.0.
+  PR 2 (#236, edge handlers) and PR 3 (#238, D1 migrations) are merged; v3.21.0.
 
 ## Open pull requests
 
-- P4-3 PR 3 (`feat/p4-3-d1-migrations`): the D1 migration dialect (`D1Pdo` adapter + `D1MigrationRunner`; skip
-  connection PRAGMAs / `user_version` / `VACUUM INTO`, `exec()` for multi-statement, never DROP parent).
-  Later P4-3 PRs: stand-in fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR:
-  BulkService, SearchIndex, Imports. Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782,
-  N-1786 (the migration channel intentionally uses `exec()` for multi-statement heredocs; still open and
-  deferred as N-1796).
+- P4-3 PR 4 (`feat/p4-3-standin-stocktake`): the local PostgreSQL executor rejects settings/catalog writes and
+  server-side objects D1 cannot run, PRAGMA/replace/alter and upload-sweep regressions, and an atomic conditional
+  stocktake start. The D1 migration adapter handles nested trigger ends, per-mode synthetic reads, a drop later in
+  a malformed trigger, and sanitized stand-in failures. N-1786 remains deferred; N-1794 and N-1795 are separate.
+  Next is PR 5: the CI wrangler-local d1 cell and the rest of N-1640. Older backlog: N-1747..N-1751, N-1758,
+  N-1761..N-1763, N-1780, N-1782. BulkService, SearchIndex and Imports remain for later P4-3 work.
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Land P4-3 PR 3 (skip connection PRAGMAs / `user_version` / `VACUUM INTO`; `DB.exec`
-   for multi-statement heredocs; never DROP parent), then stand-in allow-list fidelity, the stocktake batch open
-   guard, and the CI wrangler-local d1 cell (remaining N-1640).
+1. Land P4-3 PR 4 (stand-in fidelity, upload-sweep proof and stocktake's conditional batch insert), then the CI
+   wrangler-local d1 cell and remaining N-1640 work. N-1786 stays a deferred follow-up, not a hold.
 2. P4-4 (R2 / `Core\Storage`) to P4-5 (hosted wiring). DevOps owns the bindings and the `EDGE_STORAGE_READY`
    flip checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Older numbered items:

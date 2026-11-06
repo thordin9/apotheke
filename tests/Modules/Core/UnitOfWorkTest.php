@@ -81,6 +81,27 @@ final class UnitOfWorkTest extends CIUnitTestCase
         $this->assertSame('0', (string)$db->query('SELECT COUNT(*) AS n FROM uow_refs')->getRow()->n, 'uow_refs is empty again');
     }
 
+    /** N-1668: the atomic conditional insert admits one row and rejects the loser. */
+    #[DataProvider('drivers')]
+    public function testConditionalInsertRejectsALoser(string $driver): void
+    {
+        [$db, $units] = $this->wire($driver, true);
+        $units->run('uw_parent', function (UnitOfWork $uow): void {
+            $uow->insertIfAbsent('uw_parent', ['name' => 'one'], 'NOT EXISTS (SELECT 1 FROM uw_parent WHERE name = ?)', ['one'], 'add one');
+        });
+        $this->assertSame(['one'], array_column($this->parents($db), 'name'));
+        try {
+            $units->run('uw_parent', function (UnitOfWork $uow): void {
+                $uow->insertIfAbsent('uw_parent', ['name' => 'two'], 'NOT EXISTS (SELECT 1 FROM uw_parent WHERE name = ?)', ['one'], 'add two');
+                $uow->insert('uw_parent', ['name' => 'after'], 'later');
+            });
+            $this->fail('the conditional row count must reject the second start');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: add two', $e->getMessage());
+        }
+        $this->assertSame(['one'], array_column($this->parents($db), 'name'));
+    }
+
     #[DataProvider('modes')]
     public function testAFailedExpectGuardKeepsNothingAndThrowsItsError(string $driver, bool $batch): void
     {

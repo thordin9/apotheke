@@ -32,6 +32,17 @@ final class D1SqliteStandIn implements D1Executor
 
     public function query(string $sql, array $params = []): array
     {
+        try {
+            return $this->execute($sql, $params);
+        } catch (WriteFailed $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new WriteFailed('Database write failed: the batch', 0, $e);
+        }
+    }
+
+    private function execute(string $sql, array $params): array
+    {
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
 
@@ -42,9 +53,13 @@ final class D1SqliteStandIn implements D1Executor
     {
         $out = [];
         foreach ($statements as $s) {
-            $stmt = $this->db->prepare($s['sql']);
-            $stmt->execute($s['params'] ?? []);
-            $out[] = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+            try {
+                $out[] = $this->execute($s['sql'], $s['params'] ?? []);
+            } catch (WriteFailed $e) {
+                throw $e;
+            } catch (Throwable $e) {
+                throw new WriteFailed('Database write failed: the batch', 0, $e);
+            }
         }
 
         return $out;
@@ -65,7 +80,7 @@ final class D1SqliteStandIn implements D1Executor
             try {
                 $this->db->exec($statement);
             } catch (Throwable $e) {
-                throw new WriteFailed('Database write failed: ' . $e->getMessage());
+                throw new WriteFailed('Database write failed: the batch', 0, $e);
             }
             $count++;
         }

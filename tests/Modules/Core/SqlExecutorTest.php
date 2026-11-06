@@ -6,6 +6,7 @@ namespace Tests\Core;
 
 use Apotheke\Core\Database\BatchExecutor;
 use Apotheke\Core\Database\ConnectionExecutor;
+use Apotheke\Core\Database\D1Limits;
 use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Database\Writes;
@@ -202,6 +203,21 @@ final class SqlExecutorTest extends CIUnitTestCase
                 'not a trigger' => 'CREATE TABLE uw_x (a INT); COMMIT', 'trigger named begin' => 'CREATE TRIGGER "begin" AFTER INSERT ON uw_parent COMMIT; END',
                 'a form feed before begin' => "\fBEGIN", 'a vertical tab before commit' => "\vCOMMIT", 'a form feed before a pragma' => "\f/**/PRAGMA journal_mode",
                 'set' => 'SET standard_conforming_strings = off', 'do' => 'DO $$BEGIN END$$', 'call' => 'CALL uw_none()', 'lock' => 'LOCK TABLE uw_parent',
+                'pg create function' => 'CREATE FUNCTION uw_session() RETURNS INT AS $$ SELECT 1 $$ LANGUAGE SQL',
+                'pg create function quoted' => 'CREATE OR REPLACE FUNCTION "uw_session"() RETURNS INT AS $$ SELECT 1 $$ LANGUAGE SQL',
+                'pg settings write' => 'UPDATE pg_settings SET setting = 0 WHERE name = ?',
+                'pg settings write schema' => 'DELETE FROM pg_catalog.pg_settings WHERE name = ?',
+                'pg catalog insert' => 'INSERT INTO pg_catalog.pg_settings(name) VALUES (?)',
+                'pg create sequence' => 'CREATE SEQUENCE uw_seq_id',
+                'pg materialized view' => 'CREATE MATERIALIZED VIEW uw_view AS SELECT 1',
+                'pg create rule' => 'CREATE RULE uw_rule AS ON INSERT TO uw_parent DO NOTHING',
+                'pg create extension' => 'CREATE EXTENSION IF NOT EXISTS pg_trgm',
+                'pg create role' => 'CREATE ROLE uw_role NOLOGIN',
+                'pg create database' => 'CREATE DATABASE uw_other',
+                'pg drop function' => 'DROP FUNCTION IF EXISTS uw_session()',
+                'pg alter function' => 'ALTER FUNCTION uw_session() RENAME TO uw_other',
+                'pg drop role' => 'DROP ROLE IF EXISTS uw_role',
+                'pg alter database' => 'ALTER DATABASE uw_other RENAME TO uw_new',
                 'copy' => 'COPY uw_parent TO STDOUT', 'truncate' => 'TRUNCATE uw_parent', 'explain' => 'EXPLAIN SELECT 1',
                 'set_config' => "SELECT set_config('standard_conforming_strings', 'off', false)", 'set_config, quoted' => 'SELECT pg_catalog."set_config"(?, ?, false)',
                 'pragma optimize with a mask' => 'PRAGMA optimize(65534)', 'pragma optimize = mask' => 'PRAGMA optimize = 2',
@@ -235,8 +251,11 @@ final class SqlExecutorTest extends CIUnitTestCase
                 'form feeds around a select' => ["\f\nSELECT 1 AS a\f;\f", []], 'with' => ['WITH x AS (SELECT 1 AS a) SELECT a FROM x', []], 'values' => ['VALUES (1)', []],
                 'create' => ['CREATE TABLE IF NOT EXISTS uw_ddl (a INT)', []],
                 'drop' => ['DROP TABLE IF EXISTS uw_none', []],
+                'alter' => ['ALTER TABLE uw_parent ADD COLUMN extra TEXT', []],
             ],
             'sqlite' => [
+                'replace' => ['REPLACE INTO uw_parent (id, name) VALUES (1, ?)', ['replaced']],
+                'pragma trailing newline' => ["PRAGMA foreign_keys\n", []],
                 'bracket and backtick names' => ['SELECT 1 AS [a;b], 2 AS `c;``d`', []], 'no nested comments' => ['SELECT 1 /* a /* b */ AS a', []],
                 'pragma foreign_keys' => ['PRAGMA foreign_keys', []], 'pragma defer_foreign_keys' => ['PRAGMA defer_foreign_keys = on', []],
                 'pragma table_info' => ["PRAGMA table_info('uw_parent')", []], 'pragma table_info, quoted' => ['PRAGMA main.table_info("uw_parent")', []],
@@ -256,6 +275,9 @@ final class SqlExecutorTest extends CIUnitTestCase
         foreach (TestDatabase::drivers() as $driver) {
             foreach (['both', $driver] as $set) {
                 foreach ($refused[$set] as $name => $sql) {
+                    if (str_starts_with($name, 'pg ') && $driver !== 'pgsql') {
+                        continue;
+                    }
                     yield $driver . ' refused: ' . $name => [$driver, $sql, [], true];
                 }
                 foreach ($allowed[$set] as $name => [$sql, $params]) {
@@ -284,6 +306,13 @@ final class SqlExecutorTest extends CIUnitTestCase
             $db->query('CREATE TABLE uw_seq (id INTEGER PRIMARY KEY AUTOINCREMENT)');
         }
         $exec = new LocalBatchExecutor($db);
+        if ($sql === 'ALTER TABLE uw_parent ADD COLUMN extra TEXT') {
+            // The second execution in run + query would add the same column twice: DDL's positive is its plan.
+            D1Limits::refuse($sql, count($params), $driver === 'pgsql');
+            $this->addToAssertionCount(1);
+
+            return;
+        }
         foreach (['run' => static fn () => $exec->run([['sql' => $sql, 'params' => $params]]), 'query' => static fn () => $exec->query($sql, $params)] as $call => $f) {
             try {
                 $f();

@@ -147,6 +147,14 @@ try {
 
             return ['ok' => true, 'state' => $r['state']];
         })(),
+        'stocktakeStart' => (static function () use ($database, $db, $clock, $history, $units, $job): array {
+            $tax = new TaxonomyRepository($db, $clock, $history, $units);
+            $items = $database->items($db, $units, $history);
+            $takes = new Stocktakes($db, $clock, $tax, $items, $history, new Barcode($db), $units);
+            $id = $takes->start((int)$job['location']);
+
+            return ['ok' => true, 'id' => $id];
+        })(),
         'photoAdd' => (static function () use ($database, $db, $units, $history, $job): array {
             $id = $database->photos($db, $units, $history)->add((int)$job['item'], (string)$job['file'], (int)($job['max'] ?? 6));
 

@@ -27,6 +27,7 @@ final class Statement
 {
     public const KIND_HOLD = 'hold';
     public const KIND_INSERT = 'insert';
+    public const KIND_INSERT_IF = 'insert-if';
     public const KIND_UPDATE = 'update';
     public const KIND_WRITE = 'write';
     public const KIND_ASSERT = 'assert';

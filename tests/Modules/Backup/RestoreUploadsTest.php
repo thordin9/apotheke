@@ -585,6 +585,19 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
         $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'removed once it holds still');
     }
 
+    /** N-1685: an upload made fresh before the idle check's lock is not swept. */
+    public function testASweepRechecksIdleAfterTakingTheLock(): void
+    {
+        [$id] = $this->uploads()->create(3, null);
+        $file = $this->root() . '/' . $id . '/manifest.json';
+        touch($file, time() - RestoreUploads::IDLE - 5);
+        $sweeper = new RestoreUploads($this->data, 4, 100, static fn (): string => 'user:2', 8, null, static function (string $path): void {
+            touch($path);
+        });
+        $sweeper->sweep();
+        $this->assertDirectoryExists($this->root() . '/' . $id, 'a new request is using this upload again');
+    }
+
     /** N-1595: the sweep removes what an interrupted removal left (.removing-<16 hex>), and nothing else. */
     public function testTheSweepClearsRemovalLeftovers(): void
     {
