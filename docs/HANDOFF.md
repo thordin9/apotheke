@@ -11,23 +11,25 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
-- P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. PR 1 (#235, D1 HTTP), PR 2 (#236,
-  edge handlers), PR 3 (#238, migrations) and PR 4 (#239, stand-ins and stocktake) are merged.
-- PR 5 completes P4-3: a cached, credential-free local-wrangler CI job checks real D1 batch refusals, UOW,
-  all migrations, guard mapping and bounded replay. PG leading-CTE settings writes are refused; temporary
-  tables are permitted. The N-1640 multi-statement and 100 KB limits have real-D1 coverage.
+- P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. P4-3 is merged through #240;
+  P4-4 PR 1 starts R2 storage with a tested `R2Storage` implementation of the existing `Core\Storage` interface.
+  Its bounded bridge accepts application-relative keys only and its tests mock transport. The Worker owns prefixes.
+- PDO/self-hosting and default `LocalStorage` construction are unchanged. PR 1 is not wired to a live R2 service.
+  PR 2 adds Worker R2/list/conditional operations and explicit opt-in construction; PR 3 migrates direct filesystem
+  backup/restore callers, with manifest locking/conditional writes and real race tests. PR 4 takes up background restore.
+
 
 ## Open pull requests
 
-- P4-3 PR 5 (`feat/p4-3-ci-d1-cell`): CI local-D1 test cell, remaining N-1640, L-1809 and N-1810.
-- N-1786 stays deferred. N-1794 and N-1795 stay separate, not folded into this PR.
+- P4-4 PR 1 (`feat/p4-4-r2-foundation`): the storage adapter and internal object protocol only.
+- N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
 Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. P4-4 R2 / `Core\Storage`; then P4-5 hosted wiring.
+1. Finish P4-4 PRs 2–4, with no readiness flip; then P4-5 hosted wiring.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).
