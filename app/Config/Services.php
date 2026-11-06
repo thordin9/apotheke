@@ -1240,7 +1240,8 @@ class Services extends BaseService
             $staged = static::stagedExecutor();
 
             return $staged === null ? null : new \Apotheke\Backup\RestoreStage($staged);
-        });
+        }, ($storage = \Apotheke\Core\Storage\StorageFactory::create($config->values())) instanceof \Apotheke\Core\Storage\LocalStorage ? $storage : throw new \Apotheke\Core\Exceptions\UserError('Chunked restores need local storage until hosted restore upload support is enabled.', 503)
+        , static fn (string $id, \Closure $fn): mixed => static::unitsOfWork()->run('restore_marker', static fn (): mixed => $fn(), $id === '' ? 'uploads' : 'upload/' . $id));
     }
 
     /**

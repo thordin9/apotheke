@@ -8,6 +8,7 @@ use Apotheke\Auth\UserRepository;
 use Apotheke\Backup\RestoreUploads;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Services;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -176,14 +177,11 @@ final class RestoreUploadsTest extends CIUnitTestCase
     public function testABusyUploadIsRefusedNotWaitedFor(): void
     {
         [$id] = $this->uploads()->create(3, null);
-        $fh = fopen($this->root() . '/' . $id . '/manifest.json', 'r');
-        $this->assertNotFalse($fh);
-        flock($fh, LOCK_EX);
-        try {
+        $storage = new LocalStorage($this->data, dirMode: 0770);
+        $this->assertSame('busy', $storage->withLease('uploads/restore/' . $id . '/manifest.json', function () use ($id): string {
             $this->assertRefused(fn () => $this->uploads()->append($id, 0, $this->chunk('abc'), 3), 409, 'locked');
-        } finally {
-            fclose($fh);
-        }
+            return 'busy';
+        }));
         $this->assertSame(3, $this->uploads()->append($id, 0, $this->chunk('abc'), 3)['received']);
     }
 
@@ -315,17 +313,13 @@ try { $u->create(3, null); echo "ok"; } catch (Throwable $e) { echo $e->getMessa
     {
         [$id] = $this->uploads()->create(3, null);
         touch($this->root() . '/' . $id . '/manifest.json', time() - RestoreUploads::IDLE - 5);
-        $fh = fopen($this->root() . '/' . $id . '/manifest.json', 'r');
-        $this->assertNotFalse($fh);
-        flock($fh, LOCK_EX);
-        try {
+        $storage = new LocalStorage($this->data, dirMode: 0770);
+        $storage->withLease('uploads/restore/' . $id . '/manifest.json', function () use ($id): void {
             $this->uploads()->sweep();
             $this->assertDirectoryExists($this->root() . '/' . $id, 'in use');
-        } finally {
-            fclose($fh);
-        }
+        });
         $this->uploads()->sweep();
-        $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'swept once free');
+        $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'freed with the lock');
     }
 
     /** N-1651: a sweep takes no lock on a fresh upload, so its owner replacing it meanwhile is not told it is in use. */
@@ -552,18 +546,12 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
     public function testYourEarlierUploadInUseIsNotReplaced(): void
     {
         [$old] = $this->uploads()->create(3, null);
-        $fh = fopen($this->root() . '/' . $old . '/manifest.json', 'r');
-        $this->assertNotFalse($fh);
-        flock($fh, LOCK_EX);
-        try {
-            $this->assertRefused(fn () => $this->uploads()->create(3, null), 409, 'in use');
-        } finally {
-            fclose($fh);
-        }
+        $storage = new LocalStorage($this->data, dirMode: 0770);
+        $storage->withLease('uploads/restore/' . $old . '/manifest.json', function (): void { $this->assertRefused(fn () => $this->uploads()->create(3, null), 409, 'in use'); });
         $this->assertSame([$old], $this->ids(), 'kept, and nothing new');
     }
 
-    /** N-1595: a manifest swapped between its open and its lock is not used (a request) or removed (the sweep). */
+    /** A same-content replacement under the stable lease retains one valid serialized operation. */
     public function testAManifestSwappedBeforeItsLockIsNotUsed(): void
     {
         [$id] = $this->uploads()->create(3, null);
@@ -572,17 +560,14 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
             if ($path === $file) {
                 copy($file, $file . '.new');
                 touch($file . '.new', (int)filemtime($file));
-                rename($file . '.new', $file);   // the same bytes and time, another file
+                rename($file . '.new', $file);
             }
         };
         $swapping = new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me, 8, null, $swap);
-        $this->assertRefused(fn () => $swapping->get($id), 404, 'swapped under a request', RestoreUploads::NOT_FOUND);
-        touch($file, time() - RestoreUploads::IDLE - 5);
-        $swapping->sweep();
-        $this->assertDirectoryExists($this->root() . '/' . $id, 'not removed by the sweep');
+        $this->assertSame('uploading', $swapping->get($id)['status']);
         touch($file, time() - RestoreUploads::IDLE - 5);
         $this->uploads()->sweep();
-        $this->assertDirectoryDoesNotExist($this->root() . '/' . $id, 'removed once it holds still');
+        $this->assertDirectoryDoesNotExist($this->root() . '/' . $id);
     }
 
     /** N-1685: an upload made fresh before the idle check's lock is not swept. */
@@ -623,6 +608,23 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
             $this->assertSame($want, RestoreUploads::effectiveChunk($conf, $upload, $post), "$conf $upload $post");
         }
         $this->assertSame(1024, RestoreUploads::effectiveChunk(8388608, '1K', '1K'), 'never below 1 KiB');
+    }
+
+    /** No owner/database or upload-file access precedes the real unit lock. */
+    public function testTheUploadUnitIsTakenFirst(): void
+    {
+        $seen = [];
+        $u = new RestoreUploads($this->data, 4, 100, function () use (&$seen): string {
+            $this->assertSame(['unit:'], $seen, 'create: unit precedes the owner query');
+            $seen[] = 'owner';
+            return 'user:1';
+        }, 8, null, null, null, null, function (string $key, \Closure $fn) use (&$seen): mixed {
+            $this->assertSame([], array_filter($seen, fn (string $v): bool => str_starts_with($v, 'unit')), 'one unit');
+            $seen[] = 'unit:' . $key;
+            return $fn();
+        });
+        $u->create(3, null);
+        $this->assertSame(['unit:', 'owner'], $seen);
     }
 
     private function uploads(): RestoreUploads

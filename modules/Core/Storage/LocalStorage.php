@@ -14,6 +14,8 @@ use RuntimeException;
  */
 final class LocalStorage implements LeaseStorage
 {
+    /** @var array<string,bool> held by this local adapter in this request. */
+    private array $leases = [];
     /**
      * $fileMode: chmod for written files (originals use 0640); null keeps the umask's mode.
      * $dirMode: mode for missing directories, before the umask (attachments use legacy's 0770).
@@ -66,7 +68,7 @@ final class LocalStorage implements LeaseStorage
      *
      * @param \Closure(resource):bool $fill writes the bytes; false when it could not
      */
-    private function put(string $key, \Closure $fill): void
+    private function put(string $key, \Closure $fill, bool $sync = false): void
     {
         $path = $this->path($key);
         if ($path === null) {
@@ -100,6 +102,7 @@ final class LocalStorage implements LeaseStorage
         } finally {
             // every byte, flushed and closed: a short write (a full disk) fails
             $ok = @fflush($fh) && $ok;
+            if ($sync && $ok) $ok = @fsync($fh);
             $ok = @fclose($fh) && $ok;
             if (!$ok) {
                 @unlink($tmp);
@@ -186,42 +189,48 @@ final class LocalStorage implements LeaseStorage
         return true;
     }
 
-    public function putIfVersion(string $key, string $etag, string $bytes): bool
+    public function putIfVersion(string $key, string $etag, string $bytes, bool $sync = false): bool
     {
         if ($this->path($key) === null) throw new InvalidArgumentException('Invalid storage key.');
-        $lock = $this->lockFile($key);
-        try {
-            if (!flock($lock, LOCK_EX)) throw new RuntimeException('Could not store the file.');
+        return $this->withLease($key, function () use ($key, $etag, $bytes, $sync): bool {
             $current = $this->version($key);
             if ($current === null || !hash_equals($current[1], $etag)) return false;
-            $this->put($key, static fn ($fh): bool => self::writeAll($fh, $bytes));
+            $this->put($key, static fn ($fh): bool => self::writeAll($fh, $bytes), $sync);
             return true;
-        } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        });
     }
 
     public function withLease(string $key, \Closure $fn, bool $wait = true): mixed
     {
+        if (isset($this->leases[$key])) return $fn($this);
         if ($this->path($key) === null) throw new InvalidArgumentException('Invalid storage key.');
         $lock = $this->lockFile($key);
         try {
             if (!flock($lock, $wait ? LOCK_EX : LOCK_EX | LOCK_NB)) return false;
-            return $fn($this);
+            $this->leases[$key] = true;
+            try { return $fn($this); } finally { unset($this->leases[$key]); }
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
         }
     }
 
+    public function renew(string $key): void
+    {
+        $path = $this->path($key);
+        if ($path === null || !is_file($path) || !@touch($path)) throw new RuntimeException('Could not store the file.');
+    }
+
+    /** @return resource */
     private function lockFile(string $key)
     {
         $path = $this->path($key);
         if (!is_dir(dirname($path)) && !@mkdir(dirname($path), $this->dirMode, true) && !is_dir(dirname($path))) {
             throw new RuntimeException('Could not store the file.');
         }
-        $lock = @fopen($path . '.lock', 'c+b');
+        $lease = dirname(dirname($path)) . '/.leases/' . rawurlencode(basename(dirname($path)) . '-' . basename($path)) . '.lock';
+        if (!is_dir(dirname($lease)) && !@mkdir(dirname($lease), $this->dirMode) && !is_dir(dirname($lease))) throw new RuntimeException('Could not store the file.');
+        $lock = @fopen($lease, 'c+b');
         if ($lock === false) throw new RuntimeException('Could not store the file.');
         return $lock;
     }

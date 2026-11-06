@@ -7,6 +7,8 @@ namespace Apotheke\Backup;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Closure;
+use Apotheke\Core\Storage\LeaseStorage;
+use Apotheke\Core\Storage\LocalStorage;
 
 /**
  * Chunked restore uploads (POST /api/v1/restores…): a backup zip sent in pieces, for hosts that cap a request body.
@@ -80,11 +82,14 @@ final class RestoreUploads
     /** @var Closure(string):void */
     private readonly Closure $afterLock;
 
+    private readonly LeaseStorage $storage;
+
     /**
      * @param Closure():?string $owner this request's account key ("user:<id>:<sha256 of created_at>", "local" with sign-in off), null for a guest; WriteFailed when the account cannot be read (500)
      * @param int $maxOpen most uploads not yet confirmed, all accounts together
      * @param ?Closure(string):?float $freeBytes free bytes on the folder's disk, null when unknown (disk_free_space())
      * @param ?Closure(string):void $afterLock a test seam: runs on the manifest's path once it is locked, before the checks again
+     * @param ?Closure(string, Closure(): mixed): mixed $unit takes $id first, before any owner/package/chunk access
      * @param ?Closure():?RestoreStage $stage a batch-only database's restore stage (staged restores), else null; asked
      *                                     only when needed, so the sweep needs no database elsewhere
      */
@@ -97,7 +102,10 @@ final class RestoreUploads
         ?Closure $freeBytes = null,
         ?Closure $afterLock = null,
         private readonly ?Closure $stage = null,
+        ?LeaseStorage $storage = null,
+        private readonly ?Closure $unit = null,
     ) {
+        $this->storage = $storage ?? new LocalStorage($dataDir, dirMode: 0770);
         $this->freeBytes = $freeBytes ?? static fn (string $dir): ?float => is_float($f = @disk_free_space($dir)) ? $f : null;
         $this->afterLock = $afterLock ?? static function (string $file): void {
         };
@@ -145,6 +153,7 @@ final class RestoreUploads
      */
     public function create(mixed $size, mixed $sha256): array
     {
+        return $this->unit('', function () use ($size, $sha256): array {
         $owner = $this->me();
         if (!is_int($size) || $size < 1) {
             throw new UserError('Give the backup\'s size in bytes.', 422);
@@ -155,20 +164,15 @@ final class RestoreUploads
         if ($sha256 !== null && (!is_string($sha256) || preg_match('/^[a-f0-9]{64}$/D', $sha256) !== 1)) {
             throw new UserError('sha256 must be 64 lowercase hex digits.', 422);
         }
-        $root = $this->sweep();
+
         try {
-            $lock = Restorer::openLock($root . '/' . self::CREATE_LOCK, wait: true);   // L-1581: one start at a time
-        } catch (UserError $e) {
-            throw new UserError(self::LOCK_UNUSABLE, 500, $e);   // N-1591: a server fault, not the client's
-        }
-        try {
+            $root = $this->root();
+            return $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, function () use ($root, $owner, $size, $sha256): array {
             $open = [];   // id => bytes it still expects
             foreach ($this->ids($root) as $old) {
                 $m = self::read($root . '/' . $old);
                 if ($m !== null && hash_equals($m['owner'], $owner)) {
-                    if (!$this->removeFree($root, $old, static fn (): bool => true)) {
-                        throw new UserError('Your earlier restore upload is in use. Try again when it has finished.', 409);
-                    }
+                    if (!$this->removeFree($root, $old, static fn (): bool => true)) throw new UserError('Your earlier restore upload is in use. Try again when it has finished.', 409);
                 } elseif ($m === null || !in_array($m['status'], self::DONE, true)) {
                     $open[$old] = $m === null ? 0 : max(0, $m['size'] - $m['received']);
                 }
@@ -177,39 +181,29 @@ final class RestoreUploads
                 $limit = time() - self::IDLE_FULL;
                 foreach (array_keys($open) as $old) {
                     if ($this->removeFree($root, $old, static fn (array $st): bool => $st['mtime'] <= $limit
-                        && in_array(self::read($root . '/' . $old)['status'] ?? null, ['uploading', 'ready'], true))) {
-                        unset($open[$old]);
-                    }
+                        && in_array(self::read($root . '/' . $old)['status'] ?? null, ['uploading', 'ready'], true))) unset($open[$old]);
                 }
             }
-            if (count($open) >= $this->maxOpen) {
-                throw new UserError('Too many restore uploads are open. Try again later.', 503);
-            }
+            if (count($open) >= $this->maxOpen) throw new UserError('Too many restore uploads are open. Try again later.', 503);
             $free = ($this->freeBytes)($root);
-            if ($free !== null && $free - array_sum($open) < $size + self::DISK_MARGIN) {
-                throw new UserError('There is not enough free disk space for this backup.', 507);
-            }
+            if ($free !== null && $free - array_sum($open) < $size + self::DISK_MARGIN) throw new UserError('There is not enough free disk space for this backup.', 507);
             $id = bin2hex(random_bytes(16));
-            if (!@mkdir($root . '/' . $id, 0770)) {
-                throw new UserError('The upload could not be stored.', 500);
-            }
             $m = ['owner' => $owner, 'size' => $size, 'sha256' => $sha256, 'chunk_size' => $this->chunkBytes, 'received' => 0, 'next' => 0, 'status' => 'uploading'];
-            if (@file_put_contents($root . '/' . $id . '/' . self::MANIFEST, json_encode($m), LOCK_EX) === false) {
-                self::remove($root . '/' . $id);
-                throw new UserError('The upload could not be stored.', 500);
+            try {
+                if (!$this->storage->putIfMissing('uploads/restore/' . $id . '/' . self::MANIFEST, (string)json_encode($m))) throw new UserError('The upload could not be stored.', 500);
+            } catch (\Throwable $e) {
+                self::remove($root . '/' . $id); throw $e;
             }
-        } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
-
-        return [$id, $m];
+            return [$id, $m];
+            });
+        } catch (UserError $e) { throw $e; } catch (\Throwable $e) { throw new UserError(self::LOCK_UNUSABLE, 500, $e); }
+        });
     }
 
     /** @return Manifest your upload $id; 404 when it is not there or not yours */
     public function get(string $id): array
     {
-        return $this->locked($id, static fn (string $dir, array $m): array => $m);
+        return $this->locked($id, static fn (string $dir, array $m, string $etag): array => $m);
     }
 
     /**
@@ -220,7 +214,7 @@ final class RestoreUploads
      */
     public function append(string $id, int $index, string $tmp, int $bytes): array
     {
-        return $this->locked($id, function (string $dir, array $m, $fh) use ($index, $tmp, $bytes): array {
+        return $this->locked($id, function (string $dir, array $m, string $etag) use ($id, $index, $tmp, $bytes): array {
             if ($m['status'] !== 'uploading' || $index !== $m['next']) {
                 throw new UserError($m['status'] !== 'uploading' ? 'This upload is complete.' : 'Send chunk ' . $m['next'] . ' next.', 409);
             }
@@ -250,7 +244,7 @@ final class RestoreUploads
             $m['received'] += $bytes;
             $m['next']++;
 
-            return self::write($fh, $m);
+            return $this->writeState($id, $m);
         });
     }
 
@@ -264,7 +258,7 @@ final class RestoreUploads
      */
     public function finish(string $id, Closure $open): array
     {
-        return $this->locked($id, function (string $dir, array $m, $fh) use ($open): array {
+        return $this->locked($id, function (string $dir, array $m, string $etag) use ($id, $open): array {
             if ($m['status'] !== 'uploading' && $m['status'] !== 'ready') {
                 throw new UserError('This upload was confirmed already.', 409);
             }
@@ -282,7 +276,7 @@ final class RestoreUploads
                     throw new UserError('The upload could not be stored.', 500);
                 }
                 $m['status'] = 'ready';
-                $m = self::write($fh, $m);
+                $m = $this->writeState($id, $m);
             }
 
             try {
@@ -307,7 +301,7 @@ final class RestoreUploads
      */
     public function confirm(string $id, Closure $restore): array
     {
-        return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore): array {
+        return $this->locked($id, function (string $dir, array $m, string $etag) use ($id, $restore): array {
             if ($m['status'] === 'interrupted') {
                 throw new UserError(self::INTERRUPTED, 409);
             }
@@ -319,20 +313,20 @@ final class RestoreUploads
             }
             $zip = $dir . '/' . self::ZIP;
             $sum = $m['sha256'] ?? @hash_file('sha256', $zip);
-            self::write($fh, ['status' => 'applying', 'fingerprint' => is_string($sum) ? $sum : null] + $m, true);
+            $this->writeState($id, ['status' => 'applying', 'fingerprint' => is_string($sum) ? $sum : null] + $m, true);
             try {
                 $out = $restore($zip);
             } catch (\Throwable $e) {
                 if ($e->getCode() === 409) {
-                    self::write($fh, $m, true);   // not applied: ready to confirm again
+                    $this->writeState($id, $m, true);   // not applied: ready to confirm again
                 } else {
                     @unlink($zip);
-                    self::write($fh, ['status' => 'failed', 'result' => ['error' => $e instanceof UserError ? $e->getMessage() : 'The restore failed.']] + $m, true);
+                    $this->writeState($id, ['status' => 'failed', 'result' => ['error' => $e instanceof UserError ? $e->getMessage() : 'The restore failed.']] + $m, true);
                 }
                 throw $e;
             }
             @unlink($zip);
-            self::write($fh, ['status' => 'restored', 'result' => $out] + $m, true);
+            $this->writeState($id, ['status' => 'restored', 'result' => $out] + $m, true);
 
             return $out;
         });
@@ -341,7 +335,7 @@ final class RestoreUploads
     /** Cancel upload $id: its folder and files are removed. */
     public function delete(string $id): void
     {
-        $this->locked($id, static function (string $dir): array {
+        $this->locked($id, static function (string $dir, array $m, string $etag): array {
             self::remove($dir);
 
             return [];
@@ -353,6 +347,12 @@ final class RestoreUploads
      * left behind; returns the checked root folder ($create: make it if missing).
      */
     public function sweep(?int $now = null, bool $create = true): string
+    {
+        if (!$create) return $items = $this->sweepOnce($now, false);
+        return $this->unit('', fn (): string => $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, fn (): string => $this->sweepOnce($now)));
+    }
+
+    private function sweepOnce(?int $now, bool $create = true): string
     {
         $root = $this->root($create);
         $limit = ($now ?? time()) - self::IDLE;
@@ -438,54 +438,42 @@ final class RestoreUploads
      * holds it). Not yours, malformed, missing or not a plain folder and manifest: 404, the same answer.
      *
      * @template T
-     * @param Closure(string, Manifest, resource):T $fn
+     * @param Closure(string, Manifest, string):T $fn
      * @return T
      */
     private function locked(string $id, Closure $fn): mixed
     {
-        $owner = $this->me();
-        $root = $this->sweep();
-        $dir = $root . '/' . $id;
-        $file = $dir . '/' . self::MANIFEST;
-        $st = preg_match(self::ID, $id) === 1 ? @lstat($dir) : false;
-        $named = $st !== false && ($st['mode'] & 0170000) === 0040000 ? @lstat($file) : false;
-        $fh = $named !== false && Restorer::plainFile($named) ? @fopen($file, 'r+') : false;
-        if ($fh === false) {
-            throw new UserError(self::NOT_FOUND, 404);
-        }
-        try {
-            $open = fstat($fh);
-            $m = self::decode((string)stream_get_contents($fh));
-            if ($open === false || $open['ino'] !== $named['ino'] || $m === null || !hash_equals($m['owner'], $owner)) {
-                throw new UserError(self::NOT_FOUND, 404);
-            }
-            if (!flock($fh, LOCK_EX | LOCK_NB)) {
-                throw new UserError('Another request is using this upload. Try again when it has finished.', 409);
-            }
-            ($this->afterLock)($file);
-            // N-1582: checked again under the lock: still the plain manifest of a real folder under the root
-            clearstatcache(true, $dir);
-            clearstatcache(true, $file);
-            $now = @lstat($dir);
-            if ($now === false || ($now['mode'] & 0170000) !== 0040000 || !Restorer::sameFile(fstat($fh), @lstat($file))
-                || realpath($dir) !== realpath($root) . '/' . $id) {
-                throw new UserError(self::NOT_FOUND, 404);
-            }
-            rewind($fh);
-            $m = self::decode((string)stream_get_contents($fh)) ?? throw new UserError(self::NOT_FOUND, 404);
-            if ($m['status'] === 'applying') {   // N-1594: nobody holds the lock, so that restore has stopped
-                @unlink($dir . '/' . self::ZIP);
-                $m = self::write($fh, $this->stopped($id, $m), true);
-            }
-            @touch($file);   // a request keeps the upload from the idle sweep
-
-            return $fn($dir, $m, $fh);
-        } finally {
-            if (is_resource($fh)) {
-                flock($fh, LOCK_UN);
-                fclose($fh);
-            }
-        }
+        return $this->unit($id, function () use ($id, $fn): mixed {
+            if (preg_match(self::ID, $id) !== 1) throw new UserError(self::NOT_FOUND, 404);
+            $owner = $this->me();
+            $key = 'uploads/restore/' . $id . '/' . self::MANIFEST;
+            $dirKey = 'uploads/restore/' . $id;
+            $dir = rtrim($this->dataDir, '/') . '/' . $dirKey;
+            $checked = @lstat($dir);
+            if ($checked === false || is_link($dir) || ($checked['mode'] & 0170000) !== 0040000) throw new UserError(self::NOT_FOUND, 404);
+            try {
+            $result = $this->storage->withLease($key, function () use ($id, $key, $owner, $fn): mixed {
+                $dirKey = 'uploads/restore/' . $id;
+                $dir = $this->storage->pathFor($dirKey);
+                $root = $this->root();
+                $st = preg_match(self::ID, $id) === 1 ? @lstat($dir) : false;
+                if ($st === false || ($st['mode'] & 0170000) !== 0040000 || realpath($dir) !== realpath($root) . '/' . $id) throw new UserError(self::NOT_FOUND, 404);
+                ($this->afterLock)($this->storage->pathFor($key));
+                try { $state = $this->storage->version($key); } catch (\InvalidArgumentException) { throw new UserError(self::NOT_FOUND, 404); }
+                if ($state === null) throw new UserError(self::NOT_FOUND, 404);
+                $m = self::decode($state[0]);
+                if ($m === null || !hash_equals($m['owner'], $owner)) throw new UserError(self::NOT_FOUND, 404);
+                if ($m['status'] === 'applying') {
+                    $this->storage->delete($dirKey . '/' . self::ZIP);
+                    $m = $this->write($id, $state[1], $this->stopped($id, $m));
+                }
+                $this->storage->renew($key);
+                return $fn($dir, $m, $state[1]);
+            }, false);
+            } catch (\InvalidArgumentException) { throw new UserError(self::NOT_FOUND, 404); }
+            if ($result === false) throw new UserError('Another request is using this upload. Try again when it has finished.', 409);
+            return $result;
+        });
     }
 
     /**
@@ -542,19 +530,34 @@ final class RestoreUploads
     }
 
     /**
-     * @param resource $fh the locked manifest
+     * @param string $etag the manifest ETag read under its lease
      * @param Manifest $m
      * @param bool $sync on disk before it returns (fsync), for the status around a restore
      * @return Manifest
      */
-    private static function write($fh, array $m, bool $sync = false): array
+    private function write(string $id, string $etag, array $m, bool $sync = false): array
     {
-        $json = (string)json_encode($m);
-        if (!ftruncate($fh, 0) || !rewind($fh) || fwrite($fh, $json) !== strlen($json) || !fflush($fh) || ($sync && !fsync($fh))) {
-            throw new UserError('The upload could not be stored.', 500);
-        }
-
+        $key = 'uploads/restore/' . $id . '/' . self::MANIFEST;
+        if (!$this->storage->putIfVersion($key, $etag, (string)json_encode($m), $sync)) throw new UserError('Another request changed this upload. Try again.', 409);
         return $m;
+    }
+
+    /**
+     * @param Manifest $m
+     * @return Manifest
+     */
+    private function writeState(string $id, array $m, bool $sync = false): array
+    {
+        $state = $this->storage->version('uploads/restore/' . $id . '/' . self::MANIFEST);
+        if ($state === null || !$this->storage->putIfVersion('uploads/restore/' . $id . '/' . self::MANIFEST, $state[1], (string)json_encode($m), $sync)) {
+            throw new UserError('Another request changed this upload. Try again.', 409);
+        }
+        return $m;
+    }
+
+    private function unit(string $id, Closure $fn): mixed
+    {
+        return $this->unit === null ? $fn() : ($this->unit)($id, $fn);
     }
 
     /** Nothing at $path, or a plain file (never a link). */
@@ -574,39 +577,17 @@ final class RestoreUploads
      */
     private function removeFree(string $root, string $id, Closure $still): bool
     {
-        $dir = $root . '/' . $id;
-        $file = $dir . '/' . self::MANIFEST;
-        clearstatcache(true, $file);
+        $dir = $root . '/' . $id; $file = $dir . '/' . self::MANIFEST;
+        $st = @lstat($dir);
+        if ($st === false || ($st['mode'] & 0170000) !== 0040000) return false;
         $named = @lstat($file);
-        if ($named === false || !Restorer::plainFile($named)) {   // no manifest (yet): judged by the folder
-            clearstatcache(true, $dir);
-            $st = @lstat($dir);
-
-            return $st !== false && ($st['mode'] & 0170000) === 0040000 && $still($st) && self::remove($dir);
-        }
-        if (!$still($named)) {
-            return false;   // N-1651: kept without taking its lock, so a sweep never makes a fresh upload look in use
-        }
-        $fh = @fopen($file, 'r');
-        if ($fh === false) {
-            return false;
-        }
-        try {
-            if (!flock($fh, LOCK_EX | LOCK_NB)) {
-                return false;   // in use
-            }
-            ($this->afterLock)($file);
-            clearstatcache(true, $dir);
-            clearstatcache(true, $file);
-            $st = @lstat($dir);
-            $now = @lstat($file);
-
-            return $st !== false && ($st['mode'] & 0170000) === 0040000 && Restorer::sameFile(fstat($fh), $now) && $now !== false && $still($now)
-                && self::remove($dir);
-        } finally {
-            flock($fh, LOCK_UN);
-            fclose($fh);
-        }
+        if ($named === false || !Restorer::plainFile($named)) return $still($st) && self::remove($dir);
+        if (!$still($named)) return false;
+        return (bool)$this->storage->withLease('uploads/restore/' . $id . '/' . self::MANIFEST, function () use ($dir, $still): bool {
+            ($this->afterLock)($dir . '/' . self::MANIFEST);
+            $now = @lstat($dir . '/' . self::MANIFEST); $st = @lstat($dir);
+            return ($st['mode'] & 0170000) === 0040000 && Restorer::plainFile($now) && $still($now) && self::remove($dir);
+        }, false);
     }
 
     /**
