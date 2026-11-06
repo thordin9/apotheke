@@ -196,8 +196,8 @@ final class D1Sql
 
     private static function triggerBodyOpen(string $buf): bool
     {
-        // The buffer holds CREATE TRIGGER … BEGIN <body so far>; the body is still open
-        // unless its last keyword was END.
-        return preg_match('/\bEND\s*$/i', $buf) !== 1;
+        // Count the outer BEGIN and inner CASE expressions; an inner END is not the trigger's terminator.
+        preg_match_all('/\bBEGIN\b|\bCASE\b|\bEND\b/i', self::head($buf), $m);
+        return count($m[0]) % 2 === 1;
     }
 }

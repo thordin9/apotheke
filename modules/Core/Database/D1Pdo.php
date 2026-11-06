@@ -14,7 +14,7 @@ final class D1PdoException extends PDOException
 {
     public static function from(WriteFailed $e): self
     {
-        return new self('Database write failed', (int)$e->getCode(), $e);
+        return new self($e->getMessage(), (int)$e->getCode(), $e);
     }
 }
 
@@ -225,11 +225,15 @@ final class D1Pdo extends PDO
      *
      * @return array<string,mixed>
      */
-    private function pragmaAnswer(string $sql): array
+    private static function pragmaAnswer(string $sql): array
     {
         $head = D1Sql::head($sql);
-        if (self::pragmaName($head) === 'foreign_keys') {
+        $name = self::pragmaName($head);
+        if ($name === 'foreign_keys') {
             return ['foreign_keys' => 1]; // D1 enforces foreign keys
+        }
+        if ($name !== null && in_array($name, ['journal_mode', 'busy_timeout', 'synchronous'], true)) {
+            return [$name => null]; // D1 has no SQLite connection-mode value to report.
         }
 
         return ['user_version' => 0];
@@ -240,7 +244,7 @@ final class D1Pdo extends PDO
     {
         foreach (D1Sql::split($sql) as $statement) {
             $head = D1Sql::head($statement);
-            if (preg_match('/^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(.*?)\s*$/is', $head, $m) !== 1) {
+            if (preg_match('/(?:^|\s)DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(.*?)\s*$/is', $head, $m) !== 1) {
                 continue;
             }
             $ident = D1Sql::lastIdentifier($m[1]);

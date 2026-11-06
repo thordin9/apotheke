@@ -665,6 +665,25 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
         }
     }
 
+    /** N-1668: simultaneous batch starts leave one open stocktake, with lines only on the winner. */
+    #[DataProvider('drivers')]
+    public function testParallelStocktakeStartsInBatchMode(string $driver): void
+    {
+        $this->database = TestDatabase::create($driver);
+        $db = $this->database->db;
+        $f = $this->database->pdo();
+        $f->exec("INSERT INTO locations (name, name_key, created_at) VALUES ('Shelf', 'shelf', '2026-01-01 08:00:00')");
+        $f->exec("INSERT INTO items (name, location_id, quantity, created_at, updated_at) VALUES ('Lamp', 1, 1, '2026-01-01 08:00:00', '2026-01-01 08:00:00')");
+        $answers = $this->parallel(array_fill(0, 4, ['op' => 'stocktakeStart', 'batch' => true, 'location' => 1]));
+        $this->assertCount(4, $answers);
+        $messages = array_map(static fn (array $a): string => (string)($a['message'] ?? ''), $answers);
+        $this->assertSame([], array_values(array_diff(array_unique($messages), ['', 'Database write failed: start stocktake'])), json_encode($answers));
+        $rows = Writes::rows($db, "SELECT id FROM stocktakes WHERE location_id = 1 AND status = 'open'");
+        $this->assertCount(1, $rows, json_encode($answers));
+        $lines = array_map(static fn (array $r): int => (int)Writes::rows($db, 'SELECT COUNT(*) AS n FROM stocktake_lines WHERE stocktake_id = ?', [(int)$r['id']])[0]['n'], $rows);
+        $this->assertSame([1], $lines, json_encode($answers));
+    }
+
     /**
      * @param list<array<string,mixed>> $jobs
      * @return list<array<string,mixed>>
@@ -695,7 +714,6 @@ final class UnitOfWorkRemainingSitesRaceTest extends CIUnitTestCase
             fclose($pipes[$i][1]);
             fclose($pipes[$i][2]);
             $code = proc_close($proc);
-            // last non-empty line is the JSON result
             $lines = array_values(array_filter(array_map('trim', explode("\n", (string)$stdout)), static fn (string $l): bool => $l !== ''));
             $json = $lines === [] ? '' : $lines[count($lines) - 1];
             try {

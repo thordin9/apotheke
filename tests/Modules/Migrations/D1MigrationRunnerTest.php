@@ -149,6 +149,25 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $this->assertCount(6, $pdo->skippedStatements());
     }
 
+    public function testDriverFailureTextMatchesProduction(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        try {
+            $standIn->exec('CREATE TABLE');
+            $this->fail('the invalid statement must fail');
+        } catch (WriteFailed $e) {
+            $this->assertSame('Database write failed: the batch', $e->getMessage());
+            $this->assertInstanceOf(\Throwable::class, $e->getPrevious());
+        }
+        $pdo = new D1Pdo($standIn);
+        try {
+            $pdo->query('SELECT * FROM missing_table');
+            $this->fail('the invalid query must fail');
+        } catch (\PDOException $e) {
+            $this->assertSame('Database write failed: the batch', $e->getMessage());
+        }
+    }
+
     public function testSkippedPragmaAnswersPerPragma(): void
     {
         $pdo = new D1Pdo($this->fakeExecutor());
@@ -158,6 +177,9 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $this->assertSame(['foreign_keys' => 1], $fk, 'foreign_keys reports 1 (D1 enforces FKs)');
         $quoted = $pdo->query('PRAGMA "main"."foreign_keys"')->fetch(PDO::FETCH_ASSOC);
         $this->assertSame(['foreign_keys' => 1], $quoted, 'quoted schema-qualified foreign_keys reports 1');
+        foreach (['journal_mode', 'busy_timeout', 'synchronous'] as $name) {
+            $this->assertSame([$name => null], $pdo->query('PRAGMA ' . $name)->fetch(PDO::FETCH_ASSOC));
+        }
     }
 
     public function testSkippedPragmaMixedWithRealSqlRunsTheRest(): void
@@ -259,4 +281,29 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $this->assertStringContainsString('CREATE TRIGGER', $parts[0]);
         $this->assertStringContainsString('CREATE TABLE x', $parts[1]);
     }
+    public function testTriggerInnerEndAndUnterminatedDropAreHandled(): void
+    {
+        $inner = 'CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET id = CASE WHEN id > 0 THEN id ELSE 0 END; END; DROP TABLE items';
+        $this->expectException(RuntimeException::class);
+        (new D1Pdo($this->fakeExecutor()))->exec($inner);
+    }
+
+    public function testUnterminatedTriggerCannotHideParentDrop(): void
+    {
+        $this->expectException(RuntimeException::class);
+        (new D1Pdo($this->fakeExecutor()))->exec('CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET id = 1; DROP TABLE items');
+    }
+
+    public function testTokenizerKeepsCaseAndTriggerConditionsInsideBody(): void
+    {
+        $case = 'CREATE TRIGGER trg AFTER INSERT ON t BEGIN UPDATE t SET id = CASE WHEN id > 0 THEN id ELSE 0 END; END; DROP TABLE items';
+        $condition = 'CREATE TRIGGER trg AFTER INSERT ON t WHEN (CASE WHEN NEW.id > 0 THEN 1 ELSE 0 END) = 1 BEGIN UPDATE t SET id = 1; END; DROP TABLE items';
+        foreach ([$case, $condition] as $sql) {
+            $parts = D1Sql::split($sql);
+            $this->assertCount(2, $parts);
+            $this->assertStringStartsWith('CREATE TRIGGER', $parts[0]);
+            $this->assertSame('DROP TABLE items', $parts[1]);
+        }
+    }
+
 }

@@ -7,6 +7,7 @@ namespace Apotheke\Stocktake;
 use Apotheke\Catalog\Barcode;
 use Apotheke\Catalog\Items\ItemInput;
 use Apotheke\Catalog\Items\ItemRepository;
+use Apotheke\Core\Database\BatchUnitOfWork;
 use Apotheke\Core\Database\Dialect;
 use Apotheke\Core\Database\Ref;
 use Apotheke\Core\Database\UnitOfWork;
@@ -81,8 +82,17 @@ final class Stocktakes
                 return (int)$open['id'];
             }
             $byId = $this->taxonomy->locationsById();
-            $id = $uow->insert('stocktakes', ['location_id' => $locationId, 'location_name' => (string)($byId[$locationId]['path'] ?? ''), 'status' => 'open',
-                'started_at' => $this->clock->now(), 'summary' => '{}'], 'start stocktake');
+            // N-1668: no open row at flush is the batch's atomic condition, not just the callback's read.
+            // The connection path already holds the per-location lock before this callback.
+            $row = ['location_id' => $locationId, 'location_name' => (string)($byId[$locationId]['path'] ?? ''), 'status' => 'open',
+                'started_at' => $this->clock->now(), 'summary' => '{}'];
+            $condition = 'NOT EXISTS (SELECT 1 FROM stocktakes WHERE status = \'open\' AND location_id = ?)';
+            if ($uow instanceof BatchUnitOfWork) {
+                $id = $uow->insertIfAbsent('stocktakes', $row, $condition, [$locationId], 'start stocktake');
+            } else {
+                // The connection unit already held this location's write lock before the callback.
+                $id = $uow->insert('stocktakes', $row, 'start stocktake');
+            }
             $ids = $this->taxonomy->subtreeIds($locationId);
             $rows = Writes::rows($this->db, 'SELECT id, name, location_id FROM items WHERE location_id IN ' . Dialect::of($this->db)->inList() . ' ORDER BY sort_key, id', [Dialect::list($ids)]);
             foreach ($rows as $it) {

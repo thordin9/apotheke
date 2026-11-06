@@ -87,9 +87,25 @@ final class D1Limits
         if (preg_match('/\b(?:sqlite_(?!sequence\b)\w*|set_config)"?\s*\(/i', $code) === 1) {
             throw new LogicException('D1 refuses sqlite_*() and set_config() calls.');
         }
+        if ($postgres && self::postgresObject($first)) {
+            throw new LogicException('D1 does not support PostgreSQL session settings or server-side objects.');
+        }
         if ($params > self::MAX_PARAMS) {
             throw new LogicException('D1 allows ' . self::MAX_PARAMS . ' bound parameters per statement; bind a list as one (Dialect::inList()).');
         }
+    }
+
+    /** The local PostgreSQL model refuses session/catalog writes and DDL outside D1's objects. */
+    private static function postgresObject(string $first): bool
+    {
+        if (preg_match('/^(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:"?pg_catalog"?\s*\.\s*)?"?pg_settings"?\b/i', $first) === 1) {
+            return true;
+        }
+        if (preg_match('/^(?:CREATE|DROP|ALTER)\s+/i', $first) !== 1) {
+            return false;
+        }
+
+        return preg_match('/^(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:UNIQUE\s+)?|DROP\s+|ALTER\s+)(?:TABLE|INDEX|VIEW|TRIGGER)\b/i', $first) !== 1;
     }
 
     private static function documentedPragma(string $code): bool
