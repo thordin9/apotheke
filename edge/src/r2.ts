@@ -3,10 +3,10 @@
 const PREFIX = "installations/primary/";
 const PART = 5 * 1024 * 1024;
 const MARKER = ".mpu/";
-// JSON expands a source character by at most six bytes; retain a small margin.
-export const MARKER_BODY_LIMIT = new TextEncoder().encode(JSON.stringify({
-	id: String.fromCharCode(92).repeat(1024), key: PREFIX + "a".repeat(1024),
-})).length + 64;
+// R2 accepts 1024 UTF-8 key bytes, not 1024 code units. Escapes and
+// multi-byte UTF-8 cannot combine: quote/backslash/control-escapable bytes
+// use at most two of the former and six emitted bytes. Syntax costs 15 bytes.
+export const MARKER_BODY_LIMIT = 6 * (1024 + 1024) + new TextEncoder().encode(PREFIX).length + 15;
 const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
 export type R2Env = { STORAGE?: R2Bucket };
 

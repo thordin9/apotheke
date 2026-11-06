@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleR2Request, MARKER_BODY_LIMIT, r2UnboundResponse, validKey, validateRawPath } from '../src/r2.ts';
+import { handleR2Request, r2UnboundResponse, validKey, validateRawPath } from '../src/r2.ts';
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
 const workerStub = 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }';
@@ -287,20 +287,40 @@ test('a 1024-character upload id survives reserved marker key limits end to end'
   assert.ok(bucket.objects.has('installations/primary/backup.zip'));
 });
 
-test('maximum escaped multipart marker survives part and abort', async () => {
-  const sameMaxBody = JSON.stringify({ id: String.fromCharCode(92).repeat(1024), key: `installations/primary/${'a'.repeat(1024)}` });
-  assert.equal(MARKER_BODY_LIMIT, new TextEncoder().encode(sameMaxBody).length + 64);
-  const id = '+'.repeat(1024);
-  const path = 'a'.repeat(1024 - 'installations/primary/'.length);
-  const escaped = String.fromCharCode(92);
-  const marker = JSON.stringify({ id: id.replaceAll('+', escaped), key: `installations/primary/${path}` });
+test('every worst-case escaped marker supports real multipart requests', async () => {
+  const id = '\\'.repeat(1024);
+  const key = '"'.repeat(1024 - 'installations/primary/'.length);
   const bucket = new Bucket();
-  bucket.createMultipartUpload = async () => ({ uploadId: id });
-  assert.ok(marker.length > 2048);
-  assert.equal((await handleR2Request(request('PUT', path, { action: 'begin' }), bucket)).status, 200);
-  assert.equal((await handleR2Request(request('PUT', path, { action: 'part', upload_id: id, part: '1', size: '7' }, 'payload'), bucket)).status, 200);
-  assert.equal((await handleR2Request(request('DELETE', path, { action: 'abort', upload_id: id }), bucket)).status, 200);
+  bucket.createMultipartUpload = async (key) => {
+    assert.ok(new TextEncoder().encode(key).byteLength <= 1024);
+    return { uploadId: id, abort: async () => { bucket.aborted.push(id); } };
+  };
+  assert.equal((await handleR2Request(request('PUT', key, { action: 'begin' }), bucket)).status, 200);
+  assert.equal((await handleR2Request(request('PUT', key, { action: 'part', upload_id: id, part: '1', size: '7' }, 'payload'), bucket)).status, 200);
+  assert.deepEqual(bucket.partReads, [7]);
+  assert.equal((await handleR2Request(request('DELETE', key, { action: 'abort', upload_id: id }), bucket)).status, 200);
   assert.deepEqual(bucket.aborted, [id]);
+
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(id));
+  const markerKey = 'installations/primary/.mpu/' + [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const stored = new TextEncoder().encode(JSON.stringify({ id, key: `installations/primary/${key}` }));
+  assert.ok(stored.length > 3176 && stored.length <= 12327);
+  const readSize = new Bucket();
+  readSize.objects.set(markerKey, stored);
+  assert.equal((await handleR2Request(request('DELETE', key, { action: 'abort', upload_id: id }), readSize)).status, 200);
+  const unbounded = new TextEncoder().encode(JSON.stringify({ id, key: `installations/primary/${key}` }) + ' '.repeat(16000));
+  readSize.objects.set(markerKey, unbounded);
+  assert.equal((await handleR2Request(request('DELETE', key, { action: 'abort', upload_id: id }), readSize)).status, 400);
+
+  const unicode = String.fromCharCode(218).repeat(501);
+  const unicodeBucket = new Bucket();
+  unicodeBucket.createMultipartUpload = async (key) => {
+    assert.equal(new TextEncoder().encode(key).length, 1024);
+    return { uploadId: id, abort: async () => { unicodeBucket.aborted.push(id); } };
+  };
+  assert.equal((await handleR2Request(request('PUT', unicode, { action: 'begin' }), unicodeBucket)).status, 200);
+  assert.equal((await handleR2Request(request('DELETE', unicode, { action: 'abort', upload_id: id }), unicodeBucket)).status, 200);
+
 });
 
 test('long printable R2 identifiers survive markers, upload, completion, and abort', async () => {
