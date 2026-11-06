@@ -67,41 +67,92 @@ final class R2Bridge
     {
         $json = $this->request('PUT', $key, query: ['action' => 'begin']);
         $id = $json['upload_id'] ?? null;
-        if (!is_string($id) || $id === '' || !preg_match('/^[A-Za-z0-9_-]{1,200}$/D', $id)) {
+        if (!is_string($id)) {
             throw R2StorageException::failed();
         }
+        self::validateUploadId($id);
 
         return $id;
     }
 
-    /** @param resource $body */
-    public function uploadPart(string $key, string $id, int $part, $body): void
+    /**
+     * @param resource $body
+     * @return array{partNumber:int,etag:string}
+     */
+    public function uploadPart(string $key, string $id, int $part, $body): array
     {
         if ($part < 1 || $part > 10000) {
             throw new \InvalidArgumentException('Invalid multipart sequence.');
         }
-        $position = ftell($body);
-        $metadata = stream_get_meta_data($body);
-        $size = fstat($body)['size'] ?? 0;
-        if ($position === false || $position < 0 || $size < $position) {
+        self::validateUploadId($id);
+        if (stream_get_meta_data($body)['seekable']) {
+            if (!rewind($body)) {
+                throw R2StorageException::failed();
+            }
+            $length = fstat($body)['size'] ?? 0;
+            if ($length < 0 || $length > 5242880) {
+                throw R2StorageException::failed();
+            }
+
+            return $this->uploadPartRequest($key, $id, $part, $body, $length);
+        }
+        $buffer = fopen('php://temp/maxmemory:5242880', 'w+b');
+        if ($buffer === false) {
             throw R2StorageException::failed();
         }
-        if ($metadata['seekable'] && !rewind($body)) {
-            throw R2StorageException::failed();
-        }
-        $json = $this->request('PUT', $key, $body, query: ['action' => 'part', 'upload_id' => $id, 'part' => $part, 'size' => $size - $position]);
-        if (($json['bytes'] ?? null) !== $size - $position) {
-            throw R2StorageException::failed();
+        try {
+            $length = 0;
+            while (!feof($body)) {
+                $chunk = fread($body, 65536);
+                if ($chunk === false || ($chunk === '' && !feof($body))) {
+                    throw R2StorageException::failed();
+                }
+                $written = fwrite($buffer, $chunk);
+                if ($written === false || $written !== strlen($chunk)) {
+                    throw R2StorageException::failed();
+                }
+                $length += $written;
+                if ($length > 5242880) {
+                    throw R2StorageException::failed();
+                }
+            }
+            if (!rewind($buffer)) {
+                throw R2StorageException::failed();
+            }
+
+            return $this->uploadPartRequest($key, $id, $part, $buffer, $length);
+        } finally {
+            fclose($buffer);
         }
     }
 
-    public function completeMultipart(string $key, string $id): void
+    /**
+     * @param resource $body
+     * @return array{partNumber:int,etag:string}
+     */
+    private function uploadPartRequest(string $key, string $id, int $part, $body, int $length): array
     {
-        $this->request('PUT', $key, query: ['action' => 'complete', 'upload_id' => $id]);
+        $json = $this->request('PUT', $key, $body, query: ['action' => 'part', 'upload_id' => $id, 'part' => $part, 'size' => $length]);
+        if (($json['bytes'] ?? null) !== $length || ($json['part_number'] ?? null) !== $part
+            || !is_string($json['etag'] ?? null) || !preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $json['etag'])
+        ) {
+            throw R2StorageException::failed();
+        }
+        return ['partNumber' => $part, 'etag' => $json['etag']];
+    }
+
+    /** @param list<array{partNumber:int,etag:string}> $parts */
+    public function completeMultipart(string $key, string $id, array $parts): void
+    {
+        self::validateUploadId($id);
+        if (count($parts) > 10000) throw new \InvalidArgumentException('Invalid multipart sequence.');
+        $json = json_encode($parts, JSON_THROW_ON_ERROR);
+        $this->request('PUT', $key, query: ['action' => 'complete', 'upload_id' => $id, 'parts' => $json]);
     }
 
     public function abortMultipart(string $key, string $id): void
     {
+        self::validateUploadId($id);
         try {
             $this->request('DELETE', $key, query: ['action' => 'abort', 'upload_id' => $id]);
         } catch (\Throwable) {
@@ -142,6 +193,13 @@ final class R2Bridge
         }
 
         return ['objects' => $objects, 'cursor' => $next];
+    }
+
+    private static function validateUploadId(string $id): void
+    {
+        if (!preg_match('/^[A-Za-z0-9_-]{1,200}$/D', $id)) {
+            throw new \InvalidArgumentException('Invalid multipart upload identifier.');
+        }
     }
 
     /** Same path grammar as LocalStorage: no absolute, empty, or dot segments. */
@@ -224,6 +282,8 @@ final class R2Bridge
             CURLOPT_CONNECTTIMEOUT => min(5, $this->timeout),
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_MAXREDIRS => 0,
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_HEADER => false,

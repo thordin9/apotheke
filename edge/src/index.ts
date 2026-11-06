@@ -3,7 +3,7 @@
 // D1 is reached from the container at http://d1.internal via an outbound handler (ADR-002, P4-3); R2 follows in P4-4.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, handleD1Request, type D1Env } from "./d1";
-import { handleR2Request, r2UnboundResponse, type R2Env, type R2SessionMap } from "./r2";
+import { handleR2Request, r2UnboundResponse, type R2Env } from "./r2";
 
 const PORT = 9091;
 const READY_TIMEOUT_MS = 30_000;
@@ -24,7 +24,7 @@ export class D1Outbound extends WorkerEntrypoint<Env & D1Env> {
 export class R2Outbound extends WorkerEntrypoint<Env & R2Env> {
 	async fetch(request: Request): Promise<Response> {
 		if (!this.env.STORAGE) return r2UnboundResponse();
-		return handleR2Request(request, this.env.STORAGE, new Map() as R2SessionMap);
+		return handleR2Request(request, this.env.STORAGE);
 	}
 }
 

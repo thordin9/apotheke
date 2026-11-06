@@ -3,8 +3,6 @@
 const PREFIX = "installations/primary/";
 const PART = 5 * 1024 * 1024;
 export type R2Env = { STORAGE?: R2Bucket };
-export type R2SessionMap = Map<string, Session>;
-type Session = { key: string; parts: R2UploadedPart[]; next: number };
 
 export function validKey(key: string): boolean {
 	if (key === "" || key.length > 1024 || key.startsWith("/") || key.includes("\\") || /[?#\x00-\x1f\x7f]/.test(key)) return false;
@@ -33,7 +31,7 @@ function json(body: object, status = 200): Response {
 }
 
 export function r2UnboundResponse(): Response {
-	return json({ ok: false }, 503);
+	return json({ ok: false, code: "unbound", error: "Object storage is not available." }, 503);
 }
 
 export async function readPart(request: Request): Promise<Uint8Array | undefined> {
@@ -71,16 +69,37 @@ async function readBody(request: Request, maximum: number): Promise<Uint8Array |
 	}
 }
 
-/** Handles only relative keys. Caller sessions are local calls, not an external API. */
-export async function handleR2Request(request: Request, bucket: R2Bucket, sessions: R2SessionMap): Promise<Response> {
+/** Handles only relative keys. The caller carries upload IDs and part metadata, not an external API. */
+function completedParts(request: Request): R2UploadedPart[] | undefined {
+	try {
+		const raw = new URL(request.url).searchParams.get("parts");
+		if (raw === null) return undefined;
+		const parsed: unknown = JSON.parse(raw);
+		if (raw === null || !Array.isArray(parsed) || parsed.length > 10000) return undefined;
+		if (parsed.some((part) => typeof part !== "object" || part === null || Array.isArray(part))) return undefined;
+		return parsed.map((part: object, index: number) => {
+			const value = part as Record<string, unknown>;
+			if (Object.keys(value).sort().join(",") !== "etag,partNumber"
+				|| value.partNumber !== index + 1 || typeof value.etag !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value.etag)) throw new Error("invalid part");
+			return { partNumber: value.partNumber, etag: value.etag };
+		});
+	} catch {
+		return undefined;
+	}
+}
+
+export async function handleR2Request(request: Request, bucket: R2Bucket): Promise<Response> {
 	const relative = key(request);
 	if (!relative) return json({ ok: false }, 400);
 	const path = PREFIX + relative;
 	const url = new URL(request.url);
 	const action = url.searchParams.get("action") ?? "";
 	const id = url.searchParams.get("upload_id") ?? "";
-	const session = sessions.get(id);
-	if (["part", "complete", "abort"].includes(action) && (!/^[A-Za-z0-9_-]{1,200}$/.test(id) || !session || session.key !== path)) return json({ ok: false }, 400);
+	if (["part", "complete", "abort"].includes(action)) {
+		if (request.method !== (action === "abort" ? "DELETE" : "PUT") || !/^[A-Za-z0-9_-]{1,200}$/.test(id)
+			|| url.searchParams.has("parts") !== (action === "complete")) return json({ ok: false }, 400);
+		if (action === "part" && (!/^[1-9][0-9]{0,7}$/.test(url.searchParams.get("part") ?? "") || !/^(0|[1-9][0-9]{0,7})$/.test(url.searchParams.get("size") ?? ""))) return json({ ok: false }, 400);
+	}
 	try {
 		if (request.method === "GET" && action === "list") {
 			const prefix = url.searchParams.get("prefix") ?? "";
@@ -104,7 +123,6 @@ export async function handleR2Request(request: Request, bucket: R2Bucket, sessio
 		}
 		if (request.method === "DELETE") {
 			if (action === "abort") {
-				sessions.delete(id);
 				await bucket.resumeMultipartUpload(path, id).abort();
 				return json({ ok: true });
 			}
@@ -116,22 +134,21 @@ export async function handleR2Request(request: Request, bucket: R2Bucket, sessio
 		if (action === "begin") {
 			if (request.body || url.searchParams.has("prefix") || url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) return json({ ok: false }, 400);
 			const upload = await bucket.createMultipartUpload(path);
-			sessions.set(upload.uploadId, { key: path, parts: [], next: 1 });
 			return json({ ok: true, upload_id: upload.uploadId });
 		}
-		if (action === "part" && session) {
+		if (action === "part") {
 			const part = Number(url.searchParams.get("part"));
-			if (part !== session.next || part > 10000) return json({ ok: false }, 400);
+			if (!Number.isSafeInteger(part) || part < 1 || part > 10000) return json({ ok: false }, 400);
 			const body = await readPart(request);
 			if (!body) return json({ ok: false }, 400);
 			const uploaded = await bucket.resumeMultipartUpload(path, id).uploadPart(part, body);
-			session.parts.push(uploaded);
-			session.next++;
-			return json({ ok: true, bytes: body.byteLength });
+			if (uploaded.partNumber !== part || !/^[A-Za-z0-9_-]{1,128}$/.test(uploaded.etag)) return json({ ok: false }, 502);
+			return json({ ok: true, bytes: body.byteLength, part_number: uploaded.partNumber, etag: uploaded.etag });
 		}
-		if (action === "complete" && session) {
-			sessions.delete(id);
-			await bucket.resumeMultipartUpload(path, id).complete(session.parts);
+		if (action === "complete") {
+			const parts = completedParts(request);
+			if (!parts) return json({ ok: false }, 400);
+			await bucket.resumeMultipartUpload(path, id).complete(parts);
 			return json({ ok: true });
 		}
 		if (action !== "") return json({ ok: false }, 400);
@@ -147,12 +164,9 @@ export async function handleR2Request(request: Request, bucket: R2Bucket, sessio
 		}
 		await bucket.put(path, body);
 		return json({ ok: true });
-	} catch {
-		if (session && sessions.get(id) === session) {
-			sessions.delete(id);
-			try { await bucket.resumeMultipartUpload(path, id).abort(); } catch { /* Best effort retains a generic failure. */ }
-		}
-		return json({ ok: false }, 500);
+	} catch (error) {
+		console.error("r2.internal request failed", error);
+		return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 500);
 	}
 }
 

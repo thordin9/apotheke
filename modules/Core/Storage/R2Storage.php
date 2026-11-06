@@ -9,8 +9,8 @@ final class R2Storage implements Storage
 {
     public function __construct(private readonly R2Bridge $bridge, private readonly int $maxBytes = 104857600)
     {
-        if ($maxBytes <= 0) {
-            throw new \InvalidArgumentException('Object storage write limit must be positive.');
+        if ($maxBytes <= 0 || $maxBytes > 104857600) {
+            throw new \InvalidArgumentException('Object storage write limit must be between 1 and 104857600 bytes.');
         }
     }
 
@@ -63,6 +63,7 @@ final class R2Storage implements Storage
         $remaining = $this->maxBytes;
         $number = 0;
         $uploadId = null;
+        $parts = [];
         try {
             while (!feof($stream)) {
                 try {
@@ -84,15 +85,15 @@ final class R2Storage implements Storage
                     continue;
                 }
                 $uploadId ??= $this->bridge->beginMultipart($key);
-                $this->bridge->uploadPart($key, $uploadId, ++$number, $part);
+                $parts[] = $this->bridge->uploadPart($key, $uploadId, ++$number, $part);
                 ftruncate($part, 0);
                 rewind($part);
             }
             $uploadId ??= $this->bridge->beginMultipart($key);
             if (($size = fstat($part)['size'] ?? 0) > 0) {
-                $this->bridge->uploadPart($key, $uploadId, ++$number, $part);
+                $parts[] = $this->bridge->uploadPart($key, $uploadId, ++$number, $part);
             }
-            $this->bridge->completeMultipart($key, $uploadId);
+            $this->bridge->completeMultipart($key, $uploadId, $parts);
         } catch (\Throwable $e) {
             if ($uploadId !== null) {
                 $this->bridge->abortMultipart($key, $uploadId);

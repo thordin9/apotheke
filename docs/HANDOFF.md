@@ -13,7 +13,8 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. P4-3 is merged through #240;
   P4-4 PR 1 (#241) added a tested R2 storage with a tested `R2Storage` implementation of the existing `Core\Storage` interface.
-  PR 2 adds scoped Worker R2 operations, bounded multipart, conditions, and explicit opt-in construction.
+  PR 2 adds scoped Worker R2 operations, resumable bounded multipart, conditions, and explicit
+  opt-in construction. Invalid `R2_MAX_WRITE_BYTES` values fail closed; its strict range is 1–104857600 bytes.
 - PDO/self-hosting and default `LocalStorage` construction remain unchanged. PR 2 uses simulated R2 bindings only.
   PR 3 migrates direct filesystem
   backup/restore callers, with manifest locking/conditional writes and real race tests. PR 4 takes up background restore.

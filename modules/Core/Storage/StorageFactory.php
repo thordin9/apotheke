@@ -21,8 +21,8 @@ final class StorageFactory
             throw new \RuntimeException('R2 storage requires optional PHP extension ext-curl.');
         }
         $bytes = $config['storage']['max_write_bytes'] ?? 104857600;
-        if (!is_int($bytes) || $bytes < 1) {
-            throw new \InvalidArgumentException('Object storage write limit must be a positive integer.');
+        if (!is_int($bytes) || $bytes < 1 || $bytes > 104857600) {
+            throw new \InvalidArgumentException('Object storage write limit must be between 1 and 104857600 bytes.');
         }
 
         return new R2Storage(new R2Bridge((string)($config['storage']['r2_base_url'] ?? 'http://r2.internal')), maxBytes: $bytes);

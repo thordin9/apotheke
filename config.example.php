@@ -37,7 +37,7 @@ return [
     // Selecting r2 requires PHP ext-curl; local is otherwise dependency-unchanged.
     'storage' => [
         'backend' => 'local',                // STORAGE_BACKEND      local | r2
-        'max_write_bytes' => 104857600,      // R2_MAX_WRITE_BYTES   write-size ceiling
+        'max_write_bytes' => 104857600,      // R2_MAX_WRITE_BYTES   strict base-10 integer, 1-104857600
         'r2_base_url' => 'http://r2.internal', // R2_BASE_URL          internal Worker origin only
     ],
 

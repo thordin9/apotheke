@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/modules/Core/Config/config-functions.php';
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class ConfigTest extends TestCase
@@ -130,6 +131,31 @@ final class ConfigTest extends TestCase
         $this->assertFalse(config_ip_matches('192.0.3.15', '192.0.2.0/24'));
         $this->assertTrue(config_ip_matches('192.0.2.1', '192.0.2.1'));
         $this->assertFalse(config_ip_matches('192.0.2.2', '192.0.2.1'));
+    }
+
+    #[DataProvider('invalidR2Limits')]
+    public function testR2WriteLimitMustBeNumericInTheSupportedRange(string $raw): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('R2_MAX_WRITE_BYTES must be a base-10 integer between 1 and 104857600.');
+        config_load('/app', null, ['R2_MAX_WRITE_BYTES' => $raw]);
+    }
+
+    /** @return iterable<string,array{string}> */
+    public static function invalidR2Limits(): iterable
+    {
+        yield 'zero' => ['0'];
+        yield 'negative' => ['-1'];
+        yield 'non-numeric' => ['many'];
+        yield 'decimal' => ['1.5'];
+        yield 'over-range' => ['104857601'];
+        yield 'over-PHP-range' => ['999999999999999999999999999'];
+    }
+
+    public function testR2WriteLimitAcceptsItsDocumentedRange(): void
+    {
+        $this->assertSame(1, config_load('/app', null, ['R2_MAX_WRITE_BYTES' => '1'])['storage']['max_write_bytes']);
+        $this->assertSame(104857600, config_load('/app', null, ['R2_MAX_WRITE_BYTES' => '104857600'])['storage']['max_write_bytes']);
     }
 
     public function testExampleConfigLoads(): void

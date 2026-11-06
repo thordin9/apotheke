@@ -16,6 +16,18 @@ final class StorageFactoryTest extends TestCase
         $this->assertInstanceOf(R2Storage::class, StorageFactory::create(['storage' => ['backend' => 'r2', 'max_write_bytes' => 123]]));
     }
 
+    public function testR2MaximumWriteSizeCannotBeRaisedWithoutBound(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Object storage write limit must be between 1 and 104857600 bytes.');
+        StorageFactory::create(['storage' => ['backend' => 'r2', 'max_write_bytes' => 104857601]]);
+    }
+
+    public function testKnownCeilingIsAccepted(): void
+    {
+        $this->assertInstanceOf(R2Storage::class, StorageFactory::create(['storage' => ['backend' => 'r2', 'max_write_bytes' => 104857600]]));
+    }
+
     public function testUnknownBackendIsRefused(): void
     {
         $this->expectException(\InvalidArgumentException::class);

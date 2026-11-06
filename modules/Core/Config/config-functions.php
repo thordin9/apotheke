@@ -100,7 +100,13 @@ function config_load(string $root, ?string $file, array $env): array
         throw new RuntimeException('Storage configuration must be an array.');
     }
     $cfg['storage']['backend'] = strtolower((string)($cfg['storage']['backend'] ?? 'local'));
-    $cfg['storage']['max_write_bytes'] = max(1, (int)($cfg['storage']['max_write_bytes'] ?? 104857600));
+    $limit = $cfg['storage']['max_write_bytes'] ?? 104857600;
+    if ((!is_int($limit) && (!is_string($limit) || preg_match('/^[0-9]+$/D', $limit) !== 1))
+        || (int)$limit < 1 || (string)(int)$limit !== (string)$limit || (int)$limit > 104857600
+    ) {
+        throw new RuntimeException('R2_MAX_WRITE_BYTES must be a base-10 integer between 1 and 104857600.');
+    }
+    $cfg['storage']['max_write_bytes'] = (int)$limit;
     $cfg['storage']['r2_base_url'] = (string)($cfg['storage']['r2_base_url'] ?? 'http://r2.internal');
     $cfg['data_dir'] = rtrim((string)$cfg['data_dir'], '/');
     $cfg['originals_dir'] = rtrim((string)($cfg['originals_dir'] ?? ''), '/');
