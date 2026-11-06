@@ -87,8 +87,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Settings & Control Panel | 53.3 % | 48.5 % | 69.1 % |
 | Backup & restore | 63.0 % | 67.7 % | 83.6 % |
 | Database & migrations | 74.1 % | 60.4 % | 76.3 % |
-| Core & dev server | 75.1 % | 62.6 % | 91.4 % |
-| **All PHP** (17880 lines) | **64.7 %** | **70.0 %** | **84.5 %** |
+| Core & dev server | 72.2 % | 65.0 % | 92.5 % |
+| **All PHP** (18009 lines) | **64.3 %** | **70.3 %** | **84.7 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
