@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **migrations:** D1 migration dialect and runner (P4-3) ([#238](https://github.com/thordin9/apotheke/pull/238))
+
 ## [3.20.1] - 2026-11-06
 
 - **edge:** return generic error bodies (P4-3) ([#237](https://github.com/thordin9/apotheke/pull/237))

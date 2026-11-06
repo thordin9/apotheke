@@ -16,15 +16,18 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-3 PR 3 (`feat/p4-3-d1-migrations`): the D1 migration dialect. Also in flight: a small fix to the edge
-  error bodies. Later P4-3 PRs: stand-in fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR:
-  BulkService, SearchIndex, Imports. Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
+- P4-3 PR 3 (`feat/p4-3-d1-migrations`): the D1 migration dialect (`D1Pdo` adapter + `D1MigrationRunner`; skip
+  connection PRAGMAs / `user_version` / `VACUUM INTO`, `exec()` for multi-statement, never DROP parent).
+  Later P4-3 PRs: stand-in fidelity and stocktake batch open guard, CI d1 cell. Left for a later PR:
+  BulkService, SearchIndex, Imports. Backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782,
+  N-1786 (the migration channel intentionally uses `exec()` for multi-statement heredocs; still open and
+  deferred as N-1796).
 
 Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Land the edge error-body fix and P4-3 PR 3 (skip connection PRAGMAs / `user_version` / `VACUUM INTO`; `DB.exec`
+1. Land P4-3 PR 3 (skip connection PRAGMAs / `user_version` / `VACUUM INTO`; `DB.exec`
    for multi-statement heredocs; never DROP parent), then stand-in allow-list fidelity, the stocktake batch open
    guard, and the CI wrangler-local d1 cell (remaining N-1640).
 2. P4-4 (R2 / `Core\Storage`) to P4-5 (hosted wiring). DevOps owns the bindings and the `EDGE_STORAGE_READY`

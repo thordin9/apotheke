@@ -136,6 +136,10 @@ rules: [PLAN.md](../plans/feature12-ci4/PLAN.md), [ADR 001](../adr/001-codeignit
 
 ## Pull requests
 
+- P4-3 PR 3 (`feat/p4-3-d1-migrations`): the D1 migration dialect. `D1Pdo` (PDO-shaped adapter over the D1 HTTP
+  executor) runs the existing migration callables; `D1MigrationRunner` applies array and callable migrations.
+  Connection PRAGMAs, user_version and VACUUM INTO are skipped, multi-statement heredocs go to `exec()`, and a
+  parent table is never dropped (D1 ignores foreign_keys OFF). Open.
 - Edge hardening: `d1.internal` failure bodies are generic (a stable `code` plus a single allow-listed guard
   marker), with details logged server-side only; guard recognition is preserved. Harness mirror and client match.
 
