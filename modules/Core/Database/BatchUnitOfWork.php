@@ -208,7 +208,7 @@ final class BatchUnitOfWork extends QueuedUnitOfWork
                     return [['sql' => 'WITH w AS (' . rtrim($sql, " ;\n") . ' RETURNING 1) INSERT INTO uow_guard (ok) SELECT NULL WHERE (SELECT COUNT(*) FROM w) <> ?', 'params' => [...$params, $s->expect]]];
                 }
 
-                return [['sql' => $sql, 'params' => $params], ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', 'params' => [1]]];
+                return [['sql' => $sql, 'params' => $params], ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?', 'params' => [$s->expect]]];
         }
     }
 
