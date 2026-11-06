@@ -1180,7 +1180,8 @@ class Services extends BaseService
         $db = static::apothekeDb();
         $config = static::apothekeConfig();
 
-        return new \Apotheke\Backup\Backups($db, new \Apotheke\Core\Libraries\Clock(), $settings ?? static::settings(), $config->dataDir(), $config->originalsDir());
+        [$data, $originals] = \Apotheke\Core\Storage\StorageFactory::forApotheke($config->values());
+        return new \Apotheke\Backup\Backups($db, new \Apotheke\Core\Libraries\Clock(), $settings ?? static::settings(), $config->dataDir(), $config->originalsDir(), $data, $originals);
     }
 
     /**

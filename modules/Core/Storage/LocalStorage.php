@@ -12,7 +12,7 @@ use RuntimeException;
  * (DATA_DIR), not CodeIgniter's `writable/` folder. Keys are relative
  * (`autofill/info.json`, `autofill/tmp/autofill-….jpg`).
  */
-final class LocalStorage implements Storage
+final class LocalStorage implements Storage, VersionedStorage
 {
     /**
      * $fileMode: chmod for written files (originals use 0640); null keeps the umask's mode.
@@ -152,6 +152,70 @@ final class LocalStorage implements Storage
         $time = is_file($path) ? @filemtime($path) : false;
 
         return $time === false ? null : $time;
+    }
+
+    public function version(string $key): ?array
+    {
+        $path = $this->path($key);
+        if ($path === null || !is_file($path)) return null;
+        $fh = @fopen($path, 'rb');
+        if ($fh === false) return null;
+        try {
+            $bytes = stream_get_contents($fh);
+            if ($bytes === false) throw new RuntimeException('Could not read the file.');
+            return [$bytes, hash('sha256', $bytes)];
+        } finally {
+            fclose($fh);
+        }
+    }
+
+    public function putIfMissing(string $key, string $bytes): bool
+    {
+        $path = $this->path($key);
+        if ($path === null) throw new InvalidArgumentException('Invalid storage key.');
+        $tmpKey = (dirname($key) === '.' ? '' : dirname($key) . '/') . '.'. basename($key) . '.new-' . bin2hex(random_bytes(8));
+        $tmp = $this->path($tmpKey);
+        $this->put($tmpKey, static fn ($fh): bool => self::writeAll($fh, $bytes));
+        $created = $tmp !== null && @link($tmp, $path);
+        @unlink($tmp);
+        clearstatcache(true, $path);
+        if (!$created) {
+            if (is_file($path)) return false;
+            throw new RuntimeException('Could not store the file.');
+        }
+        return true;
+    }
+
+    public function putIfVersion(string $key, string $etag, string $bytes): bool
+    {
+        $path = $this->path($key);
+        if ($path === null) throw new InvalidArgumentException('Invalid storage key.');
+        if (!is_dir(dirname($path)) && !@mkdir(dirname($path), $this->dirMode, true) && !is_dir(dirname($path))) {
+            throw new RuntimeException('Could not store the file.');
+        }
+        // This stable lock survives replacement of the data inode. It is the
+        // local unit lock for this manifest, outside the object namespace.
+        $lockDir = $this->root . '/.locks';
+        if (!is_dir($lockDir) && !@mkdir($lockDir, $this->dirMode, true) && !is_dir($lockDir)) {
+            throw new RuntimeException('Could not store the file.');
+        }
+        $lock = @fopen($lockDir . '/' . hash('sha256', $key) . '.lock', 'c+b');
+        if ($lock === false) throw new RuntimeException('Could not store the file.');
+        try {
+            if (!flock($lock, LOCK_EX)) throw new RuntimeException('Could not store the file.');
+            $current = $this->version($key);
+            if ($current === null || !hash_equals($current[1], $etag)) return false;
+            $this->put($key, static fn ($fh): bool => self::writeAll($fh, $bytes));
+            return true;
+        } finally {
+            fclose($lock);
+        }
+    }
+
+    /** ZIP spool path for a local source; no directory is created for a read. */
+    public function pathFor(string $key): string
+    {
+        return $this->path($key) ?? throw new \InvalidArgumentException('Invalid storage key.');
     }
 
     /** Absolute path, or null when the key would leave the root. */

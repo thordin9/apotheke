@@ -8,6 +8,8 @@ use Apotheke\Catalog\Items\Attachments;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Libraries\Clock;
+use Apotheke\Core\Storage\LocalStorage;
+use Apotheke\Core\Storage\Storage;
 use Apotheke\Media\ImageStore;
 use Apotheke\Settings\SettingsService;
 use CodeIgniter\Database\BaseConnection;
@@ -62,8 +64,19 @@ final class Backups
         private readonly SettingsService $settings,
         private readonly string $dataDir,
         private readonly string $originalsDir,
+        ?Storage $storage = null,
+        ?Storage $originals = null,
     ) {
+        $this->storage = $storage ?? new LocalStorage($dataDir);
+        $this->originals = $originals ?? new LocalStorage($originalsDir, 0640);
     }
+
+    private readonly Storage $storage;
+
+    private readonly Storage $originals;
+
+    /** @var list<string> */
+    private array $spooled = [];
 
     /**
      * Tables in foreign-key order (parents first). Restore deletes in reverse.
@@ -175,6 +188,7 @@ final class Backups
         $json = $this->tmpDir() . '/backup-' . bin2hex(random_bytes(8)) . '.json';
         try {
             [$counts, $photos, $attachments] = $this->writeDump($json);
+            $this->spooled = [];
             $zip = new ZipArchive();
             if ($zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
                 throw new RuntimeException("Cannot write $zipPath");
@@ -183,14 +197,13 @@ final class Backups
             $missing = [];
             $n = 0;
             foreach ($photos as $f) {
-                $full = $this->dataDir . '/images/' . $f;
-                if (!is_file($full)) {
+                if (($full = $this->spool($this->storage, 'images/' . $f)) === null) {
                     $missing[] = $f;
                     continue;
                 }
                 $this->stored($zip, $full, 'images/' . $f);
-                if (is_file($this->dataDir . '/thumbs/' . $f)) {
-                    $this->stored($zip, $this->dataDir . '/thumbs/' . $f, 'thumbs/' . $f);
+                if (($thumb = $this->spool($this->storage, 'thumbs/' . $f)) !== null) {
+                    $this->stored($zip, $thumb, 'thumbs/' . $f);
                 }
                 $n++;
             }
@@ -198,8 +211,7 @@ final class Backups
             if ($index !== []) {
                 $zip->addFromString('originals/index.json', json_encode($index, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
                 foreach ($index as $base) {
-                    $full = $this->originalsDir . '/' . $base;
-                    if (!is_file($full)) {
+                    if (($full = $this->spool($this->originals, $base)) === null) {
                         $missing[] = $base;
                         continue;
                     }
@@ -207,8 +219,7 @@ final class Backups
                 }
             }
             foreach ($attachments as $f) {
-                $full = $this->dataDir . '/files/' . $f;
-                if (!is_file($full)) {
+                if (($full = $this->spool($this->storage, 'files/' . $f)) === null) {
                     $missing[] = $f;
                     continue;
                 }
@@ -225,6 +236,7 @@ final class Backups
                 throw new RuntimeException("Cannot write $zipPath");
             }
         } finally {
+            foreach ($this->spooled as $path) @unlink($path);
             @unlink($json);
         }
         clearstatcache(true, $zipPath);
@@ -237,6 +249,26 @@ final class Backups
     {
         $zip->addFile($path, $entry);
         $zip->setCompressionName($entry, ZipArchive::CM_STORE);
+    }
+
+    /** A ZIP input: local files stay paths; remote objects spool and are removed after close. */
+    private function spool(Storage $storage, string $key): ?string
+    {
+        if ($storage instanceof LocalStorage) return $storage->exists($key) ? $storage->pathFor($key) : null;
+        $path = $this->tmpDir() . '/backup-entry-' . bin2hex(random_bytes(8));
+        $out = @fopen($path, 'xb');
+        if ($out === false) throw new RuntimeException('Cannot write the backup.');
+        $this->spooled[] = $path;
+        try {
+            $bytes = $storage->read($key);
+            if ($bytes === null) return null;
+            if (fwrite($out, $bytes) !== strlen($bytes) || !fflush($out)) {
+                throw new RuntimeException('Cannot write the backup.');
+            }
+        } finally {
+            fclose($out);
+        }
+        return $path;
     }
 
     /**
@@ -400,12 +432,11 @@ final class Backups
     {
         $index = [];
         foreach ($photos as $f) {
-            $map = $this->originalsDir . '/map/' . substr($f, 0, 32);
-            if (!is_file($map)) {
+            if (!$this->originals->exists('map/' . substr($f, 0, 32))) {
                 continue;
             }
-            $base = trim((string)@file_get_contents($map));
-            if (Restorer::originalNameOk($base) && is_file($this->originalsDir . '/' . $base)) {
+            $base = trim((string)$this->originals->read('map/' . substr($f, 0, 32)));
+            if (Restorer::originalNameOk($base) && $this->originals->exists($base)) {
                 $index[$f] = $base;
             }
         }

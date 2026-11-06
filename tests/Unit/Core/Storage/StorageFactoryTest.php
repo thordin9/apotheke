@@ -16,6 +16,20 @@ final class StorageFactoryTest extends TestCase
         $this->assertInstanceOf(R2Storage::class, StorageFactory::create(['storage' => ['backend' => 'r2', 'max_write_bytes' => 123]]));
     }
 
+    public function testApothekePairSharesOneSelectedBackend(): void
+    {
+        $dir = sys_get_temp_dir() . '/original-root-test';
+        [$data, $originals] = StorageFactory::forApotheke(['data_dir' => $dir, 'originals_dir' => $dir . '/kept']);
+        $this->assertInstanceOf(LocalStorage::class, $data);
+        $this->assertSame($dir . '/kept/map/probe', $originals->pathFor('map/probe'));
+        $this->assertInstanceOf(LocalStorage::class, $originals);
+        [$data, $originals] = StorageFactory::forApotheke(['storage' => ['backend' => 'r2']]);
+        $this->assertInstanceOf(R2Storage::class, $data);
+        $this->assertInstanceOf(R2Storage::class, $originals);
+        $this->expectException(\LogicException::class);
+        $originals->forOriginals();
+    }
+
     public function testR2MaximumWriteSizeCannotBeRaisedWithoutBound(): void
     {
         $this->expectException(\InvalidArgumentException::class);

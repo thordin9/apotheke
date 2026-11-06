@@ -51,6 +51,13 @@ jobs:
         with:
           node-version: '22'
           package-manager-cache: false
+      # The image PHP is 8.3. The transport regression calls production R2Storage, which needs 8.4.
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: curl
+          coverage: none
+          tools: none
       - name: Install the Worker tooling (edge/)
         working-directory: edge
         run: npm ci --ignore-scripts --no-audit --no-fund

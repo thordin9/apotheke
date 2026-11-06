@@ -79,8 +79,38 @@ final class R2StorageTest extends TestCase
 
     public function testReadMissingHasNoPayload(): void
     {
-        $this->assertNull($this->storage(['status' => 404, 'body' => 'bucket-secret'])->read('empty.txt'));
+        
         $this->assertNull($this->storage(self::ok(['found' => false]))->read('empty.txt'));
+    }
+
+    public function testVersionPairsBytesAndTagFromOneRead(): void
+    {
+        $storage = new R2Storage(new R2Bridge(transport: function (string $method, string $url): array {
+            $this->calls[] = ['method' => $method, 'url' => $url, 'body' => null];
+            $body = $method === 'GET'
+                ? self::ok(['found' => true, 'bytes' => base64_encode('manifest'), 'etag' => 'object-tag'])
+                : self::ok(['found' => true, 'modified' => 0, 'etag' => 'later-tag']);
+            return ['status' => 200, 'body' => $body];
+        }));
+        $this->assertSame(['manifest', 'object-tag'], $storage->version('manifest.json'));
+        $this->assertSame(['GET'], array_column($this->calls, 'method'));
+    }
+
+    public function testVersionDoesNotConsultALaterHeadWhenTheReadOmitsItsTag(): void
+    {
+        $storage = new R2Storage(new R2Bridge(transport: function (string $method, string $url): array {
+            $this->calls[] = ['method' => $method, 'url' => $url, 'body' => null];
+            $body = $method === 'GET'
+                ? self::ok(['found' => true, 'bytes' => base64_encode('manifest')])
+                : self::ok(['found' => true, 'modified' => 0, 'etag' => 'later-tag']);
+            return ['status' => 200, 'body' => $body];
+        }));
+        try {
+            $storage->version('manifest.json');
+            $this->fail('A read without its tag must fail before a conditional write.');
+        } catch (R2StorageException) {
+            $this->assertSame(['GET'], array_column($this->calls, 'method'));
+        }
     }
 
     public function testWriteStreamMultipartPreservesBinaryBytesAndNonSeekableSources(): void

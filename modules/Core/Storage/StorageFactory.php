@@ -7,6 +7,17 @@ namespace Apotheke\Core\Storage;
 /** Explicit selection only: objects and local manifests are never mixed. */
 final class StorageFactory
 {
+    /**
+     * @param array<string,mixed> $config
+     * @return array{0:Storage,1:Storage} data-root and original-root on the same backend
+     */
+    public static function forApotheke(array $config): array
+    {
+        $data = self::create($config);
+        if ($data instanceof R2Storage) return [$data, $data->forOriginals()];
+        return [$data, new LocalStorage(\Apotheke\Core\Config\ApothekeConfig::originalsPath((string)$config['data_dir'], (string)($config['originals_dir'] ?? '')), 0640)];
+    }
+
     /** @param array<string,mixed> $config */
     public static function create(array $config): Storage
     {

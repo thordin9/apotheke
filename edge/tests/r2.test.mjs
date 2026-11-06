@@ -3,6 +3,10 @@ import test from 'node:test';
 import { handleR2Request, r2UnboundResponse, validKey, validateRawPath } from '../src/r2.ts';
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
+import net from 'node:net';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+const execFileAsync = promisify(execFile);
 const workerStub = 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }';
 register('data:text/javascript,' + encodeURIComponent(`export async function resolve(s, c, next) {
   if (s === 'cloudflare:workers') return { url: 'data:text/javascript,${encodeURIComponent(workerStub)}', shortCircuit: true };
@@ -34,9 +38,26 @@ class Bucket {
   uploads = new Map();
   objects = new Map(); parts = new Map(); sessions = new Map(); prefix = ''; partReads = []; completed = []; aborted = []; failAt = 0;
   assertKey(key) { assert.ok(new TextEncoder().encode(key).byteLength <= 1024, 'bucket key exceeds 1024 bytes'); }
-  async put(key, value, options = {}) { this.assertKey(key); if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null; this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value)); return { key }; }
-  async get(key) { this.assertKey(key); const data = this.objects.get(key); return data ? { size: data.byteLength, text: async () => new TextDecoder().decode(data), arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) } : null; }
-  async head(key) { this.assertKey(key); const data = this.objects.get(key); return data ? { uploaded: new Date(1740000000000) } : null; }
+  async put(key, value, options = {}) {
+    this.assertKey(key);
+    const current = this.etags.get(key);
+    if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null;
+    if (options.onlyIf?.etagMatches !== undefined && options.onlyIf.etagMatches !== current) return null;
+    this.etags.set(key, `etag-${this.etags.size + 1}`);
+    this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value));
+    return { key };
+  }
+  etags = new Map();
+  async get(key) {
+    this.assertKey(key);
+    const data = this.objects.get(key);
+    if (data === undefined) return null;
+    if (!this.etags.has(key)) this.etags.set(key, `etag-${this.etags.size + 1}`);
+    const etag = this.etags.get(key);
+    const bytes = data.slice();
+    return { size: bytes.byteLength, etag, text: async () => new TextDecoder().decode(bytes), arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+  }
+  async head(key) { this.assertKey(key); const data = this.objects.get(key); if (data !== undefined && !this.etags.has(key)) this.etags.set(key, `etag-${this.etags.size + 1}`); return data ? { uploaded: new Date(1740000000000), etag: this.etags.get(key) } : null; }
   async delete(key) { this.assertKey(key); this.objects.delete(key); }
   async list({ prefix, limit, cursor }) { this.assertKey(prefix); this.prefix = prefix; const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort(); const start = cursor ? Number(cursor) : 0; const slice = keys.slice(start, start + limit); return { objects: slice.map((key) => ({ key })), truncated: start + limit < keys.length, cursor: String(start + limit) }; }
   async createMultipartUpload(key) { const id = `upload-${crypto.randomUUID().replaceAll('-', '')}`; this.sessions.set(id, key); return { uploadId: id }; }
@@ -60,9 +81,9 @@ test('Worker alone prefixes reads, deletes, and scoped listings', async () => {
   bucket.objects.set('installations/primary/media/b', new Uint8Array());
   bucket.objects.set('other/tenant/secret', new Uint8Array([99]));
   const read = await (await handleR2Request(request('GET', 'media/a'), bucket)).json();
-  assert.deepEqual(read, { ok: true, found: true, bytes: 'AQL/' });
+  assert.deepEqual(read, { ok: true, found: true, bytes: 'AQL/', etag: 'etag-1' });
   const head = await (await handleR2Request(request('HEAD', 'media/a'), bucket)).json();
-  assert.deepEqual(head, { ok: true, found: true, modified: 1740000000 });
+  assert.deepEqual(head, { ok: true, found: true, modified: 1740000000, etag: 'etag-1' });
   assert.deepEqual(await (await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1' }), bucket)).json(), { ok: true, objects: ['media/a'], cursor: '1' });
   const next = await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1', cursor: '1' }), bucket);
   assert.deepEqual(await next.json(), { ok: true, objects: ['media/b'], cursor: null });
@@ -81,6 +102,123 @@ test('application listing filtering uses the shared dot-segment predicate', asyn
   const malformed = new Bucket();
   malformed.list = async () => ({ objects: [{ key: 'installations/primary/bad//unsafe' }], truncated: false });
   assert.equal((await handleR2Request(request('GET', 'index', { action: 'list' }), malformed)).status, 502);
+});
+
+test('manifest replacements require the exact observed ETag', async () => {
+  const bucket = new Bucket();
+  const worker = new R2Outbound({}, { STORAGE: bucket });
+  const path = 'backups/manifest.json';
+  assert.equal((await worker.fetch(request('PUT', path, {}, 'one'))).status, 200);
+  const head = await (await worker.fetch(request('HEAD', path))).json();
+  assert.equal(head.etag, 'etag-1');
+  const first = await (await worker.fetch(request('GET', path))).json();
+  assert.deepEqual(Object.keys(first), ['ok', 'found', 'bytes', 'etag']);
+  assert.equal(first.etag, head.etag);
+  assert.equal((await worker.fetch(request('PUT', path, { if_match: head.etag }, 'two'))).status, 200);
+  assert.equal((await worker.fetch(request('PUT', path, { if_match: head.etag }, 'wrong'))).status, 412);
+  const object = await (await worker.fetch(request('GET', path))).json();
+  assert.equal(atob(object.bytes), 'two');
+  assert.equal(object.etag, 'etag-2');
+});
+
+test('one object read keeps its own etag when a later lookup sees a replacement', async () => {
+  const bucket = new Bucket();
+  const key = 'installations/primary/backups/manifest.json';
+  await bucket.put(key, 'body-A');
+  const realGet = bucket.get.bind(bucket);
+  const realPut = bucket.put.bind(bucket);
+  const calls = [];
+  bucket.get = async (objectKey) => {
+    calls.push(['get', objectKey]);
+    const object = await realGet(objectKey);
+    if (calls.length !== 1) return object;
+    let etag = object.etag;
+    const bytes = await object.arrayBuffer();
+    await realPut(objectKey, 'body-B');
+    return {
+      get etag() { return etag; },
+      size: bytes.byteLength,
+      arrayBuffer: async () => {
+        etag = 'etag-replaced-during-body';
+        return bytes;
+      },
+      text: async () => new TextDecoder().decode(bytes),
+    };
+  };
+  bucket.head = async (objectKey) => {
+    calls.push(['head', objectKey]);
+    return null;
+  };
+  const read = await (await handleR2Request(request('GET', 'backups/manifest.json'), bucket)).json();
+  assert.equal(atob(read.bytes), 'body-A');
+  assert.equal(read.etag, 'etag-1');
+  assert.deepEqual(calls, [['get', key]]);
+  const later = await realGet(key);
+  assert.equal(await later.text(), 'body-B');
+  assert.equal(later.etag, 'etag-2');
+});
+
+test('real transport rejects a stale conditional write after the read response', { timeout: 20000 }, async () => {
+  const bucket = new Bucket();
+  const worker = new R2Outbound({}, { STORAGE: bucket });
+  const relative = 'backups/manifest.json';
+  const objectKey = `installations/primary/${relative}`;
+  await bucket.put(objectKey, 'body-A');
+  const realGet = bucket.get.bind(bucket);
+  const realHead = bucket.head.bind(bucket);
+  const realPut = bucket.put.bind(bucket);
+  const ops = [];
+  bucket.get = async (key) => { ops.push(['get', key]); return realGet(key); };
+  bucket.head = async (key) => { ops.push(['head', key]); return realHead(key); };
+  bucket.put = async (key, value, options = {}) => {
+    ops.push(['put', key, options.onlyIf?.etagMatches ?? null]);
+    return realPut(key, value, options);
+  };
+  let releaseNext = () => {};
+  let nextAllowed = new Promise((resolve) => { releaseNext = resolve; });
+  const seen = [];
+  const sockets = new Set();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    readHttpRequest(socket).then(async (incoming) => {
+      const turn = seen.length + 1;
+      if (turn > 1) await nextAllowed;
+      const url = new URL(incoming.target, 'http://r2.internal');
+      const forwarded = new Request(url, { method: incoming.method, ...(incoming.body.length ? { body: incoming.body, duplex: 'half' } : {}) });
+      const result = await worker.fetch(forwarded);
+      const payload = Buffer.from(await result.arrayBuffer());
+      await writeHttpResponse(socket, result.status, payload);
+      seen.push(`${incoming.method} ${url.pathname}`);
+      if (turn === 1) {
+        await bucket.put(objectKey, 'body-B');
+        releaseNext();
+      }
+    }).catch((error) => {
+      socket.destroy(error);
+      releaseNext();
+    });
+  });
+  server.listen(0, '127.0.0.1');
+  await new Promise((resolve) => server.once('listening', resolve));
+  try {
+    const { stdout } = await execFileAsync('php', [
+      new URL('r2-version-coherence-client.php', import.meta.url).pathname,
+      `http://127.0.0.1:${server.address().port}`,
+    ], { timeout: 15000 });
+    const actual = JSON.parse(stdout.trim());
+    assert.equal(actual.replaced, false);
+    assert.deepEqual(actual.version, ['body-A', 'etag-1']);
+    assert.deepEqual(seen, ['GET /backups/manifest.json', 'PUT /backups/manifest.json']);
+    assert.deepEqual(ops.filter((op) => op[0] === 'head'), []);
+    assert.deepEqual(ops.filter((op) => op[0] === 'get'), [['get', objectKey]]);
+    assert.deepEqual(ops.filter((op) => op[2]), [['put', objectKey, 'etag-1']]);
+    const finalObject = await realGet(objectKey);
+    assert.equal(await finalObject.text(), 'body-B');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('only installation-local atomic conditional create is permitted', async () => {
@@ -397,3 +535,82 @@ test('the outbound entrypoint does not construct request-local multipart session
   assert.doesNotMatch(outbound, /new\s+Map|sessions?[,)\s]/, 'R2 state belongs to its uploadId, never a per-request Map');
   assert.match(outbound, /handleR2Request\(request, this\.env\.STORAGE\)/);
 });
+
+function writeHttpResponse(socket, status, body) {
+  const payload = Buffer.from(body);
+  const head = Buffer.from(`HTTP/1.1 ${status} Fixture\r\nContent-Type: application/json\r\nContent-Length: ${payload.length}\r\nConnection: close\r\n\r\n`);
+  return new Promise((resolve, reject) => {
+    socket.end(Buffer.concat([head, payload]), (error) => error ? reject(error) : resolve());
+  });
+}
+
+function readHttpRequest(socket) {
+  return new Promise((resolve, reject) => {
+    let buf = Buffer.alloc(0);
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      socket.off('data', onData);
+      socket.off('error', onError);
+      socket.off('close', onClose);
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const onError = (error) => finish(error);
+    const onClose = () => finish(new Error('request closed'));
+    const onData = (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      if (buf.length > 1024 * 1024) return finish(new Error('request too large'));
+      try {
+        const message = parseHttpRequest(buf);
+        if (message) finish(null, message);
+      } catch (error) {
+        finish(error);
+      }
+    };
+    socket.on('data', onData);
+    socket.on('error', onError);
+    socket.on('close', onClose);
+  });
+}
+
+function parseHttpRequest(buf) {
+  const headerEnd = buf.indexOf('\r\n\r\n');
+  if (headerEnd < 0) return null;
+  const lines = buf.subarray(0, headerEnd).toString('latin1').split('\r\n');
+  const [method, target] = lines[0].split(' ');
+  if (!method || !target) throw new Error('bad request');
+  const headers = new Map();
+  for (const line of lines.slice(1)) {
+    const index = line.indexOf(':');
+    if (index > 0) headers.set(line.slice(0, index).toLowerCase(), line.slice(index + 1).trim());
+  }
+  const rest = buf.subarray(headerEnd + 4);
+  if ((headers.get('transfer-encoding') ?? '').toLowerCase().includes('chunked')) {
+    const body = parseChunks(rest);
+    return body && { method, target, body };
+  }
+  if (method === 'GET' || method === 'HEAD' || headers.get('content-length') === '0') return { method, target, body: Buffer.alloc(0) };
+  const length = Number(headers.get('content-length'));
+  if (!Number.isInteger(length) || length < 0) throw new Error('bad length');
+  if (rest.length < length) return null;
+  return { method, target, body: rest.subarray(0, length) };
+}
+
+function parseChunks(buf) {
+  const parts = [];
+  let offset = 0;
+  while (offset <= buf.length) {
+    const lineEnd = buf.indexOf('\r\n', offset);
+    if (lineEnd < 0) return null;
+    const size = Number.parseInt(buf.subarray(offset, lineEnd).toString('latin1').split(';')[0].trim(), 16);
+    if (!Number.isInteger(size) || size < 0) throw new Error('bad chunk');
+    const start = lineEnd + 2;
+    if (size === 0) return buf.length < start + 2 ? null : Buffer.concat(parts);
+    if (buf.length < start + size + 2) return null;
+    parts.push(buf.subarray(start, start + size));
+    offset = start + size + 2;
+  }
+  return null;
+}
