@@ -627,6 +627,54 @@ $u->confirm($argv[2], static function (string $zip) use ($argv): array {
         $this->assertSame(['unit:', 'owner'], $seen);
     }
 
+    public function testSeparateConfirmProcessesApplyOnce(): void
+    {
+        $u = $this->uploads();
+        [$id] = $u->create(3, null);
+        $u->append($id, 0, $this->chunk('abc'), 3);
+        $u->finish($id, static fn (): array => []);
+        $races = [];
+        for ($i = 1; $i <= 2; $i++) {
+            $races[$i] = proc_open([PHP_BINARY, __DIR__ . '/_restore-consumer-race.php', $this->data, 'confirm', $id, (string)$i], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes[$i]);
+            $this->assertIsResource($races[$i]);
+        }
+        for ($i = 0; count(glob($this->data . '/competing-*')) !== 2 && $i < 5000; $i++) usleep(1000);
+        $this->assertCount(2, glob($this->data . '/competing-*'));
+        touch($this->data . '/confirm-gate');
+        $result = [];
+        foreach ($races as $i => $process) {
+            $out = stream_get_contents($pipes[$i][1]) . stream_get_contents($pipes[$i][2]);
+            $this->assertSame(0, proc_close($process), $out);
+            $result[] = $out;
+        }
+        $this->assertSame(['confirmed', 'confirmed'], $result);
+        $this->assertCount(1, file($this->data . '/applied'));
+        $this->assertSame('restored', $this->uploads()->get($id)['status']);
+    }
+
+    public function testSeparateCleanupCannotRemoveAnOccupiedUpload(): void
+    {
+        [$id] = $this->uploads()->create(3, null);
+        $holder = proc_open([PHP_BINARY, __DIR__ . '/_restore-consumer-race.php', $this->data, 'hold', $id], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $held);
+        $this->assertIsResource($holder);
+        for ($i = 0; !is_file($this->data . '/hold-ready') && $i < 5000; $i++) usleep(1000);
+        $this->assertFileExists($this->data . '/hold-ready');
+
+        $creator = proc_open([PHP_BINARY, __DIR__ . '/_restore-consumer-race.php', $this->data, 'create', $id], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $created);
+        $this->assertIsResource($creator);
+        for ($i = 0; !is_file($this->data . '/hold-ready') && $i < 5000; $i++) usleep(1000);
+        $this->assertFileExists($this->data . '/hold-ready');
+        for ($i = 0; !is_file($this->data . '/create-ready') && $i < 5000; $i++) usleep(1000);
+        $this->assertFileExists($this->data . '/create-ready');
+        $out = stream_get_contents($created[1]) . stream_get_contents($created[2]);
+        $this->assertSame(0, proc_close($creator), $out);
+        $this->assertStringContainsString('UserError:409', $out);
+        touch($this->data . '/hold-gate');
+        $this->assertSame('released', stream_get_contents($held[1]) . stream_get_contents($held[2]));
+        $this->assertSame(0, proc_close($holder));
+        $this->assertSame('uploading', $this->uploads()->get($id)['status']);
+    }
+
     private function uploads(): RestoreUploads
     {
         return new RestoreUploads($this->data, 4, 100, fn (): ?string => $this->me);
