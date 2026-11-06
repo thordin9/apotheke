@@ -8,8 +8,18 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.22.0] - 2026-11-06
+
 - **core:** add a tested R2 storage adapter behind `Core\Storage`, unselected by default (P4-4) ([#241](https://github.com/thordin9/apotheke/pull/241))
 - **core:** prove the D1 batch and migration paths on local workerd in CI (P4-3) ([#240](https://github.com/thordin9/apotheke/pull/240))
+
+### Added
+
+- **storage:** add an R2 adapter for application-relative objects ([#241](https://github.com/thordin9/apotheke/pull/241))
+
+### Maintenance
+
+- **core:** ci: exercise real local D1 and remaining batch guards ([#240](https://github.com/thordin9/apotheke/pull/240))
 
 ## [3.21.1] - 2026-11-06
 
@@ -1342,7 +1352,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.21.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.22.0...HEAD
+[3.22.0]: https://github.com/thordin9/apotheke/compare/v3.21.1...v3.22.0
 [3.21.1]: https://github.com/thordin9/apotheke/compare/v3.21.0...v3.21.1
 [3.21.0]: https://github.com/thordin9/apotheke/compare/v3.20.1...v3.21.0
 [3.20.1]: https://github.com/thordin9/apotheke/compare/v3.20.0...v3.20.1
