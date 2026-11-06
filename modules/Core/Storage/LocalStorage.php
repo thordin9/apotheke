@@ -208,6 +208,12 @@ final class LocalStorage implements Storage, VersionedStorage
         }
     }
 
+    /** ZIP spool path for a local source; no directory is created for a read. */
+    public function pathFor(string $key): string
+    {
+        return $this->path($key) ?? throw new \InvalidArgumentException('Invalid storage key.');
+    }
+
     /** Absolute path, or null when the key would leave the root. */
     private function path(string $key): ?string
     {

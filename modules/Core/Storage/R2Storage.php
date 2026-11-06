@@ -14,6 +14,11 @@ final class R2Storage implements Storage, VersionedStorage
         }
     }
 
+    public function forOriginals(): self
+    {
+        return new self($this->bridge->forOriginals(), $this->maxBytes);
+    }
+
     public function read(string $key): ?string
     {
         if (!$this->validKey($key)) {

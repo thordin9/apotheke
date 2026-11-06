@@ -18,7 +18,7 @@ final class R2Bridge
     private readonly string $base;
 
     /** @param callable(string, string, (resource|null)): mixed|null $transport */
-    public function __construct(string $base = 'http://r2.internal', ?callable $transport = null, private readonly int $timeout = 30)
+    public function __construct(string $base = 'http://r2.internal', ?callable $transport = null, private readonly int $timeout = 30, private readonly string $namespace = '')
     {
         $parts = parse_url($base);
         if (!is_array($parts)
@@ -32,6 +32,7 @@ final class R2Bridge
         if (array_intersect_key($parts, array_flip(['user', 'pass', 'path', 'query', 'fragment'])) !== []) {
             throw new \InvalidArgumentException('Object storage endpoint must be an origin-only HTTP(S) URL.');
         }
+        if (!in_array($this->namespace, ['', 'originals/'], true)) throw new \InvalidArgumentException('Invalid object storage namespace.');
         $this->base = rtrim($base, '/');
         $this->transport = $transport === null ? $this->http(...) : \Closure::fromCallable($transport);
     }
@@ -170,6 +171,12 @@ final class R2Bridge
         return $this->request('PUT', $key, $body, query: ['if_none_match' => '*']) !== null;
     }
 
+    public function forOriginals(): self
+    {
+        if ($this->namespace !== '') throw new \LogicException('The original storage root is already selected.');
+        return new self($this->base, $this->transport, $this->timeout, 'originals/');
+    }
+
     /** @param resource $body */
     public function conditionalReplace(string $key, string $etag, mixed $body): bool
     {
@@ -247,7 +254,7 @@ final class R2Bridge
      */
     private function send(string $method, string $key, $body, array $query): array
     {
-        $url = $this->base . $this->path($key);
+        $url = $this->base . $this->path(($this->namespace === '' ? '' : $this->namespace) . $key);
         if ($query !== []) {
             $url .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
         }
