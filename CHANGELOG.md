@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **migrations:** D1 migration dialect and runner (P4-3)
+- **migrations:** D1 migration dialect and runner (P4-3) ([#238](https://github.com/thordin9/apotheke/pull/238))
 
 ## [3.20.0] - 2026-11-05
 
