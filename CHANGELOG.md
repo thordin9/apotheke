@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage, and take the lease before the side effect ([#247](https://github.com/thordin9/apotheke/pull/247))
+
 ## [3.24.0] - 2026-11-06
 
 - **storage:** export backup files from local or explicitly selected R2 storage with guarded manifests whose bytes and version come from one object read, and local compatible missing-object handling ([#245](https://github.com/thordin9/apotheke/pull/245))

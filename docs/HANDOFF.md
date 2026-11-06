@@ -24,7 +24,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-4 PR3b: explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases, and takes that lease before the side effect. Local disk behavior is unchanged. No readiness flip.
+- P4-4 PR3b [#247](https://github.com/thordin9/apotheke/pull/247) (`cursor/p4-4-restore-storage-e9c8`): explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases, and takes that lease before the side effect. Local disk behavior is unchanged. No readiness flip.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule. This slice does not change the account or add that sweep.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. A background restore job is still PR 4.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
