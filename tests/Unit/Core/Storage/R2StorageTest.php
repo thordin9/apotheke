@@ -221,10 +221,9 @@ final class R2StorageTest extends TestCase
 
     public function testStreamSourceReadFailureHasNoPartialWrite(): void
     {
-        stream_wrapper_unregister('php');
-        stream_wrapper_register('php', R2FailingStream::class);
-        $stream = fopen('php://memory', 'rb');
-        stream_wrapper_restore('php');
+        $this->assertTrue(stream_wrapper_register('r2fail', R2FailingStream::class));
+        $stream = fopen('r2fail://source', 'rb');
+        stream_wrapper_unregister('r2fail');
         $storage = $this->storage(self::ok());
         try {
             $storage->writeStream('failed.bin', $stream);
@@ -238,10 +237,9 @@ final class R2StorageTest extends TestCase
 
     public function testInputStreamMakingNoProgressDoesNotStartAWrite(): void
     {
-        stream_wrapper_unregister('php');
-        stream_wrapper_register('php', R2StalledStream::class);
-        $stream = fopen('php://memory', 'rb');
-        stream_wrapper_restore('php');
+        $this->assertTrue(stream_wrapper_register('r2stall', R2StalledStream::class));
+        $stream = fopen('r2stall://source', 'rb');
+        stream_wrapper_unregister('r2stall');
         $storage = $this->storage(self::ok());
         try {
             $storage->writeStream('stall.bin', $stream);
