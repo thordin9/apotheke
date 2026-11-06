@@ -23,6 +23,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 ## Open pull requests
 
 - P4-4 PR 2 (#242, `feat/p4-4-r2-worker-ops`): Worker operations and opt-in storage only; no readiness or restore cutover.
+- Orphaned multipart markers or uploads need a sweep or lifecycle rule before wiring; owned by the PM.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 

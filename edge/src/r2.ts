@@ -46,6 +46,19 @@ async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promi
 	}
 }
 
+async function finalizeUpload(bucket: R2Bucket, path: string, id: string, action: () => Promise<unknown>): Promise<void> {
+	try {
+		await action();
+	} catch (error) {
+		if (typeof error === "object" && error !== null
+			&& ((error as { code?: unknown }).code === 10024 || (error as { message?: unknown }).message?.toString().endsWith(" (10024)"))) {
+			await bucket.delete(await markerKey(id));
+		}
+		throw error;
+	}
+	await bucket.delete(await markerKey(id));
+}
+
 function json(body: object, status = 200): Response {
 	return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
@@ -146,8 +159,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (request.method === "DELETE") {
 			if (action === "abort") {
 				if (!await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-				await bucket.delete(await markerKey(id));
-				await bucket.resumeMultipartUpload(path, id).abort();
+				await finalizeUpload(bucket, path, id, () => bucket.resumeMultipartUpload(path, id).abort());
 				return json({ ok: true });
 			}
 			if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
@@ -185,8 +197,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (action === "complete") {
 			const parts = completedParts(request);
 			if (!parts || !await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
-			await bucket.delete(await markerKey(id));
-			await bucket.resumeMultipartUpload(path, id).complete(parts);
+			await finalizeUpload(bucket, path, id, () => bucket.resumeMultipartUpload(path, id).complete(parts));
 			return json({ ok: true });
 		}
 		if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);

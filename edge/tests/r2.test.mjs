@@ -191,6 +191,54 @@ test('a permissive bucket cannot cross multipart keys or reuse finished uploads'
   assert.deepEqual(bucket.completed, ['installations/primary/first.bin']);
 });
 
+const markers = (bucket) => [...bucket.objects.entries()].filter(([key]) => key.startsWith('installations/primary/.mpu/'));
+
+test('complete and abort keep retry markers on transient failures and finalize after success', async () => {
+  for (const action of ['complete', 'abort']) {
+    const bucket = new Bucket();
+    assert.equal((await handleR2Request(request('PUT', 'retry.bin', { action: 'begin' }), bucket)).status, 200);
+    const [id] = bucket.sessions.keys();
+    const etag = 'fixture-etag';
+    let parts = [];
+    if (action === 'complete') {
+      const uploaded = await handleR2Request(request('PUT', 'retry.bin', { action: 'part', upload_id: id, part: '1', size: '1' }, 'x'), bucket);
+      const uploadedPart = await uploaded.json();
+      parts = [{ partNumber: uploadedPart.part_number, etag: uploadedPart.etag }];
+    }
+    const original = Upload.prototype[action];
+    let calls = 0;
+    Upload.prototype[action] = async function (...args) { calls += 1; if (calls === 1) throw new Error('temporary R2 failure'); return original.apply(this, args); };
+    const query = { action, upload_id: id, ...(action === 'complete' ? { parts: JSON.stringify(parts) } : {}) };
+    assert.equal(markers(bucket).length, 1);
+    const first = await handleR2Request(request(action === 'abort' ? 'DELETE' : 'PUT', 'retry.bin', query), bucket);
+    assert.equal(first.status, 500);
+    assert.equal(markers(bucket).length, 1, 'a failed final call must leave its retry marker');
+    const retry = await handleR2Request(request(action === 'abort' ? 'DELETE' : 'PUT', 'retry.bin', query), bucket);
+    Upload.prototype[action] = original;
+    assert.equal(retry.status, 200);
+    assert.equal(markers(bucket).length, 0, 'success must consume its marker');
+    assert.equal((await handleR2Request(request(action === 'abort' ? 'DELETE' : 'PUT', 'retry.bin', query), bucket)).status, 400);
+    assert.equal(calls, 2);
+  }
+});
+
+test('NoSuchUpload removes stale markers and still returns the generic failure', async () => {
+  for (const error of [new Error('resumeMultipartUpload: The specified multipart upload does not exist. (10024)'), Object.assign(new Error('NoSuchUpload'), { code: 10024 })]) {
+    for (const action of ['complete', 'abort']) {
+      const bucket = new Bucket();
+      assert.equal((await handleR2Request(request('PUT', 'missing.bin', { action: 'begin' }), bucket)).status, 200);
+      const [id] = bucket.sessions.keys();
+      const original = Upload.prototype[action];
+      Upload.prototype[action] = async () => { throw error; };
+      const response = await handleR2Request(request(action === 'abort' ? 'DELETE' : 'PUT', 'missing.bin', { action, upload_id: id, ...(action === 'complete' ? { parts: '[]' } : {}) }), bucket);
+      Upload.prototype[action] = original;
+      assert.equal(response.status, 500);
+      assert.deepEqual(await response.json(), { ok: false, code: 'storage_failed', error: 'Object storage request failed.' });
+      assert.equal(markers(bucket).length, 0);
+    }
+  }
+});
+
 test('a 1024-character upload id survives reserved marker key limits end to end', async () => {
   const bucket = new Bucket();
   const id = 'r2Mpu!$+/:;=@[]{}~'.padEnd(1024, 'x');
