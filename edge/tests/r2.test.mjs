@@ -72,14 +72,15 @@ test('Worker alone prefixes reads, deletes, and scoped listings', async () => {
 });
 
 test('application listing filtering uses the shared dot-segment predicate', async () => {
-  const source = readFileSync(new URL('../src/r2.ts', import.meta.url), 'utf8');
-  assert.match(source, /internalSegment\(segment\)/);
   const bucket = new Bucket();
   for (const key of ['.mpu/upload', '.hidden/id', 'nested/.internal/id', '.dot']) bucket.objects.set(`installations/primary/${key}`, new TextEncoder().encode('{"id":"private","key":"private"}'));
   bucket.objects.set('installations/primary/media/a', new Uint8Array([1]));
   const response = await handleR2Request(request('GET', 'index', { action: 'list' }), bucket);
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, objects: ['media/a'], cursor: null });
+  const malformed = new Bucket();
+  malformed.list = async () => ({ objects: [{ key: 'installations/primary/bad//unsafe' }], truncated: false });
+  assert.equal((await handleR2Request(request('GET', 'index', { action: 'list' }), malformed)).status, 502);
 });
 
 test('only installation-local atomic conditional create is permitted', async () => {

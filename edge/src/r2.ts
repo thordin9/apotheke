@@ -12,7 +12,7 @@ function internalSegment(segment: string): boolean {
 
 export function validKey(key: string): boolean {
 	if (key === "" || key.length > 1024 || key.startsWith("/") || key.includes("\\") || /[?#\x00-\x1f\x7f]/.test(key)) return false;
-	return !key.split("/").some((segment) => internalSegment(segment));
+	return !key.split("/").some(internalSegment);
 }
 
 /** @internal Raw-path unit guard; production uses the URL-normalized Request path. */
