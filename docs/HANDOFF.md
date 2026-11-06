@@ -7,46 +7,42 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.21.0). The 2.6.x security line ships from the branch
-  `old` for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
-- Every module is ported and byte-identical to legacy where legacy has the page (parity gate, step 16 done); module
-  notes are in the [log](history/handoff-log.md#current-state).
-- P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the top priority. P4-3 PR 1 (#235, D1 HTTP executor) and
-  PR 2 (#236, edge handlers) and PR 3 (#238, D1 migrations) are merged; v3.21.0.
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.21.1). The 2.6.x line has security support from `old`
+  for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
+- Every module is ported, with legacy parity at step 16; detailed module notes stay in the
+  [log](history/handoff-log.md#current-state).
+- P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. PR 1 (#235, D1 HTTP), PR 2 (#236,
+  edge handlers), PR 3 (#238, migrations) and PR 4 (#239, stand-ins and stocktake) are merged.
+- PR 5 completes P4-3: a cached, credential-free local-wrangler CI job checks real D1 batch refusals, UOW,
+  all migrations, guard mapping and bounded replay. PG leading-CTE settings writes are refused; temporary
+  tables are permitted. The N-1640 multi-statement and 100 KB limits have real-D1 coverage.
 
 ## Open pull requests
 
-- P4-3 PR 4 (`feat/p4-3-standin-stocktake`): the local PostgreSQL executor rejects settings/catalog writes and
-  server-side objects D1 cannot run, PRAGMA/replace/alter and upload-sweep regressions, and an atomic conditional
-  stocktake start. The D1 migration adapter handles nested trigger ends, per-mode synthetic reads, a drop later in
-  a malformed trigger, and sanitized stand-in failures. N-1786 remains deferred; N-1794 and N-1795 are separate.
-  Next is PR 5: the CI wrangler-local d1 cell and the rest of N-1640. Older backlog: N-1747..N-1751, N-1758,
-  N-1761..N-1763, N-1780, N-1782. BulkService, SearchIndex and Imports remain for later P4-3 work.
+- P4-3 PR 5 (`feat/p4-3-ci-d1-cell`): CI local-D1 test cell, remaining N-1640, L-1809 and N-1810.
+- N-1786 stays deferred. N-1794 and N-1795 stay separate, not folded into this PR.
+- Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
-Every merged PR, with its notes: [log, Pull requests](history/handoff-log.md#pull-requests).
+Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Land P4-3 PR 4 (stand-in fidelity, upload-sweep proof and stocktake's conditional batch insert), then the CI
-   wrangler-local d1 cell and remaining N-1640 work. N-1786 stays a deferred follow-up, not a hold.
-2. P4-4 (R2 / `Core\Storage`) to P4-5 (hosted wiring). DevOps owns the bindings and the `EDGE_STORAGE_READY`
-   flip checklist (#204, #208); N-1442 follows with P4.
-3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Older numbered items:
+1. P4-4 R2 / `Core\Storage`; then P4-5 hosted wiring.
+2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
+3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).
 
 ## Lanes
 
-- Coder: CI, Docker, CLI port, syncs, the docs; Coder2: auth/accounts, backup and restore, import/export,
-  P4 restore and unit-of-work sites; DevOps: Cloudflare bindings and deploy. History:
-  [log, Lanes](history/handoff-log.md#lanes).
-- Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, the AGENTS.md module graph):
-  append your own block in a small hunk; do not reorder or reformat other blocks. Merge `main` in (no rebase)
-  before pushing when it has moved.
+- Coder: CI, Docker, CLI port, syncs, docs; Coder2: auth/accounts, backup/restore, import/export, P4 restore and
+  unit-of-work sites; DevOps: Cloudflare bindings and deploy. History: [log, Lanes](history/handoff-log.md#lanes).
+- Shared files (`Config/Routes.php`, `CHANGELOG.md`, `deptrac.yaml`, `Config\Services`, AGENTS module graph):
+  append your own block in a small hunk; do not reorder other blocks. Merge main (no rebase) before a moved push.
 
 ## Links
 
-- [Hand-off log](history/handoff-log.md): module notes, every PR, lanes, numbered next steps and the
-  [Tracked](history/handoff-log.md#tracked) differences where CI4 is stricter than legacy.
-- [Database](database.md) (lock order), [Testing](testing.md), [Releasing](releasing.md), [API](api.md),
+- [Hand-off log](history/handoff-log.md): every PR, module notes, lanes, next steps and
+  [tracked differences](history/handoff-log.md#tracked).
+- [Database](database.md), [Testing](testing.md), [Releasing](releasing.md), [API](api.md),
   [Deployment and operations](deployment-and-operations.md).
-- Playwright on CI4: the `CI4_UNPORTED` skip list (`tests/visual/fixtures.ts`) is empty.
+- CI4 Playwright: the `CI4_UNPORTED` skip list (`tests/visual/fixtures.ts`) is empty.

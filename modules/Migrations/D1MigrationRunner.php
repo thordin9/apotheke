@@ -14,7 +14,7 @@ use RuntimeException;
  *
  * - connection PRAGMAs, user_version and VACUUM INTO are skipped by the D1 dialect
  *   (D1Pdo), so a fresh D1 database starts clean and the legacy adopt path is a no-op;
- * - a migration's SQL array entry (multi-statement heredoc) runs through D1's exec();
+ * - a migration's SQL array entry (multi-statement heredoc) runs as one prepared D1 batch;
  *   a callable migration gets the PDO-shaped D1Pdo adapter;
  * - no BEGIN/COMMIT is sent (D1 has no interactive transaction); each migration's own
  *   statements run as written, and a parent table is never dropped.
@@ -82,14 +82,14 @@ final class D1MigrationRunner
 
         $pdo = new D1Pdo($d1);
         $done = [];
-        // schema_migrations is created before anything else (no wrapping transaction on D1).
-        $d1->exec(<<<SQL
+        // A known schema DDL entry uses the D1 prepared-batch API; no transaction on D1.
+        $d1->run([['sql' => <<<SQL
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version    TEXT NOT NULL PRIMARY KEY,
                 name       TEXT NOT NULL,
                 applied_at TEXT NOT NULL
             )
-        SQL);
+        SQL, 'params' => []]]);
         $applied = $this->applied($d1);
         $fresh = $applied === [];
 
@@ -126,7 +126,7 @@ final class D1MigrationRunner
     private function execMigration(D1Pdo $pdo, string $sql): void
     {
         // D1Pdo::exec applies the dialect: connection PRAGMAs and user_version are skipped,
-        // multi-statement strings go to exec(), and a parent DROP is refused.
+        // multi-statement strings are one prepared D1 batch, and a parent DROP is refused.
         $pdo->exec($sql);
     }
 

@@ -30,7 +30,7 @@ final class D1PdoException extends PDOException
  *   (user_version 0, foreign_keys 1);
  * - VACUUM INTO is skipped, even with a semicolon inside the quoted path;
  * - skipped statements mixed with real SQL are stripped and the rest runs;
- * - a multi-statement string goes to D1's exec(); reads go to query(), writes to run();
+ * - one migration's statements go in one prepared batch; reads go to query(), writes to run();
  * - a parent table is never dropped (DROP TABLE [IF EXISTS] <ident>, quoted, schema-qualified
  *   or temp forms), on prepare, query and exec alike, never on words inside comments or literals.
  *
@@ -60,16 +60,20 @@ final class D1Pdo extends PDO
 
     public function exec(string $statement): int
     {
-        $count = 0;
-        foreach ($this->plan($statement) as $sql) {
+        $plan = $this->plan($statement);
+        $run = [];
+        foreach ($plan as $sql) {
             if ($this->isParentDrop($sql)) {
                 throw new RuntimeException('D1 migrations must not DROP a parent table (foreign_keys OFF is ignored).');
             }
-            $r = $this->d1->exec($sql);
-            $count += $r['count'];
+            $run[] = ['sql' => $sql, 'params' => []];
+        }
+        if ($run !== []) {
+            $this->d1->run($run);
         }
 
-        return $count;
+        // D1 gives no affected-row total for the batch; report the statements executed.
+        return count($plan);
     }
 
     public function query(string $query, ?int $fetchMode = null, mixed ...$fetchModeArgs): D1Result

@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** prove the D1 batch and migration paths on local workerd in CI (P4-3)
+
 ## [3.21.1] - 2026-11-06
 
 - **core:** align local D1 stand-ins and guard concurrent stocktake starts (P4-3) ([#239](https://github.com/thordin9/apotheke/pull/239))

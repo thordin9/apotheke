@@ -57,12 +57,12 @@ export default {
       }
       if (path === '/exec') {
         if (typeof body?.sql !== 'string') return json({ ok: false, code: 'bad_request', error: 'exec needs sql' }, 400);
-        const r = await env.DB.exec(body.sql);
+        const r = await env.DB.exec(body.sql.replace(/;$/, ''));
         return json({ ok: true, count: r.count });
       }
       return json({ ok: false, code: 'not_found', error: 'not found' }, 404);
     } catch (e) {
-      console.error('d1-harness request failed', e);
+      console.error('d1-harness request failed', e?.message ?? 'request failed');
       if (isGuardError(e)) return json({ ok: false, code: 'guard_failed', error: GUARD_MARKER }, 500);
       return json({ ok: false, code: 'write_failed', error: 'the batch' }, 500);
     }

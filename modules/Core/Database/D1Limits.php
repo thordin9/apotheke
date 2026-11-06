@@ -87,7 +87,7 @@ final class D1Limits
         if (preg_match('/\b(?:sqlite_(?!sequence\b)\w*|set_config)"?\s*\(/i', $code) === 1) {
             throw new LogicException('D1 refuses sqlite_*() and set_config() calls.');
         }
-        if ($postgres && self::postgresObject($first)) {
+        if ($postgres && self::postgresObject(D1Sql::head($first))) {
             throw new LogicException('D1 does not support PostgreSQL session settings or server-side objects.');
         }
         if ($params > self::MAX_PARAMS) {
@@ -98,14 +98,30 @@ final class D1Limits
     /** The local PostgreSQL model refuses session/catalog writes and DDL outside D1's objects. */
     private static function postgresObject(string $first): bool
     {
-        if (preg_match('/^(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:"?pg_catalog"?\s*\.\s*)?"?pg_settings"?\b/i', $first) === 1) {
+        // A sanitized final write is the only settings address here: the write in
+        // a CTE body is inside parentheses, while a CTE label is not a write.
+        if (preg_match('/\b(?:UPDATE|DELETE|INSERT)\b/i', $first, $op, PREG_OFFSET_CAPTURE) === 1
+            && self::outsideParentheses($first, $op[0][1])
+            && preg_match('/^(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\s+(?:"?pg_catalog"?\s*\.\s*)?"?pg_settings"?\b/i', substr($first, $op[0][1])) === 1) {
             return true;
         }
         if (preg_match('/^(?:CREATE|DROP|ALTER)\s+/i', $first) !== 1) {
             return false;
         }
 
-        return preg_match('/^(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:UNIQUE\s+)?|DROP\s+|ALTER\s+)(?:TABLE|INDEX|VIEW|TRIGGER)\b/i', $first) !== 1;
+        if (preg_match('/^(?:DROP|ALTER)\s+(?:TABLE|INDEX|VIEW|TRIGGER)\b/i', $first) === 1) {
+            return false;
+        }
+        if (preg_match('/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\b/i', $first) === 1) {
+            return false;
+        }
+
+        return preg_match('/^CREATE\s+(?:(?:OR\s+REPLACE|UNIQUE)\s+)*(?:TABLE|INDEX|VIEW|TRIGGER)\b/i', $first) !== 1;
+    }
+
+    private static function outsideParentheses(string $sql, int $offset): bool
+    {
+        return substr_count(substr($sql, 0, $offset), '(') === substr_count(substr($sql, 0, $offset), ')');
     }
 
     private static function documentedPragma(string $code): bool

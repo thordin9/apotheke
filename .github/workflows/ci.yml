@@ -70,6 +70,51 @@ jobs:
       - name: Constructor injection
         run: php scripts/ci4-arch.php di
 
+  d1-local:
+    name: D1 (local workerd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ''
+      CF_API_TOKEN: ''
+      CF_WORKERS_DEPLOY_TOKEN: ''
+      CF_TOKEN_EDGE_DEPLOY: ''
+      CF_TOKEN_STATIC_DEPLOY: ''
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/d1-harness/package-lock.json
+      - name: Composer cache dir
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ${{ steps.composer-cache.outputs.dir }}
+            /home/runner/.npm/_npx
+          key: d1-${{ runner.os }}-${{ hashFiles('composer.lock', 'tools/d1-harness/package-lock.json') }}
+          restore-keys: d1-${{ runner.os }}-
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+      - name: Install pinned local workerd
+        working-directory: tools/d1-harness
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node node_modules/workerd/install.js
+      - name: Batch guards, migrations and replay on real local D1
+        env:
+          PHP: php
+        run: ./tools/d1-harness/run-tests.sh
+
   test:
     name: Tests (PHP ${{ matrix.php }}, ${{ matrix.db }})
     runs-on: ubuntu-latest
