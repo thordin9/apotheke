@@ -236,6 +236,23 @@ final class R2StorageTest extends TestCase
         }
     }
 
+    public function testBridgeReadAlsoValidatesKeyWithoutMaskingTransportMisuse(): void
+    {
+        $calls = [];
+        $bridge = new R2Bridge(transport: static function (...$args) use (&$calls): array {
+            $calls[] = $args;
+
+            return ['status' => 200, 'body' => self::ok()];
+        });
+        try {
+            $bridge->request('GET', '/absolute');
+            $this->fail('An invalid bridge key must be refused before transport');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame('Invalid object storage key.', $e->getMessage());
+        }
+        $this->assertSame([], $calls);
+    }
+
     public function testTimeoutMustBePositive(): void
     {
         $this->expectException(\InvalidArgumentException::class);
