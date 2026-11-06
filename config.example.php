@@ -34,6 +34,13 @@ return [
         'thumb_max' => 480,                   // IMAGE_THUMB_MAX px, longest side of thumbnails
     ],
 
+    // Selecting r2 requires PHP ext-curl; local is otherwise dependency-unchanged.
+    'storage' => [
+        'backend' => 'local',                // STORAGE_BACKEND      local | r2
+        'max_write_bytes' => 104857600,      // R2_MAX_WRITE_BYTES   write-size ceiling
+        'r2_base_url' => 'http://r2.internal', // R2_BASE_URL          internal Worker origin only
+    ],
+
     'page_size'     => 60,                    // PAGE_SIZE      items per page
     'currency'      => 'EUR',                 // CURRENCY       shown next to item values (EUR, USD, £, …)
     'expiry_soon_days' => 30,                 // EXPIRY_SOON_DAYS  "Expiring soon" window in days (1–3650)

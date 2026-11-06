@@ -3,6 +3,7 @@
 // D1 is reached from the container at http://d1.internal via an outbound handler (ADR-002, P4-3); R2 follows in P4-4.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, handleD1Request, type D1Env } from "./d1";
+import { handleR2Request, r2UnboundResponse, type R2Env, type R2SessionMap } from "./r2";
 
 const PORT = 9091;
 const READY_TIMEOUT_MS = 30_000;
@@ -20,7 +21,14 @@ export class D1Outbound extends WorkerEntrypoint<Env & D1Env> {
 	}
 }
 
-export class ApothekeContainer extends DurableObject<Env & D1Env> {
+export class R2Outbound extends WorkerEntrypoint<Env & R2Env> {
+	async fetch(request: Request): Promise<Response> {
+		if (!this.env.STORAGE) return r2UnboundResponse();
+		return handleR2Request(request, this.env.STORAGE, new Map() as R2SessionMap);
+	}
+}
+
+export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private sleepAfter(): number {
 		return Number(this.env.SLEEP_AFTER_MS) || 15 * 60 * 1000;
 	}
@@ -33,22 +41,22 @@ export class ApothekeContainer extends DurableObject<Env & D1Env> {
 		if (c?.running) {
 			void ctx.blockConcurrencyWhile(async () => {
 				await c.setInactivityTimeout(this.sleepAfter());
-				await this.wireD1(c);
+				await this.wireStorage(c);
 			});
 		}
 	}
 
-	/** Point http://d1.internal at D1Outbound (safe to call while the container is running). */
-	private async wireD1(c: NonNullable<DurableObjectState["container"]>): Promise<void> {
-		const bridge = this.ctx.exports.D1Outbound({ props: {} });
-		await c.interceptOutboundHttp("d1.internal", bridge);
+	/** Point d1.internal and r2.internal at their handlers (safe to call while the container is running). */
+	private async wireStorage(c: NonNullable<DurableObjectState["container"]>): Promise<void> {
+		await c.interceptOutboundHttp("d1.internal", this.ctx.exports.D1Outbound({ props: {} }));
+		await c.interceptOutboundHttp("r2.internal", this.ctx.exports.R2Outbound({ props: {} }));
 	}
 
 	/** Starts the container if needed and waits for /healthz. Returns the cold-start time in ms (0 when warm). */
 	private async ensureReady(): Promise<number> {
 		const c = this.ctx.container;
 		if (!c) throw new Error("no container configured");
-		await this.wireD1(c);
+		await this.wireStorage(c);
 		if (c.running) return 0;
 		const t0 = Date.now();
 		c.start({

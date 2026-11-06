@@ -58,17 +58,123 @@ final class R2StorageTest extends TestCase
         $this->assertNull($this->storage(self::ok(['found' => false]))->read('empty.txt'));
     }
 
-    public function testWriteStreamSpoolsTheEntireSourceBeforeSending(): void
+    public function testWriteStreamMultipartPreservesBinaryBytesAndNonSeekableSources(): void
     {
-        $s = $this->storage(self::ok());
-        $payload = str_repeat('payload-', 600);
+        $actions = [];
+        $payloads = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url, $body) use (&$actions, &$payloads): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $actions[] = $query['action'] ?? 'put';
+            $payloads[] = is_resource($body) ? stream_get_contents($body) : null;
+
+                    parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+        return ['status' => 200, 'body' => self::ok(['upload_id' => 'session', 'bytes' => (int)($query['size'] ?? 0)])];
+        }));
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
+        $this->assertIsArray($pair);
+        fwrite($pair[1], "\0stream-bodyÿ");
+        fclose($pair[1]);
+        $storage->writeStream('demo/socket', $pair[0]);
+        fclose($pair[0]);
+        $storage->writeStream('empty.bin', fopen('php://temp', 'rb'));
+        $this->assertSame(['begin', 'part', 'complete', 'begin', 'complete'], $actions);
+        $this->assertSame("\0stream-bodyÿ", $payloads[1]);
+        $this->assertNull($payloads[4]);
+    }
+
+    public function testWriteStreamKeepsOneFiveMiBPartBeforeSending(): void
+    {
+        $actions = [];
+        $parts = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url, $body) use (&$actions, &$parts): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $actions[] = $query['action'] ?? 'put';
+            if (is_resource($body)) {
+                $parts[] = stream_get_contents($body);
+            }
+
+                    parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+        return ['status' => 200, 'body' => self::ok(['upload_id' => 'session', 'bytes' => (int)($query['size'] ?? 0)])];
+        }));
         $stream = fopen('php://temp', 'w+b');
-        fwrite($stream, "\0" . $payload . "\xff");
+        fwrite($stream, str_repeat('x', 5242880) . 'tail');
         rewind($stream);
-        $s->writeStream('demo/a.txt', $stream);
+        $before = memory_get_usage(true);
+        $storage->writeStream('large.bin', $stream);
         fclose($stream);
-        $this->assertSame('PUT', $this->calls[0]['method']);
-        $this->assertSame("\0" . $payload . "\xff", $this->calls[0]['body']);
+        $this->assertSame(['begin', 'part', 'part', 'complete'], $actions);
+        $this->assertSame([5242880, 4], array_map(strlen(...), $parts));
+        $this->assertLessThan(6291456, memory_get_usage(true) - $before);
+    }
+
+    public function testLateSourceFailureAbortsAnInProgressUpload(): void
+    {
+        $actions = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url) use (&$actions): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $actions[] = $query['action'] ?? 'put';
+
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'session'])];
+        }));
+        $this->assertTrue(stream_wrapper_register('r2fail', R2FailingStream::class));
+        $stream = fopen('r2fail://source', 'rb');
+        stream_wrapper_unregister('r2fail');
+        try {
+            $storage->writeStream('failed.bin', $stream);
+            $this->fail('Expected source failure');
+        } catch (R2StorageException) {
+            $this->assertSame([], $actions);
+        }
+        fclose($stream);
+    }
+
+    public function testSuccessfulPartFollowedByReadFailureAbortsAndNeverCompletes(): void
+    {
+        $actions = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url) use (&$actions): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $query);
+            $actions[] = $query['action'] ?? 'put';
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'session', 'bytes' => (int)($query['size'] ?? 0)])];
+        }));
+        $this->assertTrue(stream_wrapper_register('r2fullfail', R2FullPartFailingStream::class));
+        $stream = fopen('r2fullfail://source', 'rb');
+        stream_wrapper_unregister('r2fullfail');
+        try {
+            $storage->writeStream('late-fail.bin', $stream);
+            $this->fail('Expected late source failure');
+        } catch (R2StorageException) {
+            $this->assertSame(['begin', 'part', 'abort'], $actions);
+        }
+        fclose($stream);
+    }
+
+    public function testWriteCeilingRejectsBeforeTransportOrCompletion(): void
+    {
+        $calls = [];
+        $storage = new R2Storage(new R2Bridge(transport: function () use (&$calls): array {
+            $calls[] = func_get_args();
+
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'session'])];
+        }), maxBytes: 3);
+        try {
+            $storage->write('too-large', 'four');
+            $this->fail('Expected size limit');
+        } catch (R2StorageException $e) {
+            $this->assertSame('Object storage write exceeds its configured size limit.', $e->getMessage());
+            $this->assertSame([], $calls);
+        }
+        $stream = fopen('php://temp', 'w+b');
+        fwrite($stream, 'four');
+        rewind($stream);
+        try {
+            $storage->writeStream('too-large', $stream);
+            $this->fail('Expected size limit');
+        } catch (R2StorageException $e) {
+            $this->assertSame('Object storage write exceeds its configured size limit.', $e->getMessage());
+            $this->assertSame([], $calls);
+            $this->assertSame([], $calls);
+        }
+        fclose($stream);
     }
 
     public function testWriteStreamRejectsANonStreamBeforeCallingTransport(): void
@@ -203,42 +309,6 @@ final class R2StorageTest extends TestCase
         $this->storage(self::ok(['found' => true, 'bytes' => $response]))->read('response-limit');
     }
 
-    public function testLargeWriteStreamSpoolsWithoutGrowingPhpMemory(): void
-    {
-        $transport = function (): array {
-            $this->calls[] = ['method' => 'PUT', 'url' => 'http://r2.internal/large.bin', 'body' => null];
-
-            return ['status' => 200, 'body' => self::ok()];
-        };
-        $storage = new R2Storage(new R2Bridge(transport: $transport));
-        $stream = fopen('php://temp', 'w+b');
-        $chunk = str_repeat('x', 65536);
-        for ($i = 0; $i < 80; ++$i) {
-            fwrite($stream, $chunk);
-        }
-        rewind($stream);
-        $before = memory_get_usage(true);
-        $storage->writeStream('large.bin', $stream);
-        fclose($stream);
-        $this->assertLessThan(2097152, memory_get_usage(true) - $before);
-        $this->assertSame('http://r2.internal/large.bin', $this->calls[0]['url']);
-    }
-
-    public function testWriteStreamAcceptsANonSeekableSourceAndBlankBytes(): void
-    {
-        $s = $this->storage(self::ok());
-        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
-        $this->assertIsArray($pair);
-        fwrite($pair[1], "\0stream-body\xff");
-        fclose($pair[1]);
-        $s->writeStream('demo/socket', $pair[0]);
-        fclose($pair[0]);
-        $this->assertSame("\0stream-body\xff", $this->calls[0]['body']);
-
-        $s->write('empty.bin', '');
-        $this->assertSame('', $this->calls[1]['body']);
-    }
-
     public function testStreamSourceReadFailureHasNoPartialWrite(): void
     {
         $this->assertTrue(stream_wrapper_register('r2fail', R2FailingStream::class));
@@ -339,7 +409,26 @@ $bridge = new R2Bridge(transport: static function () use (&$calls): array {
 }
 
 
-/** Native fread failures must not leak a partial object request. */
+final class R2FullPartFailingStream
+{
+    /** @var resource|null */
+    public $context;
+    private int $offset = 0;
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$opened_path): bool { return true; }
+    public function stream_read(int $count): string|false
+    {
+        if ($this->offset >= 5242880) {
+            throw new \RuntimeException('private source failure');
+        }
+        $bytes = str_repeat('x', min($count, 5242880 - $this->offset));
+        $this->offset += strlen($bytes);
+        return $bytes;
+    }
+    public function stream_eof(): bool { return false; }
+}
+
+/** Native fread failures must not leak transport details. */
 final class R2FailingStream
 {
     /** @var resource|null */
@@ -380,5 +469,114 @@ final class R2StalledStream
     public function stream_eof(): bool
     {
         return false;
+    }
+
+    public function testWriteStreamSendsOnlyOneBoundedMultipartPartAtATime(): void
+    {
+        $parts = [];
+        $actions = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url, $body) use (&$parts, &$actions): array {
+            $query = parse_url($url, PHP_URL_QUERY);
+            parse_str($query === false || $query === null ? '' : $query, $query);
+            $actions[] = $query['action'] ?? 'put';
+            if (is_resource($body)) {
+                $parts[] = stream_get_contents($body);
+            }
+
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'transport-session'])];
+        }));
+        $source = fopen('php://temp', 'w+b');
+        fwrite($source, str_repeat('x', 5242880) . 'final-tail');
+        rewind($source);
+        $before = memory_get_usage(true);
+        $storage->writeStream('large.bin', $source);
+        fclose($source);
+        $this->assertSame(['begin', 'part', 'part', 'complete'], $actions);
+        $this->assertSame([5242880, 10], array_map(strlen(...), $parts));
+        $this->assertLessThan(6291456, memory_get_usage(true) - $before);
+    }
+
+    public function testSmallAndEmptyStreamsDeclareTheirMultipartPartNumber(): void
+    {
+        $actions = [];
+        $payloads = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url, $body) use (&$actions, &$payloads): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $q);
+            $actions[] = $q['action'] ?? 'put';
+            $payloads[] = is_resource($body) ? stream_get_contents($body) : null;
+
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'transport-session'])];
+        }));
+        foreach (["\0stream-body\xff", ''] as $payload) {
+            $source = fopen('php://temp', 'w+b');
+            fwrite($source, $payload);
+            rewind($source);
+            $storage->writeStream('small.bin', $source);
+            fclose($source);
+        }
+        $this->assertSame(['begin', 'part', 'complete', 'begin', 'complete'], $actions);
+        $this->assertSame("\0stream-body\xff", $payloads[1]);
+        $this->assertSame(null, $payloads[4]);
+    }
+
+    public function testStreamTransportUploadCanBeAbortedOnLateSourceFailure(): void
+    {
+        $actions = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url, $body) use (&$actions): array {
+            parse_str(parse_url($url, PHP_URL_QUERY) ?: '', $q);
+            $actions[] = $q['action'] ?? 'put';
+
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'transport-session'])];
+        }));
+        $this->assertTrue(stream_wrapper_register('r2fail', R2FailingStream::class));
+        $source = fopen('r2fail://source', 'rb');
+        stream_wrapper_unregister('r2fail');
+        try {
+            $storage->writeStream('failed.bin', $source);
+            $this->fail('Expected stream failure');
+        } catch (R2StorageException) {
+            $this->assertSame([], $actions);
+        } finally {
+            fclose($source);
+        }
+    }
+
+    public function testStreamRejectsItsCeilingWithoutCompleting(): void
+    {
+        $source = fopen('php://temp', 'w+b');
+        fwrite($source, 'four');
+        rewind($source);
+        $actions = [];
+        $storage = new R2Storage(new R2Bridge(transport: function ($method, $url) use (&$actions): array {
+            $actions[] = $url;
+
+            return ['status' => 200, 'body' => self::ok(['upload_id' => 'transport-session'])];
+        }, ), 3);
+        try {
+            $storage->writeStream('large.bin', $source);
+            $this->fail('Expected ceiling rejection');
+        } catch (R2StorageException $e) {
+            $this->assertStringContainsString('size limit', $e->getMessage());
+            $this->assertStringNotContainsString('action=complete', implode(' ', $actions));
+        } finally {
+            fclose($source);
+        }
+    }
+
+    public function testStringWriteEnforcesCeilingBeforeTransport(): void
+    {
+        $calls = [];
+        $storage = new R2Storage(new R2Bridge(transport: static function (...$args) use (&$calls): array {
+            $calls[] = $args;
+
+            return ['status' => 200, 'body' => self::ok()];
+        }), maxBytes: 3);
+        try {
+            $storage->write('large.bin', 'four');
+            $this->fail('Expected ceiling rejection');
+        } catch (R2StorageException $e) {
+            $this->assertStringContainsString('size limit', $e->getMessage());
+            $this->assertSame([], $calls);
+        }
     }
 }

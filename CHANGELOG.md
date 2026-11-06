@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** add opt-in R2 Worker operations with bounded multipart writes (P4-4)
+
 ## [3.22.0] - 2026-11-06
 
 - **core:** add a tested R2 storage adapter behind `Core\Storage`, unselected by default (P4-4) ([#241](https://github.com/thordin9/apotheke/pull/241))

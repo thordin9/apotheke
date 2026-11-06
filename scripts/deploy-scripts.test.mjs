@@ -8,9 +8,10 @@
 //    release (L-1460).
 //  - the apotheke-api Durable Object (edge/src/index.ts, with a stub for cloudflare:workers and a fake container):
 //    the container gets every `vars` value of edge/wrangler.jsonc except SLEEP_AFTER_MS.
+//  - edge/tests/r2.test.mjs mocks the public R2 binding; there are no real credentials or resources.
 //  - scripts/edge-storage-config.mjs: merges edge/storage.jsonc into a copy of edge/wrangler.jsonc that the guard
 //    still accepts; a missing or malformed APOTHEKE_D1_DATABASE_ID changes nothing.
-// Run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
+// Run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs edge/tests/r2.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -337,11 +338,12 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 		},
 	};
 	const bridge = { fetch: async () => new Response("bridge") };
+	const r2bridge = { fetch: async () => new Response("r2-unbound", { status: 503 }) };
 	const ctx = {
 		container,
 		waitUntil() {},
 		blockConcurrencyWhile: (f) => f(),
-		exports: { D1Outbound: () => bridge },
+		exports: { D1Outbound: () => bridge, R2Outbound: () => r2bridge },
 	};
 	const obj = new ApothekeContainer(ctx, { ...vars, APP_PASSWORD: "placeholder", APP_KEY: "placeholder" });
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
@@ -361,10 +363,12 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal(started.enableInternet, false);
 	assert.deepEqual(
 		intercepted.map(([h]) => h),
-		["d1.internal"],
-		"d1.internal is wired before the container answers",
+		["d1.internal", "r2.internal"],
+		"d1.internal and r2.internal are wired before the container answers",
 	);
 	assert.equal(intercepted[0][1], bridge);
+	assert.equal(intercepted[1][1], r2bridge);
+	assert.equal((await r2bridge.fetch()).status, 503);
 });
 
 // d1.internal handler (edge/src/d1.ts): same JSON shape as D1HttpExecutor / tools/d1-harness.

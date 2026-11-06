@@ -55,7 +55,7 @@ jobs:
         working-directory: edge
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Deploy tooling tests (Worker headers and caching, drift check, guard, cf-deploy.sh; no network)
-        run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs
+        run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs edge/tests/r2.test.mjs
       - name: Worker guard (allowlist; no routes, no custom domains)
         run: node scripts/cf-worker-guard.mjs apotheke-api edge/wrangler.jsonc -- --dry-run
       - name: Types and typecheck
