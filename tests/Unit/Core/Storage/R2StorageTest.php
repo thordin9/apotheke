@@ -83,6 +83,19 @@ final class R2StorageTest extends TestCase
         $this->assertNull($this->storage(self::ok(['found' => false]))->read('empty.txt'));
     }
 
+    public function testVersionUsesTheShippedMetadataResponseForItsTag(): void
+    {
+        $storage = new R2Storage(new R2Bridge(transport: function (string $method, string $url): array {
+            $this->calls[] = ['method' => $method, 'url' => $url, 'body' => null];
+            $body = $method === 'GET'
+                ? self::ok(['found' => true, 'bytes' => base64_encode('manifest')])
+                : self::ok(['found' => true, 'modified' => 0, 'etag' => 'observed-tag']);
+            return ['status' => 200, 'body' => $body];
+        }));
+        $this->assertSame(['manifest', 'observed-tag'], $storage->version('manifest.json'));
+        $this->assertSame(['GET', 'HEAD'], array_column($this->calls, 'method'));
+    }
+
     public function testWriteStreamMultipartPreservesBinaryBytesAndNonSeekableSources(): void
     {
         $actions = [];

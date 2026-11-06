@@ -94,14 +94,16 @@ test('application listing filtering uses the shared dot-segment predicate', asyn
 
 test('manifest replacements require the exact observed ETag', async () => {
   const bucket = new Bucket();
+  const worker = new R2Outbound({}, { STORAGE: bucket });
   const path = 'backups/manifest.json';
-  assert.equal((await handleR2Request(request('PUT', path, {}, 'one'), bucket)).status, 200);
-  const head = await (await handleR2Request(request('HEAD', path), bucket)).json();
+  assert.equal((await worker.fetch(request('PUT', path, {}, 'one'))).status, 200);
+  const head = await (await worker.fetch(request('HEAD', path))).json();
   assert.equal(head.etag, 'etag-1');
-  assert.equal((await handleR2Request(request('PUT', path, { if_match: head.etag }, 'two'), bucket)).status, 200);
-  bucket.etags.set(path, 'changed');
-  assert.equal((await handleR2Request(request('PUT', path, { if_match: 'old-etag' }, 'wrong'), bucket)).status, 412);
-  const object = await (await handleR2Request(request('GET', path), bucket)).json();
+  const first = await (await worker.fetch(request('GET', path))).json();
+  assert.deepEqual(Object.keys(first), ['ok', 'found', 'bytes']);
+  assert.equal((await worker.fetch(request('PUT', path, { if_match: head.etag }, 'two'))).status, 200);
+  assert.equal((await worker.fetch(request('PUT', path, { if_match: head.etag }, 'wrong'))).status, 412);
+  const object = await (await worker.fetch(request('GET', path))).json();
   assert.equal(atob(object.bytes), 'two');
 });
 

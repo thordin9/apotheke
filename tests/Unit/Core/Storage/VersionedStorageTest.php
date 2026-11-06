@@ -15,7 +15,7 @@ final class VersionedStorageTest extends TestCase
         foreach ($this->processes as $process) if (is_resource($process)) proc_close($process);
         foreach ($this->tempdirs as $dir) {
             foreach (glob($dir . '/{,*/*}{.,}*', GLOB_BRACE) ?: [] as $path) if (is_file($path) || is_link($path)) @unlink($path);
-            @rmdir($dir . '/backups'); @rmdir($dir);
+            @rmdir($dir . '/.locks'); @rmdir($dir . '/backups'); @rmdir($dir);
         }
         parent::tearDown();
     }
@@ -29,6 +29,9 @@ final class VersionedStorageTest extends TestCase
         $this->assertFalse($s->putIfVersion('backups/manifest.json', $v[1], 'three'));
         $this->assertSame('two', $s->version('backups/manifest.json')[0]);
         $this->assertNull((new LocalStorage($this->temp()))->version('not-there.json'));
+        $this->assertFileDoesNotExist(dirname((string) realpath($this->tempdirs[0] . '/backups/manifest.json')) . '/manifest.json.lock');
+        $this->assertDirectoryExists($this->tempdirs[0] . '/.locks');
+        $this->assertSame([], glob($this->tempdirs[0] . '/backups/*.lock') ?: []);
     }
     public function testLocalStaleProcessCannotOverwriteManifest(): void
     {
