@@ -19,8 +19,12 @@ use CodeIgniter\Test\CIUnitTestCase;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
+use Apotheke\Core\Database\D1HttpExecutor;
+use Tests\Support\D1UowSchema;
 use Tests\Support\TestDatabase;
 use Tests\Support\UowSchema;
+
+require_once __DIR__ . '/../_support/D1UowSchema.php';
 
 /**
  * UnitsOfWork::run() (ADR-002, P4-2) on every driver, in both modes: a
@@ -32,7 +36,7 @@ use Tests\Support\UowSchema;
  */
 final class UnitOfWorkTest extends CIUnitTestCase
 {
-    private ?TestDatabase $database = null;
+    private TestDatabase|D1UowSchema|null $database = null;
 
     /** @return iterable<string,array{0:string,1:bool}> */
     public static function modes(): iterable
@@ -41,13 +45,18 @@ final class UnitOfWorkTest extends CIUnitTestCase
             yield $driver . ' transaction' => [$driver, false];
             yield $driver . ' batch' => [$driver, true];
         }
+        if (getenv('TEST_D1_URL')) {
+            yield 'd1 local batch' => ['d1', true];
+        }
     }
 
     /** @return iterable<string,array{0:string}> */
     public static function drivers(): iterable
     {
-        foreach (TestDatabase::drivers() as $driver) {
-            yield $driver => [$driver];
+        $modes = iterator_to_array(self::modes());
+        unset($modes['d1 local batch']);
+        foreach ($modes as $driver => [$name]) {
+            yield $driver => [$name];
         }
     }
 
@@ -188,6 +197,7 @@ final class UnitOfWorkTest extends CIUnitTestCase
     #[DataProvider('modes')]
     public function testAUnitJoinsAnOpenTransaction(string $driver, bool $batch): void
     {
+        $this->connectionOnly($driver);
         [$db, $units] = $this->wire($driver, $batch);
         try {
             Writes::transaction($db, function () use ($db, $units): void {
@@ -209,6 +219,7 @@ final class UnitOfWorkTest extends CIUnitTestCase
     #[DataProvider('modes')]
     public function testAUnitInsideAPlainTransactionKeepsNothingWhenTheCallerCatches(string $driver, bool $batch): void
     {
+        $this->connectionOnly($driver);
         [$db, $units] = $this->wire($driver, $batch);
         Writes::transaction($db, function () use ($db, $units): void {
             $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['outer']);
@@ -233,6 +244,7 @@ final class UnitOfWorkTest extends CIUnitTestCase
     #[DataProvider('modes')]
     public function testAFailedStatementInAJoinedUnitLeavesTheOuterTransactionUsable(string $driver, bool $batch): void
     {
+        $this->connectionOnly($driver);
         [$db, $units] = $this->wire($driver, $batch);
         Writes::transaction($db, function () use ($db, $units): void {
             $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['outer']);
@@ -326,6 +338,7 @@ final class UnitOfWorkTest extends CIUnitTestCase
     #[DataProvider('modes')]
     public function testAUnitInsideAnAlreadyFailedTransactionIsRefused(string $driver, bool $batch): void
     {
+        $this->connectionOnly($driver);
         [$db, $units] = $this->wire($driver, $batch);
         try {
             Writes::transaction($db, function () use ($db, $units, $batch): void {
@@ -355,6 +368,7 @@ final class UnitOfWorkTest extends CIUnitTestCase
     #[DataProvider('drivers')]
     public function testACallbackThatSwallowsItsFailedStatementFailsOnlyItsUnit(string $driver): void
     {
+        $this->connectionOnly($driver);
         [$db, $units] = $this->wire($driver, false);
         Writes::transaction($db, function () use ($db, $units): void {
             $db->query('INSERT INTO uw_parent (name) VALUES (?)', ['outer']);
@@ -375,6 +389,7 @@ final class UnitOfWorkTest extends CIUnitTestCase
     #[DataProvider('modes')]
     public function testAJoinedUnitReleasesItsSavepoint(string $driver, bool $batch): void
     {
+        $this->connectionOnly($driver);
         [$db, $units] = $this->wire($driver, $batch);
         $this->assertTrue($db->transBegin());
         try {
@@ -692,14 +707,25 @@ final class UnitOfWorkTest extends CIUnitTestCase
     }
 
     /** @return list<array{id:int,name:string}> */
-    private function parents(BaseConnection $db): array
+    private function parents(BaseConnection|D1UowSchema $db): array
     {
         return array_map(static fn (array $r): array => ['id' => (int)$r['id'], 'name' => (string)$r['name']], $db->query('SELECT id, name FROM uw_parent ORDER BY id')->getResultArray());
     }
 
-    /** @return array{0:BaseConnection<object|resource, object|resource>,1:UnitsOfWork} */
+    private function connectionOnly(string $driver): void
+    {
+        if ($driver === 'd1') {
+            $this->markTestSkipped('D1 has no interactive connection, outer transaction or savepoint.');
+        }
+    }
+
+    /** @return array{0:BaseConnection|D1UowSchema,1:UnitsOfWork} */
     private function wire(string $driver, bool $batch): array
     {
+        if ($driver === 'd1') {
+            $this->database = new D1UowSchema(new D1HttpExecutor(getenv('TEST_D1_URL')), UowSchema::create('sqlite')[0]->db);
+            return [$this->database, UnitsOfWork::on($this->database->executor)];
+        }
         [$this->database, $db] = UowSchema::create($driver);
 
         return [$db, UnitsOfWork::on($batch ? new LocalBatchExecutor($db) : new ConnectionExecutor($db))];

@@ -30,17 +30,16 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         return new D1HttpExecutor('http://d1.internal', static function (string $m, string $url, string $body) use ($queryRows, $onExec): string {
             $path = parse_url($url, PHP_URL_PATH);
             $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-            if ($path === '/exec') {
-                if ($onExec !== null) {
-                    $onExec($payload['sql']);
+            if ($path === '/batch') {
+                foreach ($payload as $statement) {
+                    if ($onExec !== null) {
+                        $onExec($statement['sql']);
+                    }
                 }
-
-                return '{"ok":true,"count":1}';
             }
             if ($path === '/query') {
                 return json_encode(['ok' => true, 'rows' => $queryRows], JSON_THROW_ON_ERROR);
             }
-            // /batch
             $n = is_array($payload) ? count($payload) : 1;
 
             return json_encode(['ok' => true, 'results' => array_fill(0, $n, ['rows' => []])], JSON_THROW_ON_ERROR);
@@ -77,6 +76,28 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $rerun = $runner->migrate($standIn);
         $this->assertSame([], $rerun, 'rerun is a no-op');
         $this->assertSame(array_keys($available), array_keys($runner->applied($standIn)));
+    }
+
+    /** Real workerd: the complete migrations, not only the SQLite stand-in, and the rerun no-op. */
+    public function testAllMigrationsRunOnLocalWorkerd(): void
+    {
+        if (!getenv('TEST_D1_URL')) {
+            $this->markTestSkipped('TEST_D1_URL selects the local workerd harness.');
+        }
+        $d1 = new D1HttpExecutor(getenv('TEST_D1_URL'));
+        // The local job's other real-D1 tests use shared migration-owned fixtures.
+        // Clear only those fixtures: every migration must create its own object now.
+        $d1->exec('DROP TABLE IF EXISTS uow_refs; DROP TABLE IF EXISTS uow_guard');
+        $runner = new D1MigrationRunner($this->realMigrationsDir());
+        $applied = $runner->migrate($d1);
+        $this->assertSame(array_keys($runner->available()), $applied);
+        $this->assertSame([], $runner->migrate($d1));
+        $users = $d1->query('PRAGMA table_info(users)');
+        $this->assertContains('session_epoch', array_column($users, 'name'));
+        $this->assertSame(count($applied), count($runner->applied($d1)));
+        $this->assertSame([['name' => 'search_fts'], ['name' => 'search_fts_v']],
+            $d1->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('search_fts', 'search_fts_v') ORDER BY name"));
+        $d1->exec('DROP TABLE schema_migrations');
     }
 
     public function testResultsAreIterableForeach(): void

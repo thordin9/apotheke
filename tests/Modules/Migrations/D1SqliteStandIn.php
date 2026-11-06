@@ -53,6 +53,9 @@ final class D1SqliteStandIn implements D1Executor
     {
         $out = [];
         foreach ($statements as $s) {
+            if ($this->reject !== null && ($this->reject)($s['sql']) === true) {
+                throw new WriteFailed('Database write failed: the batch');
+            }
             try {
                 $out[] = $this->execute($s['sql'], $s['params'] ?? []);
             } catch (WriteFailed $e) {
