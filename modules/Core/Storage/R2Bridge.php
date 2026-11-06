@@ -36,7 +36,6 @@ final class R2Bridge
             || !in_array($parts['scheme'] ?? '', ['http', 'https'], true)
             || !isset($parts['host'])
             || !preg_match('/^[A-Za-z0-9.-]+$/', $parts['host'])
-            || isset($parts['user'], $parts['pass'], $parts['path'], $parts['query'], $parts['fragment'])
             || $timeout <= 0
         ) {
             throw new \InvalidArgumentException('Object storage endpoint must be an origin-only HTTP(S) URL.');

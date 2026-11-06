@@ -146,6 +146,7 @@ final class R2StorageTest extends TestCase
         yield 'missing presence flag' => [self::ok(['bytes' => ''])];
         yield 'invalid presence flag' => [self::ok(['found' => 0, 'bytes' => ''])];
         yield 'payload must be a string' => [self::ok(['found' => true, 'bytes' => []])];
+        yield 'noncanonical Base64 must fail closed' => [self::ok(['found' => true, 'bytes' => '!!!not_base64!!!'])];
         yield 'oversized response' => [['status' => 200, 'body' => str_repeat('x', 67108865)]];
         yield 'type error is not leaked' => [new R2StorageException('internal-secret')];
     }
@@ -239,6 +240,22 @@ final class R2StorageTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         new R2Bridge(timeout: 0, transport: static fn (): array => ['status' => 200, 'body' => self::ok()]);
+    }
+
+    public function testBridgeAlsoRefusesUnsafeKeysWithoutAnyTransportCall(): void
+    {
+        $storage = $this->storage(self::ok());
+        foreach (self::invalidKeys() as [$key]) {
+            try {
+                R2Bridge::validateKey($key);
+                $this->fail('Bridge should refuse key ' . bin2hex($key));
+            } catch (\InvalidArgumentException) {
+                $storage->delete($key);
+            }
+        }
+        $this->assertSame([], $this->calls);
+        R2Bridge::validateKey('a/key');
+        $this->addToAssertionCount(count(iterator_to_array(self::invalidKeys())));
     }
 
     public function testAllowsExplicitInternalTestEndpointAndEscapesAllSegments(): void
