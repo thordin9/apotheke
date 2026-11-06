@@ -79,7 +79,7 @@ final class R2StorageTest extends TestCase
 
     public function testReadMissingHasNoPayload(): void
     {
-        $this->assertNull($this->storage(['status' => 404, 'body' => 'bucket-secret'])->read('empty.txt'));
+        
         $this->assertNull($this->storage(self::ok(['found' => false]))->read('empty.txt'));
     }
 

@@ -261,7 +261,8 @@ final class Backups
         $this->spooled[] = $path;
         try {
             $bytes = $storage->read($key);
-            if ($bytes === null || fwrite($out, $bytes) !== strlen($bytes) || !fflush($out)) {
+            if ($bytes === null) return null;
+            if (fwrite($out, $bytes) !== strlen($bytes) || !fflush($out)) {
                 throw new RuntimeException('Cannot write the backup.');
             }
         } finally {

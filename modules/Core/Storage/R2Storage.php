@@ -24,8 +24,8 @@ final class R2Storage implements Storage, VersionedStorage
         if (!$this->validKey($key)) {
             return null;
         }
-        $json = $this->bridge->request('GET', $key, allowMissing: true);
-        if ($json === null || !self::found($json)) {
+        $json = $this->bridge->request('GET', $key);
+        if (!self::found($json)) {
             return null;
         }
         $bytes = base64_decode(self::string($json, 'bytes'), true);
