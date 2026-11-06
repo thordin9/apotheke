@@ -7,6 +7,7 @@ namespace Apotheke\Backup;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Storage\LeaseDenied;
+use Apotheke\Core\Storage\LeaseHold;
 use Apotheke\Core\Storage\ObjectLease;
 use Apotheke\Core\Storage\Storage;
 use Apotheke\Core\Storage\VersionedStorage;
@@ -18,7 +19,7 @@ use Throwable;
  * storage. The lease is taken before a chunk or a manifest write. A conditional manifest write uses the
  * version read with those bytes.
  *
- * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>}
+ * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>,pending?:int}
  */
 final class RestoreObjectStore
 {
@@ -32,6 +33,8 @@ final class RestoreObjectStore
     private const DONE = ['restored', 'failed', 'interrupted'];
 
     private readonly ObjectLease $lease;
+
+    private ?LeaseHold $hold = null;
 
     /** @var Closure(string):?float */
     private readonly Closure $freeBytes;
@@ -127,8 +130,26 @@ final class RestoreObjectStore
                 throw new UserError('The chunk could not be stored.', 500);
             }
             $part = self::chunkKey($id, $index);
+            $this->beat();
+            $manifest['pending'] = $index;
+            $manifest = $this->commit(self::manifestKey($id), $etag, $manifest);
+            $etag = $this->fresh($id)[1];
             $guard($part);
-            $this->storage->write($part, $raw);
+            try {
+                $this->beat();
+                $this->storage->write($part, $raw);
+            } catch (Throwable $e) {
+                $this->storage->delete($part);
+                $guard(null);
+                unset($manifest['pending']);
+                try {
+                    $this->commit(self::manifestKey($id), $etag, $manifest);
+                } catch (UserError) {
+                    // The next read removes a pending chunk the commit could not clear.
+                }
+                throw $e;
+            }
+            unset($manifest['pending']);
             $manifest['received'] += $bytes;
             $manifest['next']++;
             $saved = $this->commit(self::manifestKey($id), $etag, $manifest);
@@ -203,14 +224,20 @@ final class RestoreObjectStore
             $spool = $this->spool($id, $manifest);
             try {
                 $sum = $manifest['sha256'] ?? hash_file('sha256', $spool);
+                $this->beat();
                 $this->commit(self::manifestKey($id), $etag, ['status' => 'applying', 'fingerprint' => is_string($sum) ? $sum : null] + $manifest);
                 $fresh = $this->fresh($id);
                 try {
-                    $out = $restore($spool);
+                    $out = $this->callRestore($restore, $spool);
+                    $this->beat();
+                } catch (LeaseDenied $e) {
+                    throw new UserError(Restorer::BUSY, 409, $e);
                 } catch (Throwable $e) {
                     if ($e->getCode() === 409) {
+                        $this->beat();
                         $this->commit(self::manifestKey($id), $fresh[1], $manifest);
                     } else {
+                        $this->beat();
                         $this->deleteBytes($id, $manifest);
                         $this->commit(self::manifestKey($id), $fresh[1], ['status' => 'failed', 'result' => ['error' => $e instanceof UserError ? $e->getMessage() : 'The restore failed.']] + $manifest);
                     }
@@ -308,13 +335,13 @@ final class RestoreObjectStore
         }
         $id = bin2hex(random_bytes(16));
         $manifest = ['owner' => $owner, 'size' => $size, 'sha256' => $sha256, 'chunk_size' => $this->chunkBytes, 'received' => 0, 'next' => 0, 'status' => 'uploading'];
-        if (!$this->storage->putIfMissing(self::manifestKey($id), $this->json($manifest))) {
-            throw new UserError('The upload could not be stored.', 500);
-        }
+        $this->saveIndex([...$kept, $id], $etag);
         try {
-            $this->saveIndex([...$kept, $id], $etag);
+            if (!$this->storage->putIfMissing(self::manifestKey($id), $this->json($manifest))) {
+                throw new UserError('The upload could not be stored.', 500);
+            }
         } catch (Throwable $e) {
-            $this->storage->delete(self::manifestKey($id));
+            $this->forget($id);
             throw $e;
         }
 
@@ -333,6 +360,7 @@ final class RestoreObjectStore
         } catch (LeaseDenied $e) {
             throw new UserError('Another request is using this upload. Try again when it has finished.', 409, $e);
         }
+        $this->hold = new LeaseHold($this->lease, self::leaseKey($id), $token, $this->leaseTtl, $this->now);
         $cleanup = null;
         try {
             $version = $this->fresh($id);
@@ -341,6 +369,12 @@ final class RestoreObjectStore
                 throw new UserError(RestoreUploads::NOT_FOUND, 404);
             }
             $etag = $version[1];
+            if (isset($manifest['pending'])) {
+                $this->storage->delete(self::chunkKey($id, $manifest['pending']));
+                unset($manifest['pending']);
+                $manifest = $this->commit(self::manifestKey($id), $etag, $manifest);
+                $etag = $this->fresh($id)[1];
+            }
             if ($manifest['status'] === 'applying') {
                 $manifest = $this->commit(self::manifestKey($id), $etag, RestoreUploads::interruptedManifest($id, $manifest, $this->stage()));
                 $etag = $this->fresh($id)[1];
@@ -356,7 +390,8 @@ final class RestoreObjectStore
             }
             throw $e;
         } finally {
-            $this->lease->release(self::leaseKey($id), $token);
+            $this->hold->release();
+            $this->hold = null;
         }
     }
 
@@ -531,9 +566,41 @@ final class RestoreObjectStore
     /** @param Manifest $manifest */
     private function deleteBytes(string $id, array $manifest): void
     {
+        if (isset($manifest['pending'])) {
+            $this->storage->delete(self::chunkKey($id, $manifest['pending']));
+        }
         for ($i = 0; $i < $manifest['next']; $i++) {
             $this->storage->delete(self::chunkKey($id, $i));
         }
+    }
+
+    private function guard(): LeaseHold
+    {
+        if ($this->hold === null) {
+            throw new LeaseDenied('The lease is held.');
+        }
+
+        return $this->hold;
+    }
+
+    private function beat(): void
+    {
+        try {
+            $this->guard()->checkpoint();
+        } catch (LeaseDenied $e) {
+            throw new UserError(Restorer::BUSY, 409, $e);
+        }
+    }
+
+    /** @param Closure(string, LeaseHold=):mixed $restore */
+    private function callRestore(Closure $restore, string $spool): mixed
+    {
+        $fn = new \ReflectionFunction($restore);
+        if ($fn->getNumberOfParameters() >= 2) {
+            return $restore($spool, $this->guard());
+        }
+
+        return $restore($spool);
     }
 
     /** @param Manifest $manifest */

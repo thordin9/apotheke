@@ -9,6 +9,7 @@ use Apotheke\Backup\RestoreUnit;
 use Apotheke\Backup\RestoreUploads;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Storage\LeaseDenied;
+use Apotheke\Core\Storage\LeaseHold;
 use Apotheke\Core\Storage\LocalStorage;
 use Apotheke\Core\Storage\ObjectLease;
 use Apotheke\Core\Storage\R2Bridge;
@@ -183,6 +184,48 @@ final class RestoreObjectStoreTest extends TestCase
         $this->assertNull($storage->read(RestoreObjectStore::chunkKey($id, 0)));
     }
 
+    public function testACrashLeftoverChunkIsRemovedAndAMissingManifestLeavesTheIndex(): void
+    {
+        $storage = new LocalStorage($this->temp());
+        $store = $this->store($storage);
+        $id = str_repeat('ab', 16);
+        $manifest = ['owner' => 'user:1', 'size' => 4, 'sha256' => null, 'chunk_size' => 4, 'received' => 0, 'next' => 0, 'status' => 'uploading', 'pending' => 0];
+        $storage->putIfMissing(RestoreObjectStore::manifestKey($id), json_encode($manifest, JSON_THROW_ON_ERROR));
+        $storage->write(RestoreObjectStore::chunkKey($id, 0), 'orphan');
+        $this->assertSame(0, $store->get($id)['received']);
+        $this->assertNull($storage->read(RestoreObjectStore::chunkKey($id, 0)));
+        $kept = json_decode((string)$storage->read(RestoreObjectStore::manifestKey($id)), true);
+        $this->assertArrayNotHasKey('pending', $kept);
+
+        $gone = str_repeat('cd', 16);
+        $storage->putIfMissing('uploads/restore/index.json', json_encode(['ids' => [$gone]], JSON_THROW_ON_ERROR));
+        $store->sweep($this->now + RestoreUploads::IDLE + 5);
+        $this->assertSame([], json_decode((string)$storage->read('uploads/restore/index.json'), true)['ids']);
+        $this->assertNull($storage->read(RestoreObjectStore::manifestKey($gone)));
+    }
+
+    public function testALostUploadLeaseDoesNotCommitTheRestoreOutcome(): void
+    {
+        $storage = new LocalStorage($this->temp());
+        $store = $this->store($storage, 5);
+        [$id] = $store->create(3, null);
+        $store->append($id, 0, $this->file('abc'), 3);
+        $store->finish($id, static fn (string $zip): array => ['bytes' => file_get_contents($zip)]);
+        try {
+            $store->confirm($id, function (string $zip, LeaseHold $hold) use ($storage, $id): array {
+                $this->now += 10;
+                (new ObjectLease($storage))->acquire(RestoreObjectStore::leaseKey($id), $this->now, 30);
+                $hold->checkpoint();
+
+                return ['tables' => [], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
+            });
+            $this->fail('A lost upload lease must stop the confirm.');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+        }
+        $this->assertSame('applying', json_decode((string)$storage->read(RestoreObjectStore::manifestKey($id)), true)['status']);
+    }
+
     public function testACatalogUnitRunsOnlyAfterItsLeaseAndCleansUpOnFailure(): void
     {
         $storage = new LocalStorage($this->temp());
@@ -191,7 +234,7 @@ final class RestoreObjectStoreTest extends TestCase
         $ran = false;
         $holder = $lease->acquire(RestoreUnit::KEY, 10, 30);
         try {
-            $unit->run(static function () use (&$ran): string {
+            $unit->run(static function (LeaseHold $hold) use (&$ran): string {
                 $ran = true;
 
                 return 'no';
@@ -202,7 +245,7 @@ final class RestoreObjectStoreTest extends TestCase
         }
         $lease->release(RestoreUnit::KEY, $holder);
         try {
-            $unit->run(static function (): never {
+            $unit->run(static function (LeaseHold $hold): never {
                 throw new RuntimeException('restore failed');
             }, 10);
             $this->fail('The failure must surface.');

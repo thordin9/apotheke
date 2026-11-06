@@ -218,7 +218,7 @@ final class RestoreStage
      * @param iterable<list<scalar|null>> $rows
      * @return int the rows staged
      */
-    public function stage(string $table, array $columns, iterable $rows): int
+    public function stage(string $table, array $columns, iterable $rows, ?Closure $beat = null): int
     {
         $copy = self::copy($table);
         $cols = implode(', ', array_map(self::column(...), $columns));
@@ -238,6 +238,9 @@ final class RestoreStage
             $row = self::values($row);
             $json = self::json($pg ? array_combine($columns, $row) : $row);
             if ($chunk !== [] && ($bytes + strlen($json) + 1 > $maxBytes || count($chunk) >= self::CHUNK_ROWS)) {
+                if ($beat !== null) {
+                    $beat();
+                }
                 $this->insert($sql, $chunk);
                 [$chunk, $bytes] = [[], 0];
             }
@@ -246,6 +249,9 @@ final class RestoreStage
             $n++;
         }
         if ($chunk !== []) {
+            if ($beat !== null) {
+                $beat();
+            }
             $this->insert($sql, $chunk);
         }
 

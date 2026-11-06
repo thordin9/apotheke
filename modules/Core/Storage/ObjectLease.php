@@ -43,18 +43,52 @@ final class ObjectLease
         return $token;
     }
 
-    /** Drop this holder's lease. A different holder is left as it is. */
+    /**
+     * Extend this holder's lease. The token stays the fence: a different holder, or a lost
+     * compare-and-swap that leaves someone else in place, refuses. An expired body that still
+     * carries this token can be extended only if the compare-and-swap wins.
+     */
+    public function renew(string $key, string $token, int $now, int $ttl): void
+    {
+        if ($ttl < 1) {
+            throw new \InvalidArgumentException('A lease needs a positive lifetime.');
+        }
+        $this->replace($key, $token, self::body($token, $now + $ttl), true);
+    }
+
+    /**
+     * Drop this holder's lease. A lost compare-and-swap is read again: another holder is left
+     * as it is, and this holder is cleared once the write lands.
+     */
     public function release(string $key, string $token): void
     {
-        $version = $this->storage->version($key);
-        if ($version === null) {
-            return;
+        $this->replace($key, $token, self::body('', 0), false);
+    }
+
+    private function replace(string $key, string $token, string $next, bool $mustOwn): void
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $version = $this->storage->version($key);
+            if ($version === null) {
+                if ($mustOwn) {
+                    throw new LeaseDenied('The lease is held.');
+                }
+
+                return;
+            }
+            $current = self::read($version[0]);
+            if ($current === null || !hash_equals($current['token'], $token)) {
+                if ($mustOwn) {
+                    throw new LeaseDenied('The lease is held.');
+                }
+
+                return;
+            }
+            if ($this->storage->putIfVersion($key, $version[1], $next)) {
+                return;
+            }
         }
-        $current = self::read($version[0]);
-        if ($current === null || !hash_equals($current['token'], $token)) {
-            return;
-        }
-        $this->storage->putIfVersion($key, $version[1], self::body('', 0));
+        throw new LeaseDenied('The lease changed before it could be taken.');
     }
 
     public function holds(string $key, string $token, int $now): bool

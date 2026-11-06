@@ -25,7 +25,7 @@ use Closure;
  * (RestoreStage::applied() with the upload's id as the run), else failed with nothing changed; and the sweep also
  * drops a stopped restore's leftover copies (N-1705).
  *
- * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>}
+ * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>,pending?:int}
  */
 final class RestoreUploads
 {
@@ -598,7 +598,8 @@ final class RestoreUploads
 
         return ['owner' => $m['owner'], 'size' => $m['size'], 'sha256' => $m['sha256'] ?? null, 'chunk_size' => $m['chunk_size'],
             'received' => $m['received'], 'next' => $m['next'], 'status' => $m['status']] + (array_key_exists('fingerprint', $m) ? ['fingerprint' => $m['fingerprint']] : [])
-            + (is_array($m['result'] ?? null) ? ['result' => $m['result']] : []);
+            + (is_array($m['result'] ?? null) ? ['result' => $m['result']] : [])
+            + (is_int($m['pending'] ?? null) ? ['pending' => $m['pending']] : []);
     }
 
     /**

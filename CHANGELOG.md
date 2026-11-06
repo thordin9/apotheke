@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage, and take the lease before the side effect ([#247](https://github.com/thordin9/apotheke/pull/247))
+- **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage; renew the lease before each later write, and name a chunk in the manifest before its bytes so a crash leftover can be removed ([#247](https://github.com/thordin9/apotheke/pull/247))
 
 ## [3.24.0] - 2026-11-06
 

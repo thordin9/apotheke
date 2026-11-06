@@ -17,14 +17,17 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   opt-in construction. The maximum escaped multipart marker-cap fix (#244) and the marker escaping fix (#246) are merged.
   PR 3a (#245) is merged: backup export reads through storage, and a remote manifest's bytes and version come from one object read.
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
-  restore manifest and the lease on that same storage; the lease is taken before a chunk or the catalog restore.
-  Design-B staged restore is unchanged. PR 4 is still the background restore and its progress. Remaining R2 object
-  reads stay bounded by the current bridge (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
+  restore manifest and the lease on that same storage. The lease is taken before a chunk or the catalog restore and
+  renewed before each later write; losing it stops the next write. The database stage lock is separate and does not
+  cover this lease. A chunk is named in the manifest before its bytes, and the upload id is indexed before the
+  manifest, so the next read or sweep removes that crash leftover. Design-B staged restore is unchanged. PR 4 is
+  still the background restore and its progress. Remaining R2 object reads stay bounded by the current bridge
+  (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 
 
 ## Open pull requests
 
-- P4-4 PR3b [#247](https://github.com/thordin9/apotheke/pull/247) (`cursor/p4-4-restore-storage-e9c8`): explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases, and takes that lease before the side effect. Local disk behavior is unchanged. No readiness flip.
+- P4-4 PR3b [#247](https://github.com/thordin9/apotheke/pull/247) (`cursor/p4-4-restore-storage-e9c8`): explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases. The lease is renewed for the whole mutation and a lost hold cannot write again. Local disk behavior is unchanged. No readiness flip.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule. This slice does not change the account or add that sweep.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. A background restore job is still PR 4.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
