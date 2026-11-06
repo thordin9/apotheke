@@ -12,7 +12,7 @@ use RuntimeException;
  * (DATA_DIR), not CodeIgniter's `writable/` folder. Keys are relative
  * (`autofill/info.json`, `autofill/tmp/autofill-….jpg`).
  */
-final class LocalStorage implements Storage, VersionedStorage
+final class LocalStorage implements LeaseStorage
 {
     /**
      * $fileMode: chmod for written files (originals use 0640); null keeps the umask's mode.
@@ -188,15 +188,8 @@ final class LocalStorage implements Storage, VersionedStorage
 
     public function putIfVersion(string $key, string $etag, string $bytes): bool
     {
-        $path = $this->path($key);
-        if ($path === null) throw new InvalidArgumentException('Invalid storage key.');
-        if (!is_dir(dirname($path)) && !@mkdir(dirname($path), $this->dirMode, true) && !is_dir(dirname($path))) {
-            throw new RuntimeException('Could not store the file.');
-        }
-        // This stable lock survives replacement of the data inode. It is the
-        // local unit lock for this manifest and is never mixed with R2.
-        $lock = @fopen($path . '.lock', 'c+b');
-        if ($lock === false) throw new RuntimeException('Could not store the file.');
+        if ($this->path($key) === null) throw new InvalidArgumentException('Invalid storage key.');
+        $lock = $this->lockFile($key);
         try {
             if (!flock($lock, LOCK_EX)) throw new RuntimeException('Could not store the file.');
             $current = $this->version($key);
@@ -204,8 +197,33 @@ final class LocalStorage implements Storage, VersionedStorage
             $this->put($key, static fn ($fh): bool => self::writeAll($fh, $bytes));
             return true;
         } finally {
+            flock($lock, LOCK_UN);
             fclose($lock);
         }
+    }
+
+    public function withLease(string $key, \Closure $fn, bool $wait = true): mixed
+    {
+        if ($this->path($key) === null) throw new InvalidArgumentException('Invalid storage key.');
+        $lock = $this->lockFile($key);
+        try {
+            if (!flock($lock, $wait ? LOCK_EX : LOCK_EX | LOCK_NB)) return false;
+            return $fn($this);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function lockFile(string $key)
+    {
+        $path = $this->path($key);
+        if (!is_dir(dirname($path)) && !@mkdir(dirname($path), $this->dirMode, true) && !is_dir(dirname($path))) {
+            throw new RuntimeException('Could not store the file.');
+        }
+        $lock = @fopen($path . '.lock', 'c+b');
+        if ($lock === false) throw new RuntimeException('Could not store the file.');
+        return $lock;
     }
 
     /** ZIP spool path for a local source; no directory is created for a read. */
