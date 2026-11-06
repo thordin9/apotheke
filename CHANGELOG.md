@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **storage:** read backup files through shared storage with guarded manifests ([#245](https://github.com/thordin9/apotheke/pull/245))
+
 ## [3.23.0] - 2026-11-06
 
 - **core:** add opt-in R2 Worker operations with bounded multipart writes (P4-4) ([#242](https://github.com/thordin9/apotheke/pull/242))

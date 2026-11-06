@@ -23,7 +23,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-4 PR 2 (#242): merged. PR3a (`feat/p4-4-restore-storage`) is here; no readiness or restore cutover.
+- P4-4 PR 2 (#242): merged. PR3a #245 (`feat/p4-4-restore-storage`) is here; no readiness or restore cutover.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart sweep or lifecycle rule.
 - PR 3b must replace every restore-local lock/state path and prove lock-first races; do not pretend backup export
   conversion enables hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default.
