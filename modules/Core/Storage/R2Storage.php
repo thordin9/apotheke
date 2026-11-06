@@ -37,7 +37,9 @@ final class R2Storage implements Storage
         }
         try {
             $this->writeAll($stream, $bytes);
-            rewind($stream);
+            if (!rewind($stream)) {
+                throw R2StorageException::failed();
+            }
             $this->bridge->put($key, $stream);
         } finally {
             is_resource($stream) && fclose($stream);

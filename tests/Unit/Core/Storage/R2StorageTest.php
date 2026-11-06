@@ -236,6 +236,23 @@ final class R2StorageTest extends TestCase
         }
     }
 
+    public function testInputStreamMakingNoProgressDoesNotStartAWrite(): void
+    {
+        stream_wrapper_unregister('php');
+        stream_wrapper_register('php', R2StalledStream::class);
+        $stream = fopen('php://memory', 'rb');
+        stream_wrapper_restore('php');
+        $storage = $this->storage(self::ok());
+        try {
+            $storage->writeStream('stall.bin', $stream);
+            $this->fail('Expected a stalled source to be refused');
+        } catch (R2StorageException $e) {
+            $this->assertSame('Object storage request failed.', $e->getMessage());
+            $this->assertSame([], $this->calls);
+        } finally {
+            fclose($stream);
+        }
+    }
     public function testBridgeReadAlsoValidatesKeyWithoutMaskingTransportMisuse(): void
     {
         $calls = [];
@@ -317,6 +334,28 @@ final class R2FailingStream
     public function stream_read(int $count): string|false
     {
         return false;
+    }
+
+    public function stream_eof(): bool
+    {
+        return false;
+    }
+}
+
+/** A source that never reaches EOF yet produces no bytes. */
+final class R2StalledStream
+{
+    /** @var resource|null */
+    public $context;
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$opened_path): bool
+    {
+        return true;
+    }
+
+    public function stream_read(int $count): string|false
+    {
+        return '';
     }
 
     public function stream_eof(): bool
