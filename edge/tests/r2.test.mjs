@@ -284,7 +284,7 @@ test('every worst-case escaped marker supports real multipart requests', async (
   const readSize = new Bucket();
   readSize.objects.set(markerKey, stored);
   assert.equal((await handleR2Request(request('DELETE', key, { action: 'abort', upload_id: id }), readSize)).status, 200);
-  const unbounded = new TextEncoder().encode(JSON.stringify({ id, key: `installations/primary/${'x'.repeat(12500)}` }));
+  const unbounded = new TextEncoder().encode(JSON.stringify({ id, key: `installations/primary/${key}` }) + ' '.repeat(16000));
   readSize.objects.set(markerKey, unbounded);
   assert.equal((await handleR2Request(request('DELETE', key, { action: 'abort', upload_id: id }), readSize)).status, 400);
 
