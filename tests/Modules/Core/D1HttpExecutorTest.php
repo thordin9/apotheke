@@ -200,4 +200,30 @@ final class D1HttpExecutorTest extends CIUnitTestCase
     {
         $this->assertSame($expect, D1Limits::isGuardFailure($error), $error);
     }
+
+    /**
+     * The edge handler returns only the allow-listed marker for a guard failure (no driver text),
+     * and the marker is exactly the bare SQLite form isGuardFailure matches. Both the marker-only
+     * body and a generic body must map correctly, and the handler's generic text must never leak.
+     */
+    public function testMarkerOnlyGuardBodyMapsToGuardFailed(): void
+    {
+        $bodies = [
+            // Guard failure: marker-only body (as edge/src/d1.ts now returns).
+            ['{"ok":false,"code":"guard_failed","error":"NOT NULL constraint failed: uow_guard.ok"}', true],
+            // Non-guard failure: generic body.
+            ['{"ok":false,"code":"write_failed","error":"the batch"}', false],
+        ];
+        foreach ($bodies as [$body, $guard]) {
+            $exec = new D1HttpExecutor('http://d1.internal', static fn (): string => $body);
+            try {
+                $exec->query('SELECT 1', []);
+                $this->fail('expected WriteFailed');
+            } catch (\Apotheke\Core\Exceptions\WriteFailed $e) {
+                $this->assertSame($guard ? \Apotheke\Core\Database\BatchExecutor::GUARD_FAILED : 0, $e->getCode());
+                // The message stays generic: it never echoes the handler's error field verbatim.
+                $this->assertStringNotContainsString('uow_guard.ok', $e->getMessage());
+            }
+        }
+    }
 }

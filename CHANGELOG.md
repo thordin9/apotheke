@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **edge:** return generic error bodies (P4-3) ([#237](https://github.com/thordin9/apotheke/pull/237))
+
 ## [3.20.0] - 2026-11-05
 
 - **edge:** D1 outbound handlers for d1.internal and local harness (P4-3) ([#236](https://github.com/thordin9/apotheke/pull/236))
