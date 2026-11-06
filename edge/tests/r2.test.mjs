@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleR2Request, r2UnboundResponse, validKey, validateRawPath } from '../src/r2.ts';
+import { handleR2Request, MARKER_BODY_LIMIT, r2UnboundResponse, validKey, validateRawPath } from '../src/r2.ts';
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
 const workerStub = 'export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }';
@@ -261,6 +261,22 @@ test('a 1024-character upload id survives reserved marker key limits end to end'
   const complete = await handleR2Request(request('PUT', 'backup.zip', { action: 'complete', upload_id: id, parts: JSON.stringify([{ partNumber: uploaded.part_number, etag: uploaded.etag }]) }), bucket);
   assert.equal(complete.status, 200);
   assert.ok(bucket.objects.has('installations/primary/backup.zip'));
+});
+
+test('maximum escaped multipart marker survives part and abort', async () => {
+  const sameMaxBody = JSON.stringify({ id: String.fromCharCode(92).repeat(1024), key: `installations/primary/${'a'.repeat(1024)}` });
+  assert.equal(MARKER_BODY_LIMIT, new TextEncoder().encode(sameMaxBody).length + 64);
+  const id = '+'.repeat(1024);
+  const path = 'a'.repeat(1024 - 'installations/primary/'.length);
+  const escaped = String.fromCharCode(92);
+  const marker = JSON.stringify({ id: id.replaceAll('+', escaped), key: `installations/primary/${path}` });
+  const bucket = new Bucket();
+  bucket.createMultipartUpload = async () => ({ uploadId: id });
+  assert.ok(marker.length > 2048);
+  assert.equal((await handleR2Request(request('PUT', path, { action: 'begin' }), bucket)).status, 200);
+  assert.equal((await handleR2Request(request('PUT', path, { action: 'part', upload_id: id, part: '1', size: '7' }, 'payload'), bucket)).status, 200);
+  assert.equal((await handleR2Request(request('DELETE', path, { action: 'abort', upload_id: id }), bucket)).status, 200);
+  assert.deepEqual(bucket.aborted, [id]);
 });
 
 test('long printable R2 identifiers survive markers, upload, completion, and abort', async () => {
