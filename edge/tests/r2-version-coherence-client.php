@@ -2,10 +2,15 @@
 
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . '/vendor/autoload.php';
-
 use Apotheke\Core\Storage\R2Bridge;
 use Apotheke\Core\Storage\R2Storage;
+
+$root = dirname(__DIR__, 2);
+require $root . '/modules/Core/Storage/Storage.php';
+require $root . '/modules/Core/Storage/VersionedStorage.php';
+require $root . '/modules/Core/Storage/R2StorageException.php';
+require $root . '/modules/Core/Storage/R2Bridge.php';
+require $root . '/modules/Core/Storage/R2Storage.php';
 
 $storage = new R2Storage(new R2Bridge($argv[1]));
 $version = $storage->version('backups/manifest.json');
