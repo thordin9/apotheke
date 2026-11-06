@@ -194,8 +194,12 @@ final class LocalStorage implements Storage, VersionedStorage
             throw new RuntimeException('Could not store the file.');
         }
         // This stable lock survives replacement of the data inode. It is the
-        // local unit lock for this manifest and is never mixed with R2.
-        $lock = @fopen($path . '.lock', 'c+b');
+        // local unit lock for this manifest, outside the object namespace.
+        $lockDir = $this->root . '/.locks';
+        if (!is_dir($lockDir) && !@mkdir($lockDir, $this->dirMode, true) && !is_dir($lockDir)) {
+            throw new RuntimeException('Could not store the file.');
+        }
+        $lock = @fopen($lockDir . '/' . hash('sha256', $key) . '.lock', 'c+b');
         if ($lock === false) throw new RuntimeException('Could not store the file.');
         try {
             if (!flock($lock, LOCK_EX)) throw new RuntimeException('Could not store the file.');
