@@ -163,8 +163,28 @@ final class Ci4BranchCiTest extends TestCase
         $this->assertMatchesRegularExpression('/^  di-rule:\\n    name: DI rule\\n/m', $yml);
         $this->assertStringContainsString('php scripts/ci4-arch.php deptrac', $yml);
         $this->assertStringContainsString('php scripts/ci4-arch.php di', $yml);
-        // deptrac, DI rule, and the second setup-php of upgrade-rollback (8.3 then 8.4 in one job).
-        $this->assertSame(3, substr_count($yml, "php-version: '8.4'"));
+        foreach (['deptrac', 'di-rule', 'upgrade-rollback'] as $name) {
+            $this->assertSame(1, preg_match('/^  ' . $name . ':\n(?<job>(?:(?:    .*)?\n)+)/m', $yml, $m));
+            $this->assertSame(1, substr_count($m['job'], "php-version: '8.4'"), $name . ' CI4 setup');
+        }
+    }
+
+    public function testD1JobUsesOnlyLocalWorkerdWithoutCloudflareResources(): void
+    {
+        $yml = $this->ci();
+        $this->assertSame(1, preg_match('/^  d1-local:\n(?<job>(?:(?:    .*)?\n)+)/m', $yml, $m));
+        $job = $m['job'];
+        $this->assertStringContainsString('run: ./tools/d1-harness/run-tests.sh', $job);
+        $this->assertStringContainsString("node-version: '22'", $job);
+        $this->assertStringContainsString('cache-dependency-path: tools/d1-harness/package-lock.json', $job);
+        $this->assertStringContainsString('/home/runner/.npm/_npx', $job);
+        foreach (['CLOUDFLARE_API_TOKEN', 'CF_API_TOKEN', 'CF_WORKERS_DEPLOY_TOKEN', 'CF_TOKEN_EDGE_DEPLOY', 'CF_TOKEN_STATIC_DEPLOY'] as $token) {
+            $this->assertStringContainsString($token . ": ''", $job);
+        }
+        foreach (['deploy', 'environment:', 'reviewers:', 'secrets.', ' --remote', 'account_id'] as $forbidden) {
+            $this->assertStringNotContainsString($forbidden, $job);
+        }
+        $this->assertStringContainsString('node node_modules/workerd/install.js', $job);
     }
 
     /** PLAN step 16 part 2: one job sets up legacy's PHP 8.3 and CI4's 8.4, on both databases. */
