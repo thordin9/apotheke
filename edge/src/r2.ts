@@ -108,28 +108,28 @@ function completedParts(request: Request): R2UploadedPart[] | undefined {
 
 export async function handleR2Request(request: Request, bucket: R2Bucket): Promise<Response> {
 	const relative = key(request);
-	if (!relative) return json({ ok: false }, 400);
+	if (!relative) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 	const path = PREFIX + relative;
 	const url = new URL(request.url);
 	const action = url.searchParams.get("action") ?? "";
 	const id = url.searchParams.get("upload_id") ?? "";
 	if (["part", "complete", "abort"].includes(action)) {
 		if (request.method !== (action === "abort" ? "DELETE" : "PUT") || !TOKEN.test(id)
-			|| url.searchParams.has("parts") !== (action === "complete")) return json({ ok: false }, 400);
-		if (action === "part" && (!/^[1-9][0-9]{0,7}$/.test(url.searchParams.get("part") ?? "") || !/^(0|[1-9][0-9]{0,7})$/.test(url.searchParams.get("size") ?? ""))) return json({ ok: false }, 400);
+			|| url.searchParams.has("parts") !== (action === "complete")) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+		if (action === "part" && (!/^[1-9][0-9]{0,7}$/.test(url.searchParams.get("part") ?? "") || !/^(0|[1-9][0-9]{0,7})$/.test(url.searchParams.get("size") ?? ""))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 	}
 	try {
 		if (request.method === "GET" && action === "list") {
 			const prefix = url.searchParams.get("prefix") ?? "";
 			const limit = Number(url.searchParams.get("limit") ?? "100");
 			const cursor = url.searchParams.get("cursor") ?? "";
-			if ((prefix !== "" && !validKey(prefix)) || !Number.isInteger(limit) || limit < 1 || limit > 1000) return json({ ok: false }, 400);
+			if ((prefix !== "" && !validKey(prefix)) || !Number.isInteger(limit) || limit < 1 || limit > 1000) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const options: R2ListOptions = { prefix: prefix === "" ? PREFIX : PREFIX + prefix, limit };
 			if (cursor !== "") options.cursor = cursor;
 			const result = await bucket.list(options);
-			if (!result.objects.every((item) => item.key.startsWith(PREFIX))) return json({ ok: false }, 502);
+			if (!result.objects.every((item) => item.key.startsWith(PREFIX))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			const objects = result.objects.map((item) => item.key.slice(PREFIX.length));
-			if (objects.some((item) => item !== "" && !item.startsWith(MARKER) && !validKey(item))) return json({ ok: false }, 502);
+			if (objects.some((item) => item !== "" && !item.startsWith(MARKER) && !validKey(item))) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			return json({ ok: true, objects: objects.filter((item) => !item.startsWith(MARKER)), cursor: result.truncated ? result.cursor : null });
 		}
 		if (request.method === "GET") {
@@ -143,55 +143,55 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		}
 		if (request.method === "DELETE") {
 			if (action === "abort") {
-				if (!await boundUploadKey(bucket, path, id)) return json({ ok: false }, 400);
+				if (!await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 				await bucket.delete(markerKey(id));
 				await bucket.resumeMultipartUpload(path, id).abort();
 				return json({ ok: true });
 			}
-			if (action !== "") return json({ ok: false }, 400);
+			if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			await bucket.delete(path);
 			return json({ ok: true });
 		}
-		if (request.method !== "PUT") return json({ ok: false }, 405);
+		if (request.method !== "PUT") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 405);
 		if (action === "begin") {
-			if (request.body || url.searchParams.has("prefix") || url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) return json({ ok: false }, 400);
+			if (request.body || url.searchParams.has("prefix") || url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const upload = await bucket.createMultipartUpload(path);
 			if (!TOKEN.test(upload.uploadId)) {
 				try { await upload.abort(); } catch { /* Reject an unusable ID without exposing it. */ }
-				return json({ ok: false }, 502);
+				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			}
 			const marker = await bucket.put(markerKey(upload.uploadId), JSON.stringify({ key: path }), { onlyIf: { etagDoesNotMatch: "*" } });
 			if (!marker) {
 				try { await upload.abort(); } catch { /* Reject an ID collision without touching another upload. */ }
-				return json({ ok: false }, 502);
+				return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			}
 			return json({ ok: true, upload_id: upload.uploadId });
 		}
 		if (action === "part") {
 			const part = Number(url.searchParams.get("part"));
-			if (!Number.isSafeInteger(part) || part < 1 || part > 10000) return json({ ok: false }, 400);
-			if (!await boundUploadKey(bucket, path, id)) return json({ ok: false }, 400);
+			if (!Number.isSafeInteger(part) || part < 1 || part > 10000) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
+			if (!await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const body = await readPart(request);
-			if (!body) return json({ ok: false }, 400);
+			if (!body) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const uploaded = await bucket.resumeMultipartUpload(path, id).uploadPart(part, body);
-			if (uploaded.partNumber !== part || !TOKEN.test(uploaded.etag)) return json({ ok: false }, 502);
+			if (uploaded.partNumber !== part || !TOKEN.test(uploaded.etag)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 502);
 			return json({ ok: true, bytes: body.byteLength, part_number: uploaded.partNumber, etag: uploaded.etag });
 		}
 		if (action === "complete") {
 			const parts = completedParts(request);
-			if (!parts || !await boundUploadKey(bucket, path, id)) return json({ ok: false }, 400);
+			if (!parts || !await boundUploadKey(bucket, path, id)) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			await bucket.delete(markerKey(id));
 			await bucket.resumeMultipartUpload(path, id).complete(parts);
 			return json({ ok: true });
 		}
-		if (action !== "") return json({ ok: false }, 400);
+		if (action !== "") return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 		const body = await readBody(request, 100 * 1024 * 1024);
-		if (body === undefined) return json({ ok: false }, 413);
+		if (body === undefined) return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 413);
 		if (url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) {
 			const onlyIf: R2Conditional = {};
 			if (url.searchParams.get("if_none_match") === "*") onlyIf.etagDoesNotMatch = "*";
 			else if (url.searchParams.get("if_match") === "*") onlyIf.etagMatches = "*";
-			else return json({ ok: false }, 400);
+			else return json({ ok: false, code: "storage_failed", error: "Object storage request failed." }, 400);
 			const created = await bucket.put(path, body, { onlyIf });
 			return json({ ok: true, created: Boolean(created) }, created ? 200 : 412);
 		}

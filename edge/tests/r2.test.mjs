@@ -225,10 +225,25 @@ test('the reserved multipart marker prefix is unreachable through normal storage
   bucket.objects.set('installations/primary/.mpu/private', new TextEncoder().encode('{"key":"private"}'));
   const read = await handleR2Request(request('GET', '.mpu/private'), bucket);
   assert.equal(read.status, 400);
-  assert.deepEqual(await read.json(), { ok: false });
+  assert.deepEqual(await read.json(), { ok: false, code: 'storage_failed', error: 'Object storage request failed.' });
   assert.equal((await handleR2Request(request('PUT', '.mpu/private', {}, 'forged'), bucket)).status, 400);
   assert.equal((await handleR2Request(request('DELETE', '.mpu/private'), bucket)).status, 400);
   assert.equal(new TextDecoder().decode(bucket.objects.get('installations/primary/.mpu/private')), '{"key":"private"}');
+});
+
+test('every validation failure exposes the stable generic protocol error', async () => {
+  const bucket = new Bucket();
+  bucket.list = async () => ({ objects: [{ key: 'outside' }], truncated: false });
+  const responses = await Promise.all([
+    handleR2Request(request('POST'), bucket),
+    handleR2Request(request('GET', '.mpu/forged'), bucket),
+    handleR2Request(request('PUT', 'large.bin', {}, new Uint8Array(100 * 1024 * 1024 + 1)), bucket),
+    handleR2Request(request('GET', 'index', { action: 'list' }), bucket),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status), [405, 400, 413, 502]);
+  for (const response of responses) {
+    assert.deepEqual(await response.json(), { ok: false, code: 'storage_failed', error: 'Object storage request failed.' });
+  }
 });
 
 test('Worker errors expose a stable code and fixed generic sentence only', async () => {
