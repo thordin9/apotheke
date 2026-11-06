@@ -34,9 +34,18 @@ class Bucket {
   uploads = new Map();
   objects = new Map(); parts = new Map(); sessions = new Map(); prefix = ''; partReads = []; completed = []; aborted = []; failAt = 0;
   assertKey(key) { assert.ok(new TextEncoder().encode(key).byteLength <= 1024, 'bucket key exceeds 1024 bytes'); }
-  async put(key, value, options = {}) { this.assertKey(key); if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null; this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value)); return { key }; }
+  async put(key, value, options = {}) {
+    this.assertKey(key);
+    const current = this.etags.get(key);
+    if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null;
+    if (options.onlyIf?.etagMatches !== undefined && options.onlyIf.etagMatches !== current) return null;
+    this.etags.set(key, `etag-${this.etags.size + 1}`);
+    this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value));
+    return { key };
+  }
+  etags = new Map();
   async get(key) { this.assertKey(key); const data = this.objects.get(key); return data ? { size: data.byteLength, text: async () => new TextDecoder().decode(data), arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) } : null; }
-  async head(key) { this.assertKey(key); const data = this.objects.get(key); return data ? { uploaded: new Date(1740000000000) } : null; }
+  async head(key) { this.assertKey(key); const data = this.objects.get(key); if (data !== undefined && !this.etags.has(key)) this.etags.set(key, `etag-${this.etags.size + 1}`); return data ? { uploaded: new Date(1740000000000), etag: this.etags.get(key) } : null; }
   async delete(key) { this.assertKey(key); this.objects.delete(key); }
   async list({ prefix, limit, cursor }) { this.assertKey(prefix); this.prefix = prefix; const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort(); const start = cursor ? Number(cursor) : 0; const slice = keys.slice(start, start + limit); return { objects: slice.map((key) => ({ key })), truncated: start + limit < keys.length, cursor: String(start + limit) }; }
   async createMultipartUpload(key) { const id = `upload-${crypto.randomUUID().replaceAll('-', '')}`; this.sessions.set(id, key); return { uploadId: id }; }
@@ -62,7 +71,7 @@ test('Worker alone prefixes reads, deletes, and scoped listings', async () => {
   const read = await (await handleR2Request(request('GET', 'media/a'), bucket)).json();
   assert.deepEqual(read, { ok: true, found: true, bytes: 'AQL/' });
   const head = await (await handleR2Request(request('HEAD', 'media/a'), bucket)).json();
-  assert.deepEqual(head, { ok: true, found: true, modified: 1740000000 });
+  assert.deepEqual(head, { ok: true, found: true, modified: 1740000000, etag: 'etag-1' });
   assert.deepEqual(await (await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1' }), bucket)).json(), { ok: true, objects: ['media/a'], cursor: '1' });
   const next = await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1', cursor: '1' }), bucket);
   assert.deepEqual(await next.json(), { ok: true, objects: ['media/b'], cursor: null });
@@ -81,6 +90,19 @@ test('application listing filtering uses the shared dot-segment predicate', asyn
   const malformed = new Bucket();
   malformed.list = async () => ({ objects: [{ key: 'installations/primary/bad//unsafe' }], truncated: false });
   assert.equal((await handleR2Request(request('GET', 'index', { action: 'list' }), malformed)).status, 502);
+});
+
+test('manifest replacements require the exact observed ETag', async () => {
+  const bucket = new Bucket();
+  const path = 'backups/manifest.json';
+  assert.equal((await handleR2Request(request('PUT', path, {}, 'one'), bucket)).status, 200);
+  const head = await (await handleR2Request(request('HEAD', path), bucket)).json();
+  assert.equal(head.etag, 'etag-1');
+  assert.equal((await handleR2Request(request('PUT', path, { if_match: head.etag }, 'two'), bucket)).status, 200);
+  bucket.etags.set(path, 'changed');
+  assert.equal((await handleR2Request(request('PUT', path, { if_match: 'old-etag' }, 'wrong'), bucket)).status, 412);
+  const object = await (await handleR2Request(request('GET', path), bucket)).json();
+  assert.equal(atob(object.bytes), 'two');
 });
 
 test('only installation-local atomic conditional create is permitted', async () => {
