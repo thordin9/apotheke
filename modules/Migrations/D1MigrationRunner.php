@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Migrations;
 
-use Apotheke\Core\Database\D1HttpExecutor;
+use Apotheke\Core\Database\D1Executor;
 use Apotheke\Core\Database\D1Pdo;
 use RuntimeException;
 
@@ -26,7 +26,15 @@ final class D1MigrationRunner
 {
     public function __construct(private readonly string $migrationsDir)
     {
+        // Load configuration exactly as PdoMigrationRunner does, so cfg() is available to the
+        // settings seeds (0013, 0022, 0023) and the legacy helpers (L-1801).
+        self::loadConfig();
         require_once __DIR__ . '/LegacyFunctions.php';
+    }
+
+    private static function loadConfig(): void
+    {
+        require_once dirname(__DIR__) . '/Core/Config/config-functions.php';
     }
 
     /** @return array<string,string> version => file */
@@ -42,7 +50,7 @@ final class D1MigrationRunner
     }
 
     /** @return array<string,string> version => applied_at */
-    public function applied(D1HttpExecutor $d1): array
+    public function applied(D1Executor $d1): array
     {
         if (!$this->tableExists($d1)) {
             return [];
@@ -62,7 +70,7 @@ final class D1MigrationRunner
      * @param array{dir?:string,log?:callable(string):void} $opt
      * @return list<string> applied versions (and adopt markers)
      */
-    public function migrate(D1HttpExecutor $d1, array $opt = []): array
+    public function migrate(D1Executor $d1, array $opt = []): array
     {
         $log = $opt['log'] ?? static function (string $m): void {
         };
@@ -122,7 +130,7 @@ final class D1MigrationRunner
         $pdo->exec($sql);
     }
 
-    private function tableExists(D1HttpExecutor $d1): bool
+    private function tableExists(D1Executor $d1): bool
     {
         $rows = $d1->query("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'", []);
 

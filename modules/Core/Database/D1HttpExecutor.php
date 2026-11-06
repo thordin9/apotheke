@@ -21,7 +21,7 @@ use RuntimeException;
  * (edge/src); tools/d1-harness mirrors them locally. Tests use a stub transport
  * or that harness.
  */
-final class D1HttpExecutor implements SqlExecutor
+final class D1HttpExecutor implements SqlExecutor, D1Executor
 {
     /** Default in the container: the outbound handler's loopback name. */
     public const DEFAULT_BASE = 'http://d1.internal';
