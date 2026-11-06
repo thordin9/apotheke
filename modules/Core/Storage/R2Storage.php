@@ -7,8 +7,11 @@ namespace Apotheke\Core\Storage;
 /** Application-relative storage through the Worker's installation-scoped R2 bridge. */
 final class R2Storage implements Storage
 {
-    public function __construct(private readonly R2Bridge $bridge)
+    public function __construct(private readonly R2Bridge $bridge, private readonly int $maxBytes = 104857600)
     {
+        if ($maxBytes <= 0 || $maxBytes > 104857600) {
+            throw new \InvalidArgumentException('Object storage write limit must be between 1 and 104857600 bytes.');
+        }
     }
 
     public function read(string $key): ?string
@@ -30,6 +33,7 @@ final class R2Storage implements Storage
 
     public function write(string $key, string $bytes): void
     {
+        $this->requireSize(strlen($bytes));
         $this->requireValidKey($key);
         $stream = fopen('php://temp', 'w+b');
         if ($stream === false) {
@@ -52,27 +56,74 @@ final class R2Storage implements Storage
         if (!is_resource($stream) || get_resource_type($stream) !== 'stream') {
             throw new \InvalidArgumentException('Storage stream must be a readable stream.');
         }
-        $copy = fopen('php://temp/maxmemory:2097152', 'w+b');
-        if ($copy === false) {
+        $part = fopen('php://temp/maxmemory:5242880', 'w+b');
+        if ($part === false) {
             throw R2StorageException::failed();
         }
+        $remaining = $this->maxBytes;
+        $number = 0;
+        $uploadId = null;
+        $parts = [];
         try {
             while (!feof($stream)) {
-                $chunk = @fread($stream, 65536);
+                try {
+                    $chunk = fread($stream, min(65536, $remaining + 1));
+                } catch (\Throwable) {
+                    throw R2StorageException::failed();
+                }
                 if ($chunk === false || ($chunk === '' && !feof($stream))) {
                     throw R2StorageException::failed();
                 }
-                if (!$this->writeAll($copy, $chunk)) {
+                if (strlen($chunk) > $remaining) {
+                    throw new R2StorageException('Object storage write exceeds its configured size limit.');
+                }
+                $remaining -= strlen($chunk);
+                if (!$this->writeAll($part, $chunk)) {
                     throw R2StorageException::failed();
                 }
+                if (ftell($part) !== 5242880) {
+                    continue;
+                }
+                $uploadId ??= $this->bridge->beginMultipart($key);
+                $parts[] = $this->bridge->uploadPart($key, $uploadId, ++$number, $part);
+                ftruncate($part, 0);
+                rewind($part);
             }
-            if (!rewind($copy)) {
-                throw R2StorageException::failed();
+            $uploadId ??= $this->bridge->beginMultipart($key);
+            if (($size = fstat($part)['size'] ?? 0) > 0) {
+                $parts[] = $this->bridge->uploadPart($key, $uploadId, ++$number, $part);
             }
-            $this->bridge->put($key, $copy);
+            $this->bridge->completeMultipart($key, $uploadId, $parts);
+        } catch (\Throwable $e) {
+            if ($uploadId !== null) {
+                $this->bridge->abortMultipart($key, $uploadId);
+            }
+            throw $e;
         } finally {
-            is_resource($copy) && fclose($copy);
+            is_resource($part) && fclose($part);
         }
+    }
+
+    /** Conditional create is atomic only through ordinary PUT, not multipart. */
+    public function conditionalCreate(string $key, string $bytes): bool
+    {
+        $this->requireSize(strlen($bytes));
+        $this->requireValidKey($key);
+        $stream = fopen('php://temp', 'w+b');
+        if ($stream === false || !$this->writeAll($stream, $bytes) || !rewind($stream)) {
+            throw R2StorageException::failed();
+        }
+        try {
+            return $this->bridge->conditionalCreate($key, $stream);
+        } finally {
+            fclose($stream);
+        }
+    }
+
+    /** @return array{objects:list<string>,cursor:?string} */
+    public function list(string $prefix = '', string $cursor = '', int $limit = 100): array
+    {
+        return $this->bridge->list($prefix, $cursor, $limit);
     }
 
     /** @param resource $stream */
@@ -139,6 +190,13 @@ final class R2Storage implements Storage
     {
         if (!$this->validKey($key)) {
             throw new \InvalidArgumentException('Invalid object storage key.');
+        }
+    }
+
+    private function requireSize(int $size): void
+    {
+        if ($size > $this->maxBytes) {
+            throw new R2StorageException('Object storage write exceeds its configured size limit.');
         }
     }
 

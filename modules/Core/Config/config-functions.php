@@ -34,6 +34,9 @@ const CONFIG_ENV_MAP = [
     'ORIGINALS_DIR'   => 'originals_dir',
     'TRUSTED_PROXIES' => 'trusted_proxies',
     'SIGN_IN_FAIL_MS' => 'sign_in_fail_ms',
+    'STORAGE_BACKEND' => 'storage.backend',
+    'R2_MAX_WRITE_BYTES' => 'storage.max_write_bytes',
+    'R2_BASE_URL' => 'storage.r2_base_url',
 ];
 
 function config_defaults(string $root): array
@@ -66,6 +69,11 @@ function config_defaults(string $root): array
         'seed_defaults' => true,         // starter locations/categories on a brand-new database
         'originals_dir' => '',           // camera uploads; empty = <data_dir>/originals (outside public/)
         'trusted_proxies' => [],         // addresses allowed to set X-Forwarded-For when trust_proxy is on
+        'storage' => [
+            'backend' => 'local',          // R2 requires STORAGE_BACKEND=r2 and PHP ext-curl
+            'max_write_bytes' => 104857600,
+            'r2_base_url' => 'http://r2.internal',
+        ],
         'sign_in_fail_ms' => 1000,       // a failed password check answers this long after the request began (400–10000)
     ];
 }
@@ -88,6 +96,18 @@ function config_load(string $root, ?string $file, array $env): array
         config_set($cfg, $path, (string)$v);
     }
     // normalise
+    if (!isset($cfg['storage']) || !is_array($cfg['storage'])) {
+        throw new RuntimeException('Storage configuration must be an array.');
+    }
+    $cfg['storage']['backend'] = strtolower((string)($cfg['storage']['backend'] ?? 'local'));
+    $limit = $cfg['storage']['max_write_bytes'] ?? 104857600;
+    if ((!is_int($limit) && (!is_string($limit) || preg_match('/^[0-9]+$/D', $limit) !== 1))
+        || (int)$limit < 1 || (string)(int)$limit !== (string)$limit || (int)$limit > 104857600
+    ) {
+        throw new RuntimeException('R2_MAX_WRITE_BYTES must be a base-10 integer between 1 and 104857600.');
+    }
+    $cfg['storage']['max_write_bytes'] = (int)$limit;
+    $cfg['storage']['r2_base_url'] = (string)($cfg['storage']['r2_base_url'] ?? 'http://r2.internal');
     $cfg['data_dir'] = rtrim((string)$cfg['data_dir'], '/');
     $cfg['originals_dir'] = rtrim((string)($cfg['originals_dir'] ?? ''), '/');
     $cfg['db']['driver'] = strtolower((string)$cfg['db']['driver']);

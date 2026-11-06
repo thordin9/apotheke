@@ -336,7 +336,7 @@ final class DeployWorkflowsTest extends TestCase
         $yml = $this->workflow($file);
         $job = $this->job($yml, $check);
         $this->assertStringContainsString("run: node scripts/cf-worker-guard.mjs $worker $dir/wrangler.jsonc -- --dry-run\n", $job);
-        $this->assertStringContainsString("run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs\n", $job);
+        $this->assertStringContainsString("run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs" . ($file === 'deploy-edge.yml' ? ' edge/tests/r2.test.mjs' : '') . "\n", $job);
         $this->assertStringContainsString('wrangler deploy --dry-run --config wrangler.jsonc', $job);
         $this->assertStringContainsString('wrangler types --check --config wrangler.jsonc', $job);
         $this->assertStringNotContainsString('secrets.', $job);

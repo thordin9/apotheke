@@ -7,21 +7,23 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.21.1). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.22.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
 - P4 (edge storage, [ADR-002](adr/002-edge-storage.md)) is the priority. P4-3 is merged through #240;
-  P4-4 PR 1 starts R2 storage with a tested `R2Storage` implementation of the existing `Core\Storage` interface.
-  Its bounded bridge accepts application-relative keys only and its tests mock transport. The Worker owns prefixes.
-- PDO/self-hosting and default `LocalStorage` construction are unchanged. PR 1 is not wired to a live R2 service.
-  PR 2 adds Worker R2/list/conditional operations and explicit opt-in construction; PR 3 migrates direct filesystem
+  P4-4 PR 1 (#241) added a tested R2 storage with a tested `R2Storage` implementation of the existing `Core\Storage` interface.
+  PR 2 adds scoped Worker R2 operations, resumable bounded multipart, conditions, and explicit
+  opt-in construction. Invalid `R2_MAX_WRITE_BYTES` values fail closed; its strict range is 1–104857600 bytes.
+- PDO/self-hosting and default `LocalStorage` construction remain unchanged. PR 2 uses simulated R2 bindings only.
+  PR 3 migrates direct filesystem
   backup/restore callers, with manifest locking/conditional writes and real race tests. PR 4 takes up background restore.
 
 
 ## Open pull requests
 
-- P4-4 PR 1 (`feat/p4-4-r2-foundation`): the storage adapter and internal object protocol only.
+- P4-4 PR 2 (#242, `feat/p4-4-r2-worker-ops`): Worker operations and opt-in storage only; no readiness or restore cutover.
+- Orphaned multipart markers or uploads need a sweep or lifecycle rule before wiring; owned by the PM.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
