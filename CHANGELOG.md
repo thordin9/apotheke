@@ -8,6 +8,12 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.21.0] - 2026-11-06
+
+- **migrations:** D1 migration dialect and runner (P4-3) ([#238](https://github.com/thordin9/apotheke/pull/238))
+
+### Added
+
 - **migrations:** D1 migration dialect and runner (P4-3) ([#238](https://github.com/thordin9/apotheke/pull/238))
 
 ## [3.20.1] - 2026-11-06
@@ -1325,7 +1331,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.20.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.21.0...HEAD
+[3.21.0]: https://github.com/thordin9/apotheke/compare/v3.20.1...v3.21.0
 [3.20.1]: https://github.com/thordin9/apotheke/compare/v3.20.0...v3.20.1
 [3.20.0]: https://github.com/thordin9/apotheke/compare/v3.19.0...v3.20.0
 [3.19.0]: https://github.com/thordin9/apotheke/compare/v3.18.3...v3.19.0
