@@ -2,11 +2,13 @@
 // No client-supplied prefix or Cloudflare credential crosses r2.internal.
 const PREFIX = "installations/primary/";
 const PART = 5 * 1024 * 1024;
+const MARKER = ".mpu/";
+const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
 export type R2Env = { STORAGE?: R2Bucket };
 
 export function validKey(key: string): boolean {
 	if (key === "" || key.length > 1024 || key.startsWith("/") || key.includes("\\") || /[?#\x00-\x1f\x7f]/.test(key)) return false;
-	return !key.split("/").some((segment) => segment === "" || segment === "." || segment === "..");
+	return !key.split("/").some((segment) => segment === "" || segment.startsWith("."));
 }
 
 /** @internal Raw-path unit guard; production uses the URL-normalized Request path. */
@@ -24,6 +26,22 @@ export function validateRawPath(pathname: string): string | undefined {
 
 function key(request: Request): string | undefined {
 	return validateRawPath(new URL(request.url).pathname);
+}
+
+function markerKey(id: string): string {
+	return PREFIX + MARKER + encodeURIComponent(id);
+}
+
+async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promise<boolean> {
+	const marker = await bucket.get(markerKey(id));
+	if (!marker || marker.size > 2048) return false;
+	try {
+		const body: unknown = JSON.parse(await marker.text());
+		return typeof body === "object" && body !== null && !Array.isArray(body)
+			&& Object.keys(body).join(",") === "key" && (body as { key: unknown }).key === path;
+	} catch {
+		return false;
+	}
 }
 
 function json(body: object, status = 200): Response {
@@ -80,7 +98,7 @@ function completedParts(request: Request): R2UploadedPart[] | undefined {
 		return parsed.map((part: object, index: number) => {
 			const value = part as Record<string, unknown>;
 			if (Object.keys(value).sort().join(",") !== "etag,partNumber"
-				|| value.partNumber !== index + 1 || typeof value.etag !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value.etag)) throw new Error("invalid part");
+				|| value.partNumber !== index + 1 || typeof value.etag !== "string" || !TOKEN.test(value.etag)) throw new Error("invalid part");
 			return { partNumber: value.partNumber, etag: value.etag };
 		});
 	} catch {
@@ -96,7 +114,7 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 	const action = url.searchParams.get("action") ?? "";
 	const id = url.searchParams.get("upload_id") ?? "";
 	if (["part", "complete", "abort"].includes(action)) {
-		if (request.method !== (action === "abort" ? "DELETE" : "PUT") || !/^[A-Za-z0-9_-]{1,200}$/.test(id)
+		if (request.method !== (action === "abort" ? "DELETE" : "PUT") || !TOKEN.test(id)
 			|| url.searchParams.has("parts") !== (action === "complete")) return json({ ok: false }, 400);
 		if (action === "part" && (!/^[1-9][0-9]{0,7}$/.test(url.searchParams.get("part") ?? "") || !/^(0|[1-9][0-9]{0,7})$/.test(url.searchParams.get("size") ?? ""))) return json({ ok: false }, 400);
 	}
@@ -110,7 +128,9 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 			if (cursor !== "") options.cursor = cursor;
 			const result = await bucket.list(options);
 			if (!result.objects.every((item) => item.key.startsWith(PREFIX))) return json({ ok: false }, 502);
-			return json({ ok: true, objects: result.objects.map((item) => item.key.slice(PREFIX.length)), cursor: result.truncated ? result.cursor : null });
+			const objects = result.objects.map((item) => item.key.slice(PREFIX.length));
+			if (objects.some((item) => item !== "" && !item.startsWith(MARKER) && !validKey(item))) return json({ ok: false }, 502);
+			return json({ ok: true, objects: objects.filter((item) => !item.startsWith(MARKER)), cursor: result.truncated ? result.cursor : null });
 		}
 		if (request.method === "GET") {
 			const object = await bucket.get(path);
@@ -123,6 +143,8 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		}
 		if (request.method === "DELETE") {
 			if (action === "abort") {
+				if (!await boundUploadKey(bucket, path, id)) return json({ ok: false }, 400);
+				await bucket.delete(markerKey(id));
 				await bucket.resumeMultipartUpload(path, id).abort();
 				return json({ ok: true });
 			}
@@ -134,20 +156,31 @@ export async function handleR2Request(request: Request, bucket: R2Bucket): Promi
 		if (action === "begin") {
 			if (request.body || url.searchParams.has("prefix") || url.searchParams.has("if_none_match") || url.searchParams.has("if_match")) return json({ ok: false }, 400);
 			const upload = await bucket.createMultipartUpload(path);
+			if (!TOKEN.test(upload.uploadId)) {
+				try { await upload.abort(); } catch { /* Reject an unusable ID without exposing it. */ }
+				return json({ ok: false }, 502);
+			}
+			const marker = await bucket.put(markerKey(upload.uploadId), JSON.stringify({ key: path }), { onlyIf: { etagDoesNotMatch: "*" } });
+			if (!marker) {
+				try { await upload.abort(); } catch { /* Reject an ID collision without touching another upload. */ }
+				return json({ ok: false }, 502);
+			}
 			return json({ ok: true, upload_id: upload.uploadId });
 		}
 		if (action === "part") {
 			const part = Number(url.searchParams.get("part"));
 			if (!Number.isSafeInteger(part) || part < 1 || part > 10000) return json({ ok: false }, 400);
+			if (!await boundUploadKey(bucket, path, id)) return json({ ok: false }, 400);
 			const body = await readPart(request);
 			if (!body) return json({ ok: false }, 400);
 			const uploaded = await bucket.resumeMultipartUpload(path, id).uploadPart(part, body);
-			if (uploaded.partNumber !== part || !/^[A-Za-z0-9_-]{1,128}$/.test(uploaded.etag)) return json({ ok: false }, 502);
+			if (uploaded.partNumber !== part || !TOKEN.test(uploaded.etag)) return json({ ok: false }, 502);
 			return json({ ok: true, bytes: body.byteLength, part_number: uploaded.partNumber, etag: uploaded.etag });
 		}
 		if (action === "complete") {
 			const parts = completedParts(request);
-			if (!parts) return json({ ok: false }, 400);
+			if (!parts || !await boundUploadKey(bucket, path, id)) return json({ ok: false }, 400);
+			await bucket.delete(markerKey(id));
 			await bucket.resumeMultipartUpload(path, id).complete(parts);
 			return json({ ok: true });
 		}

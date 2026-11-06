@@ -14,7 +14,7 @@ const { R2Outbound } = await import('../src/index.ts');
 class Upload {
   constructor(bucket, key, id) { this.bucket = bucket; this.key = key; this.uploadId = id; }
   async uploadPart(number, body) {
-    if (this.key !== this.bucket.sessions.get(this.uploadId) || number !== (this.bucket.uploads.get(this.uploadId) ?? []).length + 1) throw new Error('invalid multipart upload');
+    if (number !== (this.bucket.uploads.get(this.uploadId) ?? []).length + 1) throw new Error('invalid multipart upload');
     const bytes = body instanceof Uint8Array ? body : new Uint8Array(await new Response(body).arrayBuffer());
     this.bucket.partReads.push(bytes.byteLength);
     this.bucket.parts.set(`${this.uploadId}:${number}`, bytes);
@@ -23,19 +23,18 @@ class Upload {
     return uploaded;
   }
   async complete(parts) {
-    assert.equal(this.key, this.bucket.sessions.get(this.uploadId));
     assert.deepEqual(parts, this.bucket.uploads.get(this.uploadId) ?? []);
     const sorted = [...parts].sort((a, b) => a.partNumber - b.partNumber);
     this.bucket.objects.set(this.key, new Uint8Array(sorted.reduce((n, part) => n + this.bucket.parts.get(`${this.uploadId}:${part.partNumber}`).byteLength, 0)));
     this.bucket.completed.push(this.key);
   }
-  async abort() { assert.equal(this.key, this.bucket.sessions.get(this.uploadId)); this.bucket.aborted.push(this.uploadId); }
+  async abort() { this.bucket.aborted.push(this.uploadId); }
 }
 class Bucket {
   uploads = new Map();
   objects = new Map(); parts = new Map(); sessions = new Map(); prefix = ''; partReads = []; completed = []; aborted = []; failAt = 0;
-  async put(key, value, options = {}) { if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null; this.objects.set(key, new Uint8Array(value)); return { key }; }
-  async get(key) { const data = this.objects.get(key); return data ? { arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) } : null; }
+  async put(key, value, options = {}) { if (options.onlyIf?.etagDoesNotMatch === '*' && this.objects.has(key)) return null; this.objects.set(key, typeof value === "string" ? new TextEncoder().encode(value) : new Uint8Array(value)); return { key }; }
+  async get(key) { const data = this.objects.get(key); return data ? { size: data.byteLength, text: async () => new TextDecoder().decode(data), arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) } : null; }
   async head(key) { const data = this.objects.get(key); return data ? { uploaded: new Date(1740000000000) } : null; }
   async delete(key) { this.objects.delete(key); }
   async list({ prefix, limit, cursor }) { this.prefix = prefix; const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort(); const start = cursor ? Number(cursor) : 0; const slice = keys.slice(start, start + limit); return { objects: slice.map((key) => ({ key })), truncated: start + limit < keys.length, cursor: String(start + limit) }; }
@@ -49,7 +48,7 @@ const replenish = () => {
 function request(method = 'GET', path = 'file.bin', query = {}, body) { return new Request(`http://r2.internal/${path}?${new URLSearchParams(query)}`, { method, body, ...(body === undefined ? {} : { duplex: 'half' }) }); }
 
 test('application keys must be safe before any bucket call', () => {
-  for (const path of ['', '/a', 'a/../b', 'a//b', 'a\\b', '../x', 'a/.', 'a?b', 'a#b', 'a\n']) assert.equal(validKey(path), false, path);
+  for (const path of ['', '/a', 'a/../b', 'a//b', 'a\\b', '../x', 'a/.', 'a?b', 'a#b', 'a\n', '.mpu', '.mpu/upload-id', 'folder/.mpu/id']) assert.equal(validKey(path), false, path);
   assert.equal(validateRawPath('/a/%2e%2e/secret'), undefined);
   for (const path of ['a', 'media/one+two ü.txt', 'a.b']) assert.equal(validKey(path), true);
 });
@@ -64,11 +63,20 @@ test('Worker alone prefixes reads, deletes, and scoped listings', async () => {
   const head = await (await handleR2Request(request('HEAD', 'media/a'), bucket)).json();
   assert.deepEqual(head, { ok: true, found: true, modified: 1740000000 });
   assert.deepEqual(await (await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1' }), bucket)).json(), { ok: true, objects: ['media/a'], cursor: '1' });
-  assert.equal(bucket.prefix, 'installations/primary/media');
   const next = await handleR2Request(request('GET', 'index', { action: 'list', prefix: 'media', limit: '1', cursor: '1' }), bucket);
   assert.deepEqual(await next.json(), { ok: true, objects: ['media/b'], cursor: null });
+  assert.equal(bucket.prefix, 'installations/primary/media');
   assert.equal((await handleR2Request(request(), new Bucket())).status, 200);
   assert.deepEqual(await (await handleR2Request(request('DELETE', 'media/a'), bucket)).json(), { ok: true });
+});
+
+test('application listings never expose multipart marker keys', async () => {
+  const bucket = new Bucket();
+  bucket.objects.set('installations/primary/.mpu/upload', new TextEncoder().encode('{"key":"secret"}'));
+  bucket.objects.set('installations/primary/media/a', new Uint8Array([1]));
+  const response = await handleR2Request(request('GET', 'index', { action: 'list' }), bucket);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, objects: ['media/a'], cursor: null });
 });
 
 test('only installation-local atomic conditional create is permitted', async () => {
@@ -140,8 +148,8 @@ test('the real entrypoint aborts a resumed upload and confines its installation 
   const outbound = () => new R2Outbound({}, { STORAGE: bucket });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   const { upload_id: id } = await begin.json();
-  assert.equal((await outbound().fetch(request('DELETE', 'other.bin', { action: 'abort', upload_id: id }))).status, 500);
-  assert.equal((await outbound().fetch(request('PUT', 'other.bin', { action: 'part', upload_id: id, part: '1', size: '1' }, 'x'))).status, 500);
+  assert.equal((await outbound().fetch(request('DELETE', 'other.bin', { action: 'abort', upload_id: id }))).status, 400);
+  assert.equal((await outbound().fetch(request('PUT', 'other.bin', { action: 'part', upload_id: id, part: '1', size: '1' }, 'x'))).status, 400);
   assert.deepEqual(bucket.partReads, []);
   assert.deepEqual(bucket.aborted, []);
   assert.equal((await outbound().fetch(request('DELETE', 'a.bin', { action: 'abort', upload_id: id }))).status, 200);
@@ -156,6 +164,41 @@ test('multipart rejects a real body over five MiB with a matching declared lengt
   const response = await handleR2Request(request('PUT', 'huge.bin', { action: 'part', upload_id: id, part: '1', size: String(body.byteLength) }, body), bucket);
   assert.equal(response.status, 400);
   assert.deepEqual(bucket.partReads, []);
+});
+
+test('a permissive bucket cannot cross multipart keys or reuse finished uploads', async () => {
+  const bucket = new Bucket();
+  const begin = await handleR2Request(request('PUT', 'first.bin', { action: 'begin' }), bucket);
+  const { upload_id: id } = await begin.json();
+  const mismatched = await handleR2Request(request('PUT', 'other.bin', { action: 'part', upload_id: id, part: '1', size: '1' }, 'x'), bucket);
+  assert.equal(mismatched.status, 400);
+  assert.deepEqual(bucket.partReads, []);
+  const uploaded = await handleR2Request(request('PUT', 'first.bin', { action: 'part', upload_id: id, part: '1', size: '1' }, 'x'), bucket);
+  const part = await uploaded.json();
+  assert.equal(uploaded.status, 200);
+  const completion = { action: 'complete', upload_id: id, parts: JSON.stringify([{ partNumber: part.part_number, etag: part.etag }]) };
+  assert.equal((await handleR2Request(request('PUT', 'first.bin', completion), bucket)).status, 200);
+  assert.equal((await handleR2Request(request('PUT', 'first.bin', { action: 'part', upload_id: id, part: '2', size: '1' }, 'y'), bucket)).status, 400);
+  assert.equal((await handleR2Request(request('PUT', 'first.bin', completion), bucket)).status, 400);
+  assert.deepEqual(bucket.partReads, [1]);
+
+  const aborted = await handleR2Request(request('PUT', 'abort.bin', { action: 'begin' }), bucket);
+  const { upload_id: abortId } = await aborted.json();
+  assert.equal((await handleR2Request(request('DELETE', 'abort.bin', { action: 'abort', upload_id: abortId }), bucket)).status, 200);
+  assert.equal((await handleR2Request(request('PUT', 'abort.bin', { action: 'complete', upload_id: abortId, parts: '[]' }), bucket)).status, 400);
+  assert.deepEqual(bucket.aborted, [abortId]);
+  assert.deepEqual(bucket.completed, ['installations/primary/first.bin']);
+});
+
+test('the reserved multipart marker prefix is unreachable through normal storage', async () => {
+  const bucket = new Bucket();
+  bucket.objects.set('installations/primary/.mpu/private', new TextEncoder().encode('{"key":"private"}'));
+  const read = await handleR2Request(request('GET', '.mpu/private'), bucket);
+  assert.equal(read.status, 400);
+  assert.deepEqual(await read.json(), { ok: false });
+  assert.equal((await handleR2Request(request('PUT', '.mpu/private', {}, 'forged'), bucket)).status, 400);
+  assert.equal((await handleR2Request(request('DELETE', '.mpu/private'), bucket)).status, 400);
+  assert.equal(new TextDecoder().decode(bucket.objects.get('installations/primary/.mpu/private')), '{"key":"private"}');
 });
 
 test('Worker errors expose a stable code and fixed generic sentence only', async () => {
