@@ -443,7 +443,8 @@ final class RestoreUploads
      */
     private function locked(string $id, Closure $fn): mixed
     {
-        return $this->unit($id, function () use ($id, $fn): mixed {
+        return $this->unit($id, fn (): mixed => $this->storage->withLease('uploads/restore/' . self::CREATE_LOCK, function () use ($id, $fn): mixed {
+            $this->sweepOnce(null);
             if (preg_match(self::ID, $id) !== 1) throw new UserError(self::NOT_FOUND, 404);
             $owner = $this->me();
             $key = 'uploads/restore/' . $id . '/' . self::MANIFEST;
@@ -473,7 +474,7 @@ final class RestoreUploads
             } catch (\InvalidArgumentException) { throw new UserError(self::NOT_FOUND, 404); }
             if ($result === false) throw new UserError('Another request is using this upload. Try again when it has finished.', 409);
             return $result;
-        });
+        }));
     }
 
     /**

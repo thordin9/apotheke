@@ -230,6 +230,29 @@ final class LocalStorage implements LeaseStorage
         }
         $lease = dirname(dirname($path)) . '/.leases/' . rawurlencode(basename(dirname($path)) . '-' . basename($path)) . '.lock';
         if (!is_dir(dirname($lease)) && !@mkdir(dirname($lease), $this->dirMode) && !is_dir(dirname($lease))) throw new RuntimeException('Could not store the file.');
+        if (basename($path) === 'create.lock') {
+            $lease = $path;
+            clearstatcache(true, $lease);
+            $named = @lstat($lease);
+            if ($named !== false && ($named['mode'] & 0170000) !== 0100000) throw new RuntimeException('Could not store the file.');
+        }
+        if (basename($path) === 'create.lock') {
+            if ($named === false) {
+                $tmp = $lease . '.new-' . bin2hex(random_bytes(8));
+                if (($created = @fopen($tmp, 'xb')) === false) throw new RuntimeException('Could not store the file.');
+                fclose($created);
+                @link($tmp, $lease);
+                @unlink($tmp);
+            }
+            $lock = @fopen($lease, 'rb');
+            if ($lock === false) throw new RuntimeException('Could not store the file.');
+            clearstatcache(true, $lease);
+            $again = @lstat($lease); $opened = fstat($lock);
+            if ($again === false || ($again['mode'] & 0170000) !== 0100000 || $again['dev'] !== $opened['dev'] || $again['ino'] !== $opened['ino']) {
+                fclose($lock); throw new RuntimeException('Could not store the file.');
+            }
+            return $lock;
+        }
         $lock = @fopen($lease, 'c+b');
         if ($lock === false) throw new RuntimeException('Could not store the file.');
         return $lock;
