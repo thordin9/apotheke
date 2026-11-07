@@ -163,7 +163,13 @@ final class RestoresController extends Controller
     /** @param array<string,mixed> $job */
     private function accepted(array $job): ResponseInterface
     {
-        return ApiResponse::json($this->response, $job, 202)->setHeader('Location', '/api/v1/jobs/' . (int)($job['id'] ?? 0));
+        $id = (int)($job['id'] ?? 0);
+        $row = service('jobQueue')->find($id);
+        if ($row !== null) {
+            $job = service('jobRecovery')->recover($row)->view();
+        }
+
+        return ApiResponse::json($this->response, $job, 202)->setHeader('Location', '/api/v1/jobs/' . $id);
     }
 
     /** The outcome already kept on the upload: the same answer as a second synchronous confirm, and no second restore. */

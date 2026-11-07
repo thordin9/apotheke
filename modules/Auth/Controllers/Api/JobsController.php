@@ -28,6 +28,6 @@ final class JobsController extends Controller
             return ApiResponse::problem($this->response, 404, 'not_found', 'Job not found.');
         }
 
-        return ApiResponse::json($this->response, $job->view());
+        return ApiResponse::json($this->response, Services::jobRecovery()->recover($job)->view());
     }
 }

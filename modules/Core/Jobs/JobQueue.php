@@ -75,18 +75,22 @@ final class JobQueue
                 "INSERT INTO jobs (type, status, payload, attempts, max_attempts, actor, run_after, created_at, updated_at)
                  SELECT v.type, 'queued', v.payload, 0, v.max_attempts, v.actor, v.run_after, v.created_at, v.updated_at
                  FROM (SELECT ? AS type, ? AS payload, ? AS max_attempts, ? AS actor, ? AS run_after, ? AS created_at, ? AS updated_at) v
-                 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE type = v.type AND payload = v.payload AND status IN ('queued', 'running'))",
-                [$type, $json, $maxAttempts, $actor, $run, $now, $now],
+                 WHERE NOT EXISTS (
+                    SELECT 1 FROM jobs WHERE type = v.type AND payload = v.payload AND (
+                        status IN ('queued', 'running') OR (status = 'failed' AND error = ? AND result IS NULL)
+                    )
+                 )",
+                [$type, $json, $maxAttempts, $actor, $run, $now, $now, self::EXPIRED_ERROR],
             );
         } catch (Throwable $e) {
-            $existing = $this->activeEncoded($type, $json);
+            $existing = $this->holdingEncoded($type, $json);
             if ($existing !== null) {
                 return $existing->id;
             }
             throw $e;
         }
         if ($this->db->affectedRows() !== 1) {
-            $existing = $this->activeEncoded($type, $json);
+            $existing = $this->holdingEncoded($type, $json);
             if ($existing !== null) {
                 return $existing->id;
             }
@@ -124,12 +128,85 @@ final class JobQueue
 
     private function activeEncoded(string $type, string $json): ?Job
     {
-        $row = $this->db->query(
-            "SELECT * FROM jobs WHERE type = ? AND payload = ? AND status IN ('queued', 'running') ORDER BY id LIMIT 1",
-            [$type, $json],
-        )->getRowArray();
+        return $this->holdingEncoded($type, $json, false);
+    }
+
+    /** Queued, running, or a restore.confirm row a lease expiry failed before its result was stored. */
+    private function holdingEncoded(string $type, string $json, bool $includeExpired = true): ?Job
+    {
+        $sql = "SELECT * FROM jobs WHERE type = ? AND payload = ? AND (status IN ('queued', 'running')";
+        $binds = [$type, $json];
+        if ($includeExpired && $type === self::ONE_ACTIVE_TYPE) {
+            $sql .= " OR (status = 'failed' AND error = ? AND result IS NULL)";
+            $binds[] = self::EXPIRED_ERROR;
+        }
+        $row = $this->db->query($sql . ') ORDER BY id LIMIT 1', $binds)->getRowArray();
 
         return is_array($row) ? self::job($row) : null;
+    }
+
+    /**
+     * Running rows past their lease, and restore rows a lease expiry failed with no result.
+     *
+     * @return list<Job>
+     */
+    public function needsReconcile(string $type): array
+    {
+        $now = $this->at(0);
+        $rows = $this->db->query(
+            "SELECT * FROM jobs WHERE type = ? AND result IS NULL AND ((status = 'running' AND lease_until < ?) OR (status = 'failed' AND error = ?)) ORDER BY id",
+            [$type, $now, self::EXPIRED_ERROR],
+        )->getResultArray();
+        $jobs = [];
+        foreach ($rows as $row) {
+            $jobs[] = self::job($row);
+        }
+
+        return $jobs;
+    }
+
+    /**
+     * Copy a finished outcome onto this attempt. A lease-expiry failure is replaced.
+     * A row that is already done is left as it is.
+     *
+     * @param array<string,mixed>|null $result
+     */
+    public function replaceWithOutcome(Job $job, ?string $error, ?array $result): Job
+    {
+        $now = $this->at(0);
+        if ($result !== null) {
+            $this->db->query(
+                "UPDATE jobs SET status = 'done', result = ?, error = NULL, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?
+                 WHERE id = ? AND attempts = ? AND result IS NULL AND (status = 'running' OR (status = 'failed' AND error = ?))",
+                [self::encode($result), $now, $now, $job->id, $job->attempts, self::EXPIRED_ERROR],
+            );
+        } elseif ($error !== null) {
+            $this->db->query(
+                "UPDATE jobs SET status = 'failed', error = ?, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?
+                 WHERE id = ? AND attempts = ? AND result IS NULL AND (status = 'running' OR (status = 'failed' AND error = ?))",
+                [$error, $now, $now, $job->id, $job->attempts, self::EXPIRED_ERROR],
+            );
+        }
+
+        return $this->find($job->id) ?? $job;
+    }
+
+    /** An expiry failure is not terminal while the upload is still in use. Does not insert another row. */
+    public function resumeExpired(Job $job): Job
+    {
+        if ($job->status !== 'failed' || $job->error !== self::EXPIRED_ERROR) {
+            return $job;
+        }
+        $now = $this->at(0);
+        $payload = self::encode($job->payload);
+        $this->db->query(
+            "UPDATE jobs SET status = 'running', error = NULL, finished_at = NULL, updated_at = ?
+             WHERE id = ? AND attempts = ? AND status = 'failed' AND error = ? AND result IS NULL
+             AND NOT EXISTS (SELECT 1 FROM jobs WHERE type = ? AND payload = ? AND id <> ? AND status IN ('queued', 'running'))",
+            [$now, $job->id, $job->attempts, self::EXPIRED_ERROR, $job->type, $payload, $job->id],
+        );
+
+        return $this->find($job->id) ?? $job;
     }
 
     public function claim(string $owner): ?Job
@@ -137,8 +214,8 @@ final class JobQueue
         $now = $this->at(0);
         $this->db->query(
             "UPDATE jobs SET status = 'failed', error = ?, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?
-             WHERE status = 'running' AND lease_until < ? AND attempts >= max_attempts",
-            [self::EXPIRED_ERROR, $now, $now, $now],
+             WHERE status = 'running' AND lease_until < ? AND attempts >= max_attempts AND type <> ?",
+            [self::EXPIRED_ERROR, $now, $now, $now, self::ONE_ACTIVE_TYPE],
         );
         $rows = $this->db->query(
             "SELECT id FROM jobs WHERE (status = 'queued' AND run_after <= ?) OR (status = 'running' AND lease_until < ?) ORDER BY id LIMIT " . self::CANDIDATES,
@@ -196,8 +273,13 @@ final class JobQueue
              WHERE id = ? AND attempts = ? AND status = 'failed' AND error = ? AND result IS NULL",
             [$encoded, $now, $now, $job->id, $job->attempts, self::EXPIRED_ERROR],
         );
+        if ($this->db->affectedRows() === 1) {
+            return true;
+        }
+        $row = $this->find($job->id);
+        $again = json_decode($encoded, true);
 
-        return $this->db->affectedRows() === 1;
+        return $row !== null && $row->status === 'done' && $row->attempts === $job->attempts && $row->result == $again;
     }
 
     /** Fails the attempt: back to the queue after a back-off when $retry and attempts are left, else failed for good. */

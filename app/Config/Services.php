@@ -1348,6 +1348,16 @@ class Services extends BaseService
     {
         $owner = substr((gethostname() ?: 'host') . ':' . getmypid() . ':' . bin2hex(random_bytes(4)), 0, 120);
 
-        return new \Apotheke\Core\Commands\JobsCli(static::jobQueue(false), static::jobHandlers(), $owner, $out, $err);
+        return new \Apotheke\Core\Commands\JobsCli(static::jobQueue(false), static::jobHandlers(), $owner, $out, $err, static::jobRecovery(false));
+    }
+
+    /** Copies a restore upload's outcome onto its job. Does not run the restore. */
+    public static function jobRecovery(bool $getShared = true): \Apotheke\Core\Jobs\JobRecovery
+    {
+        if ($getShared) {
+            return static::getSharedInstance('jobRecovery');
+        }
+
+        return new \Apotheke\Backup\Jobs\RestoreConfirmRecovery(static::jobQueue(false), static::restoreUploads(false));
     }
 }

@@ -6,6 +6,7 @@ namespace Tests\Backup;
 
 use Apotheke\Backup\Backups;
 use Apotheke\Backup\Jobs\RestoreConfirmJob;
+use Apotheke\Backup\Jobs\RestoreConfirmRecovery;
 use Apotheke\Backup\RestoreUploads;
 use Apotheke\Backup\Restorer;
 use Apotheke\Core\Database\ConnectionExecutor;
@@ -155,6 +156,10 @@ final class RestoreConfirmJobTest extends CIUnitTestCase
             $this->assertSame($id, $job->id);
             putenv('APOTHEKE_CLOCK=2026-11-01 10:10:00');
             $this->assertNull($other->claim('worker-b'), 'the expired attempt is not run again');
+            $seen = (new RestoreConfirmRecovery($queue, $this->uploads($target)))->recover($job)->view();
+            $this->assertSame('running', $seen['status']);
+            $this->assertNull($seen['error']);
+            $this->assertNull($seen['result']);
             $result = ['restored' => true, 'tables' => ['items' => 1], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
             $this->assertTrue($queue->complete($job, $result));
             $done = $other->find($id);
@@ -184,6 +189,51 @@ final class RestoreConfirmJobTest extends CIUnitTestCase
         $this->assertSame($names, $this->names($target));
         $this->assertSame('restored', $uploads->get($id)['status']);
         file_get_contents('http://127.0.0.1:' . $port . '/stop');
+    }
+
+    public function testACrashAfterTheManifestIsRestoredIsRecordedOnTheJob(): void
+    {
+        $target = $this->target('sqlite');
+        $uploads = $this->uploads($target);
+        $id = $this->ready($uploads, $this->restorer($target));
+        $before = $this->names($target);
+        $queue = new JobQueue($target->db, new Clock());
+        $jobId = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE);
+        $job = $queue->claim('worker-a');
+        $this->assertNotNull($job);
+        $manifest = $target->dataDir() . '/uploads/restore/' . $id . '/manifest.json';
+        $stored = json_decode((string)file_get_contents($manifest), true, 8, JSON_THROW_ON_ERROR);
+        $stored['status'] = 'restored';
+        $stored['result'] = ['tables' => ['items' => 1], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
+        file_put_contents($manifest, json_encode($stored, JSON_THROW_ON_ERROR));
+        $recovery = new RestoreConfirmRecovery($queue, $uploads);
+        $first = $recovery->recover($job)->view();
+        $second = $recovery->recover($queue->find($jobId) ?? $job)->view();
+        $this->assertSame('done', $first['status']);
+        $this->assertSame(RestoreConfirmJob::resultOf($stored['result']), $first['result']);
+        $this->assertNull($first['error']);
+        $this->assertSame($first, $second);
+        $this->assertSame($before, $this->names($target));
+        $runner = new JobRunner($queue, [RestoreConfirmJob::TYPE => new RestoreConfirmJob($uploads, $this->restorer($target))], 'worker-b', null, static function (string $line): void {
+        }, $recovery);
+        $this->assertNull($runner->runOnce());
+        $this->assertSame('done', $queue->find($jobId)?->status);
+        $this->assertSame($before, $this->names($target));
+    }
+
+    public function testAnExpiryFailureIsNotASecondJob(): void
+    {
+        $target = $this->database('sqlite');
+        $queue = new JobQueue($target->db, new Clock());
+        $other = new JobQueue($target->connectAgain(), new Clock());
+        $payload = RestoreConfirmJob::payload(str_repeat('ab', 16), 'local', false);
+        $id = $queue->enqueue(RestoreConfirmJob::TYPE, $payload, 'ada', RestoreConfirmJob::ONCE);
+        $target->db->query(
+            "UPDATE jobs SET status = 'failed', error = ?, result = NULL WHERE id = ?",
+            [JobQueue::EXPIRED_ERROR, $id],
+        );
+        $this->assertSame($id, $other->enqueue(RestoreConfirmJob::TYPE, $payload, 'ada', RestoreConfirmJob::ONCE));
+        $this->assertSame(1, (int)($target->db->query('SELECT COUNT(*) AS n FROM jobs')->getRowArray()['n'] ?? 0));
     }
 
     /** @return iterable<string,array{0:string}> */

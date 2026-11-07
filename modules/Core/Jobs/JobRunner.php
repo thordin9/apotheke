@@ -25,8 +25,14 @@ final class JobRunner
      * @param (Closure():bool)|null $stop true once the worker should stop (SIGTERM)
      * @param (Closure(string):void)|null $log where an unexpected error's details go (never the jobs row); error_log() when null
      */
-    public function __construct(private readonly JobQueue $queue, private readonly array $handlers, private readonly string $owner, ?Closure $stop = null, ?Closure $log = null)
-    {
+    public function __construct(
+        private readonly JobQueue $queue,
+        private readonly array $handlers,
+        private readonly string $owner,
+        ?Closure $stop = null,
+        ?Closure $log = null,
+        private readonly ?JobRecovery $recovery = null,
+    ) {
         $this->stop = $stop ?? static fn (): bool => false;
         $this->log = $log ?? static function (string $line): void {
             error_log($line);   // the CLI's stderr: the worker's log
@@ -36,6 +42,7 @@ final class JobRunner
     /** @return array{id:int,type:string,status:string}|null the job run and where it ended (queued, done, failed or lost); null when none was due */
     public function runOnce(): ?array
     {
+        $this->recovery?->sweep($this->queue);
         $job = $this->queue->claim($this->owner);
         if ($job === null) {
             return null;

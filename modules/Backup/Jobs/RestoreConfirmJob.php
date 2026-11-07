@@ -25,8 +25,23 @@ final class RestoreConfirmJob implements JobHandler
 {
     public const TYPE = JobQueue::ONE_ACTIVE_TYPE;
 
-    /** A lost lease fails the job. It does not start another restore. */
+    /** One attempt. A lost lease does not start another restore. */
     public const ONCE = 1;
+
+    /**
+     * @param array<string,mixed> $out the restore answer, or the result kept on the upload
+     * @return array{restored:bool,tables:array<string,mixed>,photos:int,warnings:array<mixed>,token_cleared:bool}
+     */
+    public static function resultOf(array $out): array
+    {
+        return [
+            'restored' => true,
+            'tables' => is_array($out['tables'] ?? null) ? $out['tables'] : [],
+            'photos' => is_int($out['photos'] ?? null) ? $out['photos'] : 0,
+            'warnings' => is_array($out['warnings'] ?? null) ? $out['warnings'] : [],
+            'token_cleared' => ($out['token_cleared'] ?? false) === true,
+        ];
+    }
 
     public function __construct(private readonly RestoreUploads $uploads, private readonly Restorer $restorer)
     {
@@ -68,12 +83,6 @@ final class RestoreConfirmJob implements JobHandler
         }
         $context->checkpoint(['done' => 1, 'total' => 1]);
 
-        return [
-            'restored' => true,
-            'tables' => is_array($out['tables'] ?? null) ? $out['tables'] : [],
-            'photos' => is_int($out['photos'] ?? null) ? $out['photos'] : 0,
-            'warnings' => is_array($out['warnings'] ?? null) ? $out['warnings'] : [],
-            'token_cleared' => ($out['token_cleared'] ?? false) === true,
-        ];
+        return self::resultOf($out);
     }
 }
