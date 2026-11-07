@@ -41,6 +41,132 @@ async function markerKey(id: string): Promise<string> {
 	return PREFIX + MARKER + Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+/** Plan §1A.4. The marker's uploaded time is when the upload began; parts do not refresh it. */
+export const UNFINISHED_UPLOAD_RETENTION_MS = 24 * 60 * 60 * 1000;
+const SWEEP_LIMIT_DEFAULT = 50;
+const SWEEP_LIMIT_MAX = 100;
+const MARKER_PREFIX = PREFIX + MARKER;
+
+export type MultipartSweep = {
+	examined: number;
+	aborted: number;
+	markersDeleted: number;
+	malformed: number;
+	kept: number;
+	cursor: string | null;
+	interrupted: boolean;
+};
+
+/** The marker object name for an upload id. Tests use this to place fixtures under the install prefix. */
+export function multipartMarkerKey(id: string): Promise<string> {
+	return markerKey(id);
+}
+
+function uploadGone(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) return false;
+	const value = error as { code?: unknown; message?: unknown };
+	if (value.code === 10024) return true;
+	const message = value.message?.toString();
+	return typeof message === "string" && message.endsWith(" (10024)");
+}
+
+function retryCursor(cursor: string | undefined): string | null {
+	return cursor ? cursor : null;
+}
+
+/**
+ * Expire unfinished multipart uploads that still have a marker, one list page at a time.
+ * The binding's list() returns objects, not multipart uploads. A marker is removed only after
+ * resumeMultipartUpload().abort() returns, or after that call reports the upload is already gone.
+ * Deleting a marker does not abort an upload. A malformed marker is removed without an abort.
+ * An upload with no marker is invisible here; the account lifecycle rule is what can expire it.
+ * This function is not wired to a request or a schedule.
+ */
+export async function sweepExpiredMultipartUploads(
+	bucket: R2Bucket,
+	now: number,
+	options: { cursor?: string; limit?: number; retentionMs?: number } = {},
+): Promise<MultipartSweep> {
+	const requested = options.limit ?? SWEEP_LIMIT_DEFAULT;
+	const limit = Number.isInteger(requested) && requested >= 1 ? Math.min(requested, SWEEP_LIMIT_MAX) : SWEEP_LIMIT_DEFAULT;
+	const retention = options.retentionMs ?? UNFINISHED_UPLOAD_RETENTION_MS;
+	const listOptions: R2ListOptions = { prefix: MARKER_PREFIX, limit };
+	if (options.cursor) listOptions.cursor = options.cursor;
+	const page = await bucket.list(listOptions);
+	const result: MultipartSweep = {
+		examined: 0,
+		aborted: 0,
+		markersDeleted: 0,
+		malformed: 0,
+		kept: 0,
+		cursor: page.truncated ? page.cursor : null,
+		interrupted: false,
+	};
+	for (const object of page.objects) {
+		if (!object.key.startsWith(MARKER_PREFIX)) continue;
+		result.examined += 1;
+		const uploaded = object.uploaded;
+		if (!(uploaded instanceof Date) || !Number.isFinite(uploaded.getTime()) || !Number.isFinite(now) || now - uploaded.getTime() < retention) {
+			result.kept += 1;
+			continue;
+		}
+		const target = await expiredUpload(bucket, object);
+		if (target === null) {
+			try {
+				await bucket.delete(object.key);
+			} catch {
+				result.interrupted = true;
+				result.cursor = retryCursor(options.cursor);
+				return result;
+			}
+			result.malformed += 1;
+			result.markersDeleted += 1;
+			continue;
+		}
+		try {
+			await bucket.resumeMultipartUpload(target.key, target.id).abort();
+		} catch (error) {
+			if (!uploadGone(error)) {
+				result.interrupted = true;
+				result.cursor = retryCursor(options.cursor);
+				return result;
+			}
+		}
+		result.aborted += 1;
+		try {
+			await bucket.delete(object.key);
+		} catch {
+			result.interrupted = true;
+			result.cursor = retryCursor(options.cursor);
+			return result;
+		}
+		result.markersDeleted += 1;
+	}
+	return result;
+}
+
+/** A dated marker whose body still names one upload under this install. Null means do not abort. */
+async function expiredUpload(bucket: R2Bucket, object: R2Object): Promise<{ key: string; id: string } | null> {
+	if (object.size > MARKER_BODY_LIMIT) return null;
+	const marker = await bucket.get(object.key);
+	if (!marker || marker.size > MARKER_BODY_LIMIT) return null;
+	let body: unknown;
+	try {
+		body = JSON.parse(await marker.text());
+	} catch {
+		return null;
+	}
+	if (typeof body !== "object" || body === null || Array.isArray(body)) return null;
+	if (Object.keys(body).join(",") !== "id,key") return null;
+	const id = (body as { id: unknown }).id;
+	const key = (body as { key: unknown }).key;
+	if (typeof id !== "string" || typeof key !== "string" || !TOKEN.test(id)) return null;
+	if (!key.startsWith(PREFIX) || object.key !== await markerKey(id)) return null;
+	const relative = key.slice(PREFIX.length);
+	if (!validKey(relative)) return null;
+	return { key, id };
+}
+
 async function boundUploadKey(bucket: R2Bucket, path: string, id: string): Promise<boolean> {
 	const marker = await bucket.get(await markerKey(id));
 	if (!marker || marker.size > MARKER_BODY_LIMIT) return false;

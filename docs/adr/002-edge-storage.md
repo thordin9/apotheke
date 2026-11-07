@@ -332,8 +332,14 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    original worker cannot start `applying` after that. A manifest that already says restored becomes `done` with
    that result without running the restore again, and a finished job is not given a different result. A crash after
    `applying` is not applied again. The page and
-   `bin/restore.php` stay synchronous. Orphan multipart uploads
-   are still cleaned up before hosted wiring, not by this step.
+   `bin/restore.php` stay synchronous. Local disk and PDO stay the default. An unfinished multipart upload that
+   still has a marker is eligible for cleanup after one day (plan §1A.4). The sweep lists only this install's
+   marker prefix through the binding's object list, calls `resumeMultipartUpload().abort()`, and then deletes the
+   marker. Deleting the marker does not abort the upload. A malformed marker is removed without an abort. A marker
+   younger than one day, a marker with no uploaded time, and a completed object are left. One call reads one page
+   of at most 100 markers. The binding cannot list a multipart upload that has no marker, so those uploads remain
+   until an account lifecycle rule aborts incomplete multipart uploads. This step does not add that rule, a public
+   route, a cron, a binding, or a readiness change. Hosted wiring stays closed until that account rule exists.
 5. **P4-5: hosted wiring.** Durable Object SQLite per installation, host-only cookies in hosted mode, the
    `edge-local` run green with storage, the P4(b) guard cases run again on a preview D1, and the runbook.
 

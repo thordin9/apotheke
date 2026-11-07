@@ -605,6 +605,12 @@ Set it (Settings > Secrets and variables > Actions > Variables) only once storag
 [flip checklist](#p4-edge-storage-flip-checklist). The pull request checks
 and `deploy-frontend.yml` are not affected.
 
+An unfinished multipart upload that still has a marker can be expired by the Worker sweep after one day. That
+sweep is not scheduled and is not a public route. Deleting the marker does not abort the upload; the sweep calls
+the binding's abort first. An upload that has no marker is not in the binding's object list. Aborting those
+uploads is an account lifecycle rule on the bucket. This repository does not create that rule, and
+`EDGE_STORAGE_READY` stays unset.
+
 ### P4 edge storage: flip checklist
 
 The P4 storage for `apotheke-api` is prepared but off. Its bindings are in `edge/storage.jsonc`, not in
