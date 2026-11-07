@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.27.0] - 2026-11-07
+
 - **edge:** expire an abandoned multipart upload that still has a marker after one day, then delete the marker. Deleting a marker does not abort the upload. An upload with no marker stays for an account lifecycle rule, and the hosted gate stays closed ([#249](https://github.com/thordin9/apotheke/pull/249))
+
+### Added
+
+- **edge:** expire abandoned multipart uploads that have markers ([#249](https://github.com/thordin9/apotheke/pull/249))
 
 ## [3.26.0] - 2026-11-07
 
@@ -1405,7 +1411,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.26.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.27.0...HEAD
+[3.27.0]: https://github.com/thordin9/apotheke/compare/v3.26.0...v3.27.0
 [3.26.0]: https://github.com/thordin9/apotheke/compare/v3.25.0...v3.26.0
 [3.25.0]: https://github.com/thordin9/apotheke/compare/v3.24.0...v3.25.0
 [3.24.0]: https://github.com/thordin9/apotheke/compare/v3.23.2...v3.24.0
