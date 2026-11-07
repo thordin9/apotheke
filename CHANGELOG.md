@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.26.0] - 2026-11-07
+
 - **backup:** on a batch-only database, chunked restore confirm runs as one background job and reports progress from `GET /api/v1/jobs/{id}`. PDO confirm stays in the request. A second confirm does not queue another job. A read of the job copies the upload's outcome onto that row: a live lease stays running, a claim that died before applying is queued again as the same job once that lease has ended, and a manifest that already says restored is kept. A finished job is not given a different result ([#248](https://github.com/thordin9/apotheke/pull/248))
+
+### Added
+
+- **backup:** run batch-only restore confirm as a job ([#248](https://github.com/thordin9/apotheke/pull/248))
 
 ## [3.25.0] - 2026-11-07
 
@@ -1397,7 +1403,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.25.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.26.0...HEAD
+[3.26.0]: https://github.com/thordin9/apotheke/compare/v3.25.0...v3.26.0
 [3.25.0]: https://github.com/thordin9/apotheke/compare/v3.24.0...v3.25.0
 [3.24.0]: https://github.com/thordin9/apotheke/compare/v3.23.2...v3.24.0
 [3.23.2]: https://github.com/thordin9/apotheke/compare/v3.23.1...v3.23.2
