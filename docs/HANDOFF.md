@@ -35,6 +35,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
+- P4-4 PR 4 [#248](https://github.com/thordin9/apotheke/pull/248) (`cursor/p4-4-restore-job-e9c8`): batch-only chunked confirm is one `restore.confirm` job. PDO confirm stays in the request. No readiness flip.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule. This slice does not change the account or add that sweep.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
@@ -44,7 +45,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Finish P4-4 PR 4 (this branch: batch-only restore confirm as a job), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring. L-1838 stays non-blocking; the next finding id is 1839.
+1. Finish P4-4 PR 4 (#248, batch-only restore confirm as a job), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring. L-1838 stays non-blocking; the next finding id is 1839.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).
