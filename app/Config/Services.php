@@ -1198,9 +1198,11 @@ class Services extends BaseService
         $config = static::apothekeConfig();
         $settings ??= static::settings();
 
+        [$data, $originals] = \Apotheke\Core\Storage\StorageFactory::forApotheke($config->values());
+
         return new \Apotheke\Backup\Restorer($db, static::backups(false, $settings), $settings, static::undoTokens(), static function (): array {
             return array_keys((new \Apotheke\Migrations\PdoMigrationRunner(\Apotheke\Migrations\PdoMigrationRunner::repoRoot() . '/migrations'))->available());
-        }, new \Apotheke\Core\Storage\LocalStorage($config->dataDir()), new \Apotheke\Core\Storage\LocalStorage($config->originalsDir(), 0640), (int)$settings->get('image_thumb_max'), static::requestCleanup(),
+        }, $data, $originals, (int)$settings->get('image_thumb_max'), static::requestCleanup(),
             static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576);
     }
 
@@ -1228,6 +1230,7 @@ class Services extends BaseService
         $uploads = $config->values()['uploads'];
 
         $chunk = \Apotheke\Backup\RestoreUploads::effectiveChunk((int)$uploads['restore_chunk_kb'] * 1024, ini_get('upload_max_filesize'), ini_get('post_max_size'));
+        $storage = \Apotheke\Core\Storage\StorageFactory::create($config->values());
 
         return new \Apotheke\Backup\RestoreUploads($config->dataDir(), $chunk, (int)$uploads['restore_max_mb'] * 1048576, static function (): ?string {
             return static::restoreOwner(PHP_SAPI === 'cli' ? null : static::currentUser()->resolve(), static function (int $id): ?string {
@@ -1240,7 +1243,7 @@ class Services extends BaseService
             $staged = static::stagedExecutor();
 
             return $staged === null ? null : new \Apotheke\Backup\RestoreStage($staged);
-        });
+        }, $storage instanceof \Apotheke\Core\Storage\R2Storage ? $storage : null);
     }
 
     /**

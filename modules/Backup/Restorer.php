@@ -10,6 +10,10 @@ use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use Apotheke\Core\Http\RequestCleanup;
+use Apotheke\Core\Storage\LeaseDenied;
+use Apotheke\Core\Storage\LeaseHold;
+use Apotheke\Core\Storage\ObjectLease;
+use Apotheke\Core\Storage\R2Storage;
 use Apotheke\Core\Storage\Storage;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Media\ImageStore;
@@ -118,6 +122,12 @@ final class Restorer
     /** @var list<string> N-611: the temp copies in DATA_DIR/tmp this restore made (backup.json, an entry being unpacked) */
     private array $parts = [];
 
+    /** @var list<LeaseHold> catalog lease, and the upload lease when a chunked confirm is inside it */
+    private array $fences = [];
+
+    /** Token of the catalog fence row, set only for an R2 restore. */
+    private ?string $catalogFence = null;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param Closure():list<string> $known the migration versions this install has
@@ -190,15 +200,60 @@ final class Restorer
      *
      * @return array{tables:array<string,int>,photos:int,warnings:list<string>,token_cleared:bool}
      */
-    public function restore(string $zipPath, bool $settings, ?string $run = null): array
+    public function restore(string $zipPath, bool $settings, ?string $run = null, ?LeaseHold $upload = null): array
     {
-        // L-450: one restore at a time, files and rows alike (web and CLI); a second one is refused at once.
+        // One restore at a time, before any file or row changes. On explicit R2 the lease is that same
+        // storage and is renewed before each later write. Local disk keeps the filesystem lock.
+        // The database stage lock is a different lease; it does not keep this one.
+        $runId = $run ?? bin2hex(random_bytes(16));
+        if ($this->data instanceof R2Storage) {
+            try {
+                return (new RestoreUnit(new ObjectLease($this->data)))->run(
+                    function (LeaseHold $catalog) use ($zipPath, $settings, $runId, $upload): array {
+                        RestoreFence::claim($this->db, $catalog->token());
+                        $this->catalogFence = $catalog->token();
+                        $this->fences = $upload === null ? [$catalog] : [$catalog, $upload];
+                        try {
+                            return $this->restoreLocked($zipPath, $settings, $runId);
+                        } finally {
+                            $token = $this->catalogFence ?? '';
+                            $this->catalogFence = null;
+                            $this->fences = [];
+                            RestoreFence::release($this->db, $token);
+                        }
+                    },
+                    time(),
+                );
+            } catch (LeaseDenied $e) {
+                throw new UserError(self::BUSY, 409, $e);
+            }
+        }
         $lock = $this->lock();
         try {
-            return $this->restoreLocked($zipPath, $settings, $run ?? bin2hex(random_bytes(16)));
+            return $this->restoreLocked($zipPath, $settings, $runId);
         } finally {
             flock($lock, LOCK_UN);
             fclose($lock);
+        }
+    }
+
+    /**
+     * Renew every held object lease. A different token fails on that read.
+     * This does not wait for a claim() blocked on the fence row, so the two
+     * cannot deadlock. The open database transaction stays the owner until it ends.
+     */
+    private function fence(): void
+    {
+        foreach ($this->fences as $hold) {
+            $hold->checkpoint();
+        }
+    }
+
+    /** The catalog transaction rejects a fence token another restore has committed. */
+    private function rejectStaleFence(): void
+    {
+        if ($this->catalogFence !== null) {
+            RestoreFence::rejectUnless($this->db, $this->catalogFence);
         }
     }
 
@@ -342,12 +397,14 @@ final class Restorer
         $tmp = $this->backups->tmpDir();
         try {
             try {
+                $this->fence();
                 $written = $this->restorePhotos($zip, $b['photoFiles'], $tmp, $warnings, $created);
                 $this->restoreAttachments($zip, $b['attachmentFiles'], $tmp, $warnings, $created);
                 $this->restoreOriginals($zip, $b['photoFiles'], $tmp, $warnings, $created, $links);
             } finally {
                 $zip->close();
             }
+            $this->fence();
             if ($this->staged === null) {
                 $this->restoreRows($b['json'], $b['offsets']);
             } else {
@@ -358,16 +415,21 @@ final class Restorer
             $this->discard($created);
             self::removeEmpty($folders);
             $this->cleanup->drop(self::CLEANUP);
-            throw $e instanceof UserError ? $e : new UserError(self::FAILED, 0, $e);
+            throw $e instanceof UserError || $e instanceof LeaseDenied ? $e : new UserError(self::FAILED, 0, $e);
         } finally {
             @unlink($b['json']);
         }
+        $this->fence();
         $this->linkOriginals($links, $warnings);
         $cleared = false;
+        $owned = $this->catalogFence === null ? null : function (): void {
+            $this->rejectStaleFence();
+        };
         if (is_array($b['settings']) && !$settings) {
             $warnings[] = 'The settings were not restored: that needs the permission to change settings.';
         } elseif (is_array($b['settings'])) {
-            $r = $this->settings->import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $b['settings']]), null);
+            $this->fence();
+            $r = $this->settings->import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $b['settings']]), null, $owned);
             foreach ($r['errors'] as $k => $msg) {
                 $warnings[] = "Setting $k was not restored: $msg";
             }
@@ -375,7 +437,8 @@ final class Restorer
         }
         // Undo tokens refer to the data that was just replaced.
         if ($this->backups->tableExists('undo_tokens')) {
-            $this->undo->prune(true);
+            $this->fence();
+            $this->undo->prune(true, $owned);
         }
 
         return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $warnings, 'token_cleared' => $cleared];
@@ -742,6 +805,15 @@ final class Restorer
      */
     private static function createFrom(Storage $store, string $key, string $path, array &$created): void
     {
+        if ($store instanceof R2Storage) {
+            $bytes = file_get_contents($path);
+            if ($bytes === false) {
+                throw new UserError(self::FAILED);
+            }
+            self::create($store, $key, $bytes, $created);
+
+            return;
+        }
         $fh = @fopen($path, 'rb');
         if ($fh === false) {
             throw new UserError(self::FAILED);
@@ -759,6 +831,16 @@ final class Restorer
     /** @param list<array{Storage,string}> $created */
     private static function create(Storage $store, string $key, string $bytes, array &$created): void
     {
+        if ($store instanceof R2Storage) {
+            // The name is the content. A file that is already there is kept, as the exists()
+            // check does on the local path. Only an object this call created is removed on failure.
+            if (!RestoreMutation::createIfAbsent($store, $key, $bytes)) {
+                return;
+            }
+            $created[] = [$store, $key];
+
+            return;
+        }
         $created[] = [$store, $key];   // before the write, as in createFrom()
         $store->write($key, $bytes);
     }
@@ -776,6 +858,32 @@ final class Restorer
 
     /** @param list<array{Storage,string}> $created */
     private function discard(array $created): void
+    {
+        if ($created === []) {
+            return;
+        }
+        if ($this->catalogFence === null) {
+            $this->deleteCreated($created);
+
+            return;
+        }
+        try {
+            // The row stays locked until these deletes return, so the next claim waits.
+            // Once that claim has committed, the deletes are skipped: R2 delete is not
+            // conditional, and the newer restore may be keeping these names.
+            Writes::transaction($this->db, function () use ($created): void {
+                $this->rejectStaleFence();
+                $this->deleteCreated($created);
+            });
+        } catch (Throwable) {
+            // A lost fence, or a lock that cannot be taken, leaves the objects.
+            // Deleting them without the row would remove a newer restore's files.
+            return;
+        }
+    }
+
+    /** @param list<array{Storage,string}> $created */
+    private function deleteCreated(array $created): void
     {
         foreach (array_reverse($created) as [$store, $key]) {
             try {
@@ -848,7 +956,19 @@ final class Restorer
                 continue;
             }
             try {
-                $this->originals->write($key, $base);
+                $this->fence();
+                if ($this->originals instanceof R2Storage) {
+                    $token = $this->catalogFence;
+                    if ($token === null) {
+                        throw new LeaseDenied('The lease is held.');
+                    }
+                    // A local restore overwrites this pointer. putIfMissing would keep the old one.
+                    RestoreMutation::replace($this->db, $token, $this->originals, $key, $base);
+                } else {
+                    $this->originals->write($key, $base);
+                }
+            } catch (LeaseDenied $e) {
+                throw $e;
             } catch (Throwable) {
                 $warnings[] = $warning;
 
@@ -869,6 +989,7 @@ final class Restorer
     {
         $written = 0;
         foreach ($files as $f) {
+            $this->fence();
             $photo = $this->extract($zip, 'images/' . $f, $tmp);
             if ($photo === null) {
                 continue;
@@ -946,6 +1067,7 @@ final class Restorer
             @mkdir($dir, self::FILES_MODE, true);   // the app does not make it at start; a failure shows at the first write
         }
         foreach ($files as $f) {
+            $this->fence();
             $path = $this->extract($zip, 'files/' . $f, $tmp);
             if ($path === null) {
                 continue;
@@ -1074,6 +1196,8 @@ final class Restorer
             for ($attempt = 1; ; $attempt++) {
                 try {
                     Writes::transaction($this->db, function () use ($tables, $offsets, $pg, $fh): void {
+                        $this->rejectStaleFence();
+                        $this->fence();
                         if ($pg) {
                             self::pg($this->pgConnection(), 'LOCK TABLE ' . implode(', ', $tables) . ' IN SHARE ROW EXCLUSIVE MODE', null, 'lock tables');
                         } else {
@@ -1083,11 +1207,13 @@ final class Restorer
                             Writes::check($this->db->query("DELETE FROM $t"), 'delete ' . $t);
                         }
                         foreach ($tables as $t) {
+                            $this->fence();
                             if (($offsets[$t] ?? -1) >= 0) {
                                 $this->insertRows($fh, $t, $offsets[$t], $pg);
                             }
                         }
                         $this->advanceSequences($tables, $pg);
+                        $this->rejectStaleFence();
                     });
 
                     return;
@@ -1133,13 +1259,16 @@ final class Restorer
             }
             RestoreStage::preflight($stage->liveBytes(), $bytes, $this->dbMaxBytes);
             try {
+                $this->fence();
                 $stage->begin($restored);
                 $staged = [];
                 foreach ($restored as $t) {
-                    $staged[$t] = ['columns' => $columns[$t], 'rows' => $stage->stage($t, $columns[$t], $this->tableRows($fh, $t, $offsets[$t]))];
+                    $this->fence();
+                    $staged[$t] = ['columns' => $columns[$t], 'rows' => $stage->stage($t, $columns[$t], $this->tableRows($fh, $t, $offsets[$t]), $this->fence(...))];
                 }
                 $withId = array_values(array_filter($tables, fn (string $t): bool => in_array('id', $this->backups->columns($t), true)));
-                $stage->swap($tables, $staged, $withId, $run, $sha256);
+                $this->fence();
+                $stage->swap($tables, $staged, $withId, $run, $sha256, $this->catalogFence);
             } finally {
                 try {
                     $stage->finish();
@@ -1212,6 +1341,7 @@ final class Restorer
                     throw new LengthException('A row is too large for the memory left.');
                 }
                 $insert ??= $pg ? $this->pgInsert($sql, $t) : $this->sqliteInsert($sql, $t);
+                $this->fence();
                 $insert($binds);
             }
         }

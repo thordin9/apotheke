@@ -12,6 +12,7 @@ use Apotheke\Backup\Restorer;
 use Apotheke\Media\ImageLimits;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\RequestCleanup;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use ReflectionClass;
 use ZipArchive;
@@ -318,7 +319,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
         (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-        (function (Backups $b): void { $this->backups = $b; $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
+        (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
         try {
             foreach ([1, 2] as $round) {
                 try {
@@ -347,7 +348,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
         (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-        (function (Backups $b): void { $this->backups = $b; $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
+        (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
         $lockPath = $dir . '/tmp/' . Restorer::LOCK_FILE;
         try {
             touch($lockPath);
@@ -469,7 +470,7 @@ final class BackupHelpersTest extends CIUnitTestCase
             $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
             (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
             $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-            (function (Backups $b): void { $this->backups = $b; $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
+            (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
             try {
                 $restorer->restore($dir . '/missing.zip', true);
                 $this->fail('a restore ran with a folder as its lock');

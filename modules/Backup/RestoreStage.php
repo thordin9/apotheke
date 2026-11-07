@@ -218,7 +218,7 @@ final class RestoreStage
      * @param iterable<list<scalar|null>> $rows
      * @return int the rows staged
      */
-    public function stage(string $table, array $columns, iterable $rows): int
+    public function stage(string $table, array $columns, iterable $rows, ?Closure $beat = null): int
     {
         $copy = self::copy($table);
         $cols = implode(', ', array_map(self::column(...), $columns));
@@ -238,6 +238,9 @@ final class RestoreStage
             $row = self::values($row);
             $json = self::json($pg ? array_combine($columns, $row) : $row);
             if ($chunk !== [] && ($bytes + strlen($json) + 1 > $maxBytes || count($chunk) >= self::CHUNK_ROWS)) {
+                if ($beat !== null) {
+                    $beat();
+                }
                 $this->insert($sql, $chunk);
                 [$chunk, $bytes] = [[], 0];
             }
@@ -246,6 +249,9 @@ final class RestoreStage
             $n++;
         }
         if ($chunk !== []) {
+            if ($beat !== null) {
+                $beat();
+            }
             $this->insert($sql, $chunk);
         }
 
@@ -303,7 +309,7 @@ final class RestoreStage
      * @param array<string,array{columns:list<string>,rows:int}> $staged per staged table: its columns and row count
      * @param list<string> $withId the tables with an id column (their sequences move past the restored ids)
      */
-    public function swap(array $tables, array $staged, array $withId, string $run, string $sha256): void
+    public function swap(array $tables, array $staged, array $withId, string $run, string $sha256, ?string $fence = null): void
     {
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         if ($run === self::LOCK) {
@@ -311,6 +317,9 @@ final class RestoreStage
         }
         $s = $pg ? [] : [['sql' => 'PRAGMA defer_foreign_keys = ON', 'params' => []]];
         $s[] = $this->held();
+        if ($fence !== null) {
+            $s[] = RestoreFence::guard($fence);
+        }
         foreach ($staged as $t => $plan) {
             $s[] = ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE (SELECT COUNT(*) FROM ' . self::copy($t) . ') <> ?', 'params' => [$plan['rows']]];
         }

@@ -6,6 +6,8 @@ namespace Apotheke\Backup;
 
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Storage\R2Storage;
+use Apotheke\Core\Storage\Storage;
 use Closure;
 
 /**
@@ -23,7 +25,7 @@ use Closure;
  * (RestoreStage::applied() with the upload's id as the run), else failed with nothing changed; and the sweep also
  * drops a stopped restore's leftover copies (N-1705).
  *
- * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>}
+ * @phpstan-type Manifest array{owner:string,size:int,sha256:?string,chunk_size:int,received:int,next:int,status:string,fingerprint?:?string,result?:array<string,mixed>,pending?:int}
  */
 final class RestoreUploads
 {
@@ -80,6 +82,9 @@ final class RestoreUploads
     /** @var Closure(string):void */
     private readonly Closure $afterLock;
 
+    /** Explicit R2 only. Local disk keeps the filesystem store. Payloads, manifest and lease share this object. */
+    private readonly ?RestoreObjectStore $remote;
+
     /**
      * @param Closure():?string $owner this request's account key ("user:<id>:<sha256 of created_at>", "local" with sign-in off), null for a guest; WriteFailed when the account cannot be read (500)
      * @param int $maxOpen most uploads not yet confirmed, all accounts together
@@ -97,10 +102,18 @@ final class RestoreUploads
         ?Closure $freeBytes = null,
         ?Closure $afterLock = null,
         private readonly ?Closure $stage = null,
+        ?Storage $objects = null,
     ) {
         $this->freeBytes = $freeBytes ?? static fn (string $dir): ?float => is_float($f = @disk_free_space($dir)) ? $f : null;
         $this->afterLock = $afterLock ?? static function (string $file): void {
         };
+        if ($objects instanceof R2Storage) {
+            $this->remote = new RestoreObjectStore($objects, $chunkBytes, $maxBytes, $owner, $maxOpen, $this->freeBytes, $stage);
+        } elseif ($objects !== null) {
+            throw new \InvalidArgumentException('Restore payloads, manifests and locks use one storage backend.');
+        } else {
+            $this->remote = null;
+        }
     }
 
     /**
@@ -145,6 +158,9 @@ final class RestoreUploads
      */
     public function create(mixed $size, mixed $sha256): array
     {
+        if ($this->remote !== null) {
+            return $this->remote->create($size, $sha256);
+        }
         $owner = $this->me();
         if (!is_int($size) || $size < 1) {
             throw new UserError('Give the backup\'s size in bytes.', 422);
@@ -209,6 +225,10 @@ final class RestoreUploads
     /** @return Manifest your upload $id; 404 when it is not there or not yours */
     public function get(string $id): array
     {
+        if ($this->remote !== null) {
+            return $this->remote->get($id);
+        }
+
         return $this->locked($id, static fn (string $dir, array $m): array => $m);
     }
 
@@ -220,6 +240,10 @@ final class RestoreUploads
      */
     public function append(string $id, int $index, string $tmp, int $bytes): array
     {
+        if ($this->remote !== null) {
+            return $this->remote->append($id, $index, $tmp, $bytes);
+        }
+
         return $this->locked($id, function (string $dir, array $m, $fh) use ($index, $tmp, $bytes): array {
             if ($m['status'] !== 'uploading' || $index !== $m['next']) {
                 throw new UserError($m['status'] !== 'uploading' ? 'This upload is complete.' : 'Send chunk ' . $m['next'] . ' next.', 409);
@@ -264,6 +288,10 @@ final class RestoreUploads
      */
     public function finish(string $id, Closure $open): array
     {
+        if ($this->remote !== null) {
+            return $this->remote->finish($id, $open);
+        }
+
         return $this->locked($id, function (string $dir, array $m, $fh) use ($open): array {
             if ($m['status'] !== 'uploading' && $m['status'] !== 'ready') {
                 throw new UserError('This upload was confirmed already.', 409);
@@ -307,6 +335,10 @@ final class RestoreUploads
      */
     public function confirm(string $id, Closure $restore): array
     {
+        if ($this->remote !== null) {
+            return $this->remote->confirm($id, $restore);
+        }
+
         return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore): array {
             if ($m['status'] === 'interrupted') {
                 throw new UserError(self::INTERRUPTED, 409);
@@ -341,6 +373,11 @@ final class RestoreUploads
     /** Cancel upload $id: its folder and files are removed. */
     public function delete(string $id): void
     {
+        if ($this->remote !== null) {
+            $this->remote->delete($id);
+
+            return;
+        }
         $this->locked($id, static function (string $dir): array {
             self::remove($dir);
 
@@ -354,6 +391,9 @@ final class RestoreUploads
      */
     public function sweep(?int $now = null, bool $create = true): string
     {
+        if ($this->remote !== null) {
+            return $this->remote->sweep($now, $create);
+        }
         $root = $this->root($create);
         $limit = ($now ?? time()) - self::IDLE;
         foreach ($this->ids($root) as $id) {
@@ -372,6 +412,10 @@ final class RestoreUploads
     /** How many uploads are there (any owner)? For the sweep command's report. */
     public function count(): int
     {
+        if ($this->remote !== null) {
+            return $this->remote->count();
+        }
+
         return count($this->ids($this->root(false)));
     }
 
@@ -496,14 +540,24 @@ final class RestoreUploads
      */
     private function stopped(string $id, array $m): array
     {
+        return self::interruptedManifest($id, $m, $this->stage());
+    }
+
+    /**
+     * The outcome of a restore found stopped: interrupted, or with a staged restore what its marker says.
+     *
+     * @param Manifest $m
+     * @return Manifest
+     */
+    public static function interruptedManifest(string $id, array $m, ?RestoreStage $stage): array
+    {
         try {
-            $outcome = $this->stage()?->outcome($id);
+            $outcome = $stage?->outcome($id);
         } catch (\Throwable) {
-            $outcome = null;   // unreadable: may have been applied
+            $outcome = null;
         }
         $restored = static fn (array $warnings): array => ['status' => 'restored', 'result' => ['tables' => [], 'photos' => 0, 'warnings' => $warnings, 'token_cleared' => false]];
 
-        // L-1707: from this run's own marker row; unknown when it is older than the runs kept
         return match ($outcome) {
             RestoreStage::APPLIED => $restored([self::APPLIED_AFTER_STOP]) + $m,
             RestoreStage::REPLACED => $restored([self::APPLIED_AFTER_STOP, self::REPLACED_SINCE]) + $m,
@@ -526,6 +580,12 @@ final class RestoreUploads
     }
 
     /** @return Manifest|null */
+    public static function manifestFrom(string $json): ?array
+    {
+        return self::decode($json);
+    }
+
+    /** @return Manifest|null */
     private static function decode(string $json): ?array
     {
         $m = json_decode($json, true);
@@ -538,7 +598,8 @@ final class RestoreUploads
 
         return ['owner' => $m['owner'], 'size' => $m['size'], 'sha256' => $m['sha256'] ?? null, 'chunk_size' => $m['chunk_size'],
             'received' => $m['received'], 'next' => $m['next'], 'status' => $m['status']] + (array_key_exists('fingerprint', $m) ? ['fingerprint' => $m['fingerprint']] : [])
-            + (is_array($m['result'] ?? null) ? ['result' => $m['result']] : []);
+            + (is_array($m['result'] ?? null) ? ['result' => $m['result']] : [])
+            + (is_int($m['pending'] ?? null) ? ['pending' => $m['pending']] : []);
     }
 
     /**
