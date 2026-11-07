@@ -141,15 +141,10 @@ final class RestoreObjectStore
             $manifest = $this->withoutPending($manifest);
             $manifest['received'] += $bytes;
             $manifest['next']++;
-            try {
-                return $this->commit(self::manifestKey($id), $etag, $manifest);
-            } catch (UserError $e) {
-                $manifest['received'] -= $bytes;
-                $manifest['next']--;
-                $this->rollbackOwnChunk($part, $etag, $this->withoutPending($manifest));
-
-                throw $e;
-            }
+            // A lost compare-and-swap leaves the chunk. Deleting it here would be a second
+            // request, and that request can remove a chunk a newer holder has already stored.
+            // The next read removes a chunk only when this manifest still names it pending.
+            return $this->commit(self::manifestKey($id), $etag, $manifest);
         });
     }
 
@@ -590,29 +585,6 @@ final class RestoreObjectStore
         }
 
         return $clear;
-    }
-
-    /** @param Manifest $manifest */
-    private function rollbackOwnChunk(string $part, string $etag, array $manifest): void
-    {
-        $id = self::chunkOwner($part);
-        $current = $this->storage->version(self::manifestKey($id));
-        if ($current === null || !hash_equals($current[1], $etag)) {
-            return;
-        }
-        $this->storage->delete($part);
-        try {
-            $this->commit(self::manifestKey($id), $current[1], $manifest);
-        } catch (UserError) {
-            // The pending name is still on our manifest. The next read removes the chunk.
-        }
-    }
-
-    private static function chunkOwner(string $part): string
-    {
-        $bits = explode('/', $part);
-
-        return $bits[count($bits) - 2];
     }
 
     private function guard(): LeaseHold

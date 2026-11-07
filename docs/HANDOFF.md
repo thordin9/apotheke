@@ -21,7 +21,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and
   the staged swap batch reject a fence token another restore has already committed; that token is not the staged
   restore's own lock. A chunk is named in the manifest before its bytes, and the upload id is indexed before the
-  manifest. A lost manifest update does not delete a newer chunk. Design-B staged restore is unchanged. PR 4 is
+  manifest. A lost manifest update leaves the chunk in place. Design-B staged restore is unchanged. PR 4 is
   still the background restore and its progress. Remaining R2 object reads stay bounded by the current bridge
   (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 
