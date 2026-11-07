@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleR2Request, r2UnboundResponse, validKey, validateRawPath } from '../src/r2.ts';
+import { handleR2Request, multipartMarkerKey, r2UnboundResponse, sweepExpiredMultipartUploads, UNFINISHED_UPLOAD_RETENTION_MS, validKey, validateRawPath } from '../src/r2.ts';
 import { register } from 'node:module';
 import { readFileSync } from 'node:fs';
 import net from 'node:net';
@@ -32,11 +32,19 @@ class Upload {
     this.bucket.objects.set(this.key, new Uint8Array(sorted.reduce((n, part) => n + this.bucket.parts.get(`${this.uploadId}:${part.partNumber}`).byteLength, 0)));
     this.bucket.completed.push(this.key);
   }
-  async abort() { this.bucket.aborted.push(this.uploadId); }
+  async abort() {
+    if (this.bucket.abortErrors > 0) { this.bucket.abortErrors -= 1; throw new Error('cleanup interrupted'); }
+    if (this.bucket.finished.has(this.uploadId)) {
+      const gone = new Error('resumeMultipartUpload: The specified multipart upload does not exist. (10024)');
+      gone.code = 10024;
+      throw gone;
+    }
+    this.bucket.aborted.push(this.uploadId);
+  }
 }
 class Bucket {
   uploads = new Map();
-  objects = new Map(); parts = new Map(); sessions = new Map(); prefix = ''; partReads = []; completed = []; aborted = []; failAt = 0;
+  objects = new Map(); parts = new Map(); sessions = new Map(); uploaded = new Map(); prefix = ''; partReads = []; completed = []; aborted = []; deleted = []; failAt = 0; finished = new Set(); abortErrors = 0; deleteErrors = 0;
   assertKey(key) { assert.ok(new TextEncoder().encode(key).byteLength <= 1024, 'bucket key exceeds 1024 bytes'); }
   async put(key, value, options = {}) {
     this.assertKey(key);
@@ -48,6 +56,8 @@ class Bucket {
     return { key };
   }
   etags = new Map();
+  listLimits = [];
+  listedSizes = new Map();
   async get(key) {
     this.assertKey(key);
     const data = this.objects.get(key);
@@ -58,8 +68,31 @@ class Bucket {
     return { size: bytes.byteLength, etag, text: async () => new TextDecoder().decode(bytes), arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
   }
   async head(key) { this.assertKey(key); const data = this.objects.get(key); if (data !== undefined && !this.etags.has(key)) this.etags.set(key, `etag-${this.etags.size + 1}`); return data ? { uploaded: new Date(1740000000000), etag: this.etags.get(key) } : null; }
-  async delete(key) { this.assertKey(key); this.objects.delete(key); }
-  async list({ prefix, limit, cursor }) { this.assertKey(prefix); this.prefix = prefix; const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort(); const start = cursor ? Number(cursor) : 0; const slice = keys.slice(start, start + limit); return { objects: slice.map((key) => ({ key })), truncated: start + limit < keys.length, cursor: String(start + limit) }; }
+  async delete(key) {
+    this.assertKey(key);
+    this.deleted.push(key);
+    if (this.deleteErrors > 0) { this.deleteErrors -= 1; throw new Error('delete failed'); }
+    this.objects.delete(key);
+  }
+  async list({ prefix, limit, cursor }) {
+    this.assertKey(prefix);
+    this.prefix = prefix;
+    this.listLimits.push(limit);
+    const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+    const start = cursor ? Number(cursor) : 0;
+    const slice = keys.slice(start, start + limit);
+    return {
+      objects: slice.map((key) => {
+        const bytes = this.objects.get(key);
+        const object = { key, size: bytes?.byteLength ?? 0 };
+        if (this.uploaded.has(key)) object.uploaded = this.uploaded.get(key);
+        if (this.listedSizes.has(key)) object.size = this.listedSizes.get(key);
+        return object;
+      }),
+      truncated: start + limit < keys.length,
+      cursor: String(start + limit),
+    };
+  }
   async createMultipartUpload(key) { const id = `upload-${crypto.randomUUID().replaceAll('-', '')}`; this.sessions.set(id, key); return { uploadId: id }; }
   resumeMultipartUpload(key, id) { return new Upload(this, key, id); }
 }
@@ -534,6 +567,211 @@ test('the outbound entrypoint does not construct request-local multipart session
   const outbound = source.slice(source.indexOf('export class R2Outbound'), source.indexOf('export class ApothekeContainer'));
   assert.doesNotMatch(outbound, /new\s+Map|sessions?[,)\s]/, 'R2 state belongs to its uploadId, never a per-request Map');
   assert.match(outbound, /handleR2Request\(request, this\.env\.STORAGE\)/);
+});
+
+const DAY = UNFINISHED_UPLOAD_RETENTION_MS;
+const NOW = 1_800_000_000_000;
+
+async function placeMarker(bucket, id, key, uploaded, body) {
+  const name = await multipartMarkerKey(id);
+  const payload = body ?? JSON.stringify({ id, key });
+  bucket.objects.set(name, new TextEncoder().encode(payload));
+  if (uploaded !== undefined) bucket.uploaded.set(name, uploaded);
+  bucket.sessions.set(id, key);
+  return name;
+}
+
+test('an abandoned marked upload is aborted before its marker is removed', async () => {
+  const bucket = new Bucket();
+  const key = 'installations/primary/backups/open.zip';
+  const order = [];
+  const resume = bucket.resumeMultipartUpload.bind(bucket);
+  bucket.resumeMultipartUpload = (uploadKey, id) => {
+    const upload = resume(uploadKey, id);
+    const abort = upload.abort.bind(upload);
+    upload.abort = async () => { order.push('abort'); await abort(); };
+    return upload;
+  };
+  const remove = bucket.delete.bind(bucket);
+  bucket.delete = async (name) => { order.push('delete'); await remove(name); };
+  const name = await placeMarker(bucket, 'upload-abandoned', key, new Date(NOW - DAY));
+  const first = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.deepEqual(first, { examined: 1, aborted: 1, markersDeleted: 1, malformed: 0, kept: 0, cursor: null, interrupted: false });
+  assert.deepEqual(order, ['abort', 'delete']);
+  assert.deepEqual(bucket.aborted, ['upload-abandoned']);
+  assert.equal(bucket.objects.has(name), false);
+  const second = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.deepEqual(second, { examined: 0, aborted: 0, markersDeleted: 0, malformed: 0, kept: 0, cursor: null, interrupted: false });
+  assert.deepEqual(bucket.aborted, ['upload-abandoned']);
+});
+
+test('a marker younger than one day and one without a time stay in place', async () => {
+  const bucket = new Bucket();
+  const live = await placeMarker(bucket, 'upload-live', 'installations/primary/backups/live.zip', new Date(NOW - DAY + 1));
+  const undated = await placeMarker(bucket, 'upload-undated', 'installations/primary/backups/undated.zip', undefined);
+  const expired = await placeMarker(bucket, 'upload-day', 'installations/primary/backups/day.zip', new Date(NOW - DAY));
+  const result = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(result.aborted, 1);
+  assert.equal(result.kept, 2);
+  assert.deepEqual(bucket.aborted, ['upload-day']);
+  assert.equal(bucket.objects.has(live), true);
+  assert.equal(bucket.objects.has(undated), true);
+  assert.equal(bucket.objects.has(expired), false);
+});
+
+test('a malformed marker is removed and does not abort an upload', async () => {
+  const bucket = new Bucket();
+  const calls = [];
+  bucket.resumeMultipartUpload = (key, id) => { calls.push(id); return new Upload(bucket, key, id); };
+  const wrongName = await multipartMarkerKey('upload-real');
+  bucket.objects.set(wrongName, new TextEncoder().encode('not-json'));
+  bucket.uploaded.set(wrongName, new Date(0));
+  bucket.sessions.set('upload-real', 'installations/primary/backups/real.zip');
+  const foreign = await placeMarker(bucket, 'upload-foreign', 'installations/other/secret.zip', new Date(0));
+  const oversized = await placeMarker(bucket, 'upload-big', 'installations/primary/backups/big.zip', new Date(0));
+  bucket.listedSizes.set(oversized, 1024 * 1024);
+  const reads = [];
+  const get = bucket.get.bind(bucket);
+  bucket.get = async (key) => { reads.push(key); return get(key); };
+  const result = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(result.malformed, 3);
+  assert.equal(result.aborted, 0);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(bucket.aborted, []);
+  assert.equal(bucket.sessions.has('upload-real'), true);
+  assert.equal(bucket.objects.has(wrongName), false);
+  assert.equal(bucket.objects.has(foreign), false);
+  assert.equal(bucket.objects.has(oversized), false);
+  assert.equal(reads.includes(oversized), false);
+});
+
+test('an upload with no marker is not aborted', async () => {
+  const bucket = new Bucket();
+  bucket.sessions.set('upload-unmarked', 'installations/primary/backups/lost.zip');
+  bucket.uploads.set('upload-unmarked', [{ partNumber: 1, etag: 'abc' }]);
+  const result = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(result.examined, 0);
+  assert.deepEqual(bucket.aborted, []);
+  assert.equal(bucket.sessions.has('upload-unmarked'), true);
+  assert.equal(bucket.uploads.has('upload-unmarked'), true);
+});
+
+test('an interrupted abort leaves the marker, and the retry finishes it', async () => {
+  const bucket = new Bucket();
+  bucket.abortErrors = 1;
+  const name = await placeMarker(bucket, 'upload-retry', 'installations/primary/backups/retry.zip', new Date(0));
+  const stopped = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(stopped.interrupted, true);
+  assert.equal(stopped.aborted, 0);
+  assert.equal(stopped.markersDeleted, 0);
+  assert.equal(bucket.objects.has(name), true);
+  assert.deepEqual(bucket.aborted, []);
+  const done = await sweepExpiredMultipartUploads(bucket, NOW, { cursor: stopped.cursor ?? undefined });
+  assert.equal(done.interrupted, false);
+  assert.equal(done.aborted, 1);
+  assert.deepEqual(bucket.aborted, ['upload-retry']);
+  assert.equal(bucket.objects.has(name), false);
+});
+
+test('a delete that fails after abort is finished by the next sweep', async () => {
+  const bucket = new Bucket();
+  bucket.deleteErrors = 1;
+  const name = await placeMarker(bucket, 'upload-held', 'installations/primary/backups/held.zip', new Date(0));
+  const stopped = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(stopped.interrupted, true);
+  assert.equal(stopped.aborted, 1);
+  assert.equal(bucket.objects.has(name), true);
+  bucket.finished.add('upload-held');
+  const done = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(done.interrupted, false);
+  assert.equal(done.aborted, 1);
+  assert.equal(bucket.objects.has(name), false);
+  assert.deepEqual(bucket.aborted, ['upload-held']);
+});
+
+test('a completed object stays, including when its stale marker is already gone from the binding', async () => {
+  const bucket = new Bucket();
+  const zip = 'installations/primary/backups/done.zip';
+  bucket.objects.set(zip, new Uint8Array([7, 8]));
+  bucket.uploaded.set(zip, new Date(0));
+  bucket.finished.add('upload-done');
+  const name = await placeMarker(bucket, 'upload-done', zip, new Date(0));
+  const result = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(result.aborted, 1);
+  assert.equal(bucket.objects.has(name), false);
+  assert.deepEqual(bucket.objects.get(zip), new Uint8Array([7, 8]));
+  assert.deepEqual(bucket.aborted, []);
+});
+
+test('sweep lists only this install and ignores a key outside that prefix', async () => {
+  const bucket = new Bucket();
+  const foreign = 'installations/other/.mpu/old';
+  bucket.objects.set(foreign, new TextEncoder().encode('{"id":"upload-other","key":"installations/other/secret.zip"}'));
+  bucket.uploaded.set(foreign, new Date(0));
+  const ours = await placeMarker(bucket, 'upload-ours', 'installations/primary/backups/ours.zip', new Date(0));
+  const list = bucket.list.bind(bucket);
+  bucket.list = async (options) => {
+    const page = await list(options);
+    page.objects.push({ key: 'installations/elsewhere/.mpu/injected', size: 4, uploaded: new Date(0) });
+    return page;
+  };
+  const result = await sweepExpiredMultipartUploads(bucket, NOW);
+  assert.equal(bucket.prefix, 'installations/primary/.mpu/');
+  assert.equal(result.aborted, 1);
+  assert.equal(bucket.objects.has(foreign), true);
+  assert.equal(bucket.deleted.includes(foreign), false);
+  assert.equal(bucket.deleted.includes('installations/elsewhere/.mpu/injected'), false);
+  assert.equal(bucket.objects.has(ours), false);
+  assert.deepEqual(bucket.aborted, ['upload-ours']);
+});
+
+test('one sweep reads a single bounded page and the next page continues', async () => {
+  const bucket = new Bucket();
+  const ids = ['upload-page-a', 'upload-page-b', 'upload-page-c'];
+  for (const id of ids) await placeMarker(bucket, id, `installations/primary/backups/${id}.zip`, new Date(0));
+  const limits = [];
+  bucket.list = async ({ prefix, limit, cursor }) => {
+    limits.push(limit);
+    const ordered = [...bucket.objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+    const start = cursor ? ordered.findIndex((key) => key > cursor) : 0;
+    const slice = ordered.slice(Math.max(0, start), start + limit);
+    return {
+      objects: slice.map((key) => ({ key, size: bucket.objects.get(key).byteLength, uploaded: bucket.uploaded.get(key) })),
+      truncated: start + limit < ordered.length,
+      cursor: slice.at(-1) ?? '',
+    };
+  };
+  let cursor;
+  let pages = 0;
+  do {
+    const page = await sweepExpiredMultipartUploads(bucket, NOW, { limit: 1, cursor });
+    pages += 1;
+    assert.equal(page.examined, 1);
+    assert.equal(page.interrupted, false);
+    cursor = page.cursor ?? undefined;
+  } while (cursor);
+  assert.equal(pages, 3);
+  assert.deepEqual(new Set(bucket.aborted), new Set(ids));
+  assert.deepEqual(limits, [1, 1, 1]);
+  const capped = new Bucket();
+  await placeMarker(capped, 'upload-cap', 'installations/primary/backups/cap.zip', new Date(NOW));
+  await sweepExpiredMultipartUploads(capped, NOW, { limit: 5000 });
+  assert.deepEqual(capped.listLimits, [100]);
+});
+
+test('cleanup is not an HTTP route and is not scheduled', async () => {
+  const index = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
+  const worker = readFileSync(new URL('../src/r2.ts', import.meta.url), 'utf8');
+  const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  assert.doesNotMatch(index, /sweepExpiredMultipartUploads|scheduled\s*[:(]/);
+  assert.doesNotMatch(config, /"crons"/);
+  assert.doesNotMatch(worker, /listMultipartUploads|abortIncompleteMultipartUpload/);
+  const bucket = new Bucket();
+  await placeMarker(bucket, 'upload-http', 'installations/primary/backups/http.zip', new Date(0));
+  const response = await handleR2Request(request('POST', 'backups/http.zip', { action: 'sweep' }), bucket);
+  assert.equal(response.status, 405);
+  assert.deepEqual(bucket.aborted, []);
+  assert.equal(bucket.objects.size, 1);
 });
 
 function writeHttpResponse(socket, status, body) {
