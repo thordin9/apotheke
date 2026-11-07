@@ -1305,13 +1305,16 @@ class Services extends BaseService
     }
 
     /**
-     * The handler of each job type (the backup restore comes later in P3).
+     * The handler of each job type. restore.confirm runs only for a batch-only database.
      *
      * @return array<string,\Apotheke\Core\Jobs\JobHandler>
      */
     public static function jobHandlers(): array
     {
-        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => new \Apotheke\ImportExport\Jobs\ImportCommitJob(static::imports(false))];
+        return [
+            \Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => new \Apotheke\ImportExport\Jobs\ImportCommitJob(static::imports(false)),
+            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => new \Apotheke\Backup\Jobs\RestoreConfirmJob(static::restoreUploads(false), static::restorer(false)),
+        ];
     }
 
     /**
@@ -1321,7 +1324,10 @@ class Services extends BaseService
      */
     public static function jobPermissions(): array
     {
-        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import'];
+        return [
+            \Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import',
+            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => 'backup',
+        ];
     }
 
     /** php spark jobs:work, as one worker named for its host and process. */

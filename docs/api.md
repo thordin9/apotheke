@@ -29,7 +29,7 @@ answer against it.
 | `GET /api/v1/restores/{id}` | Backup, your own upload | `status` (`uploading` or `ready`), `size`, `chunk_size`, `received`, `next_chunk`, `idle_seconds`. |
 | `POST /api/v1/restores/{id}/chunks/{n}` | Backup, your own upload | Chunk `n` (from 0) as the `multipart/form-data` field `chunk`. |
 | `POST /api/v1/restores/{id}/finish` | Backup, your own upload | Check the upload and the backup: the dry run, under `backup`. Nothing is changed. |
-| `POST /api/v1/restores/{id}/confirm` | Backup, your own upload | `{"confirm": true}`: replace the catalog with the backup. |
+| `POST /api/v1/restores/{id}/confirm` | Backup, your own upload | `{"confirm": true}`: replace the catalog with the backup. On PDO this is the confirm answer. On a batch-only database it is `202` with the `restore.confirm` job and a `Location` of `GET /api/v1/jobs/{id}`. |
 | `DELETE /api/v1/restores/{id}` | Backup, your own upload | Cancel it (`204`); its files are removed. |
 | `GET /api/v1/jobs/{id}` | the job type's permission, and the user who started it or an admin | `status` (`queued`, `running`, `done`, `failed`), `progress` (`done` and `total` rows), `result` and `error`. Anyone else gets `404`, as for an id that is not there. |
 
@@ -56,7 +56,12 @@ PHP's default 2M limit (plain PHP, cPanel) it is 2 MiB. A chunk the server still
 past the declared size `413 upload.too_large`, a short one before the end `422`; a refused chunk changes nothing,
 and `GET` says which chunk is next, so a client can resume. `finish` checks the size and the SHA-256, then the backup
 exactly as the Backup page checks an upload, and answers what it holds. `confirm` restores it as the page does (the
-backup's settings only for a user who may change settings). While another restore runs it is `409` and the upload is
+backup's settings only for a user who may change settings). On a PDO database that answer is in this response. On a
+batch-only database (no interactive transaction) the same restore is one background job, `restore.confirm`, with one
+attempt: the response is `202` and `Location: /api/v1/jobs/{id}`. Progress is `done` and `total` on that job. A second
+confirm while the job is queued or running returns that same job and does not start another. The upload manifest is
+what records that the restore ran: a job that crashes after `applying`, or a confirm after `restored`, does not apply
+it again. The Backup page and `bin/restore.php` stay in the request on every database. While another restore runs it is `409` and the upload is
 kept; a SHA-256 that does not match or a file that is not a backup removes it at `finish`.
 
 `finish` and `confirm` can take a while on a large backup, and a proxy may give up first (75 seconds in the Docker

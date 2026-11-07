@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup\Controllers\Api;
 
+use Apotheke\Backup\Jobs\RestoreConfirmJob;
 use Apotheke\Backup\Restorer;
 use Apotheke\Backup\RestoreUploads;
+use Apotheke\Core\Database\SqlExecutor;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\ApiResponse;
+use Apotheke\Core\Jobs\JobQueue;
 use Apotheke\Core\Security\PermissionGate;
 use CodeIgniter\Controller;
 use CodeIgniter\HTTP\Files\UploadedFile;
@@ -93,16 +96,28 @@ final class RestoresController extends Controller
         }
 
         return $this->answer(function () use ($id, $body): ResponseInterface {
-            $this->uploads()->get($id);
+            $staged = service('stagedExecutor');
+            $async = RestoreConfirmJob::asynchronous($staged instanceof SqlExecutor ? $staged : null);
+            try {
+                $this->uploads()->get($id);
+            } catch (UserError $e) {
+                if (!($async && $e->getCode() === 409)) {
+                    throw $e;
+                }
+            }
             if (($body['confirm'] ?? null) !== true) {
                 throw new UserError('Set "confirm": true to replace the catalog with this backup.', 422);
             }
             // N-1588: a restore may outlast a proxy's timeout. It runs to the end without the client, and the outcome
             // stays readable with GET (status restored or failed) or a second confirm, which never restores twice.
+            // On a batch-only database the work is a job (N-1589). PDO still restores in this request.
+            $settings = $this->may('settings');   // N-443: the backup's settings only for a user who may change them
+            if ($async) {
+                return $this->queued($id, $settings);
+            }
             @ignore_user_abort(true);
             @set_time_limit(300);
             $restorer = $this->restorer();
-            $settings = $this->may('settings');   // N-443: the backup's settings only for a user who may change them
             $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id): array {
                 return $restorer->restore($zip, $settings, $id, $hold);
             });
@@ -110,6 +125,57 @@ final class RestoresController extends Controller
             return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
                 'warnings' => $done['warnings'], 'token_cleared' => $done['token_cleared']]);
         });
+    }
+
+    /** 202 and the existing job when one is already queued or running for this upload. */
+    private function queued(string $id, bool $settings): ResponseInterface
+    {
+        $uploads = $this->uploads();
+        /** @var JobQueue $queue */
+        $queue = service('jobQueue');
+        $owner = $uploads->ownerKey();
+        $payload = RestoreConfirmJob::payload($id, $owner, $settings);
+        $running = $queue->active(RestoreConfirmJob::TYPE, $payload)
+            ?? $queue->active(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, $owner, !$settings));
+        try {
+            $manifest = $uploads->get($id);
+        } catch (UserError $e) {
+            if ($e->getCode() === 409 && $running !== null) {
+                return $this->accepted($running->view());
+            }
+            throw $e;
+        }
+        if ($manifest['status'] !== 'ready' || $running !== null) {
+            return $running !== null && $manifest['status'] === 'ready'
+                ? $this->accepted($running->view())
+                : $this->confirmed($id, $settings);
+        }
+        $user = service('currentUser')->resolve();
+        $actor = is_array($user) && $user['username'] !== '' ? $user['username'] : null;
+        $created = $queue->find($queue->enqueue(RestoreConfirmJob::TYPE, $payload, $actor, RestoreConfirmJob::ONCE));
+        if ($created === null) {
+            throw new UserError('The restore could not be stored.', 500);
+        }
+
+        return $this->accepted($created->view());
+    }
+
+    /** @param array<string,mixed> $job */
+    private function accepted(array $job): ResponseInterface
+    {
+        return ApiResponse::json($this->response, $job, 202)->setHeader('Location', '/api/v1/jobs/' . (int)($job['id'] ?? 0));
+    }
+
+    /** The outcome already kept on the upload: the same answer as a second synchronous confirm, and no second restore. */
+    private function confirmed(string $id, bool $settings): ResponseInterface
+    {
+        $restorer = $this->restorer();
+        $done = $this->uploads()->confirm($id, static function (string $zip, ?\Apotheke\Core\Storage\LeaseHold $hold = null) use ($restorer, $settings, $id): array {
+            return $restorer->restore($zip, $settings, $id, $hold);
+        });
+
+        return ApiResponse::json($this->response, ['restored' => true, 'tables' => (object)$done['tables'], 'photos' => $done['photos'],
+            'warnings' => $done['warnings'], 'token_cleared' => $done['token_cleared']]);
     }
 
     /** DELETE /api/v1/restores/{id} */

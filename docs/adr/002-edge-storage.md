@@ -322,9 +322,12 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    conditional PUT while the catalog fence row is locked. The catalog transaction, the staged swap batch, the
    settings import, and the undo prune reject a fence token another restore has already committed. claim() of
    that row waits out the open transaction; renewing the object lease does not wait on the claim. There is no mode that
-   puts payloads in R2 and leaves the restore manifest or lock only on local disk. Restore confirm still runs in
-   the request. A background job, with progress read from `GET /api/v1/jobs/{id}`, is a later change (QA's N-1589).
-   Orphan multipart uploads are still cleaned up before hosted wiring, not by this step.
+   puts payloads in R2 and leaves the restore manifest or lock only on local disk. On a PDO database, restore
+   confirm still runs in the request. On a batch-only database (D1, a Durable Object) confirm is one
+   `restore.confirm` job: `202` and progress from `GET /api/v1/jobs/{id}` (QA's N-1589). The job has one attempt.
+   The upload manifest is what says the restore already ran, so a retry, a duplicate confirm, or a crash after
+   `applying` does not apply it again. The page and `bin/restore.php` stay synchronous. Orphan multipart uploads
+   are still cleaned up before hosted wiring, not by this step.
 5. **P4-5: hosted wiring.** Durable Object SQLite per installation, host-only cookies in hosted mode, the
    `edge-local` run green with storage, the P4(b) guard cases run again on a preview D1, and the runbook.
 

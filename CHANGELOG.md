@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **backup:** on a batch-only database, chunked restore confirm runs as one background job and reports progress from `GET /api/v1/jobs/{id}`. PDO confirm stays in the request. A second confirm, a second worker, or a crash after the upload is marked applying does not restore again.
+
 ## [3.25.0] - 2026-11-07
 
 - **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage. Each restore commit checks the fence token inside that transaction, including settings import, undo prune, and its file deletes. A map pointer is replaced while that row is held; an existing photo is kept. A lost chunk update does not delete the newer bytes ([#247](https://github.com/thordin9/apotheke/pull/247))

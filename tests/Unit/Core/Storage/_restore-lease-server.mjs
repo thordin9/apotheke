@@ -24,20 +24,19 @@ function readBody(buffer, headerEnd, headers) {
   if (!/transfer-encoding:\s*chunked/i.test(headers)) {
     const length = /content-length:\s*(\d+)/i.exec(headers);
     const size = length ? Number(length[1]) : 0;
-    return raw.length < size ? null : raw.subarray(0, size).toString();
+    return raw.length < size ? null : raw.subarray(0, size).toString('binary');
   }
-  const encoded = raw.toString('binary');
-  let body = '';
+  const parts = [];
   let offset = 0;
-  while (offset < encoded.length) {
-    const line = encoded.indexOf('\r\n', offset);
+  while (offset < raw.length) {
+    const line = raw.indexOf('\r\n', offset);
     if (line < 0) return null;
-    const size = Number.parseInt(encoded.slice(offset, line), 16);
+    const size = Number.parseInt(raw.subarray(offset, line).toString('ascii'), 16);
     if (Number.isNaN(size)) return null;
     const start = line + 2;
-    if (encoded.length < start + size + 2) return null;
-    if (size === 0) return body;
-    body += encoded.slice(start, start + size);
+    if (raw.length < start + size + 2) return null;
+    if (size === 0) return Buffer.concat(parts).toString('binary');
+    parts.push(raw.subarray(start, start + size));
     offset = start + size + 2;
   }
   return null;
@@ -131,7 +130,7 @@ const server = net.createServer((socket) => {
       send(socket, 200, JSON.stringify({
         ok: true,
         found: true,
-        bytes: Buffer.from(snapshot.body).toString('base64'),
+        bytes: Buffer.from(snapshot.body, 'latin1').toString('base64'),
         etag: snapshot.etag,
       }));
       return true;
