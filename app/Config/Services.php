@@ -1206,12 +1206,25 @@ class Services extends BaseService
             static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576);
     }
 
-    /** A batch-only database's executor (D1, Durable Object SQLite): restores there are staged (P4-2b). Else null. */
+    /**
+     * A batch-only database's executor (D1, Durable Object SQLite): restores there are staged (P4-2b). Else null.
+     * APOTHEKE_BATCH_EXECUTOR=1 selects LocalBatchExecutor on the normal connection so a test can drive that
+     * confirm path. Compose does not set it, and a PDO process without it still confirms in the request.
+     */
     public static function stagedExecutor(): ?\Apotheke\Core\Database\SqlExecutor
     {
         $exec = static::sqlExecutor();
+        if ($exec->connection() === null) {
+            return $exec;
+        }
+        if (getenv('APOTHEKE_BATCH_EXECUTOR') === '1') {
+            /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+            $db = static::apothekeDb();
 
-        return $exec->connection() === null ? $exec : null;
+            return new \Apotheke\Core\Database\LocalBatchExecutor($db);
+        }
+
+        return null;
     }
 
     /**

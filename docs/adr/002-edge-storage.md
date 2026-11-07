@@ -325,8 +325,10 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    puts payloads in R2 and leaves the restore manifest or lock only on local disk. On a PDO database, restore
    confirm still runs in the request. On a batch-only database (D1, a Durable Object) confirm is one
    `restore.confirm` job: `202` and progress from `GET /api/v1/jobs/{id}` (QA's N-1589). The job has one attempt.
-   The upload manifest is what says the restore already ran, so a retry, a duplicate confirm, or a crash after
-   `applying` does not apply it again. The page and `bin/restore.php` stay synchronous. Orphan multipart uploads
+   One upload has one queued or running job. A later claim after the lease ends does not run it again; the worker
+   that finishes records its result on that job, including when the claim had marked the lease expired. The upload
+   manifest still says whether the restore ran, so a crash after `applying` is not applied again. The page and
+   `bin/restore.php` stay synchronous. Orphan multipart uploads
    are still cleaned up before hosted wiring, not by this step.
 5. **P4-5: hosted wiring.** Durable Object SQLite per installation, host-only cookies in hosted mode, the
    `edge-local` run green with storage, the P4(b) guard cases run again on a preview D1, and the runbook.

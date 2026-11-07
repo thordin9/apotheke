@@ -27,8 +27,9 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   there is kept. A chunk is named in the manifest before its bytes, and the upload id is indexed before the
   manifest. A lost manifest update leaves the chunk in place. Design-B staged restore is unchanged. On a
   batch-only database, chunked confirm is one `restore.confirm` job and its progress is `GET /api/v1/jobs/{id}`.
-  PDO confirm, the Backup page, and `bin/restore.php` still run in the request. The job has one attempt and does
-  not apply a restore the upload manifest already recorded. L-1838 (SQLite claim wait timeout) stays non-blocking.
+  PDO confirm, the Backup page, and `bin/restore.php` still run in the request. One upload has one queued or running
+  job. A claim after the lease ends does not start a second restore, and the worker that finishes writes that result
+  onto the job the client was given. L-1838 (SQLite claim wait timeout) stays non-blocking. The next finding id is 1841.
   Remaining R2 object reads stay bounded by the current bridge
   (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 
@@ -45,7 +46,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Finish P4-4 PR 4 (#248, batch-only restore confirm as a job), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring. L-1838 stays non-blocking; the next finding id is 1839.
+1. Finish P4-4 PR 4 (#248, batch-only restore confirm as a job), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring. L-1838 stays non-blocking; the next finding id is 1841.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).

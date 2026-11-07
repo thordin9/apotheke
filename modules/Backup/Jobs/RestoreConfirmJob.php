@@ -13,6 +13,7 @@ use Apotheke\Core\Jobs\JobContext;
 use Apotheke\Core\Jobs\JobFailed;
 use Apotheke\Core\Jobs\JobHandler;
 use Apotheke\Core\Jobs\JobInterrupted;
+use Apotheke\Core\Jobs\JobQueue;
 use Apotheke\Core\Storage\LeaseHold;
 
 /**
@@ -22,7 +23,7 @@ use Apotheke\Core\Storage\LeaseHold;
  */
 final class RestoreConfirmJob implements JobHandler
 {
-    public const TYPE = 'restore.confirm';
+    public const TYPE = JobQueue::ONE_ACTIVE_TYPE;
 
     /** A lost lease fails the job. It does not start another restore. */
     public const ONCE = 1;

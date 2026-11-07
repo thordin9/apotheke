@@ -131,10 +131,39 @@ final class RestoreConfirmJobTest extends CIUnitTestCase
     {
         $target = $this->database('sqlite');
         $queue = new JobQueue($target->db, new Clock());
+        $other = new JobQueue($target->connectAgain(), new Clock());
         $payload = RestoreConfirmJob::payload(str_repeat('cd', 16), 'local', true);
         $first = $queue->enqueue(RestoreConfirmJob::TYPE, $payload, 'ada', RestoreConfirmJob::ONCE);
-        $this->assertSame($first, $queue->active(RestoreConfirmJob::TYPE, $payload)?->id);
-        $this->assertSame($first, $queue->active(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload(str_repeat('cd', 16), 'local', true))?->id);
+        $second = $other->enqueue(RestoreConfirmJob::TYPE, $payload, 'ada', RestoreConfirmJob::ONCE);
+        $this->assertSame($first, $second);
+        $this->assertSame(1, (int)($target->db->query('SELECT COUNT(*) AS n FROM jobs')->getRowArray()['n'] ?? 0));
+        $this->assertNotNull($queue->tryClaim($first, 'worker-a'));
+        $this->assertNull($other->tryClaim($first, 'worker-b'));
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredClaimKeepsTheFinishedResult(string $driver): void
+    {
+        $target = $this->database($driver);
+        putenv('APOTHEKE_CLOCK=2026-11-01 10:00:00');
+        try {
+            $queue = new JobQueue($target->db, new Clock());
+            $other = new JobQueue($target->connectAgain(), new Clock());
+            $id = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload(str_repeat('ef', 16), 'local', false), 'ada', RestoreConfirmJob::ONCE);
+            $job = $queue->claim('worker-a');
+            $this->assertNotNull($job);
+            $this->assertSame($id, $job->id);
+            putenv('APOTHEKE_CLOCK=2026-11-01 10:10:00');
+            $this->assertNull($other->claim('worker-b'), 'the expired attempt is not run again');
+            $result = ['restored' => true, 'tables' => ['items' => 1], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
+            $this->assertTrue($queue->complete($job, $result));
+            $done = $other->find($id);
+            $this->assertSame('done', $done?->status);
+            $this->assertSame($result, $done?->result);
+            $this->assertNull($done?->error);
+        } finally {
+            putenv('APOTHEKE_CLOCK');
+        }
     }
 
     public function testARemoteConfirmRunsOnceThroughTheProductionBridge(): void

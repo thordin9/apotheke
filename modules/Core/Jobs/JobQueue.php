@@ -7,6 +7,7 @@ namespace Apotheke\Core\Jobs;
 use Apotheke\Core\Libraries\Clock;
 use CodeIgniter\Database\BaseConnection;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * The jobs table (migration 0029). A worker claims a due job with a lease, renews it on every checkpoint, and
@@ -21,6 +22,12 @@ final class JobQueue
     public const RETRY_SECONDS = 30;
 
     public const EXPIRED_ERROR = 'The job stopped without finishing.';
+
+    /**
+     * At most one queued or running row for a payload of this type. A second
+     * enqueue returns that row. Other types may have several rows.
+     */
+    public const ONE_ACTIVE_TYPE = 'restore.confirm';
 
     private const TYPE = '/^[a-z][a-z0-9_.-]{0,63}$/';
 
@@ -45,12 +52,55 @@ final class JobQueue
             throw new InvalidArgumentException('Job payload is over ' . self::PAYLOAD_MAX . ' bytes.');
         }
         $now = $this->at(0);
+        $run = $runAfter ?? $now;
+        if ($type === self::ONE_ACTIVE_TYPE) {
+            return $this->enqueueOne($type, $json, $maxAttempts, $actor, $run, $now);
+        }
         $this->db->query(
             "INSERT INTO jobs (type, status, payload, attempts, max_attempts, actor, run_after, created_at, updated_at) VALUES (?, 'queued', ?, 0, ?, ?, ?, ?, ?)",
-            [$type, $json, $maxAttempts, $actor, $runAfter ?? $now, $now, $now],
+            [$type, $json, $maxAttempts, $actor, $run, $now, $now],
         );
 
         return (int)$this->db->insertID();
+    }
+
+    /**
+     * One statement: insert only when no queued or running row has this payload.
+     * The unique index is what makes two concurrent inserts one row.
+     */
+    private function enqueueOne(string $type, string $json, int $maxAttempts, ?string $actor, string $run, string $now): int
+    {
+        try {
+            $this->db->query(
+                "INSERT INTO jobs (type, status, payload, attempts, max_attempts, actor, run_after, created_at, updated_at)
+                 SELECT v.type, 'queued', v.payload, 0, v.max_attempts, v.actor, v.run_after, v.created_at, v.updated_at
+                 FROM (SELECT ? AS type, ? AS payload, ? AS max_attempts, ? AS actor, ? AS run_after, ? AS created_at, ? AS updated_at) v
+                 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE type = v.type AND payload = v.payload AND status IN ('queued', 'running'))",
+                [$type, $json, $maxAttempts, $actor, $run, $now, $now],
+            );
+        } catch (Throwable $e) {
+            $existing = $this->activeEncoded($type, $json);
+            if ($existing !== null) {
+                return $existing->id;
+            }
+            throw $e;
+        }
+        if ($this->db->affectedRows() !== 1) {
+            $existing = $this->activeEncoded($type, $json);
+            if ($existing !== null) {
+                return $existing->id;
+            }
+            throw new InvalidArgumentException('The job could not be queued.');
+        }
+        $row = $this->db->query(
+            "SELECT id FROM jobs WHERE type = ? AND payload = ? AND status IN ('queued', 'running') ORDER BY id DESC LIMIT 1",
+            [$type, $json],
+        )->getRowArray();
+        if (!is_array($row)) {
+            throw new InvalidArgumentException('The job could not be queued.');
+        }
+
+        return (int)$row['id'];
     }
 
     public function find(int $id): ?Job
@@ -69,8 +119,15 @@ final class JobQueue
      */
     public function active(string $type, array $payload): ?Job
     {
-        $row = $this->db->query("SELECT * FROM jobs WHERE type = ? AND payload = ? AND status IN ('queued', 'running') ORDER BY id LIMIT 1",
-            [$type, self::encode($payload)])->getRowArray();
+        return $this->activeEncoded($type, self::encode($payload));
+    }
+
+    private function activeEncoded(string $type, string $json): ?Job
+    {
+        $row = $this->db->query(
+            "SELECT * FROM jobs WHERE type = ? AND payload = ? AND status IN ('queued', 'running') ORDER BY id LIMIT 1",
+            [$type, $json],
+        )->getRowArray();
 
         return is_array($row) ? self::job($row) : null;
     }
@@ -120,12 +177,27 @@ final class JobQueue
         return $this->owned($job, 'checkpoint = ?, lease_until = ?, updated_at = ?', [self::encode($state), $this->at($this->leaseSeconds), $this->at(0)]);
     }
 
-    /** @param array<string,mixed> $result */
+    /**
+     * Records $result. When a later claim has already marked this attempt failed
+     * because the lease ended, that failure is replaced: the worker that finished
+     * is the one that has the result, and a failed row is not claimed again.
+     *
+     * @param array<string,mixed> $result
+     */
     public function complete(Job $job, array $result): bool
     {
         $now = $this->at(0);
+        $encoded = self::encode($result);
+        if ($this->owned($job, "status = 'done', result = ?, error = NULL, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?", [$encoded, $now, $now])) {
+            return true;
+        }
+        $this->db->query(
+            "UPDATE jobs SET status = 'done', result = ?, error = NULL, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?
+             WHERE id = ? AND attempts = ? AND status = 'failed' AND error = ? AND result IS NULL",
+            [$encoded, $now, $now, $job->id, $job->attempts, self::EXPIRED_ERROR],
+        );
 
-        return $this->owned($job, "status = 'done', result = ?, error = NULL, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?", [self::encode($result), $now, $now]);
+        return $this->db->affectedRows() === 1;
     }
 
     /** Fails the attempt: back to the queue after a back-off when $retry and attempts are left, else failed for good. */

@@ -59,9 +59,9 @@ exactly as the Backup page checks an upload, and answers what it holds. `confirm
 backup's settings only for a user who may change settings). On a PDO database that answer is in this response. On a
 batch-only database (no interactive transaction) the same restore is one background job, `restore.confirm`, with one
 attempt: the response is `202` and `Location: /api/v1/jobs/{id}`. Progress is `done` and `total` on that job. A second
-confirm while the job is queued or running returns that same job and does not start another. The upload manifest is
-what records that the restore ran: a job that crashes after `applying`, or a confirm after `restored`, does not apply
-it again. The Backup page and `bin/restore.php` stay in the request on every database. While another restore runs it is `409` and the upload is
+confirm of the same upload returns that job and does not insert another. If the lease ends while the restore is still
+running, the next claim does not start it again; when the worker finishes, that same job records the outcome from the
+upload. A crash after `applying`, or a confirm after `restored`, does not apply the backup again. The Backup page and `bin/restore.php` stay in the request on every database. While another restore runs it is `409` and the upload is
 kept; a SHA-256 that does not match or a file that is not a backup removes it at `finish`.
 
 `finish` and `confirm` can take a while on a large backup, and a proxy may give up first (75 seconds in the Docker
