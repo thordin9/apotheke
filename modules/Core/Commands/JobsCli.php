@@ -6,6 +6,7 @@ namespace Apotheke\Core\Commands;
 
 use Apotheke\Core\Jobs\JobHandler;
 use Apotheke\Core\Jobs\JobQueue;
+use Apotheke\Core\Jobs\JobRecovery;
 use Apotheke\Core\Jobs\JobRunner;
 
 /**
@@ -37,6 +38,7 @@ final class JobsCli
         private readonly string $owner,
         private readonly mixed $out,
         private readonly mixed $err,
+        private readonly ?JobRecovery $recovery = null,
     ) {
     }
 
@@ -65,7 +67,7 @@ final class JobsCli
 
         $restore = $this->trapSignals();
         try {
-            $runner = new JobRunner($this->queue, $this->handlers, $this->owner, fn (): bool => $this->stop);
+            $runner = new JobRunner($this->queue, $this->handlers, $this->owner, fn (): bool => $this->stop, null, $this->recovery);
             $runner->work($opts['max-jobs'], $opts['max-seconds'], $opts['sleep'], function (array $r): void {
                 fwrite($this->out, 'job ' . $r['id'] . ' (' . $r['type'] . '): ' . $r['status'] . "\n");
             });

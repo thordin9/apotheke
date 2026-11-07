@@ -1206,12 +1206,25 @@ class Services extends BaseService
             static::stagedExecutor(), (int)$config->values()['uploads']['restore_db_max_mb'] * 1048576);
     }
 
-    /** A batch-only database's executor (D1, Durable Object SQLite): restores there are staged (P4-2b). Else null. */
+    /**
+     * A batch-only database's executor (D1, Durable Object SQLite): restores there are staged (P4-2b). Else null.
+     * APOTHEKE_BATCH_EXECUTOR=1 selects LocalBatchExecutor on the normal connection so a test can drive that
+     * confirm path. Compose does not set it, and a PDO process without it still confirms in the request.
+     */
     public static function stagedExecutor(): ?\Apotheke\Core\Database\SqlExecutor
     {
         $exec = static::sqlExecutor();
+        if ($exec->connection() === null) {
+            return $exec;
+        }
+        if (getenv('APOTHEKE_BATCH_EXECUTOR') === '1') {
+            /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
+            $db = static::apothekeDb();
 
-        return $exec->connection() === null ? $exec : null;
+            return new \Apotheke\Core\Database\LocalBatchExecutor($db);
+        }
+
+        return null;
     }
 
     /**
@@ -1305,13 +1318,16 @@ class Services extends BaseService
     }
 
     /**
-     * The handler of each job type (the backup restore comes later in P3).
+     * The handler of each job type. restore.confirm runs only for a batch-only database.
      *
      * @return array<string,\Apotheke\Core\Jobs\JobHandler>
      */
     public static function jobHandlers(): array
     {
-        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => new \Apotheke\ImportExport\Jobs\ImportCommitJob(static::imports(false))];
+        return [
+            \Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => new \Apotheke\ImportExport\Jobs\ImportCommitJob(static::imports(false)),
+            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => new \Apotheke\Backup\Jobs\RestoreConfirmJob(static::restoreUploads(false), static::restorer(false)),
+        ];
     }
 
     /**
@@ -1321,7 +1337,10 @@ class Services extends BaseService
      */
     public static function jobPermissions(): array
     {
-        return [\Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import'];
+        return [
+            \Apotheke\ImportExport\Jobs\ImportCommitJob::TYPE => 'import',
+            \Apotheke\Backup\Jobs\RestoreConfirmJob::TYPE => 'backup',
+        ];
     }
 
     /** php spark jobs:work, as one worker named for its host and process. */
@@ -1329,6 +1348,16 @@ class Services extends BaseService
     {
         $owner = substr((gethostname() ?: 'host') . ':' . getmypid() . ':' . bin2hex(random_bytes(4)), 0, 120);
 
-        return new \Apotheke\Core\Commands\JobsCli(static::jobQueue(false), static::jobHandlers(), $owner, $out, $err);
+        return new \Apotheke\Core\Commands\JobsCli(static::jobQueue(false), static::jobHandlers(), $owner, $out, $err, static::jobRecovery(false));
+    }
+
+    /** Copies a restore upload's outcome onto its job. Does not run the restore. */
+    public static function jobRecovery(bool $getShared = true): \Apotheke\Core\Jobs\JobRecovery
+    {
+        if ($getShared) {
+            return static::getSharedInstance('jobRecovery');
+        }
+
+        return new \Apotheke\Backup\Jobs\RestoreConfirmRecovery(static::jobQueue(false), static::restoreUploads(false));
     }
 }

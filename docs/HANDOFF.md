@@ -7,7 +7,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Current state
 
-- `main` is the CI4 app (v3.0.0 and later; latest release v3.24.0). The 2.6.x line has security support from `old`
+- `main` is the CI4 app (v3.0.0 and later; latest release v3.25.0). The 2.6.x line has security support from `old`
   for 90 days after 3.0.0. Only `main`, `old` and open PR heads remain.
 - Every module is ported, with legacy parity at step 16; detailed module notes stay in the
   [log](history/handoff-log.md#current-state).
@@ -16,6 +16,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   PR 2 (#242) added scoped Worker R2 operations, resumable bounded multipart, conditions, and explicit
   opt-in construction. The maximum escaped multipart marker-cap fix (#244) and the marker escaping fix (#246) are merged.
   PR 3a (#245) is merged: backup export reads through storage, and a remote manifest's bytes and version come from one object read.
+  PR 3b (#247) is merged: an explicit R2 restore keeps its chunks, manifest and lease on that storage, and the catalog fence covers the settings import, undo prune, and map pointers.
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
   restore manifest and the lease on that same storage. A new object is created with the condition on that PUT, so a
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and
@@ -24,16 +25,23 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   waits while a restore transaction holds the row, and an object-lease renew does not wait on that claim.
   A map pointer is replaced under the row lock. A photo, thumbnail, attachment, or camera file that is already
   there is kept. A chunk is named in the manifest before its bytes, and the upload id is indexed before the
-  manifest. A lost manifest update leaves the chunk in place. Design-B staged restore is unchanged. PR 4 is
-  still the background restore and its progress. Remaining R2 object reads stay bounded by the current bridge
+  manifest. A lost manifest update leaves the chunk in place. Design-B staged restore is unchanged. On a
+  batch-only database, chunked confirm is one `restore.confirm` job and its progress is `GET /api/v1/jobs/{id}`.
+  PDO confirm, the Backup page, and `bin/restore.php` still run in the request. One upload has one queued or running
+  job. A read of that job, and a worker before it claims, copy the upload manifest onto the row. A live lease stays
+  `running`. A claim that died before `applying`, after its lease has ended and the upload is free and still ready,
+  is queued again as the same job; the original worker cannot start `applying` afterwards. A manifest that already
+  says restored is `done` with that result, and a finished job is not given a different result. A second confirm
+  does not insert another row. L-1838 (SQLite claim wait timeout) stays non-blocking. The next finding id is 1841.
+  Remaining R2 object reads stay bounded by the current bridge
   (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 
 
 ## Open pull requests
 
-- P4-4 PR3b [#247](https://github.com/thordin9/apotheke/pull/247) (`cursor/p4-4-restore-storage-e9c8`): explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases. The fence row is checked inside each restore commit, including settings and undo. Map pointers are replaced under that row. Existing content-named files are kept. Local disk behavior is unchanged. No readiness flip.
+- P4-4 PR 4 [#248](https://github.com/thordin9/apotheke/pull/248) (`cursor/p4-4-restore-job-e9c8`): batch-only chunked confirm is one `restore.confirm` job. PDO confirm stays in the request. No readiness flip.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule. This slice does not change the account or add that sweep.
-- Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. A background restore job is still PR 4.
+- Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
 
@@ -41,7 +49,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Finish P4-4 PR 4 (background restore and progress), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring.
+1. Finish P4-4 PR 4 (#248, batch-only restore confirm as a job), with no readiness flip; then P4-5 hosted wiring. The orphan multipart sweep stays before that wiring. L-1838 stays non-blocking; the next finding id is 1841.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).

@@ -196,11 +196,12 @@ final class RestoreObjectStore
 
     /**
      * @param Closure(string):array<string,mixed> $restore
+     * @param null|\Closure():void $beforeApply runs while this upload is locked, before status becomes applying
      * @return array<string,mixed>
      */
-    public function confirm(string $id, Closure $restore): array
+    public function confirm(string $id, Closure $restore, ?\Closure $beforeApply = null): array
     {
-        return $this->locked($id, function (array $manifest, string $etag) use ($id, $restore): array {
+        return $this->locked($id, function (array $manifest, string $etag) use ($id, $restore, $beforeApply): array {
             if ($manifest['status'] === 'interrupted') {
                 throw new UserError(RestoreUploads::INTERRUPTED, 409);
             }
@@ -209,6 +210,9 @@ final class RestoreObjectStore
             }
             if ($manifest['status'] !== 'ready') {
                 throw new UserError('Finish the upload first.', 409);
+            }
+            if ($beforeApply !== null) {
+                $beforeApply();
             }
             $spool = $this->spool($id, $manifest);
             try {

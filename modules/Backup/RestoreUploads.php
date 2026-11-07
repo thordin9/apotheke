@@ -85,6 +85,9 @@ final class RestoreUploads
     /** Explicit R2 only. Local disk keeps the filesystem store. Payloads, manifest and lease share this object. */
     private readonly ?RestoreObjectStore $remote;
 
+    /** The storage passed in, so a worker can reopen this upload as its owner. */
+    private readonly ?Storage $objects;
+
     /**
      * @param Closure():?string $owner this request's account key ("user:<id>:<sha256 of created_at>", "local" with sign-in off), null for a guest; WriteFailed when the account cannot be read (500)
      * @param int $maxOpen most uploads not yet confirmed, all accounts together
@@ -108,12 +111,34 @@ final class RestoreUploads
         $this->afterLock = $afterLock ?? static function (string $file): void {
         };
         if ($objects instanceof R2Storage) {
+            $this->objects = $objects;
             $this->remote = new RestoreObjectStore($objects, $chunkBytes, $maxBytes, $owner, $maxOpen, $this->freeBytes, $stage);
         } elseif ($objects !== null) {
             throw new \InvalidArgumentException('Restore payloads, manifests and locks use one storage backend.');
         } else {
+            $this->objects = null;
             $this->remote = null;
         }
+    }
+
+    /**
+     * This request's owner key. The confirm job stores it so the worker, which has no signed-in user, opens the same upload.
+     */
+    public function ownerKey(): string
+    {
+        return $this->me();
+    }
+
+    /**
+     * The same store, reading and writing as $owner. $owner is the key this app recorded, not a name from the client.
+     */
+    public function asOwner(string $owner): self
+    {
+        if (preg_match('/^(?:local|user:[1-9][0-9]{0,18}:[a-f0-9]{64})$/', $owner) !== 1) {
+            throw new UserError(self::NOT_FOUND, 404);
+        }
+
+        return new self($this->dataDir, $this->chunkBytes, $this->maxBytes, static fn (): string => $owner, $this->maxOpen, $this->freeBytes, $this->afterLock, $this->stage, $this->objects);
     }
 
     /**
@@ -331,15 +356,16 @@ final class RestoreUploads
      * confirm again, which never restores twice). Interrupted: 409 INTERRUPTED.
      *
      * @param Closure(string):array<string,mixed> $restore
+     * @param null|\Closure():void $beforeApply runs while this upload is locked, before status becomes applying
      * @return array<string,mixed> $restore's answer
      */
-    public function confirm(string $id, Closure $restore): array
+    public function confirm(string $id, Closure $restore, ?\Closure $beforeApply = null): array
     {
         if ($this->remote !== null) {
-            return $this->remote->confirm($id, $restore);
+            return $this->remote->confirm($id, $restore, $beforeApply);
         }
 
-        return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore): array {
+        return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore, $beforeApply): array {
             if ($m['status'] === 'interrupted') {
                 throw new UserError(self::INTERRUPTED, 409);
             }
@@ -348,6 +374,9 @@ final class RestoreUploads
             }
             if ($m['status'] !== 'ready') {
                 throw new UserError('Finish the upload first.', 409);
+            }
+            if ($beforeApply !== null) {
+                $beforeApply();
             }
             $zip = $dir . '/' . self::ZIP;
             $sum = $m['sha256'] ?? @hash_file('sha256', $zip);
