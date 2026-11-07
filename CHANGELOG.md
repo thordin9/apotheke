@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage. A payload write is conditional in that request, the catalog transaction rejects a fence token another restore has committed, and a lost chunk update does not delete the newer bytes ([#247](https://github.com/thordin9/apotheke/pull/247))
+- **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage. Each restore commit checks the fence token inside that transaction, including settings import, undo prune, and its file deletes. A map pointer is replaced while that row is held; an existing photo is kept. A lost chunk update does not delete the newer bytes ([#247](https://github.com/thordin9/apotheke/pull/247))
 
 ## [3.24.0] - 2026-11-06
 

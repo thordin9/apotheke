@@ -19,8 +19,11 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
   restore manifest and the lease on that same storage. A new object is created with the condition on that PUT, so a
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and
-  the staged swap batch reject a fence token another restore has already committed; that token is not the staged
-  restore's own lock. A chunk is named in the manifest before its bytes, and the upload id is indexed before the
+  the staged swap batch, the settings import, and the undo prune (including the files it releases) reject a
+  fence token another restore has already committed. That token is not the staged restore's own lock. claim()
+  waits while a restore transaction holds the row, and an object-lease renew does not wait on that claim.
+  A map pointer is replaced under the row lock. A photo, thumbnail, attachment, or camera file that is already
+  there is kept. A chunk is named in the manifest before its bytes, and the upload id is indexed before the
   manifest. A lost manifest update leaves the chunk in place. Design-B staged restore is unchanged. PR 4 is
   still the background restore and its progress. Remaining R2 object reads stay bounded by the current bridge
   (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
@@ -28,7 +31,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-4 PR3b [#247](https://github.com/thordin9/apotheke/pull/247) (`cursor/p4-4-restore-storage-e9c8`): explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases. Payload creates are conditional on the PUT itself, and the catalog commit checks the fence token in that same transaction or batch. Local disk behavior is unchanged. No readiness flip.
+- P4-4 PR3b [#247](https://github.com/thordin9/apotheke/pull/247) (`cursor/p4-4-restore-storage-e9c8`): explicit R2 chunked restore uses one storage for payloads, conditional manifests and leases. The fence row is checked inside each restore commit, including settings and undo. Map pointers are replaced under that row. Existing content-named files are kept. Local disk behavior is unchanged. No readiness flip.
 - **Mandatory before hosted wiring:** PM owns and must implement an orphan multipart marker/upload sweep or lifecycle rule. This slice does not change the account or add that sweep.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. A background restore job is still PR 4.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.

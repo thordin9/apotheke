@@ -144,18 +144,34 @@ final class UndoTokens
         }
     }
 
-    /** Drop expired tokens (all with $all) and release the files they kept. */
-    public function prune(bool $all = false): int
+    /**
+     * Drop expired tokens (all with $all) and release the files they kept.
+     * $guard runs inside the same transaction, before the deletes and the file
+     * release, so a lost restore fence keeps both.
+     *
+     * @param \Closure():void|null $guard
+     */
+    public function prune(bool $all = false, ?\Closure $guard = null): int
     {
-        $n = 0;
-        foreach ($this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]) as $t) {
-            $this->consume((string)$t['token']);
-            $files = json_decode((string)$t['files'], true);
-            $this->release(is_array($files) ? $files : []);
-            $n++;
+        $run = function () use ($all, $guard): int {
+            if ($guard !== null) {
+                $guard();
+            }
+            $n = 0;
+            foreach ($this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]) as $t) {
+                $this->consume((string)$t['token']);
+                $files = json_decode((string)$t['files'], true);
+                $this->release(is_array($files) ? $files : []);
+                $n++;
+            }
+
+            return $n;
+        };
+        if ((int)$this->db->transDepth > 0) {
+            return $run();
         }
 
-        return $n;
+        return Writes::transaction($this->db, $run);
     }
 
     /**

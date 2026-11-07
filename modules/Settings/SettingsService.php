@@ -346,9 +346,10 @@ final class SettingsService
      * the autofill address clears the stored token.
      *
      * @param ?int $maxBytes larger input is refused; null = no limit (the CLI, like legacy)
+     * @param \Closure():void|null $guard runs inside the settings unit, before its writes
      * @return array{applied:int,errors:array<string,string>,ignored:list<string>,token_cleared:bool}
      */
-    public function import(string $json, ?int $maxBytes = self::IMPORT_MAX_BYTES): array
+    public function import(string $json, ?int $maxBytes = self::IMPORT_MAX_BYTES, ?\Closure $guard = null): array
     {
         if ($maxBytes !== null && strlen($json) > $maxBytes) {
             throw new UserError('That settings file is too large.');
@@ -376,7 +377,7 @@ final class SettingsService
                 $err[$key] = $e->getMessage();
             }
         }
-        $cleared = $this->store($ok);
+        $cleared = $this->store($ok, $guard);
 
         return ['applied' => count($ok), 'errors' => $err, 'ignored' => $ignored, 'token_cleared' => $cleared];
     }
@@ -387,9 +388,11 @@ final class SettingsService
      * old token is dropped so it can never follow the address elsewhere.
      *
      * @param array<string,mixed> $values
+     * @param \Closure():void|null $guard runs inside the settings unit, before its writes.
+     *        A restore passes it so the token clear is part of that same unit.
      * @return bool whether the autofill token was cleared
      */
-    public function store(array $values): bool
+    public function store(array $values, ?\Closure $guard = null): bool
     {
         if ($values === []) {
             return false;
@@ -403,8 +406,18 @@ final class SettingsService
             }
             $encoded[$key] = (string)json_encode($value, self::JSON);
         }
-        $this->repository->replace($encoded, $this->clock->now());
+        $clearToken = $guard !== null && $moves && $this->rowNonEmpty('autofill_token');
+        if ($clearToken) {
+            $encoded['autofill_token'] = (string)json_encode('', self::JSON);
+        }
+        $this->repository->replace($encoded, $this->clock->now(), $guard);
         $this->values = null;
+        if ($clearToken) {
+            $this->tokenCleared = true;
+            ($this->log)('apotheke autofill: token cleared: the service address changed');
+
+            return true;
+        }
         $cleared = $moves && $this->dropTokenIfMoved($oldUrl);
         $this->tokenCleared = $cleared;
 

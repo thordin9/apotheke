@@ -9,10 +9,17 @@ use Apotheke\Core\Storage\LeaseDenied;
 use CodeIgniter\Database\BaseConnection;
 
 /**
- * The catalog half of a remote restore lease. The token is a row in restore_marker,
- * and the restoring transaction updates that row itself. A takeover that has already
- * committed a different token makes this transaction roll back. This is not the
- * staged restore's own lock row.
+ * The catalog owner of a remote restore. The token is one restore_marker row
+ * (run 'fence'), not the staged restore's lock row and not the object lease.
+ *
+ * claim() is the committed takeover. It replaces the row in its own transaction.
+ * A restore transaction that has updated the row still owns it until that
+ * transaction commits or rolls back, even when the object lease has already
+ * moved: claim() waits on the row and cannot commit first. Renewing the object
+ * lease does not wait on that claim. When the stored token is different, renew
+ * fails on the read, the open transaction rolls back, and the waiting claim
+ * then commits. After that commit, rejectUnless matches no row and the stale
+ * transaction writes nothing.
  */
 final class RestoreFence
 {

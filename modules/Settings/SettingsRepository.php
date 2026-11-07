@@ -9,6 +9,7 @@ use Apotheke\Core\Database\UnitsOfWork;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
+use Apotheke\Core\Storage\LeaseDenied;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
 use Throwable;
@@ -60,11 +61,12 @@ final class SettingsRepository
      * and throws WriteFailed (M-25: the connection has DBDebug off).
      *
      * @param array<string,string> $encoded name => JSON value
+     * @param \Closure():void|null $guard runs inside this unit, before its writes
      */
-    public function replace(array $encoded, string $now): void
+    public function replace(array $encoded, string $now, ?\Closure $guard = null): void
     {
         if ($encoded !== []) {
-            $this->rewrite(static fn (): array => $encoded, $now);
+            $this->rewrite(static fn (): array => $encoded, $now, $guard);
         }
     }
 
@@ -74,17 +76,22 @@ final class SettingsRepository
      * and is thrown as it is; any other failure is WriteFailed, as replace().
      *
      * @param \Closure(array<string,string>):array<string,string> $plan raw rows => rows to write
+     * @param \Closure():void|null $guard runs inside this unit, before its writes, and a lost
+     *        restore fence rolls the unit back with the settings rows
      */
-    public function rewrite(\Closure $plan, string $now): void
+    public function rewrite(\Closure $plan, string $now, ?\Closure $guard = null): void
     {
         try {
-            $this->units->run('settings', function (UnitOfWork $uow) use ($plan, $now): void {
+            $this->units->run('settings', function (UnitOfWork $uow) use ($plan, $now, $guard): void {
+                if ($guard !== null) {
+                    $guard();
+                }
                 foreach ($plan($this->rows()) as $name => $value) {
                     $uow->write('DELETE FROM settings WHERE name = ?', [$name], 'settings delete');
                     $uow->write('INSERT INTO settings (name, value, updated_at) VALUES (?, ?, ?)', [$name, $value, $now], 'settings insert');
                 }
             });
-        } catch (UserError $e) {
+        } catch (UserError|LeaseDenied $e) {
             throw $e;
         } catch (Throwable $e) {
             throw new WriteFailed('Could not save the settings.', 0, $e);

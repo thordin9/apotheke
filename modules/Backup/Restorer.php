@@ -237,7 +237,11 @@ final class Restorer
         }
     }
 
-    /** Renew every held object lease. A lost hold refuses before the next write. */
+    /**
+     * Renew every held object lease. A different token fails on that read.
+     * This does not wait for a claim() blocked on the fence row, so the two
+     * cannot deadlock. The open database transaction stays the owner until it ends.
+     */
     private function fence(): void
     {
         foreach ($this->fences as $hold) {
@@ -418,11 +422,14 @@ final class Restorer
         $this->fence();
         $this->linkOriginals($links, $warnings);
         $cleared = false;
+        $owned = $this->catalogFence === null ? null : function (): void {
+            $this->rejectStaleFence();
+        };
         if (is_array($b['settings']) && !$settings) {
             $warnings[] = 'The settings were not restored: that needs the permission to change settings.';
         } elseif (is_array($b['settings'])) {
             $this->fence();
-            $r = $this->settings->import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $b['settings']]), null);
+            $r = $this->settings->import((string)json_encode(['format' => 'apotheke-settings', 'settings' => $b['settings']]), null, $owned);
             foreach ($r['errors'] as $k => $msg) {
                 $warnings[] = "Setting $k was not restored: $msg";
             }
@@ -431,7 +438,7 @@ final class Restorer
         // Undo tokens refer to the data that was just replaced.
         if ($this->backups->tableExists('undo_tokens')) {
             $this->fence();
-            $this->undo->prune(true);
+            $this->undo->prune(true, $owned);
         }
 
         return ['tables' => $b['tables'], 'photos' => $written, 'warnings' => $warnings, 'token_cleared' => $cleared];
@@ -825,10 +832,10 @@ final class Restorer
     private static function create(Storage $store, string $key, string $bytes, array &$created): void
     {
         if ($store instanceof R2Storage) {
-            // The condition is on this PUT. A write still in flight does not replace an object
-            // another restore has already created.
-            if (!$store->putIfMissing($key, $bytes)) {
-                throw new LeaseDenied('The lease is held.');
+            // The name is the content. A file that is already there is kept, as the exists()
+            // check does on the local path. Only an object this call created is removed on failure.
+            if (!RestoreMutation::createIfAbsent($store, $key, $bytes)) {
+                return;
             }
             $created[] = [$store, $key];
 
@@ -851,6 +858,32 @@ final class Restorer
 
     /** @param list<array{Storage,string}> $created */
     private function discard(array $created): void
+    {
+        if ($created === []) {
+            return;
+        }
+        if ($this->catalogFence === null) {
+            $this->deleteCreated($created);
+
+            return;
+        }
+        try {
+            // The row stays locked until these deletes return, so the next claim waits.
+            // Once that claim has committed, the deletes are skipped: R2 delete is not
+            // conditional, and the newer restore may be keeping these names.
+            Writes::transaction($this->db, function () use ($created): void {
+                $this->rejectStaleFence();
+                $this->deleteCreated($created);
+            });
+        } catch (Throwable) {
+            // A lost fence, or a lock that cannot be taken, leaves the objects.
+            // Deleting them without the row would remove a newer restore's files.
+            return;
+        }
+    }
+
+    /** @param list<array{Storage,string}> $created */
+    private function deleteCreated(array $created): void
     {
         foreach (array_reverse($created) as [$store, $key]) {
             try {
@@ -925,9 +958,12 @@ final class Restorer
             try {
                 $this->fence();
                 if ($this->originals instanceof R2Storage) {
-                    if (!$this->originals->putIfMissing($key, $base)) {
+                    $token = $this->catalogFence;
+                    if ($token === null) {
                         throw new LeaseDenied('The lease is held.');
                     }
+                    // A local restore overwrites this pointer. putIfMissing would keep the old one.
+                    RestoreMutation::replace($this->db, $token, $this->originals, $key, $base);
                 } else {
                     $this->originals->write($key, $base);
                 }
