@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.25.0] - 2026-11-07
+
 - **backup:** keep an explicit R2 restore's chunks, manifest and lease on that same storage. Each restore commit checks the fence token inside that transaction, including settings import, undo prune, and its file deletes. A map pointer is replaced while that row is held; an existing photo is kept. A lost chunk update does not delete the newer bytes ([#247](https://github.com/thordin9/apotheke/pull/247))
+
+### Added
+
+- **backup:** keep restore leases on the selected storage ([#247](https://github.com/thordin9/apotheke/pull/247))
 
 ## [3.24.0] - 2026-11-06
 
@@ -1389,7 +1395,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.24.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.25.0...HEAD
+[3.25.0]: https://github.com/thordin9/apotheke/compare/v3.24.0...v3.25.0
 [3.24.0]: https://github.com/thordin9/apotheke/compare/v3.23.2...v3.24.0
 [3.23.2]: https://github.com/thordin9/apotheke/compare/v3.23.1...v3.23.2
 [3.23.1]: https://github.com/thordin9/apotheke/compare/v3.23.0...v3.23.1

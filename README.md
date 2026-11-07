@@ -76,19 +76,19 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 <!-- coverage:start -->
 | Area | Module suite | Root suite (with HTTP) | Combined |
 |---|---:|---:|---:|
-| Front controller, config & routes | 82.0 % | 88.3 % | 88.9 % |
+| Front controller, config & routes | 81.9 % | 88.3 % | 88.9 % |
 | Items, search, bulk, lending | 39.7 % | 75.4 % | 83.1 % |
-| Favourites, undo, history | 29.1 % | 62.2 % | 66.2 % |
+| Favourites, undo, history | 34.0 % | 62.4 % | 66.7 % |
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
 | Users, roles & sign-in | 60.8 % | 78.2 % | 83.1 % |
 | CSV import & export | 57.1 % | 84.4 % | 95.9 % |
 | Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
 | Notes & layout | 88.3 % | 75.2 % | 94.8 % |
-| Settings & Control Panel | 53.3 % | 48.5 % | 69.1 % |
-| Backup & restore | 64.0 % | 67.3 % | 83.9 % |
+| Settings & Control Panel | 53.4 % | 48.5 % | 69.0 % |
+| Backup & restore | 53.7 % | 65.2 % | 80.5 % |
 | Database & migrations | 74.1 % | 60.4 % | 76.3 % |
-| Core & dev server | 72.7 % | 65.4 % | 92.4 % |
-| **All PHP** (18079 lines) | **64.4 %** | **70.3 %** | **84.7 %** |
+| Core & dev server | 75.0 % | 65.9 % | 92.4 % |
+| **All PHP** (18611 lines) | **63.7 %** | **70.1 %** | **84.3 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
