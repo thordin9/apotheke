@@ -28,9 +28,11 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   manifest. A lost manifest update leaves the chunk in place. Design-B staged restore is unchanged. On a
   batch-only database, chunked confirm is one `restore.confirm` job and its progress is `GET /api/v1/jobs/{id}`.
   PDO confirm, the Backup page, and `bin/restore.php` still run in the request. One upload has one queued or running
-  job. A read of that job, and a worker before it claims, copy the upload manifest onto the row: an expired lease
-  is not shown as a failed restore while the upload is still in use, and a manifest that already says restored is
-  `done` with that result. A second confirm does not insert another row. L-1838 (SQLite claim wait timeout) stays non-blocking. The next finding id is 1841.
+  job. A read of that job, and a worker before it claims, copy the upload manifest onto the row. A live lease stays
+  `running`. A claim that died before `applying`, after its lease has ended and the upload is free and still ready,
+  is queued again as the same job; the original worker cannot start `applying` afterwards. A manifest that already
+  says restored is `done` with that result, and a finished job is not given a different result. A second confirm
+  does not insert another row. L-1838 (SQLite claim wait timeout) stays non-blocking. The next finding id is 1841.
   Remaining R2 object reads stay bounded by the current bridge
   (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 

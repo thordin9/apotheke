@@ -77,6 +77,8 @@ final class RestoreConfirmJob implements JobHandler
         try {
             $out = $this->uploads->asOwner($owner)->confirm($upload, function (string $zip, ?LeaseHold $hold = null) use ($settings, $upload): array {
                 return $this->restorer->restore($zip, $settings, $upload, $hold);
+            }, function () use ($context): void {
+                $context->checkpoint(['done' => 0, 'total' => 1]);
             });
         } catch (UserError $e) {
             throw new JobFailed($e->getMessage());

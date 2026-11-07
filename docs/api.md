@@ -60,10 +60,13 @@ backup's settings only for a user who may change settings). On a PDO database th
 batch-only database (no interactive transaction) the same restore is one background job, `restore.confirm`, with one
 attempt: the response is `202` and `Location: /api/v1/jobs/{id}`. Progress is `done` and `total` on that job. A second
 confirm of the same upload returns that job and does not insert another, including when a lease expiry had
-marked the row failed. A read of the job copies the upload's outcome onto that row: a restore that is still running
-stays `running`, and a manifest that already says restored becomes `done` with that result, without running the
-restore again. A claim after the lease ends does not start it again. A crash after `applying`, or a confirm after
-`restored`, does not apply the backup again. The Backup page and `bin/restore.php` stay in the request on every database. While another restore runs it is `409` and the upload is
+marked the row failed. A read of the job copies the upload's outcome onto that row. A worker that still holds the
+upload, or that has renewed its lease, stays `running`. A worker that was killed after the claim and before
+`applying`, once that lease has ended and the upload is free and still `ready`, is put back on the queue as the
+same job: the next worker may restore it once, and the original worker cannot start `applying` after that. A
+manifest that already says restored becomes `done` with that result, without running the restore again. A `done`
+job, or a job that failed for a reason other than the lease, is not given a different result. A crash after
+`applying`, or a confirm after `restored`, does not apply the backup again. The Backup page and `bin/restore.php` stay in the request on every database. While another restore runs it is `409` and the upload is
 kept; a SHA-256 that does not match or a file that is not a backup removes it at `finish`.
 
 `finish` and `confirm` can take a while on a large backup, and a proxy may give up first (75 seconds in the Docker

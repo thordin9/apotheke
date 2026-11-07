@@ -8,7 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-- **backup:** on a batch-only database, chunked restore confirm runs as one background job and reports progress from `GET /api/v1/jobs/{id}`. PDO confirm stays in the request. A second confirm does not queue another job. A read of the job copies the upload's outcome onto that row, so an expired lease is not shown as a failed restore while it is still running, and a manifest that already says restored is kept ([#248](https://github.com/thordin9/apotheke/pull/248))
+- **backup:** on a batch-only database, chunked restore confirm runs as one background job and reports progress from `GET /api/v1/jobs/{id}`. PDO confirm stays in the request. A second confirm does not queue another job. A read of the job copies the upload's outcome onto that row: a live lease stays running, a claim that died before applying is queued again as the same job once that lease has ended, and a manifest that already says restored is kept. A finished job is not given a different result ([#248](https://github.com/thordin9/apotheke/pull/248))
 
 ## [3.25.0] - 2026-11-07
 

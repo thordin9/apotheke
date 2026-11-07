@@ -12,6 +12,8 @@ use Apotheke\Backup\Restorer;
 use Apotheke\Core\Database\ConnectionExecutor;
 use Apotheke\Core\Database\LocalBatchExecutor;
 use Apotheke\Core\Http\RequestCleanup;
+use Apotheke\Core\Jobs\JobContext;
+use Apotheke\Core\Jobs\JobLeaseLost;
 use Apotheke\Core\Jobs\JobQueue;
 use Apotheke\Core\Jobs\JobRunner;
 use Apotheke\Core\Libraries\Clock;
@@ -234,6 +236,185 @@ final class RestoreConfirmJobTest extends CIUnitTestCase
         );
         $this->assertSame($id, $other->enqueue(RestoreConfirmJob::TYPE, $payload, 'ada', RestoreConfirmJob::ONCE));
         $this->assertSame(1, (int)($target->db->query('SELECT COUNT(*) AS n FROM jobs')->getRowArray()['n'] ?? 0));
+    }
+
+    public function testAnExpiryFailureOfAReadyUploadIsQueuedAgain(): void
+    {
+        $target = $this->target('sqlite');
+        $uploads = $this->uploads($target);
+        $id = $this->ready($uploads, $this->restorer($target));
+        $before = $this->names($target);
+        $queue = new JobQueue($target->db, new Clock());
+        $jobId = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE);
+        $job = $queue->claim('worker-a');
+        $this->assertNotNull($job);
+        $target->db->query("UPDATE jobs SET status = 'failed', error = ?, result = NULL, lease_owner = NULL, lease_until = NULL WHERE id = ?", [JobQueue::EXPIRED_ERROR, $jobId]);
+        $failed = $queue->find($jobId);
+        $this->assertNotNull($failed);
+        $seen = (new RestoreConfirmRecovery($queue, $uploads))->recover($failed)->view();
+        $this->assertSame(['queued', null, null], [$seen['status'], $seen['error'], $seen['result']]);
+        $this->assertFalse($queue->complete($job, ['restored' => true, 'tables' => ['items' => 9], 'photos' => 4, 'warnings' => [], 'token_cleared' => true]));
+        $this->assertSame('ready', $uploads->get($id)['status']);
+        $this->assertSame($before, $this->names($target));
+        $this->assertSame($jobId, $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE));
+    }
+
+    public function testADeadClaimBeforeApplyingCanBeTakenOver(): void
+    {
+        $target = $this->target('sqlite');
+        $uploads = $this->uploads($target);
+        $id = $this->ready($uploads, $this->restorer($target));
+        $before = $this->names($target);
+        putenv('APOTHEKE_CLOCK=2026-11-01 10:00:00');
+        try {
+            $queue = new JobQueue($target->db, new Clock());
+            $other = new JobQueue($target->connectAgain(), new Clock());
+            $jobId = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE);
+            $job = $queue->claim('worker-a');
+            $this->assertNotNull($job);
+            putenv('APOTHEKE_CLOCK=2026-11-01 10:10:00');
+            $recovery = new RestoreConfirmRecovery($queue, $uploads);
+            $seen = $recovery->recover($job)->view();
+            $this->assertSame(['queued', null, null], [$seen['status'], $seen['error'], $seen['result']]);
+            $handler = new RestoreConfirmJob($uploads, $this->restorer($target));
+            $stopped = static function (): bool {
+                return false;
+            };
+            try {
+                $handler->run($job, new JobContext($queue, $job, $stopped));
+                $this->fail('The original worker must not start applying.');
+            } catch (JobLeaseLost) {
+            }
+            try {
+                $uploads->confirm($id, function (): array {
+                    $this->fail('The original worker must not restore.');
+                }, function () use ($queue, $job): void {
+                    if (!$queue->checkpoint($job, ['done' => 0, 'total' => 1])) {
+                        throw new JobLeaseLost('lost');
+                    }
+                });
+                $this->fail('The original worker must not start applying.');
+            } catch (JobLeaseLost) {
+            }
+            $this->assertSame('ready', $uploads->get($id)['status']);
+            $this->assertSame($before, $this->names($target));
+            $runner = new JobRunner($other, [RestoreConfirmJob::TYPE => new RestoreConfirmJob($uploads, $this->restorer($target))], 'worker-b', null, static function (string $line): void {
+            }, new RestoreConfirmRecovery($other, $uploads));
+            $this->assertSame('done', $runner->runOnce()['status'] ?? null);
+            $this->assertSame('restored', $uploads->get($id)['status']);
+            $this->assertNotSame($before, $this->names($target));
+            $this->assertSame($jobId, $queue->find($jobId)?->id);
+            $this->assertSame('done', $queue->find($jobId)?->status);
+            $after = $this->names($target);
+            $this->assertNull($runner->runOnce());
+            $this->assertSame($after, $this->names($target));
+        } finally {
+            putenv('APOTHEKE_CLOCK');
+        }
+    }
+
+    public function testALiveWorkerKeepsTheJobAfterTheLeaseClockMoves(): void
+    {
+        $target = $this->target('sqlite');
+        $uploads = $this->uploads($target);
+        $id = $this->ready($uploads, $this->restorer($target));
+        putenv('APOTHEKE_CLOCK=2026-11-01 10:00:00');
+        try {
+            $queue = new JobQueue($target->db, new Clock());
+            $other = new JobQueue($target->connectAgain(), new Clock());
+            $jobId = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE);
+            $job = $queue->claim('worker-a');
+            $this->assertNotNull($job);
+            putenv('APOTHEKE_CLOCK=2026-11-01 10:10:00');
+            $this->assertTrue($queue->checkpoint($job, ['done' => 0, 'total' => 1]));
+            $seen = (new RestoreConfirmRecovery($queue, $uploads))->recover($job)->view();
+            $this->assertSame('running', $seen['status']);
+            $this->assertNull($seen['error']);
+            $this->assertNull($other->claim('worker-b'));
+            $this->assertSame($jobId, $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE));
+            $ran = 0;
+            $uploads->confirm($id, function () use (&$ran): array {
+                $ran++;
+
+                return ['tables' => [], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
+            }, function () use ($queue, $job): void {
+                if (!$queue->checkpoint($job, ['done' => 0, 'total' => 1])) {
+                    throw new JobLeaseLost('lost');
+                }
+            });
+            $this->assertSame(1, $ran);
+            $this->assertSame('worker-a', $queue->find($job->id)?->leaseOwner);
+        } finally {
+            putenv('APOTHEKE_CLOCK');
+        }
+    }
+
+    public function testATerminalJobIsNotGivenAnotherResult(): void
+    {
+        $target = $this->target('sqlite');
+        $uploads = $this->uploads($target);
+        $id = $this->ready($uploads, $this->restorer($target));
+        $queue = new JobQueue($target->db, new Clock());
+        $jobId = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', false), 'ada', RestoreConfirmJob::ONCE);
+        $job = $queue->claim('worker-a');
+        $this->assertNotNull($job);
+        $kept = ['restored' => true, 'tables' => ['items' => 1], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
+        $this->assertTrue($queue->complete($job, $kept));
+        $manifest = $target->dataDir() . '/uploads/restore/' . $id . '/manifest.json';
+        $stored = json_decode((string)file_get_contents($manifest), true, 8, JSON_THROW_ON_ERROR);
+        $stored['status'] = 'restored';
+        $stored['result'] = ['tables' => ['items' => 9], 'photos' => 4, 'warnings' => ['no'], 'token_cleared' => true];
+        file_put_contents($manifest, json_encode($stored, JSON_THROW_ON_ERROR));
+        $recovery = new RestoreConfirmRecovery($queue, $uploads);
+        $this->assertSame($kept, $recovery->recover($queue->find($jobId) ?? $job)->result);
+        $other = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($id, 'local', true), 'ada', RestoreConfirmJob::ONCE);
+        $failed = $queue->claim('worker-b');
+        $this->assertNotNull($failed);
+        $this->assertTrue($queue->fail($failed, 'The restore failed.', false));
+        $this->assertSame('failed', $recovery->recover($failed)->status);
+        $this->assertSame('The restore failed.', $queue->find($other)?->error);
+        $this->assertSame($kept, $queue->find($jobId)?->result);
+    }
+
+    #[DataProvider('drivers')]
+    public function testTheRestoreJobIndexKeepsTheOldestDuplicateAndSurvivesARollback(string $driver): void
+    {
+        $database = $this->database($driver);
+        $pdo = $database->pdo();
+        $pdo->exec('DROP INDEX IF EXISTS idx_jobs_restore_confirm_active');
+        $insert = $pdo->prepare('INSERT INTO jobs (type, status, payload, attempts, max_attempts, run_after, created_at, updated_at) VALUES (?, ?, ?, 1, 1, ?, ?, ?)');
+        $at = '2026-01-01 00:00:00';
+        $insert->execute(['restore.confirm', 'queued', '{"upload":"aa"}', $at, $at, $at]);
+        $insert->execute(['restore.confirm', 'queued', '{"upload":"aa"}', $at, $at, $at]);
+        $insert->execute(['restore.confirm', 'running', '{"upload":"bb"}', $at, $at, $at]);
+        $insert->execute(['restore.confirm', 'queued', '{"upload":"bb"}', $at, $at, $at]);
+        $insert->execute(['restore.confirm', 'done', '{"upload":"cc"}', $at, $at, $at]);
+        $insert->execute(['restore.confirm', 'queued', '{"upload":"cc"}', $at, $at, $at]);
+        $insert->execute(['ok', 'queued', '{}', $at, $at, $at]);
+        $insert->execute(['ok', 'queued', '{}', $at, $at, $at]);
+        $migrate = require dirname(__DIR__, 3) . '/migrations/0033_restore_job_once.php';
+        $migrate($pdo, $driver);
+        $rows = $pdo->query("SELECT id, type, status, payload, error FROM jobs ORDER BY id")->fetchAll(\PDO::FETCH_ASSOC);
+        $byPayload = [];
+        foreach ($rows as $row) {
+            $byPayload[$row['type'] . ' ' . $row['payload']][] = $row;
+        }
+        $this->assertSame(['queued', 'failed'], [$byPayload['restore.confirm {"upload":"aa"}'][0]['status'], $byPayload['restore.confirm {"upload":"aa"}'][1]['status']]);
+        $this->assertSame('This restore is already queued.', $byPayload['restore.confirm {"upload":"aa"}'][1]['error']);
+        $this->assertSame(['running', 'failed'], [$byPayload['restore.confirm {"upload":"bb"}'][0]['status'], $byPayload['restore.confirm {"upload":"bb"}'][1]['status']]);
+        $this->assertSame(['done', 'queued'], [$byPayload['restore.confirm {"upload":"cc"}'][0]['status'], $byPayload['restore.confirm {"upload":"cc"}'][1]['status']]);
+        $this->assertCount(2, $byPayload['ok {}']);
+        $pdo->exec('DROP INDEX IF EXISTS idx_jobs_restore_confirm_active');
+        $this->assertSame($rows, $pdo->query('SELECT id, type, status, payload, error FROM jobs ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC));
+        $migrate($pdo, $driver);
+        $this->assertSame($rows, $pdo->query('SELECT id, type, status, payload, error FROM jobs ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC));
+        $failed = false;
+        try {
+            $insert->execute(['restore.confirm', 'queued', '{"upload":"aa"}', $at, $at, $at]);
+        } catch (\PDOException) {
+            $failed = true;
+        }
+        $this->assertTrue($failed);
     }
 
     /** @return iterable<string,array{0:string}> */

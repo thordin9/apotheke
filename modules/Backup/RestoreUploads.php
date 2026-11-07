@@ -356,15 +356,16 @@ final class RestoreUploads
      * confirm again, which never restores twice). Interrupted: 409 INTERRUPTED.
      *
      * @param Closure(string):array<string,mixed> $restore
+     * @param null|\Closure():void $beforeApply runs while this upload is locked, before status becomes applying
      * @return array<string,mixed> $restore's answer
      */
-    public function confirm(string $id, Closure $restore): array
+    public function confirm(string $id, Closure $restore, ?\Closure $beforeApply = null): array
     {
         if ($this->remote !== null) {
-            return $this->remote->confirm($id, $restore);
+            return $this->remote->confirm($id, $restore, $beforeApply);
         }
 
-        return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore): array {
+        return $this->locked($id, static function (string $dir, array $m, $fh) use ($restore, $beforeApply): array {
             if ($m['status'] === 'interrupted') {
                 throw new UserError(self::INTERRUPTED, 409);
             }
@@ -373,6 +374,9 @@ final class RestoreUploads
             }
             if ($m['status'] !== 'ready') {
                 throw new UserError('Finish the upload first.', 409);
+            }
+            if ($beforeApply !== null) {
+                $beforeApply();
             }
             $zip = $dir . '/' . self::ZIP;
             $sum = $m['sha256'] ?? @hash_file('sha256', $zip);

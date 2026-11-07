@@ -12,9 +12,11 @@ use Apotheke\Core\Jobs\JobRecovery;
 
 /**
  * The upload manifest is the record of the restore. A job read, and a worker
- * before it claims, copy that outcome onto the job. An expired lease is not
- * shown as a failed restore while the upload is still in use, and a manifest
- * that already says restored is stored on the job without running the restore.
+ * before it claims, copy that outcome onto the job. An upload that is still
+ * locked, or a lease that was renewed, stays running. A claim that died before
+ * applying is queued again, as the same job, once that lease has ended and the
+ * upload is free and still ready. A manifest that already says restored is
+ * stored on the job without running the restore. A finished job is left as it is.
  */
 final class RestoreConfirmRecovery implements JobRecovery
 {
@@ -54,6 +56,9 @@ final class RestoreConfirmRecovery implements JobRecovery
             $error = is_array($manifest['result'] ?? null) ? ($manifest['result']['error'] ?? null) : null;
 
             return $this->queue->replaceWithOutcome($job, is_string($error) && $error !== '' ? $error : 'The restore failed.', null);
+        }
+        if ($status === 'ready') {
+            return $this->queue->requeueExpiredLease($job) ?? $this->queue->find($job->id) ?? $job;
         }
 
         return $this->queue->resumeExpired($job);

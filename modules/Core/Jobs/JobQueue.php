@@ -191,6 +191,40 @@ final class JobQueue
         return $this->find($job->id) ?? $job;
     }
 
+    /**
+     * The lease has ended and this attempt never stored a result, or a lease expiry failed it
+     * before it stored one. Puts the same row back on the queue. Zero rows when the lease was
+     * renewed, the row is no longer that attempt, or another row of this payload is already active.
+     */
+    public function requeueExpiredLease(Job $job): ?Job
+    {
+        $now = $this->at(0);
+        $this->db->query(
+            "UPDATE jobs SET status = 'queued', attempts = 0, lease_owner = NULL, lease_until = NULL, error = NULL, finished_at = NULL, started_at = NULL, run_after = ?, updated_at = ?
+             WHERE id = ? AND type = ? AND status = 'running' AND result IS NULL AND lease_until < ? AND attempts >= max_attempts",
+            [$now, $now, $job->id, self::ONE_ACTIVE_TYPE, $now],
+        );
+        if ($this->db->affectedRows() === 1) {
+            return $this->find($job->id);
+        }
+
+        return $this->requeueExpiredFailure($job, $now);
+    }
+
+    /** An expiry failure of work that never stored a result, when no other row of this payload is active. */
+    private function requeueExpiredFailure(Job $job, string $now): ?Job
+    {
+        $payload = self::encode($job->payload);
+        $this->db->query(
+            "UPDATE jobs SET status = 'queued', attempts = 0, lease_owner = NULL, lease_until = NULL, error = NULL, finished_at = NULL, started_at = NULL, run_after = ?, updated_at = ?
+             WHERE id = ? AND type = ? AND status = 'failed' AND error = ? AND result IS NULL
+             AND NOT EXISTS (SELECT 1 FROM jobs WHERE type = ? AND payload = ? AND id <> ? AND status IN ('queued', 'running'))",
+            [$now, $now, $job->id, self::ONE_ACTIVE_TYPE, self::EXPIRED_ERROR, $job->type, $payload, $job->id],
+        );
+
+        return $this->db->affectedRows() === 1 ? $this->find($job->id) : null;
+    }
+
     /** An expiry failure is not terminal while the upload is still in use. Does not insert another row. */
     public function resumeExpired(Job $job): Job
     {
