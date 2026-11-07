@@ -125,6 +125,9 @@ final class Restorer
     /** @var list<LeaseHold> catalog lease, and the upload lease when a chunked confirm is inside it */
     private array $fences = [];
 
+    /** Token of the catalog fence row, set only for an R2 restore. */
+    private ?string $catalogFence = null;
+
     /**
      * @param BaseConnection<object|resource, object|resource> $db
      * @param Closure():list<string> $known the migration versions this install has
@@ -207,11 +210,16 @@ final class Restorer
             try {
                 return (new RestoreUnit(new ObjectLease($this->data)))->run(
                     function (LeaseHold $catalog) use ($zipPath, $settings, $runId, $upload): array {
+                        RestoreFence::claim($this->db, $catalog->token());
+                        $this->catalogFence = $catalog->token();
                         $this->fences = $upload === null ? [$catalog] : [$catalog, $upload];
                         try {
                             return $this->restoreLocked($zipPath, $settings, $runId);
                         } finally {
+                            $token = $this->catalogFence ?? '';
+                            $this->catalogFence = null;
                             $this->fences = [];
+                            RestoreFence::release($this->db, $token);
                         }
                     },
                     time(),
@@ -229,11 +237,19 @@ final class Restorer
         }
     }
 
-    /** Renew every held lease. A lost hold refuses before the next write. */
+    /** Renew every held object lease. A lost hold refuses before the next write. */
     private function fence(): void
     {
         foreach ($this->fences as $hold) {
             $hold->checkpoint();
+        }
+    }
+
+    /** The catalog transaction rejects a fence token another restore has committed. */
+    private function rejectStaleFence(): void
+    {
+        if ($this->catalogFence !== null) {
+            RestoreFence::rejectUnless($this->db, $this->catalogFence);
         }
     }
 
@@ -782,6 +798,15 @@ final class Restorer
      */
     private static function createFrom(Storage $store, string $key, string $path, array &$created): void
     {
+        if ($store instanceof R2Storage) {
+            $bytes = file_get_contents($path);
+            if ($bytes === false) {
+                throw new UserError(self::FAILED);
+            }
+            self::create($store, $key, $bytes, $created);
+
+            return;
+        }
         $fh = @fopen($path, 'rb');
         if ($fh === false) {
             throw new UserError(self::FAILED);
@@ -799,6 +824,16 @@ final class Restorer
     /** @param list<array{Storage,string}> $created */
     private static function create(Storage $store, string $key, string $bytes, array &$created): void
     {
+        if ($store instanceof R2Storage) {
+            // The condition is on this PUT. A write still in flight does not replace an object
+            // another restore has already created.
+            if (!$store->putIfMissing($key, $bytes)) {
+                throw new LeaseDenied('The lease is held.');
+            }
+            $created[] = [$store, $key];
+
+            return;
+        }
         $created[] = [$store, $key];   // before the write, as in createFrom()
         $store->write($key, $bytes);
     }
@@ -889,7 +924,15 @@ final class Restorer
             }
             try {
                 $this->fence();
-                $this->originals->write($key, $base);
+                if ($this->originals instanceof R2Storage) {
+                    if (!$this->originals->putIfMissing($key, $base)) {
+                        throw new LeaseDenied('The lease is held.');
+                    }
+                } else {
+                    $this->originals->write($key, $base);
+                }
+            } catch (LeaseDenied $e) {
+                throw $e;
             } catch (Throwable) {
                 $warnings[] = $warning;
 
@@ -1117,6 +1160,7 @@ final class Restorer
             for ($attempt = 1; ; $attempt++) {
                 try {
                     Writes::transaction($this->db, function () use ($tables, $offsets, $pg, $fh): void {
+                        $this->rejectStaleFence();
                         $this->fence();
                         if ($pg) {
                             self::pg($this->pgConnection(), 'LOCK TABLE ' . implode(', ', $tables) . ' IN SHARE ROW EXCLUSIVE MODE', null, 'lock tables');
@@ -1133,6 +1177,7 @@ final class Restorer
                             }
                         }
                         $this->advanceSequences($tables, $pg);
+                        $this->rejectStaleFence();
                     });
 
                     return;
@@ -1187,7 +1232,7 @@ final class Restorer
                 }
                 $withId = array_values(array_filter($tables, fn (string $t): bool => in_array('id', $this->backups->columns($t), true)));
                 $this->fence();
-                $stage->swap($tables, $staged, $withId, $run, $sha256);
+                $stage->swap($tables, $staged, $withId, $run, $sha256, $this->catalogFence);
             } finally {
                 try {
                     $stage->finish();

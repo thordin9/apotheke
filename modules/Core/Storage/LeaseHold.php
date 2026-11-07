@@ -34,6 +34,11 @@ final class LeaseHold
         return $write();
     }
 
+    public function token(): string
+    {
+        return $this->token;
+    }
+
     public function release(): void
     {
         $this->lease->release($this->key, $this->token);

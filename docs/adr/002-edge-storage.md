@@ -316,9 +316,10 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    This includes the chunked restore upload store (#205 and #206, module Backup, `DATA_DIR/uploads/restore/`;
    QA's N-1584). Local disk still keeps that filesystem store. When storage is explicitly R2, the chunks, the
    manifest and the lease are that same R2 storage: a manifest write is conditional on the version read with its
-   bytes, and the lease is taken before a chunk or the catalog restore changes anything. The same hold is renewed
-   before each later write, so a restore that runs longer than the first lifetime keeps the lease only while it
-   still owns it. There is no mode that
+   bytes, and the lease is taken before a chunk or the catalog restore changes anything. A new payload object is
+   created by the conditional PUT itself, so a request still in flight does not replace an object stored since
+   that request was sent. The catalog transaction, and the staged swap batch, reject a fence token another
+   restore has already committed. There is no mode that
    puts payloads in R2 and leaves the restore manifest or lock only on local disk. Restore confirm still runs in
    the request. A background job, with progress read from `GET /api/v1/jobs/{id}`, is a later change (QA's N-1589).
    Orphan multipart uploads are still cleaned up before hosted wiring, not by this step.

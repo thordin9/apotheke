@@ -72,7 +72,7 @@ final class RestoreObjectStoreTest extends TestCase
         [$id] = $store->create(8, null);
         $chunk = $this->file('abcd');
         $store->append($id, 0, $chunk, 4);
-        $writeAt = $this->op($storage->ops, 'write');
+        $writeAt = $this->op($storage->ops, 'create');
         $leaseAt = $this->opBefore($storage->ops, 'uploads/restore/leases/' . $id, $writeAt);
         $this->assertLessThan($writeAt, $leaseAt);
         $cas = $this->last($storage->ops, 'cas', RestoreObjectStore::manifestKey($id));
@@ -105,8 +105,8 @@ final class RestoreObjectStoreTest extends TestCase
             $this->assertSame('chunk failed', $e->getMessage());
         }
         $storage->failChunk = false;
-        $this->assertNull($inner->read(RestoreObjectStore::chunkKey($id, 0)));
         $this->assertSame(0, $store->get($id)['received']);
+        $this->assertNull($inner->read(RestoreObjectStore::chunkKey($id, 0)));
         $again = $store->append($id, 0, $this->file('abcd'), 4);
         $this->assertSame(4, $again['received']);
     }
@@ -224,6 +224,50 @@ final class RestoreObjectStoreTest extends TestCase
             $this->assertSame(409, $e->getCode());
         }
         $this->assertSame('applying', json_decode((string)$storage->read(RestoreObjectStore::manifestKey($id)), true)['status']);
+    }
+
+    public function testALostManifestUpdateDoesNotDeleteTheNewOwnersChunk(): void
+    {
+        $inner = new LocalStorage($this->temp());
+        $storage = $this->recording($inner);
+        $storage->keepNewOwner = true;
+        $store = $this->store($storage);
+        [$id] = $store->create(4, null);
+        try {
+            $store->append($id, 0, $this->file('abcd'), 4);
+            $this->fail('The stale manifest update must be refused.');
+        } catch (UserError $e) {
+            $this->assertSame(409, $e->getCode());
+        }
+        $this->assertSame('NEW!', $inner->read(RestoreObjectStore::chunkKey($id, 0)));
+        $kept = json_decode((string)$inner->read(RestoreObjectStore::manifestKey($id)), true);
+        $this->assertSame(4, $kept['received']);
+    }
+
+    public function testTheIndexIsWrittenBeforeTheManifest(): void
+    {
+        $inner = new LocalStorage($this->temp());
+        $storage = $this->recording($inner);
+        $store = $this->store($storage);
+        [$id] = $store->create(4, null);
+        $indexAt = null;
+        $manifestAt = null;
+        foreach ($storage->ops as $at => $op) {
+            if (!in_array($op['op'], ['create', 'cas'], true)) {
+                continue;
+            }
+            if ($indexAt === null && str_contains($op['key'], 'index.json')) {
+                $indexAt = $at;
+            }
+            if ($manifestAt === null && str_contains($op['key'], '/manifests/')) {
+                $manifestAt = $at;
+            }
+        }
+        $this->assertNotNull($indexAt);
+        $this->assertNotNull($manifestAt);
+        $this->assertLessThan($manifestAt, $indexAt);
+        $this->assertNotNull($inner->read('uploads/restore/index.json'));
+        $this->assertNotNull($inner->read(RestoreObjectStore::manifestKey($id)));
     }
 
     public function testACatalogUnitRunsOnlyAfterItsLeaseAndCleansUpOnFailure(): void
@@ -353,6 +397,10 @@ final class RestoreObjectStoreTest extends TestCase
 
             public bool $failChunk = false;
 
+            public bool $keepNewOwner = false;
+
+            public bool $stopOnManifest = false;
+
             public function __construct(private readonly LocalStorage $inner)
             {
             }
@@ -402,12 +450,32 @@ final class RestoreObjectStoreTest extends TestCase
             public function putIfMissing(string $key, string $bytes): bool
             {
                 $this->ops[] = ['op' => 'create', 'key' => $key, 'etag' => null];
+                if ($this->stopOnManifest && str_contains($key, '/manifests/')) {
+                    throw new RuntimeException('manifest');
+                }
+                $created = $this->inner->putIfMissing($key, $bytes);
+                if ($this->failChunk && str_contains($key, '/chunks/')) {
+                    throw new RuntimeException('chunk failed');
+                }
 
-                return $this->inner->putIfMissing($key, $bytes);
+                return $created;
             }
 
             public function putIfVersion(string $key, string $etag, string $bytes): bool
             {
+                if ($this->keepNewOwner && str_contains($key, '/manifests/') && str_contains($bytes, '"received":4')) {
+                    $id = basename($key, '.json');
+                    $this->inner->write('uploads/restore/chunks/' . $id . '/0', 'NEW!');
+                    $current = $this->inner->version($key);
+                    $owner = json_decode((string)$current[0], true);
+                    unset($owner['pending']);
+                    $owner['received'] = 4;
+                    $owner['next'] = 1;
+                    $owner['status'] = 'uploading';
+                    $this->inner->putIfVersion($key, $current[1], json_encode($owner, JSON_THROW_ON_ERROR));
+
+                    return false;
+                }
                 if ($this->staleManifest && str_contains($key, '/manifests/')) {
                     $this->staleManifest = false;
                     $current = $this->inner->version($key);

@@ -1,8 +1,18 @@
 import net from 'node:net';
 
 const objects = new Map();
+const held = [];
 let seq = 0;
 let swapNext = false;
+let holdNext = false;
+
+function applyPut(key, body, ifNone, ifMatch) {
+  const current = objects.get(key);
+  if (ifNone === '*' && current) return { status: 412, body: '' };
+  if (ifMatch !== null && (current === undefined || ifMatch !== current.etag)) return { status: 412, body: '' };
+  objects.set(key, { body, etag: `etag-${++seq}`, modified: 1_700_000_000 + seq });
+  return { status: 200, body: '{"ok":true}' };
+}
 
 function send(socket, status, body) {
   const payload = Buffer.from(body);
@@ -35,7 +45,9 @@ function readBody(buffer, headerEnd, headers) {
 
 const server = net.createServer((socket) => {
   const chunks = [];
+  let settled = false;
   const done = (buffer) => {
+    if (settled) return true;
     const headerEnd = buffer.indexOf('\r\n\r\n');
     if (headerEnd < 0) return false;
     const head = buffer.subarray(0, headerEnd).toString();
@@ -50,8 +62,27 @@ const server = net.createServer((socket) => {
     }
     if (url.pathname === '/reset') {
       objects.clear();
+      held.splice(0).forEach((item) => send(item.socket, 500, ''));
       swapNext = false;
+      holdNext = false;
       seq = 0;
+      send(socket, 200, '{"ok":true}');
+      return true;
+    }
+    if (url.pathname === '/hold-next') {
+      holdNext = true;
+      send(socket, 200, '{"ok":true}');
+      return true;
+    }
+    if (url.pathname === '/holding') {
+      send(socket, 200, String(held.length));
+      return true;
+    }
+    if (url.pathname === '/release-holds') {
+      for (const item of held.splice(0)) {
+        const result = applyPut(item.key, item.body, item.ifNone, item.ifMatch);
+        send(item.socket, result.status, result.body);
+      }
       send(socket, 200, '{"ok":true}');
       return true;
     }
@@ -64,18 +95,16 @@ const server = net.createServer((socket) => {
       const body = readBody(buffer, headerEnd, headers);
       if (body === null) return false;
       const key = decodeURIComponent(url.pathname.slice(1));
-      const current = objects.get(key);
-      if (url.searchParams.get('if_none_match') === '*' && current) {
-        send(socket, 412, '');
+      const ifNone = url.searchParams.get('if_none_match');
+      const ifMatch = url.searchParams.get('if_match');
+      if (holdNext) {
+        holdNext = false;
+        settled = true;
+        held.push({ socket, key, body, ifNone, ifMatch });
         return true;
       }
-      const match = url.searchParams.get('if_match');
-      if (match !== null && (current === undefined || match !== current.etag)) {
-        send(socket, 412, '');
-        return true;
-      }
-      objects.set(key, { body, etag: `etag-${++seq}`, modified: 1_700_000_000 + seq });
-      send(socket, 200, '{"ok":true}');
+      const result = applyPut(key, body, ifNone, ifMatch);
+      send(socket, result.status, result.body);
       return true;
     }
     const key = decodeURIComponent(url.pathname.slice(1));

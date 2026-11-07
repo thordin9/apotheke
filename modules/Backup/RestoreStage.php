@@ -309,7 +309,7 @@ final class RestoreStage
      * @param array<string,array{columns:list<string>,rows:int}> $staged per staged table: its columns and row count
      * @param list<string> $withId the tables with an id column (their sequences move past the restored ids)
      */
-    public function swap(array $tables, array $staged, array $withId, string $run, string $sha256): void
+    public function swap(array $tables, array $staged, array $withId, string $run, string $sha256, ?string $fence = null): void
     {
         $pg = $this->exec->dialect()->name === Dialect::POSTGRES;
         if ($run === self::LOCK) {
@@ -317,6 +317,9 @@ final class RestoreStage
         }
         $s = $pg ? [] : [['sql' => 'PRAGMA defer_foreign_keys = ON', 'params' => []]];
         $s[] = $this->held();
+        if ($fence !== null) {
+            $s[] = RestoreFence::guard($fence);
+        }
         foreach ($staged as $t => $plan) {
             $s[] = ['sql' => 'INSERT INTO uow_guard (ok) SELECT NULL WHERE (SELECT COUNT(*) FROM ' . self::copy($t) . ') <> ?', 'params' => [$plan['rows']]];
         }

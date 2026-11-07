@@ -301,6 +301,31 @@ final class ObjectLeaseTest extends TestCase
         $this->assertSame('B', $storage->read('restores/winner'));
     }
 
+    public function testAHeldConditionalCreateDoesNotReplaceTheNewerObject(): void
+    {
+        $port = $this->server();
+        $url = 'http://127.0.0.1:' . $port;
+        $dir = $this->temp();
+        file_get_contents($url . '/hold-next');
+        $writer = $this->proc($this->putScript($url, $dir));
+        $until = microtime(true) + 5;
+        do {
+            $holding = file_get_contents($url . '/holding');
+            if ($holding === '1') {
+                break;
+            }
+            usleep(20000);
+        } while (microtime(true) < $until);
+        $this->assertSame('1', $holding);
+        $storage = new R2Storage(new R2Bridge($url));
+        $this->assertTrue($storage->putIfMissing('restores/winner', 'NEW'));
+        file_get_contents($url . '/release-holds');
+        $text = stream_get_contents($writer[1]) . stream_get_contents($writer[2]);
+        $this->assertSame(0, proc_close($writer[0]), $text);
+        $this->assertSame('rejected', trim((string)file_get_contents($dir . '/result')));
+        $this->assertSame('NEW', $storage->read('restores/winner'));
+    }
+
     public function testProductionTransportKeepsTheEtagFromTheObjectItRead(): void
     {
         $port = $this->server();
@@ -340,6 +365,21 @@ final class ObjectLeaseTest extends TestCase
         $this->processes[] = $process;
 
         return [$process, $pipes[1], $pipes[2]];
+    }
+
+    private function putScript(string $url, string $dir): string
+    {
+        $autoload = dirname(__DIR__, 4) . '/vendor/autoload.php';
+
+        return <<<PHP
+<?php
+require '{$autoload}';
+use Apotheke\Core\Storage\R2Bridge;
+use Apotheke\Core\Storage\R2Storage;
+\$storage = new R2Storage(new R2Bridge('{$url}'));
+\$ok = \$storage->putIfMissing('restores/winner', 'OLD');
+file_put_contents('{$dir}/result', \$ok ? 'landed' : 'rejected');
+PHP;
     }
 
     private function script(string $url, string $dir, string $role): string

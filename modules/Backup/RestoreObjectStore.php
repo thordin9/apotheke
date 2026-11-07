@@ -134,28 +134,22 @@ final class RestoreObjectStore
             $manifest['pending'] = $index;
             $manifest = $this->commit(self::manifestKey($id), $etag, $manifest);
             $etag = $this->fresh($id)[1];
-            $guard($part);
-            try {
-                $this->beat();
-                $this->storage->write($part, $raw);
-            } catch (Throwable $e) {
-                $this->storage->delete($part);
-                $guard(null);
-                unset($manifest['pending']);
-                try {
-                    $this->commit(self::manifestKey($id), $etag, $manifest);
-                } catch (UserError) {
-                    // The next read removes a pending chunk the commit could not clear.
-                }
-                throw $e;
+            $this->beat();
+            if (!$this->storage->putIfMissing($part, $raw)) {
+                throw new UserError(Restorer::BUSY, 409);
             }
-            unset($manifest['pending']);
+            $manifest = $this->withoutPending($manifest);
             $manifest['received'] += $bytes;
             $manifest['next']++;
-            $saved = $this->commit(self::manifestKey($id), $etag, $manifest);
-            $guard(null);
+            try {
+                return $this->commit(self::manifestKey($id), $etag, $manifest);
+            } catch (UserError $e) {
+                $manifest['received'] -= $bytes;
+                $manifest['next']--;
+                $this->rollbackOwnChunk($part, $etag, $this->withoutPending($manifest));
 
-            return $saved;
+                throw $e;
+            }
         });
     }
 
@@ -371,8 +365,7 @@ final class RestoreObjectStore
             $etag = $version[1];
             if (isset($manifest['pending'])) {
                 $this->storage->delete(self::chunkKey($id, $manifest['pending']));
-                unset($manifest['pending']);
-                $manifest = $this->commit(self::manifestKey($id), $etag, $manifest);
+                $manifest = $this->commit(self::manifestKey($id), $etag, $this->withoutPending($manifest));
                 $etag = $this->fresh($id)[1];
             }
             if ($manifest['status'] === 'applying') {
@@ -572,6 +565,54 @@ final class RestoreObjectStore
         for ($i = 0; $i < $manifest['next']; $i++) {
             $this->storage->delete(self::chunkKey($id, $i));
         }
+    }
+
+    /**
+     * @param Manifest $manifest
+     * @return Manifest
+     */
+    private function withoutPending(array $manifest): array
+    {
+        $clear = [
+            'owner' => $manifest['owner'],
+            'size' => $manifest['size'],
+            'sha256' => $manifest['sha256'],
+            'chunk_size' => $manifest['chunk_size'],
+            'received' => $manifest['received'],
+            'next' => $manifest['next'],
+            'status' => $manifest['status'],
+        ];
+        if (array_key_exists('fingerprint', $manifest)) {
+            $clear['fingerprint'] = $manifest['fingerprint'];
+        }
+        if (array_key_exists('result', $manifest)) {
+            $clear['result'] = $manifest['result'];
+        }
+
+        return $clear;
+    }
+
+    /** @param Manifest $manifest */
+    private function rollbackOwnChunk(string $part, string $etag, array $manifest): void
+    {
+        $id = self::chunkOwner($part);
+        $current = $this->storage->version(self::manifestKey($id));
+        if ($current === null || !hash_equals($current[1], $etag)) {
+            return;
+        }
+        $this->storage->delete($part);
+        try {
+            $this->commit(self::manifestKey($id), $current[1], $manifest);
+        } catch (UserError) {
+            // The pending name is still on our manifest. The next read removes the chunk.
+        }
+    }
+
+    private static function chunkOwner(string $part): string
+    {
+        $bits = explode('/', $part);
+
+        return $bits[count($bits) - 2];
     }
 
     private function guard(): LeaseHold
