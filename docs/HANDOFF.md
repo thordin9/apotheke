@@ -41,7 +41,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-4 orphan multipart sweep (`cursor/p4-4-orphan-sweep-e9c8`): after one day, a marked unfinished upload is aborted through the R2 binding and the marker is then deleted. Deleting a marker does not abort an upload. The binding cannot list an upload that has no marker, so that remainder is an account lifecycle rule. No cron, public route, binding, or readiness flip. The hosted gate stays closed.
+- P4-4 orphan multipart sweep [#249](https://github.com/thordin9/apotheke/pull/249) (`cursor/p4-4-orphan-sweep-e9c8`): after one day, a marked unfinished upload is aborted through the R2 binding and the marker is then deleted. Deleting a marker does not abort an upload. The binding cannot list an upload that has no marker, so that remainder is an account lifecycle rule. No cron, public route, binding, or readiness flip. The hosted gate stays closed.
 - **Mandatory before hosted wiring:** the account lifecycle rule for unmarked incomplete multipart uploads. This pull request does not create it.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.

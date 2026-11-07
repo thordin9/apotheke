@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **edge:** expire an abandoned multipart upload that still has a marker after one day, then delete the marker. Deleting a marker does not abort the upload. An upload with no marker stays for an account lifecycle rule, and the hosted gate stays closed ([#249](https://github.com/thordin9/apotheke/pull/249))
+
 ## [3.26.0] - 2026-11-07
 
 - **backup:** on a batch-only database, chunked restore confirm runs as one background job and reports progress from `GET /api/v1/jobs/{id}`. PDO confirm stays in the request. A second confirm does not queue another job. A read of the job copies the upload's outcome onto that row: a live lease stays running, a claim that died before applying is queued again as the same job once that lease has ended, and a manifest that already says restored is kept. A finished job is not given a different result ([#248](https://github.com/thordin9/apotheke/pull/248))
