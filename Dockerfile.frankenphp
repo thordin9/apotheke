@@ -99,6 +99,7 @@ RUN set -eux; \
     php -m | grep -qx sqlite3; \
     php -m | grep -qx pgsql; \
     php -m | grep -qx pcntl; \
+    php -m | grep -qx curl; \
     php -r 'exit(function_exists("imagewebp") && function_exists("imagecreatefromjpeg") ? 0 : 1);'; \
     php -r 'exit(in_array("HEIC", array_map("strtoupper", Imagick::queryFormats()), true) ? 0 : 1);'; \
     frankenphp version; \

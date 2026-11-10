@@ -8,26 +8,33 @@ const MARKER = ".mpu/";
 // use at most two of the former and six emitted bytes. Syntax costs 15 bytes.
 export const MARKER_BODY_LIMIT = 6 * (1024 + 1024) + new TextEncoder().encode(PREFIX).length + 15;
 const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
-export type R2Env = { STORAGE?: R2Bucket; DB?: unknown };
+export type R2Env = { STORAGE?: R2Bucket; DB?: unknown; INSTALLATION?: unknown };
 
 /**
- * P4-5: the storage the container uses follows the Worker's bindings, not a var. The fragment edge/storage.jsonc
- * binds STORAGE and DB together, only behind EDGE_STORAGE_READY. Neither bound: LocalStorage (the default). Both:
- * R2. One without the other is a broken config: refuse rather than fall back, so files and data never split.
+ * P4-5: the container's storage follows the Worker's bindings, never a var. edge/storage.jsonc binds STORAGE, DB
+ * and INSTALLATION together, only behind EDGE_STORAGE_READY. None bound: local disk and the container's own
+ * database (the default). All three: R2 for files and the Installation object for the database. Anything in
+ * between is a broken config: refuse rather than fall back, so files and data never split.
  */
 export function storageBackend(env: R2Env): "local" | "r2" {
-	const r2 = env.STORAGE != null;
-	if (r2 !== (env.DB != null)) throw new Error("storage bindings incomplete");
-	return r2 ? "r2" : "local";
+	const bound = [env.STORAGE, env.DB, env.INSTALLATION].filter((b) => b != null).length;
+	if (bound === 0) return "local";
+	if (bound === 3) return "r2";
+	throw new Error("storage bindings incomplete");
+}
+
+/** Whether the storage mode is selected; a broken config counts as not selected. */
+export function storageSelected(env: R2Env): boolean {
+	try {
+		return storageBackend(env) === "r2";
+	} catch {
+		return false;
+	}
 }
 
 /** The bucket r2.internal may use: only when R2 is the selected backend. */
 export function selectedBucket(env: R2Env): R2Bucket | undefined {
-	try {
-		return storageBackend(env) === "r2" ? env.STORAGE : undefined;
-	} catch {
-		return undefined;
-	}
+	return storageSelected(env) ? env.STORAGE : undefined;
 }
 
 function internalSegment(segment: string): boolean {

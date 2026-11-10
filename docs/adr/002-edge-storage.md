@@ -350,6 +350,13 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    (a generic 503, no fallback). `r2.internal` answers only while R2 is selected, so a local-disk container never
    reaches the bucket. The public Worker adds no route. The app database on the edge is still the container's own
    SQLite until the `Installation` and D1 wiring lands, so the gate stays closed.
+   The second part exports `Installation` (so the merged config's `v2` migration resolves) and serves
+   `d1.internal` from that object's SQLite. The storage mode needs `STORAGE`, `DB` and `INSTALLATION` together;
+   with any other mix the container does not start, and both bridges answer 503. The Worker makes the object's id
+   in one helper, from `jurisdiction("eu")` and the name `primary`. Each bridge call runs inside one
+   `transactionSync`, so a batch is all or nothing and no other call runs between its statements. `DB` is not used
+   for app data (it stays the control plane). The third part is the PHP database driver over `d1.internal`; until it
+   lands the container still keeps its database on its own disk.
 
 ## Ownership
 

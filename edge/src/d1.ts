@@ -10,6 +10,16 @@
 /** Env may lack DB until EDGE_STORAGE_READY merges edge/storage.jsonc. */
 export type D1Env = { DB?: D1Database };
 
+type D1Rows = { results?: unknown[]; meta?: { changes?: number; last_row_id?: number } };
+/** A prepared statement as handleD1Request uses it: D1's own, or the Installation object's (installation.ts). */
+export type D1LikeStatement = { bind(...values: unknown[]): D1LikeStatement; all(): Promise<D1Rows> };
+/** What handleD1Request needs from a database: D1Database, or the Installation object's SQLite. */
+export type D1Like = {
+	prepare(sql: string): D1LikeStatement;
+	batch(statements: D1LikeStatement[]): Promise<D1Rows[]>;
+	exec(sql: string): Promise<{ count: number }>;
+};
+
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), {
 		status,
@@ -18,7 +28,7 @@ const json = (body: unknown, status = 200): Response =>
 
 type Statement = { sql: string; params?: unknown[] };
 
-const prepare = (db: D1Database, s: Statement): D1PreparedStatement => {
+const prepare = (db: D1Like, s: Statement): D1LikeStatement => {
 	const stmt = db.prepare(s.sql);
 	const params = s.params ?? [];
 	return params.length === 0 ? stmt : stmt.bind(...params);
@@ -56,10 +66,10 @@ const fail = (e: unknown): Response => {
 };
 
 /**
- * Serve one d1.internal request against a D1 (or DO SQLite) binding.
+ * Serve one d1.internal request against a D1 binding or the Installation object's SQLite.
  * Exported for the deploy-scripts unit tests; the Worker entry is D1Outbound.
  */
-export async function handleD1Request(request: Request, db: D1Database): Promise<Response> {
+export async function handleD1Request(request: Request, db: D1Like): Promise<Response> {
 	const path = new URL(request.url).pathname;
 	if (request.method !== "POST") {
 		return json({ ok: false, code: "method_not_allowed", error: "POST only" }, 405);
