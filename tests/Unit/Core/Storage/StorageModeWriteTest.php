@@ -6,6 +6,7 @@ namespace Apotheke\Core\Storage;
 
 use Apotheke\Media\Storage\OriginalStore;
 use Apotheke\Media\Storage\ServedImageWriter;
+use Apotheke\Settings\LocalBrandStore;
 use PHPUnit\Framework\TestCase;
 
 /** Storage-mode writes go to the R2 backend, not the data directory. */
@@ -51,8 +52,13 @@ final class StorageModeWriteTest extends TestCase
             $this->assertTrue((new OriginalStore($storage->forOriginals()))->save($name, 'camera-bytes', 'jpg'));
             $storage->write('files/attach.bin', 'attachment-bytes');
             $storage->write('tmp/import-1.csv', "name\nwidget\n");
+            $brand = new LocalBrandStore($storage);
+            $brand->put('logo.png', 'PNG');
 
             $this->assertSame('attachment-bytes', $storage->read('files/attach.bin'));
+            $this->assertSame('PNG', $brand->read('logo.png'));
+            $this->assertArrayHasKey('brand/logo.png', $objects);
+            $this->assertFileDoesNotExist($dir . '/brand/logo.png');
             $this->assertSame("name\nwidget\n", $storage->read('tmp/import-1.csv'));
             $this->assertArrayHasKey('images/' . $name, $objects);
             $this->assertArrayHasKey('thumbs/' . $name, $objects);

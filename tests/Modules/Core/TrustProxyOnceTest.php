@@ -10,6 +10,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\HTTP\IncomingRequest;
 use CodeIgniter\HTTP\SiteURI;
 use CodeIgniter\HTTP\UserAgent;
@@ -90,7 +91,7 @@ final class TrustProxyOnceTest extends CIUnitTestCase
 
     private function settings(TestDatabase $database): SettingsService
     {
-        return new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'), new Clock(), $database->config->values(), static fn (string $m): null => null);
+        return new SettingsService(new SettingsRepository($database->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($database->dataDir())), new Clock(), $database->config->values(), static fn (string $m): null => null);
     }
 
     /**

@@ -345,14 +345,14 @@ class Services extends BaseService
         );
     }
 
-    /** Logo and icon files: DATA_DIR/brand on local disk. */
+    /** Logo and icon files: DATA_DIR/brand, or R2 in storage mode (directory 0775 on disk). */
     public static function brandStore(bool $getShared = true): \Apotheke\Settings\BrandStore
     {
         if ($getShared) {
             return static::getSharedInstance('brandStore');
         }
 
-        return new \Apotheke\Settings\LocalBrandStore(static::apothekeConfig()->dataDir() . '/brand');
+        return new \Apotheke\Settings\LocalBrandStore(\Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values(), null, 0775));
     }
 
     /**

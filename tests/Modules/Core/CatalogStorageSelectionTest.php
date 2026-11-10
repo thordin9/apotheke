@@ -14,7 +14,7 @@ use Config\Services;
 use InvalidArgumentException;
 use ReflectionProperty;
 
-/** P4-5: photos, originals, attachments and imports follow StorageFactory. */
+/** P4-5: photos, originals, attachments, imports and brand files follow StorageFactory. */
 final class CatalogStorageSelectionTest extends CIUnitTestCase
 {
     private string $dir;
@@ -59,6 +59,9 @@ final class CatalogStorageSelectionTest extends CIUnitTestCase
         $this->assertInstanceOf(LocalStorage::class, $this->filesOf(Services::itemRepository(false)));
         $this->assertInstanceOf(LocalStorage::class, $this->filesOf(Services::imports(false)));
         $this->assertInstanceOf(LocalStorage::class, $this->prop($this->prop(Services::autofill(false), 'temps'), 'storage'));
+        $brand = $this->filesOf(Services::brandStore(false));
+        $this->assertInstanceOf(LocalStorage::class, $brand);
+        $this->assertSame(0775, $this->prop($brand, 'dirMode'));
     }
 
     public function testStorageModeSelectsR2ForEveryCatalogFactory(): void
@@ -72,6 +75,7 @@ final class CatalogStorageSelectionTest extends CIUnitTestCase
         $this->assertInstanceOf(R2Storage::class, $this->filesOf(Services::itemRepository(false)));
         $this->assertInstanceOf(R2Storage::class, $this->filesOf(Services::imports(false)));
         $this->assertInstanceOf(R2Storage::class, $this->prop($this->prop(Services::autofill(false), 'temps'), 'storage'));
+        $this->assertInstanceOf(R2Storage::class, $this->filesOf(Services::brandStore(false)));
     }
 
     public function testUnusableR2SelectionIsAnErrorNotADiskFallback(): void
@@ -86,6 +90,12 @@ final class CatalogStorageSelectionTest extends CIUnitTestCase
         try {
             Services::servedImages(false);
             $this->fail('an unusable R2 selection must not construct local disk storage');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('origin-only', $e->getMessage());
+        }
+        try {
+            Services::brandStore(false);
+            $this->fail('an unusable R2 selection must not construct local brand storage');
         } catch (InvalidArgumentException $e) {
             $this->assertStringContainsString('origin-only', $e->getMessage());
         }

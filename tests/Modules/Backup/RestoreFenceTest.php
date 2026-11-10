@@ -17,6 +17,7 @@ use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
 use Apotheke\Undo\UndoTokens;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
@@ -116,7 +117,7 @@ final class RestoreFenceTest extends CIUnitTestCase
                 RestoreFence::rejectUnless($db, 'holder-b');
             });
             $this->assertSame('Kept', (new SettingsService(
-                new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($database->dataDir() . '/brand'),
+                new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($database->dataDir())),
                 new Clock(), $database->config->values(), null, new CommandLine(),
             ))->get('app_name'));
             $undo->prune(true, static function () use ($db): void {
@@ -263,7 +264,7 @@ final class RestoreFenceTest extends CIUnitTestCase
         return new SettingsService(
             new SettingsRepository($database->db),
             new SettingsSchema(),
-            new LocalBrandStore($database->dataDir() . '/brand'),
+            new LocalBrandStore(new LocalStorage($database->dataDir())),
             new Clock(),
             $database->config->values(),
             null,
