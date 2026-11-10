@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **edge:** after a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle ([#271](https://github.com/thordin9/apotheke/pull/271))
+
 ## [3.29.1] - 2026-11-10
 
 ### Fixed
