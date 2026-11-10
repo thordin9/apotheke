@@ -20,7 +20,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   PR 4 (#248) is merged: on a batch-only database, chunked confirm is one `restore.confirm` job.
   The orphan multipart sweep (#249) is merged as an uncalled helper. It does not create the account lifecycle rule, and the hosted gate stays closed.
   P4-5 piece 1 (#251) is merged: R2 is selected only from the merged storage bindings, never a var. Piece 2a (#252, passed QA) exports the `Installation` Durable Object and serves `d1.internal` from its SQLite; the storage mode needs `STORAGE`, `DB` and `INSTALLATION` together, any other mix refuses to start, and both bridges are closed outside it.
-  Piece 2b (branch `feat/p4-5-db-driver`; for its review state, see the open PRs on GitHub) adds the CodeIgniter driver `Apotheke\Core\Database\D1` over `d1.internal` (chunk 1) and selects it in storage mode (chunk 2-i): the Worker sets `DB_DRIVER=d1` with `STORAGE_BACKEND=r2` in the container env, PHP refuses `d1` without R2, the SQL executor is the batch-only bridge, and the schema bootstraps on the object under a lease. The app's write paths are not converted yet (chunk 2-ii), and the app's photos, originals and attachments still use the container's disk.
+  Piece 2b (branch `feat/p4-5-db-driver`; for its review state, see the open PRs on GitHub) adds the CodeIgniter driver `Apotheke\Core\Database\D1` over `d1.internal` (chunk 1). It reads a statement as a read or a write on the same comment-stripped text as the statement guard. Chunk 2-i selects it in storage mode: the Worker sets `DB_DRIVER=d1` with `STORAGE_BACKEND=r2` in the container env, PHP refuses `d1` without R2, the SQL executor is the batch-only bridge, and the schema bootstraps on the object under a lease. The app's write paths are not converted yet (chunk 2-ii), and the app's photos, originals and attachments still use the container's disk.
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
   restore manifest and the lease on that same storage. A new object is created with the condition on that PUT, so a
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and
@@ -38,7 +38,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   says restored is `done` with that result, and a finished job is not given a different result. A second confirm
   does not insert another row. A SQLite catalog-fence claim waits for the holder's bridge work and still
   commits only after that transaction ends. An expired restore job whose upload is gone is failed, and that
-  attempt cannot store a result afterwards. The next finding id is 1844.
+  attempt cannot store a result afterwards. The next finding id is 1846.
   Remaining R2 object reads stay bounded by the current bridge
   (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
 
@@ -55,7 +55,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. P4-5 piece 2b: chunk 2-ii moves every app write path to the batch path or refuses it on `d1` (the 12 `Writes::transaction` sites, the 3 direct transactions and the savepoints); then the app's media and attachment storage follows `StorageFactory`; chunk 3 is the `edge-local` end-to-end check and the runbook. Until 2-ii, storage mode must not hold real data. Then host-only cookies, `edge-local` with storage, the preview guard cases, and the runbook. The sweep helper stays uncalled. The next finding id is 1844.
+1. P4-5 piece 2b: chunk 2-ii moves every app write path to the batch path or refuses it on `d1` (the 12 `Writes::transaction` sites, the 3 direct transactions and the savepoints); then the app's media and attachment storage follows `StorageFactory`; chunk 3 is the `edge-local` end-to-end check and the runbook. Until 2-ii, storage mode must not hold real data. Then host-only cookies, `edge-local` with storage, the preview guard cases, and the runbook. The sweep helper stays uncalled. The next finding id is 1846.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).

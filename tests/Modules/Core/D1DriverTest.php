@@ -7,11 +7,13 @@ namespace Tests\Core;
 use Apotheke\Core\Database\BatchExecutor;
 use Apotheke\Core\Database\D1\Connection;
 use Apotheke\Core\Database\D1\Result;
+use Apotheke\Core\Database\D1Limits;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\Exceptions\DatabaseException;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\Database;
+use PHPUnit\Framework\Attributes\DataProvider;
 use SQLite3;
 
 /** A d1.internal stand-in: a real SQLite, batches all or nothing, failures as the bridge's generic JSON. */
@@ -359,5 +361,134 @@ final class D1DriverTest extends CIUnitTestCase
             $this->assertTrue($db->transCommit());
         }
         $this->assertSame([['qty' => 6]], $this->rows('SELECT qty FROM item'));
+    }
+
+    /**
+     * Leading comments and whitespace the statement guard strips (D1Limits): both comment styles, mixed and
+     * multi-line, CRLF, no space after a comment, SQLite's non-nesting block comment, and a CTE.
+     *
+     * @return array<string,array{string,int}> the write and the rows it changes in setUp's three-row table
+     */
+    public static function commentedWrites(): array
+    {
+        return [
+            'line comment' => ["-- note\nUPDATE item SET qty = 7", 3],
+            'block comment' => ["/* note */ UPDATE item SET qty = 7 WHERE id > 1", 2],
+            'no space after a comment' => ['/**/DELETE FROM item WHERE id = 1', 1],
+            'mixed, multi-line, tabs' => ["/* a */\n\t-- b\n  /* c\n d */\t INSERT INTO item (name) VALUES ('x')", 1],
+            'CRLF line comment' => ["\r\n -- c\r\nREPLACE INTO item (id, name) VALUES (9, 'x')", 1],
+            'block comments do not nest' => ["/* outer /* inner */ UPDATE item SET qty = 7 WHERE id = 2", 1],
+            'empty line comment' => ["--\nINSERT INTO item (name) VALUES ('x')", 1],
+            'CTE after a comment' => ["-- c\nWITH n(v) AS (SELECT 1) INSERT INTO item (name) SELECT 'x' FROM n", 1],
+            'comment inside a CTE' => ["WITH n(v) AS (SELECT 1) /* c */ UPDATE item SET qty = (SELECT v FROM n)", 3],
+            'a word RETURNING in a literal' => ["/* c */ INSERT INTO item (name) VALUES (' RETURNING ')", 1],
+            'lower case after a WITH' => ["/* c */ with n(v) as (select 1) insert into item (name) select 'x' from n", 1],
+        ];
+    }
+
+    private function seed(): void
+    {
+        $this->bridge->db->exec("INSERT INTO item (name) VALUES ('a'), ('b'), ('c')");
+    }
+
+    #[DataProvider('commentedWrites')]
+    public function testACommentedWriteInATransactionIsQueuedAndARollbackSendsNothing(string $sql, int $changes): void
+    {
+        $this->seed();
+        $before = $this->rows('SELECT * FROM item ORDER BY id');
+        $db = $this->db();
+        $db->transBegin();
+        $this->assertTrue($db->query($sql), 'a queued write answers true');
+        $this->assertSame([], $this->bridge->calls, 'queued, not sent');
+        $db->transRollback();
+        $this->assertSame([], $this->bridge->calls);
+        $this->assertSame($before, $this->rows('SELECT * FROM item ORDER BY id'), 'the rollback left no row');
+        $db->transBegin();
+        $db->query($sql);
+        $this->assertTrue($db->transCommit());
+        $this->assertSame(['/batch'], array_column($this->bridge->calls, 0), 'the commit sends it as the batch');
+        $this->assertNotSame($before, $this->rows('SELECT * FROM item ORDER BY id'));
+    }
+
+    #[DataProvider('commentedWrites')]
+    public function testACommentedWriteOutsideATransactionReportsItsOwnCounts(string $sql, int $changes): void
+    {
+        $this->seed();
+        $db = $this->db();
+        $this->assertTrue($db->query($sql), 'a write answers true, not a result');
+        $this->assertSame($changes, $db->affectedRows());
+        $this->assertSame(['/batch'], array_column($this->bridge->calls, 0), 'one batch with changes(), no bare query');
+        $this->assertStringStartsWith('SELECT changes()', $this->bridge->calls[0][1][1]['sql']);
+    }
+
+    /** The other direction: a read whose comments, literals or quoted names look like a write stays a read. */
+    public function testAReadThatLooksLikeAWriteIsReadInATransaction(): void
+    {
+        $this->seed();
+        $db = $this->db();
+        foreach ([
+            "WITH n(v) AS (SELECT 1) SELECT v FROM n WHERE 'a' <> ' DELETE '",
+            'WITH n(v) AS (SELECT 1) SELECT v FROM n /* DELETE */',
+            "-- INSERT INTO item\nSELECT 1 AS v",
+            'WITH "update"(v) AS (SELECT 1) SELECT v FROM "update"',
+            'WITH my_update(v) AS (SELECT 1) SELECT v FROM my_update',
+        ] as $sql) {
+            $this->bridge->calls = [];
+            $db->transBegin();
+            $r = $db->query($sql);
+            $this->assertInstanceOf(Result::class, $r, $sql);
+            $this->assertSame([['v' => 1]], $r->getResultArray(), $sql);
+            $this->assertSame(['/query'], array_column($this->bridge->calls, 0), $sql);
+            $db->transRollback();
+        }
+    }
+
+    public function testACommentedWriteWithRowsIsRefusedInATransactionAndAnsweredOutside(): void
+    {
+        $this->seed();
+        $this->bridge->db->exec('CREATE TABLE r ("returning" TEXT)');
+        $db = $this->db(['DBDebug' => true]);
+        $db->transBegin();
+        $this->assertFalse($db->query("/* c */\nUPDATE item SET qty = 1 WHERE id = 1 RETURNING id"), 'rows from a queued write would be guessed');
+        $this->assertFalse($db->transStatus());
+        $this->assertSame('D1 cannot return rows from a write inside a transaction; use a unit of work.', $db->error()['message']);
+        $this->assertSame([], $this->bridge->calls);
+        $db->transRollback();
+        $db->transBegin();
+        $this->assertTrue($db->query('-- c' . "\n" . 'INSERT INTO r ("returning") VALUES (\'x\')'), 'a quoted name is not RETURNING');
+        $this->assertTrue($db->transCommit());
+        $r = $db->query("-- c\nUPDATE item SET qty = 2 WHERE id > 1 RETURNING id");
+        $this->assertSame([['id' => 2], ['id' => 3]], $r->getResultArray());
+        $this->assertSame(2, $db->affectedRows());
+    }
+
+    public function testAnUnclosedLeadingCommentIsRefusedBeforeAnythingIsSent(): void
+    {
+        $unreadable = 'D1 batch statements must be readable: a block comment is not closed.';
+        $db = $this->db(['DBDebug' => true]);
+        try {
+            $db->query('/* INSERT INTO item (name) VALUES (1)');
+            $this->fail('an unreadable statement must not run');
+        } catch (DatabaseException $e) {
+            $this->assertSame($unreadable, $e->getMessage());
+        }
+        $db->transBegin();
+        $this->assertFalse($db->query('/* x */ INSERT INTO item (name) VALUES (1) /* open'));
+        $this->assertFalse($db->transStatus());
+        $this->assertSame($unreadable, $db->error()['message']);
+        $db->transRollback();
+        $this->assertSame([], $this->bridge->calls);
+    }
+
+    /** The guard and the classifier read one text: comments and whitespace on both ends are gone for both. */
+    public function testTheGuardAndTheClassifierReadTheSameText(): void
+    {
+        $sql = "\t-- c\n/* d */ PRAGMA table_list \n\t-- e\n";
+        $this->assertSame('PRAGMA table_list', D1Limits::leading($sql));
+        D1Limits::refuse($sql, 0);
+        $db = $this->db(['DBDebug' => true]);
+        $this->assertFalse($db->isWriteType($sql));
+        $this->assertNotSame([], $db->query($sql)->getResultArray(), 'a documented PRAGMA with comments around it is read');
+        $this->assertSame(['/query'], array_column($this->bridge->calls, 0));
     }
 }
