@@ -9,8 +9,8 @@ namespace Apotheke\Core\Http;
  * written into it. Legacy init_session() and login_session() on main (#84).
  *
  * A request loads a session only when its apothekesid cookie names a session
- * file that still exists, so 404s, branding and other anonymous requests leave
- * nothing on disk. A page that renders a form starts one on demand
+ * that still exists (a file, or a row when DB_DRIVER=d1), so 404s, branding
+ * and other anonymous requests leave nothing behind. A page that renders a form starts one on demand
  * (SessionToken). The session is released right after it is loaded so
  * parallel requests never queue on its lock.
  *
@@ -69,10 +69,22 @@ final class SessionGate
     {
     }
 
-    /** The cookie names a session file that still exists (legacy session_cookie_live()). */
-    public function isLive(string $id, string $saveDir): bool
+    /**
+     * The cookie names a session that still exists (legacy session_cookie_live()).
+     * $exists is the database probe used when DB_DRIVER=d1; otherwise a file under $saveDir.
+     *
+     * @param (callable(string):bool)|null $exists
+     */
+    public function isLive(string $id, string $saveDir, ?callable $exists = null): bool
     {
-        return preg_match('/^[A-Za-z0-9,-]{22,256}$/D', $id) === 1 && is_file($saveDir . '/sess_' . $id);
+        if (preg_match('/^[A-Za-z0-9,-]{22,256}$/D', $id) !== 1) {
+            return false;
+        }
+        if ($exists !== null) {
+            return $exists($id);
+        }
+
+        return is_file($saveDir . '/sess_' . $id);
     }
 
     /**

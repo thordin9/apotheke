@@ -2,11 +2,11 @@
 declare(strict_types=1);
 
 /*
- * The CI4-only additions (upg_ci4_only(): migrations 0029 to 0032, the jobs, import_rows, uow_guard, uow_refs and
- * restore_marker tables) on a real install, for the
+ * The CI4-only additions (upg_ci4_only(): migrations 0029 to 0034, the jobs, import_rows, uow_guard, uow_refs,
+ * restore_marker and sessions tables) on a real install, for the
  * upgrade/rollback job. The snapshots leave them out, so this checks them on their own.
  *   php tests/upgrade/ci4-only.php seed          after CI4 migrated: adds two jobs rows (one done, one queued), two
- *                                                import_rows rows and a restore_marker row
+ *                                                import_rows rows, a restore_marker row and a sessions row
  *   php tests/upgrade/ci4-only.php check LABEL   every CI4-only migration is recorded, every CI4-only table is there,
  *                                                and the seeded rows are unchanged
  *   php tests/upgrade/ci4-only.php zip LABEL Z   the backup zip Z (made by CI4 on that install) names no CI4-only
@@ -28,6 +28,7 @@ const UPG_IMPORT_ROWS = [
     [9001, 3, 'error', 'Name is empty.', '{}'],
 ];
 const UPG_MARKER = ['upgrade-run', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', '2026-01-01 00:00:00'];
+const UPG_SESSIONS = ['aaaaaaaaaaaaaaaaaaaaaaaaaa', 'upgrade-seed', '2000000000', '', '0'];
 
 $mode = $argv[1] ?? '';
 if ($mode === 'seed' && $argc === 2) {
@@ -37,7 +38,8 @@ if ($mode === 'seed' && $argc === 2) {
     $st = $pdo->prepare('INSERT INTO import_rows (import_id, line, state, error, made) VALUES (?, ?, ?, ?, ?)');
     foreach (UPG_IMPORT_ROWS as $row) $st->execute($row);
     $pdo->prepare('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)')->execute(UPG_MARKER);
-    echo 'ok ci4-only seed: ' . count(UPG_JOBS) . ' jobs rows, ' . count(UPG_IMPORT_ROWS) . " import_rows rows, 1 restore_marker row\n";
+    $pdo->prepare('INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)')->execute(UPG_SESSIONS);
+    echo 'ok ci4-only seed: ' . count(UPG_JOBS) . ' jobs rows, ' . count(UPG_IMPORT_ROWS) . " import_rows rows, 1 restore_marker row, 1 sessions row\n";
     exit(0);
 }
 if ($mode === 'zip' && $argc === 4) {
@@ -76,7 +78,9 @@ if ($bad === []) {
     if ($rows !== UPG_IMPORT_ROWS) $bad[] = 'table import_rows rows changed: ' . json_encode($rows);
     $rows = array_map(static fn (array $r): array => array_map('strval', $r), $pdo->query('SELECT run, sha256, applied_at FROM restore_marker')->fetchAll(PDO::FETCH_NUM));
     if ($rows !== [UPG_MARKER]) $bad[] = 'table restore_marker rows changed: ' . json_encode($rows);
+    $rows = array_map(static fn (array $r): array => array_map('strval', $r), $pdo->query('SELECT id, data, expires_at, lock_token, locked_until FROM sessions')->fetchAll(PDO::FETCH_NUM));
+    if ($rows !== [UPG_SESSIONS]) $bad[] = 'table sessions rows changed: ' . json_encode($rows);
 }
 foreach ($bad as $b) echo "FAIL $label: $b\n";
-if ($bad === []) printf("ok %s: CI4-only %s recorded, %s kept with %d rows\n", $label, implode(', ', $only['versions']), implode(', ', $only['tables']), count(UPG_JOBS) + count(UPG_IMPORT_ROWS) + 1);
+if ($bad === []) printf("ok %s: CI4-only %s recorded, %s kept with %d rows\n", $label, implode(', ', $only['versions']), implode(', ', $only['tables']), count(UPG_JOBS) + count(UPG_IMPORT_ROWS) + 2);
 exit($bad ? 1 : 0);

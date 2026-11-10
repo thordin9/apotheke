@@ -1,0 +1,359 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Core;
+
+use Apotheke\Core\Database\BatchExecutor;
+use Apotheke\Core\Database\LocalBatchExecutor;
+use Apotheke\Core\Http\DatabaseSessionHandler;
+use CodeIgniter\Test\CIUnitTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
+use RuntimeException;
+use Tests\Support\TestDatabase;
+
+/**
+ * Hosted sessions (DB_DRIVER=d1) live in the sessions table. The handler
+ * claims a lock with one UPDATE and a later SELECT, never begins a
+ * transaction, and never puts a session id or data in an error.
+ */
+final class DatabaseSessionHandlerTest extends CIUnitTestCase
+{
+    private const NOW = 1_800_000_000;
+
+    private const ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    private const OTHER = 'bbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    /** @return iterable<string,array{0:string}> */
+    public static function drivers(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield $driver => [$driver];
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testANewSessionIsWrittenAndReadBack(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            $handler = $this->handler($database, $clock);
+            $this->assertSame('', $handler->read(self::ID));
+            $this->assertTrue($handler->write(self::ID, 'payload-one'));
+            $handler->close();
+            $again = $this->handler($database, $clock);
+            $this->assertSame('payload-one', $again->read(self::ID));
+            $again->close();
+            $this->assertTrue($this->handler($database, $clock)->exists(self::ID));
+            $this->assertTrue($this->handler($database, $clock)->validateId(self::ID));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredSessionIsNotLiveAndGcRemovesIt(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            $handler = $this->handler($database, $clock, 60);
+            $handler->read(self::ID);
+            $this->assertTrue($handler->write(self::ID, 'stale'));
+            $handler->close();
+            $later = $this->handler($database, $clock + 61, 60);
+            $this->assertFalse($later->exists(self::ID));
+            $this->assertFalse($later->validateId(self::ID));
+            $this->assertSame('', $later->read(self::ID));
+            $later->close();
+            $this->assertSame(0, $this->handler($database, $clock + 61, 60)->gc(60));
+            $rows = $database->db->query('SELECT id FROM sessions')->getResultArray();
+            $this->assertSame([], $rows);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testDestroyRemovesTheRow(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = $this->handler($database, self::NOW);
+            $handler->read(self::ID);
+            $handler->write(self::ID, 'gone');
+            $handler->close();
+            $this->assertTrue($this->handler($database, self::NOW)->destroy(self::ID));
+            $this->assertFalse($this->handler($database, self::NOW)->exists(self::ID));
+            $this->assertSame('', $this->handler($database, self::NOW)->read(self::ID));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testUpdateTimestampExtendsExpiry(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = $this->handler($database, self::NOW, 60);
+            $handler->read(self::ID);
+            $handler->write(self::ID, 'kept');
+            $handler->close();
+            $this->assertTrue($this->handler($database, self::NOW + 30, 60)->updateTimestamp(self::ID, 'kept'));
+            $this->assertTrue($this->handler($database, self::NOW + 80, 60)->exists(self::ID));
+            $this->assertFalse($this->handler($database, self::NOW + 91, 60)->exists(self::ID));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAHeldLockIsNotStolenAndTheWaiterSeesTheWrite(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $setup = $this->handler($database, self::NOW);
+            $setup->read(self::ID);
+            $setup->write(self::ID, 'first');
+            $setup->close();
+
+            $env = json_encode($database->clientEnv(), JSON_THROW_ON_ERROR);
+            $worker = dirname(__DIR__) . '/_support/session-lock-worker.php';
+            $procEnv = $database->clientEnv() + ['PATH' => (string)getenv('PATH')];
+            $hold = proc_open(
+                [PHP_BINARY, $worker, 'hold', $env, self::ID, 'second', '250'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $holdPipes,
+                null,
+                $procEnv,
+            );
+            $this->assertIsResource($hold);
+            $line = (string)fgets($holdPipes[1]);
+            $this->assertSame("held\n", $line, (string)stream_get_contents($holdPipes[2]));
+
+            $follow = proc_open(
+                [PHP_BINARY, $worker, 'follow', $env, self::ID, 'third', '0'],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $followPipes,
+                null,
+                $procEnv,
+            );
+            $this->assertIsResource($follow);
+            $holdOut = stream_get_contents($holdPipes[1]) . stream_get_contents($holdPipes[2]);
+            $followOut = stream_get_contents($followPipes[1]) . stream_get_contents($followPipes[2]);
+            $holdCode = proc_close($hold);
+            $followCode = proc_close($follow);
+            $this->assertSame(0, $holdCode, $holdOut);
+            $this->assertSame(0, $followCode, $followOut);
+            $this->assertStringContainsString("wrote\n", $holdOut);
+            $this->assertStringContainsString('saw-second', $followOut);
+            $this->assertStringContainsString("wrote\n", $followOut);
+            $this->assertStringNotContainsString(self::ID, $holdOut . $followOut);
+            $row = $database->db->query('SELECT data FROM sessions WHERE id = ?', [self::ID])->getRowArray();
+            $this->assertSame('third', (string)($row['data'] ?? ''));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAHeldLockIsNotClaimedWhenTheWhereClauseIsHonoured(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $database->db->query(
+                'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
+                [self::ID, 'secret', self::NOW + 3600, 'held-by-other', self::NOW + 100],
+            );
+            $waits = 0;
+            $handler = $this->handler($database, self::NOW, 3600, static function () use (&$waits): void {
+                $waits++;
+            }, 1);
+            try {
+                $handler->read(self::ID);
+                $this->fail('a held lock must not be read');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not read the session.', $e->getMessage());
+                $this->assertStringNotContainsString(self::ID, $e->getMessage());
+                $this->assertStringNotContainsString('secret', $e->getMessage());
+            }
+            $this->assertSame(0, $waits, 'one attempt does not wait after the last try');
+            $row = $database->db->query('SELECT data, lock_token FROM sessions WHERE id = ?', [self::ID])->getRowArray();
+            $this->assertSame('secret', (string)($row['data'] ?? ''));
+            $this->assertSame('held-by-other', (string)($row['lock_token'] ?? ''));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    public function testErrorsNeverContainTheSessionIdOrData(): void
+    {
+        $exec = new class implements BatchExecutor {
+            public function run(array $statements): array
+            {
+                throw new RuntimeException('boom id=aaaaaaaaaaaaaaaaaaaaaaaaaa data=secret-payload');
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                throw new RuntimeException('boom id=aaaaaaaaaaaaaaaaaaaaaaaaaa data=secret-payload');
+            }
+        };
+        $handler = new DatabaseSessionHandler($exec, 3600, static fn (): int => self::NOW, static function (int $us): void {});
+        foreach ([
+            fn () => $handler->read(self::ID),
+            fn () => $handler->write(self::ID, 'secret-payload'),
+            fn () => $handler->destroy(self::ID),
+            fn () => $handler->gc(3600),
+            fn () => $handler->exists(self::ID),
+            fn () => $handler->updateTimestamp(self::ID, 'secret-payload'),
+        ] as $call) {
+            try {
+                $call();
+                $this->fail('the failing executor must surface as a generic error');
+            } catch (RuntimeException $e) {
+                $text = $e->getMessage() . $e->getTraceAsString();
+                $this->assertMatchesRegularExpression('/^Could not (read the session|store the session|remove the session|expire idle sessions)\.$/', $e->getMessage());
+                $this->assertStringNotContainsString(self::ID, $e->getMessage());
+                $this->assertStringNotContainsString('secret-payload', $e->getMessage());
+                $this->assertNull($e->getPrevious(), $text);
+            }
+        }
+    }
+
+    public function testHandlerSqlNeverStartsWithAComment(): void
+    {
+        $seen = [];
+        $inner = new class implements BatchExecutor {
+            /** @var list<string> */
+            public array $sql = [];
+
+            public function run(array $statements): array
+            {
+                foreach ($statements as $statement) {
+                    $this->sql[] = $statement['sql'];
+                }
+
+                return array_fill(0, count($statements), []);
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                $this->sql[] = $sql;
+
+                return [];
+            }
+        };
+        $clock = self::NOW;
+        $handler = new DatabaseSessionHandler($inner, 3600, static fn (): int => $clock, static function (int $us): void {}, 10, 1);
+        try {
+            $handler->read(self::ID);
+        } catch (RuntimeException) {
+        }
+        try {
+            $handler->write(self::ID, 'x');
+        } catch (RuntimeException) {
+        }
+        try {
+            $handler->destroy(self::ID);
+        } catch (RuntimeException) {
+        }
+        try {
+            $handler->gc(60);
+        } catch (RuntimeException) {
+        }
+        try {
+            $handler->exists(self::ID);
+        } catch (RuntimeException) {
+        }
+        try {
+            $handler->updateTimestamp(self::ID, 'x');
+        } catch (RuntimeException) {
+        }
+        $this->assertNotSame([], $inner->sql);
+        foreach ($inner->sql as $sql) {
+            $trim = ltrim($sql);
+            $this->assertDoesNotMatchRegularExpression('/^(--|#|\/\*)/', $trim, $sql);
+            $this->assertMatchesRegularExpression('/^(SELECT|INSERT|UPDATE|DELETE)\b/i', $trim, $sql);
+            $seen[] = $trim;
+        }
+        $this->assertNotSame([], $seen);
+    }
+
+    public function testAnInvalidIdIsIgnored(): void
+    {
+        $exec = new class implements BatchExecutor {
+            public int $calls = 0;
+
+            public function run(array $statements): array
+            {
+                $this->calls++;
+
+                return [];
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                $this->calls++;
+
+                return [];
+            }
+        };
+        $handler = new DatabaseSessionHandler($exec, 3600, static fn (): int => self::NOW, static function (int $us): void {});
+        $this->assertSame('', $handler->read('short'));
+        $this->assertFalse($handler->write('short', 'x'));
+        $this->assertTrue($handler->destroy('short'));
+        $this->assertFalse($handler->exists('short'));
+        $this->assertFalse($handler->validateId('short'));
+        $this->assertFalse($handler->updateTimestamp('short', 'x'));
+        $this->assertSame(0, $exec->calls);
+    }
+
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testRegenerateMovesTheRowAndDropsTheOldId(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = $this->handler($database, time());
+            session_set_save_handler($handler, true);
+            ini_set('session.use_strict_mode', '0');
+            session_id(self::ID);
+            session_start();
+            $_SESSION['uid'] = 3;
+            session_regenerate_id(true);
+            $new = session_id();
+            session_write_close();
+            $this->assertNotSame(self::ID, $new);
+            $this->assertMatchesRegularExpression('/^[A-Za-z0-9,-]{22,256}$/D', $new);
+            $probe = $this->handler($database, time());
+            $this->assertFalse($probe->exists(self::ID));
+            $this->assertTrue($probe->exists($new));
+            $this->assertStringContainsString('uid', $probe->read($new));
+            $probe->close();
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /**
+     * @param \Closure():void|null $wait
+     */
+    private function handler(TestDatabase $database, int $now, int $lifetime = 3600, ?\Closure $wait = null, int $attempts = 50): DatabaseSessionHandler
+    {
+        return new DatabaseSessionHandler(
+            new LocalBatchExecutor($database->db),
+            $lifetime,
+            static fn (): int => $now,
+            $wait ?? static function (int $us): void { usleep($us); },
+            10,
+            $attempts,
+        );
+    }
+}
