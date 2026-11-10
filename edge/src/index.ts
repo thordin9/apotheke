@@ -79,8 +79,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",
 				PORT: String(PORT),
 				TZ: "Europe/Athens",
-				// Only with the merged fragment; otherwise unset, so PHP keeps its LocalStorage default.
-				...(backend === "r2" ? { STORAGE_BACKEND: "r2" } : {}),
+				// Only with the merged fragment, and never from Worker vars; otherwise unset, so PHP keeps
+				// LocalStorage and its local database. Storage mode is R2 files plus the Installation object.
+				...(backend === "r2" ? { STORAGE_BACKEND: "r2", DB_DRIVER: "d1" } : {}),
 			},
 		});
 		await c.setInactivityTimeout(this.sleepAfter());

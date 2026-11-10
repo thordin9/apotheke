@@ -6,6 +6,7 @@ namespace Apotheke\Migrations;
 
 use Apotheke\Core\Config\ApothekeConfig;
 use Apotheke\Core\Config\DsnTranslator;
+use Apotheke\Core\Database\D1HttpExecutor;
 use Closure;
 
 /**
@@ -39,9 +40,10 @@ final class BootMigration
     /**
      * @param object $connection the request's CI4 connection (BaseConnection), already set up by DatabaseFactory
      * @param ?Closure():PdoMigrationRunner $runner builds the runner, only when a migration is missing
+     * @param ?Closure():D1Bootstrap $d1 builds the D1 bootstrap (db.driver d1), only when a migration is missing
      * @return bool whether this call ran the migrations (false: already current, or checked before)
      */
-    public static function ensure(ApothekeConfig $config, object $connection, ?Closure $runner = null): bool
+    public static function ensure(ApothekeConfig $config, object $connection, ?Closure $runner = null, ?Closure $d1 = null): bool
     {
         $db = $config->database();
         $key = self::key($db);
@@ -53,6 +55,14 @@ final class BootMigration
             self::$done[$key] = true;
 
             return false;
+        }
+        if ($driver === 'd1') {
+            // Hosted storage mode: migrate the Installation object over the bridge, under its lease.
+            $d1 = $d1 !== null ? $d1() : new D1Bootstrap(new D1HttpExecutor(), new D1MigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations'));
+            $d1->migrate();
+            self::$done[$key] = true;
+
+            return true;
         }
         $runner = $runner !== null ? $runner() : new PdoMigrationRunner(PdoMigrationRunner::repoRoot() . '/migrations');
         $pdo = $runner->connect($db);

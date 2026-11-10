@@ -54,6 +54,19 @@ if (!function_exists('config_migrate_where')) {
         return '';
     }
 }
+if (!function_exists('config_storage')) {
+    /** @return array{backend:string,max_write_bytes:int,r2_base_url:string} */
+    function config_storage(mixed $storage): array
+    {
+        return ['backend' => 'local', 'max_write_bytes' => 1, 'r2_base_url' => ''];
+    }
+}
+if (!function_exists('config_db_driver')) {
+    function config_db_driver(mixed $driver, string $backend): string
+    {
+        return '';
+    }
+}
 if (!function_exists('config_dsn_public_fields')) {
     /** @return array<string,string>|null */
     function config_dsn_public_fields(string $dsn): ?array
