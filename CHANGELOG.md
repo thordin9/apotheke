@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Fixed
+
+- **edge:** the Worker forwards to the container over HTTP with `redirect: manual` and overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from the original URL, and the entrypoint recreates Caddy's `/run` directories before FrankenPHP starts, so the hosted container can bind its PHP socket and the app still treats requests as HTTPS ([#264](https://github.com/thordin9/apotheke/pull/264))
+
 ### Maintenance
 
 - **edge:** ci: dry-run the merged storage config and ready the flip ([#253](https://github.com/thordin9/apotheke/pull/253))
