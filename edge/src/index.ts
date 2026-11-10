@@ -81,6 +81,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				TZ: "Europe/Athens",
 				// The Worker terminates TLS. The app then honours X-Forwarded-Proto/Host (overwritten below).
 				TRUST_PROXY: "1",
+				// Per-client rate-limit keys: not TRUST_PROXY (self-host may set that behind other proxies).
+				APOTHEKE_EDGE_CLIENT_IP: "1",
 				// Only with the merged fragment; otherwise unset, so PHP keeps its LocalStorage default.
 				...(backend === "r2" ? { STORAGE_BACKEND: "r2" } : {}),
 			},
@@ -137,6 +139,11 @@ function toContainer(request: Request): Request {
 	const headers = new Headers(request.headers);
 	headers.set("X-Forwarded-Proto", proto);
 	headers.set("X-Forwarded-Host", host);
+	headers.delete("X-Apotheke-Client-IP");
+	const connecting = (request.headers.get("cf-connecting-ip") ?? "").trim();
+	if (connecting !== "") {
+		headers.set("X-Apotheke-Client-IP", connecting);
+	}
 	const init: RequestInit & { duplex?: "half" } = {
 		method: request.method,
 		headers,

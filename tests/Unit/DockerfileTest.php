@@ -213,6 +213,19 @@ final class DockerfileTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/^USER /m', $docker, 'the entrypoint starts as root so it can create /run');
     }
 
+    /** Self-host (flag unset) must drop a client-supplied X-Apotheke-Client-IP before PHP. */
+    public function testCaddyDropsTheEdgeClientIpHeaderUnlessTheWorkerSetTheFlag(): void
+    {
+        $caddy = (string)file_get_contents(dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile');
+        $this->assertStringContainsString('{$APOTHEKE_EDGE_CLIENT_IP:0} != "1"', $caddy);
+        $this->assertStringContainsString('request_header @drop_edge_client_ip -X-Apotheke-Client-IP', $caddy);
+        $this->assertDoesNotMatchRegularExpression(
+            '/header_up X-Apotheke-Client-IP \{http\.request\.header/',
+            $caddy,
+            'php_hop must not copy a client value the way it copies X-Forwarded-*',
+        );
+    }
+
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);

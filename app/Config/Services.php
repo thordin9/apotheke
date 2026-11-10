@@ -554,7 +554,7 @@ class Services extends BaseService
             $trust = \Apotheke\Core\Http\RequestScheme::proxyTrusted(false);
         }
         $config = static::apothekeConfig();
-        $address = (new \Apotheke\Core\Http\ClientAddress())->forServer($_SERVER, $trust, $config->trustedProxies(), $config->realIpHeader(), $config->proxySharedSecret());
+        $address = (new \Apotheke\Core\Http\ClientAddress())->forServer($_SERVER, $trust, $config->trustedProxies(), $config->realIpHeader(), $config->proxySharedSecret(), \Apotheke\Core\Http\ClientAddress::edgeClientIpEnabled());
 
         return new \Apotheke\Auth\RateLimiter($db, $address, (new \Apotheke\Core\Libraries\Clock())->unix());
     }

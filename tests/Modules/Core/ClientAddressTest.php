@@ -41,6 +41,54 @@ final class ClientAddressTest extends TestCase
         $this->assertSame('2001:db8::5', $c->forServer(['HTTP_X_APOTHEKE_CLIENT_IP' => '2001:0db8::0005'] + $edge, false, [], '', 'edge-secret-1'));
     }
 
+    /** Hosted: X-Apotheke-Client-IP counts only when APOTHEKE_EDGE_CLIENT_IP is set and the value is an address. */
+    public function testTheWorkerClientIpHeaderNeedsTheEdgeFlag(): void
+    {
+        $c = new ClientAddress();
+        $server = [
+            'REMOTE_ADDR' => '10.0.0.9',
+            'HTTP_X_APOTHEKE_CLIENT_IP' => '198.51.100.20',
+            'HTTP_X_FORWARDED_FOR' => '203.0.113.9',
+        ];
+        $this->assertSame('198.51.100.20', $c->forServer($server, false, [], '', '', true));
+        $this->assertSame('10.0.0.9', $c->forServer($server, false, [], '', '', false), 'flag off: ignored even when set');
+        $this->assertSame('10.0.0.9', $c->forServer($server, true, [], '', '', false), 'trust_proxy alone does not enable it');
+        $this->assertSame('10.0.0.9', $c->forServer(['HTTP_X_APOTHEKE_CLIENT_IP' => 'not-an-ip'] + $server, false, [], '', '', true), 'invalid IP is ignored');
+        $this->assertSame('2001:db8::5', $c->forServer(['HTTP_X_APOTHEKE_CLIENT_IP' => '2001:0db8::0005'] + $server, false, [], '', '', true));
+    }
+
+    public function testEdgeClientIpFlagIsTheProcessEnvironment(): void
+    {
+        $oldFlag = getenv('APOTHEKE_EDGE_CLIENT_IP');
+        $oldTrust = getenv('TRUST_PROXY');
+        $c = new ClientAddress();
+        $server = ['REMOTE_ADDR' => '10.0.0.9', 'HTTP_X_APOTHEKE_CLIENT_IP' => '198.51.100.20'];
+        try {
+            putenv('TRUST_PROXY');
+            putenv('APOTHEKE_EDGE_CLIENT_IP=1');
+            $this->assertTrue(ClientAddress::edgeClientIpEnabled());
+            $this->assertSame('198.51.100.20', $c->forServer($server, false, [], '', '', ClientAddress::edgeClientIpEnabled()));
+            putenv('APOTHEKE_EDGE_CLIENT_IP');
+            putenv('TRUST_PROXY=1');
+            $this->assertFalse(ClientAddress::edgeClientIpEnabled(), 'TRUST_PROXY alone does not enable it');
+            $this->assertSame('10.0.0.9', $c->forServer($server, true, [], '', '', ClientAddress::edgeClientIpEnabled()));
+            putenv('TRUST_PROXY');
+            putenv('APOTHEKE_EDGE_CLIENT_IP=true');
+            $this->assertTrue(ClientAddress::edgeClientIpEnabled());
+        } finally {
+            if ($oldFlag === false) {
+                putenv('APOTHEKE_EDGE_CLIENT_IP');
+            } else {
+                putenv('APOTHEKE_EDGE_CLIENT_IP=' . $oldFlag);
+            }
+            if ($oldTrust === false) {
+                putenv('TRUST_PROXY');
+            } else {
+                putenv('TRUST_PROXY=' . $oldTrust);
+            }
+        }
+    }
+
     /** API plan §2.4, self-host: REAL_IP_HEADER counts only from a listed proxy with trust_proxy on. */
     public function testTheRealIpHeaderNeedsATrustedPeer(): void
     {
