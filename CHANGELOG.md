@@ -9,7 +9,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ## [Unreleased]
 
 - **core:** a CodeIgniter database driver for the edge bridge (`d1.internal`): writes in a transaction go out as one all-or-nothing batch at commit, reads that would see queued writes and `BEGIN`/`SAVEPOINT` are refused, and transport failures fail the statement. Not selected by default ([#254](https://github.com/thordin9/apotheke/pull/254))
+
+## [3.29.0] - 2026-11-10
+
 - **edge:** the `Installation` Durable Object holds the database in storage mode: `d1.internal` is served from its SQLite only when `STORAGE`, `DB` and `INSTALLATION` are all bound, any other mix does not start the container, and every bridge call is one all-or-nothing transaction ([#252](https://github.com/thordin9/apotheke/pull/252))
+
+### Added
+
+- **edge:** hold the database in the Installation Durable Object ([#252](https://github.com/thordin9/apotheke/pull/252))
 
 ## [3.28.0] - 2026-11-10
 
@@ -1430,7 +1437,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.28.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.29.0...HEAD
+[3.29.0]: https://github.com/thordin9/apotheke/compare/v3.28.0...v3.29.0
 [3.28.0]: https://github.com/thordin9/apotheke/compare/v3.27.1...v3.28.0
 [3.27.1]: https://github.com/thordin9/apotheke/compare/v3.27.0...v3.27.1
 [3.27.0]: https://github.com/thordin9/apotheke/compare/v3.26.0...v3.27.0
