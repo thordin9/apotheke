@@ -15,7 +15,8 @@ use Throwable;
  * DB_DRIVER=d1. Locking is one atomic UPDATE and a later SELECT: D1 has no
  * BEGIN, and a read after a queued write in the same batch is refused. SQL
  * never starts with a comment (M-1844). Session ids and data never appear in
- * log or error text.
+ * log or error text. A row's id is key(): the SHA-256 (hex) of the session id
+ * the cookie carries; every statement looks the row up by it.
  */
 final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
 {
@@ -102,7 +103,7 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
             return true;
         }
         try {
-            $this->exec->run([['sql' => 'DELETE FROM sessions WHERE id = ?', 'params' => [$id]]]);
+            $this->exec->run([['sql' => 'DELETE FROM sessions WHERE id = ?', 'params' => [self::key($id)]]]);
             if ($this->lockedId === $id) {
                 $this->clearLock();
             }
@@ -138,7 +139,7 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
             $now = $this->now();
             $this->exec->run([[
                 'sql' => 'UPDATE sessions SET expires_at = ? WHERE id = ? AND expires_at > ?',
-                'params' => [$now + $this->lifetime, $id, $now],
+                'params' => [$now + $this->lifetime, self::key($id), $now],
             ]]);
 
             return true;
@@ -153,7 +154,7 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
             return false;
         }
         try {
-            $rows = $this->exec->query('SELECT 1 AS ok FROM sessions WHERE id = ? AND expires_at > ?', [$id, $this->now()]);
+            $rows = $this->exec->query('SELECT 1 AS ok FROM sessions WHERE id = ? AND expires_at > ?', [self::key($id), $this->now()]);
 
             return $rows !== [];
         } catch (Throwable) {
@@ -164,13 +165,14 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
     private function lockAndRead(string $id): string
     {
         $token = bin2hex(random_bytes(16));
+        $key = self::key($id);
         for ($i = 0; $i < $this->lockAttempts; $i++) {
             $now = $this->now();
             $this->exec->run([[
                 'sql' => 'UPDATE sessions SET lock_token = ?, locked_until = ? WHERE id = ? AND expires_at > ? AND (lock_token = ? OR locked_until <= ?)',
-                'params' => [$token, $now + $this->lockSeconds, $id, $now, '', $now],
+                'params' => [$token, $now + $this->lockSeconds, $key, $now, '', $now],
             ]]);
-            $rows = $this->exec->query('SELECT data, lock_token, expires_at FROM sessions WHERE id = ?', [$id]);
+            $rows = $this->exec->query('SELECT data, lock_token, expires_at FROM sessions WHERE id = ?', [$key]);
             if ($rows === [] || (int)$rows[0]['expires_at'] <= $now) {
                 return '';
             }
@@ -193,13 +195,14 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
         $now = $this->now();
         $expires = $now + $this->lifetime;
         $token = $this->lockedId === $id ? $this->lockToken : '';
+        $key = self::key($id);
         $this->exec->run([[
             'sql' => 'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?) '
                 . 'ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at, lock_token = excluded.lock_token, locked_until = excluded.locked_until '
                 . 'WHERE sessions.lock_token = ? OR sessions.lock_token = ? OR sessions.locked_until <= ?',
-            'params' => [$id, $data, $expires, '', 0, $token, '', $now],
+            'params' => [$key, $data, $expires, '', 0, $token, '', $now],
         ]]);
-        $rows = $this->exec->query('SELECT data, lock_token FROM sessions WHERE id = ?', [$id]);
+        $rows = $this->exec->query('SELECT data, lock_token FROM sessions WHERE id = ?', [$key]);
         if ($rows === [] || (string)$rows[0]['data'] !== $data || (string)$rows[0]['lock_token'] !== '') {
             throw new RuntimeException('Could not store the session.');
         }
@@ -218,7 +221,7 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
         try {
             $this->exec->run([[
                 'sql' => 'UPDATE sessions SET lock_token = ?, locked_until = ? WHERE id = ? AND lock_token = ?',
-                'params' => ['', 0, $id, $token],
+                'params' => ['', 0, self::key($id), $token],
             ]]);
         } catch (Throwable) {
             // The request is finished; a later request can take an expired lock.
@@ -229,6 +232,12 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
     {
         $this->lockToken = '';
         $this->lockedId = '';
+    }
+
+    /** The row id of session $id. */
+    private static function key(string $id): string
+    {
+        return hash('sha256', $id);
     }
 
     private function valid(string $id): bool

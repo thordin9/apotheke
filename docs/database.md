@@ -232,7 +232,7 @@ Notes:
 | 0031 | `0031_unit_of_work.php` | `uow_guard` and `uow_refs`, the batch unit of work's guard and id tables (ADR-002), empty outside a batch. CI4 only, as 0029 |
 | 0032 | `0032_restore_marker.php` | `restore_marker`, the run id and SHA-256 of the last 20 staged restore swaps (restore on the edge, below). CI4 only, as 0029; a rollback leaves it behind |
 | 0033 | `0033_restore_job_once.php` | unique index on `jobs` so one `restore.confirm` payload is queued or running at a time. CI4 only, as 0029; no new table |
-| 0034 | `0034_sessions.php` | `sessions` (hosted PHP sessions when `DB_DRIVER=d1`; unused on PDO). CI4 only, as 0029; a rollback leaves it behind |
+| 0034 | `0034_sessions.php` | `sessions` (hosted PHP sessions when `DB_DRIVER=d1`, `id` the SHA-256 hex of the session id; unused on PDO). CI4 only, as 0029; a rollback leaves it behind |
 
 ## PostgreSQL schema and roles
 

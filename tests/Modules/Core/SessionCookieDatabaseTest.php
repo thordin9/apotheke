@@ -41,7 +41,7 @@ final class SessionCookieDatabaseTest extends CIUnitTestCase
             $now = time();
             $database->db->query(
                 'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
-                [self::ID, 'uid|i:3;auth_epoch|s:16:"0123456789abcdef";csrf|s:4:"tok1";last_activity|i:' . $now . ';', $now + 86400, '', 0],
+                [hash('sha256', self::ID), 'uid|i:3;auth_epoch|s:16:"0123456789abcdef";csrf|s:4:"tok1";last_activity|i:' . $now . ';', $now + 86400, '', 0],
             );
             $filter = new SessionCookie();
             $this->request($filter, $database, [SessionGate::COOKIE => self::ID], false);
@@ -65,12 +65,12 @@ final class SessionCookieDatabaseTest extends CIUnitTestCase
         try {
             $database->db->query(
                 'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
-                [self::ID, 'uid|i:3;last_activity|i:' . time() . ';', time() - 10, '', 0],
+                [hash('sha256', self::ID), 'uid|i:3;last_activity|i:' . time() . ';', time() - 10, '', 0],
             );
             $filter = new SessionCookie();
             $this->request($filter, $database, [SessionGate::COOKIE => self::ID]);
             $this->assertSame([], $_SESSION);
-            $row = $database->db->query('SELECT id FROM sessions WHERE id = ?', [self::ID])->getRowArray();
+            $row = $database->db->query('SELECT id FROM sessions WHERE id = ?', [hash('sha256', self::ID)])->getRowArray();
             $this->assertNotNull($row, 'expiry is a live-check; gc, not the filter, deletes the row');
         } finally {
             Services::reset();

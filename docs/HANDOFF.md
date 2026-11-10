@@ -55,7 +55,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. P4-5 piece 2b: chunk 2-ii moves every app write path to the batch path or refuses it on `d1` (the 12 `Writes::transaction` sites, the 3 direct transactions and the savepoints); chunk 3 is the `edge-local` end-to-end check and the runbook. Media, attachments, imports and brand files already follow `StorageFactory`. Hosted sessions (`DB_DRIVER=d1`) use the installation database; PDO keeps the file handler. Other remaining disk users are still on the container. Until 2-ii, storage mode must not hold real data. Then host-only cookies, `edge-local` with storage, the preview guard cases, and the runbook. The sweep helper stays uncalled. The next finding id is 1846.
+1. P4-5 piece 2b: chunk 2-ii moves every app write path to the batch path or refuses it on `d1` (the 12 `Writes::transaction` sites, the 3 direct transactions and the savepoints); chunk 3 is the `edge-local` end-to-end check and the runbook. Media, attachments, imports and brand files already follow `StorageFactory`. Hosted sessions (`DB_DRIVER=d1`) use the installation database, each row keyed by the SHA-256 (hex) of its session id; PDO keeps the file handler. Other remaining disk users are still on the container. Until 2-ii, storage mode must not hold real data. Then host-only cookies, `edge-local` with storage, the preview guard cases, and the runbook. The sweep helper stays uncalled. The next finding id is 1846.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).

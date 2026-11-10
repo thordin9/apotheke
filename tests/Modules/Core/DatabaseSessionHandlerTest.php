@@ -154,7 +154,7 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
             $this->assertStringContainsString('saw-second', $followOut);
             $this->assertStringContainsString("wrote\n", $followOut);
             $this->assertStringNotContainsString(self::ID, $holdOut . $followOut);
-            $row = $database->db->query('SELECT data FROM sessions WHERE id = ?', [self::ID])->getRowArray();
+            $row = $database->db->query('SELECT data FROM sessions WHERE id = ?', [hash('sha256', self::ID)])->getRowArray();
             $this->assertSame('third', (string)($row['data'] ?? ''));
         } finally {
             $database->drop();
@@ -168,7 +168,7 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         try {
             $database->db->query(
                 'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
-                [self::ID, 'secret', self::NOW + 3600, 'held-by-other', self::NOW + 100],
+                [hash('sha256', self::ID), 'secret', self::NOW + 3600, 'held-by-other', self::NOW + 100],
             );
             $waits = 0;
             $handler = $this->handler($database, self::NOW, 3600, static function () use (&$waits): void {
@@ -183,7 +183,7 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
                 $this->assertStringNotContainsString('secret', $e->getMessage());
             }
             $this->assertSame(0, $waits, 'one attempt does not wait after the last try');
-            $row = $database->db->query('SELECT data, lock_token FROM sessions WHERE id = ?', [self::ID])->getRowArray();
+            $row = $database->db->query('SELECT data, lock_token FROM sessions WHERE id = ?', [hash('sha256', self::ID)])->getRowArray();
             $this->assertSame('secret', (string)($row['data'] ?? ''));
             $this->assertSame('held-by-other', (string)($row['lock_token'] ?? ''));
         } finally {
@@ -337,6 +337,89 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
             $this->assertTrue($probe->exists($new));
             $this->assertStringContainsString('uid', $probe->read($new));
             $probe->close();
+            $this->assertSame([['id' => hash('sha256', $new)]], $database->db->query('SELECT id FROM sessions')->getResultArray(), 'the old row is gone, the new one keyed by its digest');
+            $this->assertNoRawValue($database, [self::ID, $new]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    // --- row keys -------------------------------------------------------------------------------------------------
+
+    /** @param list<string> $raw */
+    private function assertNoRawValue(TestDatabase $database, array $raw): void
+    {
+        foreach ($database->db->query('SELECT * FROM sessions')->getResultArray() as $row) {
+            foreach ($row as $col => $v) {
+                foreach ($raw as $id) {
+                    $this->assertStringNotContainsString($id, (string)$v, 'column ' . $col);
+                }
+            }
+        }
+    }
+
+    /** @return array<string,mixed>|null */
+    private function row(TestDatabase $database, string $key): ?array
+    {
+        return $database->db->query('SELECT data, expires_at, lock_token, locked_until FROM sessions WHERE id = ?', [$key])->getRowArray();
+    }
+
+    private function seed(TestDatabase $database, string $key, string $data, int $expires, string $token = '', int $until = 0): void
+    {
+        $database->db->query('INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)', [$key, $data, $expires, $token, $until]);
+    }
+
+    #[DataProvider('drivers')]
+    public function testTheRowIsKeyedByTheDigestOfTheSessionId(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = $this->handler($database, self::NOW);
+            $handler->read(self::ID);
+            $this->assertTrue($handler->write(self::ID, 'payload-one'));
+            $handler->close();
+            $rows = $database->db->query('SELECT id FROM sessions')->getResultArray();
+            $this->assertSame([['id' => hash('sha256', self::ID)]], $rows);
+            $this->assertSame(64, strlen((string)$rows[0]['id']));
+            $this->assertNoRawValue($database, [self::ID]);
+            $this->assertNull($this->row($database, self::ID), 'nothing is found by the raw value');
+            $this->assertSame('payload-one', (string)($this->row($database, hash('sha256', self::ID))['data'] ?? ''));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** A row keyed by the raw value (a decoy) is never read, locked, extended, removed or written by any path. */
+    #[DataProvider('drivers')]
+    public function testEveryLookupUsesTheDigest(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, self::ID, 'decoy', self::NOW + 100);
+            $decoy = $this->row($database, self::ID);
+            $handler = $this->handler($database, self::NOW, 3600, null, 2);
+            $this->assertFalse($handler->exists(self::ID));
+            $this->assertFalse($handler->validateId(self::ID));
+            $this->assertTrue($handler->updateTimestamp(self::ID, 'x'));
+            $this->assertTrue($handler->destroy(self::ID));
+            $this->assertSame('', $handler->read(self::ID), 'no row under the digest yet');
+            $this->assertTrue($handler->write(self::ID, 'real'));
+            $handler->close();
+            $this->assertSame($decoy, $this->row($database, self::ID), 'the decoy is untouched');
+            $this->assertSame('real', (string)($this->row($database, $key)['data'] ?? ''));
+
+            $reader = $this->handler($database, self::NOW + 1, 3600, null, 2);
+            $this->assertTrue($reader->exists(self::ID));
+            $this->assertSame('real', $reader->read(self::ID));
+            $this->assertNotSame('', (string)($this->row($database, $key)['lock_token'] ?? ''), 'the digest row is locked');
+            $reader->close();
+            $this->assertSame(['', 0], [(string)$this->row($database, $key)['lock_token'], (int)$this->row($database, $key)['locked_until']], 'and released by its digest');
+            $this->assertTrue($this->handler($database, self::NOW + 50)->updateTimestamp(self::ID, 'real'));
+            $this->assertSame(self::NOW + 50 + 3600, (int)$this->row($database, $key)['expires_at']);
+            $this->assertTrue($this->handler($database, self::NOW + 50)->destroy(self::ID));
+            $this->assertNull($this->row($database, $key));
+            $this->assertSame($decoy, $this->row($database, self::ID));
         } finally {
             $database->drop();
         }
