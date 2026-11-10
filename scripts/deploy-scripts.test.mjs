@@ -10,7 +10,8 @@
 //    the container gets every `vars` value of edge/wrangler.jsonc except SLEEP_AFTER_MS.
 //  - edge/tests/r2.test.mjs mocks the public R2 binding; there are no real credentials or resources.
 //  - scripts/edge-storage-config.mjs: merges edge/storage.jsonc into a copy of edge/wrangler.jsonc that the guard
-//    still accepts; a missing or malformed APOTHEKE_D1_DATABASE_ID changes nothing.
+//    still accepts; a missing or malformed APOTHEKE_D1_DATABASE_ID changes nothing. deploy-edge.yml's check job
+//    dry-runs that merge with a dummy D1 id and no secret.
 // Run: node --test --experimental-strip-types scripts/deploy-scripts.test.mjs edge/tests/r2.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -349,7 +350,7 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 	assert.equal((await obj.fetch(new Request("https://api.example.test/healthz"))).status, 200);
 	const { SLEEP_AFTER_MS, ...forwarded } = vars;
 	for (const [k, v] of Object.entries(forwarded)) assert.equal(started.env[k], v, k);
-	// N-1538: exactly these keys, no more and no fewer
+	// Wrangler vars (except SLEEP_AFTER_MS) plus TRUST_PROXY, which the Worker sets in code.
 	assert.deepEqual(Object.keys(started.env).sort(), [
 		"ALLOWED_HOSTS",
 		"APOTHEKE_JOBS_WORKER",
@@ -358,8 +359,10 @@ test("apotheke-api: the container gets every var of edge/wrangler.jsonc but SLEE
 		"COOKIE_DOMAIN",
 		"CORS_ALLOWED_ORIGINS",
 		"PORT",
+		"TRUST_PROXY",
 		"TZ",
 	]);
+	assert.equal(started.env.TRUST_PROXY, "1");
 	assert.equal(started.enableInternet, false);
 	assert.deepEqual(
 		intercepted.map(([h]) => h),
@@ -626,6 +629,31 @@ test("the default edge/wrangler.jsonc has no storage bindings (they apply only b
 	assert.deepEqual(c.durable_objects.bindings.map((b) => b.class_name), ["ApothekeContainer"]);
 	assert.deepEqual(c.migrations.map((m) => m.tag), ["v1"]);
 	assert.equal(c.vars.COOKIE_DOMAIN, "getapotheke.com", "the default (stateless) config keeps it");
+});
+
+// ADR-002: the pull request checks dry-run the merged config too, with a dummy D1 id and without any secret, after
+// the default dry run (the merge rewrites edge/wrangler.jsonc on the runner's checkout).
+test("deploy-edge.yml: the check job dry-runs the merged storage config with a dummy D1 id and no secret", () => {
+	const yml = readFileSync(join(root, ".github/workflows/deploy-edge.yml"), "utf8");
+	const check = yml.slice(yml.indexOf("\n  check:\n"), yml.indexOf("\n  deploy:\n"));
+	assert.ok(check.length > 0, "the check job is found");
+	assert.ok(!/secrets\./.test(check), "the check job reads no secret");
+	assert.ok(!/vars\./.test(check), "the check job reads no repository variable");
+	const merged = check.indexOf("- name: Merged storage config dry run");
+	const plain = check.indexOf("- name: wrangler deploy --dry-run");
+	assert.ok(plain > 0 && merged > plain, "the default dry run stays, and the merged one runs after it");
+	const step = check.slice(merged);
+	assert.match(step, /APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000\n/);
+	assert.match(step, /node scripts\/edge-storage-config\.mjs edge\/wrangler\.jsonc edge\/storage\.jsonc\n/);
+	assert.match(step, /node scripts\/cf-worker-guard\.mjs apotheke-api edge\/wrangler\.jsonc -- --dry-run\n/);
+	assert.match(step, /wrangler deploy --dry-run --config wrangler\.jsonc/);
+	assert.match(step, /env\.CORS_ALLOWED_ORIGINS \("https:\/\/getapotheke\.com"\)/);
+	assert.match(step, /env\.COOKIE_DOMAIN/);
+	assert.equal(/- name: /.test(step.slice(1)), false, "it is the last step of the check job");
+	// the dummy id is a UUID the merge accepts
+	const { r, top } = storageMerge("00000000-0000-4000-8000-000000000000");
+	rmSync(top, { recursive: true, force: true });
+	assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
 // N-1541: the fragment allows only its known keys, and no duplicate or colliding names.

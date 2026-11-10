@@ -64,7 +64,10 @@ final class TrustProxyOnceTest extends CIUnitTestCase
             foreach ($files as $file) {
                 $name = (string)$file;
                 // The migration runner opens its own PDO once per process, before CI4 connects.
-                if (!str_ends_with($name, '.php') || str_ends_with($name, '/PdoMigrationRunner.php')) {
+                // D1Pdo's in-memory preview of a queued batch is not a settings connection.
+                if (!str_ends_with($name, '.php')
+                    || str_ends_with($name, '/PdoMigrationRunner.php')
+                    || str_ends_with($name, '/D1Pdo.php')) {
                     continue;
                 }
                 if (preg_match('/\\bpg_connect\\s*\\(|\\bnew\\s+\\\\?(?:PDO|SQLite3)\\s*\\(|TrustProxyReader/', $this->code($name), $m) === 1) {

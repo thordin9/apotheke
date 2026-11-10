@@ -41,12 +41,25 @@ final class D1SelectionTest extends CIUnitTestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('loaders')]
+    public function testR2StorageNeedsD1(callable $load): void
+    {
+        foreach ([['STORAGE_BACKEND' => 'r2'], ['STORAGE_BACKEND' => 'R2', 'DB_DRIVER' => 'sqlite'], ['STORAGE_BACKEND' => 'r2', 'DB_DRIVER' => 'pgsql']] as $env) {
+            try {
+                $load($env);
+                $this->fail('R2 storage without d1 must be refused: ' . json_encode($env));
+            } catch (RuntimeException $e) {
+                $this->assertSame('STORAGE_BACKEND=r2 needs DB_DRIVER=d1.', $e->getMessage());
+            }
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('loaders')]
     public function testDefaultsStayLocal(callable $load): void
     {
         $cfg = $load([]);
         $this->assertSame('sqlite', $cfg['db']['driver']);
         $this->assertSame(['backend' => 'local', 'max_write_bytes' => 104857600, 'r2_base_url' => 'http://r2.internal'], $cfg['storage']);
-        $this->assertSame('r2', $load(['STORAGE_BACKEND' => 'r2'])['storage']['backend'], 'the CI4 config reads STORAGE_BACKEND');
+        $this->assertSame('r2', $load(['STORAGE_BACKEND' => 'r2', 'DB_DRIVER' => 'd1'])['storage']['backend'], 'the CI4 config reads STORAGE_BACKEND');
         $this->assertSame(5, $load(['R2_MAX_WRITE_BYTES' => '5'])['storage']['max_write_bytes']);
     }
 

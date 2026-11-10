@@ -134,6 +134,88 @@ final class D1BootstrapTest extends CIUnitTestCase
         $this->assertSame('other', self::lease($d1)[0]['owner'] ?? null);
     }
 
+
+    /** M-1846: a later write in a callable must not leave earlier writes or a lease behind. */
+    public function testAFailedMultiCallCallableLeavesNoSchemaAndFreesTheLease(): void
+    {
+        $d1 = new D1SqliteStandIn();
+        $dir = $this->oneStep('$pdo->exec("CREATE TABLE t (x INTEGER)"); $pdo->exec("CREATE TABLE u (x INTEGER)");');
+        $d1->reject = static fn (string $sql): bool => str_contains($sql, 'CREATE TABLE u');
+        try {
+            (new D1Bootstrap($d1, new D1MigrationRunner($dir)))->migrate();
+            $this->fail('the failing step must surface');
+        } catch (\PDOException $e) {
+            $this->assertSame('Database write failed: the batch', $e->getMessage());
+        }
+        $this->assertSame([], $d1->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('t', 'u')", []));
+        $this->assertSame([], $d1->query('SELECT version FROM schema_migrations', []));
+        $this->assertSame([], self::lease($d1), 'a failed run releases its lease, so the next request retries');
+    }
+
+    public function testRerunningAFailedCallableAppliesItOnce(): void
+    {
+        $d1 = new D1SqliteStandIn();
+        $dir = $this->oneStep('$pdo->exec("CREATE TABLE t (x INTEGER)"); $pdo->exec("CREATE TABLE u (x INTEGER)");');
+        $d1->reject = static fn (string $sql): bool => str_contains($sql, 'CREATE TABLE u');
+        try {
+            (new D1Bootstrap($d1, new D1MigrationRunner($dir)))->migrate();
+            $this->fail('the failing step must surface');
+        } catch (\PDOException) {
+        }
+        $d1->reject = null;
+        $this->assertSame(['0001'], (new D1Bootstrap($d1, new D1MigrationRunner($dir)))->migrate());
+        $this->assertSame(
+            ['t', 'u'],
+            array_column($d1->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('t', 'u') ORDER BY name", []), 'name'),
+        );
+        $this->assertSame(['0001'], array_keys((new D1MigrationRunner($dir))->applied($d1)));
+        $this->assertSame([], (new D1Bootstrap($d1, new D1MigrationRunner($dir)))->migrate(), 'a second run finds the schema current');
+        $this->assertCount(1, $d1->query('SELECT version FROM schema_migrations', []));
+        $this->assertSame([], self::lease($d1));
+    }
+
+    /** Mutant: schema_migrations written outside the batch would leave the tables if the record write fails. */
+    public function testAFailedRecordWriteRollsBackTheCallable(): void
+    {
+        $d1 = new D1SqliteStandIn();
+        $dir = $this->oneStep('$pdo->exec("CREATE TABLE t (x INTEGER)"); $pdo->exec("CREATE TABLE u (x INTEGER)");');
+        $d1->reject = static fn (string $sql): bool => str_starts_with($sql, 'INSERT INTO schema_migrations');
+        try {
+            (new D1Bootstrap($d1, new D1MigrationRunner($dir)))->migrate();
+            $this->fail('the failed record must surface');
+        } catch (\PDOException $e) {
+            $this->assertSame('Database write failed: the batch', $e->getMessage());
+        }
+        $this->assertSame([], $d1->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('t', 'u')", []));
+        $this->assertSame([], $d1->query('SELECT version FROM schema_migrations', []));
+        $this->assertSame([], self::lease($d1));
+        $together = false;
+        foreach ($d1->batches as $batch) {
+            $writes = $record = false;
+            foreach ($batch as $sql) {
+                $writes = $writes || str_contains($sql, 'CREATE TABLE t') || str_contains($sql, 'CREATE TABLE u');
+                $record = $record || str_starts_with($sql, 'INSERT INTO schema_migrations');
+            }
+            $together = $together || ($writes && $record);
+        }
+        $this->assertTrue($together, 'the callable writes and the schema_migrations row must be one batch');
+    }
+
+    public function testAnArrayMigrationIsUnchanged(): void
+    {
+        $this->dir = sys_get_temp_dir() . '/coder2-d1boot-' . bin2hex(random_bytes(4));
+        mkdir($this->dir);
+        file_put_contents($this->dir . '/0001_step.php', "<?php\nreturn ['sqlite' => 'CREATE TABLE t (x INTEGER); CREATE TABLE u (x INTEGER);'];\n");
+        $d1 = new D1SqliteStandIn();
+        $this->assertSame(['0001'], (new D1Bootstrap($d1, new D1MigrationRunner($this->dir)))->migrate());
+        $this->assertSame(
+            ['t', 'u'],
+            array_column($d1->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('t', 'u') ORDER BY name", []), 'name'),
+        );
+        $this->assertSame(['0001'], array_keys((new D1MigrationRunner($this->dir))->applied($d1)));
+        $this->assertSame([], self::lease($d1));
+    }
+
     public function testBootMigrationUsesTheBootstrapForD1AndNeverPdo(): void
     {
         $config = ApothekeConfig::load('/app', null, ['DB_DRIVER' => 'd1', 'STORAGE_BACKEND' => 'r2']);

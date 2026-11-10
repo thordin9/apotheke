@@ -555,9 +555,9 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
         try {
-            $trust = (bool)static::settings()->get('trust_proxy');
+            $trust = \Apotheke\Core\Http\RequestScheme::proxyTrusted((bool)static::settings()->get('trust_proxy'));
         } catch (\Throwable) {
-            $trust = false;
+            $trust = \Apotheke\Core\Http\RequestScheme::proxyTrusted(false);
         }
         $config = static::apothekeConfig();
         $address = (new \Apotheke\Core\Http\ClientAddress())->forServer($_SERVER, $trust, $config->trustedProxies(), $config->realIpHeader(), $config->proxySharedSecret());
@@ -1029,7 +1029,7 @@ class Services extends BaseService
         $s = static::settings();
         $server = static::request()->getServer();
         $check = static::hostCheck(false);
-        $base = (new \Apotheke\Core\Http\RequestScheme((bool)$s->get('trust_proxy')))
+        $base = (\Apotheke\Core\Http\RequestScheme::fromSetting((bool)$s->get('trust_proxy')))
             ->publicBase(is_array($server) ? $server : [], static fn (string $host): bool => $check->passes($host), (string)$s->get('public_url'));
 
         return new \Apotheke\ControlPanel\Views\ControlPanelView(static::layout(), $base);
@@ -1071,7 +1071,7 @@ class Services extends BaseService
         $publicUrl = (string)$s->get('public_url');
         $server = static::request()->getServer();
         $check = static::hostCheck(false);
-        $base = (new \Apotheke\Core\Http\RequestScheme((bool)$s->get('trust_proxy')))
+        $base = (\Apotheke\Core\Http\RequestScheme::fromSetting((bool)$s->get('trust_proxy')))
             ->publicBase(is_array($server) ? $server : [], static fn (string $host): bool => $check->passes($host), $publicUrl);
 
         return new \Apotheke\Labels\Views\LabelsView(static::layout(), $cfg, $publicUrl, $base);
