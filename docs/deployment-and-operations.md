@@ -644,13 +644,13 @@ deleted. Never paste a token, a secret value or a resource id into a pull reques
 |---|---|---|---|
 | 1.1 | Storage gate criteria 1 to 4 of [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate): P4-2 to P4-5 merged (so `edge/src/index.ts` exports `Installation`), `edge-local` green with D1 and R2, the preview guard cases, and every `Installation` id made through `jurisdiction("eu")` | app | the merged dry run (part 2) is green on `main` |
 | 1.2 | D1 database `apotheke-api` in the EU jurisdiction (fixed at creation; a `--location` hint is ignored with a jurisdiction) | Stathis | `npx --no-install wrangler d1 list` shows it with jurisdiction `eu` |
-| 1.3 | R2 bucket `apotheke-api-storage` in the EU jurisdiction | Stathis | `npx --no-install wrangler r2 bucket list --jurisdiction eu`. EU buckets are listed only with the jurisdiction (the API needs the `cf-r2-jurisdiction: eu` header), so a plain listing does not show it |
+| 1.3 | R2 bucket `apotheke-api-storage` in the EU jurisdiction. **Done:** exists in `eu` (EEUR) | Stathis | `npx --no-install wrangler r2 bucket list --jurisdiction eu`. EU buckets are listed only with the jurisdiction (the API needs the `cf-r2-jurisdiction: eu` header), so a plain listing does not show it |
 | 1.4 | Repository variable `APOTHEKE_D1_DATABASE_ID` = the UUID from `wrangler d1 info apotheke-api` (an identifier, not a secret) | Stathis | `gh variable list` |
 | 1.5 | `deploy-edge` environment: secret `CLOUDFLARE_API_TOKEN`, variable `CLOUDFLARE_ACCOUNT_ID`, required reviewer, `main` and `v*` only | Stathis | `gh secret list --env deploy-edge`, `gh variable list --env deploy-edge` |
 | 1.6 | Token scope of that secret: see *Token scope* below | Stathis | Cloudflare dashboard, *Account API tokens* |
 | 1.7 | Worker secrets `APP_KEY` and `APP_PASSWORD` on `apotheke-api` ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)) | DevOps (`APP_KEY`), Stathis (`APP_PASSWORD`) | `npx --no-install wrangler secret list --name apotheke-api` lists both names |
 | 1.8 | Custom domain for the first host in `ALLOWED_HOSTS` (`api.services.getapotheke.com`) attached to `apotheke-api` | Stathis | dashboard, *Workers > apotheke-api > Domains* |
-| 1.9 | R2 lifecycle rule on `apotheke-api-storage`: abort incomplete multipart uploads after 1 day, prefix `installations/primary/`. Uploads without a marker are not in the binding's object list, so only this rule aborts them ([storage gate](#storage-gate-edge_storage_ready)). Existing rules are kept | Stathis (pending approval) | `npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu` |
+| 1.9 | R2 lifecycle rule on `apotheke-api-storage`: abort incomplete multipart uploads after 1 day, prefix `installations/primary/`. Uploads without a marker are not in the binding's object list, so only this rule aborts them ([storage gate](#storage-gate-edge_storage_ready)). Existing rules are kept. **Done:** rule `apotheke-primary-abort-incomplete-1d`, applied 2026-11-10 11:13 EET; the default whole-bucket 7-day abort rule is kept | Stathis | `npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu` |
 | 1.10 | `ext-curl` in the image (R2 from PHP needs it): `Dockerfile.frankenphp` fails its build without `php -m` listing `curl` | app (#252) | the PR dry run builds the image, so a green dry run means it is there |
 | 1.11 | `CORS_ALLOWED_ORIGINS=https://getapotheke.com` in `edge/wrangler.jsonc` `vars`; the merge drops only `COOKIE_DOMAIN` | DevOps | the merged dry run checks both (part 2) |
 
@@ -681,12 +681,12 @@ npx --no-install wrangler r2 bucket list --jurisdiction eu     # apotheke-api-st
 gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>
 ```
 
-The lifecycle rule (1.9), only after Stathis approves it. List first and keep every existing rule; `add` appends one
-rule named `abort-mpu-primary`:
+The lifecycle rule (1.9) is applied (see the table). To recreate it, list first and keep every existing rule; `add`
+appends one rule named `apotheke-primary-abort-incomplete-1d`:
 
 ```sh
 npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu
-npx --no-install wrangler r2 bucket lifecycle add apotheke-api-storage abort-mpu-primary installations/primary/ \
+npx --no-install wrangler r2 bucket lifecycle add apotheke-api-storage apotheke-primary-abort-incomplete-1d installations/primary/ \
   --abort-multipart-days 1 --jurisdiction eu
 npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu   # old rules + the new one
 ```
