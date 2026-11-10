@@ -516,6 +516,151 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         }
     }
 
+    // --- expired claims ------------------------------------------------------------------------------------------
+
+    /**
+     * A handler whose clock is read from $clock, so a test can let its lease run out.
+     */
+    private function clocked(TestDatabase $database, int &$clock): DatabaseSessionHandler
+    {
+        return new DatabaseSessionHandler(new LocalBatchExecutor($database->db), 3600, static function () use (&$clock): int {
+            return $clock;
+        }, static function (int $us): void {
+            throw new RuntimeException('no wait expected');
+        }, 10, 1);
+    }
+
+    /**
+     * A claims, its lease runs out, and B claims the row.
+     *
+     * @return array{0:DatabaseSessionHandler,1:DatabaseSessionHandler} [A, B]
+     */
+    private function staleClaim(TestDatabase $database, int &$clock): array
+    {
+        $this->seed($database, hash('sha256', self::ID), 'old', self::NOW + 3600);
+        $a = $this->clocked($database, $clock);
+        $this->assertSame('old', $a->read(self::ID));
+        $clock = self::NOW + 11;
+        $b = $this->clocked($database, $clock);
+        $this->assertSame('old', $b->read(self::ID));
+
+        return [$a, $b];
+    }
+
+    private function assertStaleWriteRefused(DatabaseSessionHandler $a): void
+    {
+        $error = null;
+        try {
+            $a->write(self::ID, 'from-a');
+        } catch (RuntimeException $e) {
+            $error = $e;
+        }
+        $this->assertInstanceOf(RuntimeException::class, $error, 'an expired claim stores nothing');
+        $this->assertSame('Could not store the session.', $error->getMessage());
+        $this->assertNull($error->getPrevious());
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredClaimDoesNotOverwriteALaterReleasedWrite(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a, $b] = $this->staleClaim($database, $clock);
+            $this->assertTrue($b->write(self::ID, 'from-b'));
+            $this->assertTrue($b->close());
+            $this->assertSame(['from-b', ''], [(string)$this->row($database, hash('sha256', self::ID))['data'], (string)$this->row($database, hash('sha256', self::ID))['lock_token']]);
+
+            $this->assertStaleWriteRefused($a);
+            $this->assertTrue($a->close());
+            $row = $this->row($database, hash('sha256', self::ID));
+            $this->assertSame(['from-b', '', 0], [(string)$row['data'], (string)$row['lock_token'], (int)$row['locked_until']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredClaimLeavesALaterHolderAlone(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a, $b] = $this->staleClaim($database, $clock);
+            $held = $this->row($database, hash('sha256', self::ID));
+            $this->assertNotSame('', (string)$held['lock_token']);
+
+            $this->assertStaleWriteRefused($a);
+            $this->assertTrue($a->updateTimestamp(self::ID, 'old'));
+            $this->assertTrue($a->close());
+            $this->assertSame($held, $this->row($database, hash('sha256', self::ID)));
+
+            $this->assertTrue($b->write(self::ID, 'from-b'));
+            $this->assertSame('from-b', (string)$this->row($database, hash('sha256', self::ID))['data']);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredClaimDoesNotRecreateADestroyedSession(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a, $b] = $this->staleClaim($database, $clock);
+            $this->assertTrue($b->destroy(self::ID));
+            $this->assertTrue($b->close());
+
+            $this->assertStaleWriteRefused($a);
+            $this->assertTrue($a->close());
+            $this->assertSame([], $database->db->query('SELECT id FROM sessions')->getResultArray());
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredClaimNobodyTookStillStores(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $this->seed($database, hash('sha256', self::ID), 'old', self::NOW + 3600);
+            $clock = self::NOW;
+            $a = $this->clocked($database, $clock);
+            $this->assertSame('old', $a->read(self::ID));
+            $clock = self::NOW + 11;
+            $this->assertTrue($a->write(self::ID, 'from-a'));
+            $row = $this->row($database, hash('sha256', self::ID));
+            $this->assertSame(['from-a', '', self::NOW + 11 + 3600], [(string)$row['data'], (string)$row['lock_token'], (int)$row['expires_at']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAHolderExtendsTheRowItClaimed(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 100);
+            $this->seed($database, self::ID, 'decoy', self::NOW + 100);
+            $decoy = $this->row($database, self::ID);
+            $clock = self::NOW;
+            $a = $this->clocked($database, $clock);
+            $this->assertSame('old', $a->read(self::ID));
+            $clock = self::NOW + 5;
+            $this->assertTrue($a->updateTimestamp(self::ID, 'old'));
+            $this->assertSame(self::NOW + 5 + 3600, (int)$this->row($database, $key)['expires_at']);
+            $this->assertTrue($a->close());
+            $this->assertSame(['old', '', 0], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token'], (int)$this->row($database, $key)['locked_until']]);
+            $this->assertSame($decoy, $this->row($database, self::ID));
+        } finally {
+            $database->drop();
+        }
+    }
+
     /**
      * @param \Closure():void|null $wait
      */

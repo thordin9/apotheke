@@ -16,7 +16,10 @@ use Throwable;
  * BEGIN, and a read after a queued write in the same batch is refused. SQL
  * never starts with a comment (M-1844). Session ids and data never appear in
  * log or error text. A row's id is key(): the SHA-256 (hex) of the session id
- * the cookie carries; every statement looks the row up by it.
+ * the cookie carries; every statement looks the row up by it. A request that
+ * claimed the row writes, extends and releases it only while the row still
+ * carries that claim's token; each claim draws a new random token, so once
+ * another request has claimed the row the earlier claim matches nothing.
  */
 final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUpdateTimestampHandlerInterface
 {
@@ -137,9 +140,13 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
         }
         try {
             $now = $this->now();
-            $this->exec->run([[
+            $token = $this->claimOf($id);
+            $this->exec->run([$token === '' ? [
                 'sql' => 'UPDATE sessions SET expires_at = ? WHERE id = ? AND expires_at > ?',
                 'params' => [$now + $this->lifetime, self::key($id), $now],
+            ] : [
+                'sql' => 'UPDATE sessions SET expires_at = ? WHERE id = ? AND lock_token = ?',
+                'params' => [$now + $this->lifetime, self::key($id), $token],
             ]]);
 
             return true;
@@ -194,13 +201,16 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
     {
         $now = $this->now();
         $expires = $now + $this->lifetime;
-        $token = $this->lockedId === $id ? $this->lockToken : '';
+        $token = $this->claimOf($id);
         $key = self::key($id);
-        $this->exec->run([[
+        $this->exec->run([$token === '' ? [
             'sql' => 'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?) '
                 . 'ON CONFLICT(id) DO UPDATE SET data = excluded.data, expires_at = excluded.expires_at, lock_token = excluded.lock_token, locked_until = excluded.locked_until '
-                . 'WHERE sessions.lock_token = ? OR sessions.lock_token = ? OR sessions.locked_until <= ?',
-            'params' => [$key, $data, $expires, '', 0, $token, '', $now],
+                . 'WHERE sessions.lock_token = ? OR sessions.locked_until <= ?',
+            'params' => [$key, $data, $expires, '', 0, '', $now],
+        ] : [
+            'sql' => 'UPDATE sessions SET data = ?, expires_at = ?, lock_token = ?, locked_until = ? WHERE id = ? AND lock_token = ?',
+            'params' => [$data, $expires, '', 0, $key, $token],
         ]]);
         $rows = $this->exec->query('SELECT data, lock_token FROM sessions WHERE id = ?', [$key]);
         if ($rows === [] || (string)$rows[0]['data'] !== $data || (string)$rows[0]['lock_token'] !== '') {
@@ -226,6 +236,12 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
         } catch (Throwable) {
             // The request is finished; a later request can take an expired lock.
         }
+    }
+
+    /** The token of the claim this request holds on session $id, or '' when it holds none. */
+    private function claimOf(string $id): string
+    {
+        return $this->lockedId === $id ? $this->lockToken : '';
     }
 
     private function clearLock(): void

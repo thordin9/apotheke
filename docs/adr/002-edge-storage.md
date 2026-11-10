@@ -374,7 +374,7 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    The app's photos, originals, attachments, imports and brand files are selected through `StorageFactory`: storage mode uses R2,
    default mode keeps `LocalStorage`, and a selected R2 backend that cannot be used is an error, not a disk fallback.
    In storage mode, storage preflight creates only the data and sessions directories, not photo, thumb or originals directories.
-   When `DB_DRIVER=d1`, PHP sessions are stored in the CI4-only `sessions` table on the installation database: the handler claims a lock with one atomic UPDATE and a later SELECT (D1 has no `BEGIN`), and statement text never starts with a comment. A row's id is the SHA-256 (hex) of the session id, and every read, write, lock, expiry and removal looks the row up by it; the cookie carries the session id itself. PDO keeps the file handler. Session ids and data never appear in logs or error text.
+   When `DB_DRIVER=d1`, PHP sessions are stored in the CI4-only `sessions` table on the installation database: the handler claims a lock with one atomic UPDATE and a later SELECT (D1 has no `BEGIN`), and statement text never starts with a comment. A row's id is the SHA-256 (hex) of the session id, and every read, write, lock, expiry and removal looks the row up by it; the cookie carries the session id itself. A request that claimed the row writes, extends and releases it only while the row still carries that claim's token; each claim draws a new random token, so a request whose lease ran out and was taken over stores nothing. PDO keeps the file handler. Session ids and data never appear in logs or error text.
 
 ## Ownership
 
