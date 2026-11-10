@@ -82,7 +82,7 @@
 	# The Worker sets APOTHEKE_EDGE_CLIENT_IP=1 and overwrites X-Apotheke-Client-IP.
 	# When that flag is not 1 (self-host), drop a client-supplied copy so it never reaches PHP.
 	@drop_edge_client_ip {
-		expression `{$APOTHEKE_EDGE_CLIENT_IP:0} != "1"`
+		expression `"{$APOTHEKE_EDGE_CLIENT_IP:0}" != "1"`
 	}
 	request_header @drop_edge_client_ip -X-Apotheke-Client-IP
 

@@ -217,7 +217,9 @@ final class DockerfileTest extends TestCase
     public function testCaddyDropsTheEdgeClientIpHeaderUnlessTheWorkerSetTheFlag(): void
     {
         $caddy = (string)file_get_contents(dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile');
-        $this->assertStringContainsString('{$APOTHEKE_EDGE_CLIENT_IP:0} != "1"', $caddy);
+        // The placeholder must be quoted: an unquoted default expands to CEL 0 != "1" (int/string).
+        $this->assertStringContainsString('"{$APOTHEKE_EDGE_CLIENT_IP:0}" != "1"', $caddy);
+        $this->assertDoesNotMatchRegularExpression('/expression `\{\$APOTHEKE_EDGE_CLIENT_IP:0\} != "1"`/', $caddy);
         $this->assertStringContainsString('request_header @drop_edge_client_ip -X-Apotheke-Client-IP', $caddy);
         $this->assertDoesNotMatchRegularExpression(
             '/header_up X-Apotheke-Client-IP \{http\.request\.header/',
@@ -226,11 +228,60 @@ final class DockerfileTest extends TestCase
         );
     }
 
+    /** Runs frankenphp validate when the binary is on PATH; skipped otherwise. */
+    public function testFrankenphpValidatesTheCaddyfileWithAndWithoutTheEdgeClientIpFlag(): void
+    {
+        $bin = $this->frankenphpBinary();
+        if ($bin === null) {
+            $this->markTestSkipped('frankenphp is not on PATH');
+        }
+        $caddy = dirname(__DIR__, 2) . '/docker/frankenphp/Caddyfile';
+        foreach (['1', '0', null] as $flag) {
+            $env = [
+                'PORT' => '9091',
+                'FRANKENPHP_NUM_THREADS' => '2',
+                'PATH' => (string)getenv('PATH'),
+                'HOME' => (string)getenv('HOME'),
+            ];
+            if ($flag !== null) {
+                $env['APOTHEKE_EDGE_CLIENT_IP'] = $flag;
+            }
+            $proc = proc_open(
+                [$bin, 'validate', '--config', $caddy, '--adapter', 'caddyfile'],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes,
+                null,
+                $env,
+            );
+            $this->assertIsResource($proc, 'flag ' . ($flag ?? 'unset'));
+            $stdout = stream_get_contents($pipes[1]);
+            $stderr = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $code = proc_close($proc);
+            $this->assertSame(0, $code, 'validate failed for APOTHEKE_EDGE_CLIENT_IP=' . ($flag ?? '(unset)') . "\n" . $stdout . $stderr);
+        }
+    }
+
     public function testNginx421HasTheAppsText(): void
     {
         $root = dirname(__DIR__, 2);
         $this->assertSame(1, preg_match('/REFUSAL = "(Unknown host name\.[^"]*)\\\\n";/', (string)file_get_contents($root . '/modules/Core/Http/HostAllowList.php'), $app));
         $this->assertStringContainsString('return 421 "' . $app[1] . '\n";', (string)file_get_contents($root . '/docker/nginx.conf'), '#73 QA N-2');
+    }
+
+    /** Absolute path to a frankenphp binary on PATH, or null. */
+    private function frankenphpBinary(): ?string
+    {
+        $path = getenv('PATH') ?: '';
+        foreach (explode(PATH_SEPARATOR, $path) as $dir) {
+            $candidate = $dir . DIRECTORY_SEPARATOR . 'frankenphp';
+            if ($dir !== '' && is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function dockerfile(): string
