@@ -425,6 +425,97 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         }
     }
 
+    // --- stale locks ----------------------------------------------------------------------------------------------
+
+    /** @return iterable<string,array{0:string,1:int}> */
+    public static function staleLocks(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield $driver . ', expired' => [$driver, -5];
+            yield $driver . ', expires now' => [$driver, 0];
+        }
+    }
+
+    /** A lock another token holds whose locked_until <= now is taken over by a new opener. */
+    #[DataProvider('staleLocks')]
+    public function testAStaleLockIsTakenOver(string $driver, int $until): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600, 'other-token', self::NOW + $until);
+            $handler = $this->handler($database, self::NOW, 3600, static function (): void {
+                throw new RuntimeException('a stale lock must be taken at once');
+            }, 1);
+            $this->assertSame('old', $handler->read(self::ID));
+            $row = $this->row($database, $key);
+            $this->assertNotContains((string)$row['lock_token'], ['', 'other-token']);
+            $this->assertSame(self::NOW + 10, (int)$row['locked_until']);
+            $this->assertTrue($handler->write(self::ID, 'new'));
+            $handler->close();
+            $this->assertSame(['new', ''], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** One second before it lapses the lock is refused; a waiter takes it once the clock passes it. */
+    #[DataProvider('drivers')]
+    public function testAValidLockIsRefusedThenTakenWhenItLapses(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600, 'other-token', self::NOW + 1);
+            try {
+                $this->handler($database, self::NOW, 3600, static function (): void {
+                }, 1)->read(self::ID);
+                $this->fail('a valid lock must not be taken');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not read the session.', $e->getMessage());
+            }
+            $this->assertSame(['old', 'other-token', self::NOW + 1], [(string)$this->row($database, $key)['data'],
+                (string)$this->row($database, $key)['lock_token'], (int)$this->row($database, $key)['locked_until']]);
+            $clock = self::NOW;
+            $waits = 0;
+            $waiter = new DatabaseSessionHandler(new LocalBatchExecutor($database->db), 3600, static function () use (&$clock): int {
+                return $clock;
+            }, static function () use (&$clock, &$waits): void {
+                $waits++;
+                $clock++;
+            }, 10, 3);
+            $this->assertSame('old', $waiter->read(self::ID));
+            $this->assertSame(1, $waits, 'refused at now, taken at locked_until');
+            $this->assertNotSame('other-token', (string)$this->row($database, $key)['lock_token']);
+            $waiter->close();
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** A write without the lock goes through over a stale lock and not over a valid one. */
+    #[DataProvider('drivers')]
+    public function testAWriteGoesThroughAStaleLockButNotAValidOne(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600, 'other-token', self::NOW);
+            $this->assertTrue($this->handler($database, self::NOW)->write(self::ID, 'over-stale'));
+            $this->assertSame(['over-stale', ''], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
+            $database->db->query('UPDATE sessions SET lock_token = ?, locked_until = ? WHERE id = ?', ['other-token', self::NOW + 1, $key]);
+            try {
+                $this->handler($database, self::NOW)->write(self::ID, 'over-valid');
+                $this->fail('a valid lock keeps its row');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not store the session.', $e->getMessage());
+            }
+            $this->assertSame(['over-stale', 'other-token'], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
     /**
      * @param \Closure():void|null $wait
      */
