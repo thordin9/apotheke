@@ -21,8 +21,8 @@ use Tests\Support\TestDatabase;
 
 /**
  * What the hosted database (the D1 driver) refuses for now, end to end through the real controllers, services and
- * views over the bridge: CSV import and backup restore answer 501 (on /api `hosted.unavailable`)
- * before anything is stored, and their pages show a notice instead of the actions. The default install keeps them.
+ * views over the bridge: backup restore answers 501 (on /api `hosted.unavailable`) before anything is
+ * stored, and its page shows a notice instead of the actions. The default install keeps them.
  */
 final class D1HostedRefusalsTest extends CIUnitTestCase
 {
@@ -107,15 +107,6 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
         return (int)(Writes::rows($this->t?->db, 'SELECT COUNT(*) AS n FROM ' . $table)[0]['n'] ?? -1);
     }
 
-    public function testTheImportApiAnswersHostedUnavailableBeforeReadingTheUpload(): void
-    {
-        $this->site('d1');
-        $e = $this->refusal('CSV import', fn () => $this->controller(ImportsController::class, 'POST')->create());
-        $this->assertSame(['detail' => 'CSV import is not available on the hosted database yet.', 'code' => 'hosted.unavailable'],
-            array_intersect_key($this->problem($e, '/api/v1/imports'), ['code' => 1, 'detail' => 1]));
-        $this->assertSame(0, $this->rowCount('imports'));
-    }
-
     public function testTheRestoreApiRefusesEveryUploadStepUpFront(): void
     {
         $this->site('d1');
@@ -136,11 +127,10 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
     public function testHostedPagesShowTheNoticeInsteadOfTheActions(): void
     {
         $this->site('d1');
-        $import = $this->controller(ImportController::class)->index();
-        $this->assertNotice($import, 'imp-hosted', ['id="imp-upload"']);
-        $post = $this->controller(ImportController::class, 'POST')->index();
-        $this->assertSame(501, $post->getStatusCode());
-        $this->assertStringContainsString('CSV import is not available on the hosted database yet.', (string)$post->getBody());
+        // CSV import runs on the hosted database (D1HostedImportTest): the upload form and no notice.
+        $import = (string)$this->controller(ImportController::class)->index()->getBody();
+        $this->assertStringContainsString('id="imp-upload"', $import);
+        $this->assertStringNotContainsString(self::NOTICE, $import);
 
         $backup = $this->controller(BackupController::class)->index();
         $this->assertNotice($backup, 'restore-hosted', ['id="restore-form"', 'action="/backup/restore"']);

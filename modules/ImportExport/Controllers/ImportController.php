@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Apotheke\ImportExport\Controllers;
 
-use Apotheke\Core\Database\Writes;
 use Apotheke\Catalog\Controllers\CatalogController;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\StreamedResponse;
@@ -30,13 +29,6 @@ final class ImportController extends CatalogController
     public function index(): ResponseInterface
     {
         $imports = $this->imports();
-        $hosted = $imports->hosted();
-        if ($hosted) {
-            // Nothing to sweep: no import starts on the hosted database. The page shows the notice, an upload the 501.
-            return $this->request->getMethod() === 'POST'
-                ? $this->sessionPage($this->pages()->home(Writes::unavailable('CSV import')->getMessage(), null, [], false, true), 501)
-                : $this->html($this->pages()->home(null, null, [], false, true));
-        }
         $imports->sweep();   // N-374: on every upload and listing
         if ($this->request->getMethod() === 'POST') {
             $f = $this->request->getFile('csv');
