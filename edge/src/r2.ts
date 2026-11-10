@@ -8,7 +8,27 @@ const MARKER = ".mpu/";
 // use at most two of the former and six emitted bytes. Syntax costs 15 bytes.
 export const MARKER_BODY_LIMIT = 6 * (1024 + 1024) + new TextEncoder().encode(PREFIX).length + 15;
 const TOKEN = /^(?!.*[\x20\x22\x27\x28\x29\x2a])[\x21-\x7e]{1,1024}$/;
-export type R2Env = { STORAGE?: R2Bucket };
+export type R2Env = { STORAGE?: R2Bucket; DB?: unknown };
+
+/**
+ * P4-5: the storage the container uses follows the Worker's bindings, not a var. The fragment edge/storage.jsonc
+ * binds STORAGE and DB together, only behind EDGE_STORAGE_READY. Neither bound: LocalStorage (the default). Both:
+ * R2. One without the other is a broken config: refuse rather than fall back, so files and data never split.
+ */
+export function storageBackend(env: R2Env): "local" | "r2" {
+	const r2 = env.STORAGE != null;
+	if (r2 !== (env.DB != null)) throw new Error("storage bindings incomplete");
+	return r2 ? "r2" : "local";
+}
+
+/** The bucket r2.internal may use: only when R2 is the selected backend. */
+export function selectedBucket(env: R2Env): R2Bucket | undefined {
+	try {
+		return storageBackend(env) === "r2" ? env.STORAGE : undefined;
+	} catch {
+		return undefined;
+	}
+}
 
 function internalSegment(segment: string): boolean {
 	return segment.startsWith(".");

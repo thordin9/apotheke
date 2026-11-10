@@ -1,9 +1,10 @@
 // Apotheke edge (plan P4 i): the Worker `apotheke-api` forwards every request to one Durable Object, which starts
 // and reuses the Apotheke container (Dockerfile.frankenphp) through the Durable Object Container API.
-// D1 is reached from the container at http://d1.internal via an outbound handler (ADR-002, P4-3); R2 follows in P4-4.
+// D1 and R2 are reached from the container at http://d1.internal and http://r2.internal via outbound handlers
+// (ADR-002, P4-3 to P4-5). R2 is selected only when the storage fragment's bindings are on the Worker.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { d1UnboundResponse, handleD1Request, type D1Env } from "./d1";
-import { handleR2Request, r2UnboundResponse, type R2Env } from "./r2";
+import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, type R2Env } from "./r2";
 
 const PORT = 9091;
 const READY_TIMEOUT_MS = 30_000;
@@ -23,8 +24,9 @@ export class D1Outbound extends WorkerEntrypoint<Env & D1Env> {
 
 export class R2Outbound extends WorkerEntrypoint<Env & R2Env> {
 	async fetch(request: Request): Promise<Response> {
-		if (!this.env.STORAGE) return r2UnboundResponse();
-		return handleR2Request(request, this.env.STORAGE);
+		const bucket = selectedBucket(this.env);
+		if (!bucket) return r2UnboundResponse();
+		return handleR2Request(request, bucket);
 	}
 }
 
@@ -56,6 +58,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 	private async ensureReady(): Promise<number> {
 		const c = this.ctx.container;
 		if (!c) throw new Error("no container configured");
+		// Throws on half a storage fragment: the Worker answers 503 and the container never starts on a fallback.
+		const backend = storageBackend(this.env);
 		await this.wireStorage(c);
 		if (c.running) return 0;
 		const t0 = Date.now();
@@ -71,6 +75,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",
 				PORT: String(PORT),
 				TZ: "Europe/Athens",
+				// Only with the merged fragment; otherwise unset, so PHP keeps its LocalStorage default.
+				...(backend === "r2" ? { STORAGE_BACKEND: "r2" } : {}),
 			},
 		});
 		await c.setInactivityTimeout(this.sleepAfter());

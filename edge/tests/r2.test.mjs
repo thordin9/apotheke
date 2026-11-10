@@ -13,7 +13,7 @@ register('data:text/javascript,' + encodeURIComponent(`export async function res
   if (s.startsWith('./') && !s.endsWith('.ts') && c.parentURL) return next(s + '.ts', c);
   return next(s, c);
 }`));
-const { R2Outbound } = await import('../src/index.ts');
+const { R2Outbound, ApothekeContainer, default: publicWorker } = await import('../src/index.ts');
 
 class Upload {
   constructor(bucket, key, id) { this.bucket = bucket; this.key = key; this.uploadId = id; }
@@ -139,7 +139,7 @@ test('application listing filtering uses the shared dot-segment predicate', asyn
 
 test('manifest replacements require the exact observed ETag', async () => {
   const bucket = new Bucket();
-  const worker = new R2Outbound({}, { STORAGE: bucket });
+  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {} });
   const path = 'backups/manifest.json';
   assert.equal((await worker.fetch(request('PUT', path, {}, 'one'))).status, 200);
   const head = await (await worker.fetch(request('HEAD', path))).json();
@@ -193,7 +193,7 @@ test('one object read keeps its own etag when a later lookup sees a replacement'
 
 test('real transport rejects a stale conditional write after the read response', { timeout: 20000 }, async () => {
   const bucket = new Bucket();
-  const worker = new R2Outbound({}, { STORAGE: bucket });
+  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {} });
   const relative = 'backups/manifest.json';
   const objectKey = `installations/primary/${relative}`;
   await bucket.put(objectKey, 'body-A');
@@ -301,7 +301,7 @@ test('unsafe paths, missing caps, and absent R2 fail generically', async () => {
 
 test('the real entrypoint resumes begin, parts, and complete without request sessions', async () => {
   const bucket = new Bucket();
-  const outbound = () => new R2Outbound({}, { STORAGE: bucket });
+  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {} });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   assert.equal(begin.status, 200);
   const { upload_id: id } = await begin.json();
@@ -320,7 +320,7 @@ test('the real entrypoint resumes begin, parts, and complete without request ses
 
 test('the real entrypoint aborts a resumed upload and confines its installation key', async () => {
   const bucket = new Bucket();
-  const outbound = () => new R2Outbound({}, { STORAGE: bucket });
+  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {} });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   const { upload_id: id } = await begin.json();
   assert.equal((await outbound().fetch(request('DELETE', 'other.bin', { action: 'abort', upload_id: id }))).status, 400);
@@ -566,7 +566,7 @@ test('the outbound entrypoint does not construct request-local multipart session
   const source = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
   const outbound = source.slice(source.indexOf('export class R2Outbound'), source.indexOf('export class ApothekeContainer'));
   assert.doesNotMatch(outbound, /new\s+Map|sessions?[,)\s]/, 'R2 state belongs to its uploadId, never a per-request Map');
-  assert.match(outbound, /handleR2Request\(request, this\.env\.STORAGE\)/);
+  assert.match(outbound, /handleR2Request\(request, bucket\)/);
 });
 
 const DAY = UNFINISHED_UPLOAD_RETENTION_MS;
@@ -852,3 +852,70 @@ function parseChunks(buf) {
   }
   return null;
 }
+
+// P4-5 hosted R2 wiring. No new var: R2 is selected by the merged storage fragment (STORAGE and DB both bound,
+// only behind EDGE_STORAGE_READY). Neither bound keeps LocalStorage; one without the other refuses to start.
+function startedContainer(env) {
+  let started;
+  const container = {
+    running: false,
+    start(opts) { started = opts; this.running = true; },
+    setInactivityTimeout: async () => {},
+    monitor: () => new Promise(() => {}),
+    getTcpPort: () => ({ fetch: async () => new Response('ok') }),
+    interceptOutboundHttp: async () => {},
+  };
+  const ctx = { container, waitUntil() {}, blockConcurrencyWhile: (f) => f(), exports: { D1Outbound: () => ({}), R2Outbound: () => ({}) } };
+  const obj = new ApothekeContainer(ctx, { APP_PASSWORD: 'placeholder', APP_KEY: 'placeholder', ...env });
+  return { obj, started: () => started };
+}
+const untouchable = new Proxy({}, { get() { throw new Error('STORAGE must not be used'); } });
+
+test('P4-5: without the storage fragment the container gets no storage selection (LocalStorage default)', async () => {
+  for (const env of [{}, { STORAGE_BACKEND: 'r2' }, { STORAGE_BACKEND: 'r2', R2_BASE_URL: 'http://r2.internal' }]) {
+    const { obj, started } = startedContainer(env);
+    assert.equal((await obj.fetch(new Request('https://api.example.test/healthz'))).status, 200);
+    assert.equal(started().env.STORAGE_BACKEND, undefined, 'a Worker var never selects r2');
+    assert.equal(started().env.R2_BASE_URL, undefined);
+  }
+});
+
+test('P4-5: the merged fragment (STORAGE and DB) selects r2 in the container, internet still off', async () => {
+  const { obj, started } = startedContainer({ STORAGE: new Bucket(), DB: {} });
+  assert.equal((await obj.fetch(new Request('https://api.example.test/healthz'))).status, 200);
+  assert.equal(started().env.STORAGE_BACKEND, 'r2');
+  assert.equal(started().enableInternet, false);
+});
+
+test('P4-5: half a fragment refuses to start (fails closed, no fallback, no reason shown)', async () => {
+  for (const env of [{ STORAGE: new Bucket() }, { DB: {} }]) {
+    const { obj, started } = startedContainer(env);
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const res = await obj.fetch(new Request('https://api.example.test/healthz'));
+      assert.equal(res.status, 503, Object.keys(env).join());
+      assert.doesNotMatch(await res.text(), /STORAGE|DB|r2|d1|binding/i);
+    } finally { console.error = original; }
+    assert.equal(started(), undefined, 'the container is never started on a fallback backend');
+  }
+});
+
+test('P4-5: r2.internal answers only when r2 is selected; local mode never reaches the bucket', async () => {
+  for (const env of [{ STORAGE: untouchable }, { STORAGE: untouchable, STORAGE_BACKEND: 'r2' }, { DB: {} }, {}]) {
+    const res = await new R2Outbound({}, env).fetch(request('GET', 'file.bin'));
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), await r2UnboundResponse().json());
+  }
+  const res = await new R2Outbound({}, { STORAGE: new Bucket(), DB: {} }).fetch(request('PUT', 'file.bin', {}, 'abc'));
+  assert.equal(res.status, 200);
+});
+
+test('P4-5: the public Worker only forwards to the container and never serves the bucket', async () => {
+  const seen = [];
+  const env = { STORAGE: untouchable, DB: untouchable, APOTHEKE: { getByName: (name) => ({ fetch: async () => { seen.push(name); return new Response('app'); } }) } };
+  for (const url of ['https://api.example.test/media/full/x.jpg', 'http://r2.internal/file.bin', 'https://api.example.test/.mpu/x']) {
+    assert.equal(await (await publicWorker.fetch(new Request(url), env)).text(), 'app');
+  }
+  assert.deepEqual(seen, ['primary', 'primary', 'primary']);
+});

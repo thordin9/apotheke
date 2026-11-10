@@ -344,6 +344,12 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    route, a cron, a binding, or a readiness change. Hosted wiring stays closed until that account rule exists.
 5. **P4-5: hosted wiring.** Durable Object SQLite per installation, host-only cookies in hosted mode, the
    `edge-local` run green with storage, the P4(b) guard cases run again on a preview D1, and the runbook.
+   The first part wires R2 with no new var: `edge/src` selects R2 only when the merged fragment's `STORAGE`
+   and `DB` are both bound, and then starts the container with `STORAGE_BACKEND=r2`. With neither bound the
+   container gets no selection and PHP keeps `LocalStorage`; with only one bound the container is not started
+   (a generic 503, no fallback). `r2.internal` answers only while R2 is selected, so a local-disk container never
+   reaches the bucket. The public Worker adds no route. The app database on the edge is still the container's own
+   SQLite until the `Installation` and D1 wiring lands, so the gate stays closed.
 
 ## Ownership
 
