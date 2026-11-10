@@ -1,31 +1,30 @@
 # PR 254 D1 database driver — re-gate
 
-**Verdict: PASS** at `beaf1467828e0c17b806898d42c09c847e0f8752`. The merge of main `4dd89b73` into `ccbbfded` adds no unrelated code. M-1844 stays closed. The driver is still not selected.
+**Verdict: PASS** at `b282a57e9d3df1c47959a94210c8dd4ab14577c1`. The merge of main `bb1c7748` (#264, squash) does not change the driver. M-1844 stays closed. The driver is still not selected.
 
-Branch `feat/p4-5-db-driver`. Base `main` at `4dd89b73ad82c9ee4d872b5ef5cf0a48e07deab3`. Behind 0. Ahead 5. Parents of the merge: `ccbbfdedd114dd89348b58ef802f1386c7c2424b` and `4dd89b73ad82c9ee4d872b5ef5cf0a48e07deab3`. Three-dot diff versus main, outside `CHANGELOG.md`, is byte-identical to `ccbbfded`'s. That diff is the driver work, 16 files, +1169/−31. CI at review: 13 passed, 1 skipped, 9 still running, 0 failed.
+Branch `feat/p4-5-db-driver`. Base `main`. Behind 0. The live head matches the claim. Its parents are `561abce83a64c6f43e010e0c608fb33dd30185e9` and `bb1c774856c3d2606165830aef258e8ef11f9c30` (main). `561abce8` is the child of `beaf1467` and adds only `docs/qa/apotheke-pr254-core-d1-driver-qa.md`. CI at review: 13 passed, 1 skipped (the API deploy), 9 still running, 0 failed.
 
 ## Checklist
 
 | Check | Result |
 |---|---|
-| Merge | The commit is only `Merge main into feat/p4-5-db-driver`. Against `ccbbfded` it is the two main commits (#255 Node 22 for the bridge tests, #253 edge dry-run) plus the changelog. Both changelog sides are kept: the driver bullet and the maintenance bullet. |
-| Same driver diff | Every other file in the pull request diff matches `ccbbfded`. No driver line moved. |
-| M-1844 | Unchanged from the `ccbbfded` gate. A commented write is still a write, and it stays queued inside a transaction. |
-| L-1845 | Unchanged. The handoff points at the open pull requests. |
-| Not selected | No config or DSN path uses the driver. |
+| Merge | Against `561abce8`, the merge is #264's tree plus the two conflict files. Changelog keeps the #254 bullet under Added and the #264 bullets under Fixed. |
+| Driver diff | Excluding `CHANGELOG.md`, `docs/HANDOFF.md`, and that QA note, the three-dot diff versus main matches `beaf1467`. Every driver file is unchanged since `beaf1467`. |
+| Handoff | The open-PR line now says to see the open pull requests for P4-5. #254 is open. #252 is merged. The line does not claim a closed pull request is open. |
+| Not selected | No config or DSN path uses the driver. #264's request-scheme change does not select it. |
 
 ## Findings
 
-No new finding. M-1844 and L-1845 stay closed. N-1786 stays deferred. N-1794, N-1795, L-1811, and N-1812 stay tracked. Next free id is 1848.
+No new finding. M-1844 and L-1845 stay closed. N-1786 stays deferred. N-1794, N-1795, L-1811, and N-1812 stay tracked. Next free id is 1849.
 
 ## Security
 
-The merge does not change classification, the host pin, or the bridge failure text. A comment still cannot turn a write into an immediate query. The driver is still not on the default connection.
+Classification, the host pin, and the bridge failure text are the same bytes as `beaf1467`. A comment still cannot turn a write into an immediate query.
 
 ## Tests
 
-Re-ran on this head only: `D1DriverTest`, `D1DriverBridgeTest`, `D1HttpExecutorTest`, `D1IntegrationTest`, and `DatabaseStateTest`: 86 tests, 696 assertions, 3 skipped. The skips are the workerd integration tests (`TEST_D1_URL` unset). The CI prove filter `D1DriverBridgeTest` with `--fail-on-skipped` passed: 5 tests, 53 assertions. `DeployWorkflowsTest`: 27 tests, 387 assertions. `scripts/deploy-scripts.test.mjs`: 33 passed, 0 failed. The earlier `ccbbfded` mutations of `leading()` and the `WITH` walk still stand; this merge does not touch that code.
+`D1DriverTest`, `D1DriverBridgeTest`, `D1HttpExecutorTest`, `D1IntegrationTest`, and `DatabaseStateTest`: 86 tests, 696 assertions, 3 skipped (the workerd integration tests, `TEST_D1_URL` unset). `D1DriverBridgeTest` with `--fail-on-skipped`: 5 tests, 53 assertions. `RequestSchemeTest`: 4 tests, 21 assertions. #264 does not edit the driver.
 
 ## Verdict
 
-PASS. Nothing selects the driver, and the hosted gate stays unsatisfied. GitHub CI had not finished: the two PHP suites, the three visual shards, and the four Docker jobs were still running, with no failure.
+PASS. Nothing selects the driver, and the hosted gate stays unsatisfied. The PHP, visual, and Docker jobs were still running, with no failure.
