@@ -219,10 +219,50 @@ class Connection extends SQLite3Connection
         return $value;
     }
 
-    /** A statement that changes data or schema, with or without RETURNING (CodeIgniter's isWriteType without that exception). */
+    /**
+     * A write without RETURNING: CodeIgniter answers true for it instead of a result. Read on the text the
+     * statement guard reads (D1Limits::leading()), so comments, literals and quoted names never decide it.
+     */
+    public function isWriteType($sql): bool
+    {
+        $first = D1Limits::leading((string)$sql);
+
+        return self::changes($first) && preg_match('/(?<!")\bRETURNING\b(?!")/i', $first) !== 1;
+    }
+
+    /** A statement that changes data or schema, with or without RETURNING. */
     private static function mutates(string $sql): bool
     {
-        return preg_match('/^\s*(WITH\s.+(\s|[)]))?"?(INSERT|UPDATE|DELETE|REPLACE|CREATE|DROP|ALTER)\s/is', $sql) === 1;
+        return self::changes(D1Limits::leading($sql));
+    }
+
+    /** $first (D1Limits::leading()) runs INSERT, UPDATE, DELETE, REPLACE, CREATE, DROP or ALTER as its statement. */
+    private static function changes(string $first): bool
+    {
+        return in_array(self::verb($first), ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'CREATE', 'DROP', 'ALTER'], true);
+    }
+
+    /** The statement's own keyword: the first word, or after a WITH the first verb outside the CTEs' parentheses. */
+    private static function verb(string $first): string
+    {
+        $word = strtoupper(preg_match('/^\w+/', $first, $m) === 1 ? $m[0] : '');
+        if ($word !== 'WITH') {
+            return $word;
+        }
+        $depth = 0;
+        for ($i = 4, $n = strlen($first); $i < $n; $i++) {
+            $c = $first[$i];
+            if ($c === '"') {
+                $i = (int)(strpos($first, '"', $i + 1) ?: $n);   // a quoted name (leading() keeps it whole)
+            } elseif ($c === '(' || $c === ')') {
+                $depth += $c === '(' ? 1 : -1;
+            } elseif ($depth === 0 && preg_match('/\G(SELECT|VALUES|INSERT|UPDATE|DELETE|REPLACE)\b/i', $first, $v, 0, $i) === 1
+                && preg_match('/\w/', $first[$i - 1]) !== 1) {
+                return strtoupper($v[1]);
+            }
+        }
+
+        return 'WITH';
     }
 
     /** Only messages written by Apotheke: the bridge's and D1Limits' fixed texts, never the database's. */

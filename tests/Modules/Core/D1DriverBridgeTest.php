@@ -126,4 +126,21 @@ final class D1DriverBridgeTest extends CIUnitTestCase
         $this->assertSame(array_fill(0, 6, true), array_column($out, 'ok'));
         $this->assertSame([['qty' => 6]], $this->db()->query('SELECT qty FROM item')->getResultArray());
     }
+
+    /** M-1844 on the real handler: a commented write is queued (a rollback leaves nothing) and counted outside. */
+    public function testACommentedWriteIsQueuedAndCountedOnTheObject(): void
+    {
+        $db = $this->db();
+        $db->query("INSERT INTO item (name) VALUES ('a'), ('b')");
+        foreach (["-- c\nUPDATE item SET qty = 9", "/* a */\n\t-- b\n/* c */INSERT INTO item (name) VALUES ('x')"] as $sql) {
+            $db->transBegin();
+            $this->assertTrue($db->query($sql), $sql);
+            $db->transRollback();
+            $this->assertSame([['name' => 'a', 'qty' => 0], ['name' => 'b', 'qty' => 0]], $db->table('item')->select('name, qty')->orderBy('id')->get()->getResultArray(), $sql);
+        }
+        $this->assertTrue($db->query("/* c */ UPDATE item SET qty = 9 WHERE name = 'b'"));
+        $this->assertSame(1, $db->affectedRows());
+        $this->assertTrue($db->query("-- c\n  DELETE FROM item"));
+        $this->assertSame(2, $db->affectedRows());
+    }
 }
