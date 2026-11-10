@@ -8,10 +8,6 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
-### Maintenance
-
-- ci: run the D1 driver bridge tests with Node 22 and edge modules ([#255](https://github.com/thordin9/apotheke/pull/255))
-
 ## [3.29.0] - 2026-11-10
 
 - **edge:** the `Installation` Durable Object holds the database in storage mode: `d1.internal` is served from its SQLite only when `STORAGE`, `DB` and `INSTALLATION` are all bound, any other mix does not start the container, and every bridge call is one all-or-nothing transaction ([#252](https://github.com/thordin9/apotheke/pull/252))
