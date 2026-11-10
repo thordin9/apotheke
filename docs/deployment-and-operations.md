@@ -888,6 +888,15 @@ cold start (after `sleepAfter`, a deploy or a restart). Each start is therefore 
 creates the account `admin` again and anything saved before is gone. Until storage is designed, treat `apotheke-api`
 as stateless.
 
+`/run` is also a fresh mount at runtime. The FrankenPHP entrypoint recreates `/run/apotheke-caddy/{config,data}`
+as `www-data` (mode 0750) before FrankenPHP starts. The Worker talks to the container over `http:` and does not
+follow redirects; it overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from the original request and sets
+`TRUST_PROXY=1` in the container so CSRF, Secure cookies, HSTS and absolute URLs still see the request as HTTPS.
+The readiness probe is also sent through that path, with `Host` set to the first `ALLOWED_HOSTS` entry (the same
+public host the Worker forwards). When `ALLOWED_HOSTS` is empty, unset, or only `*`, the probe uses `127.0.0.1`
+(always on the allow-list, as the image `HEALTHCHECK` does) and logs the missing config; it does not use `Host`
+`container`, which the allow-list rejects with 421. The app's host check stays in force for `/healthz`.
+
 Never print, paste or commit either value, and never put them in `wrangler.jsonc`, `vars` or a GitHub secret.
 If the Worker does not exist yet, `wrangler secret put` offers to create a draft Worker; answer no and deploy first
 (the deploy then fails only on the missing secrets), or set them with the Cloudflare API's Worker secrets endpoint.

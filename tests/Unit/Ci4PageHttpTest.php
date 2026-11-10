@@ -134,6 +134,25 @@ final class Ci4PageHttpTest extends TestCase
         });
     }
 
+    /**
+     * Hosted path: TRUST_PROXY=1 (the Worker sets it) honours X-Forwarded-Proto
+     * even when the Control Panel setting is off, so Secure cookies and
+     * https absolute URLs match the original request.
+     */
+    public function testTrustProxyEnvSeesForwardedHttpsCookiesAndUrls(): void
+    {
+        $this->withServer(['APOTHEKE_TEST_HTML_PAGE' => '1', 'APOTHEKE_TEST_SESSION_ON_DEMAND' => '1', 'TRUST_PROXY' => '1'], function (Server $server, string $dir): void {
+            $client = $server->client();
+            $host = (string)parse_url($server->base, PHP_URL_HOST) . ':' . (string)parse_url($server->base, PHP_URL_PORT);
+            $page = $client->get('/test-html-page', ['X-Forwarded-Proto: https']);
+            $this->assertSame(200, $page['status'], $page['body']);
+            $this->assertStringContainsString('https://' . $host . '/labels', $page['body'], 'absolute URLs use https');
+            $cookie = strtolower($page['headers']['set-cookie'] ?? '');
+            $this->assertStringContainsString('__host-apothekesid=', $cookie);
+            $this->assertStringContainsString('secure', $cookie);
+        });
+    }
+
     private function setting(string $dir, string $name, string $json): void
     {
         $pdo = testdb($dir);

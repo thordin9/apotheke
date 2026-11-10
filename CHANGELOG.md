@@ -8,7 +8,14 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Added
+
 - **core:** a CodeIgniter database driver for the edge bridge (`d1.internal`): writes in a transaction go out as one all-or-nothing batch at commit, reads that would see queued writes and `BEGIN`/`SAVEPOINT` are refused, and transport failures fail the statement. Not selected by default ([#254](https://github.com/thordin9/apotheke/pull/254))
+
+### Fixed
+
+- **edge:** the Worker forwards to the container over HTTP with `redirect: manual` and overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from the original URL, and the entrypoint recreates Caddy's `/run` directories before FrankenPHP starts, so the hosted container can bind its PHP socket and the app still treats requests as HTTPS ([#264](https://github.com/thordin9/apotheke/pull/264))
+- **edge:** the Worker's readiness probe uses the first `ALLOWED_HOSTS` entry (and the same forwarded proto/host as a public request), so a cold start is not rejected with 421 for `Host` `container`. When `ALLOWED_HOSTS` is empty, unset, or only `*`, the probe uses `127.0.0.1` and logs the missing config ([#264](https://github.com/thordin9/apotheke/pull/264))
 
 ### Maintenance
 
