@@ -70,11 +70,8 @@ final class D1Limits
             throw new LogicException('D1 allows ' . self::MAX_STATEMENT_BYTES . ' bytes per statement.');
         }
         $code = self::code($sql, $postgres);
-        $segments = explode(';', $code);
-        if (count($segments) > 1 && preg_match('/^\s*$/D', $segments[count($segments) - 1]) === 1) {
-            array_pop($segments);
-        }
-        $first = (string)preg_replace('/^\s+|\s+$/D', '', $segments[0]);
+        $segments = self::segments($code);
+        $first = self::trimmed($segments[0]);
         if ($first === '' || (count($segments) > 1 && ($postgres || !self::triggerBody($segments)))) {
             throw new LogicException('D1 runs one statement per batch step.');
         }
@@ -93,6 +90,34 @@ final class D1Limits
         if ($params > self::MAX_PARAMS) {
             throw new LogicException('D1 allows ' . self::MAX_PARAMS . ' bound parameters per statement; bind a list as one (Dialect::inList()).');
         }
+    }
+
+    /**
+     * The first statement's text as refuse() reads it: comments stripped, string literals emptied,
+     * quoted names kept as plain quoted words, and no leading or trailing whitespace. The D1 driver
+     * classifies a statement (read, write, RETURNING) on this same text, so the two never disagree (M-1844).
+     *
+     * @throws LogicException when the statement is not readable (an open comment or quote)
+     */
+    public static function leading(string $sql): string
+    {
+        return self::trimmed(self::segments(self::code($sql, false))[0]);
+    }
+
+    /** @return non-empty-list<string> $code split on `;`, without one empty last piece */
+    private static function segments(string $code): array
+    {
+        $segments = explode(';', $code);
+        if (count($segments) > 1 && preg_match('/^\s*$/D', $segments[count($segments) - 1]) === 1) {
+            array_pop($segments);
+        }
+
+        return $segments;
+    }
+
+    private static function trimmed(string $code): string
+    {
+        return (string)preg_replace('/^\s+|\s+$/D', '', $code);
     }
 
     /** The local PostgreSQL model refuses session/catalog writes and DDL outside D1's objects. */
