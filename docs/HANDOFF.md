@@ -19,6 +19,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   PR 3b (#247) is merged: an explicit R2 restore keeps its chunks, manifest and lease on that storage, and the catalog fence covers the settings import, undo prune, and map pointers.
   PR 4 (#248) is merged: on a batch-only database, chunked confirm is one `restore.confirm` job.
   The orphan multipart sweep (#249) is merged as an uncalled helper. It does not create the account lifecycle rule, and the hosted gate stays closed.
+  P4-5 R2 wiring (local branch `feat/p4-5-r2-wiring`, not pushed): the container gets `STORAGE_BACKEND=r2` only when `STORAGE` and `DB` are both bound; half a fragment refuses to start, and `r2.internal` is closed otherwise. No new var or binding.
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
   restore manifest and the lease on that same storage. A new object is created with the condition on that PUT, so a
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and
@@ -44,7 +45,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 ## Open pull requests
 
 - P4-4 follow-ups [#250](https://github.com/thordin9/apotheke/pull/250) (`cursor/p4-4-fence-job-followups-e9c8`): a SQLite fence claim waits out a holder that is still in its transaction, and an expired restore job with no upload becomes failed. No helper activation, scheduler, lifecycle rule, or readiness flip.
-- **Mandatory before hosted wiring:** the account lifecycle rule for unmarked incomplete multipart uploads. The marked-upload sweep stays an uncalled helper. This pull request does not create the rule.
+- The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
 - Older numbered backlog: N-1747..N-1751, N-1758, N-1761..N-1763, N-1780, N-1782.
@@ -53,7 +54,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. Unmarked multipart uploads still need an account lifecycle rule before hosted wiring. That rule is not provisioned, the sweep helper stays uncalled, and P4-5 stays after it. The next finding id is 1842.
+1. P4-5 continues: the `Installation` Durable Object and the container's database through `d1.internal` (until then the edge catalog is the container's ephemeral SQLite, so R2 must not be enabled for real data), host-only cookies, `edge-local` with storage, and the runbook. The sweep helper stays uncalled. The next finding id is 1842.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).
