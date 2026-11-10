@@ -43,7 +43,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- P4-4 follow-ups (`cursor/p4-4-fence-job-followups-e9c8`): a SQLite fence claim waits out a holder that is still in its transaction, and an expired restore job with no upload becomes failed. No helper activation, scheduler, lifecycle rule, or readiness flip.
+- P4-4 follow-ups [#250](https://github.com/thordin9/apotheke/pull/250) (`cursor/p4-4-fence-job-followups-e9c8`): a SQLite fence claim waits out a holder that is still in its transaction, and an expired restore job with no upload becomes failed. No helper activation, scheduler, lifecycle rule, or readiness flip.
 - **Mandatory before hosted wiring:** the account lifecycle rule for unmarked incomplete multipart uploads. The marked-upload sweep stays an uncalled helper. This pull request does not create the rule.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
