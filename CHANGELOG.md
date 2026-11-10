@@ -8,7 +8,13 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.28.0] - 2026-11-10
+
 - **edge:** the container uses R2 only when the storage fragment binds both `STORAGE` and `DB`; with neither it keeps local disk, with only one it does not start, and `r2.internal` stays closed unless R2 is selected ([#251](https://github.com/thordin9/apotheke/pull/251))
+
+### Added
+
+- **edge:** select R2 only from the merged storage bindings ([#251](https://github.com/thordin9/apotheke/pull/251))
 
 ## [3.27.1] - 2026-11-10
 
@@ -1421,7 +1427,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.27.1...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.28.0...HEAD
+[3.28.0]: https://github.com/thordin9/apotheke/compare/v3.27.1...v3.28.0
 [3.27.1]: https://github.com/thordin9/apotheke/compare/v3.27.0...v3.27.1
 [3.27.0]: https://github.com/thordin9/apotheke/compare/v3.26.0...v3.27.0
 [3.26.0]: https://github.com/thordin9/apotheke/compare/v3.25.0...v3.26.0
