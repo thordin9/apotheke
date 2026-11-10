@@ -10,6 +10,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** the `Installation` Durable Object holds the database in storage mode: `d1.internal` is served from its SQLite only when `STORAGE`, `DB` and `INSTALLATION` are all bound, any other mix does not start the container, and every bridge call is one all-or-nothing transaction ([#252](https://github.com/thordin9/apotheke/pull/252))
 
+### Maintenance
+
+- ci: run the D1 driver bridge tests with Node 22 and edge modules ([#255](https://github.com/thordin9/apotheke/pull/255))
+
 ## [3.28.0] - 2026-11-10
 
 - **edge:** the container uses R2 only when the storage fragment binds both `STORAGE` and `DB`; with neither it keeps local disk, with only one it does not start, and `r2.internal` stays closed unless R2 is selected ([#251](https://github.com/thordin9/apotheke/pull/251))
