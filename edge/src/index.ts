@@ -79,6 +79,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",
 				PORT: String(PORT),
 				TZ: "Europe/Athens",
+				// The Worker terminates TLS. The app then honours X-Forwarded-Proto/Host (overwritten below).
+				TRUST_PROXY: "1",
 				// Only with the merged fragment; otherwise unset, so PHP keeps its LocalStorage default.
 				...(backend === "r2" ? { STORAGE_BACKEND: "r2" } : {}),
 			},
@@ -116,11 +118,35 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				headers: { "Retry-After": "5", "Cache-Control": "no-store" },
 			});
 		}
-		const res = await this.ctx.container!.getTcpPort(PORT).fetch(request);
+		const res = await this.ctx.container!.getTcpPort(PORT).fetch(toContainer(request), { redirect: "manual" });
 		const out = new Response(res.body, res);
 		out.headers.append("Server-Timing", `container-start;dur=${cold}`);
 		return out;
 	}
+}
+
+
+/** Cloudflare Containers accept only http: to the TCP port. Rewrite the incoming URL, overwrite
+ *  forwarded proto/host (never pass through a client value), and do not follow a 3xx inside the Worker. */
+function toContainer(request: Request): Request {
+	const url = new URL(request.url);
+	const proto = url.protocol === "https:" ? "https" : "http";
+	const host = url.host;
+	url.protocol = "http:";
+	url.hash = "";
+	const headers = new Headers(request.headers);
+	headers.set("X-Forwarded-Proto", proto);
+	headers.set("X-Forwarded-Host", host);
+	const init: RequestInit & { duplex?: "half" } = {
+		method: request.method,
+		headers,
+		redirect: "manual",
+	};
+	if (request.body !== null) {
+		init.body = request.body;
+		init.duplex = "half";
+	}
+	return new Request(url, init);
 }
 
 export default {
