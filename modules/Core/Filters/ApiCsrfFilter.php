@@ -26,7 +26,7 @@ final class ApiCsrfFilter implements FilterInterface
         $server = $request->getServer();
         $server = is_array($server) ? $server : [];
         $settings = Services::settings();
-        $https = (new RequestScheme((bool)$settings->get('trust_proxy')))->isHttps($server);
+        $https = RequestScheme::fromSetting((bool)$settings->get('trust_proxy'))->isHttps($server);
         $token = $_SESSION['csrf'] ?? '';
         $refusal = (new ApiCsrf())->refusal(
             $request->getMethod(),

@@ -160,7 +160,7 @@ final class PlainHandler implements ExceptionHandlerInterface
         };
         // HSTS as on the success path (an https:// PUBLIC_URL), read from the config, not the database, which may be
         // what failed (QA L-1220); a direct HTTPS connection counts too.
-        $https = (new RequestScheme(false))->isHttps($server) || str_starts_with(strtolower($this->publicUrl()), 'https://');
+        $https = RequestScheme::fromSetting(false)->isHttps($server) || str_starts_with(strtolower($this->publicUrl()), 'https://');
         foreach ((new ApiSecurityPolicy())->headers($https) as $name => $value) {
             $response->setHeader($name, $value);
         }

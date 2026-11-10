@@ -327,4 +327,93 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         }
     }
 
+    // ---------------------------------------------------------------------
+    // M-1846: D1Pdo queues writes in a transaction and refuses mid-queue reads.
+    // ---------------------------------------------------------------------
+
+    public function testTransactionSendsQueuedWritesAsOneBatch(): void
+    {
+        $batches = [];
+        $pdo = new D1Pdo(new D1HttpExecutor('http://d1.internal', static function (string $m, string $url, string $body) use (&$batches): string {
+            $path = parse_url($url, PHP_URL_PATH);
+            $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+            if ($path === '/batch') {
+                $batches[] = array_column($payload, 'sql');
+            }
+            $n = is_array($payload) ? count($payload) : 1;
+
+            return json_encode(['ok' => true, 'results' => array_fill(0, $n, ['rows' => []])], JSON_THROW_ON_ERROR);
+        }));
+        $pdo->beginTransaction();
+        $pdo->exec('CREATE TABLE t (x INTEGER)');
+        $pdo->exec('CREATE TABLE u (x INTEGER)');
+        $this->assertSame([], $batches, 'writes stay queued until commit');
+        $pdo->commit();
+        $this->assertSame([['CREATE TABLE t (x INTEGER)', 'CREATE TABLE u (x INTEGER)']], $batches);
+        $this->assertFalse($pdo->inTransaction());
+    }
+
+    public function testAReadAfterAQueuedWriteIsRefusedAndNothingIsSent(): void
+    {
+        $batches = [];
+        $pdo = new D1Pdo(new D1HttpExecutor('http://d1.internal', static function (string $m, string $url, string $body) use (&$batches): string {
+            $path = parse_url($url, PHP_URL_PATH);
+            $payload = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+            if ($path === '/batch') {
+                $batches[] = array_column($payload, 'sql');
+            }
+            $n = is_array($payload) ? count($payload) : 1;
+
+            return json_encode(['ok' => true, 'results' => array_fill(0, $n, ['rows' => [['x' => 1]]])], JSON_THROW_ON_ERROR);
+        }));
+        $pdo->beginTransaction();
+        $pdo->exec('CREATE TABLE t (x INTEGER)');
+        try {
+            $pdo->query('SELECT x FROM t');
+            $this->fail('a read after a queued write must be refused');
+        } catch (\LogicException $e) {
+            $this->assertSame('D1 cannot read after a queued write in the same transaction; use a unit of work.', $e->getMessage());
+        }
+        $this->assertSame([], $batches, 'the queued write was not sent');
+        $pdo->rollBack();
+    }
+
+    public function testReturningAndLastInsertIdAreRefusedWhileQueued(): void
+    {
+        $pdo = new D1Pdo($this->fakeExecutor());
+        $pdo->beginTransaction();
+        $pdo->exec('CREATE TABLE t (x INTEGER)');
+        try {
+            $pdo->query('UPDATE t SET x = 1 RETURNING x');
+            $this->fail('RETURNING inside a transaction must be refused');
+        } catch (\LogicException $e) {
+            $this->assertSame('D1 cannot return rows from a write inside a transaction; use a unit of work.', $e->getMessage());
+        }
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('D1 does not know the insert id while writes are queued or after a batch; use a unit of work.');
+        $pdo->lastInsertId();
+    }
+
+    public function testPreviewReadsSeeQueuedWritesAndStillCommitAsOneBatch(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $standIn->run([['sql' => 'CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)', 'params' => []]]);
+        $standIn->run([['sql' => "INSERT INTO t (id, name) VALUES (1, 'a')", 'params' => []]]);
+        $batches = $standIn->batches;
+        $pdo = new D1Pdo($standIn);
+        $pdo->beginTransaction();
+        $pdo->previewReads();
+        $pdo->exec("ALTER TABLE t ADD COLUMN sort_key TEXT NOT NULL DEFAULT ''");
+        $rows = $pdo->query('SELECT id, name FROM t')->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $this->assertSame([1 => 'a'], $rows);
+        $pdo->prepare('UPDATE t SET sort_key = ? WHERE id = ?')->execute(['a', 1]);
+        $this->assertSame($batches, $standIn->batches, 'writes stay queued until commit');
+        $pdo->commit();
+        $this->assertSame(['a'], array_column($standIn->query('SELECT sort_key FROM t', []), 'sort_key'));
+        $last = $standIn->batches[count($standIn->batches) - 1];
+        $this->assertSame("ALTER TABLE t ADD COLUMN sort_key TEXT NOT NULL DEFAULT ''", $last[0]);
+        $this->assertSame('UPDATE t SET sort_key = ? WHERE id = ?', $last[1]);
+        $this->assertCount(2, $last);
+    }
+
 }

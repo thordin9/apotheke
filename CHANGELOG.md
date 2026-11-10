@@ -12,8 +12,25 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - On the hosted database, a bulk edit's undo token is stored in the same batch as the change; a selection whose snapshot would exceed the statement size limit is refused with 422 and nothing is written. ([#265](https://github.com/thordin9/apotheke/pull/265))
 - On the hosted database, item create, edit and delete, account creation, undo and the search rebuild each commit as one all-or-nothing batch, and an undo can only be used once even when two requests race. Bulk editing, CSV import and backup restore are not available there yet and say so; the item form asks you to add a new location or category first, and duplicating an item with its photos asks you to duplicate it without them. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
 - On the hosted database, bulk editing, CSV import and backup restore now say plainly that they are not available there yet: the list's bulk sheet (QR labels stay), the import page and the restore section show "Not available on hosted yet." instead of those actions, and the API answers 501 with the problem code `hosted.unavailable` and its message before any upload is accepted. Other server errors stay generic. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
-- Hosted storage mode now selects the Installation database: the Worker starts the container with `DB_DRIVER=d1` (set in code, never from a Worker var), PHP accepts `d1` only with `STORAGE_BACKEND=r2`, the CI4 config reads `STORAGE_BACKEND`, the SQL executor is the batch-only bridge, and the schema is migrated on the Installation object at the first request under a lease. Self-hosting is unchanged (P4-5). ([#258](https://github.com/thordin9/apotheke/pull/258))
+- Hosted storage mode now selects the Installation database: the Worker starts the container with `DB_DRIVER=d1` (set in code, never from a Worker var), PHP accepts `d1` only with `STORAGE_BACKEND=r2` and refuses to start or serve when storage mode is set without `d1` (so it cannot fall back to SQLite on the container disk), the CI4 config reads `STORAGE_BACKEND`, the SQL executor is the batch-only bridge, and the schema is migrated on the Installation object at the first request under a lease. Self-hosting is unchanged (P4-5). ([#258](https://github.com/thordin9/apotheke/pull/258))
+
+## [3.30.0] - 2026-11-10
+
+### Added
+
 - **core:** a CodeIgniter database driver for the edge bridge (`d1.internal`): writes in a transaction go out as one all-or-nothing batch at commit, reads that would see queued writes and `BEGIN`/`SAVEPOINT` are refused, and transport failures fail the statement. Not selected by default ([#254](https://github.com/thordin9/apotheke/pull/254))
+
+## [3.29.1] - 2026-11-10
+
+### Fixed
+
+- **edge:** the Worker forwards to the container over HTTP with `redirect: manual` and overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from the original URL, and the entrypoint recreates Caddy's `/run` directories before FrankenPHP starts, so the hosted container can bind its PHP socket and the app still treats requests as HTTPS ([#264](https://github.com/thordin9/apotheke/pull/264))
+- **edge:** the Worker's readiness probe uses the first `ALLOWED_HOSTS` entry (and the same forwarded proto/host as a public request), so a cold start is not rejected with 421 for `Host` `container`. When `ALLOWED_HOSTS` is empty, unset, or only `*`, the probe uses `127.0.0.1` and logs the missing config ([#264](https://github.com/thordin9/apotheke/pull/264))
+
+### Maintenance
+
+- ci: run D1 driver bridge tests with Node 22 and edge modules ([#255](https://github.com/thordin9/apotheke/pull/255))
+- **edge:** ci: dry-run the merged storage config and ready the flip ([#253](https://github.com/thordin9/apotheke/pull/253))
 
 ## [3.29.0] - 2026-11-10
 
@@ -1442,7 +1459,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.29.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.30.0...HEAD
+[3.30.0]: https://github.com/thordin9/apotheke/compare/v3.29.1...v3.30.0
+[3.29.1]: https://github.com/thordin9/apotheke/compare/v3.29.0...v3.29.1
 [3.29.0]: https://github.com/thordin9/apotheke/compare/v3.28.0...v3.29.0
 [3.28.0]: https://github.com/thordin9/apotheke/compare/v3.27.1...v3.28.0
 [3.27.1]: https://github.com/thordin9/apotheke/compare/v3.27.0...v3.27.1

@@ -163,6 +163,9 @@ function config_db_driver(mixed $driver, string $backend): string
     if ($driver === 'd1' && $backend !== 'r2') {
         throw new RuntimeException('db.driver d1 needs STORAGE_BACKEND=r2.');
     }
+    if ($backend === 'r2' && $driver !== 'd1') {
+        throw new RuntimeException('STORAGE_BACKEND=r2 needs DB_DRIVER=d1.');
+    }
 
     return $driver;
 }
