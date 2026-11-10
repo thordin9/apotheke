@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **edge:** the container uses R2 only when the storage fragment binds both `STORAGE` and `DB`; with neither it keeps local disk, with only one it does not start, and `r2.internal` stays closed unless R2 is selected ([#251](https://github.com/thordin9/apotheke/pull/251))
+
 ## [3.27.1] - 2026-11-10
 
 - **backup:** a SQLite catalog-fence claim waits for the holder's bridge work and still commits only after that transaction ends. An expired restore job whose upload is gone is failed, and that attempt cannot store a result afterwards ([#250](https://github.com/thordin9/apotheke/pull/250))
