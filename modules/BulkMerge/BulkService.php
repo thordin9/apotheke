@@ -56,9 +56,10 @@ final class BulkService
     /**
      * @param list<int> $ids
      * @param array{location_id?:?int,category_id?:?int,tags?:list<string>,tag_id?:int,keep_files?:bool} $opt
+     * @param (callable(UnitOfWork, int):void)|null $after hosted: queued in the same unit after the item writes
      * @return int the number of items changed
      */
-    public function run(array $ids, string $action, array $opt = []): int
+    public function run(array $ids, string $action, array $opt = [], ?callable $after = null): int
     {
         if (!in_array($action, self::ACTIONS, true)) {
             throw new UserError('Unknown bulk action.');
@@ -128,7 +129,14 @@ final class BulkService
         // (ADR-002: all or nothing there); each item's save joins it. A failed batch wrote nothing, so the same
         // request again simply resumes from the current rows. Elsewhere it is one transaction, as before.
         $n = $this->hosted()
-            ? $this->items->inUnit(static fn (UnitOfWork $uow): int => $apply($uow))
+            ? $this->items->inUnit(static function (UnitOfWork $uow) use ($apply, $after): int {
+                $n = $apply($uow);
+                if ($after !== null) {
+                    $after($uow, $n);
+                }
+
+                return $n;
+            })
             : Writes::transaction($this->db, static fn (): int => $apply(null));
         if (!empty($opt['keep_files'])) {
             return $n;
