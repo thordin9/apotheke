@@ -137,6 +137,7 @@ final class Imports
      */
     public function upload(?array $file): int
     {
+        Writes::refuseOnD1($this->db, 'CSV import');
         if ($this->guest()) {   // L-1500: before the file is read, stored or an import row made
             throw new UserError(self::GUEST_UPLOAD, 403);
         }
@@ -360,6 +361,7 @@ final class Imports
      */
     public function run(array $imp, bool $commit): array
     {
+        Writes::refuseOnD1($this->db, 'CSV import');
         $create = !empty($imp['options']['create']);
         $skip = !empty($imp['options']['skip_errors']);
         $col = self::columns($imp['mapping']);
@@ -449,6 +451,7 @@ final class Imports
      */
     public function commitRows(array $imp, JobContext $ctx, int $chunk = 50): array
     {
+        Writes::refuseOnD1($this->db, 'CSV import');
         $db = $this->db;
         $id = $imp['id'];
         $status = Writes::rows($db, 'SELECT status, result FROM imports WHERE id = ?', [$id])[0] ?? null;

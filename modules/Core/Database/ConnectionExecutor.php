@@ -19,6 +19,10 @@ final class ConnectionExecutor implements SqlExecutor
     /** @param BaseConnection<object|resource, object|resource> $db */
     public function __construct(private readonly BaseConnection $db)
     {
+        if ($db instanceof D1\Connection) {
+            // Its units must take the batch path on the same bridge, never a connection unit (no transaction there).
+            throw new \LogicException('The D1 driver runs units of work on its batch(), not on a connection executor.');
+        }
     }
 
     public function dialect(): Dialect

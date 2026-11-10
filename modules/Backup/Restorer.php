@@ -202,6 +202,7 @@ final class Restorer
      */
     public function restore(string $zipPath, bool $settings, ?string $run = null, ?LeaseHold $upload = null): array
     {
+        Writes::refuseOnD1($this->db, 'Restoring a backup');
         // One restore at a time, before any file or row changes. On explicit R2 the lease is that same
         // storage and is renewed before each later write. Local disk keeps the filesystem lock.
         // The database stage lock is a different lease; it does not keep this one.

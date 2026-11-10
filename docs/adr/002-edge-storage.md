@@ -370,7 +370,7 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    units of work take the batch path. The schema bootstraps on the object through `D1MigrationRunner` at the first
    request, under a lease row (`apotheke_migration_lease`, 300 s): one atomic claim, then a check of the owner; a
    request without the lease fails and the next one checks again, and a run releases only its own lease. The PDO
-   runner and `apotheke:migrate` refuse `d1`. The app's write paths move to the batch path next.
+   runner and `apotheke:migrate` refuse `d1`. On `d1` the SQL executor is the connection's own `batch()`. A step runs as one unit of work, committed as one batch: the driver refuses a unit inside a transaction, a second unit while one is open, and a direct write beside a unit, always by exception. `Writes::atomic` is the one-unit step for callers that need an id mid-flight; `Writes::refuseOnD1` answers 501 for paths not converted yet (bulk editing, CSV import, backup restore). Undo takes its token with a guarded delete as the unit's first step, so a second use answers 410.
 
 ## Ownership
 

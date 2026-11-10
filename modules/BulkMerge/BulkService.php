@@ -53,6 +53,7 @@ final class BulkService
      */
     public function run(array $ids, string $action, array $opt = []): int
     {
+        Writes::refuseOnD1($this->db, 'Bulk editing');
         if (!in_array($action, self::ACTIONS, true)) {
             throw new UserError('Unknown bulk action.');
         }
