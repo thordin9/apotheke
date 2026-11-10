@@ -8,6 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **core:** a CodeIgniter database driver for the edge bridge (`d1.internal`): writes in a transaction go out as one all-or-nothing batch at commit, reads that would see queued writes and `BEGIN`/`SAVEPOINT` are refused, and transport failures fail the statement. Not selected by default ([#254](https://github.com/thordin9/apotheke/pull/254))
 - **edge:** the `Installation` Durable Object holds the database in storage mode: `d1.internal` is served from its SQLite only when `STORAGE`, `DB` and `INSTALLATION` are all bound, any other mix does not start the container, and every bridge call is one all-or-nothing transaction ([#252](https://github.com/thordin9/apotheke/pull/252))
 
 ## [3.28.0] - 2026-11-10
