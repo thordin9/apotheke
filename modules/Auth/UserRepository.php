@@ -134,7 +134,7 @@ final class UserRepository
     }
 
     /**
-     * $fn in one transaction (Writes::transaction; nesting is flat). Prefer
+     * $fn in one transaction (Writes::atomic; nesting is flat). Prefer
      * underActiveAdminGuard() for admin changes (unit lock, no row lock).
      *
      * @template T
@@ -143,7 +143,7 @@ final class UserRepository
      */
     public function atomically(callable $fn): mixed
     {
-        return Writes::transaction($this->db, $fn);
+        return Writes::atomic($this->db, $fn);
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Core\Database;
 
+use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Exceptions\WriteFailed;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Database\BaseResult;
@@ -142,6 +143,33 @@ final class Writes
                 $db->resetTransStatus();
             }
             throw $e;
+        }
+    }
+
+    /**
+     * One atomic step that may hold a unit of work: Writes::transaction() on a connection; on the D1 driver (no
+     * interactive transaction) $fn may run one unit of work and no other write, so the step is still one batch
+     * (D1\Connection::atomic()).
+     *
+     * @template T
+     * @param BaseConnection<object|resource, object|resource> $db
+     * @param callable():T $fn
+     * @return T
+     */
+    public static function atomic(BaseConnection $db, callable $fn): mixed
+    {
+        return $db instanceof D1\Connection ? $db->atomic($fn) : self::transaction($db, $fn);
+    }
+
+    /**
+     * Refuse a feature the hosted database (the D1 driver) does not run yet, before it reads or writes anything.
+     *
+     * @param BaseConnection<object|resource, object|resource> $db
+     */
+    public static function refuseOnD1(BaseConnection $db, string $what): void
+    {
+        if ($db instanceof D1\Connection) {
+            throw new UserError($what . ' is not available on the hosted database yet.', 501);
         }
     }
 

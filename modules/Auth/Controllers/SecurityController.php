@@ -117,7 +117,7 @@ final class SecurityController extends AuthPages
                 } else {
                     /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
                     $db = service('apothekeDb');
-                    $uid = Writes::transaction($db, fn (): int => $this->userAdmin()->create($name, $this->post('new'), 'admin', $this->post('confirm')));
+                    $uid = Writes::atomic($db, fn (): int => $this->userAdmin()->create($name, $this->post('new'), 'admin', $this->post('confirm')));
                 }
                 $this->signInSwitch()->on();
                 $account = $this->userAdmin()->find($uid);
