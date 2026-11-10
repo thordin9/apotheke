@@ -2,7 +2,8 @@ name: Deploy edge
 
 # The Worker apotheke-api (edge/: Worker, Container Durable Object) and its container (Dockerfile.frankenphp).
 # - Pull requests that touch it: Worker guard, types, typecheck and `wrangler deploy --dry-run`, which also builds
-#   the container image. No secrets, no previews.
+#   the container image; then the same guard and dry run on the merged storage config (dummy D1 id). No secrets, no
+#   previews.
 # - Published releases (tags v*): the same checks, then the deploy in the GitHub environment deploy-edge (main and v* only, with a
 #   required reviewer).
 # - workflow_dispatch on main or a v* tag: the same as a tag.
@@ -10,7 +11,8 @@ name: Deploy edge
 # the environment's review) until the repository variable EDGE_STORAGE_READY is true.
 # P4 storage: the deploy job (so only with EDGE_STORAGE_READY=true) merges edge/storage.jsonc (D1 DB, R2 STORAGE in the
 # eu jurisdiction, the Installation Durable Object) into edge/wrangler.jsonc, deploys, then checks /healthz. The pull
-# request checks keep the default config. Flip checklist: docs/deployment-and-operations.md#p4-edge-storage-flip-checklist.
+# request checks dry-run both the default config and the merged one (with a dummy D1 id, no secret).
+# Flip checklist: docs/deployment-and-operations.md#p4-edge-storage-flip-checklist.
 on:
   pull_request:
     paths:
@@ -75,6 +77,33 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/api-bundle"
+      # ADR-002: the deploy job's own merge of edge/storage.jsonc, with a dummy D1 id (no secret, no account, no
+      # repository variable), then the guard and `wrangler deploy --dry-run` on the merged file, so a pull request that
+      # breaks the hosted config fails here and not at the flip. The bindings and vars the flip needs are checked in
+      # wrangler's binding list. Last in this job: it rewrites edge/wrangler.jsonc on this runner's checkout only.
+      - name: Merged storage config dry run (dummy D1 id; no token, nothing deployed)
+        env:
+          APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000
+          WRANGLER_SEND_METRICS: 'false'
+        shell: bash
+        run: |
+          node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc
+          node scripts/cf-worker-guard.mjs apotheke-api edge/wrangler.jsonc -- --dry-run
+          log="$RUNNER_TEMP/merged-dry-run.log"
+          (cd edge && npx --no-install wrangler deploy --dry-run --config wrangler.jsonc --outdir "$RUNNER_TEMP/api-bundle-merged") 2>&1 | tee "$log"
+          sed -i 's/\x1b\[[0-9;]*m//g' "$log"
+          for want in 'env.APOTHEKE (ApothekeContainer)' 'env.INSTALLATION (Installation)' 'env.DB (apotheke-api)' \
+            'env.STORAGE (apotheke-api-storage (eu))' 'env.CORS_ALLOWED_ORIGINS ("https://getapotheke.com")' \
+            'env.ALLOWED_HOSTS ("api.services.getapotheke.com")'; do
+            if ! grep -qF "$want" "$log"; then
+              echo "::error title=Merged storage config::the merged dry run does not list $want"
+              exit 1
+            fi
+          done
+          if grep -qF 'env.COOKIE_DOMAIN' "$log"; then
+            echo "::error title=Merged storage config::the merged config still has COOKIE_DOMAIN (ADR-002, decision 5)"
+            exit 1
+          fi
 
   deploy:
     name: Deploy apotheke-api

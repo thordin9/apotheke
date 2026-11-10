@@ -42,4 +42,28 @@ final class RequestSchemeTest extends TestCase
         $this->assertSame('http://localhost', $scheme->publicBase([], $any));
         $this->assertSame('http://phone.local:9091', $scheme->publicBase(['HTTP_HOST' => 'Phone.LOCAL:9091'], $any));
     }
+
+    public function testTrustProxyEnvironmentEnablesForwardedHttps(): void
+    {
+        $old = getenv('TRUST_PROXY');
+        try {
+            putenv('TRUST_PROXY=1');
+            $scheme = RequestScheme::fromSetting(false);
+            $header = ['HTTP_X_FORWARDED_PROTO' => 'https', 'HTTP_HOST' => 'app.example.test'];
+            $this->assertTrue($scheme->isHttps($header));
+            $this->assertTrue($scheme->secureCookie($header));
+            $this->assertSame('https://app.example.test', $scheme->publicBase($header, static fn (string $host): bool => true));
+            putenv('TRUST_PROXY=0');
+            $this->assertFalse(RequestScheme::fromSetting(false)->isHttps($header), 'TRUST_PROXY=0 does not force trust');
+            putenv('TRUST_PROXY');
+            $this->assertFalse(RequestScheme::fromSetting(false)->isHttps($header), 'unset leaves the setting off');
+            $this->assertTrue(RequestScheme::fromSetting(true)->isHttps($header), 'the Control Panel setting still works');
+        } finally {
+            if ($old === false) {
+                putenv('TRUST_PROXY');
+            } else {
+                putenv('TRUST_PROXY=' . $old);
+            }
+        }
+    }
 }

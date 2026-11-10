@@ -13,6 +13,29 @@ final class RequestScheme
     {
     }
 
+    /**
+     * The Control Panel setting, or TRUST_PROXY in the process environment.
+     * The hosted Worker sets TRUST_PROXY=1 in the container; self-host is
+     * unchanged unless that variable is set there too.
+     */
+    public static function proxyTrusted(bool $setting = false): bool
+    {
+        if ($setting) {
+            return true;
+        }
+        $raw = getenv('TRUST_PROXY');
+        if ($raw === false || $raw === '') {
+            return false;
+        }
+
+        return in_array(strtolower(trim($raw)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    public static function fromSetting(bool $setting): self
+    {
+        return new self(self::proxyTrusted($setting));
+    }
+
     /** @param array<string,mixed> $server */
     public function isHttps(array $server): bool
     {
