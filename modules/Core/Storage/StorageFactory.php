@@ -18,12 +18,17 @@ final class StorageFactory
         return [$data, new LocalStorage(\Apotheke\Core\Config\ApothekeConfig::originalsPath((string)$config['data_dir'], (string)($config['originals_dir'] ?? '')), 0640)];
     }
 
-    /** @param array<string,mixed> $config */
-    public static function create(array $config): Storage
+    /**
+     * $fileMode and $dirMode apply only to local disk (attachments use 0770).
+     * A selected R2 backend is constructed or it throws: it never falls back to disk.
+     *
+     * @param array<string,mixed> $config
+     */
+    public static function create(array $config, ?int $fileMode = null, ?int $dirMode = null): Storage
     {
         $backend = strtolower((string)($config['storage']['backend'] ?? 'local'));
         if ($backend === 'local') {
-            return new LocalStorage((string)($config['data_dir'] ?? 'data'));
+            return new LocalStorage((string)($config['data_dir'] ?? 'data'), $fileMode, $dirMode ?? 0700);
         }
         if ($backend !== 'r2') {
             throw new \InvalidArgumentException('Unsupported storage backend.');

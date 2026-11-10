@@ -316,14 +316,14 @@ class Services extends BaseService
         return \Apotheke\Core\Database\UnitsOfWork::on(static::sqlExecutor(), static::requestCleanup());
     }
 
-    /** Served photos and thumbnails: DATA_DIR/images and DATA_DIR/thumbs on local disk. */
+    /** Served photos and thumbnails: DATA_DIR/images and DATA_DIR/thumbs, or R2 in storage mode. */
     public static function servedImages(bool $getShared = true): \Apotheke\Media\Storage\ServedImageWriter
     {
         if ($getShared) {
             return static::getSharedInstance('servedImages');
         }
 
-        return new \Apotheke\Media\Storage\ServedImageWriter(new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()));
+        return new \Apotheke\Media\Storage\ServedImageWriter(\Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values()));
     }
 
     /** Photo uploads: originals under ORIGINALS_DIR (files 0640), the served copy through servedImages. */
@@ -334,9 +334,11 @@ class Services extends BaseService
         }
         \Apotheke\Media\ImageLimits::applyImagickLimits();
 
+        [, $originals] = \Apotheke\Core\Storage\StorageFactory::forApotheke(static::apothekeConfig()->values());
+
         return new \Apotheke\Media\ImageStore(
             static::settings(),
-            new \Apotheke\Media\Storage\OriginalStore(new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->originalsDir(), 0640)),
+            new \Apotheke\Media\Storage\OriginalStore($originals),
             static::servedImages(),
             new \Apotheke\Media\Storage\ImagickDecoder(),
             static::requestCleanup(),
@@ -474,7 +476,7 @@ class Services extends BaseService
 
         return new \Apotheke\Autofill\AutofillService(
             $settings,
-            new \Apotheke\Core\Storage\LocalStorage($config->dataDir()),
+            \Apotheke\Core\Storage\StorageFactory::create($config->values()),
             new \Apotheke\Autofill\AutofillClient($now),
             $log,
             $db,
@@ -675,7 +677,7 @@ class Services extends BaseService
         $db = static::apothekeDb();
 
         return new \Apotheke\Catalog\Items\ItemRepository($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::taxonomy(), static::tags(),
-            static::imageStore(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()), static::photoRepository(), static::unitsOfWork());
+            static::imageStore(), \Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values()), static::photoRepository(), static::unitsOfWork());
     }
 
     /** An item's photos: add, order, cover, delete, crop and rotate (Catalog, PLAN 11a part 2). */
@@ -957,7 +959,7 @@ class Services extends BaseService
         $s = static::settings();
 
         return new \Apotheke\Catalog\Items\Attachments($db, new \Apotheke\Core\Libraries\Clock(), static::itemHistory(), static::itemRepository(),
-            new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir(), null, 0770), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'), static::unitsOfWork());
+            \Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values(), null, 0770), (string)$s->get('attach_types'), (int)$s->get('attach_max_mb'), (int)$s->get('attach_max_per_item'), static::unitsOfWork());
     }
 
     /** The +/- buttons (BulkMerge, PLAN 11b). */
@@ -1140,7 +1142,7 @@ class Services extends BaseService
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
 
-        return new \Apotheke\ImportExport\Imports($db, new \Apotheke\Core\Libraries\Clock(), static::calendar(), new \Apotheke\Core\Storage\LocalStorage(static::apothekeConfig()->dataDir()),
+        return new \Apotheke\ImportExport\Imports($db, new \Apotheke\Core\Libraries\Clock(), static::calendar(), \Apotheke\Core\Storage\StorageFactory::create(static::apothekeConfig()->values()),
             static::itemRepository(), static::taxonomy(), static::loans(), static function (): ?string {
                 if (PHP_SAPI === 'cli') {
                     return null;
