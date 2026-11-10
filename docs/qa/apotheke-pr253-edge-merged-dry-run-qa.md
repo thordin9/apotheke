@@ -3,6 +3,7 @@
 - PR: https://github.com/thordin9/apotheke/pull/253 (DevOps)
 - Reviewed head: `dcecdde7a49bbcd4bc319a5fba24117444fc0a4c` (docs-only `dcecdde` on top of `111c1f9`; `111c1f9` merges `origin/main` at `cddcd8f` = #252; 1 behind current main `caaf2f0` = v3.29.0)
 - Gate: full (diff read, CI, local merge/guard/dry-run, mutations; docs delta after `111c1f9` also read)
+- Merge-only read: `0d2f99d7f6bcf532d21e0fdcd6b7834c82f38081`. `509c308` plain-merges main `caaf2f0` (v3.29.0; `CHANGELOG.md`/`VERSION` only, N-1559 fixed). `0d2f99d` plain-merges main `31d66f9` (#255; brings in only `ci.yml` and the #255 doc). The PR's own files are unchanged from the PASS head. 0 behind, clean, 23 green, 2 deploys skipped.
 - Reviewer: Apotheke QA 2
 
 ## Checklist
@@ -30,4 +31,4 @@
 
 ## Verdict
 
-**PASS** at `dcecdde`. Before the doc commit, merge main in as a plain merge (no rebase). The merge may change only `CHANGELOG.md` and `VERSION`. I check that delta and the re-run CI at the hash check. Squash-merge with the PR title as the subject.
+**PASS** at `dcecdde`, confirmed by the merge-only read at `0d2f99d`. Before the doc commit, merge main in as a plain merge (no rebase). The merge may change only `CHANGELOG.md` and `VERSION`. I check that delta and the re-run CI at the hash check. Squash-merge with the PR title as the subject.
