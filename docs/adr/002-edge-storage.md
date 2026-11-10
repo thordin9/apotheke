@@ -321,7 +321,9 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    since that request was sent, and a file that already exists is kept. A map pointer is replaced by a
    conditional PUT while the catalog fence row is locked. The catalog transaction, the staged swap batch, the
    settings import, and the undo prune reject a fence token another restore has already committed. claim() of
-   that row waits out the open transaction; renewing the object lease does not wait on the claim. There is no mode that
+   that row waits out the open transaction. On SQLite that wait is two bridge request timeouts, then the
+   connection's usual timeout is restored; if the holder still has the row, the claim does not take the token
+   and does not write. Renewing the object lease does not wait on the claim. There is no mode that
    puts payloads in R2 and leaves the restore manifest or lock only on local disk. On a PDO database, restore
    confirm still runs in the request. On a batch-only database (D1, a Durable Object) confirm is one
    `restore.confirm` job: `202` and progress from `GET /api/v1/jobs/{id}` (QA's N-1589). The job has one attempt.

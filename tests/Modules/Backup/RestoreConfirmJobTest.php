@@ -158,16 +158,43 @@ final class RestoreConfirmJobTest extends CIUnitTestCase
             $this->assertSame($id, $job->id);
             putenv('APOTHEKE_CLOCK=2026-11-01 10:10:00');
             $this->assertNull($other->claim('worker-b'), 'the expired attempt is not run again');
-            $seen = (new RestoreConfirmRecovery($queue, $this->uploads($target)))->recover($job)->view();
-            $this->assertSame('running', $seen['status']);
-            $this->assertNull($seen['error']);
-            $this->assertNull($seen['result']);
             $result = ['restored' => true, 'tables' => ['items' => 1], 'photos' => 0, 'warnings' => [], 'token_cleared' => false];
             $this->assertTrue($queue->complete($job, $result));
-            $done = $other->find($id);
-            $this->assertSame('done', $done?->status);
-            $this->assertSame($result, $done?->result);
-            $this->assertNull($done?->error);
+            $done = (new RestoreConfirmRecovery($queue, $this->uploads($target)))->recover($other->find($id) ?? $job);
+            $this->assertSame('done', $done->status);
+            $this->assertSame($result, $done->result);
+            $this->assertNull($done->error);
+        } finally {
+            putenv('APOTHEKE_CLOCK');
+        }
+    }
+
+    #[DataProvider('drivers')]
+    public function testAnExpiredMissingUploadIsTerminal(string $driver): void
+    {
+        $target = $this->database($driver);
+        $uploads = $this->uploads($target);
+        $missing = str_repeat('ab', 16);
+        putenv('APOTHEKE_CLOCK=2026-11-01 10:00:00');
+        try {
+            $queue = new JobQueue($target->db, new Clock());
+            $jobId = $queue->enqueue(RestoreConfirmJob::TYPE, RestoreConfirmJob::payload($missing, 'local', false), 'ada', RestoreConfirmJob::ONCE);
+            $job = $queue->claim('worker-a');
+            $this->assertNotNull($job);
+            putenv('APOTHEKE_CLOCK=2026-11-01 10:05:00');
+            $this->assertTrue($queue->checkpoint($job, ['done' => 0, 'total' => 1]));
+            $live = (new RestoreConfirmRecovery($queue, $uploads))->recover($job)->view();
+            $this->assertSame('running', $live['status']);
+            $this->assertNull($live['error']);
+            putenv('APOTHEKE_CLOCK=2026-11-01 10:15:00');
+            $recovery = new RestoreConfirmRecovery($queue, $uploads);
+            $seen = $recovery->recover($queue->find($jobId) ?? $job)->view();
+            $this->assertSame(['failed', RestoreUploads::NOT_FOUND, null], [$seen['status'], $seen['error'], $seen['result']]);
+            $stored = ['restored' => true, 'tables' => ['items' => 9], 'photos' => 4, 'warnings' => [], 'token_cleared' => true];
+            $this->assertFalse($queue->complete($job, $stored));
+            $again = $recovery->recover($queue->find($jobId) ?? $job)->view();
+            $this->assertSame($seen, $again);
+            $this->assertNull($queue->find($jobId)?->result);
         } finally {
             putenv('APOTHEKE_CLOCK');
         }

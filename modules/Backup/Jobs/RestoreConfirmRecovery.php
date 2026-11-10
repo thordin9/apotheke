@@ -17,6 +17,8 @@ use Apotheke\Core\Jobs\JobRecovery;
  * applying is queued again, as the same job, once that lease has ended and the
  * upload is free and still ready. A manifest that already says restored is
  * stored on the job without running the restore. A finished job is left as it is.
+ * An expired claim whose upload is gone is failed, and that attempt cannot
+ * store a result afterwards. A renewed lease is left running.
  */
 final class RestoreConfirmRecovery implements JobRecovery
 {
@@ -42,6 +44,9 @@ final class RestoreConfirmRecovery implements JobRecovery
         } catch (UserError $e) {
             if ($e->getCode() === 409) {
                 return $this->queue->resumeExpired($job);
+            }
+            if ($e->getCode() === 404) {
+                return $this->queue->closeExpired($job, RestoreUploads::NOT_FOUND) ?? $this->queue->find($job->id) ?? $job;
             }
 
             return $job;

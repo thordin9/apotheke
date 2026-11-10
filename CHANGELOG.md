@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- **backup:** a SQLite catalog-fence claim waits for the holder's bridge work and still commits only after that transaction ends. An expired restore job whose upload is gone is failed, and that attempt cannot store a result afterwards ([#250](https://github.com/thordin9/apotheke/pull/250))
+
 ## [3.27.0] - 2026-11-07
 
 - **edge:** expire an abandoned multipart upload that still has a marker after one day, then delete the marker. Deleting a marker does not abort the upload. An upload with no marker stays for an account lifecycle rule, and the hosted gate stays closed ([#249](https://github.com/thordin9/apotheke/pull/249))

@@ -63,7 +63,9 @@ confirm of the same upload returns that job and does not insert another, includi
 marked the row failed. A read of the job copies the upload's outcome onto that row. A worker that still holds the
 upload, or that has renewed its lease, stays `running`. A worker that was killed after the claim and before
 `applying`, once that lease has ended and the upload is free and still `ready`, is put back on the queue as the
-same job: the next worker may restore it once, and the original worker cannot start `applying` after that. A
+same job: the next worker may restore it once, and the original worker cannot start `applying` after that. An
+expired job whose upload is gone becomes `failed` with `Restore upload not found.` A later completion does not
+store a result. A renewed lease stays `running`. A
 manifest that already says restored becomes `done` with that result, without running the restore again. A `done`
 job, or a job that failed for a reason other than the lease, is not given a different result. A crash after
 `applying`, or a confirm after `restored`, does not apply the backup again. The Backup page and `bin/restore.php` stay in the request on every database. While another restore runs it is `409` and the upload is

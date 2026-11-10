@@ -225,6 +225,22 @@ final class JobQueue
         return $this->db->affectedRows() === 1 ? $this->find($job->id) : null;
     }
 
+    /**
+     * The lease has ended and the upload is gone, so this attempt cannot finish.
+     * Zero rows when the lease was renewed or the row already has a result.
+     */
+    public function closeExpired(Job $job, string $error): ?Job
+    {
+        $now = $this->at(0);
+        $this->db->query(
+            "UPDATE jobs SET status = 'failed', error = ?, lease_owner = NULL, lease_until = NULL, finished_at = ?, updated_at = ?
+             WHERE id = ? AND type = ? AND result IS NULL AND ((status = 'running' AND lease_until < ?) OR (status = 'failed' AND error = ?))",
+            [$error, $now, $now, $job->id, self::ONE_ACTIVE_TYPE, $now, self::EXPIRED_ERROR],
+        );
+
+        return $this->db->affectedRows() === 1 ? $this->find($job->id) : null;
+    }
+
     /** An expiry failure is not terminal while the upload is still in use. Does not insert another row. */
     public function resumeExpired(Job $job): Job
     {

@@ -7,6 +7,7 @@ namespace Apotheke\Backup;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Storage\LeaseDenied;
 use CodeIgniter\Database\BaseConnection;
+use SQLite3;
 
 /**
  * The catalog owner of a remote restore. The token is one restore_marker row
@@ -25,17 +26,42 @@ final class RestoreFence
 {
     public const RUN = 'fence';
 
+    /**
+     * How long a SQLite claim waits for the open fence transaction. The connection's
+     * usual busy timeout is 5s, and a failed DELETE then a failed INSERT spend it
+     * twice. One bridge call inside that transaction is allowed 30s, and a map
+     * pointer reads the version and then writes it. The claim waits for both and
+     * then puts the connection's timeout back. It still commits only after the
+     * holder ends the transaction.
+     */
+    private const SQLITE_CLAIM_WAIT_MS = 60000;
+
     /** @param BaseConnection<object|resource, object|resource> $db */
     public static function claim(BaseConnection $db, string $token): void
     {
         $stamp = self::stamp();
-        Writes::transaction($db, static function () use ($db, $token, $stamp): void {
-            $db->query('DELETE FROM restore_marker WHERE run = ?', [self::RUN]);
-            Writes::check(
-                $db->query('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', [self::RUN, $token, $stamp]),
-                'restore fence',
-            );
-        });
+        $sqlite = $db->connID instanceof SQLite3 ? $db->connID : null;
+        $previous = 5000;
+        if ($sqlite !== null) {
+            $current = $sqlite->querySingle('PRAGMA busy_timeout');
+            $previous = is_numeric($current) ? (int)$current : 5000;
+            $sqlite->busyTimeout(self::SQLITE_CLAIM_WAIT_MS);
+            $sqlite->exec('PRAGMA busy_timeout = ' . self::SQLITE_CLAIM_WAIT_MS);
+        }
+        try {
+            Writes::transaction($db, static function () use ($db, $token, $stamp): void {
+                Writes::check($db->query('DELETE FROM restore_marker WHERE run = ?', [self::RUN]), 'restore fence');
+                Writes::check(
+                    $db->query('INSERT INTO restore_marker (run, sha256, applied_at) VALUES (?, ?, ?)', [self::RUN, $token, $stamp]),
+                    'restore fence',
+                );
+            });
+        } finally {
+            if ($sqlite !== null) {
+                $sqlite->busyTimeout($previous);
+                $sqlite->exec('PRAGMA busy_timeout = ' . $previous);
+            }
+        }
     }
 
     /**
