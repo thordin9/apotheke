@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **edge:** the Worker overwrites `X-Apotheke-Client-IP` from `cf-connecting-ip` and sets `APOTHEKE_EDGE_CLIENT_IP=1`, so hosted sign-in and registration rate-limit keys are per client. The header is used only when that flag is set and the value is an address; `TRUST_PROXY` alone does not enable it, and Caddy drops a client-supplied copy when the flag is not `1`
+- **edge:** the Worker overwrites `X-Apotheke-Client-IP` from `cf-connecting-ip` and sets `APOTHEKE_EDGE_CLIENT_IP=1`, so hosted sign-in and registration rate-limit keys are per client. The header is used only when that flag is set and the value is an address; `TRUST_PROXY` alone does not enable it, and Caddy drops a client-supplied copy when the flag is not `1` ([#268](https://github.com/thordin9/apotheke/pull/268))
 - **edge:** the Worker forwards to the container over HTTP with `redirect: manual` and overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from the original URL, and the entrypoint recreates Caddy's `/run` directories before FrankenPHP starts, so the hosted container can bind its PHP socket and the app still treats requests as HTTPS ([#264](https://github.com/thordin9/apotheke/pull/264))
 
 ### Maintenance
