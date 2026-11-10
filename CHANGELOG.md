@@ -8,6 +8,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- On the hosted database, item create, edit and delete, account creation, undo and the search rebuild each commit as one all-or-nothing batch, and an undo can only be used once even when two requests race. Bulk editing, CSV import and backup restore are not available there yet and say so; the item form asks you to add a new location or category first, and duplicating an item with its photos asks you to duplicate it without them. Self-hosting is unchanged (P4-5). ([#261](https://github.com/thordin9/apotheke/pull/261))
 - Hosted storage mode now selects the Installation database: the Worker starts the container with `DB_DRIVER=d1` (set in code, never from a Worker var), PHP accepts `d1` only with `STORAGE_BACKEND=r2`, the CI4 config reads `STORAGE_BACKEND`, the SQL executor is the batch-only bridge, and the schema is migrated on the Installation object at the first request under a lease. Self-hosting is unchanged (P4-5). ([#258](https://github.com/thordin9/apotheke/pull/258))
 - **core:** a CodeIgniter database driver for the edge bridge (`d1.internal`): writes in a transaction go out as one all-or-nothing batch at commit, reads that would see queued writes and `BEGIN`/`SAVEPOINT` are refused, and transport failures fail the statement. Not selected by default ([#254](https://github.com/thordin9/apotheke/pull/254))
 
