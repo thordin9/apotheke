@@ -363,7 +363,14 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    nothing. A read before the first queued write runs at once on committed data, with no lock, so a dependent write
    needs a guard. A read after a queued write, `RETURNING` inside a transaction, and an affected-row count or insert
    id that is not known yet are refused. `BEGIN` and `SAVEPOINT` never reach the bridge. The bridge host must be
-   `d1.internal` or loopback. Selecting the driver in storage mode is the next chunk.
+   `d1.internal` or loopback.
+   In storage mode the Worker also sets `DB_DRIVER=d1`, in code and never from a Worker var. PHP accepts `d1`
+   only with `STORAGE_BACKEND=r2` (both configs), and its host is fixed to `d1.internal`, never configured. The
+   CI4 config now reads `STORAGE_BACKEND` as legacy does. The SQL executor is the batch-only `D1HttpExecutor`, so
+   units of work take the batch path. The schema bootstraps on the object through `D1MigrationRunner` at the first
+   request, under a lease row (`apotheke_migration_lease`, 300 s): one atomic claim, then a check of the owner; a
+   request without the lease fails and the next one checks again, and a run releases only its own lease. The PDO
+   runner and `apotheke:migrate` refuse `d1`. The app's write paths move to the batch path next.
 
 ## Ownership
 

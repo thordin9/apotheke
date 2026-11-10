@@ -298,6 +298,10 @@ class Services extends BaseService
         }
         /** @var \CodeIgniter\Database\BaseConnection<object|resource, object|resource> $db */
         $db = static::apothekeDb();
+        if ((static::apothekeConfig()->database()['driver'] ?? '') === 'd1') {
+            // Hosted storage mode: batch-only over the bridge (apothekeDb() above already migrated the object).
+            return new \Apotheke\Core\Database\D1HttpExecutor();
+        }
 
         return new \Apotheke\Core\Database\ConnectionExecutor($db);
     }

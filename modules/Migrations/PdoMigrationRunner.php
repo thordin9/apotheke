@@ -68,6 +68,9 @@ final class PdoMigrationRunner
     {
         self::loadConfig();
         $driver = (string)($db['driver'] ?? '');
+        if ($driver === 'd1') {
+            throw new MigrateConnectException('db.driver d1 migrates over the bridge (D1Bootstrap), not PDO.');
+        }
         $dsn = config_dsn($db);
         $user = null;
         $password = null;

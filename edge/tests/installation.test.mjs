@@ -165,7 +165,7 @@ test('P4-5b: the container starts only with the whole fragment, and PHP is not y
   const [ok, full] = await start(fullEnv());
   assert.equal(ok, 200);
   assert.equal(full.env.STORAGE_BACKEND, 'r2');
-  assert.equal(full.env.DB_DRIVER, undefined, 'the PHP d1 driver is the next piece');
+  assert.equal(full.env.DB_DRIVER, 'd1', 'storage mode uses the Installation object as the database');
   for (const env of [{ STORAGE: bucket(), DB: {} }, { INSTALLATION: {} }, { STORAGE: bucket(), INSTALLATION: {} }]) {
     const [status, started] = await start(env);
     assert.equal(status, 503, Object.keys(env).join());
