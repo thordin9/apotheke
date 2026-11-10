@@ -139,7 +139,7 @@ test('application listing filtering uses the shared dot-segment predicate', asyn
 
 test('manifest replacements require the exact observed ETag', async () => {
   const bucket = new Bucket();
-  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {} });
+  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const path = 'backups/manifest.json';
   assert.equal((await worker.fetch(request('PUT', path, {}, 'one'))).status, 200);
   const head = await (await worker.fetch(request('HEAD', path))).json();
@@ -193,7 +193,7 @@ test('one object read keeps its own etag when a later lookup sees a replacement'
 
 test('real transport rejects a stale conditional write after the read response', { timeout: 20000 }, async () => {
   const bucket = new Bucket();
-  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {} });
+  const worker = new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const relative = 'backups/manifest.json';
   const objectKey = `installations/primary/${relative}`;
   await bucket.put(objectKey, 'body-A');
@@ -301,7 +301,7 @@ test('unsafe paths, missing caps, and absent R2 fail generically', async () => {
 
 test('the real entrypoint resumes begin, parts, and complete without request sessions', async () => {
   const bucket = new Bucket();
-  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {} });
+  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   assert.equal(begin.status, 200);
   const { upload_id: id } = await begin.json();
@@ -320,7 +320,7 @@ test('the real entrypoint resumes begin, parts, and complete without request ses
 
 test('the real entrypoint aborts a resumed upload and confines its installation key', async () => {
   const bucket = new Bucket();
-  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {} });
+  const outbound = () => new R2Outbound({}, { STORAGE: bucket, DB: {}, INSTALLATION: {} });
   const begin = await outbound().fetch(request('PUT', 'a.bin', { action: 'begin' }));
   const { upload_id: id } = await begin.json();
   assert.equal((await outbound().fetch(request('DELETE', 'other.bin', { action: 'abort', upload_id: id }))).status, 400);
@@ -881,14 +881,14 @@ test('P4-5: without the storage fragment the container gets no storage selection
 });
 
 test('P4-5: the merged fragment (STORAGE and DB) selects r2 in the container, internet still off', async () => {
-  const { obj, started } = startedContainer({ STORAGE: new Bucket(), DB: {} });
+  const { obj, started } = startedContainer({ STORAGE: new Bucket(), DB: {}, INSTALLATION: {} });
   assert.equal((await obj.fetch(new Request('https://api.example.test/healthz'))).status, 200);
   assert.equal(started().env.STORAGE_BACKEND, 'r2');
   assert.equal(started().enableInternet, false);
 });
 
 test('P4-5: half a fragment refuses to start (fails closed, no fallback, no reason shown)', async () => {
-  for (const env of [{ STORAGE: new Bucket() }, { DB: {} }]) {
+  for (const env of [{ STORAGE: new Bucket() }, { DB: {} }, { STORAGE: new Bucket(), DB: {} }, { INSTALLATION: {} }]) {
     const { obj, started } = startedContainer(env);
     const original = console.error;
     console.error = () => {};
@@ -902,12 +902,12 @@ test('P4-5: half a fragment refuses to start (fails closed, no fallback, no reas
 });
 
 test('P4-5: r2.internal answers only when r2 is selected; local mode never reaches the bucket', async () => {
-  for (const env of [{ STORAGE: untouchable }, { STORAGE: untouchable, STORAGE_BACKEND: 'r2' }, { DB: {} }, {}]) {
+  for (const env of [{ STORAGE: untouchable }, { STORAGE: untouchable, STORAGE_BACKEND: 'r2' }, { DB: {} }, { STORAGE: untouchable, DB: {} }, {}]) {
     const res = await new R2Outbound({}, env).fetch(request('GET', 'file.bin'));
     assert.equal(res.status, 503);
     assert.deepEqual(await res.json(), await r2UnboundResponse().json());
   }
-  const res = await new R2Outbound({}, { STORAGE: new Bucket(), DB: {} }).fetch(request('PUT', 'file.bin', {}, 'abc'));
+  const res = await new R2Outbound({}, { STORAGE: new Bucket(), DB: {}, INSTALLATION: {} }).fetch(request('PUT', 'file.bin', {}, 'abc'));
   assert.equal(res.status, 200);
 });
 
@@ -919,3 +919,5 @@ test('P4-5: the public Worker only forwards to the container and never serves th
   }
   assert.deepEqual(seen, ['primary', 'primary', 'primary']);
 });
+
+await import(new URL('./installation.test.mjs', import.meta.url).href);

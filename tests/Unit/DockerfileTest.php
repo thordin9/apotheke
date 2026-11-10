@@ -65,6 +65,13 @@ final class DockerfileTest extends TestCase
     }
 
     /** Hardening (SEC-M3): compose publishes the app on localhost only, and the image needs sign-in to start. */
+    public function testEdgeImageChecksCurlForR2Storage(): void
+    {
+        // STORAGE_BACKEND=r2 needs ext-curl (StorageFactory); the edge image fails its build without it.
+        $docker = (string)file_get_contents(dirname(__DIR__, 2) . '/Dockerfile.frankenphp');
+        $this->assertMatchesRegularExpression('/^\s*php -m \| grep -qx curl;/m', $docker);
+    }
+
     public function testComposeBindsLocalhostAndPassesTheSignInVariables(): void
     {
         $compose = (string)file_get_contents(dirname(__DIR__, 2) . '/docker-compose.yml');
