@@ -546,7 +546,8 @@ release-by-tag endpoint returns only published releases, so a draft fails like a
 cancelled. Every install in these workflows (pull request, test and deploy jobs) is `npm ci --ignore-scripts`: no package
 install script runs where the token is, and a dependency that needs one fails on the pull request already. Pull requests that touch them run the build, the Worker guard, the typecheck
 and `wrangler deploy --dry-run` (which, for `apotheke-api`, builds the container image), with no secret and no
-preview. The deploy is not a release check. Routes and custom domains are never in the wrangler configs CI uses
+preview; for `apotheke-api` also a second dry run of the merged P4 storage config
+([flip checklist](#p4-edge-storage-flip-checklist), part 2). The deploy is not a release check. Routes and custom domains are never in the wrangler configs CI uses
 (`workers_dev` and `preview_urls` are off); the custom domains are attached in the Cloudflare dashboard.
 
 **Secrets and variables** (set by the repository owner, never in the repository):
@@ -614,9 +615,10 @@ uploads is an account lifecycle rule on the bucket. This repository does not cre
 ### P4 edge storage: flip checklist
 
 The P4 storage for `apotheke-api` is prepared but off. Its bindings are in `edge/storage.jsonc`, not in
-`edge/wrangler.jsonc`, so the pull request dry run, `wrangler dev` and the *Edge local test* use the default config
-unchanged. Only the deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in
-(`scripts/edge-storage-config.mjs`, on the runner's checkout), deploys, and then checks `/healthz`:
+`edge/wrangler.jsonc`, so `wrangler dev`, the *Edge local test* and the pull request's default dry run use the default
+config unchanged. The pull request checks also dry-run the merged config with a dummy D1 id (part 2 below). Only the
+deploy job, which runs only with `EDGE_STORAGE_READY=true`, merges them in for real (`scripts/edge-storage-config.mjs`,
+on the runner's checkout), deploys, and then checks `/healthz`:
 
 | Binding | Resource | Notes |
 |---|---|---|
@@ -633,70 +635,224 @@ isn't decided yet; until it is, every installation's API accepts only that one o
 The deploy runs no `wrangler d1 migrations apply`: the app's own migration runner applies `migrations/` through the
 bridge. A control-plane D1 schema would later go in `edge/migrations/control/`, set as the binding's `migrations_dir`.
 
-Flip in this order. Every step except the last two is additive; nothing is deleted.
+Work through it top to bottom; each part names who does it. Everything up to the flip is additive and nothing is
+deleted. Never paste a token, a secret value or a resource id into a pull request, an issue or this repository.
 
-1. **Pre-flip: the storage gate criteria hold.** Don't start until items 1 to 4 of *Opening the storage gate* in
-   [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate) are met:
-   1. P4-2 to P4-5 are merged (so `edge/src/index.ts` exports `Installation`; until then a deploy with the merged
-      config fails on *Durable Objects not exported*, and nothing is deployed);
-   2. the manual `edge-local` workflow is green with D1 and R2 (local), including a backup round trip between
-      SQLite on Docker and the edge;
-   3. a preview D1 and R2 pass the smoke test and the guard cases (all-or-nothing batches, `expect` and `assert`
-      aborts, concurrent guarded adds, 150 `Ref`s, 101 parameters refused);
-   4. `edge/src` creates every `Installation` id through `env.INSTALLATION.jurisdiction("eu")`: the test for this is
-      green, and on the preview an `Installation` object is checked to be in the EU jurisdiction before any real
-      installation is created. **This can't be corrected after the ids exist.**
+#### 1. Prerequisites
 
-   The ADR's item 5 (the one-time steps) is the rest of this checklist.
-2. **Token for creating the resources** (the operator's own, from a trusted machine, not CI; separate from the CI
-   token and short-lived): *Account > D1 > Edit* and *Account > Workers R2 Storage > Edit*, on this account only,
-   with a TTL and ideally an IP filter ([R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/)).
-   Setting the Worker secrets in step 6 needs *Specified Workers > Editor* on the Worker (or
-   *Account > Workers Scripts > Edit*). In the environment only:
-   `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
-3. **Create D1 and R2 in the EU jurisdiction.** The jurisdiction can't be changed after creation, for either. With a
-   jurisdiction, a D1 location hint (`--location weur`) is ignored, so don't pass one. In `edge/` (the pinned wrangler):
+| # | Prerequisite | Owner | Check (read-only) |
+|---|---|---|---|
+| 1.1 | Storage gate criteria 1 to 4 of [ADR-002](adr/002-edge-storage.md#opening-the-storage-gate): P4-2 to P4-5 merged (so `edge/src/index.ts` exports `Installation`), `edge-local` green with D1 and R2, the preview guard cases, and every `Installation` id made through `jurisdiction("eu")` | app | the merged dry run (part 2) is green on `main` |
+| 1.2 | D1 database `apotheke-api` in the EU jurisdiction (fixed at creation; a `--location` hint is ignored with a jurisdiction) | Stathis | `npx --no-install wrangler d1 list` shows it with jurisdiction `eu` |
+| 1.3 | R2 bucket `apotheke-api-storage` in the EU jurisdiction | Stathis | `npx --no-install wrangler r2 bucket list --jurisdiction eu`. EU buckets are listed only with the jurisdiction (the API needs the `cf-r2-jurisdiction: eu` header), so a plain listing does not show it |
+| 1.4 | Repository variable `APOTHEKE_D1_DATABASE_ID` = the UUID from `wrangler d1 info apotheke-api` (an identifier, not a secret) | Stathis | `gh variable list` |
+| 1.5 | `deploy-edge` environment: secret `CLOUDFLARE_API_TOKEN`, variable `CLOUDFLARE_ACCOUNT_ID`, required reviewer, `main` and `v*` only | Stathis | `gh secret list --env deploy-edge`, `gh variable list --env deploy-edge` |
+| 1.6 | Token scope of that secret: see *Token scope* below | Stathis | Cloudflare dashboard, *Account API tokens* |
+| 1.7 | Worker secrets `APP_KEY` and `APP_PASSWORD` on `apotheke-api` ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)) | DevOps (`APP_KEY`), Stathis (`APP_PASSWORD`) | `npx --no-install wrangler secret list --name apotheke-api` lists both names |
+| 1.8 | Custom domain for the first host in `ALLOWED_HOSTS` (`api.services.getapotheke.com`) attached to `apotheke-api` | Stathis | dashboard, *Workers > apotheke-api > Domains* |
+| 1.9 | R2 lifecycle rule on `apotheke-api-storage`: abort incomplete multipart uploads after 1 day, prefix `installations/primary/`. Uploads without a marker are not in the binding's object list, so only this rule aborts them ([storage gate](#storage-gate-edge_storage_ready)). Existing rules are kept | Stathis (pending approval) | `npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu` |
+| 1.10 | `ext-curl` in the image (R2 from PHP needs it): `Dockerfile.frankenphp` fails its build without `php -m` listing `curl` | app (#252) | the PR dry run builds the image, so a green dry run means it is there |
+| 1.11 | `CORS_ALLOWED_ORIGINS=https://getapotheke.com` in `edge/wrangler.jsonc` `vars`; the merge drops only `COOKIE_DOMAIN` | DevOps | the merged dry run checks both (part 2) |
 
-   ```sh
-   npx --no-install wrangler d1 create apotheke-api --jurisdiction eu
-   npx --no-install wrangler r2 bucket create apotheke-api-storage --jurisdiction eu
-   npx --no-install wrangler d1 info apotheke-api                 # the database UUID
-   npx --no-install wrangler r2 bucket list --jurisdiction eu     # apotheke-api-storage is listed
-   ```
+**Token scope** (1.6). The `deploy-edge` token: *Specified Workers > Editor* on `apotheke-api` plus
+*Account > Containers > Edit*. It needs no D1 or R2 permission: deploying a Worker with D1, R2 or Durable Object
+bindings needs only *Editor* on that Worker
+([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)).
 
-   Don't pass `--update-config`: the ids stay out of the repository.
-4. **Repository variable** (Settings > Secrets and variables > Actions > Variables, or
-   `gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>`). It is an identifier, not a secret; the deploy
-   job fails before wrangler if it is missing or not a UUID.
-5. **`deploy-edge` token** (the environment's `CLOUDFLARE_API_TOKEN`): *Specified Workers > Editor* on `apotheke-api`
-   plus *Account > Containers > Edit*. It needs no D1 or R2 permission: deploying a Worker with D1, R2 or Durable
-   Object bindings needs only *Editor* on that Worker
-   ([Workers roles and permissions](https://developers.cloudflare.com/workers/authorization/#bindings)).
-   - A per-Worker role can only name a Worker that already exists, so the **very first** deploy of `apotheke-api`
-     needs a one-time *Account > Workers Scripts > Edit* (or *Workers Admin*) token; replace it with the per-Worker
-     token right after.
-   - A deploy that carries a new Durable Object migration (a new class, such as `v2` for `Installation`) may need
-     more than *Editor* on the Worker, which may not cover creating resources. Run that deploy with the one-time
-     *Account > Workers Scripts > Edit* token, or check it on a preview first.
-   - Resource creation (step 2) uses its own short-lived token, never this one.
-   - Only a future control-plane `wrangler d1 migrations apply` (see above) would need a separate *D1 > Edit*
-     token, kept out of the `deploy-edge` environment.
-6. **Worker secrets and domain**: `APP_KEY` and `APP_PASSWORD` set once at go-live
-   ([One-time manual step](#one-time-manual-step-before-the-first-edge-deploy)), and the custom domain for the first
-   host in `ALLOWED_HOSTS` attached, since the smoke check calls it.
-7. **Migrations**: nothing to run by hand; the app applies `migrations/` itself on start.
-8. **Flip**: `gh variable set EDGE_STORAGE_READY --body true`, then publish a release or run *Deploy edge* on `main`
-   and approve the `deploy-edge` review.
-9. **Verify**: the job's *Storage config* step names the merged bindings, the deploy log lists `env.DB`,
-   `env.STORAGE (apotheke-api-storage (eu))` and `env.INSTALLATION`, and *Smoke check* gets 200 from
-   `https://<api-host>/healthz`. Then sign in, save an item, wait past `SLEEP_AFTER_MS` (or deploy again) and check
-   that it is still there.
-10. **Rollback**: `gh variable set EDGE_STORAGE_READY --body false` stops all further edge deploys (the job is
-    skipped again). The deployed version keeps running until you replace it: `npx --no-install wrangler deployments
-    list --name apotheke-api`, then `npx --no-install wrangler rollback <version-id> --name apotheke-api`. Cloudflare
-    refuses a rollback across a Durable Object migration, so a version from before `v2` can't come back; roll back to
-    an earlier storage version or fix forward. Nothing is deleted: the D1 database, the bucket and the Durable Object
-    data stay. Deleting any of them (or a `deleted_classes` migration) needs the owner's approval.
+- A per-Worker role can only name a Worker that already exists. If `apotheke-api` has never had a real deploy, the
+  first one needs a one-time *Account > Workers Scripts > Edit* token; replace it with the per-Worker token right after.
+- The flip deploy carries a new Durable Object migration (`v2`, `Installation`). *Editor* on the Worker may not cover
+  that, so run the flip with the one-time *Account > Workers Scripts > Edit* token too, or prove it on the preview.
+- Creating resources (1.2, 1.3, the preview resources in part 3) and the lifecycle rule (1.9) use the operator's own
+  short-lived token from a trusted machine (*Account > D1 > Edit*, *Account > Workers R2 Storage > Edit*, this account
+  only, with a TTL), never the CI token. Set it in the environment only:
+  `read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN` and `export CLOUDFLARE_ACCOUNT_ID=<account-id>`.
+- Only a future control-plane `wrangler d1 migrations apply` would need *D1 > Edit*, in a token kept out of
+  `deploy-edge`.
+
+Creating the resources (1.2, 1.3), in `edge/` with the pinned wrangler. Don't pass `--update-config`: ids stay out of
+the repository.
+
+```sh
+npx --no-install wrangler d1 create apotheke-api --jurisdiction eu
+npx --no-install wrangler r2 bucket create apotheke-api-storage --jurisdiction eu
+npx --no-install wrangler d1 info apotheke-api                 # the database UUID, for 1.4
+npx --no-install wrangler r2 bucket list --jurisdiction eu     # apotheke-api-storage is listed
+gh variable set APOTHEKE_D1_DATABASE_ID --body <database-uuid>
+```
+
+The lifecycle rule (1.9), only after Stathis approves it. List first and keep every existing rule; `add` appends one
+rule named `abort-mpu-primary`:
+
+```sh
+npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu
+npx --no-install wrangler r2 bucket lifecycle add apotheke-api-storage abort-mpu-primary installations/primary/ \
+  --abort-multipart-days 1 --jurisdiction eu
+npx --no-install wrangler r2 bucket lifecycle list apotheke-api-storage --jurisdiction eu   # old rules + the new one
+```
+
+The rule aborts every incomplete multipart upload under `installations/primary/` that started more than a day ago,
+including one a client is still sending slowly; it deletes no completed object. The Worker sweep (#249) stays off.
+
+#### 2. Merged dry run (pull request checks)
+
+The *Check and dry run* job of `deploy-edge.yml` runs the default dry run and then the **merged** one: the same
+`scripts/edge-storage-config.mjs` merge as the deploy job, with the dummy D1 id `00000000-0000-4000-8000-000000000000`
+(no secret, no repository variable, no account), the Worker guard, and `wrangler deploy --dry-run` of the merged file,
+which also builds the container image. It fails unless wrangler's binding list shows `env.APOTHEKE`,
+`env.INSTALLATION (Installation)`, `env.DB (apotheke-api)`, `env.STORAGE (apotheke-api-storage (eu))`,
+`CORS_ALLOWED_ORIGINS` = `https://getapotheke.com` and `ALLOWED_HOSTS`, and no `COOKIE_DOMAIN`. A merged dry run
+proves the config and the bundle, not the resources or the runtime: that is part 3.
+
+Go-live needs this job green on the commit that will be released. Until `edge/src/index.ts` exports `Installation`,
+it fails on *Durable Objects not exported*, which is the point.
+
+#### 3. Preview verification (before the flip; nothing is promoted)
+
+Goal: run the merged config on Cloudflare, without touching the production Worker's deployment or its Durable Objects,
+and check that the database path `d1.internal` -> `Installation` (Durable Object SQLite) reports correct row counts
+through `changes()`. The Installation object does not return D1's `meta.changes`; the app's guards read `changes()` in
+SQL (`INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?`), so that is what this checks.
+
+Use a [Workers Preview](https://developers.cloudflare.com/workers/previews/) (`wrangler preview`, wrangler 4.135 or
+later; `edge/` pins a newer one), not `wrangler versions upload`: a version that carries a new Durable Object
+migration can't be uploaded without deploying, and a version would share the production Durable Object namespace. A
+Preview gets its own Durable Object namespace, storage and container app, and no production route or custom domain.
+D1 and R2 are not isolated: a Preview uses whatever its `previews` block names, so it names preview resources.
+
+**Needs** (operator, trusted machine; PM go first, and Stathis for the resources):
+
+- a short-lived token with *Account > Workers Scripts > Edit*, *Account > Containers > Edit*, *Account > D1 > Edit*
+  and *Account > Workers R2 Storage > Edit* on this account (the same kind as the resource token in part 1);
+- two throwaway EU resources: D1 `apotheke-api-preview` and R2 `apotheke-api-preview-storage`
+  (`wrangler d1 create apotheke-api-preview --jurisdiction eu`,
+  `wrangler r2 bucket create apotheke-api-preview-storage --jurisdiction eu`);
+- the account's `workers.dev` subdomain (Preview URLs live there; the production config keeps `workers_dev` and
+  `preview_urls` off, which the Preview does not change);
+- an `ssh-ed25519` key pair, for `wrangler containers ssh` into the preview container;
+- throwaway `APP_KEY` and `APP_PASSWORD` values for the Preview, never the production ones.
+
+**Steps**, from a scratch worktree of the release candidate commit (the config edits below never get committed):
+
+```sh
+git worktree add /tmp/apotheke-preview <commit> && cd /tmp/apotheke-preview
+(cd edge && npm ci --ignore-scripts --no-audit --no-fund)
+APOTHEKE_D1_DATABASE_ID=<apotheke-api uuid> node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc
+# Previews don't inherit vars, bindings or containers: copy them into a previews block that names the preview
+# resources, the Preview's host and the SSH key.
+PREVIEW_D1_ID=<apotheke-api-preview uuid> PREVIEW_HOST=<preview host> SSH_PUB="$(cat ~/.ssh/apotheke-preview.pub)" node -e '
+const fs = require("fs"), f = "edge/wrangler.jsonc", c = JSON.parse(fs.readFileSync(f, "utf8"));
+c.previews = {
+  vars: { ...c.vars, ALLOWED_HOSTS: process.env.PREVIEW_HOST },
+  containers: c.containers.map((k) => ({ ...k, authorized_keys: [{ name: "preview", public_key: process.env.SSH_PUB }] })),
+  durable_objects: c.durable_objects,
+  d1_databases: [{ binding: "DB", database_name: "apotheke-api-preview", database_id: process.env.PREVIEW_D1_ID }],
+  r2_buckets: [{ binding: "STORAGE", bucket_name: "apotheke-api-preview-storage", jurisdiction: "eu" }],
+};
+fs.writeFileSync(f, JSON.stringify(c, null, "\t") + "\n");'
+cd edge
+npx --no-install wrangler preview secret put APP_KEY --name p4-golive        # throwaway values, typed at the prompt
+npx --no-install wrangler preview secret put APP_PASSWORD --name p4-golive
+npx --no-install wrangler preview --name p4-golive --ignore-base-config --config wrangler.jsonc
+```
+
+`<preview host>` is the host of the Preview URL that `wrangler preview` prints (`p4-golive-apotheke-api.<subdomain>.workers.dev`);
+if it is only known after the first run, set it and run `wrangler preview` again. Expected: the command prints the
+Preview URL and lists `env.DB (apotheke-api-preview)`, `env.STORAGE (apotheke-api-preview-storage (eu))`,
+`env.INSTALLATION` and `env.APOTHEKE`, and warns about no missing binding. A missing-binding warning means the
+`previews` block is incomplete: stop and fix it.
+
+Then:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' https://<preview host>/healthz     # 200 (may cold-start; retry for ~2 min)
+npx --no-install wrangler containers list                                    # the app apotheke-api_p4-golive_ApothekeContainer
+npx --no-install wrangler containers instances <app-id>                      # the running instance id
+```
+
+Write the probe to a local file and run it in the container with `php` reading standard input, through OpenSSH with
+`wrangler containers ssh` as its proxy (a remote command line would be re-parsed by the container's shell):
+
+```sh
+cat > /tmp/golive-probe.php <<'PHP'
+<?php
+function d1($p, $b) { $r = file_get_contents("http://d1.internal$p", false, stream_context_create(["http" => [
+  "method" => "POST", "header" => "Content-Type: application/json", "content" => json_encode($b), "ignore_errors" => true]]));
+  echo $p, " ", $http_response_header[0], " ", $r, "\n"; }
+d1("/exec", ["sql" => "CREATE TABLE IF NOT EXISTS golive_probe (id INTEGER PRIMARY KEY, v TEXT); CREATE TABLE IF NOT EXISTS uow_guard (ok INTEGER NOT NULL)"]);
+d1("/batch", [["sql" => "INSERT INTO golive_probe (v) VALUES (?), (?), (?)", "params" => ["a", "b", "c"]], ["sql" => "SELECT changes() AS n"]]);
+d1("/batch", [["sql" => "UPDATE golive_probe SET v = ? WHERE v IN (?, ?)", "params" => ["x", "a", "b"]], ["sql" => "SELECT changes() AS n"]]);
+d1("/batch", [["sql" => "DELETE FROM golive_probe WHERE v = ?", "params" => ["none"]], ["sql" => "SELECT changes() AS n"]]);
+d1("/batch", [["sql" => "UPDATE golive_probe SET v = ? WHERE v = ?", "params" => ["y", "c"]], ["sql" => "INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?", "params" => [1]]]);
+d1("/batch", [["sql" => "INSERT INTO golive_probe (v) VALUES (?)", "params" => ["z"]], ["sql" => "UPDATE golive_probe SET v = ? WHERE id = ?", "params" => ["q", 999]], ["sql" => "INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?", "params" => [1]]]);
+d1("/query", ["sql" => "SELECT (SELECT count(*) FROM golive_probe WHERE v = ?) AS z, (SELECT count(*) FROM golive_probe) AS total, (SELECT count(*) FROM uow_guard) AS guards", "params" => ["z"]]);
+PHP
+ssh -i ~/.ssh/apotheke-preview -o ProxyCommand="npx --no-install wrangler containers ssh %h" \
+  cloudchamber@<instance-id> php < /tmp/golive-probe.php
+```
+
+Expected, line by line:
+
+| Call | Expected |
+|---|---|
+| `/exec` | `200`, `{"ok":true,"count":1}` |
+| insert 3 rows, `changes()` | `200`, second result `rows: [{"n":3}]` |
+| update 2 rows, `changes()` | `200`, `rows: [{"n":2}]` |
+| delete 0 rows, `changes()` | `200`, `rows: [{"n":0}]` |
+| guard expects 1, update hits 1 | `200`, `ok: true` |
+| guard expects 1, update hits 0 | `500`, `{"ok":false,"code":"guard_failed",…}`, and the whole batch is rolled back |
+| final count | `z: 0` (the failed batch's insert is gone), `total: 3`, `guards: 0` |
+
+The `changes` field in the JSON is absent in this mode (only D1 reports it); the rows above are what counts. Any other
+answer, a `503 unbound` (the storage bindings are not all on the Preview), or `write_failed` on the `changes()` lines
+means the flip waits. Also confirm, before any real installation exists, that the Preview's `Installation` object is
+in the EU jurisdiction (ADR-002, criterion 4).
+
+**Clean up** (PM go; it deletes only Preview resources, never `apotheke-api`, `apotheke-api-storage` or the
+production D1):
+
+```sh
+npx --no-install wrangler preview delete --name p4-golive --skip-confirmation
+npx --no-install wrangler containers list     # delete only an app named apotheke-api_p4-golive_…
+npx --no-install wrangler d1 delete apotheke-api-preview
+npx --no-install wrangler r2 bucket delete apotheke-api-preview-storage --jurisdiction eu   # after emptying it
+cd / && git -C <repo> worktree remove --force /tmp/apotheke-preview
+```
+
+Preview URLs are public unless protected; the Preview holds only probe rows and throwaway secrets, and it is deleted
+right after.
+
+#### 4. Flip
+
+With parts 1 to 3 done and the PM's go:
+
+1. `gh variable set EDGE_STORAGE_READY --body true` (Stathis).
+2. Publish a release (or run *Deploy edge* on `main`) and approve the `deploy-edge` review (Stathis).
+3. The app applies `migrations/` itself on start; there is no `wrangler d1 migrations apply`.
+
+#### 5. Post-flip checks
+
+- The *Storage config* step prints the merged bindings; the deploy log lists `env.DB (apotheke-api)`,
+  `env.STORAGE (apotheke-api-storage (eu))` and `env.INSTALLATION (Installation)`, and no `COOKIE_DOMAIN`.
+- *Smoke check* gets 200 from `https://api.services.getapotheke.com/healthz`.
+- CORS: `curl -si https://api.services.getapotheke.com/api/v1/session -H 'Origin: https://getapotheke.com'` answers
+  `Access-Control-Allow-Origin: https://getapotheke.com` with credentials allowed; another origin gets no
+  `Access-Control-Allow-Origin`. No `Set-Cookie` carries a `Domain=` attribute (host-only cookies).
+- Sign in from `https://getapotheke.com`, save an item with a photo, wait past `SLEEP_AFTER_MS` (15 minutes) or deploy
+  again, and check that the item and the photo are still there.
+- The photo is in R2 under `installations/primary/` in `apotheke-api-storage` (dashboard, *R2 > apotheke-api-storage*,
+  EU jurisdiction).
+- `npx --no-install wrangler deployments list --name apotheke-api`: the new version is at 100%.
+
+#### 6. Rollback
+
+1. `gh variable set EDGE_STORAGE_READY --body false`: every further edge deploy is skipped again.
+2. The deployed version keeps running until replaced: `npx --no-install wrangler deployments list --name apotheke-api`,
+   then `npx --no-install wrangler rollback <version-id> --name apotheke-api`. Cloudflare refuses a rollback across a
+   Durable Object migration, so a version from before `v2` can't come back; roll back to an earlier storage version, or
+   fix forward.
+3. Nothing is deleted: the D1 database, the bucket, the lifecycle rule and the Durable Object data stay. Deleting any of
+   them, or a `deleted_classes` migration, needs the owner's approval.
 
 ### One-time manual step before the first edge deploy
 
