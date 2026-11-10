@@ -1,24 +1,28 @@
 // Apotheke edge (plan P4 i): the Worker `apotheke-api` forwards every request to one Durable Object, which starts
 // and reuses the Apotheke container (Dockerfile.frankenphp) through the Durable Object Container API.
 // D1 and R2 are reached from the container at http://d1.internal and http://r2.internal via outbound handlers
-// (ADR-002, P4-3 to P4-5). R2 is selected only when the storage fragment's bindings are on the Worker.
+// (ADR-002, P4-3 to P4-5). Both are selected only when the storage fragment's bindings are on the Worker:
+// R2 for files and the Installation Durable Object's SQLite for the database.
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
-import { d1UnboundResponse, handleD1Request, type D1Env } from "./d1";
-import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, type R2Env } from "./r2";
+import { d1UnboundResponse, type D1Env } from "./d1";
+import { installationStub, type InstallationEnv } from "./installation";
+import { handleR2Request, r2UnboundResponse, selectedBucket, storageBackend, storageSelected, type R2Env } from "./r2";
+
+export { Installation } from "./installation";
 
 const PORT = 9091;
 const READY_TIMEOUT_MS = 30_000;
 
 /**
  * Outbound Worker for the container's http://d1.internal/{query,batch,exec}.
- * Bound with interceptOutboundHttp so the container never holds a Cloudflare token.
- * DB is present only after EDGE_STORAGE_READY merges edge/storage.jsonc.
+ * Bound with interceptOutboundHttp so the container never holds a Cloudflare token. Answers only when
+ * STORAGE, DB and INSTALLATION are all bound (edge/storage.jsonc, merged behind EDGE_STORAGE_READY).
  */
-export class D1Outbound extends WorkerEntrypoint<Env & D1Env> {
+export class D1Outbound extends WorkerEntrypoint<Env & D1Env & InstallationEnv> {
 	async fetch(request: Request): Promise<Response> {
-		const db = this.env.DB;
-		if (!db) return d1UnboundResponse();
-		return handleD1Request(request, db);
+		// The database is the Installation object's SQLite, and only in storage mode. DB stays the control plane.
+		if (!storageSelected(this.env) || !this.env.INSTALLATION) return d1UnboundResponse();
+		return installationStub(this.env.INSTALLATION).fetch(request);
 	}
 }
 
