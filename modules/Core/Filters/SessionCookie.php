@@ -62,7 +62,7 @@ final class SessionCookie implements FilterInterface
             $trustProxy = false;
             $publicUrl = $config->publicUrl();
         }
-        $secure = (new RequestScheme($trustProxy))->secureCookie($server, $publicUrl);
+        $secure = RequestScheme::fromSetting($trustProxy)->secureCookie($server, $publicUrl);
         $cookie = config(Cookie::class);
         $cookie->secure = $secure;
         $lifetime = Services::sessionLifetime(false)->seconds();

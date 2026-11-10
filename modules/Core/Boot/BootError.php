@@ -7,10 +7,10 @@ namespace Apotheke\Core\Boot;
 /** A startup failure: one public sentence, the detail only in the error log. */
 final class BootError
 {
-    public static function send(string $public, string $log): never
+    public static function send(string $public, string $log, int $status = 500): never
     {
         if (PHP_SAPI !== 'cli') {
-            http_response_code(500);
+            http_response_code($status);
             header('Content-Type: text/plain; charset=UTF-8');
             echo $public;
         }

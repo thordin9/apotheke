@@ -79,6 +79,8 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				APOTHEKE_JOBS_WORKER: this.env.APOTHEKE_JOBS_WORKER ?? "0",
 				PORT: String(PORT),
 				TZ: "Europe/Athens",
+				// The Worker terminates TLS. The app then honours X-Forwarded-Proto/Host (overwritten below).
+				TRUST_PROXY: "1",
 				// Only with the merged fragment, and never from Worker vars; otherwise unset, so PHP keeps
 				// LocalStorage and its local database. Storage mode is R2 files plus the Installation object.
 				...(backend === "r2" ? { STORAGE_BACKEND: "r2", DB_DRIVER: "d1" } : {}),
@@ -92,9 +94,10 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			),
 		);
 		const port = c.getTcpPort(PORT);
+		const probe = readinessRequest(this.env.ALLOWED_HOSTS ?? "");
 		while (Date.now() - t0 < READY_TIMEOUT_MS) {
 			try {
-				const r = await port.fetch("http://container/healthz");
+				const r = await port.fetch(probe, { redirect: "manual" });
 				if (r.status === 200) return Date.now() - t0;
 			} catch {
 				// not listening yet
@@ -117,11 +120,56 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				headers: { "Retry-After": "5", "Cache-Control": "no-store" },
 			});
 		}
-		const res = await this.ctx.container!.getTcpPort(PORT).fetch(request);
+		const res = await this.ctx.container!.getTcpPort(PORT).fetch(toContainer(request), { redirect: "manual" });
 		const out = new Response(res.body, res);
 		out.headers.append("Server-Timing", `container-start;dur=${cold}`);
 		return out;
 	}
+}
+
+
+/** First public host from ALLOWED_HOSTS (comma or space separated, a port is kept).
+ *  "*" is skipped: it is not a Host the app's allow-list can accept as a name. */
+export function firstAllowedHost(allowedHosts: string): string | undefined {
+	for (const part of allowedHosts.split(/[\s,]+/)) {
+		if (part !== "" && part !== "*") return part;
+	}
+	return undefined;
+}
+
+/** The readiness probe goes through toContainer so Host and the forwarded headers
+ *  match a public request. The first ALLOWED_HOSTS entry is that public host.
+ *  When the list is empty or only "*", use 127.0.0.1 (always on the allow-list,
+ *  same as the image HEALTHCHECK) and log; do not use Host "container". */
+function readinessRequest(allowedHosts: string): Request {
+	const host = firstAllowedHost(allowedHosts);
+	if (host === undefined) {
+		console.warn("ALLOWED_HOSTS is empty or unset: readiness probe uses 127.0.0.1");
+	}
+	return toContainer(new Request(`https://${host ?? "127.0.0.1"}/healthz`));
+}
+
+/** Cloudflare Containers accept only http: to the TCP port. Rewrite the incoming URL, overwrite
+ *  forwarded proto/host (never pass through a client value), and do not follow a 3xx inside the Worker. */
+function toContainer(request: Request): Request {
+	const url = new URL(request.url);
+	const proto = url.protocol === "https:" ? "https" : "http";
+	const host = url.host;
+	url.protocol = "http:";
+	url.hash = "";
+	const headers = new Headers(request.headers);
+	headers.set("X-Forwarded-Proto", proto);
+	headers.set("X-Forwarded-Host", host);
+	const init: RequestInit & { duplex?: "half" } = {
+		method: request.method,
+		headers,
+		redirect: "manual",
+	};
+	if (request.body !== null) {
+		init.body = request.body;
+		init.duplex = "half";
+	}
+	return new Request(url, init);
 }
 
 export default {

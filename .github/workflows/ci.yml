@@ -190,9 +190,28 @@ jobs:
           php bin/seed.php --demo
           php bin/seed.php --demo | grep -q 'Demo items created: 0'
           php bin/migrate.php --status
+      # D1DriverBridgeTest needs Node 22.6+ (node:sqlite) and edge/node_modules.
+      # The file lands with the D1 driver PR; until then the prove step is a no-op.
+      # Only the pgsql leg runs the full suite. The sqlite coverage leg keeps Node 20.
+      - uses: actions/setup-node@v7
+        if: matrix.db == 'pgsql'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: edge/package-lock.json
+      - name: Install the Worker tooling (edge/)
+        if: matrix.db == 'pgsql'
+        working-directory: edge
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: PHPUnit (root suite; it also runs the module suite)
         if: matrix.db == 'pgsql'
         run: vendor/bin/phpunit --log-junit "$RUNNER_TEMP/junit.xml"
+      - name: Prove the D1 driver bridge tests ran
+        if: matrix.db == 'pgsql'
+        run: |
+          if [ -f tests/Modules/Core/D1DriverBridgeTest.php ]; then
+            vendor/bin/phpunit -c tests/Modules/phpunit.xml.dist --filter D1DriverBridgeTest --fail-on-skipped --fail-on-empty-test-suite --testdox
+          fi
       - name: Prove the real-HEIC Media test runs
         run: |
           php -r 'echo "Imagick HEIC/HEIF: ", json_encode(Imagick::queryFormats("HEI*")), PHP_EOL;'
