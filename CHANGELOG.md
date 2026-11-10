@@ -12,6 +12,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **core:** a CodeIgniter database driver for the edge bridge (`d1.internal`): writes in a transaction go out as one all-or-nothing batch at commit, reads that would see queued writes and `BEGIN`/`SAVEPOINT` are refused, and transport failures fail the statement. Not selected by default ([#254](https://github.com/thordin9/apotheke/pull/254))
 
+## [3.29.1] - 2026-11-10
+
 ### Fixed
 
 - **edge:** the Worker forwards to the container over HTTP with `redirect: manual` and overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from the original URL, and the entrypoint recreates Caddy's `/run` directories before FrankenPHP starts, so the hosted container can bind its PHP socket and the app still treats requests as HTTPS ([#264](https://github.com/thordin9/apotheke/pull/264))
@@ -19,6 +21,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Maintenance
 
+- ci: run D1 driver bridge tests with Node 22 and edge modules ([#255](https://github.com/thordin9/apotheke/pull/255))
 - **edge:** ci: dry-run the merged storage config and ready the flip ([#253](https://github.com/thordin9/apotheke/pull/253))
 
 ## [3.29.0] - 2026-11-10
@@ -1448,7 +1451,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.29.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.29.1...HEAD
+[3.29.1]: https://github.com/thordin9/apotheke/compare/v3.29.0...v3.29.1
 [3.29.0]: https://github.com/thordin9/apotheke/compare/v3.28.0...v3.29.0
 [3.28.0]: https://github.com/thordin9/apotheke/compare/v3.27.1...v3.28.0
 [3.27.1]: https://github.com/thordin9/apotheke/compare/v3.27.0...v3.27.1
