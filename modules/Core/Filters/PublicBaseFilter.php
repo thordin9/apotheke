@@ -43,7 +43,7 @@ final class PublicBaseFilter implements FilterInterface
             $publicUrl = ApothekeConfig::fromEnvironment()->publicUrl();
         }
         $check = Services::hostCheck(false);
-        $base = (new RequestScheme($trustProxy))->publicBase($server, static fn (string $host): bool => $check->passes($host), $publicUrl);
+        $base = RequestScheme::fromSetting($trustProxy)->publicBase($server, static fn (string $host): bool => $check->passes($host), $publicUrl);
         $uri = $request->getUri();
         (new PublicBase())->apply(config(App::class), $uri instanceof SiteURI ? $uri : null, $base);
 

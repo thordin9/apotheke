@@ -39,12 +39,12 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   commits only after that transaction ends. An expired restore job whose upload is gone is failed, and that
   attempt cannot store a result afterwards. The next finding id is 1843.
   Remaining R2 object reads stay bounded by the current bridge
-  (they are not yet streaming reads). `EDGE_STORAGE_READY` stays off.
+  (they are not yet streaming reads). The Worker forwards to the container over HTTP with `redirect: manual`, overwrites `X-Forwarded-Proto` and `X-Forwarded-Host`, and the readiness probe uses the first `ALLOWED_HOSTS` entry (or `127.0.0.1` if that list is empty). The entrypoint recreates Caddy's `/run` directories before FrankenPHP starts. `EDGE_STORAGE_READY` stays off.
 
 
 ## Open pull requests
 
-- None on GitHub. P4-5 piece 2 (`feat/p4-5-installation-do`) is prepared locally for the PM to publish.
+- For the review state of P4-5 piece 2 (`feat/p4-5-installation-do`) and the edge container forwarding fix (`fix/edge-container-forwarding`), see the open PRs on GitHub.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
