@@ -39,7 +39,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   commits only after that transaction ends. An expired restore job whose upload is gone is failed, and that
   attempt cannot store a result afterwards. The next finding id is 1843.
   Remaining R2 object reads stay bounded by the current bridge
-  (they are not yet streaming reads). The Worker forwards to the container over HTTP with `redirect: manual`, overwrites `X-Forwarded-Proto` and `X-Forwarded-Host`, and the readiness probe uses the first `ALLOWED_HOSTS` entry (or `127.0.0.1` if that list is empty). The entrypoint recreates Caddy's `/run` directories before FrankenPHP starts. `EDGE_STORAGE_READY` stays off.
+  (they are not yet streaming reads). The Worker forwards to the container over HTTP with `redirect: manual`, overwrites `X-Forwarded-Proto` and `X-Forwarded-Host`, and the readiness probe uses the first `ALLOWED_HOSTS` entry (or `127.0.0.1` if that list is empty). The entrypoint recreates Caddy's `/run` directories before FrankenPHP starts. After a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle. `EDGE_STORAGE_READY` stays off.
 
 
 ## Open pull requests

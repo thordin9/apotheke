@@ -86,12 +86,10 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 			},
 		});
 		await c.setInactivityTimeout(this.sleepAfter());
-		this.ctx.waitUntil(
-			c.monitor().then(
-				() => console.log("container exited"),
-				(e: { exitCode?: number }) => console.error("container stopped", e?.exitCode ?? "error"),
-			),
-		);
+		// Do not call monitor() or waitUntil(monitor()). A pending monitor, and a
+		// promise passed to waitUntil, each keep this Durable Object from becoming
+		// inactive for up to 15 minutes from when they start, so the inactivity
+		// timeout would not begin until then (Cloudflare Durable Object lifecycle).
 		const port = c.getTcpPort(PORT);
 		const probe = readinessRequest(this.env.ALLOWED_HOSTS ?? "");
 		while (Date.now() - t0 < READY_TIMEOUT_MS) {
