@@ -18,6 +18,7 @@ use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
 use Apotheke\Undo\UndoTokens;
 use CodeIgniter\Test\CIUnitTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\TestDatabase;
 
 /**
@@ -161,6 +162,45 @@ final class RestoreFenceTest extends CIUnitTestCase
         }
     }
 
+    #[DataProvider('drivers')]
+    public function testAClaimWaitsPastTheUsualSqliteTimeout(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            RestoreFence::claim($database->db, 'holder-a');
+            $wait = $database->holdInAnotherClient([
+                ['UPDATE restore_marker SET applied_at = ? WHERE run = ? AND sha256 = ?', ['2026-01-01 00:00:00.held', RestoreFence::RUN, 'holder-a']],
+            ], 12000);
+            $other = $database->connectAgain();
+            $started = hrtime(true);
+            RestoreFence::claim($other, 'holder-b');
+            $waited = (hrtime(true) - $started) / 1e9;
+            $output = $wait();
+            $this->assertStringContainsString('committed', $output);
+            $this->assertGreaterThan(10, $waited, 'claim() waited through the old SQLite busy timeout.');
+            $this->assertLessThan(30, $waited);
+            $row = $other->query('SELECT sha256 FROM restore_marker WHERE run = ?', [RestoreFence::RUN])->getRowArray();
+            $this->assertSame('holder-b', $row['sha256'] ?? null);
+            if ($driver === 'sqlite') {
+                $timeout = $other->query('PRAGMA busy_timeout')->getRowArray();
+                $this->assertSame(5000, (int)array_values($timeout ?? [])[0]);
+            }
+            try {
+                Writes::transaction($database->db, static function () use ($database): void {
+                    $database->db->table('settings')->where('name', 'app_name')->delete();
+                    $database->db->table('settings')->insert(['name' => 'app_name', 'value' => '"Late"', 'updated_at' => '2026-01-01 00:00:00']);
+                    RestoreFence::rejectUnless($database->db, 'holder-a');
+                });
+                $this->fail('The holder who lost the committed takeover must not write settings.');
+            } catch (LeaseDenied) {
+            }
+            $kept = $database->db->table('settings')->where('name', 'app_name')->get()->getRowArray();
+            $this->assertNotSame('"Late"', $kept['value'] ?? null);
+        } finally {
+            $database->drop();
+        }
+    }
+
     public function testAHeldBridgeWriteBlocksTheTakeoverAndKeepsExistingBytes(): void
     {
         $database = TestDatabase::create('sqlite');
@@ -207,6 +247,14 @@ final class RestoreFenceTest extends CIUnitTestCase
         } finally {
             file_get_contents($url . '/stop');
             $database->drop();
+        }
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function drivers(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield $driver => [$driver];
         }
     }
 
