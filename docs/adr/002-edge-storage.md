@@ -357,6 +357,13 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    `transactionSync`, so a batch is all or nothing and no other call runs between its statements. `DB` is not used
    for app data (it stays the control plane). The third part is the PHP database driver over `d1.internal`; until it
    lands the container still keeps its database on its own disk.
+   The PHP side starts with the CodeIgniter driver `Apotheke\Core\Database\D1` (the SQLite3 builder and forge
+   over `D1HttpExecutor`). A write outside a transaction is one batch with `changes()` and `last_insert_rowid()`
+   after it. Inside a transaction the writes are queued and sent as one batch at commit, and rollback sends
+   nothing. A read before the first queued write runs at once on committed data, with no lock, so a dependent write
+   needs a guard. A read after a queued write, `RETURNING` inside a transaction, and an affected-row count or insert
+   id that is not known yet are refused. `BEGIN` and `SAVEPOINT` never reach the bridge. The bridge host must be
+   `d1.internal` or loopback. Selecting the driver in storage mode is the next chunk.
 
 ## Ownership
 

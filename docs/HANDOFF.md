@@ -19,7 +19,8 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
   PR 3b (#247) is merged: an explicit R2 restore keeps its chunks, manifest and lease on that storage, and the catalog fence covers the settings import, undo prune, and map pointers.
   PR 4 (#248) is merged: on a batch-only database, chunked confirm is one `restore.confirm` job.
   The orphan multipart sweep (#249) is merged as an uncalled helper. It does not create the account lifecycle rule, and the hosted gate stays closed.
-  P4-5 piece 1 (#251) is merged: R2 is selected only from the merged storage bindings, never a var. Piece 2 (`feat/p4-5-installation-do`) exports the `Installation` Durable Object and serves `d1.internal` from its SQLite; the storage mode now needs `STORAGE`, `DB` and `INSTALLATION` together, any other mix refuses to start, and both bridges are closed outside it.
+  P4-5 piece 1 (#251) is merged: R2 is selected only from the merged storage bindings, never a var. Piece 2a ([#252](https://github.com/thordin9/apotheke/pull/252), in QA) exports the `Installation` Durable Object and serves `d1.internal` from its SQLite; the storage mode now needs `STORAGE`, `DB` and `INSTALLATION` together, any other mix refuses to start, and both bridges are closed outside it.
+  Piece 2b chunk 1 (`feat/p4-5-db-driver`, local): the CodeIgniter driver `Apotheke\Core\Database\D1` over `d1.internal`. Nothing selects it yet.
 - PDO/self-hosting and default `LocalStorage` stay the filesystem restore. Explicit R2 keeps chunk payloads, the
   restore manifest and the lease on that same storage. A new object is created with the condition on that PUT, so a
   write still inside the bridge does not replace an object another restore has stored. The catalog transaction and
@@ -44,7 +45,7 @@ screen and move detail to the [hand-off log](history/handoff-log.md). Plan and m
 
 ## Open pull requests
 
-- None on GitHub. P4-5 piece 2 (`feat/p4-5-installation-do`) is prepared locally for the PM to publish.
+- P4-5 piece 2a [#252](https://github.com/thordin9/apotheke/pull/252) (`feat/p4-5-installation-do`), in QA. Piece 2b chunk 1 (`feat/p4-5-db-driver`) is prepared locally for the PM to publish.
 - The account lifecycle rules for incomplete multipart uploads on `apotheke-api-storage` are reported applied by the PM (7 days for the bucket, 1 day under `installations/primary/`). The marked-upload sweep stays an uncalled helper.
 - Do not treat restore conversion as hosted wiring. R2 remains explicitly opt-in; PDO/SQLite with LocalStorage remains the default. Batch-only confirm is the background job; PDO confirm is not.
 - N-1786 stays deferred. N-1794 and N-1795 stay separate. L-1811 and N-1812 stay tracked for P4-3/CI follow-up.
@@ -54,7 +55,7 @@ Merged PR notes: [log, Pull requests](history/handoff-log.md#pull-requests).
 
 ## Next steps
 
-1. P4-5 piece 3: a PHP database driver that runs the app on `d1.internal`, and the container told to use it in storage mode. Until then the edge catalog is still the container's ephemeral SQLite, so storage mode must not hold real data. Then host-only cookies, `edge-local` with storage, the preview guard cases, and the runbook. The sweep helper stays uncalled. The next finding id is 1843.
+1. P4-5 piece 2b: chunk 2 selects the D1 driver in storage mode (from the Worker-set container env only), bootstraps the schema on the object, and moves every write path to the batch path; chunk 3 is the `edge-local` end-to-end check and the runbook. Until chunk 2 the edge catalog is still the container's ephemeral SQLite, so storage mode must not hold real data. Then host-only cookies, `edge-local` with storage, the preview guard cases, and the runbook. The sweep helper stays uncalled. The next finding id is 1843.
 2. DevOps owns the bindings and the `EDGE_STORAGE_READY` checklist (#204, #208); N-1442 follows with P4.
 3. Backlog on hold during P4: L-1520, N-1502, N-1503, N-1482. Others:
    [log, Next steps](history/handoff-log.md#next-steps).
