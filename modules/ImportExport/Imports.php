@@ -73,6 +73,12 @@ final class Imports
     ) {
     }
 
+    /** On the hosted database (the D1 driver) this is refused for now (Writes::unavailable()). */
+    public function hosted(): bool
+    {
+        return Writes::onD1($this->db);
+    }
+
     /** L-1500: a guest may not upload, even when the Guest role has Import (the page and the API say why). */
     public const GUEST_UPLOAD = 'Imports need a signed-in account. Sign in to import a CSV file.';
 

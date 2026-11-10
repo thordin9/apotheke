@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\BulkMerge\Controllers;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\BulkMerge\BulkService;
 use Apotheke\BulkMerge\Duplicate;
 use Apotheke\BulkMerge\MergeService;
@@ -115,6 +116,11 @@ final class BulkMergeController extends CatalogController
 
             return $this->redirectTo('/labels?ids=' . implode(',', $ids));
         }
+        /** @var BulkService $bulk */
+        $bulk = service('bulkService');
+        if ($bulk->hosted()) {
+            throw Writes::unavailable('Bulk editing');   // 501 before the delete question or any write; labels only read
+        }
         /** @var UndoTokens $undo */
         $undo = service('undoTokens');
         try {
@@ -130,8 +136,6 @@ final class BulkMergeController extends CatalogController
                 return $this->html($this->view11b()->bulkDelete($items, $back));
             }
             $snap = $undo->enabled() && in_array($action, self::UNDO_ACTIONS, true) && count($ids) <= BulkService::MAX ? $undo->snapshot($positive($ids)) : [];
-            /** @var BulkService $bulk */
-            $bulk = service('bulkService');
             $n = $bulk->run($ids, $action, ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
                 'tags' => Text::tags(self::str($post['tags'] ?? '')), 'tag_id' => self::int($post['tag_id'] ?? 0), 'keep_files' => $action === 'delete' && $snap !== []]);
         } catch (UserError $e) {

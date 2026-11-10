@@ -46,6 +46,12 @@ final class BulkService
     ) {
     }
 
+    /** On the hosted database (the D1 driver) this is refused for now (Writes::unavailable()). */
+    public function hosted(): bool
+    {
+        return Writes::onD1($this->db);
+    }
+
     /**
      * @param list<int> $ids
      * @param array{location_id?:?int,category_id?:?int,tags?:list<string>,tag_id?:int,keep_files?:bool} $opt

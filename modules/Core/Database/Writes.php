@@ -168,9 +168,21 @@ final class Writes
      */
     public static function refuseOnD1(BaseConnection $db, string $what): void
     {
-        if ($db instanceof D1\Connection) {
-            throw new UserError($what . ' is not available on the hosted database yet.', 501);
+        if (self::onD1($db)) {
+            throw self::unavailable($what);
         }
+    }
+
+    /** Whether $db is the hosted database (the D1 driver). */
+    public static function onD1(object $db): bool
+    {
+        return $db instanceof D1\Connection;
+    }
+
+    /** The 501 for a feature the hosted database does not run yet; /api answers it as hosted.unavailable. */
+    public static function unavailable(string $what): UserError
+    {
+        return new UserError($what . ' is not available on the hosted database yet.', 501);
     }
 
     /**

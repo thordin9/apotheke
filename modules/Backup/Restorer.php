@@ -152,6 +152,12 @@ final class Restorer
     ) {
     }
 
+    /** On the hosted database (the D1 driver) this is refused for now (Writes::unavailable()). */
+    public function hosted(): bool
+    {
+        return Writes::onD1($this->db);
+    }
+
     public static function originalNameOk(string $base): bool
     {
         return preg_match('/^[a-f0-9]{64}\.(jpg|png|webp|gif|heic)$/D', $base) === 1;
