@@ -727,8 +727,10 @@ D1 and R2 are not isolated: a Preview uses whatever its `previews` block names, 
 - two throwaway EU resources: D1 `apotheke-api-preview` and R2 `apotheke-api-preview-storage`
   (`wrangler d1 create apotheke-api-preview --jurisdiction eu`,
   `wrangler r2 bucket create apotheke-api-preview-storage --jurisdiction eu`);
-- the account's `workers.dev` subdomain (Preview URLs live there; the production config keeps `workers_dev` and
-  `preview_urls` off, which the Preview does not change);
+- the Worker's workers.dev subdomain setting: `wrangler preview` prints a Preview URL only when
+  `previews_enabled` is `true`. Leave production workers.dev (`enabled`) false. The wrangler config keeps
+  `workers_dev` and `preview_urls` off. Turn `previews_enabled` on for the check and revert it afterwards;
+  read back `{enabled:false, previews_enabled:false}`;
 - an `ssh-ed25519` key pair, for `wrangler containers ssh` into the preview container;
 - throwaway `APP_KEY` and `APP_PASSWORD` values for the Preview, never the production ones.
 
@@ -753,6 +755,7 @@ fs.writeFileSync(f, JSON.stringify(c, null, "\t") + "\n");'
 cd edge
 npx --no-install wrangler preview secret put APP_KEY --name p4-golive        # throwaway values, typed at the prompt
 npx --no-install wrangler preview secret put APP_PASSWORD --name p4-golive
+# Turn previews_enabled on for this check; leave enabled false. Revert it in clean-up.
 npx --no-install wrangler preview --name p4-golive --ignore-base-config --config wrangler.jsonc
 ```
 
@@ -771,7 +774,7 @@ npx --no-install wrangler containers instances <app-id>                      # t
 ```
 
 Write the probe to a local file and run it in the container with `php` reading standard input, through OpenSSH with
-`wrangler containers ssh` as its proxy (a remote command line would be re-parsed by the container's shell):
+`wrangler containers ssh --stdio` as its proxy (a remote command line would be re-parsed by the container's shell):
 
 ```sh
 cat > /tmp/golive-probe.php <<'PHP'
@@ -787,7 +790,7 @@ d1("/batch", [["sql" => "UPDATE golive_probe SET v = ? WHERE v = ?", "params" =>
 d1("/batch", [["sql" => "INSERT INTO golive_probe (v) VALUES (?)", "params" => ["z"]], ["sql" => "UPDATE golive_probe SET v = ? WHERE id = ?", "params" => ["q", 999]], ["sql" => "INSERT INTO uow_guard (ok) SELECT NULL WHERE changes() <> ?", "params" => [1]]]);
 d1("/query", ["sql" => "SELECT (SELECT count(*) FROM golive_probe WHERE v = ?) AS z, (SELECT count(*) FROM golive_probe) AS total, (SELECT count(*) FROM uow_guard) AS guards", "params" => ["z"]]);
 PHP
-ssh -i ~/.ssh/apotheke-preview -o ProxyCommand="npx --no-install wrangler containers ssh %h" \
+ssh -i ~/.ssh/apotheke-preview -o ProxyCommand="npx --no-install wrangler containers ssh --stdio %h" \
   cloudchamber@<instance-id> php < /tmp/golive-probe.php
 ```
 
@@ -809,10 +812,11 @@ means the flip waits. Also confirm, before any real installation exists, that th
 in the EU jurisdiction (ADR-002, criterion 4).
 
 **Clean up** (PM go; it deletes only Preview resources, never `apotheke-api`, `apotheke-api-storage` or the
-production D1):
+production D1). Revert `previews_enabled` and read back `{enabled:false, previews_enabled:false}`:
 
 ```sh
 npx --no-install wrangler preview delete --name p4-golive --skip-confirmation
+# Revert previews_enabled; read back {enabled:false, previews_enabled:false}
 npx --no-install wrangler containers list     # delete only an app named apotheke-api_p4-golive_…
 npx --no-install wrangler d1 delete apotheke-api-preview
 npx --no-install wrangler r2 bucket delete apotheke-api-preview-storage --jurisdiction eu   # after emptying it
