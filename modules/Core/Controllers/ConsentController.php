@@ -25,7 +25,7 @@ final class ConsentController extends Controller
         $server = is_array($server) ? $server : [];
         $settings = Services::settings();
         $publicUrl = (string)$settings->get('public_url');
-        $scheme = new RequestScheme((bool)$settings->get('trust_proxy'));
+        $scheme = RequestScheme::fromSetting((bool)$settings->get('trust_proxy'));
         $this->response->removeHeader('Cache-Control')->setHeader('Cache-Control', 'no-store');
         if (!(new SameOrigin())->strict($server, $scheme->isHttps($server), $publicUrl)) {
             return $this->refuse(SameOrigin::STATUS, SameOrigin::MESSAGE);

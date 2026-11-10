@@ -39,7 +39,7 @@ final class SameOriginFilter implements FilterInterface
         }
         $server = $request->getServer();
         $server = is_array($server) ? $server : [];
-        $https = (new RequestScheme((bool)$settings->get('trust_proxy')))->isHttps($server);
+        $https = RequestScheme::fromSetting((bool)$settings->get('trust_proxy'))->isHttps($server);
         if ($rule->check($server, $https, (string)$settings->get('public_url'))) {
             return null;
         }

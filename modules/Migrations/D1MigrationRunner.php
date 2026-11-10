@@ -7,6 +7,7 @@ namespace Apotheke\Migrations;
 use Apotheke\Core\Database\D1Executor;
 use Apotheke\Core\Database\D1Pdo;
 use RuntimeException;
+use Throwable;
 
 /**
  * The migration channel for D1 (ADR-002, P4-3 PR 3). Same migration files as
@@ -15,12 +16,14 @@ use RuntimeException;
  * - connection PRAGMAs, user_version and VACUUM INTO are skipped by the D1 dialect
  *   (D1Pdo), so a fresh D1 database starts clean and the legacy adopt path is a no-op;
  * - a migration's SQL array entry (multi-statement heredoc) runs as one prepared D1 batch;
- *   a callable migration gets the PDO-shaped D1Pdo adapter;
- * - no BEGIN/COMMIT is sent (D1 has no interactive transaction); each migration's own
- *   statements run as written, and a parent table is never dropped.
+ *   a callable migration gets the PDO-shaped D1Pdo adapter, and its writes are queued in a
+ *   D1Pdo transaction and sent with the schema_migrations row as one atomic batch;
+ * - D1 has no interactive BEGIN; the driver's queue is the transaction, and a parent table
+ *   is never dropped.
  *
  * Only the array and callable migration shapes are supported; a callable that needs a
- * real connection feature D1 lacks fails loudly rather than silently diverging.
+ * real connection feature D1 lacks fails loudly rather than silently diverging. A mid-step
+ * read in a locked callable is served from a local preview of the queued batch.
  */
 final class D1MigrationRunner
 {
@@ -98,21 +101,37 @@ final class D1MigrationRunner
                 continue;
             }
             $m = require $file;
+            $name = substr(basename($file, '.php'), 5);
+            $appliedAt = gmdate('Y-m-d H:i:s');
             if (is_callable($m)) {
                 // Callable migrations get the PDO-shaped D1 adapter (dialect applied in exec()).
-                $m($pdo, 'sqlite');
+                // Writes are queued and sent with the schema_migrations row as one batch.
+                // Mid-step reads (locked 2.6.x callables) are answered from a local preview.
+                $pdo->beginTransaction();
+                $pdo->previewReads();
+                try {
+                    $m($pdo, 'sqlite');
+                    $pdo->prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)')
+                        ->execute([$ver, $name, $appliedAt]);
+                    $pdo->commit();
+                } catch (Throwable $e) {
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
+                    throw $e;
+                }
             } elseif (is_array($m) && isset($m['sqlite'])) {
                 // Multi-statement heredoc goes to D1's exec() (no bindings).
                 $this->execMigration($pdo, $m['sqlite']);
+                $d1->run([[
+                    'sql' => 'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)',
+                    'params' => [$ver, $name, $appliedAt],
+                ]]);
             } else {
                 throw new RuntimeException("Migration $ver has no SQLite step for D1.");
             }
-            $d1->run([[
-                'sql' => 'INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)',
-                'params' => [$ver, substr(basename($file, '.php'), 5), gmdate('Y-m-d H:i:s')],
-            ]]);
             $done[] = $ver;
-            $log('applied ' . $ver . ' ' . substr(basename($file, '.php'), 5));
+            $log('applied ' . $ver . ' ' . $name);
         }
 
         if ($fresh) {
