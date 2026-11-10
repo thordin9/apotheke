@@ -894,6 +894,10 @@ follow redirects; it overwrites `X-Forwarded-Proto` and `X-Forwarded-Host` from 
 `TRUST_PROXY=1` in the container so CSRF, Secure cookies, HSTS and absolute URLs still see the request as HTTPS.
 It also overwrites `X-Apotheke-Client-IP` from `cf-connecting-ip` and sets `APOTHEKE_EDGE_CLIENT_IP=1`, so the
 sign-in and registration rate-limit keys are per client. Caddy drops that header when the flag is not `1`.
+The readiness probe is also sent through that path, with `Host` set to the first `ALLOWED_HOSTS` entry (the same
+public host the Worker forwards). When `ALLOWED_HOSTS` is empty, unset, or only `*`, the probe uses `127.0.0.1`
+(always on the allow-list, as the image `HEALTHCHECK` does) and logs the missing config; it does not use `Host`
+`container`, which the allow-list rejects with 421. The app's host check stays in force for `/healthz`.
 
 Never print, paste or commit either value, and never put them in `wrangler.jsonc`, `vars` or a GitHub secret.
 If the Worker does not exist yet, `wrangler secret put` offers to create a draft Worker; answer no and deploy first
