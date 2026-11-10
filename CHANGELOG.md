@@ -8,6 +8,10 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+### Maintenance
+
+- **edge:** ci: dry-run the merged storage config in pull requests and make the flip checklist go-live ready, with a preview plan ([#253](https://github.com/thordin9/apotheke/pull/253))
+
 ## [3.28.0] - 2026-11-10
 
 - **edge:** the container uses R2 only when the storage fragment binds both `STORAGE` and `DB`; with neither it keeps local disk, with only one it does not start, and `r2.internal` stays closed unless R2 is selected ([#251](https://github.com/thordin9/apotheke/pull/251))
