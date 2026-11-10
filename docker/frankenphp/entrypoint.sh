@@ -85,9 +85,18 @@ case "$FRANKENPHP_NUM_THREADS" in
 esac
 if [ "$FRANKENPHP_NUM_THREADS" -gt 64 ]; then echo "FRANKENPHP_NUM_THREADS must be a number from 1 to 64" >&2; exit 64; fi
 export FRANKENPHP_NUM_THREADS
-# Caddy's own state (no certificates, admin off) lives under the root-owned /run, never in DATA_DIR or /tmp (L-430);
-# the image creates both directories for www-data
+# Caddy's own state (no certificates, admin off) lives under /run, never in DATA_DIR or /tmp (L-430).
+# The image creates these directories for www-data, but /run is often a fresh mount at runtime
+# (Cloudflare Containers), so recreate them before FrankenPHP binds its socket. The entrypoint
+# runs as root (no USER in the image; tini is PID 1) and later drops to www-data via su-exec.
 export XDG_CONFIG_HOME=/run/apotheke-caddy/config XDG_DATA_HOME=/run/apotheke-caddy/data
+if [ "$(id -u)" = 0 ]; then
+  mkdir -p /run/apotheke-caddy/config /run/apotheke-caddy/data
+  chown -R www-data:www-data /run/apotheke-caddy
+  chmod 0750 /run/apotheke-caddy /run/apotheke-caddy/config /run/apotheke-caddy/data
+else
+  mkdir -p /run/apotheke-caddy/config /run/apotheke-caddy/data
+fi
 frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
   || { frankenphp validate --config /etc/apotheke/Caddyfile --adapter caddyfile >&2; exit 78; }
 # The trap is set before anything starts, and the flag is checked right before each `&` and again once both PIDs are

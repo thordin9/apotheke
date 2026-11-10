@@ -87,8 +87,9 @@ final class DeployWorkflowsTest extends TestCase
 
     public function testDeployEdgeMergesTheStorageConfigOnlyInTheDeployJobThenSmokeChecks(): void
     {
-        // P4 prep: the storage bindings (D1 DB, R2 STORAGE in eu, the Installation Durable Object) are merged only in
-        // the deploy job, which runs only with EDGE_STORAGE_READY=true; the PR checks and wrangler dev keep the default.
+        // P4 prep: the storage bindings (D1 DB, R2 STORAGE in eu, the Installation Durable Object) are merged for a
+        // deploy only in the deploy job, which runs only with EDGE_STORAGE_READY=true; wrangler dev keeps the default,
+        // and the PR checks dry-run both the default and the merged config.
         $yml = $this->workflow('deploy-edge.yml');
         $steps = $this->steps($yml, 'deploy');
         $n = count($steps);
@@ -111,8 +112,18 @@ final class DeployWorkflowsTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/secrets\.|CLOUDFLARE_/', $smoke);
         // no wrangler d1 migrations apply: the app's own runner applies migrations/ through the bridge
         $this->assertStringNotContainsString('migrations apply', implode('', $steps) . implode('', $this->steps($yml, 'check')));
-        $this->assertSame(1, substr_count($yml, 'edge-storage-config.mjs edge/'), 'merged only in the deploy job');
-        $this->assertStringNotContainsString('storage.jsonc', $this->job($yml, 'check'));
+        // Merged for real only in the deploy job; the check job merges once more, for its dry run only (ADR-002), with a
+        // dummy D1 id and no secret or variable, after the default dry run.
+        $this->assertSame(2, substr_count($yml, 'edge-storage-config.mjs edge/'), 'the deploy job and the merged dry run');
+        $this->assertSame(1, substr_count(implode('', $steps), 'edge-storage-config.mjs edge/'));
+        $check = $this->steps($yml, 'check');
+        $dry = $check[count($check) - 1];
+        $this->assertStringStartsWith('name: Merged storage config dry run', $dry);
+        $this->assertStringStartsWith('name: wrangler deploy --dry-run', $check[count($check) - 2]);
+        $this->assertStringContainsString('APOTHEKE_D1_DATABASE_ID: 00000000-0000-4000-8000-000000000000', $dry);
+        $this->assertStringContainsString("node scripts/edge-storage-config.mjs edge/wrangler.jsonc edge/storage.jsonc\n", $dry);
+        $this->assertStringContainsString('wrangler deploy --dry-run --config wrangler.jsonc', $dry);
+        $this->assertDoesNotMatchRegularExpression('/secrets\.|vars\.|CLOUDFLARE_/', $this->job($yml, 'check'));
         $this->assertStringNotContainsString('storage.jsonc', $this->workflow('edge-local.yml'));
         $this->assertStringContainsString("      - 'scripts/edge-storage-config.mjs'\n", $yml);
         $this->assertStringNotContainsString('d1_databases', self::file('edge/wrangler.jsonc'));

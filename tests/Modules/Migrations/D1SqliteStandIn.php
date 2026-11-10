@@ -19,6 +19,8 @@ final class D1SqliteStandIn implements D1Executor
 {
     /** @var list<string> statements that reached exec() */
     public array $execLog = [];
+    /** @var list<list<string>> SQL of each run() batch, in order */
+    public array $batches = [];
     /** @var callable|null fn(string $sql): ?bool — return true to reject a statement */
     public $reject = null;
 
@@ -51,21 +53,37 @@ final class D1SqliteStandIn implements D1Executor
 
     public function run(array $statements): array
     {
-        $out = [];
-        foreach ($statements as $s) {
-            if ($this->reject !== null && ($this->reject)($s['sql']) === true) {
-                throw new WriteFailed('Database write failed: the batch');
-            }
-            try {
-                $out[] = $this->execute($s['sql'], $s['params'] ?? []);
-            } catch (WriteFailed $e) {
-                throw $e;
-            } catch (Throwable $e) {
-                throw new WriteFailed('Database write failed: the batch', 0, $e);
-            }
+        $this->batches[] = array_map(static fn (array $s): string => $s['sql'], $statements);
+        // D1 /batch is atomic; a later failure must not leave earlier statements of this batch.
+        $own = !$this->db->inTransaction();
+        if ($own) {
+            $this->db->beginTransaction();
         }
+        try {
+            $out = [];
+            foreach ($statements as $s) {
+                if ($this->reject !== null && ($this->reject)($s['sql']) === true) {
+                    throw new WriteFailed('Database write failed: the batch');
+                }
+                try {
+                    $out[] = $this->execute($s['sql'], $s['params'] ?? []);
+                } catch (WriteFailed $e) {
+                    throw $e;
+                } catch (Throwable $e) {
+                    throw new WriteFailed('Database write failed: the batch', 0, $e);
+                }
+            }
+            if ($own) {
+                $this->db->commit();
+            }
 
-        return $out;
+            return $out;
+        } catch (Throwable $e) {
+            if ($own && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e instanceof WriteFailed ? $e : new WriteFailed('Database write failed: the batch', 0, $e);
+        }
     }
 
     public function exec(string $sql): array
