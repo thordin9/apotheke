@@ -12,6 +12,73 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - **edge:** after a start, the Worker sets the container inactivity timeout from `SLEEP_AFTER_MS` and does not hold `monitor()` or `waitUntil`, so that timeout can begin once the Durable Object goes idle ([#271](https://github.com/thordin9/apotheke/pull/271))
 
+## [3.36.0] - 2026-11-11
+
+- CSV import now works on the hosted database: the preview checks every row without writing anything, and the import goes in line by line, so an import that stopped half-way picks up where it left off and two submits of the same file never import a line twice; the "Not available on hosted yet" notice is gone from the import page. ([#270](https://github.com/thordin9/apotheke/pull/270))
+
+### Added
+
+- **import:** import CSV files on hosted one batch per line ([#270](https://github.com/thordin9/apotheke/pull/270))
+
+### Maintenance
+
+- **ops:** docs: add storage-mode preview persistence check ([#272](https://github.com/thordin9/apotheke/pull/272))
+
+## [3.35.0] - 2026-11-11
+
+- Bulk editing (move, category, tags, delete) now works on the hosted database: the whole selection commits as one batch, so a failed run changes nothing and can simply be retried; the "Not available on hosted yet" notice is gone from the list's bulk sheet. ([#265](https://github.com/thordin9/apotheke/pull/265))
+- On the hosted database, a bulk edit's undo token is stored in the same batch as the change; a selection whose snapshot would exceed the statement size limit is refused with 422 and nothing is written. ([#265](https://github.com/thordin9/apotheke/pull/265))
+
+### Added
+
+- **bulk:** run hosted bulk edits as one batch ([#265](https://github.com/thordin9/apotheke/pull/265))
+
+### Maintenance
+
+- **migrations:** test: make the D1 stand-in refuse _cf_ names like D1 ([#273](https://github.com/thordin9/apotheke/pull/273))
+
+## [3.34.0] - 2026-11-11
+
+### Added
+
+- **core:** when `DB_DRIVER=d1`, PHP sessions are stored in an additive `sessions` table on the installation database, each row keyed by the SHA-256 of its session id; PDO keeps the file handler. Session ids and data never appear in logs or error text ([#263](https://github.com/thordin9/apotheke/pull/263))
+
+## [3.33.0] - 2026-11-11
+
+- On the hosted database, item create, edit and delete, account creation, undo and the search rebuild each commit as one all-or-nothing batch, and an undo can only be used once even when two requests race. Bulk editing, CSV import and backup restore are not available there yet and say so; the item form asks you to add a new location or category first, and duplicating an item with its photos asks you to duplicate it without them. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
+- On the hosted database, bulk editing, CSV import and backup restore now say plainly that they are not available there yet: the list's bulk sheet (QR labels stay), the import page and the restore section show "Not available on hosted yet." instead of those actions, and the API answers 501 with the problem code `hosted.unavailable` and its message before any upload is accepted. Other server errors stay generic. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
+
+### Added
+
+- **core:** run hosted item, account and undo writes as batches ([#262](https://github.com/thordin9/apotheke/pull/262))
+
+### Maintenance
+
+- **e2e:** ci: install PHP 8.4 from the setup-php prebuilt, not Launchpad ([#275](https://github.com/thordin9/apotheke/pull/275))
+- ci: retry apt through mirror and DNS outages with scripts/ci-apt.sh ([#277](https://github.com/thordin9/apotheke/pull/277))
+
+## [3.32.0] - 2026-11-11
+
+- **storage:** photos, originals, attachments and imports follow the selected storage; storage mode uses R2, and a selected R2 backend that cannot be used is an error, not a disk fallback ([#259](https://github.com/thordin9/apotheke/pull/259))
+- **storage:** brand logos and icons follow the selected storage; storage mode uses R2 and does not create photo directories on the container, and a selected R2 backend that cannot be used is an error, not a disk fallback ([#259](https://github.com/thordin9/apotheke/pull/259))
+
+### Added
+
+- **core:** route file storage through StorageFactory for R2 ([#259](https://github.com/thordin9/apotheke/pull/259))
+
+## [3.31.0] - 2026-11-11
+
+- Hosted storage mode now selects the Installation database: the Worker starts the container with `DB_DRIVER=d1` (set in code, never from a Worker var), PHP accepts `d1` only with `STORAGE_BACKEND=r2` and refuses to start or serve when storage mode is set without `d1` (so it cannot fall back to SQLite on the container disk), the CI4 config reads `STORAGE_BACKEND`, the SQL executor is the batch-only bridge, and the schema is migrated on the Installation object at the first request under a lease. Self-hosting is unchanged (P4-5). ([#258](https://github.com/thordin9/apotheke/pull/258))
+
+### Added
+
+- **edge:** select the D1 driver in storage mode and run migrations on the DO ([#258](https://github.com/thordin9/apotheke/pull/258))
+
+### Maintenance
+
+- **deploy:** docs: note previews_enabled and ssh --stdio in preview plan ([#267](https://github.com/thordin9/apotheke/pull/267))
+
+
 ## [3.30.0] - 2026-11-10
 
 ### Added
@@ -1457,7 +1524,13 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.30.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.36.0...HEAD
+[3.36.0]: https://github.com/thordin9/apotheke/compare/v3.35.0...v3.36.0
+[3.35.0]: https://github.com/thordin9/apotheke/compare/v3.34.0...v3.35.0
+[3.34.0]: https://github.com/thordin9/apotheke/compare/v3.33.0...v3.34.0
+[3.33.0]: https://github.com/thordin9/apotheke/compare/v3.32.0...v3.33.0
+[3.32.0]: https://github.com/thordin9/apotheke/compare/v3.31.0...v3.32.0
+[3.31.0]: https://github.com/thordin9/apotheke/compare/v3.30.0...v3.31.0
 [3.30.0]: https://github.com/thordin9/apotheke/compare/v3.29.1...v3.30.0
 [3.29.1]: https://github.com/thordin9/apotheke/compare/v3.29.0...v3.29.1
 [3.29.0]: https://github.com/thordin9/apotheke/compare/v3.28.0...v3.29.0

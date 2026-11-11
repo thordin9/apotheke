@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Undo;
 
+use Apotheke\Core\Database\D1Limits;
 use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Libraries\Clock;
 use CodeIgniter\Database\BaseConnection;
@@ -24,6 +25,7 @@ final class UndoTokens
      * @param int $seconds the undo_seconds setting (0 = no undo)
      * @param Closure(string): void $deleteImage remove a served photo, its thumbnail and original
      * @param Closure(string): void $deleteAttachment remove an attachment file
+     * @param (Closure():string)|null $issueToken override the random token (tests)
      */
     public function __construct(
         private readonly BaseConnection $db,
@@ -31,6 +33,7 @@ final class UndoTokens
         private readonly int $seconds,
         private readonly Closure $deleteImage,
         private readonly Closure $deleteAttachment,
+        private readonly ?Closure $issueToken = null,
     ) {
     }
 
@@ -100,16 +103,62 @@ final class UndoTokens
             return null;
         }
         $this->prune();
-        $token = bin2hex(random_bytes(16));
-        $now = $this->time();
-        Writes::check($this->db->table('undo_tokens')->insert([
-            'token' => $token, 'action' => $action, 'label' => mb_substr($label, 0, 200),
-            'payload' => json_encode(['items' => $snap] + $extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            'files' => json_encode($files, JSON_THROW_ON_ERROR),
-            'created_at' => gmdate('Y-m-d H:i:s', $now), 'expires_at' => gmdate('Y-m-d H:i:s', $now + $this->seconds),
-        ]), 'undo token');
+        $token = $this->newToken();
+        Writes::check($this->db->table('undo_tokens')->insert($this->row($token, $action, $label, $snap, $extra, $files)), 'undo token');
 
         return $token;
+    }
+
+    public function newToken(): string
+    {
+        return $this->issueToken !== null ? ($this->issueToken)() : bin2hex(random_bytes(16));
+    }
+
+    /**
+     * The columns of one undo_tokens row (legacy create()).
+     *
+     * @param list<array<string,mixed>> $snap
+     * @param array<string,mixed> $extra
+     * @param list<array{0:string,1:string}> $files
+     * @return array{token:string,action:string,label:string,payload:string,files:string,created_at:string,expires_at:string}
+     */
+    public function row(string $token, string $action, string $label, array $snap, array $extra = [], array $files = []): array
+    {
+        $now = $this->time();
+
+        return [
+            'token' => $token,
+            'action' => $action,
+            'label' => mb_substr($label, 0, 200),
+            'payload' => json_encode(['items' => $snap] + $extra, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'files' => json_encode($files, JSON_THROW_ON_ERROR),
+            'created_at' => gmdate('Y-m-d H:i:s', $now),
+            'expires_at' => gmdate('Y-m-d H:i:s', $now + $this->seconds),
+        ];
+    }
+
+    /**
+     * The INSERT as D1Limits::refuse() measures it: values are in the statement text,
+     * the same way the query builder writes the row on a direct insert.
+     *
+     * @param array{token:string,action:string,label:string,payload:string,files:string,created_at:string,expires_at:string} $row
+     */
+    public function insertStatement(array $row): string
+    {
+        $cols = [];
+        $vals = [];
+        foreach ($row as $col => $value) {
+            $cols[] = $col;
+            $vals[] = $this->db->escape($value);
+        }
+
+        return 'INSERT INTO undo_tokens (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $vals) . ')';
+    }
+
+    /** Whether that INSERT is within D1's per-statement byte limit (the same check as D1Limits::refuse()). */
+    public function statementFits(string $sql): bool
+    {
+        return strlen($sql) <= D1Limits::MAX_STATEMENT_BYTES;
     }
 
     /** @return array<string,mixed>|null a live token */
@@ -153,6 +202,9 @@ final class UndoTokens
      */
     public function prune(bool $all = false, ?\Closure $guard = null): int
     {
+        if ($this->db instanceof \Apotheke\Core\Database\D1\Connection) {
+            return $this->pruneBatch($all, $guard);
+        }
         $run = function () use ($all, $guard): int {
             if ($guard !== null) {
                 $guard();
@@ -172,6 +224,32 @@ final class UndoTokens
         }
 
         return Writes::transaction($this->db, $run);
+    }
+
+    /**
+     * prune() on the hosted database (D1): the tokens are read first, deleted in one unit of work, and their files
+     * are released only after that batch committed. The guarded form belongs to a restore, which D1 does not run yet.
+     */
+    private function pruneBatch(bool $all, ?\Closure $guard): int
+    {
+        if ($guard !== null) {
+            throw new \LogicException('A guarded undo prune (a restore) is not available on D1.');
+        }
+        $tokens = $this->rows('SELECT token, files FROM undo_tokens' . ($all ? '' : ' WHERE expires_at <= ?'), $all ? [] : [$this->clock->now()]);
+        if ($tokens === []) {
+            return 0;
+        }
+        \Apotheke\Core\Database\UnitsOfWork::forSite($this->db, null)->run('undo_tokens', static function (\Apotheke\Core\Database\UnitOfWork $uow) use ($tokens): void {
+            foreach ($tokens as $t) {
+                $uow->write('DELETE FROM undo_tokens WHERE token = ?', [(string)$t['token']], 'use undo token');
+            }
+        });
+        foreach ($tokens as $t) {
+            $files = json_decode((string)$t['files'], true);
+            $this->release(is_array($files) ? $files : []);
+        }
+
+        return count($tokens);
     }
 
     /**

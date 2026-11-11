@@ -30,7 +30,14 @@ if (defined('SYSTEMPATH')) {
     \CodeIgniter\Config\BaseConfig::$override = false;
 }
 
-$config = ApothekeConfig::fromEnvironment();
+try {
+    $config = ApothekeConfig::fromEnvironment();
+} catch (RuntimeException $e) {
+    if ($e->getMessage() === 'STORAGE_BACKEND=r2 needs DB_DRIVER=d1.') {
+        BootError::send('Apotheke is not available right now.', $e->getMessage(), 503);
+    }
+    throw $e;
+}
 try {
     (new DsnTranslator())->translate($config->database());
 } catch (DsnException $e) {
@@ -46,7 +53,7 @@ try {
     $timezone = (string)($config->values()['timezone'] ?? 'UTC');
     date_default_timezone_set($timezone !== '' ? $timezone : 'UTC');
     $web = defined('FCPATH') ? rtrim(FCPATH, '/\\') : ApothekeConfig::repoRoot() . '/public';
-    (new StoragePreflight())->prepare($config->dataDir(), $config->originalsDir(), $web);
+    (new StoragePreflight())->prepare($config->dataDir(), $config->originalsDir(), $web, (string)($config->values()['storage']['backend'] ?? 'local'));
 } catch (StorageRefused $e) {
     BootError::send($e->getMessage(), $e->logMessage);
 }

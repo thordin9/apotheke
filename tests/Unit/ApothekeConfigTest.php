@@ -40,8 +40,10 @@ final class ApothekeConfigTest extends TestCase
         // The chunked restore sizes (CI4 only).
         $this->assertSame(['restore_chunk_kb' => 8192, 'restore_max_mb' => 520, 'restore_max_uploads' => 8, 'restore_db_max_mb' => 0], array_intersect_key($ours['uploads'], ['restore_chunk_kb' => 0, 'restore_max_mb' => 0, 'restore_max_uploads' => 0, 'restore_db_max_mb' => 0]));
         unset($ours['uploads']['restore_chunk_kb'], $ours['uploads']['restore_max_mb'], $ours['uploads']['restore_max_uploads'], $ours['uploads']['restore_db_max_mb']);
+        // The storage block now matches legacy's (P4-5: the CI4 app reads STORAGE_BACKEND too).
         $this->assertSame('local', $legacy['storage']['backend']);
-        unset($legacy['storage']);
+        $this->assertSame($legacy['storage'], $ours['storage']);
+        unset($legacy['storage'], $ours['storage']);
         $this->assertSame($legacy, $ours);
         $this->assertSame(dirname(__DIR__, 2) . '/camera', ApothekeConfig::load($root, $file, $env)->originalsDir());
     }

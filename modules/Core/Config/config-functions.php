@@ -96,24 +96,10 @@ function config_load(string $root, ?string $file, array $env): array
         config_set($cfg, $path, (string)$v);
     }
     // normalise
-    if (!isset($cfg['storage']) || !is_array($cfg['storage'])) {
-        throw new RuntimeException('Storage configuration must be an array.');
-    }
-    $cfg['storage']['backend'] = strtolower((string)($cfg['storage']['backend'] ?? 'local'));
-    $limit = $cfg['storage']['max_write_bytes'] ?? 104857600;
-    if ((!is_int($limit) && (!is_string($limit) || preg_match('/^[0-9]+$/D', $limit) !== 1))
-        || (int)$limit < 1 || (string)(int)$limit !== (string)$limit || (int)$limit > 104857600
-    ) {
-        throw new RuntimeException('R2_MAX_WRITE_BYTES must be a base-10 integer between 1 and 104857600.');
-    }
-    $cfg['storage']['max_write_bytes'] = (int)$limit;
-    $cfg['storage']['r2_base_url'] = (string)($cfg['storage']['r2_base_url'] ?? 'http://r2.internal');
+    $cfg['storage'] = config_storage($cfg['storage'] ?? null);
     $cfg['data_dir'] = rtrim((string)$cfg['data_dir'], '/');
     $cfg['originals_dir'] = rtrim((string)($cfg['originals_dir'] ?? ''), '/');
-    $cfg['db']['driver'] = strtolower((string)$cfg['db']['driver']);
-    if (!in_array($cfg['db']['driver'], ['sqlite', 'pgsql'], true)) {
-        throw new RuntimeException('Unsupported db.driver "' . $cfg['db']['driver'] . '" (use sqlite or pgsql).');
-    }
+    $cfg['db']['driver'] = config_db_driver($cfg['db']['driver'], $cfg['storage']['backend']);
     if ((string)$cfg['db']['sqlite_path'] === '') $cfg['db']['sqlite_path'] = $cfg['data_dir'] . '/catalog.sqlite';
     $cfg['db']['port'] = (int)$cfg['db']['port'];
     foreach (['max_mb', 'full_max', 'thumb_max'] as $k) $cfg['uploads'][$k] = max(1, (int)$cfg['uploads'][$k]);
@@ -140,10 +126,55 @@ function config_set(array &$cfg, string $path, mixed $value): void
     $ref = $value;
 }
 
+/**
+ * The storage block, normalised (shared with ApothekeConfig).
+ *
+ * @return array{backend:string,max_write_bytes:int,r2_base_url:string}
+ */
+function config_storage(mixed $storage): array
+{
+    if (!is_array($storage)) {
+        throw new RuntimeException('Storage configuration must be an array.');
+    }
+    $limit = $storage['max_write_bytes'] ?? 104857600;
+    if ((!is_int($limit) && (!is_string($limit) || preg_match('/^[0-9]+$/D', $limit) !== 1))
+        || (int)$limit < 1 || (string)(int)$limit !== (string)$limit || (int)$limit > 104857600
+    ) {
+        throw new RuntimeException('R2_MAX_WRITE_BYTES must be a base-10 integer between 1 and 104857600.');
+    }
+
+    return [
+        'backend' => strtolower((string)($storage['backend'] ?? 'local')),
+        'max_write_bytes' => (int)$limit,
+        'r2_base_url' => (string)($storage['r2_base_url'] ?? 'http://r2.internal'),
+    ] + $storage;
+}
+
+/**
+ * db.driver, normalised (shared with ApothekeConfig). d1 is the hosted Installation
+ * object over the container's bridge, and only with R2 storage: never a mixed mode.
+ */
+function config_db_driver(mixed $driver, string $backend): string
+{
+    $driver = strtolower((string)$driver);
+    if (!in_array($driver, ['sqlite', 'pgsql', 'd1'], true)) {
+        throw new RuntimeException('Unsupported db.driver "' . $driver . '" (use sqlite or pgsql).');
+    }
+    if ($driver === 'd1' && $backend !== 'r2') {
+        throw new RuntimeException('db.driver d1 needs STORAGE_BACKEND=r2.');
+    }
+    if ($backend === 'r2' && $driver !== 'd1') {
+        throw new RuntimeException('STORAGE_BACKEND=r2 needs DB_DRIVER=d1.');
+    }
+
+    return $driver;
+}
+
 /** PDO DSN for the configured database. */
 function config_dsn(array $db): string
 {
     if ($db['driver'] === 'sqlite') return 'sqlite:' . $db['sqlite_path'];
+    if ($db['driver'] === 'd1') return 'd1:http://d1.internal';
     if ((string)$db['dsn'] !== '') return (string)$db['dsn'];
     return sprintf('pgsql:host=%s;port=%d;dbname=%s', $db['host'], $db['port'], $db['name']);
 }
@@ -156,6 +187,7 @@ function config_dsn(array $db): string
 function config_migrate_where(array $db): string
 {
     if ($db['driver'] === 'sqlite') return (string)$db['sqlite_path'];
+    if ($db['driver'] === 'd1') return 'd1.internal';
     $fields = config_dsn_public_fields(config_dsn($db));
     if ($fields === null) return '<unparsed dsn>';
     $parts = [];

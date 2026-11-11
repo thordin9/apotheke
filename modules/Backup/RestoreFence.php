@@ -39,6 +39,7 @@ final class RestoreFence
     /** @param BaseConnection<object|resource, object|resource> $db */
     public static function claim(BaseConnection $db, string $token): void
     {
+        Writes::refuseOnD1($db, 'Restoring a backup');
         $stamp = self::stamp();
         $sqlite = $db->connID instanceof SQLite3 ? $db->connID : null;
         $previous = 5000;

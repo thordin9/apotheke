@@ -94,8 +94,10 @@ final class SearchIndex
         if (($this->rows("SELECT v FROM search_meta WHERE k = 'fingerprint'")[0]['v'] ?? null) === $fp) {
             return;
         }
-        Writes::transaction($this->db, function () use ($fp): void {
-            $this->rebuild();
+        // The documents are read before the transaction's first write: one batch on the hosted database (D1).
+        $docs = $this->documents();
+        Writes::transaction($this->db, function () use ($fp, $docs): void {
+            $this->rebuild($docs);
             Writes::check($this->db->query("DELETE FROM search_meta WHERE k = 'fingerprint'"), 'search fingerprint');
             Writes::check($this->db->query("INSERT INTO search_meta (k, v) VALUES ('fingerprint', ?)", [$fp]), 'search fingerprint');
         });
@@ -134,14 +136,15 @@ final class SearchIndex
         return $docs;
     }
 
-    private function rebuild(): void
+    /** @param array<int,array{name:string,tags:string,other:string}> $docs */
+    private function rebuild(array $docs): void
     {
         $fts = $this->engine() === 'fts5';
         Writes::check($this->db->query('DELETE FROM search_docs'), 'search rebuild');
         if ($fts) {
             Writes::check($this->db->query('DELETE FROM search_fts'), 'search rebuild');
         }
-        foreach ($this->documents() as $id => $d) {
+        foreach ($docs as $id => $d) {
             $f = [Text::fold($d['name']), Text::fold($d['tags']), Text::fold((string)preg_replace('/^[A-Za-z ]+: /m', '', $d['other']))];
             Writes::check($this->db->query('INSERT INTO search_docs (item_id, name_f, tags_f, other_f, other) VALUES (?,?,?,?,?)', [$id, $f[0], $f[1], $f[2], $d['other']]), 'search rebuild');
             if ($fts) {

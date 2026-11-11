@@ -9,7 +9,7 @@ use RuntimeException;
 /** Creates the data directories and refuses photo storage inside the web root. */
 final class StoragePreflight
 {
-    public function prepare(string $dataDir, string $originalsDir, string $webRoot): void
+    public function prepare(string $dataDir, string $originalsDir, string $webRoot, string $backend = 'local'): void
     {
         $originals = rtrim($originalsDir, '/');
         $web = rtrim($webRoot, '/');
@@ -20,11 +20,18 @@ final class StoragePreflight
             );
         }
         $data = rtrim($dataDir, '/');
-        foreach ([$data, $data . '/images', $data . '/thumbs', $originals, $originals . '/map', $data . '/sessions'] as $dir) {
+        $dirs = [$data, $data . '/sessions'];
+        if (strtolower($backend) !== 'r2') {
+            $dirs = [$data, $data . '/images', $data . '/thumbs', $originals, $originals . '/map', $data . '/sessions'];
+        }
+        foreach ($dirs as $dir) {
             if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
                 $message = 'Data directory ' . $dir . ' is not writable.';
                 throw new StorageRefused($message, $message);
             }
+        }
+        if (strtolower($backend) === 'r2') {
+            return;
         }
         $this->chmodDir($originals);
         $this->chmodDir($originals . '/map');

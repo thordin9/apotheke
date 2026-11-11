@@ -363,7 +363,21 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    nothing. A read before the first queued write runs at once on committed data, with no lock, so a dependent write
    needs a guard. A read after a queued write, `RETURNING` inside a transaction, and an affected-row count or insert
    id that is not known yet are refused. `BEGIN` and `SAVEPOINT` never reach the bridge. The bridge host must be
-   `d1.internal` or loopback. Selecting the driver in storage mode is the next chunk.
+   `d1.internal` or loopback.
+   In storage mode the Worker also sets `DB_DRIVER=d1`, in code and never from a Worker var. PHP accepts `d1`
+   only with `STORAGE_BACKEND=r2` (both configs), and its host is fixed to `d1.internal`, never configured. The
+   CI4 config now reads `STORAGE_BACKEND` as legacy does. The SQL executor is the batch-only `D1HttpExecutor`, so
+   units of work take the batch path. The schema bootstraps on the object through `D1MigrationRunner` at the first
+   request, under a lease row (`apotheke_migration_lease`, 300 s): one atomic claim, then a check of the owner; a
+   request without the lease fails and the next one checks again, and a run releases only its own lease. The PDO
+   runner and `apotheke:migrate` refuse `d1`. On `d1` the SQL executor is the connection's own `batch()`. A step runs as one unit of work, committed as one batch: the driver refuses a unit inside a transaction, a second unit while one is open, and a direct write beside a unit, always by exception. `Writes::atomic` is the one-unit step for callers that need an id mid-flight; `Writes::refuseOnD1` answers 501 for paths not converted yet (backup restore). Undo takes its token with a guarded delete as the unit's first step, so a second use answers 410.
+   Those 501s are refused at the controller before an upload or a confirmation page, and on `/api` they are the problem code `hosted.unavailable` with the message (`Writes::unavailable()`); the pages show a short notice instead of the actions.
+   Bulk editing is no longer refused: on `d1` the whole selection is one unit (one batch, all or nothing on the Installation object), each item's save joins it, and a guarded delete (exactly one row) fails the batch if an item changed meanwhile.
+   CSV import is no longer refused: the size cap is bytes (5 MB), not rows, so a file is not one batch. As the table above says, the commit is one batch per line with its `import_rows` marker (`Imports::hostedLine()`): a dry run checks the line, its locations and categories are created as idempotent steps, then the marker (expect 1), the item's save (`ItemRepository::saveRef()`, a new item's `Ref`) and its loan (`Loans::lendIn()`) are one batch. The page's preview is `Imports::preview()`.
+   The app's photos, originals, attachments, imports and brand files are selected through `StorageFactory`: storage mode uses R2,
+   default mode keeps `LocalStorage`, and a selected R2 backend that cannot be used is an error, not a disk fallback.
+   In storage mode, storage preflight creates only the data and sessions directories, not photo, thumb or originals directories.
+   When `DB_DRIVER=d1`, PHP sessions are stored in the CI4-only `sessions` table on the installation database: the handler claims a lock with one atomic UPDATE and a later SELECT (D1 has no `BEGIN`), and statement text never starts with a comment. A row's id is the SHA-256 (hex) of the session id, and every read, write, lock, expiry and removal looks the row up by it; the cookie carries the session id itself. A request that claimed the row writes, extends and releases it only while the row still carries that claim's token; each claim draws a new random token, so a request whose lease ran out and was taken over stores nothing. PDO keeps the file handler. Session ids and data never appear in logs or error text.
 
 ## Ownership
 
