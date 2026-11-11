@@ -197,7 +197,10 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
         throw new RuntimeException('Could not read the session.');
     }
 
-    /** False when the row is gone or another request holds or has replaced it: nothing is stored. */
+    /**
+     * False when the row is gone or another request holds or has replaced it: nothing is stored.
+     * A write that did not apply for any other reason throws.
+     */
     private function store(string $id, string $data): bool
     {
         $now = $this->now();
@@ -214,6 +217,10 @@ final class DatabaseSessionHandler implements SessionHandlerInterface, SessionUp
             'params' => [$data, $expires, '', 0, $key, $token],
         ]]);
         $rows = $this->exec->query('SELECT data, lock_token FROM sessions WHERE id = ?', [$key]);
+        // The insert left no row, or the row still carries this claim: the write did not apply.
+        if ($token === '' ? $rows === [] : $rows !== [] && (string)$rows[0]['lock_token'] === $token) {
+            throw new RuntimeException('Could not store the session.');
+        }
 
         return $rows !== [] && (string)$rows[0]['data'] === $data && (string)$rows[0]['lock_token'] === '';
     }

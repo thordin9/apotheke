@@ -649,6 +649,70 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         }
     }
 
+    // --- writes that do not apply ----------------------------------------------------------------------------------
+
+    /** M-1906: the claimed UPDATE applies nothing without an error; the write fails and the row is unchanged. */
+    #[DataProvider('drivers')]
+    public function testAClaimedWriteThatDoesNotApplyFails(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600);
+            $handler = new DatabaseSessionHandler($this->dropping($database, 'UPDATE sessions SET data'), 3600, static fn (): int => self::NOW, static function (int $us): void {});
+            $this->assertSame('old', $handler->read(self::ID));
+            $held = $this->row($database, $key);
+            try {
+                $handler->write(self::ID, 'new');
+                $this->fail('a write that did not apply must fail');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not store the session.', $e->getMessage());
+            }
+            $this->assertSame($held, $this->row($database, $key));
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1907: the unclaimed INSERT applies nothing without an error; the write fails and no row appears. */
+    #[DataProvider('drivers')]
+    public function testAnUnclaimedWriteThatDoesNotApplyFails(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $handler = new DatabaseSessionHandler($this->dropping($database, 'INSERT INTO sessions'), 3600, static fn (): int => self::NOW, static function (int $us): void {});
+            try {
+                $handler->write(self::ID, 'new');
+                $this->fail('a write that did not apply must fail');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Could not store the session.', $e->getMessage());
+            }
+            $this->assertSame([], $database->db->query('SELECT id FROM sessions')->getResultArray());
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** A local executor that silently skips statements starting with $prefix. */
+    private function dropping(TestDatabase $database, string $prefix): BatchExecutor
+    {
+        return new class (new LocalBatchExecutor($database->db), $prefix) implements BatchExecutor {
+            public function __construct(private readonly BatchExecutor $inner, private readonly string $prefix)
+            {
+            }
+
+            public function run(array $statements): array
+            {
+                return $this->inner->run(array_values(array_filter($statements, fn (array $s): bool => !str_starts_with((string)$s['sql'], $this->prefix))));
+            }
+
+            public function query(string $sql, array $params = []): array
+            {
+                return $this->inner->query($sql, $params);
+            }
+        };
+    }
+
     /**
      * @param \Closure():void|null $wait
      */
