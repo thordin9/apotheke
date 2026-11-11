@@ -24,6 +24,12 @@ use ZipArchive;
  */
 final class BackupHelpersTest extends CIUnitTestCase
 {
+    /** Restore checks the driver first; these paths never reach the database, so the connection never opens. */
+    public static function lazySqlite(): \CodeIgniter\Database\BaseConnection
+    {
+        return \Config\Database::connect(['DBDriver' => 'SQLite3', 'database' => ':memory:', 'DBPrefix' => ''], false);
+    }
+
     /** Not root, the restore runs as it is, whoever owns DATA_DIR (the root cases run under sudo in Ci4BackupRestoreChecksTest). */
     public function testTheDataDirOwnerCheckLetsANonRootUserThrough(): void
     {
@@ -319,7 +325,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
         (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-        (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
+        (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); $this->db = BackupHelpersTest::lazySqlite(); })->call($restorer, $backups);
         try {
             foreach ([1, 2] as $round) {
                 try {
@@ -348,7 +354,7 @@ final class BackupHelpersTest extends CIUnitTestCase
         $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
         (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
         $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-        (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
+        (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); $this->db = BackupHelpersTest::lazySqlite(); })->call($restorer, $backups);
         $lockPath = $dir . '/tmp/' . Restorer::LOCK_FILE;
         try {
             touch($lockPath);
@@ -470,7 +476,7 @@ final class BackupHelpersTest extends CIUnitTestCase
             $backups = (new ReflectionClass(Backups::class))->newInstanceWithoutConstructor();
             (function (string $d): void { $this->dataDir = $d; })->call($backups, $dir);
             $restorer = (new ReflectionClass(Restorer::class))->newInstanceWithoutConstructor();
-            (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); })->call($restorer, $backups);
+            (function (Backups $b): void { $this->backups = $b; $this->data = new LocalStorage($b->tmpDir()); $this->cleanup = new RequestCleanup(); $this->db = BackupHelpersTest::lazySqlite(); })->call($restorer, $backups);
             try {
                 $restorer->restore($dir . '/missing.zip', true);
                 $this->fail('a restore ran with a folder as its lock');

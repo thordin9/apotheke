@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\ImportExport\Controllers\Api;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\ApiResponse;
 use Apotheke\Core\Jobs\JobQueue;
@@ -33,6 +34,9 @@ final class ImportsController extends Controller
     public function create(): ResponseInterface
     {
         $imports = $this->imports();
+        if ($imports->hosted()) {
+            throw Writes::unavailable('CSV import');   // 501 hosted.unavailable, before the upload is read
+        }
         $imports->sweep();   // N-374: on every upload, as the page does
         $f = $this->request->getFile('file');
         $file = $f instanceof UploadedFile
