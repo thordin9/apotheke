@@ -83,17 +83,18 @@ final class D1SelectionTest extends CIUnitTestCase
     {
         $config = ApothekeConfig::load('/app', null, ['DB_DRIVER' => 'd1', 'STORAGE_BACKEND' => 'r2']);
         \Config\Services::injectMock('apothekeConfig', $config);
-        \Config\Services::resetSingle('apothekeDb');
-        // Mark the object migrated for this process, so the test needs no bridge.
-        $key = (new \ReflectionMethod(\Apotheke\Migrations\BootMigration::class, 'key'))->invoke(null, $config->database());
-        $done = new \ReflectionProperty(\Apotheke\Migrations\BootMigration::class, 'done');
-        $done->setValue(null, [$key => true]);
+        $d1 = \Config\Database::connect(['DBDriver' => 'Apotheke\\Core\\Database\\D1', 'hostname' => 'http://d1.internal', 'database' => '', 'DBDebug' => false], false);
+        \Config\Services::injectMock('apothekeDb', $d1);
         try {
             $executor = \Config\Services::sqlExecutor(false);
-            $this->assertInstanceOf(\Apotheke\Core\Database\D1HttpExecutor::class, $executor);
+            $this->assertInstanceOf(\Apotheke\Core\Database\D1\Batch::class, $executor);
             $this->assertNull($executor->connection(), 'batch-only: units of work take the batch path');
-            $group = config(\Config\Database::class)->default;
-            $this->assertSame(['Apotheke\\Core\\Database\\D1', 'http://d1.internal'], [$group['DBDriver'], $group['hostname']], 'the CI4 group is the bridge driver');
+            $this->assertSame($d1, $executor->owner(), 'on the request connection');
+            $this->assertInstanceOf(\Apotheke\Core\Database\ConnectionExecutor::class, (function () {
+                \Config\Services::injectMock('apothekeDb', \Config\Database::connect(['DBDriver' => 'SQLite3', 'database' => ':memory:'], false));
+
+                return \Config\Services::sqlExecutor(false);
+            })(), 'any other connection keeps the connection executor');
         } finally {
             \Apotheke\Migrations\BootMigration::forget();
             \Config\Services::reset(true);

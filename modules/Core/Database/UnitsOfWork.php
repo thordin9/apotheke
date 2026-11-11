@@ -65,9 +65,10 @@ final class UnitsOfWork
     public static function forSite(BaseConnection $db, ?self $units): self
     {
         if ($units === null) {
-            return self::on(new ConnectionExecutor($db));
+            return self::on($db instanceof D1\Connection ? $db->batch() : new ConnectionExecutor($db));
         }
-        $on = $units->executor()->connection();
+        $executor = $units->executor();
+        $on = $executor instanceof D1\Batch ? $executor->owner() : $executor->connection();
         if ($on !== null && $on !== $db) {
             throw new LogicException('A write site and its units of work must use the same connection.');
         }
@@ -120,7 +121,13 @@ final class UnitsOfWork
         }
         $db = $this->executor->connection();
         if ($db === null) {
-            return $this->once(new BatchUnitOfWork($this->executor, $this->batchLock($table, $keys)), $fn);
+            $scope = $this->executor instanceof UnitScope ? $this->executor : null;
+            $scope?->enterUnit();
+            try {
+                return $this->once(new BatchUnitOfWork($this->executor, $this->batchLock($table, $keys)), $fn);
+            } finally {
+                $scope?->leaveUnit();
+            }
         }
         $joined = (int)$db->transDepth > 0;
 

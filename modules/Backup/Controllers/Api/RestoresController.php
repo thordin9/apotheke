@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup\Controllers\Api;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\Backup\Jobs\RestoreConfirmJob;
 use Apotheke\Backup\Restorer;
 use Apotheke\Backup\RestoreUploads;
@@ -33,6 +34,7 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores */
     public function create(): ResponseInterface
     {
+        $this->refuseHosted();
         $body = $this->json();
         if ($body === null) {
             return ApiResponse::problem($this->response, 400, 'bad_request', 'The body is not valid JSON.');
@@ -54,6 +56,7 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores/{id}/chunks/{n} */
     public function chunk(string $id, string $index): ResponseInterface
     {
+        $this->refuseHosted();
         return $this->answer(function () use ($id, $index): ResponseInterface {
             $f = $this->request->getFile('chunk');
             $uploads = $this->uploads();
@@ -71,6 +74,7 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores/{id}/finish: the upload is checked, then the backup (a dry run, nothing is changed) */
     public function finish(string $id): ResponseInterface
     {
+        $this->refuseHosted();
         return $this->answer(function () use ($id): ResponseInterface {
             @set_time_limit(300);   // N-1588: as the page's upload step; a retry gives the dry run again
             $restorer = $this->restorer();
@@ -90,6 +94,7 @@ final class RestoresController extends Controller
     /** POST /api/v1/restores/{id}/confirm {"confirm": true} */
     public function confirm(string $id): ResponseInterface
     {
+        $this->refuseHosted();
         $body = $this->json();
         if ($body === null) {
             return ApiResponse::problem($this->response, 400, 'bad_request', 'The body is not valid JSON.');
@@ -248,6 +253,14 @@ final class RestoresController extends Controller
             return true;
         } catch (UserError) {
             return false;
+        }
+    }
+
+    /** On the hosted database a restore is refused before any upload is accepted (501 hosted.unavailable). */
+    private function refuseHosted(): void
+    {
+        if ($this->restorer()->hosted()) {
+            throw Writes::unavailable('Restoring a backup');
         }
     }
 
