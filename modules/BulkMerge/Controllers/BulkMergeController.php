@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Apotheke\BulkMerge\Controllers;
 
-use Apotheke\Core\Database\Writes;
 use Apotheke\BulkMerge\BulkService;
 use Apotheke\BulkMerge\Duplicate;
 use Apotheke\BulkMerge\MergeService;
@@ -13,6 +12,7 @@ use Apotheke\BulkMerge\Views\BulkMergeView;
 use Apotheke\Catalog\Controllers\CatalogController;
 use Apotheke\Catalog\Items\ItemRepository;
 use Apotheke\Catalog\Views\ListView;
+use Apotheke\Core\Database\UnitOfWork;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Libraries\Text;
 use Apotheke\Core\Security\PermissionGate;
@@ -116,11 +116,6 @@ final class BulkMergeController extends CatalogController
 
             return $this->redirectTo('/labels?ids=' . implode(',', $ids));
         }
-        /** @var BulkService $bulk */
-        $bulk = service('bulkService');
-        if ($bulk->hosted()) {
-            throw Writes::unavailable('Bulk editing');   // 501 before the delete question or any write; labels only read
-        }
         /** @var UndoTokens $undo */
         $undo = service('undoTokens');
         try {
@@ -136,12 +131,37 @@ final class BulkMergeController extends CatalogController
                 return $this->html($this->view11b()->bulkDelete($items, $back));
             }
             $snap = $undo->enabled() && in_array($action, self::UNDO_ACTIONS, true) && count($ids) <= BulkService::MAX ? $undo->snapshot($positive($ids)) : [];
-            $n = $bulk->run($ids, $action, ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
-                'tags' => Text::tags(self::str($post['tags'] ?? '')), 'tag_id' => self::int($post['tag_id'] ?? 0), 'keep_files' => $action === 'delete' && $snap !== []]);
+            /** @var BulkService $bulk */
+            $bulk = service('bulkService');
+            $opt = ['location_id' => $taxId('location_id'), 'category_id' => $taxId('category_id'),
+                'tags' => Text::tags(self::str($post['tags'] ?? '')), 'tag_id' => self::int($post['tag_id'] ?? 0), 'keep_files' => $action === 'delete' && $snap !== []];
+            $undoAction = $action === 'delete' ? 'delete' : $action;
+            $files = $action === 'delete' ? UndoTokens::files($snap) : [];
+            $token = null;
+            $after = null;
+            if ($bulk->hosted() && $snap !== []) {
+                $token = $undo->newToken();
+                $probe = $undo->insertStatement($undo->row($token, $undoAction, ListView::bulkToast(count($snap), $action), $snap, ['back' => $back], $files));
+                if (!$undo->statementFits($probe)) {
+                    throw new UserError('This selection is too large to undo at once. Select fewer items.', 422);
+                }
+                $undo->prune();
+                $after = static function (UnitOfWork $uow, int $n) use ($undo, $token, $undoAction, $action, $snap, $back, $files): void {
+                    if ($n === 0) {
+                        return;
+                    }
+                    $uow->write($undo->insertStatement($undo->row($token, $undoAction, ListView::bulkToast($n, $action), $snap, ['back' => $back], $files)), [], 'undo token');
+                };
+            }
+            $n = $bulk->run($ids, $action, $opt, $after);
+            if (!$bulk->hosted()) {
+                $token = $n !== 0 ? $undo->create($undoAction, ListView::bulkToast($n, $action), $snap, ['back' => $back], $files) : null;
+            } elseif ($n === 0) {
+                $token = null;
+            }
         } catch (UserError $e) {
             throw new UserError($e->getMessage(), 422);
         }
-        $token = $n !== 0 ? $undo->create($action === 'delete' ? 'delete' : $action, ListView::bulkToast($n, $action), $snap, ['back' => $back], $action === 'delete' ? UndoTokens::files($snap) : []) : null;
 
         return $this->redirectTo($back . (str_contains($back, '?') ? '&' : '?') . 'bulk_done=' . $n . '&bulk_act=' . rawurlencode($action) . ($token !== null ? '&undo=' . $token : ''));
     }

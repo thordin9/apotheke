@@ -21,7 +21,7 @@ use Tests\Support\TestDatabase;
 
 /**
  * What the hosted database (the D1 driver) refuses for now, end to end through the real controllers, services and
- * views over the bridge: bulk editing, CSV import and backup restore answer 501 (on /api `hosted.unavailable`)
+ * views over the bridge: CSV import and backup restore answer 501 (on /api `hosted.unavailable`)
  * before anything is stored, and their pages show a notice instead of the actions. The default install keeps them.
  */
 final class D1HostedRefusalsTest extends CIUnitTestCase
@@ -133,16 +133,6 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
         }
     }
 
-    public function testBulkEditingIs501NotAValidationErrorAndLabelsStillWork(): void
-    {
-        $this->site('d1');
-        foreach (['move', 'tag_add', 'delete'] as $action) {
-            $this->refusal('Bulk editing', fn () => $this->controller(BulkMergeController::class, 'POST', ['ids' => ['1'], 'action' => $action, 'tags' => 'x'])->bulk());
-        }
-        $r = $this->controller(BulkMergeController::class, 'POST', ['ids' => ['1', '2'], 'action' => 'labels'])->bulk();
-        $this->assertSame('/labels?ids=1,2', parse_url($r->getHeaderLine('Location'), PHP_URL_PATH) . '?' . parse_url($r->getHeaderLine('Location'), PHP_URL_QUERY));
-    }
-
     public function testHostedPagesShowTheNoticeInsteadOfTheActions(): void
     {
         $this->site('d1');
@@ -162,9 +152,12 @@ final class D1HostedRefusalsTest extends CIUnitTestCase
             $this->assertStringNotContainsString('id="restore-preview"', (string)$r->getBody(), $step);
         }
 
-        $list = $this->controller(ListController::class, 'GET', [], '', ['select' => '1'])->index();
-        $this->assertNotice($list, 'bulk-hosted', ['id="bulk-move"', 'id="bulk-category"', 'id="bulk-tag-add"', 'id="bulk-delete"']);
-        $this->assertStringContainsString('<button class="btn btn-wide" name="action" value="labels" id="bulk-labels">', (string)$list->getBody(), 'QR labels only read');
+        // Bulk editing runs on the hosted database (D1HostedBulkTest): the list keeps every action and no notice.
+        $list = (string)$this->controller(ListController::class, 'GET', [], '', ['select' => '1'])->index()->getBody();
+        foreach (['id="bulk-move"', 'id="bulk-category"', 'id="bulk-tag-add"', 'id="bulk-delete"', 'id="bulk-labels"'] as $id) {
+            $this->assertStringContainsString($id, $list);
+        }
+        $this->assertStringNotContainsString(self::NOTICE, $list);
     }
 
     public function testTheDefaultInstallKeepsTheActions(): void
