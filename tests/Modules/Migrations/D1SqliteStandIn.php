@@ -57,10 +57,16 @@ final class D1SqliteStandIn implements D1Executor
     /**
      * D1 answers SQLITE_AUTH for any statement naming one of its _cf_ tables, in any case or
      * quoting. The same text inside a string literal or a comment is not a name and is accepted.
+     * One left-to-right pass: strings and comments are blanked, quoted identifiers are kept as
+     * they are, so a ' or -- inside "…", `…` or […] cannot start a string or comment (N-1898).
      */
     private function refuseInternal(string $sql): void
     {
-        $names = preg_replace("~'(?:[^']|'')*'|--[^\n]*|/\*.*?(?:\*/|$)~s", ' ', $sql) ?? $sql;
+        $names = preg_replace_callback(
+            "~'(?:[^']|'')*'|--[^\n]*|/\*.*?(?:\*/|$)|\"[^\"]*\"|`[^`]*`|\[[^\]]*\]~s",
+            static fn (array $m): string => str_contains("'-/", $m[0][0]) ? ' ' : $m[0],
+            $sql,
+        ) ?? $sql;
         if (preg_match('/(?<![\w$])_cf_/i', $names) === 1) {
             throw new WriteFailed('Database write failed: the batch');
         }
