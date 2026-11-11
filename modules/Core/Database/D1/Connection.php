@@ -29,6 +29,12 @@ use Throwable;
  *   answered from stale data.
  * - Statements the bridge does not run (BEGIN, SAVEPOINT, ATTACH, undocumented PRAGMAs) are refused before anything
  *   is sent or queued.
+ * - A unit of work runs its batch on batch() (P4-5). It cannot open inside a transaction (its batch would commit
+ *   before the transaction, and a rollback could not undo it), and while it is open a write on the connection itself
+ *   is refused: each write is either in the transaction's batch or in the unit's, never split between them. A
+ *   second unit while one is open (from another registry, so it would not join) is refused too.
+ * - atomic() is Writes::atomic() on this driver: the callback may run one unit of work and no other write, so the
+ *   step it stands for is still one batch. A second unit, or a write outside the unit, is refused before it is sent.
  * - A transport or bridge failure fails the statement: false, or a DatabaseException with DBDebug on. The database's
  *   own text is never passed on.
  */
@@ -58,6 +64,14 @@ class Connection extends SQLite3Connection
 
     /** The bridge client connect() made (also connID). */
     private ?D1HttpExecutor $bridge = null;
+
+    /** Units of work open on batch() (a joined unit does not open another). */
+    private int $units = 0;
+
+    private ?Batch $batch = null;
+
+    /** Inside atomic(): how many units have opened (null: not inside atomic()). */
+    private ?int $atomicUnits = null;
 
     /** @param array<string,mixed> $params */
     public function __construct(array $params)
@@ -102,6 +116,8 @@ class Connection extends SQLite3Connection
     {
         try {
             return $this->send($sql);
+        } catch (UnitRuleViolation $e) {
+            throw $e;   // never a false the caller might ignore
         } catch (Throwable $e) {
             $this->lastError = ['code' => (int)$e->getCode(), 'message' => self::reason($e)];
             if ($this->DBDebug) {
@@ -167,9 +183,87 @@ class Connection extends SQLite3Connection
         return true;
     }
 
+    /** The batch executor for units of work on this connection. */
+    public function batch(): Batch
+    {
+        return $this->batch ??= new Batch($this);
+    }
+
+    public function enterUnit(): void
+    {
+        if ($this->transDepth > 0) {
+            throw new UnitRuleViolation('D1 cannot run a unit of work inside a transaction; run the unit on its own.');
+        }
+        if ($this->units > 0) {
+            throw new UnitRuleViolation('D1 cannot open a second unit of work while one is open; join the open unit.');
+        }
+        if ($this->atomicUnits !== null && $this->atomicUnits++ > 0) {
+            throw new UnitRuleViolation('D1 runs one unit of work per atomic step; this step would commit in two batches.');
+        }
+        $this->units++;
+    }
+
+    /**
+     * Writes::atomic() on D1: $fn runs one unit of work at most, and writes nothing else.
+     *
+     * @template T
+     * @param callable():T $fn
+     * @return T
+     */
+    public function atomic(callable $fn): mixed
+    {
+        if ($this->transDepth > 0 || $this->atomicUnits !== null || $this->units > 0) {
+            throw new UnitRuleViolation('D1 cannot nest an atomic step in a transaction, a unit of work or another atomic step.');
+        }
+        $this->atomicUnits = 0;
+        try {
+            return $fn();
+        } finally {
+            $this->atomicUnits = null;
+        }
+    }
+
+    public function leaveUnit(): void
+    {
+        $this->units = max(0, $this->units - 1);
+    }
+
+    /**
+     * @param list<array{sql:string,params:list<scalar|null>}> $statements
+     * @return list<list<array<string,mixed>>>
+     */
+    public function runBatch(array $statements): array
+    {
+        if ($this->transDepth > 0) {
+            throw new UnitRuleViolation('D1 cannot send a batch inside a transaction; run the unit on its own.');
+        }
+        $this->changes = $this->lastId = null;
+
+        return $this->bridge()->run($statements);
+    }
+
+    /**
+     * @param list<scalar|null> $params
+     * @return list<array<string,mixed>>
+     */
+    public function readBatch(string $sql, array $params): array
+    {
+        if ($this->transDepth > 0 && $this->queue !== []) {
+            throw new LogicException('D1 cannot read after a queued write in the same transaction; use a unit of work.');
+        }
+
+        return $this->bridge()->query($sql, $params);
+    }
+
     private function send(string $sql): Rows|bool
     {
         $mutates = self::mutates($sql);
+        if ($mutates && $this->units > 0) {
+            throw new UnitRuleViolation('D1 writes while a unit of work is open go through the unit.');
+        }
+        if ($mutates && $this->atomicUnits !== null) {
+            throw new UnitRuleViolation('D1 writes in an atomic step go through its unit of work.');
+        }
         if ($this->transDepth > 0) {
             if (!$mutates) {
                 if ($this->queue !== []) {
