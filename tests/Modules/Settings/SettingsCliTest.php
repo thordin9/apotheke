@@ -11,6 +11,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use RuntimeException;
 use Tests\Support\TestDatabase;
@@ -125,6 +126,6 @@ final class SettingsCliTest extends CIUnitTestCase
     {
         $this->database ??= TestDatabase::create('sqlite');
 
-        return new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), new LocalBrandStore($this->database->dataDir() . '/brand'), new Clock(), $this->database->config->values(), static fn (string $m): null => null);
+        return new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->database->dataDir())), new Clock(), $this->database->config->values(), static fn (string $m): null => null);
     }
 }

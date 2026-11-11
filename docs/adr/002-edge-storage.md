@@ -374,6 +374,10 @@ Each PR goes through the full QA gate, stays under about 800 lines, and updates 
    Those 501s are refused at the controller before an upload or a confirmation page, and on `/api` they are the problem code `hosted.unavailable` with the message (`Writes::unavailable()`); the pages show a short notice instead of the actions.
    Bulk editing is no longer refused: on `d1` the whole selection is one unit (one batch, all or nothing on the Installation object), each item's save joins it, and a guarded delete (exactly one row) fails the batch if an item changed meanwhile.
    CSV import is no longer refused: the size cap is bytes (5 MB), not rows, so a file is not one batch. As the table above says, the commit is one batch per line with its `import_rows` marker (`Imports::hostedLine()`): a dry run checks the line, its locations and categories are created as idempotent steps, then the marker (expect 1), the item's save (`ItemRepository::saveRef()`, a new item's `Ref`) and its loan (`Loans::lendIn()`) are one batch. The page's preview is `Imports::preview()`.
+   The app's photos, originals, attachments, imports and brand files are selected through `StorageFactory`: storage mode uses R2,
+   default mode keeps `LocalStorage`, and a selected R2 backend that cannot be used is an error, not a disk fallback.
+   In storage mode, storage preflight creates only the data and sessions directories, not photo, thumb or originals directories.
+   Sessions still use the container's disk.
 
 ## Ownership
 

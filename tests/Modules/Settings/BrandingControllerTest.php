@@ -14,6 +14,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use CodeIgniter\Test\FeatureTestTrait;
 use Config\Services;
@@ -37,7 +38,7 @@ final class BrandingControllerTest extends CIUnitTestCase
     {
         parent::setUp();
         $this->database = TestDatabase::create('sqlite');
-        $this->store = new LocalBrandStore($this->database->dataDir() . '/brand');
+        $this->store = new LocalBrandStore(new LocalStorage($this->database->dataDir()));
         $this->settings = new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), $this->store, new Clock(), $this->database->config->values(), static fn (string $m): null => null);
         Services::injectMock('settings', $this->settings);
         Services::injectMock('brandStore', $this->store);

@@ -58,7 +58,7 @@ final class MediaTest extends CIUnitTestCase
     {
         parent::setUp();
         $this->database = TestDatabase::create('sqlite');
-        $this->settings = new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), new LocalBrandStore($this->database->dataDir() . '/brand'), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
+        $this->settings = new SettingsService(new SettingsRepository($this->database->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->database->dataDir())), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
         $this->served = new ServedImageWriter(new LocalStorage($this->database->dataDir()));
         ImageLimits::applyImagickLimits();
         $this->store = new ImageStore($this->settings, new OriginalStore(new LocalStorage($this->originals(), 0640)), $this->served, new ImagickDecoder(), $this->cleanup = new RequestCleanup(function (string $line): void {

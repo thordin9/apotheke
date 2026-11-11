@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Settings;
 
+use Apotheke\Core\Storage\LocalStorage;
 use Apotheke\Settings\BrandStore;
 use Apotheke\Settings\LocalBrandStore;
 use CodeIgniter\Test\CIUnitTestCase;
@@ -16,20 +17,21 @@ final class LocalBrandStoreTest extends CIUnitTestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->dir = sys_get_temp_dir() . '/apotheke-brand-' . bin2hex(random_bytes(4)) . '/brand';
+        $this->dir = sys_get_temp_dir() . '/apotheke-brand-' . bin2hex(random_bytes(4));
+        mkdir($this->dir, 0700, true);
     }
 
     protected function tearDown(): void
     {
-        array_map('unlink', glob($this->dir . '/*') ?: []);
+        array_map('unlink', glob($this->dir . '/brand/*') ?: []);
+        @rmdir($this->dir . '/brand');
         @rmdir($this->dir);
-        @rmdir(dirname($this->dir));
         parent::tearDown();
     }
 
-    public function testPutReadClear(): void
+    public function testPutReadClearOnLocalDiskUnderBrand(): void
     {
-        $store = new LocalBrandStore($this->dir);
+        $store = new LocalBrandStore(new LocalStorage($this->dir));
         $this->assertFalse($store->has('logo.png'));
         $this->assertNull($store->read('logo.png'));
         $this->assertNull($store->size('logo.png'));
@@ -41,14 +43,16 @@ final class LocalBrandStoreTest extends CIUnitTestCase
         $this->assertSame('PNG', $store->read('logo.png'));
         $this->assertSame(3, $store->size('logo.png'));
         $this->assertIsInt($store->modifiedAt('logo.png'));
+        $this->assertSame('PNG', file_get_contents($this->dir . '/brand/logo.png'));
         $store->clear();
         $this->assertFalse($store->has('logo.png'));
         $this->assertFalse($store->has('icon-192.png'));
+        $this->assertFileDoesNotExist($this->dir . '/brand/logo.png');
     }
 
     public function testOnlyKnownNames(): void
     {
-        $store = new LocalBrandStore($this->dir);
+        $store = new LocalBrandStore(new LocalStorage($this->dir));
         $this->assertFalse($store->has('../config.php'));
         $this->assertNull($store->read('../config.php'));
         $this->expectException(InvalidArgumentException::class);

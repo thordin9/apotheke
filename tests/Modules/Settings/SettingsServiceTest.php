@@ -16,6 +16,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -220,7 +221,7 @@ final class SettingsServiceTest extends CIUnitTestCase
     public function testResetSection(string $driver): void
     {
         $service = $this->service($driver);
-        $brand = new LocalBrandStore($this->database->dataDir() . '/brand');
+        $brand = new LocalBrandStore(new LocalStorage($this->database->dataDir()));
         $brand->put('logo.svg', '<svg/>');
         $service->store(['logo' => 'svg']);
         $this->assertSame([], $service->save(['accent' => '#0f766e', 'page_size' => '9', 'app_name' => 'Box']));
@@ -563,7 +564,7 @@ final class SettingsServiceTest extends CIUnitTestCase
         return new SettingsService(
             new SettingsRepository($this->database->db),
             new SettingsSchema(),
-            new LocalBrandStore($this->database->dataDir() . '/brand'),
+            new LocalBrandStore(new LocalStorage($this->database->dataDir())),
             new Clock(),
             $config + $this->database->config->values(),
             function (string $message): void {

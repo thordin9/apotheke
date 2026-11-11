@@ -484,7 +484,7 @@ final class RestoreConfirmJobTest extends CIUnitTestCase
         return new SettingsService(
             new SettingsRepository($database->db),
             new SettingsSchema(),
-            new LocalBrandStore($database->dataDir() . '/brand'),
+            new LocalBrandStore(new LocalStorage($database->dataDir())),
             new Clock(),
             $database->config->values(),
             static fn (string $message): null => null,

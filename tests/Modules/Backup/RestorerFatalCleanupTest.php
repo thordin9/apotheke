@@ -149,7 +149,7 @@ final class RestorerFatalCleanupTest extends CIUnitTestCase
         $db = $this->database->db;
         $dir = $this->database->dataDir();
         $clock = new Clock();
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($dir . '/brand'), $clock, $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($dir)), $clock, $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
         $backups = new Backups($db, $clock, $settings, $dir, $this->database->config->originalsDir());
         $db->query("INSERT INTO items (name, quantity, notes, search, created_at, updated_at) VALUES ('Lamp', 1, '', 'lamp', '2026-01-02 08:00:00', '2026-01-02 08:00:00')");
         $item = (int)$db->insertID();
