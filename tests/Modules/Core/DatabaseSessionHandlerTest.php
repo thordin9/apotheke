@@ -693,6 +693,61 @@ final class DatabaseSessionHandlerTest extends CIUnitTestCase
         }
     }
 
+    /** L-1908: after a stored write the claim is spent, so a second write on the same handler is stored too. */
+    #[DataProvider('drivers')]
+    public function testRepeatedWritesOnOneHandlerAreStored(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $key = hash('sha256', self::ID);
+            $this->seed($database, $key, 'old', self::NOW + 3600);
+            $handler = $this->handler($database, self::NOW);
+            $this->assertSame('old', $handler->read(self::ID));
+            $this->assertTrue($handler->write(self::ID, 'one'));
+            $this->assertTrue($handler->write(self::ID, 'two'));
+            $this->assertSame(['two', ''], [(string)$this->row($database, $key)['data'], (string)$this->row($database, $key)['lock_token']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1908: a superseded request keeps its spent claim, so writing again does not replace the later payload. */
+    #[DataProvider('drivers')]
+    public function testASupersededRequestCannotWriteAgainOverTheLaterPayload(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a, $b] = $this->staleClaim($database, $clock);
+            $this->assertTrue($b->write(self::ID, 'from-b'));
+            $this->assertTrue($b->close());
+
+            $this->assertStaleWriteRefused($a);
+            $this->assertTrue($a->write(self::ID, 'from-a-again'));
+            $this->assertSame(['from-b', ''], [(string)$this->row($database, hash('sha256', self::ID))['data'], (string)$this->row($database, hash('sha256', self::ID))['lock_token']]);
+        } finally {
+            $database->drop();
+        }
+    }
+
+    /** L-1908: a lapsed claim writing the data the row already holds still leaves the later holder's row alone. */
+    #[DataProvider('drivers')]
+    public function testALapsedClaimWithIdenticalDataLeavesTheLaterHolderAlone(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $clock = self::NOW;
+            [$a] = $this->staleClaim($database, $clock);
+            $held = $this->row($database, hash('sha256', self::ID));
+
+            $this->assertTrue($a->write(self::ID, 'old'));
+            $this->assertTrue($a->updateTimestamp(self::ID, 'old'));
+            $this->assertSame($held, $this->row($database, hash('sha256', self::ID)));
+        } finally {
+            $database->drop();
+        }
+    }
+
     /** A local executor that silently skips statements starting with $prefix. */
     private function dropping(TestDatabase $database, string $prefix): BatchExecutor
     {
