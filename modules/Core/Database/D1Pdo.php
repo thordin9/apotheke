@@ -327,7 +327,7 @@ final class D1Pdo extends PDO
     private function cloneCommitted(): void
     {
         $objects = $this->d1->query(
-            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' "
+            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL "
             . "ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name",
             [],
         );
@@ -335,7 +335,8 @@ final class D1Pdo extends PDO
         foreach ($objects as $o) {
             $sql = (string)($o['sql'] ?? '');
             $name = (string)($o['name'] ?? '');
-            if ($sql === '' || $name === '') {
+            // Internal objects: D1 refuses any read of its own _cf_ tables.
+            if ($sql === '' || $name === '' || str_starts_with($name, 'sqlite_') || str_starts_with($name, '_cf_')) {
                 continue;
             }
             // CREATE VIRTUAL TABLE materialises shadow tables; skip those already created.
