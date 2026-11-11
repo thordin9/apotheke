@@ -312,6 +312,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install PHP ${{ matrix.php }}
+        # Green runs take about 3 minutes here; the cap stops a stalled Launchpad/PPA fetch holding the whole job.
+        timeout-minutes: 15
         run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
         run: npm ci --ignore-scripts --no-audit --no-fund

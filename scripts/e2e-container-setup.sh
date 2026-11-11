@@ -34,7 +34,10 @@ fi
 retry apt-get "${apt_opts[@]}" update -qq
 if [ "$version" = "8.4" ]; then
   retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends software-properties-common >/dev/null
-  retry add-apt-repository -y -n ppa:ondrej/php
+  # add-apt-repository looks the PPA up on api.launchpad.net through launchpadlib, which has no read timeout: when
+  # Launchpad stalls mid-response the call hangs until the job times out and retry() never gets another go.
+  # timeout(1) caps each attempt so a stalled lookup counts as a failed attempt and is retried.
+  retry timeout --kill-after=10 120 add-apt-repository -y -n ppa:ondrej/php
   retry apt-get "${apt_opts[@]}" update -qq
 fi
 retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends \
