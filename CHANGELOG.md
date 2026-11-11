@@ -8,6 +8,8 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+## [3.34.0] - 2026-11-11
+
 ### Added
 
 - **core:** when `DB_DRIVER=d1`, PHP sessions are stored in an additive `sessions` table on the installation database, each row keyed by the SHA-256 of its session id; PDO keeps the file handler. Session ids and data never appear in logs or error text ([#263](https://github.com/thordin9/apotheke/pull/263))
@@ -1492,7 +1494,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.33.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.34.0...HEAD
+[3.34.0]: https://github.com/thordin9/apotheke/compare/v3.33.0...v3.34.0
 [3.33.0]: https://github.com/thordin9/apotheke/compare/v3.32.0...v3.33.0
 [3.32.0]: https://github.com/thordin9/apotheke/compare/v3.31.0...v3.32.0
 [3.31.0]: https://github.com/thordin9/apotheke/compare/v3.30.0...v3.31.0

@@ -82,13 +82,13 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 | Stocktake & labels | 47.6 % | 95.6 % | 96.0 % |
 | Users, roles & sign-in | 60.8 % | 78.2 % | 83.1 % |
 | CSV import & export | 56.6 % | 84.0 % | 95.4 % |
-| Photos & autofill | 68.2 % | 14.6 % | 69.9 % |
+| Photos & autofill | 68.2 % | 14.3 % | 69.7 % |
 | Notes & layout | 88.3 % | 75.2 % | 94.8 % |
 | Settings & Control Panel | 53.1 % | 48.5 % | 68.8 % |
 | Backup & restore | 64.7 % | 64.3 % | 81.6 % |
-| Database & migrations | 80.5 % | 57.9 % | 82.5 % |
-| Core & dev server | 77.3 % | 61.0 % | 90.5 % |
-| **All PHP** (19288 lines) | **65.8 %** | **68.8 %** | **84.4 %** |
+| Database & migrations | 80.6 % | 58.1 % | 82.6 % |
+| Core & dev server | 78.0 % | 59.0 % | 90.8 % |
+| **All PHP** (19414 lines) | **66.1 %** | **68.3 %** | **84.5 %** |
 
 | Playwright project | Functional tests | Visual tests |
 |---|---:|---:|
