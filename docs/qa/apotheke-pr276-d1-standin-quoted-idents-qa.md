@@ -2,7 +2,7 @@
 
 - PR: https://github.com/thordin9/apotheke/pull/276 (Coder), closes N-1898 from the #273 gate. Was stacked on #273's `b439302e`; #273 has since merged as `e119ce33`.
 - Reviewed head: `a93d348fcf4af38baf7d297f78888cb5296ed462` (plain merge of main `37afbdd7` into `4ba43498`)
-- Merge-only read: `dac600824ab2458828ce612342c5e2926ef009f0` (plain merge of main `f412d9f0` (#265, v3.35.0) into `56b5b694`, after the read at `3a132b42`, where the #273-squash conflicts were resolved to `4ba43498`'s side). 0 behind main; the PR's diff against main is still exactly `4ba43498`'s +/- lines plus this doc. CI, including D1 (local workerd) and Visual E2E, must be green on the final head before merging.
+- Merge-only read: `207347f45af79fefe07143ab093924e2bcd6597e` (plain merge of main `f4667cf2` (#272) into `6afb5658`, after the reads at `3a132b42` and `dac60082`; #272 touches no file in this PR). 0 behind main; the PR's diff against main is still exactly `4ba43498`'s +/- lines plus this doc. CI, including D1 (local workerd) and Visual E2E, must be green on the final head before merging.
 - Gate: light (test-only diff read, CI, regex probe; no suites)
 - Reviewer: Apotheke QA 2
 
@@ -20,4 +20,4 @@ None. 0 High, 0 Medium, 0 Low, 0 Nit. N-1898 is closed.
 
 ## Verdict
 
-**PASS** at `a93d348f`, confirmed by the merge-only read at `dac60082`. Squash-merge with the PR title as the subject.
+**PASS** at `a93d348f`, confirmed by the merge-only read at `207347f4`. Squash-merge with the PR title as the subject.
