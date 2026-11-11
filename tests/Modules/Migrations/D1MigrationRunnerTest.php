@@ -416,4 +416,20 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $this->assertCount(2, $last);
     }
 
+    public function testPreviewSkipsD1InternalTables(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $this->assertSame([['name' => '_cf_METADATA']],
+            $standIn->query("SELECT name FROM sqlite_master WHERE name LIKE '%METADATA'", []), 'the stand-in lists it like D1');
+        // AUTOINCREMENT adds sqlite_sequence, which SQLite will not let the preview create.
+        $standIn->run([['sql' => 'CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT)', 'params' => []]]);
+        $standIn->run([['sql' => 'INSERT INTO t (id) VALUES (1)', 'params' => []]]);
+        $pdo = new D1Pdo($standIn);
+        $pdo->beginTransaction();
+        $pdo->previewReads();
+        $pdo->exec('INSERT INTO t (id) VALUES (2)');
+        $this->assertSame([['id' => 1], ['id' => 2]], $pdo->query('SELECT id FROM t ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC));
+        $pdo->commit();
+    }
+
 }
