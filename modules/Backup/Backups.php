@@ -39,7 +39,7 @@ final class Backups
      * Migrations that only add tables a backup does not carry (CI4 only: 0029 jobs, 0030 import_rows, 0031 uow_guard and uow_refs, 0032 restore_marker, 0033 an index on jobs). They are left out of the
      * backup's "schema", which names what its rows need, so 2.6.x still restores a backup made by 3.2 and later.
      */
-    public const UNCARRIED_MIGRATIONS = ['0029', '0030', '0031', '0032', '0033'];
+    public const UNCARRIED_MIGRATIONS = ['0029', '0030', '0031', '0032', '0033', '0034'];
 
     public const FORMAT = 'apotheke-backup';
 
