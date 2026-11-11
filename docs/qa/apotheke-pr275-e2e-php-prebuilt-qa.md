@@ -1,13 +1,14 @@
-# QA: apotheke #275, install the E2E PHP 8.4 from the setup-php prebuilt, not Launchpad
+# QA: apotheke #275, E2E PHP 8.4 from the setup-php prebuilt, with #274's Launchpad caps
 
-- PR: https://github.com/thordin9/apotheke/pull/275 (DevOps), stacked on #274 (`0a0de6db`)
-- Reviewed head: `154e2cf9ba014c7b69d22d752efda9f8028e4c7c` (new commit only; #274's commits were gated in #274)
+- PR: https://github.com/thordin9/apotheke/pull/275 (DevOps). It carries #274 (closed as superseded, PM decision), so this doc covers the combined diff against main. The #274 doc stays as the record of that part.
+- Reviewed head: `154e2cf9ba014c7b69d22d752efda9f8028e4c7c` (combined with #274's `dad40a25`, first gated at that head)
 - Gate: light (CI-only diff read, CI run and step timings; no suites)
 - Reviewer: Apotheke QA 2
 
 ## Checklist
 
-- [x] One new commit on `0a0de6db`: `scripts/e2e-container-setup.sh` (+50), `.github/workflows/ci.yml` (+2/−1), `docs/ci.md` (+1/−1). No application code. 0 behind main, `mergeable_state` clean.
+- [x] Combined diff against main: `scripts/e2e-container-setup.sh`, `.github/workflows/ci.yml` and `docs/ci.md`, plus the #274 QA doc (`docs/qa/apotheke-pr274-e2e-php-timeout-qa.md`, kept). No application code. 0 behind main, `mergeable_state` clean.
+- [x] #274's part (`dad40a25`), unchanged since its PASS: each `add-apt-repository` attempt is capped with `timeout --kill-after=10 120`, so a stalled Launchpad lookup counts as a failed attempt and `retry()` tries again (worst case about 11 min), and the `Install PHP` step is capped at 15 minutes. That run's shards failed after about 10 min during the outage instead of 30, which showed the caps working. The PPA path is now the fallback.
 - [x] 8.4 only: the prebuilt path extracts just `php8.4`, `cli/php.ini` and the allowlisted extensions, enables exactly those, and refuses the build (falling back to the PPA path) on a missing shared library, a `php -v` warning or an extension that doesn't load. Every function step returns on failure, so `set -e` being off inside the `if` is handled. 8.3 (the snapshot baselines) is unchanged.
 - [x] `ci.yml` installs `php8.4-intl` only when intl isn't loaded (`grep -qix`), which is the PPA fallback.
 - [x] CI run 43028860588 at this head: 21/21 checks green. The `Install PHP 8.4` step took 9–10 s on each Visual E2E shard while Launchpad was unreachable, so the prebuilt path ran, not the fallback.
@@ -25,4 +26,4 @@
 
 ## Verdict
 
-**PASS** at `154e2cf9`. The Lows and the Nit don't block and can be a follow-up. Merge after #274 (or with it, if the PM takes this run's green Visual E2E as standing in for #274's). Squash-merge with the PR title as the subject.
+**PASS** at `154e2cf9` for the combined #274 + #275 change. The Lows and the Nit don't block and can be a follow-up. Squash-merge with the PR title as the subject.
