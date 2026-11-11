@@ -10,8 +10,26 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 - Bulk editing (move, category, tags, delete) now works on the hosted database: the whole selection commits as one batch, so a failed run changes nothing and can simply be retried; the "Not available on hosted yet" notice is gone from the list's bulk sheet. ([#265](https://github.com/thordin9/apotheke/pull/265))
 - On the hosted database, a bulk edit's undo token is stored in the same batch as the change; a selection whose snapshot would exceed the statement size limit is refused with 422 and nothing is written. ([#265](https://github.com/thordin9/apotheke/pull/265))
+
+## [3.34.0] - 2026-11-11
+
+### Added
+
+- **core:** when `DB_DRIVER=d1`, PHP sessions are stored in an additive `sessions` table on the installation database, each row keyed by the SHA-256 of its session id; PDO keeps the file handler. Session ids and data never appear in logs or error text ([#263](https://github.com/thordin9/apotheke/pull/263))
+
+## [3.33.0] - 2026-11-11
+
 - On the hosted database, item create, edit and delete, account creation, undo and the search rebuild each commit as one all-or-nothing batch, and an undo can only be used once even when two requests race. Bulk editing, CSV import and backup restore are not available there yet and say so; the item form asks you to add a new location or category first, and duplicating an item with its photos asks you to duplicate it without them. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
 - On the hosted database, bulk editing, CSV import and backup restore now say plainly that they are not available there yet: the list's bulk sheet (QR labels stay), the import page and the restore section show "Not available on hosted yet." instead of those actions, and the API answers 501 with the problem code `hosted.unavailable` and its message before any upload is accepted. Other server errors stay generic. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
+
+### Added
+
+- **core:** run hosted item, account and undo writes as batches ([#262](https://github.com/thordin9/apotheke/pull/262))
+
+### Maintenance
+
+- **e2e:** ci: install PHP 8.4 from the setup-php prebuilt, not Launchpad ([#275](https://github.com/thordin9/apotheke/pull/275))
+- ci: retry apt through mirror and DNS outages with scripts/ci-apt.sh ([#277](https://github.com/thordin9/apotheke/pull/277))
 
 ## [3.32.0] - 2026-11-11
 
@@ -1479,7 +1497,9 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.32.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.34.0...HEAD
+[3.34.0]: https://github.com/thordin9/apotheke/compare/v3.33.0...v3.34.0
+[3.33.0]: https://github.com/thordin9/apotheke/compare/v3.32.0...v3.33.0
 [3.32.0]: https://github.com/thordin9/apotheke/compare/v3.31.0...v3.32.0
 [3.31.0]: https://github.com/thordin9/apotheke/compare/v3.30.0...v3.31.0
 [3.30.0]: https://github.com/thordin9/apotheke/compare/v3.29.1...v3.30.0

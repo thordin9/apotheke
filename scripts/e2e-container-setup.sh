@@ -7,9 +7,10 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export LC_ALL=C.UTF-8
 version="${1:-8.3}"
-# Mirrors and Launchpad's PPA host return short bursts of errors. apt retries each download with its own backoff,
-# and retry() reruns a whole step a few times with a growing pause before the job fails.
-apt_opts=(-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+# Mirrors and Launchpad's PPA host return short bursts of errors. Every apt install goes through scripts/ci-apt.sh,
+# which refreshes the indexes, fails on any index it can't fetch and retries with a growing pause (and drops the
+# Azure mirror where the runner has one); retry() reruns the Launchpad lookup a few times before the job fails.
+ci_apt="$(dirname "$0")/ci-apt.sh"
 retry() {
   local n=1 max=4
   until "$@"; do
@@ -43,7 +44,6 @@ prebuilt_libs=(libargon2-1 libcurl4t64 libedit2 libffi8 libgd3 libicu74 libonig5
   libsqlite3-0 libssl3t64 libxml2 libxslt1.1 libzip4t64 zlib1g zstd)
 install_prebuilt_84() {
   local tarball=/tmp/php-8.4-prebuilt.tar.zst ext members=() ini name
-  retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends "${prebuilt_libs[@]}" >/dev/null || return 1
   curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 -o "$tarball" "$prebuilt_url" || return 1
   members=(./usr/bin/php8.4 ./etc/php/8.4/cli/php.ini)
   for ext in "${prebuilt_exts[@]}"; do
@@ -74,8 +74,9 @@ install_prebuilt_84() {
     php -m | grep -qixF "$ext" || { echo "e2e-container-setup: prebuilt PHP lacks ${ext}" >&2; return 1; }
   done
 }
-retry apt-get "${apt_opts[@]}" update -qq
 if [ "$version" = "8.4" ]; then
+  # Without apt there is no PHP either way, so a failure here ends the step rather than trying the PPA.
+  "$ci_apt" install --no-install-recommends "${prebuilt_libs[@]}" >/dev/null
   if install_prebuilt_84 && [ "$(php_mm)" = "8.4" ]; then
     echo "e2e-container-setup: PHP 8.4 from the prebuilt setup-php build"
     php -v | head -1
@@ -83,14 +84,13 @@ if [ "$version" = "8.4" ]; then
   fi
   echo "e2e-container-setup: the prebuilt PHP 8.4 did not install, falling back to ppa:ondrej/php" >&2
   rm -f /usr/bin/php
-  retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends software-properties-common >/dev/null
+  "$ci_apt" install --no-install-recommends software-properties-common >/dev/null
   # add-apt-repository looks the PPA up on api.launchpad.net through launchpadlib, which has no read timeout: when
   # Launchpad stalls mid-response the call hangs until the job times out and retry() never gets another go.
   # timeout(1) caps each attempt so a stalled lookup counts as a failed attempt and is retried.
   retry timeout --kill-after=10 120 add-apt-repository -y -n ppa:ondrej/php
-  retry apt-get "${apt_opts[@]}" update -qq
 fi
-retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends \
+"$ci_apt" install --no-install-recommends \
   "php${version}-cli" "php${version}-sqlite3" "php${version}-pgsql" "php${version}-gd" \
   "php${version}-mbstring" "php${version}-xml" "php${version}-zip" "php${version}-curl" >/dev/null
 if [ "$(php_mm)" != "$version" ]; then
