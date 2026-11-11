@@ -1,7 +1,8 @@
 # QA: apotheke #276, mask quoted identifiers in the D1 stand-in
 
-- PR: https://github.com/thordin9/apotheke/pull/276 (Coder), closes N-1898 from the #273 gate. Stacked on #273's `b439302e`; merge after #273.
+- PR: https://github.com/thordin9/apotheke/pull/276 (Coder), closes N-1898 from the #273 gate. Was stacked on #273's `b439302e`; #273 has since merged as `e119ce33`.
 - Reviewed head: `a93d348fcf4af38baf7d297f78888cb5296ed462` (plain merge of main `37afbdd7` into `4ba43498`)
+- Merge-only read: `3a132b42604b4348ec4f130664e225ebd1e51de2` (plain merge of main `e119ce33` into `c46ae47f`). The conflicts in the two stand-in test files came from the #273 squash; main's side equals `b439302e`, and keeping #276's side leaves the PR's diff against main as exactly `4ba43498`'s +/- lines plus this doc (3 files, +52/−1). 0 behind main. CI, including D1 (local workerd) and Visual E2E, must be green on the final head before merging.
 - Gate: light (test-only diff read, CI, regex probe; no suites)
 - Reviewer: Apotheke QA 2
 
@@ -19,4 +20,4 @@ None. 0 High, 0 Medium, 0 Low, 0 Nit. N-1898 is closed.
 
 ## Verdict
 
-**PASS** at `a93d348f`. After #273 squash-merges, #276 needs a plain merge of main and a merge-only read. Squash-merge with the PR title as the subject.
+**PASS** at `a93d348f`, confirmed by the merge-only read at `3a132b42`. Squash-merge with the PR title as the subject.
