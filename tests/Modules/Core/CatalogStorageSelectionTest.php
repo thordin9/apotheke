@@ -66,7 +66,7 @@ final class CatalogStorageSelectionTest extends CIUnitTestCase
 
     public function testStorageModeSelectsR2ForEveryCatalogFactory(): void
     {
-        $this->withConfig(['STORAGE_BACKEND' => 'r2']);
+        $this->withConfig(['STORAGE_BACKEND' => 'r2', 'DB_DRIVER' => 'd1']);
         $this->assertInstanceOf(R2Storage::class, $this->filesOf(Services::servedImages(false)));
         $images = Services::imageStore(false);
         $this->assertInstanceOf(R2Storage::class, $this->filesOf($this->prop($images, 'served')));
@@ -86,6 +86,7 @@ final class CatalogStorageSelectionTest extends CIUnitTestCase
         Services::injectMock('apothekeConfig', ApothekeConfig::load('/app', $file, [
             'DATA_DIR' => $this->dir,
             'SQLITE_PATH' => $this->dir . '/catalog.sqlite',
+            'DB_DRIVER' => 'd1',
         ]));
         try {
             Services::servedImages(false);
