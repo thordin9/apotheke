@@ -10,7 +10,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ### Fixed
 
-- **core:** on the hosted database, a session write from a request whose claim another request has since taken stores nothing and returns normally, so that request finishes and the next request on the same worker starts as usual; the other request's session data is kept (L-1894)
+- **core:** on the hosted database, a session write from a request whose claim another request has since taken stores nothing and returns normally, so that request finishes and the next request on the same worker starts as usual; the other request's session data is kept (L-1894) ([#279](https://github.com/thordin9/apotheke/pull/279))
 
 ## [3.34.0] - 2026-11-11
 
