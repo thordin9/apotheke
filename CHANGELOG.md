@@ -13,7 +13,18 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 - On the hosted database, a bulk edit's undo token is stored in the same batch as the change; a selection whose snapshot would exceed the statement size limit is refused with 422 and nothing is written. ([#265](https://github.com/thordin9/apotheke/pull/265))
 - On the hosted database, item create, edit and delete, account creation, undo and the search rebuild each commit as one all-or-nothing batch, and an undo can only be used once even when two requests race. Bulk editing, CSV import and backup restore are not available there yet and say so; the item form asks you to add a new location or category first, and duplicating an item with its photos asks you to duplicate it without them. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
 - On the hosted database, bulk editing, CSV import and backup restore now say plainly that they are not available there yet: the list's bulk sheet (QR labels stay), the import page and the restore section show "Not available on hosted yet." instead of those actions, and the API answers 501 with the problem code `hosted.unavailable` and its message before any upload is accepted. Other server errors stay generic. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
+
+## [3.31.0] - 2026-11-11
+
 - Hosted storage mode now selects the Installation database: the Worker starts the container with `DB_DRIVER=d1` (set in code, never from a Worker var), PHP accepts `d1` only with `STORAGE_BACKEND=r2` and refuses to start or serve when storage mode is set without `d1` (so it cannot fall back to SQLite on the container disk), the CI4 config reads `STORAGE_BACKEND`, the SQL executor is the batch-only bridge, and the schema is migrated on the Installation object at the first request under a lease. Self-hosting is unchanged (P4-5). ([#258](https://github.com/thordin9/apotheke/pull/258))
+
+### Added
+
+- **edge:** select the D1 driver in storage mode and run migrations on the DO ([#258](https://github.com/thordin9/apotheke/pull/258))
+
+### Maintenance
+
+- **deploy:** docs: note previews_enabled and ssh --stdio in preview plan ([#267](https://github.com/thordin9/apotheke/pull/267))
 
 ## [3.30.0] - 2026-11-10
 
@@ -1460,7 +1471,8 @@ Releases 1.1.0 and 1.1.1.
 
 - First versioned release, everything merged before automatic releases started: the mobile-first UI with dark mode, SQLite and PostgreSQL with versioned migrations, photos, tags and custom fields, QR labels, backup and restore, history, low-stock alerts, bulk actions, lending, nested locations, expiry dates, value totals, saved filters, barcodes, the Control Panel and the nginx + php-fpm Docker image.
 
-[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.30.0...HEAD
+[Unreleased]: https://github.com/thordin9/apotheke/compare/v3.31.0...HEAD
+[3.31.0]: https://github.com/thordin9/apotheke/compare/v3.30.0...v3.31.0
 [3.30.0]: https://github.com/thordin9/apotheke/compare/v3.29.1...v3.30.0
 [3.29.1]: https://github.com/thordin9/apotheke/compare/v3.29.0...v3.29.1
 [3.29.0]: https://github.com/thordin9/apotheke/compare/v3.28.0...v3.29.0
