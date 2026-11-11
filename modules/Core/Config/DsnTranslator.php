@@ -9,6 +9,9 @@ use RuntimeException;
 /** Turns a PDO DSN into the CodeIgniter driver settings. A bad DSN fails at boot. */
 final class DsnTranslator
 {
+    /** db.driver d1: the container's bridge to the Installation object (config_dsn() agrees). */
+    public const D1_DSN = 'd1:http://d1.internal';
+
     /**
      * @param array<string,mixed> $db
      * @return array<string,mixed>
@@ -30,6 +33,16 @@ final class DsnTranslator
         if (str_starts_with($dsn, 'pgsql:')) {
             return $this->pgsql($dsn, $db);
         }
+        if ($dsn === self::D1_DSN && ($db['driver'] ?? '') === 'd1') {
+            // The hosted Installation object over the container's own bridge; the host is fixed, never configured.
+            return [
+                'DSN' => '',
+                'DBDriver' => 'Apotheke\\Core\\Database\\D1',
+                'hostname' => \Apotheke\Core\Database\D1HttpExecutor::DEFAULT_BASE,
+                'database' => '',
+                'DBDebug' => false,
+            ];
+        }
 
         $this->bad($dsn);
     }
@@ -39,6 +52,9 @@ final class DsnTranslator
     {
         if (($db['driver'] ?? '') === 'sqlite') {
             return 'sqlite:' . (string)($db['sqlite_path'] ?? '');
+        }
+        if (($db['driver'] ?? '') === 'd1') {
+            return self::D1_DSN;
         }
         if ((string)($db['dsn'] ?? '') !== '') {
             return (string)$db['dsn'];
@@ -273,7 +289,7 @@ final class DsnTranslator
     {
         require_once __DIR__ . '/config-functions.php';
         $parts = ['Database ' . $driver];
-        if (str_starts_with($dsn, 'sqlite:')) {
+        if (str_starts_with($dsn, 'sqlite:') || str_starts_with($dsn, 'd1:')) {
             return implode(' ', $parts);
         }
         $fields = config_dsn_public_fields($dsn);

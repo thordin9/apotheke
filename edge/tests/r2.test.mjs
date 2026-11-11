@@ -872,10 +872,11 @@ function startedContainer(env) {
 const untouchable = new Proxy({}, { get() { throw new Error('STORAGE must not be used'); } });
 
 test('P4-5: without the storage fragment the container gets no storage selection (LocalStorage default)', async () => {
-  for (const env of [{}, { STORAGE_BACKEND: 'r2' }, { STORAGE_BACKEND: 'r2', R2_BASE_URL: 'http://r2.internal' }]) {
+  for (const env of [{}, { STORAGE_BACKEND: 'r2' }, { STORAGE_BACKEND: 'r2', R2_BASE_URL: 'http://r2.internal' }, { DB_DRIVER: 'd1' }, { STORAGE_BACKEND: 'r2', DB_DRIVER: 'd1' }]) {
     const { obj, started } = startedContainer(env);
     assert.equal((await obj.fetch(new Request('https://api.example.test/healthz'))).status, 200);
     assert.equal(started().env.STORAGE_BACKEND, undefined, 'a Worker var never selects r2');
+    assert.equal(started().env.DB_DRIVER, undefined, 'a Worker var never selects d1');
     assert.equal(started().env.R2_BASE_URL, undefined);
   }
 });
@@ -884,6 +885,7 @@ test('P4-5: the merged fragment (STORAGE and DB) selects r2 in the container, in
   const { obj, started } = startedContainer({ STORAGE: new Bucket(), DB: {}, INSTALLATION: {} });
   assert.equal((await obj.fetch(new Request('https://api.example.test/healthz'))).status, 200);
   assert.equal(started().env.STORAGE_BACKEND, 'r2');
+  assert.equal(started().env.DB_DRIVER, 'd1');
   assert.equal(started().enableInternet, false);
 });
 

@@ -30,7 +30,14 @@ if (defined('SYSTEMPATH')) {
     \CodeIgniter\Config\BaseConfig::$override = false;
 }
 
-$config = ApothekeConfig::fromEnvironment();
+try {
+    $config = ApothekeConfig::fromEnvironment();
+} catch (RuntimeException $e) {
+    if ($e->getMessage() === 'STORAGE_BACKEND=r2 needs DB_DRIVER=d1.') {
+        BootError::send('Apotheke is not available right now.', $e->getMessage(), 503);
+    }
+    throw $e;
+}
 try {
     (new DsnTranslator())->translate($config->database());
 } catch (DsnException $e) {

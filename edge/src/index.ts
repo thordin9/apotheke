@@ -81,8 +81,9 @@ export class ApothekeContainer extends DurableObject<Env & D1Env & R2Env> {
 				TZ: "Europe/Athens",
 				// The Worker terminates TLS. The app then honours X-Forwarded-Proto/Host (overwritten below).
 				TRUST_PROXY: "1",
-				// Only with the merged fragment; otherwise unset, so PHP keeps its LocalStorage default.
-				...(backend === "r2" ? { STORAGE_BACKEND: "r2" } : {}),
+				// Only with the merged fragment, and never from Worker vars; otherwise unset, so PHP keeps
+				// LocalStorage and its local database. Storage mode is R2 files plus the Installation object.
+				...(backend === "r2" ? { STORAGE_BACKEND: "r2", DB_DRIVER: "d1" } : {}),
 			},
 		});
 		await c.setInactivityTimeout(this.sleepAfter());
