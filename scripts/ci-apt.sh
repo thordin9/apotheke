@@ -33,38 +33,45 @@ drop_azure_mirror() {
 # fetches over http and checks every Release signature, so a wrong address can fail a fetch but can't change a package.
 ubuntu_hosts=(azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com)
 doh_a() {
-  # doh_a URL RESOLVE ACCEPT: print the A records of a DoH JSON answer with Status 0, one per line. A resolver whose
-  # upstream is flaky answers SERVFAIL (Status 2) now and then, so a non-zero Status or no A record is asked again.
-  local body ips try
-  for try in 1 2 3 4 5; do
-    if body="$(curl -fsS --connect-timeout 10 --max-time 20 --retry 3 --retry-all-errors --resolve "$2" \
-      -H "accept: $3" "$1")" && printf '%s' "$body" | grep -qE '"Status": *0[,}]' &&
+  # doh_a URL HOST IP1 IP2: print the A records of a DoH JSON answer with Status 0, one per line. A resolver whose
+  # upstream is flaky answers SERVFAIL (Status 2) now and then, so a non-zero Status or no A record is asked again,
+  # alternating between the provider's two anycast addresses.
+  local body ips try ip
+  for try in 1 2 3 4 5 6 7 8; do
+    ip="$3"
+    [ $((try % 2)) -eq 0 ] && ip="$4"
+    if body="$(curl -fsS --connect-timeout 10 --max-time 20 --retry 2 --retry-all-errors --resolve "$2:443:${ip}" \
+      -H "accept: application/dns-json" "$1")" && printf '%s' "$body" | grep -qE '"Status": *0[,}]' &&
       ips="$(printf '%s' "$body" | grep -oE '"type": *1, *"TTL": *[0-9]+, *"data": *"[0-9]{1,3}(\.[0-9]{1,3}){3}"' |
         grep -oE '[0-9]{1,3}(\.[0-9]{1,3}){3}' | sort -u)" && [ -n "$ips" ]; then
       printf '%s\n' "$ips"
       return 0
     fi
-    [ "$try" -lt 5 ] && sleep 3
+    [ "$try" -lt 8 ] && sleep 5
   done
   return 1
 }
 pin_ubuntu_hosts() {
   local host google cloudflare ips rule
   for host in "${ubuntu_hosts[@]}"; do
+    # Only hosts apt is configured to use (sources, or the runner's mirror list) need to resolve.
+    if ! grep -rqsE "//${host//./\\.}(/|:|[[:space:]]|\$)" /etc/apt/sources.list /etc/apt/sources.list.d "$mirrors"; then
+      continue
+    fi
     if grep -qE "[[:space:]]${host//./\\.} # ci-apt DoH pin\$" /etc/hosts; then
-      echo "ci-apt: dns ${host}: DoH pin from an earlier attempt"
+      echo "ci-apt: dns ${host}: DoH pin from an earlier attempt" >&2
       continue
     fi
     if ips="$(timeout 30 getent ahostsv4 "$host" | awk '{print $1}' | sort -u | tr '\n' ' ')" && [ -n "$ips" ]; then
-      echo "ci-apt: dns ${host}: native (${ips% })"
+      echo "ci-apt: dns ${host}: native (${ips% })" >&2
       continue
     fi
-    google="$(doh_a "https://dns.google/resolve?name=${host}&type=A" dns.google:443:8.8.8.8 application/dns-json)" || google=""
-    cloudflare="$(doh_a "https://cloudflare-dns.com/dns-query?name=${host}&type=A" cloudflare-dns.com:443:1.1.1.1 \
-      application/dns-json)" || cloudflare=""
+    google="$(doh_a "https://dns.google/resolve?name=${host}&type=A" dns.google 8.8.8.8 8.8.4.4)" || google=""
+    cloudflare="$(doh_a "https://cloudflare-dns.com/dns-query?name=${host}&type=A" cloudflare-dns.com 1.1.1.1 \
+      1.0.0.1)" || cloudflare=""
     if [ -z "$google" ] || [ -z "$cloudflare" ]; then
       echo "::error::ci-apt: ${host} doesn't resolve natively and DNS-over-HTTPS failed" \
-        "(google: $(printf '%s' "${google:-none}" | tr '\n' ' '), cloudflare: $(printf '%s' "${cloudflare:-none}" | tr '\n' ' '))"
+        "(google: $(printf '%s' "${google:-none}" | tr '\n' ' '), cloudflare: $(printf '%s' "${cloudflare:-none}" | tr '\n' ' '))" >&2
       return 1
     fi
     ips="$(comm -12 <(printf '%s\n' "$google") <(printf '%s\n' "$cloudflare"))"
@@ -74,7 +81,7 @@ pin_ubuntu_hosts() {
       rule=union
     fi
     printf '%s\n' "$ips" | sed "s/\$/ ${host} # ci-apt DoH pin/" | "${sudo[@]}" tee -a /etc/hosts >/dev/null
-    echo "ci-apt: dns ${host}: DoH ${rule} pinned in /etc/hosts ($(printf '%s' "$ips" | tr '\n' ' '))"
+    echo "ci-apt: dns ${host}: DoH ${rule} pinned in /etc/hosts ($(printf '%s' "$ips" | tr '\n' ' '))" >&2
   done
 }
 
