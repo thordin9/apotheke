@@ -111,6 +111,12 @@ final class CatalogStorageSelectionTest extends CIUnitTestCase
             'SQLITE_PATH' => $this->dir . '/catalog.sqlite',
         ]);
         Services::injectMock('apothekeConfig', $config);
+        if (($config->database()['driver'] ?? '') === 'd1') {
+            // Mark the object migrated for this process, so the test needs no bridge.
+            $key = (new \ReflectionMethod(BootMigration::class, 'key'))->invoke(null, $config->database());
+            $done = new \ReflectionProperty(BootMigration::class, 'done');
+            $done->setValue(null, [$key => true]);
+        }
     }
 
     private function filesOf(object $holder): Storage
