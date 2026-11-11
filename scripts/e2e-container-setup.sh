@@ -31,10 +31,63 @@ if command -v php >/dev/null 2>&1 && [ "$(php_mm)" = "$version" ]; then
   php -v | head -1
   exit 0
 fi
+# PHP 8.4 comes first from the prebuilt Ubuntu 24.04 build that shivammathur/setup-php installs on the hosted runners
+# (the Tests jobs), downloaded from GitHub, so Launchpad is not needed. Only the PHP binary, its config and the
+# extensions below are unpacked; the shared libraries they link come from the Ubuntu archive. Xdebug, pcov and the
+# other extras in that build stay off, as in the PPA install. If any of it fails, the PPA install below runs instead.
+prebuilt_url="https://github.com/shivammathur/php-ubuntu/releases/download/builds/php_8.4-nts+ubuntu24.04.tar.zst"
+prebuilt_exts=(calendar ctype curl dom exif ffi fileinfo ftp gd gettext iconv intl mbstring opcache pdo pdo_pgsql
+  pdo_sqlite pgsql phar posix readline shmop simplexml sockets sqlite3 sysvmsg sysvsem sysvshm tokenizer xml xmlreader
+  xmlwriter xsl zip)
+prebuilt_libs=(libargon2-1 libcurl4t64 libedit2 libffi8 libgd3 libicu74 libonig5 libpcre2-8-0 libpq5 libsodium23
+  libsqlite3-0 libssl3t64 libxml2 libxslt1.1 libzip4t64 zlib1g zstd)
+install_prebuilt_84() {
+  local tarball=/tmp/php-8.4-prebuilt.tar.zst ext members=() ini name
+  retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends "${prebuilt_libs[@]}" >/dev/null || return 1
+  curl -fsSL --retry 5 --retry-all-errors --connect-timeout 20 --max-time 300 -o "$tarball" "$prebuilt_url" || return 1
+  members=(./usr/bin/php8.4 ./etc/php/8.4/cli/php.ini)
+  for ext in "${prebuilt_exts[@]}"; do
+    members+=("./usr/lib/php/20240924/${ext}.so" "./etc/php/8.4/mods-available/${ext}.ini")
+  done
+  tar -I zstd -xf "$tarball" -C / "${members[@]}" || return 1
+  rm -f "$tarball"
+  # Enable exactly the listed extensions, with the priority each one's ini file asks for.
+  mkdir -p /etc/php/8.4/cli/conf.d
+  for ext in "${prebuilt_exts[@]}"; do
+    ini="/etc/php/8.4/mods-available/${ext}.ini"
+    name="$(sed -n 's/^; priority=\([0-9]*\)$/\1/p' "$ini")-${ext}.ini"
+    ln -sf "$ini" "/etc/php/8.4/cli/conf.d/${name}"
+  done
+  ln -sf /usr/bin/php8.4 /usr/bin/php
+  # A missing shared library or extension means this build doesn't fit the image: fall back to the PPA.
+  if ldd /usr/bin/php8.4 /usr/lib/php/20240924/*.so | grep -q 'not found'; then
+    ldd /usr/bin/php8.4 /usr/lib/php/20240924/*.so | grep 'not found' >&2
+    return 1
+  fi
+  php -n -v >/dev/null || return 1
+  if php -v 2>&1 | grep -qiE 'warning|unable to load'; then
+    php -v >&2
+    return 1
+  fi
+  for ext in "${prebuilt_exts[@]}"; do
+    case "$ext" in opcache) ext="Zend OpCache" ;; esac
+    php -m | grep -qixF "$ext" || { echo "e2e-container-setup: prebuilt PHP lacks ${ext}" >&2; return 1; }
+  done
+}
 retry apt-get "${apt_opts[@]}" update -qq
 if [ "$version" = "8.4" ]; then
+  if install_prebuilt_84 && [ "$(php_mm)" = "8.4" ]; then
+    echo "e2e-container-setup: PHP 8.4 from the prebuilt setup-php build"
+    php -v | head -1
+    exit 0
+  fi
+  echo "e2e-container-setup: the prebuilt PHP 8.4 did not install, falling back to ppa:ondrej/php" >&2
+  rm -f /usr/bin/php
   retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends software-properties-common >/dev/null
-  retry add-apt-repository -y -n ppa:ondrej/php
+  # add-apt-repository looks the PPA up on api.launchpad.net through launchpadlib, which has no read timeout: when
+  # Launchpad stalls mid-response the call hangs until the job times out and retry() never gets another go.
+  # timeout(1) caps each attempt so a stalled lookup counts as a failed attempt and is retried.
+  retry timeout --kill-after=10 120 add-apt-repository -y -n ppa:ondrej/php
   retry apt-get "${apt_opts[@]}" update -qq
 fi
 retry apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends \
