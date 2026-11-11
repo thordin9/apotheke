@@ -440,7 +440,7 @@ final class ListView
      * @param list<array<string,mixed>> $cats
      * @param list<array{id:int,name:string,n:int}> $tags
      */
-    private function bulkBar(array $locs, array $cats, array $tags, string $back, string $allHref, bool $hosted = false): string
+    private function bulkBar(array $locs, array $cats, array $tags, string $back, string $allHref): string
     {
         $opts = static fn (array $rows, string $none): string => '<option value="">' . self::e($none) . '</option>'
             . implode('', array_map(static fn (array $r): string => '<option value="' . (int)$r['id'] . '">' . self::e(LocationTree::optionLabel($r)) . '</option>', $rows));
@@ -455,9 +455,6 @@ final class ListView
       <summary class="btn btn-primary" id="bulk-open">Actions</summary>
       <div class="fpanel" role="dialog" aria-labelledby="bulk-title">
         <div class="fpanel-head"><h2 id="bulk-title">Selected items</h2><button type="button" class="btn btn-ghost" id="bulk-close">Done</button></div>
-        <?php if ($hosted): ?>
-        <p class="hint" id="bulk-hosted" role="status">Not available on hosted yet.</p>
-        <?php else: ?>
         <div class="bulkrow"><label class="field"><span>Move to location</span><select name="location_id" id="bulk-loc"><?= $opts($locs, 'No location') ?></select></label>
           <button class="btn btn-primary" name="action" value="move" id="bulk-move">Move</button></div>
         <div class="bulkrow"><label class="field"><span>Set category</span><select name="category_id" id="bulk-cat"><?= $opts($cats, 'No category') ?></select></label>
@@ -468,9 +465,8 @@ final class ListView
         <div class="bulkrow"><label class="field"><span>Remove tag</span><select name="tag_id" id="bulk-tag"><?php foreach ($tags as $t): ?><option value="<?= (int)$t['id'] ?>"><?= self::e($t['name']) ?></option><?php endforeach; ?></select></label>
           <button class="btn" name="action" value="tag_remove" id="bulk-tag-remove">Remove</button></div>
         <?php endif; ?>
-        <?php endif; ?>
         <button class="btn btn-wide" name="action" value="labels" id="bulk-labels"><?= self::icon('qr') ?> Print QR labels</button>
-        <?php if (!$hosted): ?><button class="btn btn-danger btn-wide" name="action" value="delete" id="bulk-delete"><?= self::icon('trash') ?> Delete selected…</button><?php endif; ?>
+        <button class="btn btn-danger btn-wide" name="action" value="delete" id="bulk-delete"><?= self::icon('trash') ?> Delete selected…</button>
       </div>
     </details>
   </div>
@@ -490,9 +486,8 @@ final class ListView
      * @param list<array{id:int,name:string,n:int}> $tags
      * @param list<array{id:int,name:string,query:string}> $saved
      * @param list<array<string,mixed>> $recent
-     * @param bool $hosted the hosted database: the bulk sheet keeps only QR labels, with a notice
      */
-    public function page(string $q, string $rawQ, array $f, string $sort, array $res, array $locs, array $cats, array $brief, Stats $stats, array $tags, int $nFav, array $saved, array $recent, ?string $toast, bool $statsOpen, bool $select, bool $all, bool $hosted = false): string
+    public function page(string $q, string $rawQ, array $f, string $sort, array $res, array $locs, array $cats, array $brief, Stats $stats, array $tags, int $nFav, array $saved, array $recent, ?string $toast, bool $statsOpen, bool $select, bool $all): string
     {
         $default = $this->settings['default_sort'];
         $head = $this->page->start('', $select ? 'page-select' : 'page-list');
@@ -599,7 +594,7 @@ final class ListView
   </footer>
 </main>
 <?php if ($select): ?>
-<?= $this->bulkBar($locs, $cats, $tags, $selHref, $selHref . '&all=1', $hosted) ?>
+<?= $this->bulkBar($locs, $cats, $tags, $selHref, $selHref . '&all=1') ?>
 <?php else: ?>
 <a class="fab" href="<?= self::e(self::newItemHref($f)) ?>" id="fab" aria-label="Add item"><?= self::icon('camera') ?></a>
 <?php endif; ?>

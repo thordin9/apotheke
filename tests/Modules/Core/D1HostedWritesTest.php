@@ -420,7 +420,6 @@ final class D1HostedWritesTest extends CIUnitTestCase
     public function testFeaturesNotConvertedYetAreRefusedBeforeAnyWrite(): void
     {
         $cases = [
-            'Bulk editing' => fn () => $this->bare(\Apotheke\BulkMerge\BulkService::class)->run([1], 'move'),
             'CSV import' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->upload(null),
             'CSV import ' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->run([], true),
             'CSV import  ' => fn () => $this->bare(\Apotheke\ImportExport\Imports::class)->commitRows([], (new \ReflectionClass(\Apotheke\Core\Jobs\JobContext::class))->newInstanceWithoutConstructor()),

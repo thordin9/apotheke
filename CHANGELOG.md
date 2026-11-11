@@ -8,6 +8,9 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- Bulk editing (move, category, tags, delete) now works on the hosted database: the whole selection commits as one batch, so a failed run changes nothing and can simply be retried; the "Not available on hosted yet" notice is gone from the list's bulk sheet. ([#265](https://github.com/thordin9/apotheke/pull/265))
+- On the hosted database, a bulk edit's undo token is stored in the same batch as the change; a selection whose snapshot would exceed the statement size limit is refused with 422 and nothing is written. ([#265](https://github.com/thordin9/apotheke/pull/265))
+
 ## [3.34.0] - 2026-11-11
 
 ### Added
