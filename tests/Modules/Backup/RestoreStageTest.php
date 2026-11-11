@@ -19,6 +19,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Database\BaseConnection;
 use CodeIgniter\Test\CIUnitTestCase;
 use LogicException;
@@ -435,7 +436,7 @@ final class RestoreStageTest extends CIUnitTestCase
         (new RestoreStage(new LocalBatchExecutor($d->db)))->begin(Backups::tables());
         $d->db->query('INSERT INTO ' . RestoreStage::copy('items') . " (id, name, quantity, notes, search, created_at, updated_at) VALUES (7, 'Staged', 1, '', 'staged', '2026-01-02 08:00:00', '2026-01-02 08:00:00')");
         $clock = new Clock();
-        $settings = new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore($d->dataDir() . '/brand'), $clock, $d->config->values(), static fn (string $m): null => null, new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($d->dataDir())), $clock, $d->config->values(), static fn (string $m): null => null, new CommandLine());
         $zipPath = $d->dataDir() . '/backup.zip';
         (new Backups($d->db, $clock, $settings, $d->dataDir(), $d->config->originalsDir()))->create($zipPath);
         $zip = new ZipArchive();

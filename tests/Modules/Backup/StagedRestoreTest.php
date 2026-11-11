@@ -288,7 +288,7 @@ final class StagedRestoreTest extends CIUnitTestCase
 
     private function settings(TestDatabase $d): SettingsService
     {
-        return new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore($d->dataDir() . '/brand'), new Clock(), $d->config->values(), static fn (string $m): null => null, new CommandLine());
+        return new SettingsService(new SettingsRepository($d->db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($d->dataDir())), new Clock(), $d->config->values(), static fn (string $m): null => null, new CommandLine());
     }
 
     /** @param BaseConnection<object|resource, object|resource> $db */

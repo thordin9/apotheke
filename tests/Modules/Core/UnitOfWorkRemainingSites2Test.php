@@ -224,7 +224,7 @@ final class UnitOfWorkRemainingSites2Test extends CIUnitTestCase
     {
         [$db, $units] = $this->wire($driver, $batch);
         $this->assertNotNull($this->database);
-        $settings = new SettingsService(new SettingsRepository($db, $units), new SettingsSchema(), new LocalBrandStore($this->database->dataDir() . '/brand'), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($db, $units), new SettingsSchema(), new LocalBrandStore(new LocalStorage($this->database->dataDir())), new Clock(), $this->database->config->values(), static fn (string $m): null => null, new CommandLine());
         $images = new ImageStore($settings, new OriginalStore(new LocalStorage($this->database->config->originalsDir(), 0640)), new ServedImageWriter(new LocalStorage($this->database->dataDir())), new ImagickDecoder(), new RequestCleanup(static function (): void {
         }));
 

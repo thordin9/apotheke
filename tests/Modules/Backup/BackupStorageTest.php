@@ -10,6 +10,7 @@ use Apotheke\Settings\LocalBrandStore;
 use Apotheke\Settings\SettingsRepository;
 use Apotheke\Settings\SettingsSchema;
 use Apotheke\Settings\SettingsService;
+use Apotheke\Core\Storage\LocalStorage;
 use CodeIgniter\Test\CIUnitTestCase;
 use Tests\Support\TestDatabase;
 final class BackupStorageTest extends CIUnitTestCase
@@ -47,7 +48,7 @@ final class BackupStorageTest extends CIUnitTestCase
             return $bridge;
         };
         $bridge = $make();
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($d->dataDir() . '/brand'), new Clock(), $d->config->values(), actor: new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($d->dataDir())), new Clock(), $d->config->values(), actor: new CommandLine());
         $this->zip = $d->dataDir() . '/backup.zip';
         $result = (new Backups($db, new Clock(), $settings, $d->dataDir() . '/no-local-data', '/no-local-originals', new R2Storage($bridge), new R2Storage($bridge->forOriginals())))->create($this->zip);
         sort($result['missing']);
@@ -97,7 +98,7 @@ final class BackupStorageTest extends CIUnitTestCase
             $reads[] = $path;
             return ['status' => 200, 'body' => json_encode(['ok' => true, 'found' => true, 'bytes' => base64_encode($objects[$path]), 'etag' => 'one', 'modified' => 0])];
         });
-        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore($d->dataDir() . '/brand'), new Clock(), $d->config->values(), actor: new CommandLine());
+        $settings = new SettingsService(new SettingsRepository($db), new SettingsSchema(), new LocalBrandStore(new LocalStorage($d->dataDir())), new Clock(), $d->config->values(), actor: new CommandLine());
         $this->zip = $d->dataDir() . '/backup.zip';
         $backup = new Backups($db, new Clock(), $settings, $d->dataDir().'/no-local-data', '/no-local-originals', new R2Storage($bridge), new R2Storage($bridge->forOriginals()));
         $this->assertSame([], $backup->create($this->zip)['missing']);
