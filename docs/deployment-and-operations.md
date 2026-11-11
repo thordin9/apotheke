@@ -811,6 +811,11 @@ answer, a `503 unbound` (the storage bindings are not all on the Preview), or `w
 means the flip waits. Also confirm, before any real installation exists, that the Preview's `Installation` object is
 in the EU jurisdiction (ADR-002, criterion 4).
 
+Then run the [storage-mode preview persistence check](storage-preview-check.md): `scripts/storage-preview-check.sh`
+signs in through `/api/v1/session`, saves an item with a photo, waits past `SLEEP_AFTER_MS` (or the wait you set),
+cold-starts the container with `/healthz`, and checks that the item and the photo bytes are still there. It does
+not deploy or call the Cloudflare API. Point `BASE_URL` at the Preview URL. A failure here means the flip waits.
+
 **Clean up** (PM go; it deletes only Preview resources, never `apotheke-api`, `apotheke-api-storage` or the
 production D1). Revert `previews_enabled` and read back `{enabled:false, previews_enabled:false}`:
 
