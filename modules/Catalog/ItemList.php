@@ -28,12 +28,6 @@ final class ItemList
     ) {
     }
 
-    /** On the hosted database (the D1 driver) bulk editing is refused for now (Writes::unavailable()). */
-    public function hosted(): bool
-    {
-        return Writes::onD1($this->db);
-    }
-
     public static function clampPage(int $page): int
     {
         return max(1, min(self::PAGE_MAX, $page));
