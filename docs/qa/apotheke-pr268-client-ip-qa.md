@@ -1,23 +1,33 @@
 # PR 268 client IP rate-limit keys — QA
 
-**Verdict: PASS** at `ec0a367236f1dee71c77e33284a35c1ded9039fd`. Plain merge of `af96601f` and main `e1024952`. Behind main: 0. No new finding.
+**Verdict: PASS** at `47595b865f408953cb562174c44756a0e2f541f7`. Behind main `67b9471b`: 0. H-1849 stays closed. N-1850 stays open. One new non-blocking note, N-1851.
 
-Branch `fix/edge-client-ip-rate-limit`. No suites were re-run.
+Branch `fix/edge-client-ip-rate-limit`, based on `main`. The previous pass head `de59ba46` is an ancestor. Since then: the no-ff merge of main `67b9471b` (#279).
 
 ## Checklist
 
 | Check | Result |
 |---|---|
-| Parents | `af96601f108e8f7c8b7e6b41f20b88995f2d9080` and `e10249527bc302d06b235a98730187a8a1582d90`. `git merge-tree` exits 0. The tip tree matches that automatic merge. |
-| Main range | `9bccc634..e1024952` is one commit, #267. It changes `docs/deployment-and-operations.md` and adds a QA note. |
-| Own diff | 14 files against main. All 14 stable patch-ids match the previous head's diff against `9bccc634`. |
-| Kept | `APOTHEKE_EDGE_CLIENT_IP` is still `1` in the container env. The #268 bullet appears once under Unreleased. `## [3.30.0]` matches main. |
-| Earlier red | On `af96601f`, CI run `42935714693` failed only `Tests (PHP 8.4, pgsql)`. The module suite's only failure was `UnitOfWorkLockTest::testAMultiKeyUnitTakesEachKeyLock`: 169.79139 ms against a bound of 100. The outer `Ci4ModuleSuiteTest` failure is that suite's exit code. |
-| CI | Run `42944441722` on this head completed success. Every job succeeded, including `D1 (local workerd)` and `Tests (PHP 8.4, pgsql)`. |
+| Merge | Parents `de59ba46` and `67b9471b`. Only the changelog conflicted; both Unreleased entries are kept. The handoff merged automatically. |
+| Own diff | Outside the changelog, the diff against main is identical to the previous pass's diff against `fc7e3aa2`. Main's #276 and #279 changes are intact. |
+| Index and test | Unchanged from the previous pass: the container env keeps `APOTHEKE_EDGE_CLIENT_IP: "1"` with main's `STORAGE_BACKEND: "r2", DB_DRIVER: "d1"`, the Worker resets `X-Apotheke-Client-IP` from `cf-connecting-ip`, and the installation test asserts `d1` and the flag. |
+| Coverage | The address tests are unchanged and still cover the flag on, the flag off, `TRUST_PROXY` alone, and a value that is not an address. |
+| Changelog | The #268 bullet appears once under Unreleased, next to #279's. `## [3.36.0]` and `## [3.35.0]` match main. See N-1851. |
+| CI | Run `43119966090`: `D1 (local workerd)` job `130857636135` succeeded. SQLite job `130857636255` and PostgreSQL job `130857636100` were still running. No failure. |
 
 ## Findings
 
-No new finding. N-1786 stays deferred. N-1794, N-1795, L-1811, and N-1812 stay tracked. N-1850 stays on #258. Next free id is 1851.
+- **N-1851** (non-blocking): the changelog adds one extra blank line before `## [3.30.0]`. It renders the same and was already present at the previous pass head. It can be dropped in a later changelog edit.
+
+H-1849 stays closed. N-1850 stays open. N-1786 stays deferred. N-1794, N-1795, L-1811, and N-1812 stay tracked. Next free id is 1852.
+
+## Security
+
+Hosted rate-limit keys still come from `cf-connecting-ip` only when `APOTHEKE_EDGE_CLIENT_IP` is `1`. `TRUST_PROXY` alone still does not turn that on. Caddy still drops a client-supplied copy when the flag is not `1`.
+
+## Tests
+
+None run here. Merge-only read; the client-IP tests are unchanged from the previous pass.
 
 ## Verdict
 
