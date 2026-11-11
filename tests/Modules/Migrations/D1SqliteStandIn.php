@@ -54,10 +54,14 @@ final class D1SqliteStandIn implements D1Executor
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    /** D1 answers SQLITE_AUTH for any statement naming one of its _cf_ tables. */
+    /**
+     * D1 answers SQLITE_AUTH for any statement naming one of its _cf_ tables, in any case or
+     * quoting. The same text inside a string literal or a comment is not a name and is accepted.
+     */
     private function refuseInternal(string $sql): void
     {
-        if (preg_match('/(?<![\w$])_cf_/i', $sql) === 1) {
+        $names = preg_replace("~'(?:[^']|'')*'|--[^\n]*|/\*.*?(?:\*/|$)~s", ' ', $sql) ?? $sql;
+        if (preg_match('/(?<![\w$])_cf_/i', $names) === 1) {
             throw new WriteFailed('Database write failed: the batch');
         }
     }
