@@ -163,22 +163,11 @@ jobs:
           key: composer-${{ runner.os }}-${{ matrix.php }}-${{ hashFiles('composer.lock', 'composer.lock') }}
           restore-keys: composer-${{ runner.os }}-${{ matrix.php }}-
       - name: Install zbar (QR round-trip tests) and the HEIC decoder
-        # A hung mirror once kept this step running for hours. Each apt call gets its own timeout,
-        # the whole install is retried 3 times, and the step itself stops after 15 minutes.
-        timeout-minutes: 15
-        run: |
-          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
-          # MediaTest converts a real HEIC (CI=true fails instead of skipping without a decoder).
-          pkgs=(zbar-tools libheif-plugin-libde265)
-          for i in 1 2 3; do
-            if timeout 120 sudo apt-get "${apt_opts[@]}" update -qq \
-              && timeout 180 sudo apt-get "${apt_opts[@]}" install -y -qq "${pkgs[@]}"; then
-              exit 0
-            fi
-            echo "${pkgs[*]} install failed (attempt $i/3)" >&2
-            [ "$i" -lt 3 ] && sleep $((i * 15))
-          done
-          exit 1
+        # A hung mirror once kept this step running for hours. scripts/ci-apt.sh caps each apt call and retries
+        # the install through mirror and DNS outages of about ten minutes; the step itself stops after 20 minutes.
+        timeout-minutes: 20
+        # MediaTest converts a real HEIC (CI=true fails instead of skipping without a decoder).
+        run: scripts/ci-apt.sh install zbar-tools libheif-plugin-libde265
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Migrations via CLI (fresh database + idempotent re-run + seed)
@@ -312,8 +301,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install PHP ${{ matrix.php }}
-        # Green runs take about 3 minutes here; the cap stops a stalled Launchpad/PPA fetch holding the whole job.
-        timeout-minutes: 15
+        # Green runs take seconds here; the cap stops a stalled apt or Launchpad fetch holding the whole job.
+        timeout-minutes: 20
         run: scripts/e2e-container-setup.sh "${{ matrix.php }}"
       - name: Install Playwright test runner
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -321,7 +310,7 @@ jobs:
       - name: Install the runtime (intl, Composer, vendor)
         run: |
           # The prebuilt PHP already has intl; only the ppa:ondrej/php fallback needs the package.
-          php -m | grep -qix intl || apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends php8.4-intl >/dev/null
+          php -m | grep -qix intl || scripts/ci-apt.sh install --no-install-recommends php8.4-intl >/dev/null
           # shellcheck disable=SC2016 # PHP code, expanded by php
           php -r '$f = "/usr/local/bin/composer"; copy("https://getcomposer.org/download/2.10.3/composer.phar", $f);
             if (hash_file("sha256", $f) !== "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6") { unlink($f); fwrite(STDERR, "composer.phar checksum mismatch\n"); exit(1); }
@@ -574,7 +563,7 @@ jobs:
           CI: '1'
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          scripts/ci-apt.sh run npx playwright install --with-deps chromium
           npx playwright test --project=docker-smoke
       - name: Upload Playwright report
         if: failure()
@@ -787,16 +776,8 @@ jobs:
           coverage: none
           tools: composer:v2
       - name: Install the HEIC decoder (the seed stores a HEIC photo)
-        timeout-minutes: 10
-        run: |
-          for i in 1 2 3; do
-            if timeout 120 sudo apt-get -o Acquire::Retries=3 update -qq \
-              && timeout 180 sudo apt-get -o Acquire::Retries=3 install -y -qq libheif-plugin-libde265; then
-              exit 0
-            fi
-            [ "$i" -lt 3 ] && sleep $((i * 15))
-          done
-          exit 1
+        timeout-minutes: 20
+        run: scripts/ci-apt.sh install libheif-plugin-libde265
       - name: Install dependencies (the v2.6.26 worktree needs none)
         run: composer install --no-interaction --no-progress --prefer-dist
       - name: Upgrade and rollback
