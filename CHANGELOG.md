@@ -8,6 +8,9 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 
 ## [Unreleased]
 
+- On the hosted database, item create, edit and delete, account creation, undo and the search rebuild each commit as one all-or-nothing batch, and an undo can only be used once even when two requests race. Bulk editing, CSV import and backup restore are not available there yet and say so; the item form asks you to add a new location or category first, and duplicating an item with its photos asks you to duplicate it without them. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
+- On the hosted database, bulk editing, CSV import and backup restore now say plainly that they are not available there yet: the list's bulk sheet (QR labels stay), the import page and the restore section show "Not available on hosted yet." instead of those actions, and the API answers 501 with the problem code `hosted.unavailable` and its message before any upload is accepted. Other server errors stay generic. Self-hosting is unchanged (P4-5). ([#262](https://github.com/thordin9/apotheke/pull/262))
+
 ### Added
 
 - **core:** when `DB_DRIVER=d1`, PHP sessions are stored in an additive `sessions` table on the installation database, each row keyed by the SHA-256 of its session id; PDO keeps the file handler. Session ids and data never appear in logs or error text ([#263](https://github.com/thordin9/apotheke/pull/263))

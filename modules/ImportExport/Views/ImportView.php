@@ -44,8 +44,9 @@ final class ImportView
      *
      * @param list<array<string,mixed>> $recent
      * @param bool $guest a guest's page: no upload form, the reason instead (L-1500)
+     * @param bool $hosted the hosted database: no upload form, a notice instead
      */
-    public function home(?string $error, ?string $toast, array $recent, bool $guest = false): string
+    public function home(?string $error, ?string $toast, array $recent, bool $guest = false, bool $hosted = false): string
     {
         $head = $this->page->start('Import CSV', 'page-import') . $this->page->simpleHeader('Import CSV', '/');
         $tok = self::h($this->page->csrf());
@@ -57,7 +58,8 @@ final class ImportView
     imports as it is (its <code>id</code> column updates those items).</p>
   <?php if ($error): ?><div class="err" role="alert" id="imp-err"><?= self::h($error) ?></div><?php endif; ?>
   <?php if ($guest && !$error): ?><p class="hint" id="imp-guest"><?= self::h(Imports::GUEST_UPLOAD) ?> <a href="/login">Sign in</a></p><?php endif; ?>
-  <?php if (!$guest): ?>
+  <?php if ($hosted): ?><p class="hint" id="imp-hosted" role="status">Not available on hosted yet.</p><?php endif; ?>
+  <?php if (!$guest && !$hosted): ?>
   <form method="post" action="/import" enctype="multipart/form-data" class="set-card setform" id="imp-upload">
     <input type="hidden" name="csrf" value="<?= $tok ?>">
     <label class="field"><span>CSV file <em>max. 5 MB, <?= number_format(CsvCells::MAX_ROWS) ?> rows; comma, semicolon or tab</em></span>

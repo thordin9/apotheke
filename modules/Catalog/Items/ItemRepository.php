@@ -203,9 +203,10 @@ final class ItemRepository
     }
 
     /**
-     * Run $fn in one checked transaction (Writes::transaction()), so a
+     * Run $fn in one checked transaction (Writes::atomic()), so a
      * caller can make its own writes part of a save. A unit of work opened
-     * inside joins it (ADR-002).
+     * inside joins it (ADR-002). On the hosted database (D1) $fn may run one
+     * unit of work (one save) and nothing else, so it is still one batch.
      *
      * @template T
      * @param callable():T $fn
@@ -215,7 +216,7 @@ final class ItemRepository
     {
         $outer = (int)$this->db->transDepth === 0;
         try {
-            $r = Writes::transaction($this->db, $fn);
+            $r = Writes::atomic($this->db, $fn);
         } finally {
             $drop = $outer ? $this->dropAfterCommit : [];
             if ($outer) {
@@ -227,6 +228,25 @@ final class ItemRepository
         }
 
         return $r;
+    }
+
+    /**
+     * Run $fn in this repository's unit of work on items: a save() inside joins it, so the caller's own steps and
+     * the save are one batch (undo on the hosted database).
+     *
+     * @template T
+     * @param callable(UnitOfWork):T $fn
+     * @return T
+     */
+    public function inUnit(callable $fn): mixed
+    {
+        return $this->units->run('items', $fn);
+    }
+
+    /** Whether this repository writes to the hosted database (the D1 driver). */
+    public function hosted(): bool
+    {
+        return $this->db instanceof \Apotheke\Core\Database\D1\Connection;
     }
 
     /**

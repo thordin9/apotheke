@@ -177,8 +177,13 @@ final class ItemController extends CatalogController
             }
             // One transaction: a failed save also drops the new location or category, and the photo's files (L-81).
             // A UserError before the save still keeps them, as on legacy, and shows the form again.
+            // The hosted database runs one unit per step: a new location or category and the save would be two.
+            $inline = array_filter(Kind::KINDS, static fn (string $kind): bool => $vals['new_' . $kind] !== '');
+            $hostedRefusal = $inline !== [] && $this->repo()->hosted()
+                ? new UserError('On the hosted catalog, add the new ' . implode(' and ', $inline) . ' first, then choose it for the item.', 422)
+                : null;
             try {
-                $savedId = $this->repo()->atomically(function () use (&$vals, $fields, $existing, $post, $tax, $newImage, $storeError) {
+                $savedId = $hostedRefusal ?? $this->repo()->atomically(function () use (&$vals, $fields, $existing, $post, $tax, $newImage, $storeError) {
                     try {
                         foreach (Kind::KINDS as $kind) {
                             if ($vals['new_' . $kind] !== '') {

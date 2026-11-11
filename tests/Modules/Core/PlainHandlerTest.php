@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\Core\Exceptions\PlainHandler;
 use Apotheke\Core\Exceptions\UserError;
 use Apotheke\Core\Http\ApiSecurityPolicy;
@@ -116,6 +117,12 @@ final class PlainHandlerTest extends CIUnitTestCase
             [new BadRequestException('The URI you submitted has disallowed characters: "a;b"'), 400, 'bad_request', 'Bad request.'],
             [new UserError('Name is required.', 422), 422, 'validation.failed', 'Name is required.'],
             [new UserError('Your session expired.', CsrfCheck::STATUS), 403, 'csrf.invalid', 'Your session expired.'],
+            // The hosted refusal keeps its message and a stable code; other 5xx, and a 501 that is not a UserError, stay generic.
+            [Writes::unavailable('CSV import'), 501, 'hosted.unavailable', 'CSV import is not available on the hosted database yet.'],
+            [new UserError('internal 503 text', 503), 503, 'server_error', 'Something went wrong on the server.'],
+            [new UserError('internal 502 text', 502), 502, 'server_error', 'Something went wrong on the server.'],
+            [new \CodeIgniter\Database\Exceptions\DatabaseException('internal: no such table uow_guard', 501), 500, 'server_error', 'Something went wrong on the server.'],
+            [new RuntimeException('internal D1 bridge text', 501), 500, 'server_error', 'Something went wrong on the server.'],
         ];
         $page = static fn (): ErrorPage => new class () implements ErrorPage {
             public function html(int $status, string $message): string

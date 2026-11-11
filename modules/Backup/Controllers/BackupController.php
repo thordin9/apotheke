@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Apotheke\Backup\Controllers;
 
+use Apotheke\Core\Database\Writes;
 use Apotheke\Backup\Backups;
 use Apotheke\Backup\Restorer;
 use Apotheke\Backup\Views\BackupView;
@@ -39,7 +40,7 @@ final class BackupController extends CatalogController
         $toast = $restored !== null ? ($restored === 'token-cleared'
             ? 'Backup restored. The AI autofill token was cleared because the service address changed: enter it again under AI autofill.' : 'Backup restored') : null;
 
-        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast));
+        return $this->html($this->pages()->page($this->backups()->counts(), null, null, $toast, $this->restorer()->hosted()));
     }
 
     /** GET /backup.zip: written to DATA_DIR/tmp, sent in chunks, then removed. */
@@ -65,6 +66,9 @@ final class BackupController extends CatalogController
     /** POST /backup/restore: keep the upload for an hour and show what it holds. */
     public function upload(): ResponseInterface
     {
+        if (($hosted = $this->hostedRefusal()) !== null) {
+            return $hosted;   // before the upload is stored
+        }
         $backups = $this->backups();
         $f = $this->request->getFile('backup');
         if (!$f instanceof UploadedFile || $f->getError() === UPLOAD_ERR_NO_FILE) {
@@ -99,6 +103,9 @@ final class BackupController extends CatalogController
     /** POST /backup/restore/confirm */
     public function confirm(): ResponseInterface
     {
+        if (($hosted = $this->hostedRefusal()) !== null) {
+            return $hosted;
+        }
         $backups = $this->backups();
         $token = self::str($this->request->getPost('token'));
         $file = rtrim($backups->dataDir(), '/') . '/tmp/restore-' . $token . '.zip';
@@ -185,6 +192,14 @@ final class BackupController extends CatalogController
     }
 
     /** Legacy's $fail: 422 and the page with the message. */
+    /** The hosted database: the page with the notice and a 501, nothing stored or restored. */
+    private function hostedRefusal(): ?ResponseInterface
+    {
+        return $this->restorer()->hosted()
+            ? $this->sessionPage($this->pages()->page($this->backups()->counts(), Writes::unavailable('Restoring a backup')->getMessage(), null, null, true), 501)
+            : null;
+    }
+
     private function fail(string $message): ResponseInterface
     {
         return $this->sessionPage($this->pages()->page($this->backups()->counts(), $message), 422);

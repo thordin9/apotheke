@@ -34,6 +34,7 @@ final class RestoreMutation
     /** @param BaseConnection<object|resource, object|resource> $db */
     public static function replace(BaseConnection $db, string $token, R2Storage $store, string $key, string $bytes): void
     {
+        Writes::refuseOnD1($db, 'Restoring a backup');
         Writes::transaction($db, static function () use ($db, $token, $store, $key, $bytes): void {
             RestoreFence::rejectUnless($db, $token);
             $version = $store->version($key);

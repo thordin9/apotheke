@@ -33,6 +33,10 @@ final class Duplicate
         $in['name'] = mb_substr((string)$in['name'], 0, 193) . ' (copy)';
         $in['copied_from'] = (string)$it['name'];
         $copies = [];
+        if ($photos && $this->items->hosted() && $this->items->photos($id) !== []) {
+            // The copy and its photo rows would be several units; one batch per step on the hosted database.
+            throw new UserError('On the hosted catalog, duplicate the item without its photos.', 501);
+        }
         try {
             if ($photos) {
                 foreach ($this->items->photos($id) as $p) {
