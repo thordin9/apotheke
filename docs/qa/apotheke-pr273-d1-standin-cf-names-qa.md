@@ -2,7 +2,7 @@
 
 - PR: https://github.com/thordin9/apotheke/pull/273 (Coder), closes N-1850 from the #258 gate
 - Reviewed head: `b439302e4b26304096014b1697e8cd813586802a`
-- Merge-only read: `60543c789c3aeb5939bc9689b39ea941c1388771` (plain merge of main `8bdb2801` (#275) into `cbedd0ac`, after the earlier read at the #262 merge). 0 behind main; the PR's 2 files and their changes are unchanged. CI, including the three Visual E2E shards (now on the #275 prebuilt PHP), must be green on the final head before merging.
+- Merge-only read: `989d962b497cb8efb7b5bb887bac12a5264450da` (plain merge of main `5eff5c15` (#277, #263 and releases v3.33.0/v3.34.0) into `25a512b6`, after the earlier reads at the #262 and #275 merges). 0 behind main; the PR's 2 files and their changes are unchanged. CI, including Visual E2E and D1 (local workerd), must be green on the final head before merging.
 - Gate: light (test-only diff read, CI, regex probe; no suites)
 - Reviewer: Apotheke QA 2
 
@@ -24,4 +24,4 @@
 
 ## Verdict
 
-**PASS** at `b439302e`, confirmed by the merge-only read at `60543c78`. Squash-merge with the PR title as the subject.
+**PASS** at `b439302e`, confirmed by the merge-only read at `989d962b`. Squash-merge with the PR title as the subject.
