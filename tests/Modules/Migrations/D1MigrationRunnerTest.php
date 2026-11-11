@@ -446,6 +446,17 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
             'name after a literal' => ['query', "SELECT '_cf_' AS s FROM _cf_METADATA"],
             'batch' => ['run', 'SELECT * FROM "_CF_METADATA"'],
             'exec' => ['exec', 'SELECT 1; SELECT * FROM "_CF_METADATA"'],
+            // N-1898: a ' or -- or /* inside a quoted name starts no string or comment.
+            "' in \"name\"" => ['query', "SELECT \"a'\" FROM _cf_METADATA WHERE key='b'"],
+            "' in `name`" => ['query', "SELECT key AS `a'` FROM _cf_METADATA WHERE key='b'"],
+            "' in [name]" => ['query', "SELECT key AS [a'] FROM _cf_METADATA WHERE key='b'"],
+            '-- in "name"' => ['query', 'SELECT key AS "a--" FROM _cf_METADATA'],
+            '-- in `name`' => ['query', 'SELECT key AS `a--` FROM _cf_METADATA'],
+            '-- in [name]' => ['query', 'SELECT key AS [a--] FROM _cf_METADATA'],
+            '/* in "name"' => ['query', 'SELECT key AS "a/*" FROM _cf_METADATA'],
+            "quoted _cf_ after \"a'\"" => ['query', "SELECT key AS \"a'\" FROM \"_cf_METADATA\" WHERE key='b'"],
+            "quoted _cf_ after [a']" => ['query', "SELECT key AS [a'] FROM [_cf_METADATA]"],
+            'quoted _cf_ after `a--`' => ['exec', 'SELECT key AS `a--` FROM `_cf_METADATA`'],
         ];
     }
 
@@ -472,6 +483,18 @@ final class D1MigrationRunnerTest extends CIUnitTestCase
         $this->assertSame([['1' => 1]], $standIn->query('SELECT 1 AS "1" /* _cf_METADATA */', []));
         $this->assertSame(['count' => 3], $standIn->exec(
             "CREATE TABLE items_cf_extra (a); CREATE TABLE items\$_cf_extra (a); INSERT INTO items_cf_extra VALUES ('_cf_x')",
+        ));
+    }
+
+    /** N-1898: like local D1, names quoted with ' -- or /* inside still leave later literals alone. */
+    public function testStandInAcceptsCfLiteralsAfterQuotedNames(): void
+    {
+        $standIn = new D1SqliteStandIn();
+        $standIn->query("CREATE TABLE t (\"a'\" TEXT, [b--] TEXT, `c/*` TEXT)", []);
+        $standIn->run([['sql' => "INSERT INTO t VALUES ('_cf_1', '_cf_2', '_cf_3')", 'params' => []]]);
+        $this->assertSame([["a'" => '_cf_1', 'b--' => '_cf_2', 'c/*' => '_cf_3']], $standIn->query(
+            "SELECT \"a'\", [b--], `c/*` FROM t WHERE \"a'\" = '_cf_1' AND [b--] = '_cf_2' AND `c/*` LIKE '_cf_%'",
+            [],
         ));
     }
 

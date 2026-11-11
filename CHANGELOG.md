@@ -11,6 +11,7 @@ Releases before 2.6.0 are summarised once per minor version; their full notes ar
 ### Fixed
 
 - **edge:** the Worker overwrites `X-Apotheke-Client-IP` from `cf-connecting-ip` and sets `APOTHEKE_EDGE_CLIENT_IP=1`, so hosted sign-in and registration rate-limit keys are per client. The header is used only when that flag is set and the value is an address; `TRUST_PROXY` alone does not enable it, and Caddy drops a client-supplied copy when the flag is not `1` ([#268](https://github.com/thordin9/apotheke/pull/268))
+- **core:** on the hosted database, a session write from a request whose claim another request has since taken stores nothing and returns normally, so that request finishes and the next request on the same worker starts as usual; the other request's session data is kept (L-1894) ([#279](https://github.com/thordin9/apotheke/pull/279))
 
 ## [3.36.0] - 2026-11-11
 

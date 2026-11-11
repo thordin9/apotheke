@@ -20,6 +20,7 @@ use CodeIgniter\HTTP\UserAgent;
 use CodeIgniter\Test\CIUnitTestCase;
 use Config\App;
 use Config\Services;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Support\TestDatabase;
@@ -104,6 +105,104 @@ final class SessionCookieDatabaseTest extends CIUnitTestCase
             Services::reset();
             $database->drop();
         }
+    }
+
+    /** @return iterable<string,array{0:string}> */
+    public static function drivers(): iterable
+    {
+        foreach (TestDatabase::drivers() as $driver) {
+            yield $driver => [$driver];
+        }
+    }
+
+    /**
+     * L-1894: another request claims the row while this one holds the session.
+     * Its write stores nothing, session_write_close() returns normally and the
+     * session is closed, and the next request in the same worker loads the
+     * other request's payload.
+     */
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testASupersededWriteClosesTheSessionAndTheNextRequestWorks(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $this->seedSession($database, 3);
+            $filter = new SessionCookie();
+            $this->request($filter, $database, [SessionGate::COOKIE => self::ID], false);
+            $this->assertSame(3, $_SESSION['uid'] ?? null);
+
+            $this->assertTrue(session_start());
+            $_SESSION['uid'] = 4;
+            $this->supersede($database, 5);
+            $this->assertTrue(session_write_close());
+            $this->assertSame(PHP_SESSION_NONE, session_status());
+            $this->assertSame(['other-claim', 5], $this->rowState($database), 'the newer payload is kept');
+
+            $database->db->query('UPDATE sessions SET lock_token = ?, locked_until = ? WHERE id = ?', ['', 0, hash('sha256', self::ID)]);
+            $this->request($filter, $database, [SessionGate::COOKIE => self::ID], false);
+            $this->assertSame(5, $_SESSION['uid'] ?? null, 'next request: the newer payload');
+        } finally {
+            Services::reset();
+            $database->drop();
+        }
+    }
+
+    /**
+     * L-1894: a request left its session open and another request has since
+     * claimed the row. The next request's leftover close stores nothing and
+     * does not throw, and that request starts with an empty $_SESSION.
+     */
+    #[DataProvider('drivers')]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testALeftoverSupersededSessionIsClosedByTheNextRequest(string $driver): void
+    {
+        $database = TestDatabase::create($driver);
+        try {
+            $this->seedSession($database, 3);
+            $filter = new SessionCookie();
+            $this->request($filter, $database, [SessionGate::COOKIE => self::ID], false);
+
+            $this->assertTrue(session_start());
+            $_SESSION['uid'] = 4;
+            $this->supersede($database, 5);
+            $this->assertSame(PHP_SESSION_ACTIVE, session_status(), 'the request ends with its session open');
+
+            $this->request($filter, $database);
+            $this->assertSame(['other-claim', 5], $this->rowState($database), 'the newer payload is kept');
+        } finally {
+            Services::reset();
+            $database->drop();
+        }
+    }
+
+    private function seedSession(TestDatabase $database, int $uid): void
+    {
+        $now = time();
+        $database->db->query(
+            'INSERT INTO sessions (id, data, expires_at, lock_token, locked_until) VALUES (?, ?, ?, ?, ?)',
+            [hash('sha256', self::ID), 'uid|i:' . $uid . ';last_activity|i:' . $now . ';', $now + 86400, '', 0],
+        );
+    }
+
+    /** Another request claims the row and stores its own payload. */
+    private function supersede(TestDatabase $database, int $uid): void
+    {
+        $database->db->query(
+            'UPDATE sessions SET data = ?, lock_token = ?, locked_until = ? WHERE id = ?',
+            ['uid|i:' . $uid . ';last_activity|i:' . time() . ';', 'other-claim', time() + 60, hash('sha256', self::ID)],
+        );
+    }
+
+    /** @return array{0:string,1:int|null} the row's lock token and stored uid */
+    private function rowState(TestDatabase $database): array
+    {
+        $row = $database->db->query('SELECT data, lock_token FROM sessions WHERE id = ?', [hash('sha256', self::ID)])->getRowArray();
+        $uid = preg_match('/^uid\|i:(\d+);/', (string)($row['data'] ?? ''), $m) === 1 ? (int)$m[1] : null;
+
+        return [(string)($row['lock_token'] ?? ''), $uid];
     }
 
     /** @param array<string,string> $cookies */
