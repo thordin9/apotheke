@@ -2,7 +2,7 @@
 
 - PR: https://github.com/thordin9/apotheke/pull/272 (Coder)
 - Reviewed head: `3190c1e7251f02795ece4bd699378a1921ce9e1a` (fix delta on top of `8b78e14f`, first read at that head)
-- Merge-only read: `e43f50fe3833d41daee920b644d208d3671df072` (plain merge of main `5eff5c15` (#277, #263 and releases v3.33.0/v3.34.0) into `ebe19770`, after the earlier reads at the #262 and #275 merges). 0 behind main; the PR's 4 files and their changes are unchanged. CI, including Visual E2E and D1 (local workerd), must be green on the final head before merging.
+- Merge-only read: `fa8072e76afa97c6f91145242fc3ea0af2a07328` (plain merge of main `e119ce33` (#273) into `41e40f41`, after the earlier reads at the #262, #275 and `5eff5c15` merges). 0 behind main; the PR's 4 files and their changes are unchanged. CI, including Visual E2E and D1 (local workerd), must be green on the final head before merging.
 - Gate: light (diff read, CI, shellcheck and input checks on the script; no suites, no live run)
 - Reviewer: Apotheke QA 2
 
@@ -28,4 +28,4 @@
 
 ## Verdict
 
-**PASS** at `3190c1e7`, confirmed by the merge-only read at `e43f50fe`. Not run against a live Preview; the first real run on the flip Preview is the functional proof. Squash-merge with the PR title as the subject.
+**PASS** at `3190c1e7`, confirmed by the merge-only read at `fa8072e7`. Not run against a live Preview; the first real run on the flip Preview is the functional proof. Squash-merge with the PR title as the subject.
