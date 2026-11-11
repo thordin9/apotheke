@@ -94,6 +94,22 @@ test('an http Worker request forwards http as the proto', async () => {
   assert.equal(calls[0].headers.get('X-Forwarded-Host'), 'localhost:8787');
 });
 
+test('a spoofed X-Apotheke-Client-IP is replaced from cf-connecting-ip', async () => {
+  const { box, calls } = readyContainer(() => new Response('ok'));
+  await box.fetch(new Request('https://api.example.test/login', {
+    headers: { 'X-Apotheke-Client-IP': '203.0.113.1', 'cf-connecting-ip': '198.51.100.20' },
+  }));
+  assert.equal(calls[0].headers.get('X-Apotheke-Client-IP'), '198.51.100.20');
+});
+
+test('a missing cf-connecting-ip drops a client-supplied X-Apotheke-Client-IP', async () => {
+  const { box, calls } = readyContainer(() => new Response('ok'));
+  await box.fetch(new Request('https://api.example.test/login', {
+    headers: { 'X-Apotheke-Client-IP': '203.0.113.1' },
+  }));
+  assert.equal(calls[0].headers.get('X-Apotheke-Client-IP'), null);
+});
+
 function coldContainer(handler, envOver = {}) {
   const calls = [];
   const container = {

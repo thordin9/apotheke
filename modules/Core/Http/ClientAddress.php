@@ -19,17 +19,38 @@ final class ClientAddress
     }
 
     /**
-     * This request's client (API plan §2.4): X-Apotheke-Client-IP when the edge
+     * The hosted Worker sets APOTHEKE_EDGE_CLIENT_IP in the container; self-host
+     * is unchanged unless that variable is set there too. Distinct from TRUST_PROXY.
+     */
+    public static function edgeClientIpEnabled(): bool
+    {
+        $raw = getenv('APOTHEKE_EDGE_CLIENT_IP');
+        if ($raw === false || $raw === '') {
+            return false;
+        }
+
+        return in_array(strtolower(trim($raw)), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /**
+     * This request's client (API plan §2.4): X-Apotheke-Client-IP when the Worker
+     * set APOTHEKE_EDGE_CLIENT_IP and the value is an address; else when the edge
      * proxy sent the matching PROXY_SHARED_SECRET; else REAL_IP_HEADER from a
      * listed proxy with trust_proxy on; else from() over X-Forwarded-For.
      *
      * @param array<string,mixed> $server $_SERVER
      * @param list<string> $proxies trusted_proxies
      */
-    public function forServer(array $server, bool $trustProxy, array $proxies, string $realIpHeader, string $secret): string
+    public function forServer(array $server, bool $trustProxy, array $proxies, string $realIpHeader, string $secret, bool $edgeClientIp = false): string
     {
         $get = static fn (string $key): string => is_string($server[$key] ?? null) ? $server[$key] : '';
         $remote = trim($get('REMOTE_ADDR'));
+        if ($edgeClientIp) {
+            $ip = $this->proxies->normalize(trim($get('HTTP_X_APOTHEKE_CLIENT_IP')));
+            if ($ip !== null) {
+                return $ip;
+            }
+        }
         if ($secret !== '' && hash_equals($secret, $get('HTTP_X_APOTHEKE_PROXY'))) {
             $ip = $this->proxies->normalize(trim($get('HTTP_X_APOTHEKE_CLIENT_IP')));
             if ($ip !== null) {

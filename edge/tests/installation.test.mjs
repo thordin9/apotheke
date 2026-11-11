@@ -167,6 +167,7 @@ test('P4-5b: the container starts only with the whole fragment, and PHP is not y
   assert.equal(full.env.STORAGE_BACKEND, 'r2');
   assert.equal(full.env.DB_DRIVER, 'd1', 'storage mode uses the Installation object as the database');
   assert.equal(full.env.TRUST_PROXY, '1');
+  assert.equal(full.env.APOTHEKE_EDGE_CLIENT_IP, '1');
   for (const env of [{ STORAGE: bucket(), DB: {} }, { INSTALLATION: {} }, { STORAGE: bucket(), INSTALLATION: {} }]) {
     const [status, started] = await start(env);
     assert.equal(status, 503, Object.keys(env).join());
